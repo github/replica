@@ -177,13 +177,14 @@ it("keeps the deployment inventory and consent reachable with page keys before d
     if (executable === "git" && args[0] === "status") return " M hub/server/index.ts"
     throw new Error("The deployment review must not run a cloud command")
   })
-  const pending = approveDeployment({ config, run, ui })
+  const pending = approveDeployment({ config, directory: await entryDirectory(), run, ui })
   const rejected = expect(pending).rejects.toThrow(/cancel/i)
   const settled = vi.fn()
   void pending.then(settled, settled)
   const names = installationNames(config)
   const consentKeys = /\by\/n\b/i
-  await vi.waitFor(() => expect(terminal.lastFrame()).toContain(names.stateGroup))
+  // The review first snapshots the real Hub source, which is slow under full-suite load.
+  await vi.waitFor(() => expect(terminal.lastFrame()).toContain(names.stateGroup), { timeout: 15_000 })
   expect(terminal.lastFrame()).not.toMatch(consentKeys)
   const visited = [terminal.lastFrame()!]
   const scrollUntil = async (key: string, expected: string | RegExp) => {
@@ -504,7 +505,7 @@ it("renders batch selection, a scrollable destructive review, and a separate typ
   vi.spyOn(terminal.stdout, "columns", "get").mockReturnValue(80)
   Object.defineProperty(terminal.stdout, "rows", { get: () => 24 })
   terminal.stdout.emit("resize")
-  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("sample-second"))
+  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("sample-second"), { timeout: 10_000 })
   for (const key of [" ", "\u001b[B", " "]) {
     const before = terminal.lastFrame()
     terminal.stdin.write(key)

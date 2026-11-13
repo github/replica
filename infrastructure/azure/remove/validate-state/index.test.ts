@@ -41,6 +41,40 @@ function state(...resources: unknown[]) {
   return { format_version: "1.0", values: { root_module: { resources } } }
 }
 
+function untaggedProvisionResources() {
+  const { config, group } = fixture()
+  const identityId =
+    `${group}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${config.name}-provision`
+  const environmentId =
+    `${group}/providers/Microsoft.App/managedEnvironments/${config.name}-environment`
+  const identity = {
+    address: "azurerm_user_assigned_identity.provision",
+    mode: "managed",
+    type: "azurerm_user_assigned_identity",
+    values: {
+      id: identityId,
+      name: `${config.name}-provision`,
+      resource_group_name: config.azure.resourceGroup,
+      principal_id: "00000000-0000-0000-0000-000000000003",
+      location: config.azure.location,
+    },
+  }
+  const job = {
+    address: "azurerm_container_app_job.provision",
+    mode: "managed",
+    type: "azurerm_container_app_job",
+    values: {
+      id: `${group}/providers/Microsoft.App/jobs/${config.name}-provision`,
+      name: `${config.name}-provision`,
+      resource_group_name: config.azure.resourceGroup,
+      location: config.azure.location,
+      container_app_environment_id: environmentId,
+      identity: [{ type: "UserAssigned", identity_ids: [identityId] }],
+    },
+  }
+  return { config, group, identity, job }
+}
+
 it("projects owned resources from modern state without treating data lookups as deletions", () => {
   const { config, identity } = fixture()
   expect(
@@ -71,6 +105,48 @@ it.each([
   state(),
 ])("accepts an empty valid state without inventing resources", (value) => {
   expect(validateRemovalState(value, fixture().config, "app")).toEqual([])
+})
+
+it("accepts the exact untagged provisioning job and identity with verified relationships", () => {
+  const { config, identity, job } = untaggedProvisionResources()
+
+  expect(validateRemovalState(state(identity, job), config, "provision")).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ address: identity.address, id: identity.values.id }),
+      expect.objectContaining({ address: job.address, id: job.values.id }),
+    ]),
+  )
+})
+
+it.each([
+  "malformed job ID",
+  "unrelated job ID",
+  "unrelated identity ID",
+  "wrong environment relationship",
+  "wrong identity relationship",
+])("blocks untagged provisioning state with a %s", (problem) => {
+  const { config, group, job, identity } = untaggedProvisionResources()
+  if (problem === "malformed job ID")
+    job.values.id += "/unreviewed-child"
+  if (problem === "unrelated job ID")
+    job.values.id = `${group}/providers/Microsoft.App/jobs/unrelated-provision`
+  if (problem === "unrelated identity ID") {
+    identity.values.id =
+      `${group}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/unrelated`
+    identity.values.name = "unrelated"
+  }
+  if (problem === "wrong environment relationship")
+    job.values.container_app_environment_id =
+      `${group}/providers/Microsoft.App/managedEnvironments/unrelated`
+  if (problem === "wrong identity relationship")
+    job.values.identity = [{
+      type: "UserAssigned",
+      identity_ids: [
+        `${group}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/unrelated`,
+      ],
+    }]
+
+  expect(() => validateRemovalState(state(identity, job), config, "provision")).toThrow()
 })
 
 it.each(["artifacts", "releases", "releases/deployment.lock"])(
@@ -300,9 +376,16 @@ it("rejects a runtime-secret state key that does not identify its grant scope", 
 })
 
 it("limits provisioning secret keys to the declared database credentials", () => {
-  const { config, identity } = fixture()
+  const { config, group, identity } = fixture()
   const names = installationNames(config)
   identity.address = "azurerm_user_assigned_identity.provision"
+  delete identity.values.tags
+  identity.values.id =
+    `${group}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${config.name}-provision`
+  Object.assign(identity.values, {
+    name: `${config.name}-provision`,
+    resource_group_name: config.azure.resourceGroup,
+  })
   const scope = `/subscriptions/${config.azure.subscriptionId}/resourceGroups/${names.foundationGroup}/providers/Microsoft.KeyVault/vaults/${names.vault}/secrets/database-url`
   const role = {
     address: 'azurerm_role_assignment.secrets["DATABASE_URL"]',

@@ -39,7 +39,28 @@ export function terraformModule({
   return {
     async init(backend: string) {
       await privateDirectory(dataDirectory)
-      await command(["init", "-input=false", `-backend-config=${backend}`])
+      while (true) {
+        try {
+          await command([
+            "init",
+            "-input=false",
+            "-lock-timeout=60s",
+            `-backend-config=${backend}`,
+          ])
+          return
+        } catch (error) {
+          if (!(error instanceof CommandExecutionError) || error.aborted) throw error
+          await promptForRecovery(ui, {
+            error,
+            question: "How would you like to recover Terraform initialization?",
+            message:
+              "Review the full error details before retrying. Earlier installation steps may have created cloud resources; saved progress and leases are kept.",
+            actions: [{ label: "Retry Terraform initialization only", value: "retry" }],
+            details:
+              "Check the reported backend access, network, or provider-download error. Retry uses the same module, backend, and environment without planning or applying resources, clearing leases, or restarting earlier installation steps.",
+          })
+        }
+      }
     },
     async state(): Promise<string[]> {
       return (await command(["state", "list"])).split("\n").filter(Boolean)
@@ -194,8 +215,11 @@ export function terraformModule({
         await promptForRecovery(ui, {
           error: failure,
           question: "How would you like to recover this Terraform step?",
-          message:
-            "Terraform may have applied some changes. Retry prepares a fresh plan for review; it does not restart setup.\nIf access was just granted, allow permission propagation and check data permissions, network rules, and policy before retrying.",
+          message: `${
+            failedOperation === "apply"
+              ? "Terraform may have applied some changes."
+              : "Terraform did not apply changes in this step."
+          } Retry prepares a fresh plan for review; it does not restart setup.\nIf access was just granted, allow permission propagation and check data permissions, network rules, and policy before retrying.`,
           actions: [{ label: "Replan and review this Terraform step", value: "retry" }],
           details:
             "A failed apply can leave resources recorded in Terraform state. Replanning checks current state before proposing remaining changes; it does not roll back earlier changes or replay database setup.\nFor Azure Storage 403 errors, resource-management access and Blob data access are separate. A newly created Blob data role can take time to authorize requests. Check the deployment identity's Blob data permissions and applicable network rules and policy; do not enable shared keys to bypass denied access.\nState locks, ownership checks, and deletion/replacement guards remain enforced. Cleanup/destroy failures require the existing recovery procedure rather than this retry menu.",

@@ -5,6 +5,8 @@ import { installAzure } from "../azure/install/index.ts"
 import { removeAzureDeployments } from "../azure/remove/index.ts"
 import { azurePreflight } from "../azure/install/preflight/index.ts"
 import { CommandExecutionError, runCommand } from "./command/index.ts"
+import { retryReadOnly } from "./command/retry-read-only/index.ts"
+import { tailLines } from "./command/tail-lines/index.ts"
 import { loadConfig } from "./config/index.ts"
 import { createTerminalUI } from "./terminal/index.tsx"
 import type { DeploymentConfig, InstallerUI, RunCommand } from "./types.ts"
@@ -79,7 +81,7 @@ if (values.help) {
     }
     if (values["non-interactive"] || entry) {
       telemetry = await startInstallerTelemetry(path)
-      const observed = telemetry.command(execute)
+      const observed = retryReadOnly(telemetry.command(execute))
       const run: RunCommand = async (executable, args, options) => {
         try {
           return await observed(executable, args, options)
@@ -171,6 +173,9 @@ if (values.help) {
     console.error(styleText("red", `Error: ${failureMessage}`, { stream: process.stderr }))
     const notice = terminal?.summary()
     if (notice && notice !== failureMessage) console.error(notice)
+    const details =
+      failure instanceof CommandExecutionError && !failure.aborted ? failure.details() : undefined
+    if (details) console.error(`Command details (last lines):\n${tailLines(details)}`)
     if (session?.draft || session?.problem)
       console.error(
         `Session preserved at ${session.path}. Restart setup to resume. Review retained cloud leases before retrying an interrupted deployment.`,

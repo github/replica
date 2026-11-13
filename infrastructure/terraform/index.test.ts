@@ -72,7 +72,7 @@ async function scenario({
 }: {
   actions?: string[]
   approved?: boolean
-  failure?: "plan" | "show" | "apply"
+  failure?: "init" | "plan" | "show" | "apply"
   error?: Error
   failureCount?: number
   resourceChanges?: ResourceChange[]
@@ -142,6 +142,78 @@ async function scenario({
 }
 
 describe("Terraform module", () => {
+  it("shows initialization details only on request and exits without repeating initialization", async () => {
+    const diagnostic = "synthetic-private-backend-diagnostic"
+    const error = new CommandExecutionError("Initialize Terraform failed.", false, 1, diagnostic)
+    const test = await scenario({ failure: "init", error })
+    test.ui.notice = vi.fn()
+    test.ui.select = vi
+      .fn<Select>()
+      .mockImplementationOnce(async (_question, actions) => {
+        expect(actions.map(({ value }) => value)).toEqual(["retry", "details", "exit"])
+        expect(test.ui.wait).not.toHaveBeenCalled()
+        return "details"
+      })
+      .mockImplementationOnce(async () => {
+        expect(test.events).toEqual(["init"])
+        return "exit"
+      })
+
+    await expect(test.module.init("backend.hcl")).rejects.toBe(error)
+
+    expect(test.ui.wait).toHaveBeenCalledExactlyOnceWith(expect.stringContaining(diagnostic))
+    expect(JSON.stringify(vi.mocked(test.ui.notice).mock.calls)).not.toContain(diagnostic)
+    expect(JSON.stringify(vi.mocked(test.ui.status).mock.calls)).not.toContain(diagnostic)
+    expect(test.ui.select).toHaveBeenCalledTimes(2)
+    expect(test.events).toEqual(["init"])
+  })
+
+  it("retries only initialization with the same backend after explicit recovery selection", async () => {
+    const error = new CommandExecutionError("Initialize Terraform failed.", false, 1)
+    const test = await scenario({ failure: "init", failureCount: 1, error, preapproved: true })
+    test.ui.select = vi.fn(async () => {
+      expect(test.events).toEqual(["init"])
+      return "retry"
+    })
+
+    await test.module.init("backend.hcl")
+
+    expect(test.events).toEqual(["init", "init"])
+    expect(test.calls[1]).toEqual(test.calls[0])
+    expect(test.calls[0]?.args).toEqual([
+      `-chdir=${test.directory}`,
+      "init",
+      "-input=false",
+      "-lock-timeout=60s",
+      "-backend-config=backend.hcl",
+    ])
+    expect(test.ui.select).toHaveBeenCalledOnce()
+    expect(test.ui.confirm).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    {
+      reason: "unattended failure",
+      error: new CommandExecutionError("Synthetic failure", false, 1),
+      interactive: false,
+    },
+    {
+      reason: "cancellation",
+      error: new CommandExecutionError("Synthetic cancellation", true),
+      interactive: true,
+    },
+    { reason: "non-command failure", error: new Error("Synthetic failure"), interactive: true },
+  ])("stops initialization without recovery for $reason", async ({ error, interactive }) => {
+    const test = await scenario({ failure: "init", error })
+    const select = vi.fn(async () => "retry")
+    if (interactive) test.ui.select = select
+
+    await expect(test.module.init("backend.hcl")).rejects.toBe(error)
+
+    expect(select).not.toHaveBeenCalled()
+    expect(test.events).toEqual(["init"])
+  })
+
   it("waits 15 seconds, discards the failed plan, and applies a fresh approved subset without new consent", async () => {
     fakeRetryTimers()
     const error = new CommandExecutionError(
@@ -798,6 +870,25 @@ describe("Terraform module", () => {
     expect(test.ui.select).toHaveBeenCalledTimes(2)
     expect(await readdir(test.dataDirectory)).toEqual([])
   })
+
+  it.each([
+    ["plan", "Terraform did not apply changes in this step.", "may have applied"],
+    ["apply", "Terraform may have applied some changes.", "did not apply"],
+  ] as const)(
+    "describes possible changes accurately after a failed %s",
+    async (failure, expected, unexpected) => {
+      const error = new CommandExecutionError(`Terraform ${failure} failed.`, false, 1)
+      const test = await scenario({ failure, error })
+      test.ui.notice = vi.fn()
+      test.ui.select = vi.fn<Select>(async () => "exit")
+
+      await expect(test.module.apply("installation.tfvars")).rejects.toBe(error)
+
+      const [, message] = vi.mocked(test.ui.notice).mock.calls.find(([level]) => level === "error")!
+      expect(message).toContain(expected)
+      expect(message).not.toContain(unexpected)
+    },
+  )
 
   it("rejects replacements discovered by a fresh plan without another recovery or approval", async () => {
     const actions = ["create"]

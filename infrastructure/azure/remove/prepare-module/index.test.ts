@@ -214,6 +214,17 @@ it("accepts empty app state without reading or overwriting invalid legacy genera
   expect(await readdir(test.staging)).not.toContain("app-variables.json")
 })
 
+it("does not treat data-source-only state as a managed resource after destroy", async () => {
+  const test = await scenario()
+  test.evidence.stateAfter = ["data.azurerm_client_config.current"]
+  const module = await prepareRemovalModule(test.context, "app", test.staging)
+
+  await expect(module.destroy()).resolves.toBeUndefined()
+  await expect(module.empty()).resolves.toBeUndefined()
+
+  expect(test.run.mock.calls.some(([, args]) => args[1] === "apply")).toBe(true)
+})
+
 it("derives foundation variables from the selected identity without consuming retained inputs or secrets", async () => {
   const test = await scenario("foundation")
   await writeFile(
@@ -246,7 +257,20 @@ it("removes retained provisioning with case-insensitive ARM IDs without retrievi
   const group = `/subscriptions/${config.azure.subscriptionId}/resourceGroups/${config.azure.resourceGroup.toUpperCase()}`
   test.resource.address = "azurerm_container_app_job.provision"
   test.resource.type = "azurerm_container_app_job"
+  delete test.resource.values.tags
+  const identityId =
+    `${group}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${config.name}-provision`
   test.resource.values.id = `${group}/providers/Microsoft.App/jobs/${config.name}-provision`
+  Object.assign(test.resource.values, {
+    name: `${config.name}-provision`,
+    resource_group_name: config.azure.resourceGroup,
+    container_app_environment_id:
+      `${group}/providers/Microsoft.App/managedEnvironments/${config.name}-environment`,
+    identity: [{
+      type: "UserAssigned",
+      identity_ids: [identityId],
+    }],
+  })
   test.evidence.plannedId = test.resource.values.id
   const original = join(test.context.directory, "provision.tfvars.json")
   const content = JSON.stringify({

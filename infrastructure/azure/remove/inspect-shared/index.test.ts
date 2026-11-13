@@ -33,16 +33,30 @@ function scenario() {
     initialImages: [],
     registries: ["unrelated.azurecr.io"],
     secrets: ["https://unrelated.vault.azure.net/secrets/runtime"],
+    identityPresent: true,
+    identity: null,
   }
   const evidence = {
     apps: [owned, foreign] as unknown,
     jobs: [] as unknown,
+    revisions: [{
+      name: "unrelated--current",
+      active: true,
+      replicas: 0,
+      identityIds: [],
+      images: ["unrelated.azurecr.io/app:latest"],
+      initialImages: [],
+      runtimeReferences: [],
+      initialReferences: [],
+    }] as unknown,
     grants: [] as unknown,
     detail: foreign as unknown,
   }
   const azure = vi.fn(async (...args: string[]) => {
     const show = args[1] === "show" || args[2] === "show"
-    if (!show) expect(args).not.toContain("--resource-group")
+    const operation = args.slice(0, 3).join(" ")
+    if (!show && operation !== "containerapp revision list")
+      expect(args).not.toContain("--resource-group")
     if (args[0] === "containerapp") {
       const projection = args[args.indexOf("--query") + 1]
       expect(projection).toContain(
@@ -61,6 +75,8 @@ function scenario() {
       }
       return JSON.stringify(evidence.detail)
     }
+    if (operation === "containerapp revision list")
+      return JSON.stringify(evidence.revisions)
     if (args[0] === "containerapp" && args[1] === "list") return JSON.stringify(evidence.apps)
     if (args.slice(0, 3).join(" ") === "containerapp job list") return JSON.stringify(evidence.jobs)
     if (args.slice(0, 3).join(" ") === "role assignment list") {
@@ -100,7 +116,7 @@ function scenario() {
 it("allows tracked workloads and unrelated consumers without treating the whole subscription as owned", async () => {
   const test = scenario()
   await expect(inspectSharedRemoval(test.context, test.resources)).resolves.toBeUndefined()
-  expect(test.azure).toHaveBeenCalledTimes(3)
+  expect(test.azure).toHaveBeenCalledTimes(4)
 })
 
 it("skips optional consumer metadata only for the exact canonical owned app and jobs", async () => {
@@ -121,7 +137,7 @@ it("skips optional consumer metadata only for the exact canonical owned app and 
       values: {},
     })),
   ])).resolves.toBeUndefined()
-  expect(test.azure).toHaveBeenCalledTimes(3)
+  expect(test.azure).toHaveBeenCalledTimes(4)
 })
 
 it.each(["absent", "null"])("accepts %s optional foreign reference lists without a detail lookup", async (value) => {
@@ -134,7 +150,7 @@ it.each(["absent", "null"])("accepts %s optional foreign reference lists without
   }
 
   await expect(inspectSharedRemoval(test.context, test.resources)).resolves.toBeUndefined()
-  expect(test.azure).toHaveBeenCalledTimes(3)
+  expect(test.azure).toHaveBeenCalledTimes(4)
 })
 
 it("does not exempt an unselected workload whose ID merely starts with the owned app ID", async () => {
@@ -146,6 +162,151 @@ it("does not exempt an unselected workload whose ID merely starts with the owned
     name: "RemovalInspectionError",
     message: expect.stringContaining(String(test.foreign.id)),
   })
+})
+
+it("blocks an unselected workload that attaches an identity scheduled for deletion", async () => {
+  const test = scenario()
+  const group = test.owned.id.split("/providers/")[0]!
+  const identityId =
+    `${group}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${test.context.config.name}-hub`
+  test.foreign.identity = {
+    type: "UserAssigned",
+    userAssignedIdentities: { [identityId]: {} },
+  }
+  test.resources.push({
+    address: "azurerm_user_assigned_identity.hub",
+    type: "azurerm_user_assigned_identity",
+    id: identityId,
+    values: {},
+  })
+
+  await expect(inspectSharedRemoval(test.context, test.resources)).rejects.toMatchObject({
+    name: "RemovalInspectionError",
+    message: expect.stringContaining(String(test.foreign.id)),
+  })
+})
+
+it.each(["app", "job"] as const)(
+  "blocks an unselected $0 whose targeted detail reveals a shared identity",
+  async (kind) => {
+    const test = scenario()
+    if (kind === "job")
+      test.foreign.id = String(test.foreign.id).replace("/containerApps/", "/jobs/")
+    const identityId =
+      `${test.owned.id.split("/providers/")[0]}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${test.context.config.name}-hub`
+    test.resources.push({
+      address: "azurerm_user_assigned_identity.hub",
+      type: "azurerm_user_assigned_identity",
+      id: identityId,
+      values: {},
+    })
+    const incomplete = { ...test.foreign, environment: null }
+    test.evidence.apps = kind === "app" ? [test.owned, incomplete] : [test.owned]
+    test.evidence.jobs = kind === "job" ? [incomplete] : []
+    test.evidence.detail = {
+      ...test.foreign,
+      identity: { type: "UserAssigned", userAssignedIdentities: { [identityId]: {} } },
+    }
+
+    await expect(inspectSharedRemoval(test.context, test.resources)).rejects.toMatchObject({
+      name: "RemovalInspectionError",
+      message: expect.stringContaining(String(test.foreign.id)),
+    })
+    expect(test.azure.mock.calls.filter((args) => args.includes("show"))).toHaveLength(1)
+  },
+)
+
+it.each(["absent", "malformed"] as const)(
+  "blocks unknown identity metadata after a targeted detail lookup when it is %s",
+  async (problem) => {
+    const test = scenario()
+    const identity = problem === "absent"
+      ? { identityPresent: false }
+      : { identityPresent: true, identity: { userAssignedIdentities: {} } }
+    test.evidence.apps = [test.owned, { ...test.foreign, ...identity }]
+    test.evidence.detail = { ...test.foreign, ...identity }
+
+    await expect(inspectSharedRemoval(test.context, test.resources)).rejects.toMatchObject({
+      name: "RemovalInspectionError",
+      message: expect.stringContaining(String(test.foreign.id)),
+    })
+    expect(test.azure.mock.calls.filter((args) => args.includes("show"))).toHaveLength(1)
+  },
+)
+
+it("allows a workload whose targeted detail confirms no identity", async () => {
+  const test = scenario()
+  test.evidence.apps = [test.owned, { ...test.foreign, identityPresent: false }]
+  test.evidence.detail = { ...test.foreign, identityPresent: true, identity: null }
+
+  await expect(inspectSharedRemoval(test.context, test.resources)).resolves.toBeUndefined()
+  expect(test.azure.mock.calls.filter((args) => args.includes("show"))).toHaveLength(1)
+})
+
+it.each([
+  { field: "images", state: "active", active: true, replicas: 0 },
+  { field: "images", state: "replica", active: false, replicas: 1 },
+  { field: "runtimeReferences", state: "active", active: true, replicas: 0 },
+  { field: "runtimeReferences", state: "replica", active: false, replicas: 1 },
+  { field: "identityIds", state: "active", active: true, replicas: 0 },
+  { field: "identityIds", state: "replica", active: false, replicas: 1 },
+] as const)(
+  "blocks an older $state revision that still uses the installation through $field",
+  async ({ field, state, active, replicas }) => {
+    const test = scenario()
+    const revision: Record<string, unknown> = {
+      name: `${test.context.config.name}-hub--older-${state}`,
+      active,
+      replicas,
+      identityIds: [],
+    }
+    if (field === "images")
+      revision.images = [`${test.names.registry}.azurecr.io/replica-hub@sha256:${"a".repeat(64)}`]
+    if (field === "runtimeReferences")
+      revision.runtimeReferences = [
+        JSON.stringify({
+          SERVICE_API_KEY: `https://${test.names.vault}.vault.azure.net/secrets/runtime`,
+        }),
+      ]
+    if (field === "identityIds") {
+      revision.identityIds = [
+        `${test.owned.id.split("/providers/")[0]}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${test.context.config.name}-hub`,
+      ]
+      test.resources.push({
+        address: "azurerm_user_assigned_identity.hub",
+        type: "azurerm_user_assigned_identity",
+        id: revision.identityIds[0] as string,
+        values: {},
+      })
+    }
+    test.evidence.revisions = [revision]
+
+    await expect(inspectSharedRemoval(test.context, test.resources)).rejects.toMatchObject({
+      name: "RemovalInspectionError",
+      message: expect.stringContaining(String(test.foreign.id)),
+    })
+    expect(
+      test.azure.mock.calls.some((args) => args.slice(0, 3).join(" ") === "containerapp revision list"),
+    ).toBe(true)
+  },
+)
+
+it("ignores an inactive older revision with no replicas", async () => {
+  const test = scenario()
+  test.evidence.revisions = [{
+    name: `${test.context.config.name}-hub--older-inactive`,
+    active: false,
+    replicas: 0,
+    identityIds: [],
+    images: [`${test.names.registry}.azurecr.io/replica-hub:latest`],
+    runtimeReferences: [
+      JSON.stringify({
+        SERVICE_API_KEY: `https://${test.names.vault}.vault.azure.net/secrets/runtime`,
+      }),
+    ],
+  }]
+
+  await expect(inspectSharedRemoval(test.context, test.resources)).resolves.toBeUndefined()
 })
 
 it.each(["foreign subscription", "private URI"])(

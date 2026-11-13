@@ -113,7 +113,10 @@ export async function runWizard({
   await ui.phase?.("review")
   const save = async (next: DeploymentConfig, previous?: DeploymentConfig) =>
     checkpoint(async () => {
-      if (previous && JSON.stringify(await loadConfig(path)) !== JSON.stringify(previous))
+      if (
+        previous &&
+        JSON.stringify(await loadConfig(path)) !== JSON.stringify(parseConfig(previous))
+      )
         throw new Error(
           "The saved configuration changed during setup. It was not overwritten; restart to review it.",
         )

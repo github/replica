@@ -394,6 +394,7 @@ it("checkpoints a corrected build proxy in the draft and complete config before 
   const directory = await targetDirectory()
   const path = join(directory, "installation.json")
   const registry = "https://packages.example/npm/"
+  const updatedRegistry = "https://packages.example/next/"
   const existing: DeploymentConfig = {
     version: 1,
     cloud: "azure",
@@ -465,10 +466,13 @@ it("checkpoints a corrected build proxy in the draft and complete config before 
     expect(repaired).toBe(true)
     expect(config).toEqual({ ...existing, npmRegistry: registry })
     expect(JSON.parse(await readFile(path, "utf8"))).toEqual(config)
+    await options.saveNpmRegistry!(updatedRegistry)
+    expect(config).toEqual({ ...existing, npmRegistry: updatedRegistry })
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual(config)
     expect(JSON.parse(await readFile(session.path, "utf8"))).toMatchObject({
       phase: "provision",
       deploymentStarted: true,
-      answers: { useProxy: true, npmRegistry: registry },
+      answers: { useProxy: true, npmRegistry: updatedRegistry },
     })
     expect((await stat(path)).mode & 0o777).toBe(0o600)
     expect((await stat(session.path)).mode & 0o777).toBe(0o600)
@@ -484,11 +488,14 @@ it("checkpoints a corrected build proxy in the draft and complete config before 
   await session.close()
   const reopened = await openSession(path)
   sessions.push(reopened)
-  expect(reopened.draft?.answers).toMatchObject({ useProxy: true, npmRegistry: registry })
+  expect(reopened.draft?.answers).toMatchObject({
+    useProxy: true,
+    npmRegistry: updatedRegistry,
+  })
   const saved = JSON.parse(await readFile(path, "utf8")) as DeploymentConfig
   install.mockImplementationOnce(async (config) => {
     expect(config).toEqual(saved)
-    expect(config.npmRegistry).toBe(registry)
+    expect(config.npmRegistry).toBe(updatedRegistry)
     return deployment(config)
   })
 

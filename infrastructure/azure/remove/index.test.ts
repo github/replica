@@ -128,7 +128,10 @@ async function scenario(count = 1) {
         type: resource.id.split("/providers/")[1]!.split("/").slice(0, 2).join("/"),
         tags: { ...tags },
       })
-      const groups = new Map<string, { id: string; type: string; tags: Record<string, string> }[]>([
+      const groups = new Map<
+        string,
+        { id: string; type: string; tags?: Record<string, string> | null }[]
+      >([
         [config.azure.resourceGroup, [...resources.app, ...resources.provision].map(live)],
         [names.foundationGroup, resources.foundation.map(live)],
         [
@@ -302,7 +305,20 @@ async function scenario(count = 1) {
       return JSON.stringify({
         id: option(args, "--ids"),
         principalId: deployment.livePrincipal,
+        name: `${config.name}-provision`,
+        resourceGroup: config.azure.resourceGroup,
+        location: config.azure.location,
       })
+    if (operation === "containerapp job show") {
+      const identityId = `${groupId(config.azure.resourceGroup)}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${config.name}-provision`
+      return JSON.stringify({
+        id: `${groupId(config.azure.resourceGroup)}/providers/Microsoft.App/jobs/${config.name}-provision`,
+        name: `${config.name}-provision`,
+        resourceGroup: config.azure.resourceGroup,
+        environmentId: `${groupId(config.azure.resourceGroup)}/providers/Microsoft.App/managedEnvironments/${config.name}-environment`,
+        identityIds: [identityId],
+      })
+    }
     if (operation === "storage blob list") {
       expect(args.slice(0, 3)).toEqual(["storage", "blob", "list"])
       const options = args.slice(3)
@@ -426,10 +442,16 @@ async function scenario(count = 1) {
               initialImages: [],
               registries: [],
               secrets: [],
+              identityPresent: true,
+              identity: null,
             })),
-          ...item.sharedWorkloads.filter(({ id }) =>
-            id.toLowerCase().includes(`/providers/${type.toLowerCase()}/`),
-          ),
+          ...item.sharedWorkloads
+            .filter(({ id }) => id.toLowerCase().includes(`/providers/${type.toLowerCase()}/`))
+            .map((value) => ({
+              identityPresent: true,
+              identity: null,
+              ...value,
+            })),
         ]),
       )
     }
@@ -468,7 +490,16 @@ async function scenario(count = 1) {
     if (operation === "containerapp revision list")
       return JSON.stringify([
         option(args, "--query")
-          ? { name: "sample-revision", active: deployment.hubActive }
+          ? {
+              name: "sample-revision",
+              active: deployment.hubActive,
+              replicas: 0,
+              images: ["mcr.microsoft.com/oss/replica/synthetic"],
+              initialImages: [],
+              runtimeReferences: [],
+              initialReferences: [],
+              identityIds: [],
+            }
           : { name: "sample-revision", properties: { active: deployment.hubActive } },
       ])
     if (operation === "containerapp revision deactivate") {
@@ -555,6 +586,109 @@ function inspectionContext(test: Awaited<ReturnType<typeof scenario>>, index = 0
     ]),
   }
 }
+
+it.each(["empty", "null", "missing"] as const)(
+  "accepts %s tags on exact verified temporary provisioning resources",
+  async (tags) => {
+    const test = await scenario()
+    const deployment = test.deployments[0]!
+    const { config } = deployment.target
+    const identity: RemovalResource = {
+      address: "azurerm_user_assigned_identity.provision",
+      type: "azurerm_user_assigned_identity",
+      id: `${deployment.groupId(config.azure.resourceGroup)}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${config.name}-provision`,
+      values: { principal_id: deployment.livePrincipal },
+    }
+    deployment.resources.provision.push(identity)
+    const group = deployment.groups.get(config.azure.resourceGroup)!
+    group.push({ id: identity.id, type: "Microsoft.ManagedIdentity/userAssignedIdentities" })
+    const job = group.find(({ id }) => id === deployment.resources.provision[0]!.id)!
+    for (const resource of [job, group.at(-1)!]) {
+      if (tags === "empty") resource.tags = {}
+      if (tags === "null") resource.tags = null
+      if (tags === "missing") delete resource.tags
+    }
+
+    await expect(
+      inspectRemoval(inspectionContext(test), Object.values(deployment.resources).flat()),
+    ).resolves.toMatchObject({ absent: false })
+  },
+)
+
+it.each(["provision job", "provision identity", "other empty"] as const)(
+  "blocks unverified ownership on %s",
+  async (target) => {
+    const test = await scenario()
+    const deployment = test.deployments[0]!
+    const { config } = deployment.target
+    const identity: RemovalResource = {
+      address: "azurerm_user_assigned_identity.provision",
+      type: "azurerm_user_assigned_identity",
+      id: `${deployment.groupId(config.azure.resourceGroup)}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${config.name}-provision`,
+      values: { principal_id: deployment.livePrincipal },
+    }
+    deployment.resources.provision.push(identity)
+    const group = deployment.groups.get(config.azure.resourceGroup)!
+    group.push({
+      id: identity.id,
+      type: "Microsoft.ManagedIdentity/userAssignedIdentities",
+      tags: {},
+    })
+    const job = group.find(({ id }) => id === deployment.resources.provision[0]!.id)!
+    job.tags = {}
+    const resource =
+      target === "provision job"
+        ? job
+        : target === "provision identity"
+          ? group.at(-1)!
+          : group.find(({ id }) => id === deployment.resources.app[1]!.id)!
+    resource.tags = target === "other empty" ? {} : { ...deployment.tags, owner: "another-team" }
+
+    await expect(
+      inspectRemoval(inspectionContext(test), Object.values(deployment.resources).flat()),
+    ).rejects.toThrow(/ownership/i)
+  },
+)
+
+it.each(["job", "identity"] as const)(
+  "does not exempt an untagged provisioning %s whose live details changed",
+  async (kind) => {
+    const test = await scenario()
+    const deployment = test.deployments[0]!
+    const { config } = deployment.target
+    const identity: RemovalResource = {
+      address: "azurerm_user_assigned_identity.provision",
+      type: "azurerm_user_assigned_identity",
+      id: `${deployment.groupId(config.azure.resourceGroup)}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${config.name}-provision`,
+      values: { principal_id: deployment.livePrincipal },
+    }
+    deployment.resources.provision.push(identity)
+    const group = deployment.groups.get(config.azure.resourceGroup)!
+    group.push({
+      id: identity.id,
+      type: "Microsoft.ManagedIdentity/userAssignedIdentities",
+      tags: {},
+    })
+    group.find(({ id }) => id === deployment.resources.provision[0]!.id)!.tags = {}
+    const execute = test.run.getMockImplementation()!
+    test.run.mockImplementation(async (executable, args, options) => {
+      const result = await execute(executable, args, options)
+      const operation = args.slice(0, 3).join(" ")
+      if (kind === "job" && operation === "containerapp job show")
+        return JSON.stringify({
+          ...JSON.parse(result),
+          environmentId: `${deployment.groupId("other")}/providers/Microsoft.App/managedEnvironments/other`,
+        })
+      if (kind === "identity" && operation === "identity show --ids" && args.includes(identity.id))
+        return JSON.stringify({ ...JSON.parse(result), name: "other-provision" })
+      return result
+    })
+
+    await expect(
+      inspectRemoval(inspectionContext(test), Object.values(deployment.resources).flat()),
+    ).rejects.toThrow(/provisioning.*no longer matches/i)
+  },
+)
 
 function lockState(
   deployment: Awaited<ReturnType<typeof scenario>>["deployments"][number],
@@ -1027,6 +1161,62 @@ it.each(["command cancellation", "aborted signal"])(
     await preserved(test)
   },
 )
+
+function failInspectionAfterLease(
+  test: Awaited<ReturnType<typeof scenario>>,
+  failure: CommandExecutionError,
+) {
+  const leased = `${test.targets[0]!.config.name}:lease:acquire:installation`
+  const execute = test.run.getMockImplementation()!
+  let failed = false
+  test.run.mockImplementation(async (executable, args, options) => {
+    if (
+      !failed &&
+      test.events.includes(leased) &&
+      args.slice(0, 3).join(" ") === "resource list --resource-group"
+    ) {
+      failed = true
+      throw failure
+    }
+    return execute(executable, args, options)
+  })
+}
+
+it("offers a read-only recheck when an inspection command fails after preflight and continues once it passes", async () => {
+  const test = await scenario()
+  failInspectionAfterLease(
+    test,
+    new CommandExecutionError("Inspect installation resources failed (exit code 1).", false, 1),
+  )
+  vi.mocked(test.ui.select).mockImplementationOnce(async (_question, actions) => {
+    expect(test.events.some((event) => /:stop-hub|:destroy:|delete-/.test(event))).toBe(false)
+    const recheck = actions.find(({ label }) => /recheck/i.test(label))
+    expect(recheck).toBeDefined()
+    return recheck!.value
+  })
+
+  await expect(removeAzureDeployments(test.targets, test)).resolves.toContain("Removal finished")
+
+  expect(test.ui.select).toHaveBeenCalledOnce()
+  expect(test.ui.notice).toHaveBeenCalledWith(
+    "error",
+    expect.stringContaining("A read-only Azure or Terraform check failed."),
+  )
+  expect(test.ui.confirm).toHaveBeenCalledOnce()
+  expect(test.events).toContain(`${test.targets[0]!.config.name}:lease:acquire:installation`)
+  expect(test.events).toContain(`${test.targets[0]!.config.name}:delete-state-group`)
+})
+
+it("does not offer an inspection recheck for a cancelled inspection command", async () => {
+  const test = await scenario()
+  const failure = new CommandExecutionError("Inspect installation resources cancelled.", true)
+  failInspectionAfterLease(test, failure)
+
+  await expect(removeAzureDeployments(test.targets, test)).rejects.toBe(failure)
+
+  expect(test.ui.select).not.toHaveBeenCalled()
+  expect(test.events.some((event) => /:stop-hub|:destroy:|delete-/.test(event))).toBe(false)
+})
 
 it("offers only details and exit for malformed metadata without exposing JSON snippets", async () => {
   const test = await scenario()

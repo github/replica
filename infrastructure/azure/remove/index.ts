@@ -155,13 +155,17 @@ export async function removeAzureDeployments(
       try {
         return await inspectRemoval(context, resources, held)
       } catch (error) {
-        if (!(error instanceof RemovalInspectionError) || signal?.aborted) throw error
+        const commandFailed = error instanceof CommandExecutionError && !error.aborted
+        if (!(error instanceof RemovalInspectionError || commandFailed) || signal?.aborted)
+          throw error
         try {
           await promptForRecovery(ui, {
             error,
             question: `Read-only removal inspection needs attention for ${context.config.name}.`,
             message: [
-              error.message.split("\n").slice(1).join("\n"),
+              commandFailed
+                ? "A read-only Azure or Terraform check failed. Review the error details, then recheck."
+                : error.message.split("\n").slice(1).join("\n"),
               changesStarted
                 ? "Removal or Hub shutdown has already started. This recheck repeats only inspection, not shutdown, Terraform changes, or deletion. Previously completed changes are not rolled back."
                 : "No deployment resources have been removed or stopped. This recheck repeats only inspection; selected targets, prepared modules, and already-held cloud leases are retained.",

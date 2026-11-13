@@ -21,6 +21,11 @@ export async function inspectSharedRemoval(
       `${group}/providers/Microsoft.App/jobs/${config.name}-provision`,
     ].map((id) => id.toLowerCase()),
   )
+  const installationIdentities = new Set(
+    (resources ?? [])
+      .filter(({ type }) => type === "azurerm_user_assigned_identity")
+      .map(({ id }) => id.toLowerCase()),
+  )
   function invalid(
     reason: string,
     subject?: string,
@@ -45,7 +50,7 @@ export async function inspectSharedRemoval(
     return value as string[]
   }
   const projection =
-    "{id:id,environment:properties.environmentId,managedEnvironment:properties.managedEnvironmentId,connectedEnvironment:properties.connectedEnvironmentId,images:properties.template.containers[].image,initialImages:properties.template.initContainers[].image,registries:properties.configuration.registries[].server,secrets:properties.configuration.secrets[].keyVaultUrl,runtimeReferences:properties.template.containers[].env[?name=='AZURE_KEY_VAULT_SECRET_REFERENCES'].value[],initialReferences:properties.template.initContainers[].env[?name=='AZURE_KEY_VAULT_SECRET_REFERENCES'].value[]}"
+    "{id:id,environment:properties.environmentId,managedEnvironment:properties.managedEnvironmentId,connectedEnvironment:properties.connectedEnvironmentId,images:properties.template.containers[].image,initialImages:properties.template.initContainers[].image,registries:properties.configuration.registries[].server,secrets:properties.configuration.secrets[].keyVaultUrl,runtimeReferences:properties.template.containers[].env[?name=='AZURE_KEY_VAULT_SECRET_REFERENCES'].value[],initialReferences:properties.template.initContainers[].env[?name=='AZURE_KEY_VAULT_SECRET_REFERENCES'].value[],identityPresent:contains(keys(@), 'identity'),identity:identity}"
   const fields = [
     "images",
     "initialImages",
@@ -73,6 +78,149 @@ export async function inspectSharedRemoval(
         subject,
       )
     }
+  }
+  async function inspectActiveRevisions(workload: {
+    name: string
+    resourceGroup: string
+    id: string
+  }) {
+    const revisions = await json(
+      [
+        "containerapp",
+        "revision",
+        "list",
+        "--name",
+        workload.name,
+        "--resource-group",
+        workload.resourceGroup,
+        "--query",
+        "[].{name:name,active:properties.active,replicas:properties.replicas,images:properties.template.containers[].image,initialImages:properties.template.initContainers[].image,runtimeReferences:properties.template.containers[].env[?name=='AZURE_KEY_VAULT_SECRET_REFERENCES'].value[],initialReferences:properties.template.initContainers[].env[?name=='AZURE_KEY_VAULT_SECRET_REFERENCES'].value[],identityIds:keys(identity.userAssignedIdentities || `{}`)}",
+      ],
+      `${workload.id} revisions`,
+    )
+    if (!Array.isArray(revisions))
+      invalid("Azure returned an invalid Container Apps revision list.", `${workload.id} revisions`)
+    for (const raw of revisions) {
+      const revision = record(raw, "A Container Apps revision is not an object.", workload.id)
+      if (
+        typeof revision.name !== "string" ||
+        typeof revision.active !== "boolean" ||
+        typeof revision.replicas !== "number" ||
+        !Number.isInteger(revision.replicas) ||
+        revision.replicas < 0
+      )
+        invalid("A Container Apps revision is missing active-state or replica metadata.", workload.id)
+      const revisionIdentities = attachedIdentities(revision.identityIds, workload.id)
+      if (
+        revisionIdentities.some((id) => installationIdentities.has(id.toLowerCase()))
+      )
+        invalid(
+          "An unselected active revision uses an installation-managed identity.",
+          workload.id,
+          "Detach or migrate this identity through the workload's own authorized lifecycle, or keep this installation. Identity attachments are not removed automatically.",
+        )
+      if (!revision.active && revision.replicas === 0) continue
+      const images = [
+        ...strings(revision.images, "revision images", workload.id),
+        ...strings(revision.initialImages, "revision init images", workload.id),
+      ]
+      if (!images.length)
+        invalid("An active revision has no verifiable container image metadata.", workload.id)
+      if (images.some((value) => value.split("/")[0]!.toLowerCase() === registry))
+        invalid(
+          `An unselected active revision uses the installation's container registry ${registry}.`,
+          workload.id,
+          "Move this consumer to another registry through its own authorized lifecycle, or keep this installation. Shared images and unselected workloads are not deleted automatically.",
+        )
+      for (const field of ["runtimeReferences", "initialReferences"]) {
+        for (const encoded of strings(revision[field], field, workload.id)) {
+          let parsed: unknown
+          try {
+            parsed = JSON.parse(encoded)
+          } catch {
+            invalid(
+              `Revision metadata field ${field} is invalid JSON; its contents were not printed.`,
+              workload.id,
+            )
+          }
+          const values = Object.values(
+            record(parsed, `Revision metadata field ${field} is not an object.`, workload.id),
+          )
+          if (values.some((value) => typeof value !== "string"))
+            invalid(`Revision metadata field ${field} contains non-string values.`, workload.id)
+          if (
+            (values as string[]).some((value) => {
+              try {
+                return new URL(value).hostname.toLowerCase() === vault
+              } catch {
+                invalid(
+                  "An active revision has an invalid Key Vault reference; its contents were not printed.",
+                  workload.id,
+                )
+              }
+            })
+          )
+            invalid(
+              `An unselected active revision uses the installation's Key Vault ${vault}.`,
+              workload.id,
+              "Move this consumer's secret references through its own authorized lifecycle, or keep this installation. External consumers and their secret values are not changed automatically.",
+            )
+        }
+      }
+    }
+  }
+  function attachedIdentities(value: unknown, subject: string): string[] {
+    if (value === undefined || value === null) return []
+    if (Array.isArray(value)) {
+      if (value.some((entry) => typeof entry !== "string"))
+        invalid("Consumer identity metadata must be a list of resource IDs.", subject)
+      return value as string[]
+    }
+    if (typeof value !== "object")
+      invalid("Consumer identity metadata must be a list of resource IDs.", subject)
+    return Object.keys(value)
+  }
+  function workloadIdentities(workload: Record<string, unknown>): string[] | undefined {
+    if (workload.identityPresent !== true) return undefined
+    if (workload.identity === null) return []
+    if (
+      !workload.identity ||
+      typeof workload.identity !== "object" ||
+      Array.isArray(workload.identity)
+    )
+      return undefined
+    const identity = workload.identity as Record<string, unknown>
+    if (typeof identity.type !== "string") return undefined
+    const types = identity.type.split(",").map((type) => type.trim().toLowerCase())
+    if (
+      !types.length ||
+      new Set(types).size !== types.length ||
+      types.some((type) => !["none", "systemassigned", "userassigned"].includes(type)) ||
+      (types.includes("none") && types.length !== 1)
+    )
+      return undefined
+    const assigned = identity.userAssignedIdentities
+    if (assigned === undefined || assigned === null)
+      return types.includes("userassigned") ? undefined : []
+    if (typeof assigned !== "object" || Array.isArray(assigned)) return undefined
+    const ids = Object.keys(assigned)
+    if (types.includes("userassigned") !== (ids.length > 0)) return undefined
+    if (
+      ids.some(
+        (id) =>
+          !/^\/subscriptions\/[a-f0-9-]{36}\/resourceGroups\/[a-zA-Z0-9._()-]+\/providers\/Microsoft\.ManagedIdentity\/userAssignedIdentities\/[a-zA-Z0-9._-]+$/i.test(id),
+      )
+    )
+      return undefined
+    return ids
+  }
+  function checkWorkloadIdentities(ids: string[], subject: string) {
+    if (ids.some((id) => installationIdentities.has(id.toLowerCase())))
+      invalid(
+        "An unselected workload has an installation-managed identity attached.",
+        subject,
+        "Detach or migrate this identity through the workload's own authorized lifecycle, or keep this installation. Identity attachments are not removed automatically.",
+      )
   }
   function workloadIdentity(value: unknown): {
     id: string
@@ -126,7 +274,10 @@ export async function inspectSharedRemoval(
         invalid("Azure returned a workload of the wrong resource type.", identity.id)
       seen.add(id)
       if (own.has(id)) continue
+      const discoveredIdentities = workloadIdentities(workload)
+      if (discoveredIdentities) checkWorkloadIdentities(discoveredIdentities, identity.id)
       if (
+        discoveredIdentities === undefined ||
         !environments(workload).length ||
         environments(workload).some((value) => !validEnvironment(value)) ||
         fields.some(
@@ -161,6 +312,13 @@ export async function inspectSharedRemoval(
             identity.id,
           )
       }
+      const finalIdentities = workloadIdentities(workload)
+      if (finalIdentities === undefined)
+        invalid(
+          "Consumer identity metadata is missing or invalid after a targeted workload check.",
+          identity.id,
+        )
+      checkWorkloadIdentities(finalIdentities, identity.id)
       const environmentIds = environments(workload)
       if (!environmentIds.length || environmentIds.some((value) => !validEnvironment(value)))
         invalid(
@@ -224,6 +382,7 @@ export async function inspectSharedRemoval(
             "Move this consumer's secret references through its own authorized lifecycle, or keep this installation. External consumers and their secret values are not changed automatically.",
           )
       }
+      if (identity.type === "containerApps") await inspectActiveRevisions(identity)
     }
   }
   if (!resources) return

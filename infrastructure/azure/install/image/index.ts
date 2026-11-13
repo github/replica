@@ -6,6 +6,7 @@ import { installationNames } from "../settings.ts"
 import { CommandExecutionError } from "../../../installer/command/index.ts"
 import { promptForField } from "../../../installer/prompt-for-field/index.ts"
 import { promptForRecovery } from "../../../installer/prompt-for-recovery/index.ts"
+import { createBuildSnapshot } from "../build-context/index.ts"
 
 export async function publishImage(
   context: AzureInstallation,
@@ -16,6 +17,7 @@ export async function publishImage(
   let approval = context.approval
   while (true) {
     const metadata = join(directory, `image-${randomUUID()}.json`)
+    let snapshot: Awaited<ReturnType<typeof createBuildSnapshot>> | undefined
     let failure: Error
     try {
       const commit = await run("git", ["rev-parse", "HEAD"], { cwd: repository })
@@ -43,6 +45,12 @@ export async function publishImage(
           "Image publication cancelled; use an approved source checkout.",
           "AbortError",
         )
+      snapshot = await createBuildSnapshot(join(repository, "hub"), directory, context.signal)
+      if (approval && approval.sourceFingerprint !== snapshot.fingerprint)
+        throw new DOMException(
+          "The Hub build contents changed after deployment approval. Restart to review the source before publishing.",
+          "AbortError",
+        )
       await azure("acr", "login", "--name", installationNames(config).registry)
       const tag = `${foundation.registry_url}/replica-hub:${commit.slice(0, 12)}-${randomUUID().slice(0, 8)}`
       await run("docker", [
@@ -56,7 +64,7 @@ export async function publishImage(
         metadata,
         "--push",
         ...(config.npmRegistry ? ["--build-arg", `NPM_REGISTRY=${config.npmRegistry}`] : []),
-        join(repository, "hub"),
+        snapshot.directory,
       ])
       const result: unknown = JSON.parse(await readFile(metadata, "utf8"))
       const digest =
@@ -74,6 +82,7 @@ export async function publishImage(
         throw error
       failure = error instanceof Error ? error : new Error("Image publication failed.")
     } finally {
+      await snapshot?.cleanup()
       await rm(metadata, { force: true })
     }
     const choice = await promptForRecovery(ui, {
@@ -96,7 +105,6 @@ export async function publishImage(
     } else if (choice !== "retry") {
       throw new Error("Choose a supported image recovery action.")
     }
-    approval = undefined
     if (ui.notice) ui.notice("info", "Retrying image build and publication.")
     else ui.status("Retrying image build and publication.")
   }

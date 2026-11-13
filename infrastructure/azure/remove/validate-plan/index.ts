@@ -12,7 +12,7 @@ export function validateRemovalPlan(value: unknown, resources: readonly RemovalR
   if (typeof value.format_version !== "string" || !/^1\.\d+$/.test(value.format_version)) invalid()
   const changes = value.resource_changes ?? []
   if (!Array.isArray(changes)) invalid()
-  const known = new Map(resources.map((resource) => [resource.address, resource.id.toLowerCase()]))
+  const known = new Map(resources.map((resource) => [resource.address, resource]))
   for (const change of changes) {
     if (!record(change) || !record(change.change) || !Array.isArray(change.change.actions))
       invalid()
@@ -25,8 +25,21 @@ export function validateRemovalPlan(value: unknown, resources: readonly RemovalR
       typeof change.address !== "string" ||
       !record(change.change.before) ||
       typeof change.change.before.id !== "string" ||
-      known.get(change.address) !== change.change.before.id.toLowerCase()
+      known.get(change.address)?.id.toLowerCase() !== change.change.before.id.toLowerCase()
     )
       invalid()
+    const resource = known.get(change.address)!
+    if (resource.type === "azurerm_role_assignment") {
+      for (const key of ["scope", "principal_id", "role_definition_name"] as const) {
+        const expected = resource.values[key]
+        const current = change.change.before[key]
+        if (
+          typeof expected !== "string" ||
+          typeof current !== "string" ||
+          expected.toLowerCase() !== current.toLowerCase()
+        )
+          invalid()
+      }
+    }
   }
 }

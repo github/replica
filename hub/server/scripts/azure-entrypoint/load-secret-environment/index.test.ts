@@ -131,6 +131,107 @@ describe("loadAzureSecretEnvironment()", () => {
     expect(process.listeners("SIGTERM")).toEqual(beforeTerminate)
   })
 
+  it("retries a transient provision secret failure with the same managed identity before publishing values", async () => {
+    vi.useFakeTimers()
+    const version = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    const databaseUrl = `https://fixture.vault.azure.net/secrets/database/${version}`
+    const migrationUrl = `https://fixture.vault.azure.net/secrets/migration/${version}`
+    const runtimeUrl = `https://fixture.vault.azure.net/secrets/runtime/${version}`
+    const environment: NodeJS.ProcessEnv = {
+      AZURE_CLIENT_ID: "00000000-0000-0000-0000-000000000001",
+      AZURE_KEY_VAULT_SECRET_REFERENCES: JSON.stringify({
+        DATABASE_URL: databaseUrl,
+        HUB_MIGRATION_PASSWORD: migrationUrl,
+        HUB_RUNTIME_PASSWORD: runtimeUrl,
+      }),
+    }
+    const before = { ...environment }
+    const transient = new Error("Synthetic Key Vault propagation failure")
+    transient.name = "AzureKeyVaultSecretError"
+    Object.defineProperty(transient, "retryable", { value: true })
+    let databaseAttempts = 0
+    mocks.getSecret.mockImplementation(async ({ url }) => {
+      if (url === databaseUrl && databaseAttempts++ === 0) throw transient
+      return url === databaseUrl
+        ? "synthetic-database-url"
+        : url === migrationUrl
+          ? "synthetic-migration-password"
+          : "synthetic-runtime-password"
+    })
+
+    const loading = loadAzureSecretEnvironment(environment, "provision")
+    await vi.advanceTimersByTimeAsync(500)
+    await expect(loading).resolves.toBeUndefined()
+
+    const requests = mocks.getSecret.mock.calls.map(([request]) => request)
+    const databaseRequests = requests.filter(({ url }) => url === databaseUrl)
+    expect(databaseRequests).toHaveLength(2)
+    expect(databaseRequests[0]?.credential).toBe(databaseRequests[1]?.credential)
+    expect(requests.every(({ credential }) => credential === databaseRequests[0]?.credential)).toBe(
+      true,
+    )
+    expect(requests.every(({ signal }) => signal === databaseRequests[0]?.signal)).toBe(true)
+    expect(environment).toEqual({
+      ...before,
+      DATABASE_URL: "synthetic-database-url",
+      HUB_MIGRATION_PASSWORD: "synthetic-migration-password",
+      HUB_RUNTIME_PASSWORD: "synthetic-runtime-password",
+    })
+    expect(mocks.credential).toHaveBeenCalledExactlyOnceWith({
+      clientId: "00000000-0000-0000-0000-000000000001",
+    })
+    expect(mocks.fallbackCredential).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("bounds repeated secret retrieval failures by the startup deadline without credential fallback", async () => {
+    vi.useFakeTimers()
+    const beforeInterrupt = process.listeners("SIGINT")
+    const beforeTerminate = process.listeners("SIGTERM")
+    const environment: NodeJS.ProcessEnv = {
+      AZURE_CLIENT_ID: "00000000-0000-0000-0000-000000000001",
+      AZURE_KEY_VAULT_SECRET_REFERENCES: JSON.stringify({
+        DATABASE_URL: "https://fixture.vault.azure.net/secrets/database",
+      }),
+    }
+    const before = { ...environment }
+    const transient = new Error("Synthetic Key Vault propagation failure")
+    transient.name = "AzureKeyVaultSecretError"
+    Object.defineProperty(transient, "retryable", { value: true })
+    mocks.getSecret.mockRejectedValue(transient)
+    let settled = false
+    const loading = loadAzureSecretEnvironment(environment, "runtime")
+    const outcome = loading.then(
+      () => undefined,
+      (error: unknown) => {
+        settled = true
+        return error
+      },
+    )
+    onTestFinished(async () => {
+      await outcome
+    })
+
+    await vi.advanceTimersByTimeAsync(15_499)
+    expect(settled).toBe(false)
+    expect(mocks.getSecret.mock.calls.length).toBeGreaterThan(1)
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(await outcome).toMatchObject({ name: "AzureSecretStartupError" })
+    expect(settled).toBe(true)
+    expect(mocks.getSecret).toHaveBeenCalledTimes(6)
+    expect(environment).toEqual(before)
+    const attemptsAtDeadline = mocks.getSecret.mock.calls.length
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(mocks.getSecret).toHaveBeenCalledTimes(attemptsAtDeadline)
+    expect(mocks.credential).toHaveBeenCalledOnce()
+    expect(mocks.fallbackCredential).not.toHaveBeenCalled()
+    expect(mocks.getSecret.mock.calls.every(([request]) => request.signal.aborted)).toBe(true)
+    expect(vi.getTimerCount()).toBe(0)
+    expect(process.listeners("SIGINT")).toEqual(beforeInterrupt)
+    expect(process.listeners("SIGTERM")).toEqual(beforeTerminate)
+  })
+
   it("rejects at the deadline even if transport never settles, without applying a late secret", async () => {
     vi.useFakeTimers()
     const beforeInterrupt = process.listeners("SIGINT")

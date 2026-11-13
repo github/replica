@@ -107,6 +107,7 @@ export async function prepareRemovalModule(
   }
   const path = join(staging, `${kind}-variables.json`)
   if (resources.length) await writePrivateFile(path, JSON.stringify(variables), { exclusive: true })
+  const managedState = async () => (await module.state()).filter((address) => !address.startsWith("data."))
   return {
     kind,
     resources,
@@ -123,13 +124,13 @@ export async function prepareRemovalModule(
         destroy: true,
         allowedDeletions: resources.map(({ address }) => address),
       })
-      if ((await module.state()).length)
+      if ((await managedState()).length)
         throw new Error(
           "Removal did not leave an empty Terraform state. The backend was preserved.",
         )
     },
     async empty() {
-      if ((await module.state()).length)
+      if ((await managedState()).length)
         throw new Error("Terraform still tracks resources. State storage cannot be removed.")
     },
   }

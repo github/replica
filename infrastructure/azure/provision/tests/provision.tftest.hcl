@@ -205,3 +205,53 @@ run "secret_hosts_must_match_the_granted_vault" {
 
   expect_failures = [var.secret_urls]
 }
+
+run "maximum_length_secret_urls_are_accepted" {
+  command = plan
+
+  variables {
+    vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-foundation/providers/Microsoft.KeyVault/vaults/vvvvvvvvvvvvvvvvvvvvvvvv"
+    secret_urls = {
+      DATABASE_URL           = "https://vvvvvvvvvvvvvvvvvvvvvvvv.vault.azure.net/secrets/${join("", [for i in range(127) : "a"])}/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      HUB_MIGRATION_PASSWORD = "https://vvvvvvvvvvvvvvvvvvvvvvvv.vault.azure.net/secrets/${join("", [for i in range(127) : "b"])}/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      HUB_RUNTIME_PASSWORD   = "https://vvvvvvvvvvvvvvvvvvvvvvvv.vault.azure.net/secrets/${join("", [for i in range(127) : "c"])}/cccccccccccccccccccccccccccccccc"
+    }
+  }
+
+  assert {
+    condition = tomap(jsondecode(one([
+      for env in azurerm_container_app_job.provision.template[0].container[0].env
+      : env.value if env.name == "AZURE_KEY_VAULT_SECRET_REFERENCES"
+    ]))) == var.secret_urls
+    error_message = "Provisioning must accept and preserve valid maximum-length secret URLs."
+  }
+}
+
+run "secret_urls_reject_oversized_vault" {
+  command = plan
+
+  variables {
+    vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-foundation/providers/Microsoft.KeyVault/vaults/vvvvvvvvvvvvvvvvvvvvvvvvv"
+    secret_urls = {
+      DATABASE_URL           = "https://vvvvvvvvvvvvvvvvvvvvvvvvv.vault.azure.net/secrets/admin/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      HUB_MIGRATION_PASSWORD = "https://vvvvvvvvvvvvvvvvvvvvvvvvv.vault.azure.net/secrets/migration/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      HUB_RUNTIME_PASSWORD   = "https://vvvvvvvvvvvvvvvvvvvvvvvvv.vault.azure.net/secrets/runtime/cccccccccccccccccccccccccccccccc"
+    }
+  }
+
+  expect_failures = [var.secret_urls]
+}
+
+run "secret_urls_reject_oversized_secret" {
+  command = plan
+
+  variables {
+    secret_urls = {
+      DATABASE_URL           = "https://testvault.vault.azure.net/secrets/${join("", [for i in range(128) : "a"])}/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      HUB_MIGRATION_PASSWORD = "https://testvault.vault.azure.net/secrets/migration/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      HUB_RUNTIME_PASSWORD   = "https://testvault.vault.azure.net/secrets/runtime/cccccccccccccccccccccccccccccccc"
+    }
+  }
+
+  expect_failures = [var.secret_urls]
+}

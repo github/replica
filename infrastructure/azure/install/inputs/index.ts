@@ -71,8 +71,8 @@ export async function readInstallationInputs(
       Object.keys(secret).some((key) => !["key_vault_id", "secret_id"].includes(key)) ||
       typeof secret.key_vault_id !== "string" ||
       typeof secret.secret_id !== "string" ||
-      !/^\/subscriptions\/[a-f0-9-]{36}\/resourceGroups\/[^/]+\/providers\/Microsoft.KeyVault\/vaults\/[a-zA-Z0-9-]+$/i.test(secret.key_vault_id) ||
-      !/^https:\/\/[a-zA-Z0-9-]+\.vault\.azure\.net\/secrets\/[a-zA-Z0-9-]+(\/[a-fA-F0-9]{32})?$/.test(secret.secret_id) ||
+      !/^\/subscriptions\/[a-f0-9-]{36}\/resourceGroups\/[^/]+\/providers\/Microsoft.KeyVault\/vaults\/[a-zA-Z0-9-]{1,24}$/i.test(secret.key_vault_id) ||
+      !/^https:\/\/[a-zA-Z0-9-]{1,24}\.vault\.azure\.net\/secrets\/[a-zA-Z0-9-]{1,127}(\/[a-fA-F0-9]{32})?$/.test(secret.secret_id) ||
       new URL(secret.secret_id).hostname.toLowerCase() !==
         `${secret.key_vault_id.split("/").at(-1)?.toLowerCase()}.vault.azure.net`
     )
@@ -119,7 +119,8 @@ export async function readInstallationInputs(
     if (
       typeof inputs.runtime_secret_references !== "object" ||
       inputs.runtime_secret_references === null ||
-      Array.isArray(inputs.runtime_secret_references)
+      Array.isArray(inputs.runtime_secret_references) ||
+      Object.keys(inputs.runtime_secret_references).length > 63
     )
       throw invalid()
     const reserved = [

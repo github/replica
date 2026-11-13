@@ -68,6 +68,42 @@ it.each(["address", "id", "missing id"])(
   },
 )
 
+it.each(["scope", "principal_id", "role_definition_name"])(
+  "blocks a refreshed role-assignment plan with a changed %s",
+  (property) => {
+    const resource: RemovalResource = {
+      address: "azurerm_role_assignment.runtime_secrets[\"SERVICE_API_KEY\"]",
+      type: "azurerm_role_assignment",
+      id: "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/sample/providers/Microsoft.KeyVault/vaults/runtime/secrets/api-key/providers/Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000004",
+      values: {
+        scope:
+          "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/sample/providers/Microsoft.KeyVault/vaults/runtime/secrets/api-key",
+        principal_id: "00000000-0000-0000-0000-000000000003",
+        role_definition_name: "Key Vault Secrets User",
+      },
+    }
+    const before = { id: resource.id, ...resource.values }
+    if (property === "scope") before.scope += "-other"
+    if (property === "principal_id") before.principal_id = "00000000-0000-0000-0000-000000000099"
+    if (property === "role_definition_name") before.role_definition_name = "Owner"
+
+    expect(() =>
+      validateRemovalPlan(
+        {
+          format_version: "1.0",
+          resource_changes: [
+            {
+              address: resource.address,
+              change: { actions: ["delete"], before, after: null },
+            },
+          ],
+        },
+        [resource],
+      ),
+    ).toThrow(/scope|identity|actions/i)
+  },
+)
+
 it.each([
   null,
   [],

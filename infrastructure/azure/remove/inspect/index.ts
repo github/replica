@@ -297,6 +297,7 @@ export async function inspectRemoval(
     resources &&
     new Set(resources.filter(({ id }) => id.startsWith("/")).map(({ id }) => id.toLowerCase()))
   if (known) {
+    const verifiedUntagged = new Set<string>()
     const liveIds = new Set(
       [...groups.values()]
         .flat()
@@ -323,6 +324,57 @@ export async function inspectRemoval(
           identity.principalId.toLowerCase() !== String(resource.values.principal_id).toLowerCase()
         )
           invalid("workload identity no longer matches its Terraform state")
+        if (
+          resource.address === "azurerm_user_assigned_identity.provision" &&
+          (identity.name !== `${config.name}-provision` ||
+            typeof identity.resourceGroup !== "string" ||
+            identity.resourceGroup.toLowerCase() !== config.azure.resourceGroup.toLowerCase() ||
+            typeof identity.location !== "string" ||
+            identity.location.toLowerCase() !== config.azure.location.toLowerCase())
+        )
+          invalid("temporary provisioning identity no longer matches its selected installation")
+        if (resource.address === "azurerm_user_assigned_identity.provision")
+          verifiedUntagged.add(resource.id.toLowerCase())
+      }
+      if (
+        resource.address === "azurerm_container_app_job.provision" &&
+        liveIds.has(resource.id.toLowerCase())
+      ) {
+        const job = record(
+          JSON.parse(
+            await azure(
+              "containerapp",
+              "job",
+              "show",
+              "--name",
+              `${config.name}-provision`,
+              "--resource-group",
+              config.azure.resourceGroup,
+              "--query",
+              "{id:id,name:name,resourceGroup:resourceGroup,environmentId:properties.environmentId,identityIds:keys(identity.userAssignedIdentities)}",
+            ),
+          ),
+        )
+        const environment =
+          `${subscription}/resourceGroups/${config.azure.resourceGroup}/providers/Microsoft.App/managedEnvironments/${config.name}-environment`
+        const provisionIdentity =
+          `${subscription}/resourceGroups/${config.azure.resourceGroup}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${config.name}-provision`
+        const identities = job.identityIds
+        if (
+          typeof job.id !== "string" ||
+          job.id.toLowerCase() !== resource.id.toLowerCase() ||
+          job.name !== `${config.name}-provision` ||
+          typeof job.resourceGroup !== "string" ||
+          job.resourceGroup.toLowerCase() !== config.azure.resourceGroup.toLowerCase() ||
+          typeof job.environmentId !== "string" ||
+          job.environmentId.toLowerCase() !== environment.toLowerCase() ||
+          !Array.isArray(identities) ||
+          identities.length !== 1 ||
+          typeof identities[0] !== "string" ||
+          identities[0].toLowerCase() !== provisionIdentity.toLowerCase()
+        )
+          invalid("temporary provisioning job no longer matches its selected installation")
+        verifiedUntagged.add(resource.id.toLowerCase())
       }
     }
     for (const [group, values] of groups) {
@@ -330,7 +382,11 @@ export async function inspectRemoval(
       for (const value of values) {
         if (typeof value.id !== "string" || !known.has(value.id.toLowerCase()))
           invalid("an unmanaged resource remains in an installation group")
-        if (value.tags !== undefined && value.tags !== null) owned(value, value.id)
+        if (value.tags !== undefined && value.tags !== null) {
+          const tags = record(value.tags)
+          if (!verifiedUntagged.has(value.id.toLowerCase()) || Object.keys(tags).length)
+            owned(value, value.id)
+        }
       }
     }
   }

@@ -119,7 +119,7 @@ it("unlocks only the stable exact lease after canonical private initialization a
   const data = join(recovery, "app-data")
   const backend = join(recovery, "app-backend.hcl")
   expect(test.run.mock.calls).toEqual([
-    ["terraform", [`-chdir=${source}`, "init", "-input=false", `-backend-config=${backend}`], {
+    ["terraform", [`-chdir=${source}`, "init", "-input=false", "-lock-timeout=60s", `-backend-config=${backend}`], {
       env: { ...test.context.env, TF_DATA_DIR: data, TF_WORKSPACE: "default" },
       signal: test.abort.signal,
     }],

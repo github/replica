@@ -45,7 +45,7 @@ variable "secret_urls" {
     condition = (
       toset(keys(var.secret_urls)) == toset(["DATABASE_URL", "HUB_MIGRATION_PASSWORD", "HUB_RUNTIME_PASSWORD"]) &&
       alltrue([for secret in values(var.secret_urls) :
-        can(regex("^https://[a-zA-Z0-9-]+\\.vault\\.azure\\.net/secrets/[a-zA-Z0-9-]+/[a-fA-F0-9]{32}$", secret))
+        can(regex("^https://[a-zA-Z0-9-]{1,24}\\.vault\\.azure\\.net/secrets/[a-zA-Z0-9-]{1,127}/[a-fA-F0-9]{32}$", secret))
       ])
     )
     error_message = "Provide exactly three versioned Key Vault references for the administrator URL and two role passwords, never raw values."

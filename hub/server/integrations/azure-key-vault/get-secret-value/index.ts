@@ -5,6 +5,7 @@ export async function getAzureKeyVaultSecret({
   credential,
   signal,
 }: AzureKeyVaultSecretRequest): Promise<string> {
+  let retryable = false
   try {
     if (
       !/^https:\/\/[a-zA-Z0-9-]+\.vault\.azure\.net\/secrets\/[a-zA-Z0-9-]+(?:\/[a-fA-F0-9]{32})?$/.test(
@@ -27,6 +28,13 @@ export async function getAzureKeyVaultSecret({
       signal,
     })
     if (response.status !== 200) {
+      retryable =
+        response.status === 403 ||
+        response.status === 429 ||
+        response.status === 500 ||
+        response.status === 502 ||
+        response.status === 503 ||
+        response.status === 504
       await response.body?.cancel()
       throw new Error("Azure Key Vault rejected secret retrieval.")
     }
@@ -44,6 +52,7 @@ export async function getAzureKeyVaultSecret({
   } catch {
     const error = new Error("Azure Key Vault secret retrieval failed.")
     error.name = "AzureKeyVaultSecretError"
+    Object.defineProperty(error, "retryable", { value: retryable })
     throw error
   }
 }

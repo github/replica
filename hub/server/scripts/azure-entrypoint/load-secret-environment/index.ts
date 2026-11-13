@@ -4,6 +4,31 @@ import { getAzureKeyVaultSecret } from "../../../integrations/azure-key-vault/ge
 import { parseAzureSecretConfiguration } from "../../../utils/parse-azure-secret-configuration/index.ts"
 import type { AzureEntrypoint } from "../../../utils/parse-azure-secret-configuration/types.ts"
 
+function retryable(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.name === "AzureKeyVaultSecretError" &&
+    "retryable" in error &&
+    error.retryable === true
+  )
+}
+
+function waitForRetry(delay: number, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted()
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", cancel)
+      resolve()
+    }, delay)
+    const cancel = () => {
+      clearTimeout(timer)
+      signal.removeEventListener("abort", cancel)
+      reject(new Error("Azure startup secret loading was cancelled."))
+    }
+    signal.addEventListener("abort", cancel, { once: true })
+  })
+}
+
 export async function loadAzureSecretEnvironment(
   environment: NodeJS.ProcessEnv,
   target: AzureEntrypoint,
@@ -26,13 +51,28 @@ export async function loadAzureSecretEnvironment(
       stopWaiting = () => reject(new Error("Azure startup secret loading was cancelled."))
       controller.signal.addEventListener("abort", stopWaiting, { once: true })
     })
+    const getSecret = async (url: string) => {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await getAzureKeyVaultSecret({
+            url,
+            credential,
+            signal: controller.signal,
+          })
+        } catch (error) {
+          controller.signal.throwIfAborted()
+          if (!retryable(error) || attempt === 5) throw error
+          await waitForRetry(500 * 2 ** attempt, controller.signal)
+        }
+      }
+    }
     const values = await Promise.race([
       aborted,
       Promise.all(
         Object.entries(configuration.references).map(
           async ([name, url]): Promise<[string, string]> => [
             name,
-            await getAzureKeyVaultSecret({ url, credential, signal: controller.signal }),
+            await getSecret(url),
           ],
         ),
       ),

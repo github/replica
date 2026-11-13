@@ -147,7 +147,15 @@ export function validateRemovalState(
       invalid()
     if (values.tags !== undefined && values.tags !== null) {
       const tags = record(values.tags)
-      if (Object.entries(expected).some(([key, value]) => tags[key] !== value)) invalid()
+      const untaggedProvisionResource =
+        module === "provision" &&
+        ["azurerm_user_assigned_identity", "azurerm_container_app_job"].includes(resource.type)
+      if (
+        untaggedProvisionResource
+          ? Object.keys(tags).length > 0
+          : Object.entries(expected).some(([key, value]) => tags[key] !== value)
+      )
+        invalid()
     }
     if (
       resource.type !== "azurerm_role_assignment" &&
@@ -174,6 +182,50 @@ export function validateRemovalState(
     )
       invalid()
     projected.push({ address, id, type: resource.type, values })
+  }
+  if (module === "provision") {
+    const identityId =
+      `${group}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${config.name}-provision`
+    const environmentId =
+      `/subscriptions/${config.azure.subscriptionId}/resourceGroups/${config.azure.resourceGroup}/providers/Microsoft.App/managedEnvironments/${config.name}-environment`
+    const identity = projected.find(
+      ({ address }) => address === "azurerm_user_assigned_identity.provision",
+    )
+    if (
+      identity &&
+      (identity.id.toLowerCase() !== identityId.toLowerCase() ||
+        identity.values.name !== `${config.name}-provision` ||
+        typeof identity.values.resource_group_name !== "string" ||
+        identity.values.resource_group_name.toLowerCase() !== config.azure.resourceGroup.toLowerCase())
+    )
+      invalid()
+    const job = projected.find(
+      ({ address }) => address === "azurerm_container_app_job.provision",
+    )
+    if (job) {
+      const configuredIdentities = job.values.identity
+      if (
+        job.id.toLowerCase() !==
+          `${group}/providers/Microsoft.App/jobs/${config.name}-provision`.toLowerCase() ||
+        job.values.name !== `${config.name}-provision` ||
+        typeof job.values.resource_group_name !== "string" ||
+        job.values.resource_group_name.toLowerCase() !== config.azure.resourceGroup.toLowerCase() ||
+        typeof job.values.container_app_environment_id !== "string" ||
+        job.values.container_app_environment_id.toLowerCase() !== environmentId.toLowerCase() ||
+        !Array.isArray(configuredIdentities) ||
+        configuredIdentities.length !== 1
+      )
+        invalid()
+      const configuredIdentity = record(configuredIdentities[0])
+      if (
+        configuredIdentity.type !== "UserAssigned" ||
+        !Array.isArray(configuredIdentity.identity_ids) ||
+        configuredIdentity.identity_ids.length !== 1 ||
+        typeof configuredIdentity.identity_ids[0] !== "string" ||
+        configuredIdentity.identity_ids[0].toLowerCase() !== identityId.toLowerCase()
+      )
+        invalid()
+    }
   }
   const principals = new Set(
     projected

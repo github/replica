@@ -369,6 +369,146 @@ run "runtime_cannot_override_the_managed_identity" {
   expect_failures = [var.runtime_secret_references]
 }
 
+run "runtime_reference_limit_includes_database_url" {
+  command = plan
+  variables {
+    deploy_hub = true
+    acr_id     = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/existing/providers/Microsoft.ContainerRegistry/registries/existing"
+    runtime_secret_references = {
+      for index in range(63) : format("SERVICE_%02d", index) => {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service"
+        secret_id    = format("https://service.vault.azure.net/secrets/service-%02d", index)
+      }
+    }
+  }
+
+  assert {
+    condition = length(jsondecode(one([
+      for env in azurerm_container_app.hub[0].template[0].container[0].env
+      : env.value if env.name == "AZURE_KEY_VAULT_SECRET_REFERENCES"
+    ]))) == 64
+    error_message = "The runtime's 64-reference limit includes DATABASE_URL and allows at most 63 optional references."
+  }
+}
+
+run "runtime_rejects_64_optional_references" {
+  command = plan
+  variables {
+    runtime_secret_references = {
+      for index in range(64) : format("SERVICE_%02d", index) => {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service"
+        secret_id    = format("https://service.vault.azure.net/secrets/service-%02d", index)
+      }
+    }
+  }
+  expect_failures = [var.runtime_secret_references]
+}
+
+run "maximum_length_secret_references_fit_runtime_metadata" {
+  command = plan
+  variables {
+    deploy_hub = true
+    acr_id     = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/existing/providers/Microsoft.ContainerRegistry/registries/existing"
+    runtime_database_secret = {
+      key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/vvvvvvvvvvvvvvvvvvvvvvvv"
+      secret_id    = "https://vvvvvvvvvvvvvvvvvvvvvvvv.vault.azure.net/secrets/${join("", [for i in range(127) : "a"])}/${join("", [for i in range(32) : "a"])}"
+    }
+    setup_database_secret = {
+      key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/vvvvvvvvvvvvvvvvvvvvvvvv"
+      secret_id    = "https://vvvvvvvvvvvvvvvvvvvvvvvv.vault.azure.net/secrets/${join("", [for i in range(127) : "b"])}/${join("", [for i in range(32) : "b"])}"
+    }
+    runtime_secret_references = {
+      for index in range(63) : format("S%02d%s", index, join("", [for i in range(38) : "A"])) => {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/vvvvvvvvvvvvvvvvvvvvvvvv"
+        secret_id    = "https://vvvvvvvvvvvvvvvvvvvvvvvv.vault.azure.net/secrets/${join("", [for i in range(127) : "a"])}/${join("", [for i in range(32) : "a"])}"
+      }
+    }
+  }
+  assert {
+    condition = (
+      length(jsondecode(one([
+        for env in azurerm_container_app.hub[0].template[0].container[0].env
+        : env.value if env.name == "AZURE_KEY_VAULT_SECRET_REFERENCES"
+      ]))) == 64 &&
+      length(one([
+        for env in azurerm_container_app.hub[0].template[0].container[0].env
+        : env.value if env.name == "AZURE_KEY_VAULT_SECRET_REFERENCES"
+      ])) < 65536
+    )
+    error_message = "Maximum-length references must fit the 64-entry startup metadata limit."
+  }
+}
+
+run "runtime_reference_rejects_oversized_vault" {
+  command = plan
+  variables {
+    runtime_secret_references = {
+      SERVICE_KEY = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/vvvvvvvvvvvvvvvvvvvvvvvvv"
+        secret_id    = "https://vvvvvvvvvvvvvvvvvvvvvvvvv.vault.azure.net/secrets/service"
+      }
+    }
+  }
+  expect_failures = [var.runtime_secret_references]
+}
+
+run "runtime_reference_rejects_oversized_secret" {
+  command = plan
+  variables {
+    runtime_secret_references = {
+      SERVICE_KEY = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service"
+        secret_id    = "https://service.vault.azure.net/secrets/${join("", [for i in range(128) : "s"])}"
+      }
+    }
+  }
+  expect_failures = [var.runtime_secret_references]
+}
+
+run "runtime_database_rejects_oversized_vault" {
+  command = plan
+  variables {
+    runtime_database_secret = {
+      key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/vvvvvvvvvvvvvvvvvvvvvvvvv"
+      secret_id    = "https://vvvvvvvvvvvvvvvvvvvvvvvvv.vault.azure.net/secrets/runtime"
+    }
+  }
+  expect_failures = [var.runtime_database_secret]
+}
+
+run "runtime_database_rejects_oversized_secret" {
+  command = plan
+  variables {
+    runtime_database_secret = {
+      key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/database"
+      secret_id    = "https://database.vault.azure.net/secrets/${join("", [for i in range(128) : "r"])}"
+    }
+  }
+  expect_failures = [var.runtime_database_secret]
+}
+
+run "setup_database_rejects_oversized_vault" {
+  command = plan
+  variables {
+    setup_database_secret = {
+      key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/vvvvvvvvvvvvvvvvvvvvvvvvv"
+      secret_id    = "https://vvvvvvvvvvvvvvvvvvvvvvvvv.vault.azure.net/secrets/setup"
+    }
+  }
+  expect_failures = [var.setup_database_secret]
+}
+
+run "setup_database_rejects_oversized_secret" {
+  command = plan
+  variables {
+    setup_database_secret = {
+      key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/database"
+      secret_id    = "https://database.vault.azure.net/secrets/${join("", [for i in range(128) : "s"])}"
+    }
+  }
+  expect_failures = [var.setup_database_secret]
+}
+
 run "hostname_without_certificate_is_rejected" {
   command = plan
   variables {

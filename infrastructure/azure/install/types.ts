@@ -3,6 +3,7 @@ import type { DeploymentConfig, InstallerUI, RunCommand } from "../../installer/
 export interface DeploymentApproval {
   sourceRevision: string
   sourceStatus: string
+  sourceFingerprint: string
 }
 
 export interface AzureInstallation {
