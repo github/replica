@@ -140,7 +140,10 @@ class GithubClient::Transport
     when 410 then GithubClient::Gone
     else GithubClient::Error
     end
-    raise error_class.new("GitHub returned HTTP #{status}", status:)
+    raise error_class.new \
+      "GitHub returned HTTP #{status}",
+      status:,
+      response: error_response(response)
   end
 
   # Reports whether GitHub identified a 403 response as a temporary rate limit.
@@ -148,5 +151,13 @@ class GithubClient::Transport
     return true if response["retry-after"].present? || response["x-ratelimit-remaining"] == "0"
 
     response.body.to_s.downcase.include?("rate limit")
+  end
+
+  # Keeps a structured GitHub error available for exact classification without exposing it in messages.
+  def error_response(response)
+    parsed = JSON.parse(response.body)
+    parsed if parsed.is_a?(Hash)
+  rescue JSON::ParserError, TypeError
+    nil
   end
 end

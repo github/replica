@@ -70,7 +70,8 @@ const RESPONSE = Object.freeze({
  * who wrote them. Copilot chooses the model unless options name one.
  *
  * The credential is a GitHub user token, such as a fine-grained personal access token whose only
- * permission is Copilot requests. Without one, Copilot uses the person signed in to the Copilot
+ * permission is Copilot requests, or a GitHub App installation token that holds only the organization
+ * Copilot requests permission. Without one, Copilot uses the person signed in to the Copilot
  * CLI or the GitHub CLI on this machine.
  *
  * @param {{ model?: string, token?: string, timeoutMs?: number, connect?: typeof connectCopilot }} [options]

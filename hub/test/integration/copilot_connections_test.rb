@@ -19,6 +19,7 @@ class CopilotConnectionsTest < ActionDispatch::IntegrationTest
     @session = @actor.sessions.sole
     @previous_cli = ENV["REPLICA_LEARNING_CLI"]
     @previous_token = Rails.configuration.x.copilot_token
+    @previous_billing = Rails.configuration.x.copilot_billing
     ENV["REPLICA_LEARNING_CLI"] = CLI
     Rails.configuration.x.copilot_token = "copilot-user-token"
   end
@@ -26,14 +27,17 @@ class CopilotConnectionsTest < ActionDispatch::IntegrationTest
   teardown do
     ENV["REPLICA_LEARNING_CLI"] = @previous_cli
     Rails.configuration.x.copilot_token = @previous_token
+    Rails.configuration.x.copilot_billing = @previous_billing
   end
 
   test "connecting checks the operator's token with Copilot and never shows it" do
     get copilot_connection_path, as: :json
-    assert_equal [ false, nil ], [ data.fetch("connected"), data.fetch("tokenLabel") ]
+    assert_equal \
+      [ false, nil, I18n.t("copilot_connection.billing") ],
+      [ data.fetch("connected"), data.fetch("setupLabel"), data.fetch("billingLabel") ]
     assert_equal I18n.t("copilot_connection.connect.label"), data.dig("connect", "label")
 
-    post copilot_connection_path, params: { confirmed: "1" }
+    post copilot_connection_path, params: connect_params
 
     assert_redirected_to copilot_connection_path
     assert_equal I18n.t("copilot_connection.connected"), flash[:notice]
@@ -72,13 +76,13 @@ class CopilotConnectionsTest < ActionDispatch::IntegrationTest
     Rails.configuration.x.copilot_token = nil
 
     get copilot_connection_path, as: :json
-    assert_equal I18n.t("copilot_connection.no_token"), data.fetch("tokenLabel")
+    assert_equal [ I18n.t("copilot_connection.no_token"), nil ], [ data.fetch("setupLabel"), data.fetch("billingLabel") ]
     assert_nil data.fetch("connect")
 
-    post copilot_connection_path, params: { confirmed: "1" }
+    post copilot_connection_path, params: connect_params
 
     assert_redirected_to copilot_connection_path
-    assert_equal I18n.t("copilot_connection.errors.no_token"), flash[:alert]
+    assert_equal I18n.t("copilot_connection.errors.confirmation_changed"), flash[:alert]
     assert_nil CopilotConnection.current
     assert_equal "denied", SecurityAuditEvent.where(action: "copilot_connection.connect").sole.outcome
   end
@@ -91,7 +95,7 @@ class CopilotConnectionsTest < ActionDispatch::IntegrationTest
     }.each do |token, (reason, outcome)|
       Rails.configuration.x.copilot_token = token
 
-      post copilot_connection_path, params: { confirmed: "1" }
+      post copilot_connection_path, params: connect_params
 
       assert_redirected_to copilot_connection_path
       assert_equal I18n.t("copilot_connection.errors.#{reason}"), flash[:alert], token
@@ -101,28 +105,191 @@ class CopilotConnectionsTest < ActionDispatch::IntegrationTest
   end
 
   test "a refused token can be checked again, and a token that works clears the refusal" do
-    post copilot_connection_path, params: { confirmed: "1" }
+    post copilot_connection_path, params: connect_params
     CopilotConnection.current.refuse!
 
     get copilot_connection_path, as: :json
     assert_match "Copilot refused the token", data.fetch("refusedLabel")
     assert_equal I18n.t("copilot_connection.reconnect.label"), data.dig("connect", "label")
 
-    post copilot_connection_path, params: { confirmed: "1" }
+    post copilot_connection_path, params: connect_params
 
     assert_equal I18n.t("copilot_connection.connected"), flash[:notice]
     assert_not CopilotConnection.current.refused?
   end
 
+  test "with organization billing, the page names the organization Copilot bills, also once Copilot refuses Hub's App" do
+    Rails.configuration.x.copilot_billing = "organization"
+    Rails.configuration.x.copilot_token = nil
+    stub_github_copilot_token("copilot-user-token")
+
+    get copilot_connection_path, as: :json
+    assert_equal \
+      [ I18n.t("copilot_connection.organization.billing", organization: "github"),
+        I18n.t("copilot_connection.organization.connect.consequence", organization: "github"),
+        I18n.t("copilot_connection.organization.connect.confirm", organization: "github") ],
+      [ data.fetch("billingLabel"), data.dig("connect", "consequence"), data.dig("connect", "confirmLabel") ]
+
+    post copilot_connection_path, params: connect_params
+    assert_equal I18n.t("copilot_connection.connected"), flash[:notice]
+    CopilotConnection.current.refuse!
+
+    get copilot_connection_path, as: :json
+    assert_equal \
+      [ I18n.t("copilot_connection.organization.refused", date: Date.current.to_fs(:long), organization: "github"),
+        I18n.t("copilot_connection.organization.reconnect.label") ],
+      [ data.fetch("refusedLabel"), data.dig("connect", "label") ]
+  end
+
+  test "after organization billing is turned on, the page asks an administrator to connect Copilot again" do
+    token_owner_confirmation = CopilotConnection.billing_confirmation
+    post copilot_connection_path, params: connect_params
+    Rails.configuration.x.copilot_billing = "organization"
+    stub_github_copilot_token("copilot-user-token")
+
+    get copilot_connection_path, as: :json
+    assert_equal \
+      [ I18n.t("copilot_connection.organization.unconfirmed", organization: "github"),
+        I18n.t("copilot_connection.connect.label") ],
+      [ data.fetch("setupLabel"), data.dig("connect", "label") ]
+
+    post copilot_connection_path, params: {
+      confirmed: "1",
+      billing_confirmation: token_owner_confirmation
+    }
+    assert_equal I18n.t("copilot_connection.errors.confirmation_changed"), flash[:alert]
+    assert_not CopilotConnection.current.confirmed?
+
+    post copilot_connection_path, params: connect_params
+    get copilot_connection_path, as: :json
+    assert_equal [ nil, nil ], [ data.fetch("setupLabel"), data.fetch("connect") ]
+  end
+
+  test "with organization billing, a form cannot confirm an installation that changed after it rendered" do
+    Rails.configuration.x.copilot_billing = "organization"
+    confirmation = CopilotConnection.billing_confirmation
+    @configuration.update!(installation_id: 789)
+    mint = stub_github_copilot_token("unconfirmed-token", installation_id: 789)
+
+    post copilot_connection_path, params: {
+      confirmed: "1",
+      billing_confirmation: confirmation
+    }
+
+    assert_redirected_to copilot_connection_path
+    assert_equal I18n.t("copilot_connection.errors.confirmation_changed"), flash[:alert]
+    assert_nil CopilotConnection.current
+    assert_not_requested mint
+  end
+
+  test "with organization billing, connects nothing when the App lacks the Copilot permission or GitHub fails" do
+    Rails.configuration.x.copilot_billing = "organization"
+    failures = [
+      [ 422, github_copilot_permission_missing_error, "copilot_connection.errors.permission_missing", "denied" ],
+      [ 422, { message: "Validation Failed", errors: [ { code: "abuse" } ] },
+        "copilot_connection.organization.errors.unavailable", "failed" ],
+      [ 500, nil, "copilot_connection.organization.errors.unavailable", "failed" ]
+    ]
+    failures.each do |status, body, alert, outcome|
+      stub_github_copilot_token(error_status: status, error_body: body)
+
+      post copilot_connection_path, params: connect_params
+
+      assert_redirected_to copilot_connection_path
+      assert_equal I18n.t(alert), flash[:alert], "HTTP #{status}"
+      assert_nil CopilotConnection.current
+      assert_equal outcome, SecurityAuditEvent.where(action: "copilot_connection.connect").last.outcome, "HTTP #{status}"
+    end
+  end
+
+  test "with organization billing, a changed App configuration during token minting connects nothing" do
+    Rails.configuration.x.copilot_billing = "organization"
+    request = stub_request(:post, "#{GITHUB_API_URL}/app/installations/456/access_tokens")
+      .with(body: { permissions: { organization_copilot_requests: "read" } })
+      .to_return do
+        @configuration.update_columns(credential_revision: @configuration.credential_revision + 1)
+        {
+          status: 201,
+          body: JSON.generate(
+            token: "copilot-user-token",
+            expires_at: 1.hour.from_now.iso8601,
+            permissions: { organization_copilot_requests: "read" }
+          ),
+          headers: { "Content-Type" => "application/json" }
+        }
+      end
+
+    post copilot_connection_path, params: connect_params
+
+    assert_redirected_to copilot_connection_path
+    assert_nil CopilotConnection.current
+    assert_not_equal I18n.t("copilot_connection.connected"), flash[:notice]
+    assert_empty SecurityAuditEvent.where(action: "copilot_connection.connect", outcome: "succeeded")
+    assert_requested request
+  end
+
+  test "with organization billing, a disconnect during token minting discards the token before checking Copilot" do
+    Rails.configuration.x.copilot_billing = "organization"
+    CopilotConnection.create! \
+      user: @actor,
+      token_digest: CopilotConnection.digest(CopilotConnection.credential),
+      verified_at: 1.day.ago
+    checked = false
+    check = CopilotConnection.method(:check!)
+    CopilotConnection.define_singleton_method(:check!) { |_token| checked = true }
+    request = stub_request(:post, "#{GITHUB_API_URL}/app/installations/456/access_tokens")
+      .with(body: { permissions: { organization_copilot_requests: "read" } })
+      .to_return do
+        CopilotConnection.disconnect!(actor: @actor, browser_session: @session)
+        {
+          status: 201,
+          body: JSON.generate(
+            token: "copilot-user-token",
+            expires_at: 1.hour.from_now.iso8601,
+            permissions: { organization_copilot_requests: "read" }
+          ),
+          headers: { "Content-Type" => "application/json" }
+        }
+      end
+
+    post copilot_connection_path, params: connect_params
+
+    assert_redirected_to copilot_connection_path
+    assert_equal I18n.t("copilot_connection.errors.connection_changed"), flash[:alert]
+    assert_nil CopilotConnection.current
+    assert_not checked
+    assert_requested request
+  ensure
+    CopilotConnection.define_singleton_method(:check!, check) if check
+    CopilotConnection.private_class_method(:check!)
+  end
+
+  test "with organization billing, the page tells a personal-account App from an organization App without an active installation" do
+    Rails.configuration.x.copilot_billing = "organization"
+    @configuration.update!(owner_type: "User")
+
+    get copilot_connection_path, as: :json
+    assert_equal I18n.t("copilot_connection.organization.personal_app"), data.fetch("setupLabel")
+
+    post copilot_connection_path, params: connect_params
+
+    assert_redirected_to copilot_connection_path
+    assert_equal I18n.t("copilot_connection.errors.confirmation_changed"), flash[:alert]
+
+    @configuration.update!(owner_type: "Organization", installation_state: "suspended", suspended_at: Time.current)
+    get copilot_connection_path, as: :json
+    assert_equal I18n.t("copilot_connection.organization.no_token"), data.fetch("setupLabel")
+  end
+
   test "a successful check reports cancellation instead of restoring a disconnected connection" do
-    post copilot_connection_path, params: { confirmed: "1" }
+    post copilot_connection_path, params: connect_params
     check = CopilotConnection.method(:check!)
     CopilotConnection.define_singleton_method(:check!) do |_token|
       CopilotConnection.current.destroy!
       {}
     end
 
-    post copilot_connection_path, params: { confirmed: "1" }
+    post copilot_connection_path, params: connect_params
 
     assert_redirected_to copilot_connection_path
     assert_equal I18n.t("copilot_connection.errors.connection_changed"), flash[:alert]
@@ -137,7 +304,7 @@ class CopilotConnectionsTest < ActionDispatch::IntegrationTest
   test "connecting continues after fresh GitHub proof without another confirmation" do
     @session.update!(fresh_authorized_at: nil)
 
-    post copilot_connection_path, params: { confirmed: "1" }
+    post copilot_connection_path, params: connect_params
     challenge = FreshAuthorization.last
     assert_equal "copilot_connection", challenge.purpose
     assert_redirected_to fresh_authorization_path(challenge.public_id)
@@ -160,13 +327,13 @@ class CopilotConnectionsTest < ActionDispatch::IntegrationTest
       assert_response :forbidden
       assert_equal true, data.fetch("accessDenied")
       assert_not data.key?("connect")
-      post copilot_connection_path, params: { confirmed: "1" }
+      post copilot_connection_path, params: connect_params
       assert_response :forbidden
     end
   end
 
   test "disconnecting continues after fresh proof and leaves the token with the operator" do
-    post copilot_connection_path, params: { confirmed: "1" }
+    post copilot_connection_path, params: connect_params
     @session.update!(fresh_authorized_at: nil)
 
     delete copilot_connection_path, params: { confirmed: "1" }
@@ -225,6 +392,10 @@ class CopilotConnectionsTest < ActionDispatch::IntegrationTest
         _output, error, status = Open3.capture3("git", "-C", path.to_s, *arguments)
         assert status.success?, error
       end
+  end
+
+  def connect_params
+    { confirmed: "1", billing_confirmation: CopilotConnection.billing_confirmation }
   end
 
   def data

@@ -80,10 +80,12 @@ json.status do
   json.message(
     if LocalDevelopment.enabled?
       t("learnings.status.local")
-    elsif CopilotConnection.token.nil?
-      t("learnings.status.no_token")
+    elsif CopilotConnection.credential.nil?
+      copilot_billing_t("status.no_token", scope: "learnings")
     elsif @connection&.refused?
-      t("learnings.status.refused", date: @connection.refused_at.to_date.to_fs(:long))
+      copilot_billing_t("status.refused", scope: "learnings", date: @connection.refused_at.to_date.to_fs(:long))
+    elsif @connection && !@connection.confirmed?
+      t("learnings.organization.status.unconfirmed")
     else
       t("learnings.status.scheduled", login: @connection&.user&.login)
     end
