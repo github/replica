@@ -48,6 +48,18 @@ export async function resetDatabase(databaseUrl: string) {
       if (
         tables.rows.some(
           ({ schemaname, tablename }) =>
+            schemaname === "public" && tablename === "github_repository_access_states",
+        )
+      ) {
+        await client.query(
+          `INSERT INTO public.github_repository_access_states
+             (id, key, revision, created_at, updated_at)
+           VALUES (gen_random_uuid(), 'global', 0, clock_timestamp(), clock_timestamp())`,
+        )
+      }
+      if (
+        tables.rows.some(
+          ({ schemaname, tablename }) =>
             schemaname === "public" && tablename === "copilot_connection_states",
         )
       ) {

@@ -42,7 +42,7 @@ export function get(
         return
       }
       const { q = "", author = "", page = "1" } = query.data
-      const index = await product.findRepositoryIndex(repositoryId.data, {
+      const index = await product.findRepositoryIndex(initial, repositoryId.data, {
         query: q.trim(),
         authorId: author === "me" ? initial.userId : author || null,
         page: Number(page),

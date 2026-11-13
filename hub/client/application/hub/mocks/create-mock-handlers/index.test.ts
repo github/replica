@@ -11,6 +11,22 @@ import { createMockStore } from "../create-mock-store"
 import { createMockHandlers } from "."
 
 describe("createMockHandlers()", () => {
+  it("provides a local no-access notice for the recovery page", async () => {
+    const origin = "https://hub.example.test"
+    const server = setupServer(...createMockHandlers(createMockStore({ origin })))
+    server.listen({ onUnhandledRequest: "error" })
+    onTestFinished(() => server.close())
+
+    const response = await fetch(`${origin}/api/auth/session?explain_no_repository_access=1`)
+
+    expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({
+      authenticated: false,
+      login: "octocat",
+      reason: "no_repository_access",
+    })
+  })
+
   it("serves a minimized pinned preview without consuming the prototype introduction", async () => {
     const origin = "https://hub.example.test"
     const server = setupServer(...createMockHandlers(createMockStore({ origin })))

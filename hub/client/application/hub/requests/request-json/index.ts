@@ -57,7 +57,7 @@ export async function requestJson<T>(
     if (!result.success) {
       throw new ApiContractError("The API returned an invalid error response.", response.status)
     }
-    throw new ApiRequestError(response.status, result.data.error)
+    throw new ApiRequestError(response.status, result.data.error, payload)
   }
 
   const result = schema.safeParse(payload)

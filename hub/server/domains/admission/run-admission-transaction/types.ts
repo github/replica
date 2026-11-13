@@ -1,4 +1,5 @@
 import type { Prisma } from "../../../generated/prisma/client.ts"
+import type { ConnectedRepositoryEvidence } from "../../../repositories/repository-access/types.ts"
 import type { CreateSecurityAuditEvent } from "../../../repositories/security-audits/create-security-audit/types.ts"
 
 export interface AdmissionRepositories {
@@ -36,8 +37,17 @@ export interface AdmissionRepositories {
     transition: "created" | "restored" | "unchanged"
   }>
   createSecurityAudit(input: CreateSecurityAuditEvent): Promise<unknown>
+  recordRepositoryAccess(input: {
+    createId: () => string
+    membershipId: string
+    observedAt: Date
+    repositories: ConnectedRepositoryEvidence[]
+  }): Promise<void>
   endProviderAssignment(input: { id: string; lifecycle: "SUPERSEDED" | "REVOKED" }): Promise<void>
-  endOpenHubSessionsForMembership(membershipId: string): Promise<Array<{ id: string }>>
+  endOpenHubSessionsForMembership(
+    membershipId: string,
+    reason?: "GITHUB_REPOSITORY_ACCESS_REVOKED",
+  ): Promise<Array<{ id: string }>>
   lockActiveAssignments(membershipId: string): Promise<
     Array<{
       id: string
@@ -54,11 +64,14 @@ export interface AdmissionRepositories {
   lockAttempt(id: string): Promise<{
     bootstrapSecretDigest: string | null
     consumedAt: Date | null
+    createdAt: Date
     providerRevisionId: string
     purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
     sessionRevocationRevision: number
   } | null>
   getExternalIdentity(id: string): Promise<{ provider: string; userId: string } | null>
+  hasDisconnectedRepositories(repositories: ConnectedRepositoryEvidence[]): Promise<boolean>
+  lockGitHubRepositoryAccess(): Promise<{ revision: number; changedAt: Date | null }>
   lockMembership(
     userId: string,
   ): Promise<{ id: string; lifecycle: "ACTIVE" | "SUSPENDED" | "REMOVED" } | null>

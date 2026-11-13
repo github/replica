@@ -409,3 +409,204 @@ run "rerun_still_plans_configured_resource_changes" {
     error_message = "Ignoring service-assigned placement must not hide configured resource changes."
   }
 }
+
+run "github_app_uses_plain_identifiers_and_key_vault_secrets" {
+  command = plan
+
+  variables {
+    deploy_hub                 = true
+    hub_application_origin     = "https://hub.example.com"
+    github_app_id              = "123456"
+    github_client_id           = "Iv23liExampleClient"
+    github_app_installation_id = "7890123"
+    github_provider_revision   = 2
+    runtime_secret_references = {
+      GITHUB_CLIENT_SECRET = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/github-client-secret/11111111111111111111111111111111"
+      }
+      GITHUB_APP_PRIVATE_KEY_BASE64 = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/github-app-private-key/22222222222222222222222222222222"
+      }
+      GITHUB_WEBHOOK_SECRET = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/github-webhook-secret/33333333333333333333333333333333"
+      }
+      HUB_AUTHENTICATION_ENCRYPTION_KEY = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/hub-authentication-encryption-key/44444444444444444444444444444444"
+      }
+      HUB_BOOTSTRAP_SECRET = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/hub-bootstrap-secret/55555555555555555555555555555555"
+      }
+    }
+  }
+
+  assert {
+    condition = alltrue([for name, value in {
+      HUB_APPLICATION_ORIGIN     = "https://hub.example.com"
+      GITHUB_APP_ID              = "123456"
+      GITHUB_CLIENT_ID           = "Iv23liExampleClient"
+      GITHUB_APP_INSTALLATION_ID = "7890123"
+      GITHUB_PROVIDER_REVISION   = "2"
+      } : one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == name]) == value
+    ])
+    error_message = "The public origin, GitHub App identifiers, and provider revision must reach Hub's environment."
+  }
+  assert {
+    condition = alltrue([for name, reference in var.runtime_secret_references :
+      one([for secret in azurerm_container_app.hub[0].secret :
+        secret.key_vault_secret_id == reference.secret_id &&
+        secret.identity == azurerm_user_assigned_identity.hub.id &&
+        (secret.value == null || secret.value == "")
+        if secret.name == one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.secret_name if env.name == name])
+      ])
+    ])
+    error_message = "Each GitHub App and authentication secret must be a Key Vault-backed Container App secret resolved by Hub's identity."
+  }
+  assert {
+    condition = (
+      toset([for grant in azurerm_role_assignment.runtime_secrets : grant.scope]) == toset(concat(
+        ["${var.runtime_database_secret.key_vault_id}/secrets/runtime-database"],
+        [for name in ["github-client-secret", "github-app-private-key", "github-webhook-secret", "hub-authentication-encryption-key", "hub-bootstrap-secret"] :
+        "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github/secrets/${name}"]
+      )) &&
+      alltrue([for grant in azurerm_role_assignment.runtime_secrets :
+        grant.principal_id == azurerm_user_assigned_identity.hub.principal_id &&
+        grant.role_definition_name == "Key Vault Secrets User"
+      ])
+    )
+    error_message = "Hub may read only the individual GitHub App and authentication secrets it references, not the whole vault."
+  }
+}
+
+run "github_settings_are_omitted_when_unset" {
+  command = plan
+
+  variables {
+    deploy_hub = true
+  }
+
+  assert {
+    condition = length([
+      for env in azurerm_container_app.hub[0].template[0].container[0].env : env.name if startswith(env.name, "GITHUB_")
+    ]) == 0
+    error_message = "Unset GitHub App settings must not reach Hub's environment."
+  }
+}
+
+run "versionless_github_secret_reference_warns" {
+  command = plan
+
+  variables {
+    github_client_id = "Iv23liExampleClient"
+    runtime_secret_references = {
+      GITHUB_CLIENT_SECRET = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/github-client-secret"
+      }
+    }
+  }
+
+  expect_failures = [check.github_secret_references_are_versioned]
+}
+
+run "invalid_github_identifiers_are_rejected" {
+  command = plan
+
+  variables {
+    github_app_id              = "app-123"
+    github_client_id           = "Iv23 client"
+    github_app_installation_id = "12.5"
+    github_provider_revision   = 1.5
+  }
+
+  expect_failures = [
+    var.github_app_id,
+    var.github_client_id,
+    var.github_app_installation_id,
+    var.github_provider_revision,
+  ]
+}
+
+run "non_positive_github_provider_revision_is_rejected" {
+  command = plan
+
+  variables {
+    github_provider_revision = 0
+  }
+
+  expect_failures = [var.github_provider_revision]
+}
+
+run "github_secrets_require_their_identifiers" {
+  command = plan
+
+  variables {
+    runtime_secret_references = {
+      GITHUB_APP_PRIVATE_KEY_BASE64 = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/github-app-private-key/22222222222222222222222222222222"
+      }
+    }
+  }
+
+  expect_failures = [
+    var.github_app_id,
+    var.github_client_id,
+    var.github_app_installation_id,
+  ]
+}
+
+run "plain_github_settings_cannot_be_secret_references" {
+  command = plan
+
+  variables {
+    runtime_secret_references = {
+      GITHUB_APP_ID = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/github-app-id/11111111111111111111111111111111"
+      }
+    }
+  }
+
+  expect_failures = [var.runtime_secret_references]
+}
+
+run "empty_github_client_id_is_rejected" {
+  command = plan
+
+  variables {
+    github_client_id = ""
+  }
+
+  expect_failures = [var.github_client_id]
+}
+
+run "invalid_hub_application_origin_is_rejected" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://hub.example.com/"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_cannot_be_set_twice" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://hub.example.com"
+    runtime_secret_references = {
+      HUB_APPLICATION_ORIGIN = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/hub-origin/11111111111111111111111111111111"
+      }
+    }
+  }
+
+  expect_failures = [var.hub_application_origin]
+}

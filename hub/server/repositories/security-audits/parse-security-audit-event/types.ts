@@ -6,6 +6,7 @@ import type {
   BootstrapAttemptDeniedAudit,
   ExternalIdentityCreatedAudit,
   ExternalIdentityCreateFailedAudit,
+  GitHubAppConnectionTestedAudit,
   ProviderRevisionDeniedAudit,
   ProviderRevisionPersistFailedAudit,
   ProviderRevisionSelectedAudit,
@@ -64,4 +65,5 @@ export type ParsedSecurityAuditEvent =
       providerKeys: ProviderKey[]
     })
   | SessionRevocationAdvancedAudit
+  | GitHubAppConnectionTestedAudit
   | CopilotConnectionAudit

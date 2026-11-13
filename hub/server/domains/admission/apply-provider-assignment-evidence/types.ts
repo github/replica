@@ -10,6 +10,8 @@ export interface ApplyProviderAssignmentEvidenceInput {
 
 export interface ApplyProviderAssignmentEvidenceDependencies {
   createId(): string
+  deferSessionEnd?: boolean
+  markNoRepositoryAccess?: boolean
   repositories: AdmissionRepositories
 }
 

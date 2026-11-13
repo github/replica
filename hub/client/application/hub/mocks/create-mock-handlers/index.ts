@@ -40,6 +40,14 @@ export function createMockHandlers(store: MockStore) {
     ...createLearningsHandlers(store.learnings, store.origin, store.session),
     ...createProductHandlers(store.product, store.origin, store.session),
     ...createSettingsHandlers(store.settings, store.origin, store.session),
+    http.get(api("/auth/session"), ({ request }) =>
+      HttpResponse.json(
+        new URL(request.url).searchParams.get("explain_no_repository_access") === "1"
+          ? { authenticated: false, login: "octocat", reason: "no_repository_access" }
+          : { authenticated: false },
+        { status: 401, headers: { "Cache-Control": "no-store" } },
+      ),
+    ),
     http.get(api("/session"), () =>
       respond(() => HttpResponse.json(sessionResponseSchema.parse(store.session.read()))),
     ),

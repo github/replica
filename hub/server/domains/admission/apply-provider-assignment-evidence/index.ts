@@ -29,9 +29,14 @@ const inputSchema = z
 async function endMembershipSessions(
   membershipId: string,
   dependencies: ApplyProviderAssignmentEvidenceDependencies,
+  noRepositoryAccess: boolean,
 ) {
-  const endedSessions =
-    await dependencies.repositories.endOpenHubSessionsForMembership(membershipId)
+  const endedSessions = noRepositoryAccess
+    ? await dependencies.repositories.endOpenHubSessionsForMembership(
+        membershipId,
+        "GITHUB_REPOSITORY_ACCESS_REVOKED",
+      )
+    : await dependencies.repositories.endOpenHubSessionsForMembership(membershipId)
   for (const endedSession of endedSessions) {
     await dependencies.repositories.createSecurityAudit({
       id: dependencies.createId(),
@@ -125,8 +130,18 @@ export async function applyProviderAssignmentEvidence(
     })
     sessionsMustEnd = Boolean(existingMembership)
   }
-  if (sessionsMustEnd) {
-    await endMembershipSessions(membershipId, dependencies)
+  const assignments = await dependencies.repositories.lockActiveAssignments(membershipId)
+  if (sessionsMustEnd && !dependencies.deferSessionEnd) {
+    await endMembershipSessions(
+      membershipId,
+      dependencies,
+      Boolean(
+        dependencies.markNoRepositoryAccess &&
+        parsed.role === null &&
+        existingMembership?.lifecycle === "ACTIVE" &&
+        !assignments.some((assignment) => assignment.role === "ADMINISTRATOR"),
+      ),
+    )
   }
   if (existingMembership && existingMembership.lifecycle !== "ACTIVE") {
     return {
@@ -134,7 +149,6 @@ export async function applyProviderAssignmentEvidence(
       reason: "membership_inactive",
     }
   }
-  const assignments = await dependencies.repositories.lockActiveAssignments(membershipId)
   if (!assignments.length) {
     return {
       denied: true,

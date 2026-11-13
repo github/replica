@@ -6,19 +6,19 @@ Hub exposes same-request GitHub and Microsoft Entra sign-in flows. An installati
 
 The start primitive selects the configured provider revision, snapshots the global session revocation revision, creates opaque state, browser binding, PKCE verifier, and nonce, and persists one short-lived authorization attempt. PostgreSQL owns attempt creation, expiry, locking, and one-use consumption time. The stored attempt contains digests plus encrypted verifier and nonce state, not raw state, browser binding, or provider tokens.
 
-GitHub and Entra adapters are defined in code, not discovered from database records. Startup validates every configured adapter before one serializable transaction creates, selects, enables, or disables provider revisions. Operators do not seed provider rows. Failed validation or reconciliation leaves every current provider selection unchanged. Removing a previously selected provider disables its authority and advances the global session revocation revision. Re-enabling it requires the next consecutive provider revision, even when its validated configuration is otherwise unchanged, so previous-version replicas also reject pre-removal attempts.
+GitHub and Entra adapters are defined in code, not discovered from database records. Startup validates every complete adapter before one serializable transaction creates, selects, enables, or disables provider revisions. Operators do not seed provider rows. Failed validation or reconciliation leaves every current provider selection unchanged. An incomplete GitHub App configuration disables GitHub until repaired; a complete but invalid configuration fails startup. Removing or disabling a previously selected provider disables its authority and advances the global session revocation revision. Re-enabling it requires the next consecutive provider revision, even when its validated configuration is otherwise unchanged, so previous-version replicas also reject pre-removal attempts.
 
-Increment `GITHUB_PROVIDER_REVISION` when an intentional provider configuration or credential generation change must invalidate in-flight attempts and stale replicas, and before re-enabling a removed provider. Keep the revision unchanged for an ordinary restart with the same validated enabled provider settings.
+Increment `GITHUB_PROVIDER_REVISION` for every GitHub App configuration or credential change, and before re-enabling a disabled provider. The digest covers public settings, not secret values. Keep the revision unchanged for an ordinary restart with the same validated enabled provider settings.
 
 The completion primitive consumes the browser-bound attempt before provider work, confirms that the selected provider revision and digest match the local validated adapter, and requires the attempt's global revocation revision to remain current before and after the provider exchange. It then validates provider evidence. External identity resolution runs in a serializable transaction that locks the provider, global revocation state, and consumed attempt in admission order before creating identity records. GitHub's numeric user ID is its immutable subject. Entra uses canonical issuer plus `sub`; signed tenant `oid` is assignment provenance. Profile and presentation data are outside this foundation.
 
 Completion returns a minimal provider-neutral proof value in memory containing only the consumed authorization attempt ID and resolved external identity ID. This value is internal-only, is not a session or authority, and is never reconstructed from browser request data.
 
-The callback passes that value directly to admission in the same process. Entra completion passes current app-role evidence and the signed token issue time beside the minimal proof, not inside it. Admission rereads the immutable external identity and locks the consumed attempt, selected provider revision, global session revocation state, provider-evidence order, membership, and active assignments before changing authority or creating a session. Older signed evidence is denied before authority mutation or session issuance. Evidence with the same issue time is accepted only when it strictly reduces authority; identical evidence, conflicting evidence, and authority increases are denied, including after assignment revocation or supersession.
+The callback passes that value directly to admission in the same process. Entra completion passes current app-role evidence and the signed token issue time beside the minimal proof, not inside it. Admission rereads the immutable external identity and locks the consumed attempt, selected provider revision, global session revocation state, provider-evidence order, membership, and active assignments before changing authority or creating a session. Older evidence is denied before authority mutation or session issuance. Evidence with the same issue time is accepted only when it strictly reduces authority; identical evidence, conflicting evidence, and authority increases are denied, including after assignment revocation or supersession. A GitHub bootstrap enrollment may still use its independent administrator authority when its repository evidence is older; Hub discards that evidence instead of changing the newer grants.
 
 ## Admission
 
-Normal GitHub sign-in requires an active membership with an active assignment. Entra may create an active membership and provider-owned assignment from exact `Hub.User` or `Hub.Administrator` evidence. `Hub.Administrator` wins when both values are present. Suspended and removed memberships remain denied.
+GitHub sign-in may create an active membership and provider-owned member assignment when the user can read a repository in the configured App installation. Entra may create an active membership and provider-owned assignment from exact `Hub.User` or `Hub.Administrator` evidence. `Hub.Administrator` wins when both values are present. Suspended and removed memberships remain denied.
 
 One provider assignment is active for an external identity. Hub persists the newest signed evidence marker independently from assignment lifecycle so stale callbacks cannot recreate revoked or downgraded authority. When revocation leaves no authority, the ordering marker, transition, session termination, and denial audit commit together without a new session. Bootstrap assignments remain separate, and provider evidence never rewrites Hub-owned provenance. See [Microsoft Entra OIDC](entra-oidc.md#app-roles-and-membership) for the assignment-version triggers, when role changes become observable, when bootstrap authority may still admit the user, and how long sessions can remain valid.
 
@@ -26,11 +26,42 @@ The administrator enrollment start requires `HUB_BOOTSTRAP_SECRET` before OAuth 
 
 A started enrollment stores only a digest of the configured bootstrap secret. Rotating the secret automatically invalidates enrollment attempts that have not completed, while normal sign-in attempts remain unaffected.
 
-A successful enrollment creates or restores an active administrator assignment owned by the verified external identity. The same secret can enroll another administrator or restore a previous administrator, including when another administrator still exists. Repository permissions do not affect Hub admission.
+A successful enrollment creates or restores an active administrator assignment owned by the verified external identity. The same secret can enroll another administrator or restore a previous administrator, including when another administrator still exists. Repository permissions do not prevent administrator enrollment.
 
 Membership lifecycle and assignment provenance are separate. The schema supports active, suspended, and removed memberships, bootstrap-owned administrators, administrator-managed designations, and Entra-owned member or administrator assignment versions. Hub does not provide generic manual assignment administration.
 
 Membership ownership and creation history are immutable. Bootstrap enrollment writes a separate membership-created or membership-restored audit whenever it changes membership lifecycle; an already active membership creates no duplicate lifecycle audit.
+
+## GitHub repository access
+
+GitHub sign-in lists the installation's repositories that the user can read. Hub records that list as repository access grants for the membership in the admission transaction. A non-administrator who can read none is denied without a new session and sees `/signed-in/no-access`, with retry, account-switching, and guidance for requesting access. A revoked GitHub session can reach the same page; ordinary expiry is not labeled as an access denial. Administrators are admitted without repository access so they can repair setup.
+
+Grants are a cache of GitHub permissions, refreshed at each GitHub sign-in. GitHub member sessions see only granted repositories in the connected product pages and APIs; inaccessible repository IDs return 404. Administrator sessions and Entra member sessions see every connected repository. GitHub user tokens are discarded after the sign-in request.
+
+Administrators can sync the installation's repositories by testing the connection from `/settings/github/setup`. A scheduled worker also reconciles the installation list hourly. Sync adds or restores repositories and marks missing ones disconnected; it never deletes prototypes, Builds, or reviews. A failed or incomplete listing changes nothing. Both installation and user listings support at most 2,000 repositories; larger or inconsistent responses fail instead of applying partial access.
+
+With `GITHUB_WEBHOOK_SECRET` set, `POST /api/github/webhooks` accepts signed deliveries for Hub's installation only and ignores the rest:
+
+| Event                     | Action                     | Hub response                                                          |
+| ------------------------- | -------------------------- | --------------------------------------------------------------------- |
+| `installation`            | `deleted`, `suspend`       | Disconnects every repository and removes its grants.                 |
+| `installation`            | `unsuspend`                | Syncs repositories.                                                   |
+| `installation_repositories` | `added`                  | Syncs repositories.                                                   |
+| `installation_repositories` | `removed`                | Disconnects the removed repositories and removes their grants.       |
+| `member`                  | `removed`                  | Removes the user's grant for that repository.                         |
+| `organization`            | `member_removed`           | Removes all of the user's grants.                                     |
+
+The `organization` event requires the App's Organization Members read permission and, for an existing installation, the organization owner's approval of the permission update. The setup page lists every required permission and event.
+
+When removing grants leaves a membership with none, Hub revokes its GitHub provider-owned assignment, ends its open sessions, and audits each termination in the same transaction. Independent Entra and administrator assignments are retained; users can sign in through their remaining authority. The hourly job reconciles installation membership, not individual user permissions. Changes GitHub does not announce, such as team access changes, take effect at the user's next sign-in or session expiry.
+
+Repository access updates use a database fence and the selected provider revision to reject stale sign-ins, webhook events, and installation snapshots. Older Hub binaries do not enforce this fence. Stop all old API and worker processes before running the migration and starting this version; do not use a rolling upgrade.
+
+### Recover GitHub-only setup
+
+The setup page requires the database, `HUB_APPLICATION_ORIGIN`, `HUB_AUTHENTICATION_ENCRYPTION_KEY`, and `HUB_BOOTSTRAP_SECRET` before it can load. Before the first effective administrator exists, the bootstrap secret grants setup access. Afterward, setup requires an administrator session; the bootstrap secret alone does not unlock it.
+
+If incomplete settings disable GitHub on a Hub whose only administrator signs in with GitHub, that administrator cannot reach setup. Repair the settings out of band in the deployment configuration, increase `GITHUB_PROVIDER_REVISION` to the next revision if the provider was disabled, and run a serialized release. Preserve the existing shared authentication secrets and data. A configured Entra administrator can instead sign in through Entra while GitHub is disabled.
 
 ## Administrator management authority
 
@@ -112,4 +143,4 @@ GitHub and Entra configuration are explicit and independently revisioned. Only t
 
 ## Not implemented
 
-Hub does not provide invitations, general member administration, membership lifecycle management, recovery secrets, setup-only bootstrap consumption, background provider synchronization, repository admission, refresh tokens, provider logout, account linking, generic OIDC, multi-tenant OIDC, or Entra tenant setup automation.
+Hub does not provide invitations, general member administration, membership lifecycle management, recovery secrets, setup-only bootstrap consumption, periodic per-user repository permission refresh, refresh tokens, provider logout, account linking, generic OIDC, multi-tenant OIDC, or Entra tenant setup automation.

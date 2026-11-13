@@ -282,6 +282,20 @@ export function getSecurityAuditData(
         targetId: "global",
         context: { reason: event.reason, revision: event.revision },
       }
+    case "github_app_connection_tested":
+      return {
+        id: event.id,
+        action: "github_app.connection.tested",
+        outcome:
+          event.failedChecks.length === 0
+            ? SecurityAuditOutcome.SUCCESS
+            : SecurityAuditOutcome.FAILURE,
+        targetType: "github_app",
+        context: {
+          ...(event.actorMembershipId ? { actorMembershipId: event.actorMembershipId } : {}),
+          failedChecks: event.failedChecks,
+        },
+      }
     case "copilot_connection":
       return {
         id: event.id,

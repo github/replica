@@ -276,16 +276,6 @@ export function createSettingsStore(context: MockFlowContext) {
         context.session.requireCapability("administerHub")
         return beginAuthorization(input.operation)
       }
-      case "github-setup": {
-        context.session.requireCapability("administerHub")
-        github = { ...github, state: "ready", organization: input.organization }
-        return record(
-          input.operation,
-          "GitHub App setup is ready.",
-          null,
-          "/settings/github/register",
-        )
-      }
       case "github-register": {
         context.session.requireCapability("administerHub")
         github = { ...github, state: "registered", version: github.version + 1 }

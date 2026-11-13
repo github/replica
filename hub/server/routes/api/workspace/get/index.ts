@@ -18,7 +18,7 @@ export function get(
         response.status(401).json({ error: "Sign in to continue." })
         return
       }
-      const repositories = await product.listRepositories()
+      const repositories = await product.listRepositories(initial)
       const current = await readProductSession(cookie, session)
       if (!current || current.membershipId !== initial.membershipId) {
         response.status(401).json({ error: "Sign in to continue." })

@@ -59,7 +59,15 @@ With `npm run dev:api`, the home page shows **Sign in as local developer**. Sele
 
 Remove GitHub or Entra settings from `.env` before switching to local mode; otherwise, use `npm run dev:api:live`. Starting local mode on a database with enabled providers disables those providers. To switch back to live mode on that database, increase the revision of each provider you re-enable by exactly one above its last stored revision. For example, if the last GitHub revision was `1`, set `GITHUB_PROVIDER_REVISION=2`.
 
-With `npm run dev:api:live`, configure `HUB_APPLICATION_ORIGIN` and at least one complete GitHub or Entra profile. Set the shared encryption key and bootstrap secret at the same time. This command refuses to start without provider settings and disables local sign-in even if it is enabled in `.env`. See `.env.example` and [Microsoft Entra OIDC](entra-oidc.md). With the default `HOST`, both development servers accept connections only from this machine. Stop each with Ctrl+C.
+With `npm run dev:api:live`, configure `HUB_APPLICATION_ORIGIN`, the shared encryption key, and the bootstrap secret. Sign-in also needs a complete GitHub or Entra profile; without one, the API serves only the GitHub setup page. This command disables local sign-in even if it is enabled in `.env`. See `.env.example` and [Microsoft Entra OIDC](entra-oidc.md). With the default `HOST`, both development servers accept connections only from this machine. Stop each with Ctrl+C.
+
+### GitHub App for local development
+
+Run `npm run env:init` from `hub/` to create `.env` from `.env.example` and generate the encryption key and bootstrap secret. It never replaces a value that is already set and does not print secrets. Use a personal development GitHub App rather than a deployed Hub's App, with `http://127.0.0.1:5173/api/auth/github/callback` as a callback URL. An existing App can be reused by adding this callback URL to it.
+
+Add the App's private key with `npm run env:init -- --private-key path/to/app.private-key.pem`; the script stores it as `GITHUB_APP_PRIVATE_KEY_BASE64`. Fill in the remaining GitHub values in `.env`, restart `npm run dev:api:live`, and refresh <http://127.0.0.1:5173/settings/github/setup> to check status and test the connection. Delete the downloaded `.pem` afterward.
+
+GitHub cannot deliver webhooks to `127.0.0.1`. Local Hubs still refresh repository access at each sign-in and can sync repositories from the setup page. To test webhooks, forward deliveries to `http://127.0.0.1:5173/api/github/webhooks` with a tunnel you control. See [GitHub repository access](authentication.md#github-repository-access).
 
 Configured authentication also registers the administrator-only [`/settings/copilot`](learning-foundation.md) flow. For local or backward-compatible use, explicitly select `REPLICA_COPILOT_AUTHENTICATION=ambient-cli`, or select `environment-token` and set `REPLICA_COPILOT_TOKEN`. These modes attribute usage to the represented individual identity and are not the production default. Without a provider, the page remains available but refuses connection. API and worker startup validate `REPLICA_LEARNING_ROOT` against source and configured static-file roots even before repository learning runs exist.
 
@@ -77,7 +85,7 @@ When you sign in through GitHub or Entra instead, find your `userId` in the brow
 NODE_ENV=development npm run db:seed:index -- USER_UUID
 ```
 
-The command requires an active Hub member and a local development database. It accepts a loopback PostgreSQL URL or the exact devcontainer database URL, and rejects query parameters that override the host, address, port, or service. It creates a sample repository and six prototypes with fixed IDs. Five show each Build state, and one has no Build. Their commit and author values are synthetic. Running it again restores those samples, including metadata added after an upgrade. All active Hub members can currently read every non-removed repository. Repository discovery and per-repository authorization are not connected; do not add real repository data until those controls exist.
+The command requires an active Hub member and a local development database. It accepts a loopback PostgreSQL URL or the exact devcontainer database URL, and rejects query parameters that override the host, address, port, or service. It creates a sample repository and six prototypes with fixed IDs. Five show each Build state, and one has no Build. Their commit and author values are synthetic. Running it again restores those samples, including metadata added after an upgrade. A GitHub member sees only connected repositories granted at sign-in; use an administrator, Entra, or local developer session to view the seeded repository.
 
 Vite also forwards WebSocket upgrades under `/api`. The `/api/realtime` endpoint rejects connections until application access checks are connected; see [WebSocket updates](websockets.md). Stopping the API closes its WebSocket connections as well.
 
@@ -89,7 +97,7 @@ On `SIGINT` or `SIGTERM`, the API stops accepting requests and allows active req
 
 The API and frontend do not start background consumers. After starting PostgreSQL, run `npm run setup` once, then start `npm run worker:on-demand` and `npm run worker:scheduled` in separate terminals. Both use `DATABASE_URL`; their concurrency settings are in `.env.example`.
 
-No product jobs or recurring schedules are installed yet. See [Background jobs](background-jobs.md) for definitions, shutdown, migrations, and the compiled commands intended for separate deployment services.
+The scheduled worker reconciles the configured GitHub installation hourly. See [Background jobs](background-jobs.md) for definitions, shutdown, migrations, and the compiled commands intended for separate deployment services.
 
 ## Database lifecycle
 

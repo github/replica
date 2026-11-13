@@ -55,6 +55,7 @@ function actorFor(record: SecurityAuditListRecord) {
       const parsed = membershipContextSchema.safeParse(record.context)
       return parsed.success ? { membershipId: parsed.data.membershipId } : null
     }
+    case "github_app.connection.tested":
     case "copilot.connection.connected":
     case "copilot.connection.disconnected":
     case "copilot.connection.denied":
@@ -254,6 +255,16 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
         .strict()
         .safeParse(record.context)
       return parsed.success ? parsed.data : {}
+    }
+    case "github_app.connection.tested": {
+      const parsed = z
+        .object({
+          actorMembershipId: z.uuid().optional(),
+          failedChecks: z.array(z.string().regex(/^[a-z_]{1,50}$/)).max(10),
+        })
+        .strict()
+        .safeParse(record.context)
+      return parsed.success ? { failedChecks: parsed.data.failedChecks } : {}
     }
     case "session.revocation.advanced": {
       const parsed = z

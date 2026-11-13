@@ -35,6 +35,7 @@ function repositories(overrides: Partial<AdmissionRepositories> = {}) {
       transition: "created",
     }),
     createSecurityAudit: vi.fn().mockResolvedValue(undefined),
+    recordRepositoryAccess: vi.fn().mockResolvedValue(undefined),
     endProviderAssignment: vi.fn().mockResolvedValue(undefined),
     endOpenHubSessionsForMembership: vi.fn().mockResolvedValue([]),
     lockActiveAssignments: vi
@@ -44,14 +45,17 @@ function repositories(overrides: Partial<AdmissionRepositories> = {}) {
     lockAttempt: vi.fn().mockResolvedValue({
       bootstrapSecretDigest,
       consumedAt: new Date(),
+      createdAt: new Date(),
       providerRevisionId: "revision-id",
       purpose: "ADMIN_ENROLLMENT",
       sessionRevocationRevision: 0,
     }),
     getExternalIdentity: vi.fn().mockResolvedValue({
       provider: "github",
-      userId: "user-id",
+      userId: "22222222-2222-4222-8222-222222222222",
     }),
+    lockGitHubRepositoryAccess: vi.fn().mockResolvedValue({ revision: 0, changedAt: null }),
+    hasDisconnectedRepositories: vi.fn().mockResolvedValue(false),
     lockMembership: vi.fn().mockResolvedValue({
       id: membershipId,
       lifecycle: "ACTIVE",
@@ -213,6 +217,90 @@ describe("admitAuthenticationProof()", () => {
     expect(records.createOrRestoreMembership).toHaveBeenCalledOnce()
     expect(records.createBootstrapAssignment).toHaveBeenCalledOnce()
     expect(records.createHubSession).toHaveBeenCalledOnce()
+  })
+
+  it("admits GitHub bootstrap enrollment without applying older repository evidence", async () => {
+    const revisionId = randomUUID()
+    const records = repositories({
+      claimProviderEvidence: vi.fn().mockResolvedValue("stale"),
+      lockAttempt: vi.fn().mockResolvedValue({
+        bootstrapSecretDigest,
+        consumedAt: new Date(),
+        createdAt: new Date(),
+        providerRevisionId: revisionId,
+        purpose: "ADMIN_ENROLLMENT",
+        sessionRevocationRevision: 0,
+      }),
+      lockProvider: vi.fn().mockResolvedValue({ enabled: true, selectedRevisionId: revisionId }),
+    })
+
+    await expect(
+      admitAuthenticationProof(
+        {
+          ...input(),
+          providerAssignment: {
+            assignmentSubject: "github_repository_access",
+            issuedAt: new Date(),
+            providerRevisionId: revisionId,
+            role: "MEMBER",
+          },
+          repositoryAccess: [
+            { defaultBranch: "main", githubRepositoryId: 42, nameWithOwner: "octo/example" },
+          ],
+        },
+        {
+          createId: randomUUID,
+          getBootstrapSecretDigest: () => bootstrapSecretDigest,
+          runTransaction: (operation) => operation(records),
+          writeAudit: vi.fn(),
+        },
+      ),
+    ).resolves.toMatchObject({ role: "ADMINISTRATOR" })
+
+    expect(records.createBootstrapAssignment).toHaveBeenCalledOnce()
+    expect(records.createProviderAssignment).not.toHaveBeenCalled()
+    expect(records.recordRepositoryAccess).not.toHaveBeenCalled()
+  })
+
+  it("denies ordinary GitHub sign-in with older repository evidence", async () => {
+    const revisionId = randomUUID()
+    const records = repositories({
+      claimProviderEvidence: vi.fn().mockResolvedValue("stale"),
+      lockAttempt: vi.fn().mockResolvedValue({
+        consumedAt: new Date(),
+        createdAt: new Date(),
+        providerRevisionId: revisionId,
+        purpose: "SIGN_IN",
+        sessionRevocationRevision: 0,
+      }),
+      lockProvider: vi.fn().mockResolvedValue({ enabled: true, selectedRevisionId: revisionId }),
+    })
+
+    await expect(
+      admitAuthenticationProof(
+        {
+          ...input(),
+          providerAssignment: {
+            assignmentSubject: "github_repository_access",
+            issuedAt: new Date(),
+            providerRevisionId: revisionId,
+            role: "MEMBER",
+          },
+          repositoryAccess: [
+            { defaultBranch: "main", githubRepositoryId: 42, nameWithOwner: "octo/example" },
+          ],
+        },
+        {
+          createId: randomUUID,
+          getBootstrapSecretDigest: () => bootstrapSecretDigest,
+          runTransaction: (operation) => operation(records),
+          writeAudit: vi.fn(),
+        },
+      ),
+    ).rejects.toMatchObject({ reason: "provider_evidence_stale" })
+
+    expect(records.recordRepositoryAccess).not.toHaveBeenCalled()
+    expect(records.createHubSession).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -757,6 +845,146 @@ describe("admitAuthenticationProof()", () => {
       lifecycle: "REVOKED",
     })
     expect(endOpenHubSessionsForMembership).toHaveBeenCalledWith("membership-id")
+  })
+
+  it("denies a GitHub member who can read no connected repositories", async () => {
+    const records = repositories({
+      getExternalIdentity: vi.fn().mockResolvedValue({
+        provider: "github",
+        userId: "22222222-2222-4222-8222-222222222222",
+      }),
+      lockActiveAssignments: vi.fn().mockResolvedValue([]),
+      lockAttempt: vi.fn().mockResolvedValue({
+        bootstrapSecretDigest: null,
+        consumedAt: new Date(),
+        createdAt: new Date(),
+        providerRevisionId: "00000000-0000-4000-8000-000000000099",
+        purpose: "SIGN_IN",
+        sessionRevocationRevision: 0,
+      }),
+      lockMembership: vi.fn().mockResolvedValue(null),
+      lockProvider: vi.fn().mockResolvedValue({
+        enabled: true,
+        selectedRevisionId: "00000000-0000-4000-8000-000000000099",
+      }),
+    })
+
+    await expect(
+      admitAuthenticationProof(
+        {
+          ...input(),
+          providerAssignment: {
+            assignmentSubject: "github_repository_access",
+            issuedAt: new Date("2026-11-04T20:00:00Z"),
+            providerRevisionId: "00000000-0000-4000-8000-000000000099",
+            role: null,
+          },
+          repositoryAccess: [],
+          requiresProviderAssignmentEvidence: true,
+        },
+        {
+          createId: randomUUID,
+          getBootstrapSecretDigest: () => bootstrapSecretDigest,
+          runTransaction: (operation) => operation(records),
+          writeAudit: vi.fn(),
+        },
+      ),
+    ).rejects.toMatchObject({ reason: "no_repository_access" })
+    expect(records.createHubSession).not.toHaveBeenCalled()
+    expect(records.recordRepositoryAccess).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["no remaining authority", []],
+    [
+      "another member assignment",
+      [{ id: "other-assignment", role: "MEMBER", source: "AUTHENTICATION_PROVIDER" }],
+    ],
+  ] as const)(
+    "removes stale grants before denying an existing member with %s",
+    async (_description, assignments) => {
+      const membershipId = randomUUID()
+      const providerRevisionId = randomUUID()
+      const observedAt = new Date("2026-11-04T20:00:00Z")
+      const records = repositories({
+        lockActiveAssignments: vi.fn().mockResolvedValue(assignments),
+        lockAttempt: vi.fn().mockResolvedValue({
+          bootstrapSecretDigest: null,
+          consumedAt: new Date(),
+          createdAt: observedAt,
+          providerRevisionId,
+          purpose: "SIGN_IN",
+          sessionRevocationRevision: 0,
+        }),
+        lockMembership: vi.fn().mockResolvedValue({ id: membershipId, lifecycle: "ACTIVE" }),
+        lockProvider: vi
+          .fn()
+          .mockResolvedValue({ enabled: true, selectedRevisionId: providerRevisionId }),
+      })
+
+      await expect(
+        admitAuthenticationProof(
+          {
+            ...input(),
+            providerAssignment: {
+              assignmentSubject: "github_repository_access",
+              issuedAt: observedAt,
+              providerRevisionId,
+              role: null,
+            },
+            repositoryAccess: [],
+            requiresProviderAssignmentEvidence: true,
+          },
+          {
+            createId: randomUUID,
+            getBootstrapSecretDigest: () => bootstrapSecretDigest,
+            runTransaction: (operation) => operation(records),
+            writeAudit: vi.fn(),
+          },
+        ),
+      ).rejects.toMatchObject({ reason: "no_repository_access" })
+
+      expect(records.recordRepositoryAccess).toHaveBeenCalledWith(
+        expect.objectContaining({ membershipId, observedAt, repositories: [] }),
+      )
+      expect(records.createHubSession).not.toHaveBeenCalled()
+    },
+  )
+
+  it("records repository grants and admits an administrator with no repository access", async () => {
+    const records = repositories({
+      lockAttempt: vi.fn().mockResolvedValue({
+        bootstrapSecretDigest: null,
+        consumedAt: new Date(),
+        createdAt: new Date(),
+        providerRevisionId: "revision-id",
+        purpose: "SIGN_IN",
+        sessionRevocationRevision: 0,
+      }),
+    })
+    const dependencies = {
+      createId: randomUUID,
+      getBootstrapSecretDigest: () => bootstrapSecretDigest,
+      runTransaction: <Result>(
+        operation: (repositories: AdmissionRepositories) => Promise<Result>,
+      ) => operation(records),
+      writeAudit: vi.fn(),
+    }
+    const repository = {
+      defaultBranch: "main",
+      githubRepositoryId: 42,
+      nameWithOwner: "octo/prototypes",
+    }
+
+    await expect(
+      admitAuthenticationProof({ ...input(), repositoryAccess: [repository] }, dependencies),
+    ).resolves.toMatchObject({ role: "ADMINISTRATOR" })
+    expect(records.recordRepositoryAccess).toHaveBeenCalledWith(
+      expect.objectContaining({ repositories: [repository] }),
+    )
+    await expect(
+      admitAuthenticationProof({ ...input(), repositoryAccess: [] }, dependencies),
+    ).resolves.toMatchObject({ role: "ADMINISTRATOR" })
   })
 
   it("updates provider authority for a suspended membership without restoring it", async () => {

@@ -11,9 +11,11 @@ import { completeAuthenticationProof } from "../../../../domains/authentication/
 import type { CompleteAuthenticationProofDependencies } from "../../../../domains/authentication/complete-authentication-proof/types.ts"
 import { createEntraAuthenticationContext } from "../../../../domains/authentication/create-entra-authentication-context/index.ts"
 import { createGitHubAuthenticationContext } from "../../../../domains/authentication/create-github-authentication-context/index.ts"
+import { createGitHubRepositoryDenialNotice } from "../../../../domains/authentication/create-github-repository-denial-notice/index.ts"
 import { createLocalAuthenticationContext } from "../../../../domains/authentication/create-local-authentication-context/index.ts"
 import { createOpaqueValue } from "../../../../domains/authentication/create-opaque-value/index.ts"
 import { readAuthenticationConfigurationState } from "../../../../domains/authentication/read-authentication-configuration-state/index.ts"
+import { readGitHubRepositoryDenialNotice } from "../../../../domains/authentication/read-github-repository-denial-notice/index.ts"
 import { createSharedAuthenticationContext } from "../../../../domains/authentication/create-shared-authentication-context/index.ts"
 import { decryptAuthenticationValue } from "../../../../domains/authentication/decrypt-authentication-value/index.ts"
 import { encryptAuthenticationValue } from "../../../../domains/authentication/encrypt-authentication-value/index.ts"
@@ -43,6 +45,7 @@ import { createSecurityAudit } from "../../../../repositories/security-audits/cr
 import { listSecurityAudits } from "../../../../repositories/security-audits/list-security-audits/index.ts"
 import { upsertUserProfile } from "../../../../repositories/user-profiles/upsert-user-profile/index.ts"
 import { findAdministratorHubSession } from "../../../../repositories/hub-sessions/find-administrator-hub-session/index.ts"
+import { findGitHubRepositoryAccessDenial } from "../../../../repositories/hub-sessions/find-github-repository-access-denial/index.ts"
 import { searchAdministratorCandidates } from "../../../../repositories/memberships/search-administrator-candidates/index.ts"
 import { getSessionRevocationStatus } from "../../../../repositories/session-revocation-states/get-session-revocation-status/index.ts"
 import { cancelSensitiveAuthorization } from "../../../../repositories/sensitive-authorizations/cancel-sensitive-authorization/index.ts"
@@ -152,9 +155,9 @@ export async function createAuthenticationRouteDependencies(
       })
     }
     function start(purpose: "SIGN_IN" | "ADMIN_ENROLLMENT") {
-      return () =>
+      return (input?: { switchAccount?: boolean }) =>
         startAuthenticationProof(
-          { purpose },
+          { purpose, switchAccount: input?.switchAccount },
           {
             adapter: context.adapter,
             callbackUri: context.callbackUri,
@@ -277,6 +280,12 @@ export async function createAuthenticationRouteDependencies(
       },
       callback: {
         callbackIssuer: context.callbackIssuer,
+        ...(context.adapter.providerKey === "github"
+          ? {
+              createGitHubRepositoryDenialNotice: (login: string) =>
+                createGitHubRepositoryDenialNotice(login, context.encryptionKey),
+            }
+          : {}),
         checkRateLimit,
         secureCookie: context.secureCookie,
         complete: (input) =>
@@ -417,6 +426,10 @@ export async function createAuthenticationRouteDependencies(
       },
     },
     currentSession: {
+      findGitHubRepositoryAccessDenial: (digest) =>
+        findGitHubRepositoryAccessDenial(prisma, digest),
+      readGitHubRepositoryDenialNotice: (value) =>
+        readGitHubRepositoryDenialNotice(value, sharedContext.encryptionKey),
       restore: async (sessionDigest) => {
         const session = await restoreHubSession(sessionDigest, {
           runTransaction: (operation) => runSessionRestoreTransaction(prisma, operation),
