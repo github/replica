@@ -12,7 +12,9 @@ Session -> Hub asks GitHub for current permission -> show repository or deny acc
 
 Hub admits repository users when they can read at least one installed repository. A `none` permission on another installed repository does not prevent sign-in. Explicitly enrolled Hub operators can also sign in to administer the deployment without repository access. Hub stores their GitHub ID and current profile, but not their OAuth token. The browser cookie points to a `Session` record that Hub deletes when the person signs out.
 
-Signed-in visits to `/` and successful sign-ins go to `/repositories`, regardless of Hub administrator status. Sign-in preserves a saved preview authorization or canvas pairing destination. The repository entry point opens the first readable repository or returns not found when none is available. Hub administrators can still open `/security_audit` directly.
+Signed-out visits to protected pages save the requested internal path and query for after sign-in, including Create, preview authorization, and canvas pairing. Hub consumes the saved destination before rotating the browser session and rejects external URLs, protocol-relative paths, backslashes, whitespace, and control characters. Only GET destinations are saved; sign-in never replays a mutation. The destination still requires its normal access checks.
+
+Without a saved destination, a successful sign-in opens the welcome page for a new user or `/repositories` for a returning user, regardless of Hub administrator status. Signed-in visits to `/` go to `/repositories`. The repository entry point opens the first readable repository or returns not found when none is available. Hub administrators can still open `/security_audit` directly.
 
 Before showing a repository, Hub confirms that its App is still installed there and asks GitHub whether the signed-in person can access it. Hub also confirms that GitHub's answer belongs to that person.
 

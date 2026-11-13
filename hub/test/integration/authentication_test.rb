@@ -18,14 +18,108 @@ class AuthenticationTest < ActionDispatch::IntegrationTest
     assert_includes response.body, I18n.t("authentication.failure")
   end
 
-  test "explains when GitHub sign-in succeeds without repository access" do
+  test "returns to Create with its query after signing in through the public home" do
     github_app_configurations.create_installed
-    repository = repository_payload(2001, "github/private")
-    stub_github_sign_in(repositories: [ repository ], permissions: { 2001 => nil })
+    repository = repository_payload(1379291646, "github/prototype")
+    stub_github_sign_in(repositories: [ repository ], permissions: { 1379291646 => "pull" })
+    destination = "#{repository_new_prototype_path(1379291646)}?template=default&brief=hello%20world"
+
+    get destination
+
+    assert_redirected_to root_path
+    follow_redirect! headers: { "Accept" => "application/json" }
+    assert_response :success
 
     post github_authentication_path
     state = Rack::Utils.parse_query(URI(response.location).query).fetch("state")
     get github_authentication_callback_path, params: { code: "code", state: }
+
+    assert_redirected_to destination
+    follow_redirect! headers: { "Accept" => "application/json" }
+    assert_response :success
+    assert_equal "new", response.parsed_body.fetch("data").fetch("selectedSection")
+
+    delete session_path
+    sign_in_to_hub
+    assert_redirected_to repositories_path
+  end
+
+  test "a saved Create destination still requires repository access after sign-in" do
+    github_app_configurations.create_installed
+    installed = [
+      repository_payload(1379291646, "github/private").merge("private" => true),
+      repository_payload(2002, "github/readable").merge("private" => true)
+    ]
+    stub_github_sign_in(repositories: installed, permissions: { 1379291646 => nil, 2002 => "pull" })
+    destination = repository_new_prototype_path(1379291646)
+
+    get destination
+    assert_redirected_to root_path
+    follow_redirect! headers: { "Accept" => "application/json" }
+    post github_authentication_path
+    state = Rack::Utils.parse_query(URI(response.location).query).fetch("state")
+    get github_authentication_callback_path, params: { code: "code", state: }
+
+    assert_redirected_to destination
+    follow_redirect!
+    assert_response :not_found
+    assert_not_includes response.body, "github/private"
+  end
+
+  [ "new", "returning" ].each do |visitor|
+    test "does not replay a signed-out POST and keeps the #{visitor} user's default destination" do
+      github_app_configurations.create_installed
+      users.create(welcome_sign_in_pending: false) if visitor == "returning"
+      repository = repository_payload(1379291646, "github/prototype")
+      stub_github_sign_in(repositories: [ repository ], permissions: { 1379291646 => "pull" })
+
+      post poll_repository_path(1379291646)
+
+      assert_redirected_to root_path
+      follow_redirect! headers: { "Accept" => "application/json" }
+      post github_authentication_path
+      state = Rack::Utils.parse_query(URI(response.location).query).fetch("state")
+      get github_authentication_callback_path, params: { code: "code", state: }
+
+      assert_redirected_to(visitor == "new" ? welcome_path : repositories_path)
+    end
+  end
+
+  {
+    "external URL" => "https://outside.example/repositories/1379291646/new",
+    "protocol-relative URL" => "//outside.example/repositories/1379291646/new",
+    "backslash" => "/\\outside.example/repositories/1379291646/new",
+    "control character" => "/repositories/1379291646/new\n",
+    "space" => "/repositories/1379291646/new?brief=hello world",
+    "relative path" => "repositories/1379291646/new",
+    "non-string value" => [ "/repositories/1379291646/new" ]
+  }.each do |description, destination|
+    test "rejects a saved authentication destination with #{description}" do
+      github_app_configurations.create_installed
+      repository = repository_payload(2001, "github/prototype")
+      stub_github_sign_in(repositories: [ repository ], permissions: { 2001 => "pull" })
+
+      with_saved_authentication_destination(destination) { post github_authentication_path }
+      state = Rack::Utils.parse_query(URI(response.location).query).fetch("state")
+      get github_authentication_callback_path, params: { code: "code", state: }
+
+      assert_redirected_to welcome_path
+    end
+  end
+
+  test "a saved destination does not bypass sign-in admission without repository access" do
+    github_app_configurations.create_installed
+    repository = repository_payload(2001, "github/private")
+    stub_github_sign_in(repositories: [ repository ], permissions: { 2001 => nil })
+
+    get repository_new_prototype_path(2001)
+    assert_redirected_to root_path
+    follow_redirect!
+    post github_authentication_path
+    state = Rack::Utils.parse_query(URI(response.location).query).fetch("state")
+    assert_no_difference "Session.count" do
+      get github_authentication_callback_path, params: { code: "code", state: }
+    end
 
     assert_redirected_to root_path
     follow_redirect!
@@ -203,5 +297,19 @@ class AuthenticationTest < ActionDispatch::IntegrationTest
 
     assert_redirected_to root_path
     assert_not Session.exists?(browser_session.id)
+  end
+
+  private
+
+  # Seeds forged server-side state without adding a public return-to parameter or bypassing OAuth.
+  def with_saved_authentication_destination(destination)
+    original = GithubAuthenticationsController.instance_method(:create)
+    GithubAuthenticationsController.define_method(:create) do
+      session[:authentication_return_to] = destination
+      original.bind_call(self)
+    end
+    yield
+  ensure
+    GithubAuthenticationsController.define_method(:create, original) if original
   end
 end

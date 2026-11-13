@@ -26,7 +26,10 @@ module Authentication
   def require_authentication
     resume_session
     if Current.user.nil?
-      session[:authentication_return_to] = request.path if request.path.match?(%r{\A/canvas/pair/[0-9A-F]{10}\z})
+      # Leave cookie space for OAuth state and the rest of the session.
+      if request.get? && request.fullpath.bytesize <= 1.kilobyte
+        session[:authentication_return_to] = request.fullpath
+      end
       redirect_to root_path
     end
     response.headers["Cache-Control"] = "private, no-store" if Current.user
@@ -35,6 +38,14 @@ module Authentication
   # Reports whether the current browser session identifies a user.
   def authenticated?
     Current.user.present?
+  end
+
+  # Consumes the destination before sign-in rotates the browser session.
+  def authentication_return_to
+    value = session.delete(:authentication_return_to)
+    return if !value.is_a?(String) || !value.match?(%r{\A/(?!/)[^\x00-\x20\\]*\z})
+
+    url_from(value)
   end
 
   # Rotates the encrypted cookie and records a revocable browser session.

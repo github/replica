@@ -113,14 +113,6 @@ class GithubAuthenticationsController < ApplicationController
     end
   end
 
-  # Returns the saved preview authorization path when it has the expected shape.
-  def authentication_return_to
-    value = session.delete(:authentication_return_to)
-    return if !value.to_s.match?(%r{\A(?:/preview/builds/[1-9]\d*/authorize(?:\?[^\r\n]*)?|/canvas/pair/[0-9A-F]{10})\z})
-
-    value
-  end
-
   # Returns one generic failure that keeps setup and repository state private.
   def authentication_failed
     redirect_to root_path, alert: I18n.t("authentication.failure")

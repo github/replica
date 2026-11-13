@@ -22,6 +22,27 @@ class LocalDevelopmentTest < ActionDispatch::IntegrationTest
     assert_raises(LocalDevelopment::Error) { Repository::LocalDiscovery.refresh_all! }
   end
 
+  test "local sign-in returns to the requested Create page" do
+    path = create_repository("sign-in-destination")
+
+    in_local_mode do
+      Repository::LocalDiscovery.register_repositories!
+      repository = Repository.find_by!(local_path: path.to_s)
+      destination = repository_new_prototype_path(repository.route_id, template: "default")
+
+      get destination
+      assert_redirected_to root_path
+      follow_redirect! headers: { "Accept" => "application/json" }
+      assert_response :success
+      post local_authentication_path
+
+      assert_redirected_to destination
+      follow_redirect! headers: { "Accept" => "application/json" }
+      assert_response :success
+      assert_equal "new", response.parsed_body.fetch("data").fetch("selectedSection")
+    end
+  end
+
   test "a GitHub browser cookie cannot resume a local session" do
     github_app_configurations.create_installed
     payload = repository_payload(2001, "github/prototype")

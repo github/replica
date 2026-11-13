@@ -16,7 +16,7 @@ class LocalAuthenticationsController < ApplicationController
         status: :see_other
     end
 
-    return_to = session.delete(:authentication_return_to)
+    return_to = authentication_return_to
     user = User.local_developer!
     start_new_session_for(user)
     show_welcome = user.consume_welcome_sign_in!
