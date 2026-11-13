@@ -11,7 +11,8 @@ export function buildHistoryData(
   data: BuildHistoryResponse,
   search: URLSearchParams,
 ): BuildsIndexPageData {
-  const path = `/repositories/${data.repository.id}/prototypes/${data.prototype.id}/builds`
+  const prototypePath = `/repositories/${data.repository.id}/prototypes/${data.prototype.id}`
+  const path = `${prototypePath}/builds`
   const selectedBuild =
     data.prototype.builds.find((build) => String(build.number) === search.get("build")) ?? null
   const selectedNumber = selectedBuild?.number ?? null
@@ -55,7 +56,11 @@ export function buildHistoryData(
         createdLabel: `Created ${formatBuildTime(build.createdAt)}`,
         number: build.number,
         numberLabel: `Build ${build.number}`,
-        path: resourcePath(`${path}/${build.number}`, search),
+        // Only successful Builds have a preview to open.
+        path:
+          build.state === "successful"
+            ? resourcePath(prototypePath, search, { build: build.number })
+            : null,
         shortCommitSha: build.commitSha?.slice(0, 7) ?? null,
         state: build.state,
         stateLabel: buildStateLabel(build.state),

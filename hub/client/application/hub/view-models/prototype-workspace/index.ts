@@ -65,16 +65,16 @@ export function prototypeWorkspace({
     branchName: prototype.branchName,
     branchPath: resourcePath(path, search),
     prototypeName: prototype.name,
-    buildOptions: builds.map((build) => ({
-      number: build.number,
-      label: `v${build.number}`,
-      path:
-        surface === "preview" && build.state === "successful"
-          ? resourcePath(path, search, { build: build.number })
-          : resourcePath(`${path}/builds/${build.number}`, search),
-      state: build.state,
-      stateLabel: buildStateLabel(build.state),
-    })),
+    // Only successful Builds have a preview to open; History still lists the rest.
+    buildOptions: builds
+      .filter((build) => build.state === "successful")
+      .map((build) => ({
+        number: build.number,
+        label: `v${build.number}`,
+        path: resourcePath(path, search, { build: build.number }),
+        state: build.state,
+        stateLabel: buildStateLabel(build.state),
+      })),
     buildSelectionLabel: "Choose build",
     closeLabel: surface === "preview" ? "Return to prototypes" : "Return to prototype",
     closePath: surface === "preview" ? undefined : previewPath,
@@ -103,13 +103,7 @@ export function prototypeWorkspace({
     prototypeInfoLabel: "About this prototype",
     repositoryPath: resourcePath(`/repositories/${repository.id}`, search),
     selectedBuildNumber: selectedBuild?.number,
-    selectedBuild: selectedBuild
-      ? {
-          number: selectedBuild.number,
-          detailsLabel: "Build details",
-          detailsPath: resourcePath(`${path}/builds/${selectedBuild.number}`, search),
-        }
-      : undefined,
+    selectedBuild: selectedBuild ? { number: selectedBuild.number } : undefined,
     useDarkThemeLabel: "Use dark theme",
     useLightThemeLabel: "Use light theme",
   }

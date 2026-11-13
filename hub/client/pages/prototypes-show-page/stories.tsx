@@ -118,8 +118,6 @@ const data: PrototypesShowPageData = {
     copy: reviewCommentsCopy,
   },
   selectedBuild: {
-    detailsLabel: "Build details",
-    detailsPath: "/repositories/2001/prototypes/1/builds/1",
     frameTitle: "prototype/welcome, build 1 preview",
     number: 1,
     previewUrl,
@@ -417,16 +415,6 @@ export const Multiple: Story = {
         state: "failed",
         stateLabel: "Failed",
       },
-      buildOptions: [
-        {
-          number: 2,
-          label: "v2",
-          path: "/repositories/2001/prototypes/1/builds/2",
-          state: "failed",
-          stateLabel: "Failed to build",
-        },
-        ...data.buildOptions,
-      ],
       newerBuildLabel: "The latest update failed. You're viewing an earlier version.",
     },
     review: reviewState({

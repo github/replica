@@ -3,7 +3,6 @@ import type { z } from "zod"
 import type {
   authorResultsSchema,
   buildHistoryResponseSchema,
-  buildResponseSchema,
   buildSchema,
   paginationSchema,
   prototypeDetailsSchema,
@@ -25,7 +24,6 @@ export type Pagination = z.infer<typeof paginationSchema>
 export type WorkspaceResponse = z.infer<typeof workspaceResponseSchema>
 export type RepositoryResponse = z.infer<typeof repositoryResponseSchema>
 export type PrototypeResponse = z.infer<typeof prototypeResponseSchema>
-export type BuildResponse = z.infer<typeof buildResponseSchema>
 export type BuildHistoryResponse = z.infer<typeof buildHistoryResponseSchema>
 export type AuthorResults = z.infer<typeof authorResultsSchema>
 export type PrototypeDetails = z.infer<typeof prototypeDetailsSchema>

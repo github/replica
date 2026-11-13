@@ -24,7 +24,7 @@ const PAGE_DATA: BuildsIndexPageData = {
       createdLabel: "Added to Hub September 11, 2026",
       number: 2,
       numberLabel: "build 2",
-      path: "/repositories/2001/prototypes/1/builds/2",
+      path: "/repositories/2001/prototypes/1?build=2",
       shortCommitSha: "aaaaaaa",
       state: "successful",
       stateLabel: "Successful",
@@ -42,8 +42,6 @@ const PAGE_DATA: BuildsIndexPageData = {
   nextPagePath:
     "/repositories/2001/prototypes/1/builds?before=2&before_at=2026-09-11T12%3A00%3A00.000000Z",
   selectedBuild: {
-    detailsLabel: "Build details",
-    detailsPath: "/repositories/2001/prototypes/1/builds/2",
     number: 2,
   },
 }
@@ -79,7 +77,7 @@ describe("BuildsIndexPage()", () => {
 
     expect(screen.getByRole("link", { name: /build 2/ })).toHaveAttribute(
       "href",
-      "/repositories/2001/prototypes/1/builds/2",
+      "/repositories/2001/prototypes/1?build=2",
     )
     expect(screen.getByText("Successful")).toBeInTheDocument()
     expect(screen.getAllByRole("link", { name: "By @octocat" })[0]).toHaveAttribute(

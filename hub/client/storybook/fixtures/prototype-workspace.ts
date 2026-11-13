@@ -39,8 +39,6 @@ export const prototypeWorkspaceData = {
   repositoryMenuLabel: "Repositories",
   repositorySelectorLabel: "Choose repository. github/prototype selected",
   selectedBuild: {
-    detailsLabel: "Build details",
-    detailsPath: "/repositories/2001/prototypes/1/builds/1",
     number: 1,
   },
   selectedRepositoryId: "2001",

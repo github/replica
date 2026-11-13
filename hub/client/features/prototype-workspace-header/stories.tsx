@@ -30,8 +30,6 @@ const data: PrototypeWorkspaceHeaderData = {
   moreActionsLabel: "More actions",
   repositoryPath: "/repositories/2001",
   selectedBuild: {
-    detailsLabel: "Build details",
-    detailsPath: "/repositories/2001/prototypes/1/builds/1",
     number: 1,
   },
   shareLinksLabel: "Share links",
@@ -110,16 +108,6 @@ export const NewerBuildFailed: Story = {
     data: {
       ...data,
       newerBuildLabel: "The latest update failed. You're viewing an earlier version.",
-      buildOptions: [
-        ...data.buildOptions,
-        {
-          number: 2,
-          label: "v2",
-          path: "/repositories/2001/prototypes/1/builds/2",
-          state: "failed",
-          stateLabel: "Failed to build",
-        },
-      ],
     },
   },
 }
@@ -133,13 +121,6 @@ const longBuildStatus = {
       path: "/repositories/2001/prototypes/1?build=1",
       state: "successful" as const,
       stateLabel: "Pending review (12 checks remaining)",
-    },
-    {
-      number: 2,
-      label: "v2",
-      path: "/repositories/2001/prototypes/1?build=2",
-      state: "failed" as const,
-      stateLabel: "Failed to build",
     },
   ],
 }

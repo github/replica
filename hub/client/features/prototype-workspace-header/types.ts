@@ -16,8 +16,6 @@ interface WorkspaceHeaderData {
   repositoryPath: string
   selectedBuild?: {
     number: number
-    detailsLabel?: string
-    detailsPath?: string
   }
   selectedBuildNumber?: number
   useDarkThemeLabel: string

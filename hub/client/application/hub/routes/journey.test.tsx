@@ -81,7 +81,7 @@ describe("Hub repository journey", () => {
     expect(new URLSearchParams(router.state.location.search).get("author")).toBeNull()
   }, 15_000)
 
-  it("opens UUID prototype, history and Build pages without hijacking modified links", async () => {
+  it("opens UUID prototype, history and Build previews without hijacking modified links", async () => {
     const repositoryId = "78d6a1e9-9588-45ab-8c46-b5933ca950b3"
     const prototypeId = "0f8fad5b-d9cb-469f-a165-70867728950e"
     const seed = createFixtureSeed()
@@ -97,7 +97,6 @@ describe("Hub repository journey", () => {
     const store = createMockStore({ origin: window.location.origin, seed })
     const latestBuild = store.getPrototype(repositoryId, prototypeId).selectedBuild?.number
     const historyPageCount = store.getBuildHistory(repositoryId, prototypeId).pagination.pageCount
-    const failedBuild = store.getBuild(repositoryId, prototypeId, 2).build
     const server = setupServer(...createMockHandlers(store))
     const router = await renderHubFlow(server, `/repositories/${repositoryId}`)
     const results = await screen.findByRole("region", { name: "Prototypes" })
@@ -136,23 +135,17 @@ describe("Hub repository journey", () => {
       await router.settle(() => fireEvent.click(screen.getByRole("link", { name: "Older Builds" })))
       expect(new URLSearchParams(router.state.location.search).get("page")).toBe(String(page))
     }
-    expect(await screen.findByRole("link", { name: "Build 1" })).toBeInTheDocument()
-    await router.settle(() => fireEvent.click(screen.getByRole("link", { name: "Build 2" })))
+    expect(screen.getByText("Build 2").closest("a")).toBeNull()
+    await router.settle(() => fireEvent.click(screen.getByRole("link", { name: "Build 1" })))
 
-    expect(await screen.findByRole("heading", { name: "Build 2", level: 2 })).toBeInTheDocument()
-    expect(screen.getByText("Failed")).toBeInTheDocument()
-    expect(screen.getByText("By @mona").closest("a")).toHaveAttribute(
-      "href",
-      "https://github.com/mona",
-    )
-    if (!failedBuild.failureSummary) throw new Error("The failed Build needs an explanation.")
-    expect(screen.getByText(failedBuild.failureSummary)).toBeInTheDocument()
+    expect(await screen.findByTitle("Welcome, Build 1 preview")).toBeInTheDocument()
     expect(router.state.location.pathname).toBe(
-      `/repositories/${repositoryId}/prototypes/${prototypeId}/builds/2`,
+      `/repositories/${repositoryId}/prototypes/${prototypeId}`,
     )
+    expect(new URLSearchParams(router.state.location.search).get("build")).toBe("1")
   }, 15_000)
 
-  it("shows commit authors in Build history and details", async () => {
+  it("shows commit authors in Build history", async () => {
     const store = createMockStore({ origin: window.location.origin })
     const history = store.getBuildHistory("2001", "1")
     const authors = [
@@ -185,16 +178,8 @@ describe("Hub repository journey", () => {
       http.get(`${window.location.origin}/api/repositories/2001/prototypes/1/builds`, () =>
         HttpResponse.json({ ...history, builds }),
       ),
-      http.get(
-        `${window.location.origin}/api/repositories/2001/prototypes/1/builds/:number`,
-        ({ params }) => {
-          const build = builds.find(({ number }) => String(number) === params.number)
-          if (!build) return new HttpResponse(null, { status: 404 })
-          return HttpResponse.json({ ...store.getBuild("2001", "1", build.number), build })
-        },
-      ),
     )
-    const router = await renderHubFlow(server, "/repositories/2001/prototypes/1/builds")
+    await renderHubFlow(server, "/repositories/2001/prototypes/1/builds")
 
     expect(screen.getByText("By Sam Rivera").closest("a")).toBeNull()
     expect(screen.getByText("By lee@example.test").closest("a")).toBeNull()
@@ -203,30 +188,6 @@ describe("Hub repository journey", () => {
       "https://github.com/mona",
     )
     expect(screen.getByText("Unknown author").closest("a")).toBeNull()
-    expect(screen.getByText("By legacy-author").closest("a")).toBeNull()
-
-    await router.settle(() =>
-      router.navigate(`/repositories/2001/prototypes/1/builds/${builds[0]!.number}`),
-    )
-    expect(screen.getByText("By Sam Rivera").closest("a")).toBeNull()
-    await router.settle(() =>
-      router.navigate(`/repositories/2001/prototypes/1/builds/${builds[1]!.number}`),
-    )
-    expect(screen.getByText("By lee@example.test").closest("a")).toBeNull()
-    await router.settle(() =>
-      router.navigate(`/repositories/2001/prototypes/1/builds/${builds[2]!.number}`),
-    )
-    expect(screen.getByText("By @mona").closest("a")).toHaveAttribute(
-      "href",
-      "https://github.com/mona",
-    )
-    await router.settle(() =>
-      router.navigate(`/repositories/2001/prototypes/1/builds/${builds[3]!.number}`),
-    )
-    expect(screen.getByText("Unknown author").closest("a")).toBeNull()
-    await router.settle(() =>
-      router.navigate(`/repositories/2001/prototypes/1/builds/${builds[4]!.number}`),
-    )
     expect(screen.getByText("By legacy-author").closest("a")).toBeNull()
   }, 15_000)
 

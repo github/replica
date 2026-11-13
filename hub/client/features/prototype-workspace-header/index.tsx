@@ -64,15 +64,6 @@ export function PrototypeWorkspaceHeader({
         ...(data.historyPath
           ? [{ label: data.historyLabel, path: data.historyPath, icon: HistoryIcon }]
           : []),
-        ...(data.selectedBuild?.detailsPath && data.selectedBuild.detailsLabel
-          ? [
-              {
-                label: data.selectedBuild.detailsLabel,
-                path: data.selectedBuild.detailsPath,
-                icon: InfoIcon,
-              },
-            ]
-          : []),
       ]
 
   function activateMenuLink(event: KeyboardEvent<HTMLElement>) {
