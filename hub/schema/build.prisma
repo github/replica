@@ -6,6 +6,7 @@ model Build {
   // Relations
   prototype  Prototype   @relation("PrototypeBuilds", fields: [prototypeId], references: [id], onDelete: Restrict)
   currentFor Prototype[] @relation("CurrentPrototypeBuild")
+  reviewThreads ReviewThread[]
 
   // Attribute columns
   number               Int

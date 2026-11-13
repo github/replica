@@ -11,6 +11,7 @@ model Prototype {
   builds        Build[]                 @relation("PrototypeBuilds")
   currentBuild  Build?                  @relation("CurrentPrototypeBuild", fields: [currentBuildId, id], references: [id, prototypeId], onDelete: Restrict)
   introductions PrototypeIntroduction[]
+  reviewThreads ReviewThread[]
 
   // Attribute columns
   branchName      String    @map("branch_name") @db.VarChar(255)
@@ -25,6 +26,7 @@ model Prototype {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  @@unique([id, repositoryId])
   @@index([repositoryId, registeredAt, id])
   @@index([authorId])
   @@map("prototypes")

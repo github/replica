@@ -1,0 +1,4 @@
+enum ReviewThreadResolutionState {
+  RESOLVED
+  REOPENED
+}

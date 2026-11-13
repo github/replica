@@ -3,6 +3,7 @@ import { restoreHubSession } from "../../../../domains/admission/restore-hub-ses
 import { runSessionRestoreTransaction } from "../../../../domains/admission/run-session-restore-transaction/index.ts"
 import { editPrototypeMetadata } from "../../../../domains/prototypes/edit-prototype-metadata/index.ts"
 import { readPrototypeWithIntroduction } from "../../../../domains/prototypes/read-prototype-with-introduction/index.ts"
+import { createReviewCommentService } from "../../../../domains/review-comments/create-review-comment-service/index.ts"
 import { prisma } from "../../../../integrations/prisma/index.ts"
 import { lockAuthenticationProvidersForPrototypeEdit } from "../../../../repositories/authentication-providers/lock-authentication-providers-for-prototype-edit/index.ts"
 import { findRepositoryAuthors } from "../../../../repositories/prototype-index/find-repository-authors/index.ts"
@@ -18,6 +19,7 @@ import type { ProductRouteDependencies } from "../types.ts"
 
 export function createProductRouteDependencies(): ProductRouteDependencies {
   return {
+    reviewComments: createReviewCommentService(prisma),
     listRepositories: () => listRepositories(prisma),
     findRepositoryIndex: (repositoryId, filters) =>
       findRepositoryIndex(prisma, repositoryId, filters),

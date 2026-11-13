@@ -1,0 +1,30 @@
+model ReviewThread {
+  // ID columns
+  id           String  @id @default(uuid()) @db.Uuid
+  repositoryId String  @map("repository_id") @db.Uuid
+  prototypeId  String  @map("prototype_id") @db.Uuid
+  buildId      String  @map("build_id") @db.Uuid
+  resolvedById String? @map("resolved_by_id") @db.Uuid
+
+  // Relations
+  repository       Repository                    @relation(fields: [repositoryId], references: [id], onDelete: Restrict)
+  prototype        Prototype                     @relation(fields: [prototypeId, repositoryId], references: [id, repositoryId], onDelete: Restrict)
+  build            Build                         @relation(fields: [buildId, prototypeId], references: [id, prototypeId], onDelete: Restrict)
+  resolvedBy       User?                         @relation("ResolvedReviewThreads", fields: [resolvedById], references: [id], onDelete: Restrict)
+  comments         ReviewComment[]
+  resolutionEvents ReviewThreadResolutionEvent[]
+
+  // Attribute columns
+  anchor          Json
+  activityVersion Int       @default(1) @map("activity_version")
+  resolvedAt      DateTime? @map("resolved_at") @db.Timestamptz(3)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([repositoryId, createdAt, id])
+  @@index([prototypeId, createdAt, id])
+  @@index([resolvedById])
+  @@map("review_threads")
+}

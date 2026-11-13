@@ -6,9 +6,9 @@ Hub contributors are rebuilding the app on `build/hub/new` before merging it int
 
 The team has chosen TypeScript, Express for the API, React and Vite for the frontend, and Vitest for tests. The old backend and the frontend code that connected to it have been removed rather than rewritten.
 
-The API responds to a health check and gives signed-in members read access to the seeded repository index, prototype details, and Build history, plus prototype metadata edits and draft registration. The frontend connects the retained pages for local exploration. Storybook remains the presentation workbench.
+The API responds to a health check and gives signed-in members access to the seeded repository index, prototype details, Build history, prototype metadata edits, draft registration, and persisted prototype review conversations. The frontend connects the retained pages for local exploration. Storybook remains the presentation workbench.
 
-Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has a provider-neutral identity transaction foundation with explicit GitHub and single-tenant Microsoft Entra sign-in adapters. A reusable deployment bootstrap secret can enroll a verified provider identity as a Hub administrator. Members can browse a seeded repository index and edit visible prototype metadata through the API. The app cannot yet discover real repositories, import Builds, host published previews, or support live multi-user reviews.
+Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has a provider-neutral identity transaction foundation with explicit GitHub and single-tenant Microsoft Entra sign-in adapters. A reusable deployment bootstrap secret can enroll a verified provider identity as a Hub administrator. Members can browse the repository index, edit visible prototype metadata, and use the review-comment API for persisted conversations. The app cannot yet discover real repositories, import Builds, host published previews, connect the retained review UI to the new API, or deliver live multi-user updates.
 
 The [production runtime](deployment.md) serves the built frontend and API and runs both workers in one image. Deployment runs database and job setup separately before starting that image. The Azure installation uses an explicit startup entrypoint to retrieve configured Key Vault values through each workload's managed identity before importing provisioning, setup, or runtime code. Local entrypoints and direct environment configuration remain unchanged.
 
@@ -46,7 +46,7 @@ The administrator session-revocation API and retained frontend show current Hub 
 
 The deployment-wide Copilot connection API and retained `/settings/copilot` frontend require a live administrator session. Hub obtains a credential from the configured provider and verifies it through the separate `replica-learning` process, then locks the persistent connection generation and rereads authority before committing the connection and typed security audit together. The database stores the provider key and configuration digest, never the credential.
 
-The [learning foundation](learning-foundation.md) validates private storage, isolates the command's environment and temporary state, bounds output and execution time, and provides a PostgreSQL execution lock plus repository-store preparation primitive. Repository review collection, runs, decisions, and recall remain unimplemented because their product records and APIs do not exist.
+The [learning foundation](learning-foundation.md) validates private storage, isolates the command's environment and temporary state, bounds output and execution time, and provides a PostgreSQL execution lock plus repository-store preparation primitive. The [review backend](review-collaboration.md) now provides complete repository snapshots with stable actors, deleted-message markers, and ordered resolution history. Learning import, runs, decisions, redaction execution, and recall remain unimplemented.
 
 ## Frontend
 

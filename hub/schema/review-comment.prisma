@@ -1,0 +1,31 @@
+model ReviewComment {
+  // ID columns
+  id       String  @id @default(uuid()) @db.Uuid
+  threadId String  @map("thread_id") @db.Uuid
+  rootId   String? @map("root_id") @db.Uuid
+  authorId String  @map("author_id") @db.Uuid
+
+  // Relations
+  thread  ReviewThread    @relation(fields: [threadId], references: [id], onDelete: Restrict)
+  root    ReviewComment?  @relation("ReviewCommentReplies", fields: [rootId, threadId], references: [id, threadId], onDelete: Restrict)
+  replies ReviewComment[] @relation("ReviewCommentReplies")
+  author  User            @relation(fields: [authorId], references: [id], onDelete: Restrict)
+
+  // Attribute columns
+  publicId    Int       @unique @default(autoincrement()) @map("public_id")
+  authorLogin String    @map("author_login") @db.VarChar(200)
+  authorName  String?   @map("author_name") @db.VarChar(200)
+  body        String?
+  editedAt    DateTime? @map("edited_at") @db.Timestamptz(3)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([id, threadId])
+  @@index([threadId, createdAt, id])
+  @@index([rootId])
+  @@index([authorId])
+  @@map("review_comments")
+}

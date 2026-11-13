@@ -17,6 +17,13 @@ import { get as handleRepositoryGet } from "./api/repositories/show/get/index.ts
 import { get as handlePrototypeGet } from "./api/repositories/prototypes/show/get/index.ts"
 import { patch as handlePrototypePatch } from "./api/repositories/prototypes/show/patch/index.ts"
 import { get as handleBuildHistoryGet } from "./api/repositories/prototypes/builds/get/index.ts"
+import { get as handleReviewCommentsGet } from "./api/repositories/prototypes/review-comments/get/index.ts"
+import { post as handleReviewCommentsPost } from "./api/repositories/prototypes/review-comments/post/index.ts"
+import { patch as handleReviewCommentPatch } from "./api/repositories/prototypes/review-comments/comment/patch/index.ts"
+import { delete_ as handleReviewCommentDelete } from "./api/repositories/prototypes/review-comments/comment/delete/index.ts"
+import { post as handleReviewCommentReplyPost } from "./api/repositories/prototypes/review-comments/replies/post/index.ts"
+import { post as handleReviewThreadResolutionPost } from "./api/repositories/prototypes/review-comments/resolution/post/index.ts"
+import { delete_ as handleReviewThreadResolutionDelete } from "./api/repositories/prototypes/review-comments/resolution/delete/index.ts"
 import { get as handleAdministratorsGet } from "./api/administrators/get/index.ts"
 import { get as handleAdministratorCandidatesGet } from "./api/administrators/candidates/get/index.ts"
 import { post as handleAdministratorAuthorizationStartPost } from "./api/administrators/authorizations/start/post/index.ts"
@@ -69,6 +76,38 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
         express.json({ limit: "32kb", strict: true }),
         handlePrototypePatch(authentication.currentSession, product),
       )
+      if (product.reviewComments) {
+        const reviewCommentsPath =
+          "/api/repositories/:repositoryId/prototypes/:prototypeId/review-comments"
+        app.get(
+          reviewCommentsPath,
+          handleReviewCommentsGet(authentication.currentSession, product.reviewComments),
+        )
+        app.post(
+          reviewCommentsPath,
+          handleReviewCommentsPost(authentication.currentSession, product.reviewComments),
+        )
+        app.patch(
+          `${reviewCommentsPath}/:commentId`,
+          handleReviewCommentPatch(authentication.currentSession, product.reviewComments),
+        )
+        app.delete(
+          `${reviewCommentsPath}/:commentId`,
+          handleReviewCommentDelete(authentication.currentSession, product.reviewComments),
+        )
+        app.post(
+          `${reviewCommentsPath}/:threadId/replies`,
+          handleReviewCommentReplyPost(authentication.currentSession, product.reviewComments),
+        )
+        app.post(
+          `${reviewCommentsPath}/:threadId/resolution`,
+          handleReviewThreadResolutionPost(authentication.currentSession, product.reviewComments),
+        )
+        app.delete(
+          `${reviewCommentsPath}/:threadId/resolution`,
+          handleReviewThreadResolutionDelete(authentication.currentSession, product.reviewComments),
+        )
+      }
     }
     if (authentication.administrators) {
       app.get("/api/security-audits", handleSecurityAuditsGet(authentication.administrators))

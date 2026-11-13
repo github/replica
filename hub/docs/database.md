@@ -84,6 +84,8 @@ Builds retain the author's provider, issuer, and provider user ID independently 
 
 Builds created before commit metadata was stored retain `NULL` for unknown values during the upgrade. A later detail API must represent missing values rather than inventing them. This migration does not import Rails records or map their integer IDs.
 
+Review threads bind one non-removed repository, one reviewable prototype, and one successful Build. The root and replies keep stable Hub user UUIDs plus presentation snapshots. Soft deletion clears only the body and retains identity and deletion time. Resolution events are immutable and uniquely ordered by their thread activity sequence, so resolve, reopen, and resolved-again transitions remain distinguishable for product reads and learning snapshots.
+
 PostgreSQL `CHECK` expressions accept `NULL` unless the expression explicitly rejects it. Write nullable-branch checks so every invalid `NULL` combination evaluates to false. Design indexes from the real equality, range, ordering, and partial predicates used by lock, restore, and lookup queries.
 
 Validate schema changes on both a fresh database and an upgrade from the exact base. Migration tests should seed representative base records and prove required data, backfills, relationships, and constraints after deployment. Do not enumerate the complete migration, table, column, or index inventory. Split PostgreSQL enum additions from statements that use the new values when transactional enum visibility requires a committed boundary.
