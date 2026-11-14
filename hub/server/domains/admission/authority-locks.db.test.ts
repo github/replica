@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest"
 
 import { prisma } from "../../integrations/prisma"
 import { getDatabaseUrl } from "../../../test/database/get-database-url"
+import { waitForBlockedQuery } from "../../../test/database/wait-for-blocked-query"
 import { continueAdministratorAuthorization } from "../administrator-authorization/continue-administrator-authorization"
 import { disconnectCopilot } from "../copilot-connection/disconnect-copilot"
 import { runCopilotConnectionTransaction } from "../copilot-connection/run-copilot-connection-transaction"
@@ -20,23 +21,20 @@ import { runAdmissionTransaction } from "./run-admission-transaction"
 import { restoreHubSession } from "./restore-hub-session"
 import { runSessionRestoreTransaction } from "./run-session-restore-transaction"
 
-async function observeBlocked(inspector: pg.Client, pid: number, query?: string) {
+async function waitForBlockedPid(inspector: pg.Client, waiterPid: number) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const result = await inspector.query<{ pid: number }>(
       `SELECT waiter.pid FROM pg_stat_activity waiter
        WHERE waiter.datname = current_database()
          AND waiter.wait_event_type = 'Lock'
-         AND (
-           ($2::text IS NULL AND waiter.pid = $1)
-           OR (waiter.query LIKE $2 AND $1 = ANY(pg_blocking_pids(waiter.pid)))
-         )
+         AND waiter.pid = $1
        LIMIT 1`,
-      [pid, query ? `%${query}%` : null],
+      [waiterPid],
     )
-    if (result.rows[0]?.pid) return result.rows[0].pid
+    if (result.rows[0]?.pid) return
     await new Promise<void>((resolve) => setImmediate(resolve))
   }
-  throw new Error(`Timed out waiting for database lock: ${query ?? pid}.`)
+  throw new Error(`Timed out waiting for database backend ${waiterPid} to enter a lock wait.`)
 }
 
 function barrier() {
@@ -166,7 +164,7 @@ describe("admission authority locks", () => {
       })
       void restoration.catch(() => {})
       // Restoration now owns membership authority but cannot finish its session lock.
-      const restorePid = await observeBlocked(inspector, pid, "hub_sessions")
+      const restorePid = await waitForBlockedQuery(inspector, pid, "hub_sessions")
       change =
         mutation === "administrator continuation"
           ? continueAdministratorAuthorization(prisma, {
@@ -199,7 +197,7 @@ describe("admission authority locks", () => {
               },
             )
       void change.catch(() => {})
-      await observeBlocked(inspector, restorePid, 'FROM "session_revocation_states"')
+      await waitForBlockedQuery(inspector, restorePid, 'FROM "session_revocation_states"')
       await sessionHolder.query("COMMIT")
       holderOpen = false
       await expect(restoration).resolves.toMatchObject({ membershipId, role: "ADMINISTRATOR" })
@@ -301,11 +299,11 @@ describe("admission authority locks", () => {
       restoration = restoreHubSession(digest, {
         runTransaction: (operation) => runSessionRestoreTransaction(prisma, operation),
       })
-      await observeBlocked(inspector, providerPid, "authentication_providers")
+      await waitForBlockedQuery(inspector, providerPid, "authentication_providers")
 
       await providerHolder.query("COMMIT")
       providerTransactionOpen = false
-      await observeBlocked(inspector, revocationPid, "session_revocation_states")
+      await waitForBlockedQuery(inspector, revocationPid, "session_revocation_states")
       await revocationHolder.query(
         `UPDATE session_revocation_states
          SET revision = revision + 1, updated_at = clock_timestamp()
@@ -367,7 +365,7 @@ describe("admission authority locks", () => {
          WHERE id = $1`,
         [providerId],
       )
-      await observeBlocked(inspector, updaterPid.rows[0]!.pid)
+      await waitForBlockedPid(inspector, updaterPid.rows[0]!.pid)
 
       firstBarrier.release()
       secondBarrier.release()
@@ -408,7 +406,7 @@ describe("admission authority locks", () => {
          SET revision = revision + 1, updated_at = clock_timestamp()
          WHERE key = 'global'`,
       )
-      await observeBlocked(inspector, updaterPid.rows[0]!.pid)
+      await waitForBlockedPid(inspector, updaterPid.rows[0]!.pid)
 
       admissionBarrier.release()
       await admission
@@ -447,7 +445,7 @@ describe("admission authority locks", () => {
          WHERE id = $1`,
         [providerId],
       )
-      await observeBlocked(inspector, updaterPid.rows[0]!.pid)
+      await waitForBlockedPid(inspector, updaterPid.rows[0]!.pid)
 
       restoreBarrier.release()
       await restoration

@@ -3,6 +3,7 @@ import pg from "pg"
 import { describe, expect, it } from "vitest"
 
 import { getDatabaseUrl } from "../../../../test/database/get-database-url"
+import { waitForBlockedQuery } from "../../../../test/database/wait-for-blocked-query"
 import { continueAdministratorAuthorization } from "../../../domains/administrator-authorization/continue-administrator-authorization"
 import { prisma } from "../../../integrations/prisma"
 import { getSessionRevocationStatus } from "../../../repositories/session-revocation-states/get-session-revocation-status"
@@ -174,25 +175,6 @@ async function createFixture(input: { authorizationExpired?: boolean } = {}) {
   }
 }
 
-async function waitForBlockingQuery(inspector: pg.Client, blockerPid: number, query: string) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    const result = await inspector.query<{ pid: number }>(
-      `SELECT waiter.pid
-       FROM pg_stat_activity waiter
-       WHERE waiter.datname = current_database()
-         AND waiter.wait_event_type = 'Lock'
-         AND waiter.query LIKE $2
-         AND $1 = ANY(pg_blocking_pids(waiter.pid))
-       LIMIT 1`,
-      [blockerPid, `%${query}%`],
-    )
-    const waiterPid = result.rows[0]?.pid
-    if (waiterPid) return waiterPid
-    await new Promise<void>((resolve) => setImmediate(resolve))
-  }
-  throw new Error(`Timed out waiting for a blocked query containing ${query}.`)
-}
-
 describe("endAllHubSessions()", () => {
   it("waits for revocation authority before locking the actor session or membership", async () => {
     const fixture = await createFixture()
@@ -231,10 +213,10 @@ describe("endAllHubSessions()", () => {
         authorizationId: fixture.authorizationId,
         hubSessionId: fixture.actorSessionId,
       })
-      await waitForBlockingQuery(inspector, providerPid, "authentication_providers")
+      await waitForBlockedQuery(inspector, providerPid, "authentication_providers")
       await provider.query("COMMIT")
       providerOpen = false
-      await waitForBlockingQuery(inspector, authorityPid, "session_revocation_states")
+      await waitForBlockedQuery(inspector, authorityPid, "session_revocation_states")
 
       await contender.query("BEGIN")
       contenderOpen = true
@@ -285,7 +267,7 @@ describe("endAllHubSessions()", () => {
         (value) => ({ status: "fulfilled" as const, value }),
         (reason: unknown) => ({ status: "rejected" as const, reason }),
       )
-      const revocationPid = await waitForBlockingQuery(
+      const revocationPid = await waitForBlockedQuery(
         inspector,
         authorityPid,
         "session_revocation_states",
@@ -300,7 +282,7 @@ describe("endAllHubSessions()", () => {
         (value) => ({ status: "fulfilled" as const, value }),
         (reason: unknown) => ({ status: "rejected" as const, reason }),
       )
-      await waitForBlockingQuery(inspector, revocationPid, "authentication_providers")
+      await waitForBlockedQuery(inspector, revocationPid, "authentication_providers")
 
       await contender.query("BEGIN")
       contenderOpen = true
