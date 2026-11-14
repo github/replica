@@ -74,7 +74,7 @@ Prefer idiomatic Prisma operations for ordinary create, read, update, and delete
 
 Keep ordinary value and shape validation in application code. Add a database guard only for a named cross-writer, concurrency, or history invariant that every writer must preserve. Document the invariant and cover its rejection behavior.
 
-For prototypes, one active branch has one identity per repository, including concurrent writes. Retired branches keep their history. A registered prototype must have a nonblank name and cannot be a replica branch.
+For prototypes, one active branch has one identity per repository, including concurrent writes. Retired branches keep their history. A registered prototype must have a nonblank name and cannot be a replica branch. Non-null names and descriptions must not be blank, even for direct database writes. The metadata migration replaces existing blank draft names and blank descriptions with `NULL` before adding the guard. Start pages have a separate 2,048-byte database limit; the API validates their local path safety.
 
 A Build number is positive and unique within its prototype. A known commit SHA uses 40 or 64 lowercase hexadecimal characters and is also unique within its prototype. A prototype's current Build, if set, belongs to that prototype.
 
