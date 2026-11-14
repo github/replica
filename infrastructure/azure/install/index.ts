@@ -16,6 +16,10 @@ import { deploymentResult } from "./result/index.ts"
 import type { AzureInstallation, DeploymentResult, Foundation, Installation } from "./types.ts"
 import { openInstallationWorkspace } from "./workspace/index.ts"
 import { readInstallationInputs } from "./inputs/index.ts"
+import { approveDeployment } from "./approval/index.ts"
+import { retryableProvisioningFailure } from "./retryable-provisioning-failure/index.ts"
+import { createPostgresAvailability } from "./postgres-availability/index.ts"
+import { guidedPostgresProfile, type PostgresAvailability } from "./profile.ts"
 import {
   privateDirectory,
   privateFile,
@@ -29,18 +33,37 @@ export async function installAzure(
     run,
     ui,
     saveNpmRegistry,
+    signal,
+    availability,
   }: {
     directory: string
     run: RunCommand
     ui: InstallerUI
     saveNpmRegistry?(registry: string): Promise<void>
+    signal?: AbortSignal
+    availability?: PostgresAvailability
   },
 ): Promise<DeploymentResult> {
+  signal?.throwIfAborted()
+  const execute: RunCommand = signal
+    ? (executable, args, options) => {
+        signal.throwIfAborted()
+        return run(executable, args, { ...options, signal })
+      }
+    : run
   const config = parseConfig(input)
-  await verifyAzureTarget(config, run)
+  await verifyAzureTarget(config, execute)
   const workspace = await openInstallationWorkspace(config, directory)
   try {
-    return await install(config, { directory: workspace.directory, run, ui, saveNpmRegistry })
+    signal?.throwIfAborted()
+    return await install(config, {
+      directory: workspace.directory,
+      run: execute,
+      ui,
+      saveNpmRegistry,
+      signal,
+      availability,
+    })
   } finally {
     await workspace.close()
   }
@@ -53,14 +76,33 @@ async function install(
     run,
     ui,
     saveNpmRegistry,
+    signal,
+    availability = createPostgresAvailability(run),
   }: {
     directory: string
     run: RunCommand
     ui: InstallerUI
     saveNpmRegistry?(registry: string): Promise<void>
+    signal?: AbortSignal
+    availability?: PostgresAvailability
   },
 ): Promise<DeploymentResult> {
   const operatorInputs = await readInstallationInputs(directory, config)
+  const postgres = {
+    postgres_sku: operatorInputs.postgres_sku ?? guidedPostgresProfile.postgres_sku,
+    postgres_version: operatorInputs.postgres_version ?? guidedPostgresProfile.postgres_version,
+  }
+  ui.status(`Checking PostgreSQL SKU/version support in ${config.azure.location}.`)
+  const compatible = await availability(
+    config.azure.subscriptionId,
+    config.azure.location,
+    postgres,
+  )
+  signal?.throwIfAborted()
+  if (!compatible)
+    throw new Error(
+      `The configured region does not advertise PostgreSQL ${postgres.postgres_sku}, version ${postgres.postgres_version}. The target was not changed; review deployment settings or create a separate installation in another region.`,
+    )
   for (const file of [
     "foundation.tfvars.json",
     "provision.tfvars.json",
@@ -88,6 +130,7 @@ async function install(
     ui,
     env,
     saveNpmRegistry,
+    signal,
     azure: (...args) =>
       run("az", [
         ...args,
@@ -101,26 +144,8 @@ async function install(
   const { azure } = context
   const names = installationNames(config)
   await ui.phase?.("review")
-  ui.status(
-    `Target: ${config.azure.subscriptionId} / ${config.azure.location}. App group: ${config.azure.resourceGroup}. State group: ${names.stateGroup}. Foundation group: ${names.foundationGroup}.`,
-  )
-  ui.status(
-    `State access: Azure authentication and Blob data permissions, without IP restrictions. npm registry: ${config.npmRegistry ?? "npm default"}. ACR: ${names.registry}. Key Vault: ${names.vault}.`,
-  )
-  ui.status(
-    "This creates billable PostgreSQL, Container Apps, Blob Storage, ACR, Key Vault and logs. It is not high availability. Hub sign-in requires manual configuration; hosted previews and reviews are not available yet.",
-  )
-  ui.notice?.(
-    "warning",
-    `Target: ${config.azure.subscriptionId} / ${config.azure.location}. App group: ${config.azure.resourceGroup}. State group: ${names.stateGroup}. Foundation group: ${names.foundationGroup}.\nThis creates billable PostgreSQL, Container Apps, Blob Storage, ACR, Key Vault and logs, publishes an image, and requires a maintenance window. Hub sign-in requires manual configuration; hosted previews and reviews are not available yet. HTTPS readiness does not verify authorization.`,
-  )
-  if (
-    !(await ui.confirm(
-      "Authorize resource creation, role assignments, image publication, and a maintenance-window deployment in this subscription?",
-    ))
-  ) {
-    throw new Error("Installation cancelled before cloud changes.")
-  }
+  context.approval = await approveDeployment(context, postgres)
+  signal?.throwIfAborted()
   await ui.phase?.("provision")
   for (const namespace of [
     "Microsoft.App",
@@ -165,6 +190,9 @@ async function install(
         run,
         ui,
         env: environment,
+        preapproved: true,
+        retryApply: retryableProvisioningFailure,
+        signal,
       })
     await verifyInstallationGroup(context, names.foundationGroup)
     await verifyInstallationGroup(context, config.azure.resourceGroup)
@@ -214,6 +242,7 @@ async function install(
     const appCreated = appState.includes("azurerm_container_app.hub[0]")
     const variables = join(directory, "installation.tfvars.json")
     const inputs = {
+      ...postgres,
       subscription_id: config.azure.subscriptionId,
       name: config.name,
       owner: config.owner,
@@ -250,19 +279,6 @@ async function install(
       image,
       await state.backend("provision"),
     )
-    ui.notice?.(
-      "warning",
-      `Release ${image} in subscription ${config.azure.subscriptionId}. Hub will be unavailable while all old revisions stop and setup runs. This requires fresh maintenance-window approval.`,
-    )
-    if (
-      !(await ui.confirm(
-        "Stop all Hub revisions, run setup, and release this image? Hub will be unavailable during this maintenance window.",
-      ))
-    ) {
-      throw new Error(
-        "Release cancelled. Infrastructure remains provisioned; the installation lock is retained for review.",
-      )
-    }
     await ui.phase?.("release")
     await recoverLease(context, installation.storage_account, "releases", "deployment.lock")
     ui.status("Running the serialized maintenance-window release")

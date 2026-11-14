@@ -41,6 +41,14 @@ The runtime serves built frontend navigation and static files on the API port. U
 
 On termination, combined mode stops all three roles and drains work within the configured deadline. A required role failing or stopping unexpectedly fails the container. Roles remain independently runnable for future deployments; cross-instance WebSocket delivery is not implemented.
 
+### Azure startup secret retrieval
+
+The Azure installation invokes `node dist/server/scripts/azure-entrypoint/index.js runtime`, `setup`, or `provision` instead of using platform-managed Key Vault references. Rebuild and publish the image from this source before applying these commands; earlier images do not contain this entrypoint. `AZURE_CLIENT_ID` explicitly selects the assigned workload identity. `AZURE_KEY_VAULT_SECRET_REFERENCES` is a non-secret JSON map of destination environment names to public-cloud HTTPS Key Vault secret URLs. The entrypoint validates all references, reads their values through the selected identity, and populates the workload's in-memory environment before importing its existing entrypoint. Retrieved secret values never enter Terraform inputs, Azure container configuration, or startup logs.
+
+Runtime and setup require `DATABASE_URL`; setup accepts no additional references. Provisioning requires exactly `DATABASE_URL`, `HUB_MIGRATION_PASSWORD`, and `HUB_RUNTIME_PASSWORD`, with versioned URLs. Runtime may additionally reference validated configuration names, but references cannot replace deployment-owned fields or already-defined values. Retrieval has a shared 30-second startup deadline and cancellation support. Failure prevents workload imports and database work; it does not fall back to operator credentials, a system-assigned identity, or old environment values.
+
+Versioned references make rotation explicit. An unversioned runtime/setup URL is resolved once at startup; there is no background refresh or automatic revision restart. Use the installation's serialized release procedure to load a rotated value. Source development, local image runs with directly supplied protected environment values, and the existing setup/provisioning scripts retain their original entrypoints and behavior.
+
 ## Setup before release
 
 Run `npm run setup` from `hub/`, or invoke `node dist/server/scripts/setup/index.js` inside the image. Normal API and worker startup never runs setup.

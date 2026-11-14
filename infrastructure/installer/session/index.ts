@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto"
-import { lstat, mkdir, readFile, rename, rm } from "node:fs/promises"
+import { lstat, rename, rm } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
 import { configurationFields, InputValidationError, parseAzureId } from "../config/fields/index.ts"
 import { wizardPhases, type WizardPhase } from "../types.ts"
 import { writePrivateJson } from "../write-private-json/index.ts"
 import { lockSession } from "./lock/index.ts"
+import { privateDirectory, readPrivateFile } from "../private-files/index.ts"
 
 export interface DraftAnswers {
   cloud?: "azure"
@@ -135,26 +136,57 @@ function parseDraft(value: unknown, configPath: string): WizardDraft {
   }
 }
 
-export async function openSession(configurationPath: string): Promise<WizardSession> {
+export async function readSession(
+  configurationPath: string,
+): Promise<{ draft?: WizardDraft; problem?: string }> {
   const configPath = resolve(configurationPath)
   const path = `${configPath}.draft.json`
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 })
-  const release = await lockSession(`${path}.lock`)
-  let draft: WizardDraft | undefined
-  let problem: string | undefined
   try {
-    const metadata = await lstat(path)
-    if (!metadata.isFile() || (metadata.mode & 0o077) !== 0) {
-      throw new InputValidationError("Draft must be a private regular file (permissions 0600).")
-    }
-    draft = parseDraft(JSON.parse(await readFile(path, "utf8")), configPath)
+    const content = await readPrivateFile(path, { createDirectory: false })
+    return content === undefined ? {} : { draft: parseDraft(JSON.parse(content), configPath) }
   } catch (error) {
-    if (error instanceof InputValidationError || error instanceof SyntaxError) {
-      problem = `The saved session at ${path} is invalid, unsupported, or belongs to another configuration. It has been preserved.`
-    } else if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-      await release()
-      throw error
+    if (!(error instanceof Error)) throw error
+    return {
+      problem: `The saved session at ${path} needs attention: it is unreadable, untrusted, invalid, unsupported, or belongs to another configuration. It has been preserved.`,
     }
+  }
+}
+
+export async function openSession(
+  configurationPath: string,
+  { fresh = false }: { fresh?: boolean } = {},
+): Promise<WizardSession> {
+  const configPath = resolve(configurationPath)
+  const path = `${configPath}.draft.json`
+  await privateDirectory(dirname(path))
+  const release = await lockSession(`${path}.lock`, { fresh })
+  let state: Awaited<ReturnType<typeof readSession>>
+  try {
+    if (fresh) {
+      for (const target of [configPath, path, `${path}.lock.recovery`]) {
+        try {
+          await lstat(target)
+        } catch (error) {
+          if (error instanceof Error && "code" in error && error.code === "ENOENT") continue
+          throw error
+        }
+        throw new Error(
+          `New setup path is already in use: ${target}. Existing files were preserved.`,
+        )
+      }
+    }
+    state = await readSession(configPath)
+  } catch (error) {
+    await release()
+    throw error
+  }
+  let { draft, problem } = state
+  const checkCurrentDraft = async () => {
+    const current = await readSession(configPath)
+    if (current.problem || JSON.stringify(current.draft) !== JSON.stringify(draft))
+      throw new Error(
+        `The saved draft at ${path} changed or needs attention. It was preserved. Close setup and review the files before restarting.`,
+      )
   }
   let pending = Promise.resolve()
   let closed = false
@@ -172,6 +204,7 @@ export async function openSession(configurationPath: string): Promise<WizardSess
   const update = (change: (next: WizardDraft) => void) =>
     enqueue(async () => {
       if (problem) throw new Error("Resolve the preserved draft before saving this session.")
+      await checkCurrentDraft()
       const now = new Date().toISOString()
       const next = structuredClone(
         draft ??
@@ -189,7 +222,7 @@ export async function openSession(configurationPath: string): Promise<WizardSess
       change(next)
       next.updatedAt = now
       const checked = parseDraft(next, configPath)
-      await writePrivateJson(path, checked)
+      await writePrivateJson(path, checked, { exclusive: !draft })
       draft = checked
     })
   return {
@@ -226,13 +259,17 @@ export async function openSession(configurationPath: string): Promise<WizardSess
     restart: () =>
       enqueue(async () => {
         if (problem) await rename(path, `${path}.preserved-${randomUUID()}`)
-        else await rm(path, { force: true })
+        else {
+          await checkCurrentDraft()
+          await rm(path, { force: true })
+        }
         draft = undefined
         problem = undefined
       }),
     complete: () =>
       enqueue(async () => {
         if (problem) throw new Error("The preserved draft has not been resolved.")
+        await checkCurrentDraft()
         await rm(path, { force: true })
         draft = undefined
       }),

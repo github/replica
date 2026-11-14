@@ -45,7 +45,7 @@ variable "secret_urls" {
     condition = (
       toset(keys(var.secret_urls)) == toset(["DATABASE_URL", "HUB_MIGRATION_PASSWORD", "HUB_RUNTIME_PASSWORD"]) &&
       alltrue([for secret in values(var.secret_urls) :
-        can(regex("^https://[a-zA-Z0-9-]+\\.vault\\.azure\\.net/secrets/[a-zA-Z0-9-]+/[a-fA-F0-9]{32}$", secret))
+        can(regex("^https://[a-zA-Z0-9-]{1,24}\\.vault\\.azure\\.net/secrets/[a-zA-Z0-9-]{1,127}/[a-fA-F0-9]{32}$", secret))
       ])
     )
     error_message = "Provide exactly three versioned Key Vault references for the administrator URL and two role passwords, never raw values."
@@ -105,31 +105,24 @@ resource "azurerm_container_app_job" "provision" {
       identity = azurerm_user_assigned_identity.provision.id
     }
   }
-  dynamic "secret" {
-    for_each = var.secret_urls
-    content {
-      name                = lower(replace(secret.key, "_", "-"))
-      key_vault_secret_id = secret.value
-      identity            = azurerm_user_assigned_identity.provision.id
-    }
-  }
   template {
     container {
       name    = "provision"
       image   = var.image
       cpu     = 0.5
       memory  = "1Gi"
-      command = ["node", "dist/server/scripts/provision-database-access/index.js"]
+      command = ["node", "dist/server/scripts/azure-entrypoint/index.js", "provision"]
       env {
         name  = "NODE_ENV"
         value = "production"
       }
-      dynamic "env" {
-        for_each = var.secret_urls
-        content {
-          name        = env.key
-          secret_name = lower(replace(env.key, "_", "-"))
-        }
+      env {
+        name  = "AZURE_CLIENT_ID"
+        value = azurerm_user_assigned_identity.provision.client_id
+      }
+      env {
+        name  = "AZURE_KEY_VAULT_SECRET_REFERENCES"
+        value = jsonencode(var.secret_urls)
       }
     }
   }

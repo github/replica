@@ -9,5 +9,7 @@ export const terminalColors = {
 } as const
 
 export const terminalTheme = extendTheme(defaultTheme, {
-  components: { Spinner: { styles: { frame: () => ({ color: terminalColors.accent }) } } },
+  components: {
+    Spinner: { styles: { frame: () => ({ color: terminalColors.accent }) } },
+  },
 })

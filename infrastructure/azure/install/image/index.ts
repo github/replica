@@ -6,6 +6,7 @@ import { installationNames } from "../settings.ts"
 import { CommandExecutionError } from "../../../installer/command/index.ts"
 import { promptForField } from "../../../installer/prompt-for-field/index.ts"
 import { promptForRecovery } from "../../../installer/prompt-for-recovery/index.ts"
+import { createBuildSnapshot } from "../build-context/index.ts"
 
 export async function publishImage(
   context: AzureInstallation,
@@ -13,14 +14,21 @@ export async function publishImage(
 ): Promise<string> {
   const { run, azure, config, directory, ui, saveNpmRegistry } = context
   const repository = resolve(import.meta.dirname, "../../../..")
+  let approval = context.approval
   while (true) {
     const metadata = join(directory, `image-${randomUUID()}.json`)
+    let snapshot: Awaited<ReturnType<typeof createBuildSnapshot>> | undefined
     let failure: Error
     try {
       const commit = await run("git", ["rev-parse", "HEAD"], { cwd: repository })
       const dirty = await run("git", ["status", "--porcelain", "--untracked-files=normal"], {
         cwd: repository,
       })
+      if (approval && (approval.sourceRevision !== commit || approval.sourceStatus !== dirty))
+        throw new DOMException(
+          "The source revision or working-tree status changed after deployment approval. Restart to review the source before publishing.",
+          "AbortError",
+        )
       if (dirty && !ui.select)
         throw new DOMException(
           "Unattended image publication requires a clean source checkout. Commit or remove the intended changes, or rerun interactively for separate working-tree consent. Deployment approval does not authorize dirty-source publication.",
@@ -28,12 +36,19 @@ export async function publishImage(
         )
       if (
         dirty &&
+        !approval &&
         !(await ui.confirm(
           "The source checkout has uncommitted changes. Build and publish this working tree?",
         ))
       )
         throw new DOMException(
           "Image publication cancelled; use an approved source checkout.",
+          "AbortError",
+        )
+      snapshot = await createBuildSnapshot(repository, directory, context.signal)
+      if (approval && approval.sourceFingerprint !== snapshot.fingerprint)
+        throw new DOMException(
+          "The Hub build contents changed after deployment approval. Restart to review the source before publishing.",
           "AbortError",
         )
       await azure("acr", "login", "--name", installationNames(config).registry)
@@ -43,13 +58,15 @@ export async function publishImage(
         "build",
         "--platform",
         "linux/amd64",
+        "--file",
+        join(snapshot.directory, "hub/Dockerfile"),
         "--tag",
         tag,
         "--metadata-file",
         metadata,
         "--push",
         ...(config.npmRegistry ? ["--build-arg", `NPM_REGISTRY=${config.npmRegistry}`] : []),
-        join(repository, "hub"),
+        snapshot.directory,
       ])
       const result: unknown = JSON.parse(await readFile(metadata, "utf8"))
       const digest =
@@ -67,6 +84,7 @@ export async function publishImage(
         throw error
       failure = error instanceof Error ? error : new Error("Image publication failed.")
     } finally {
+      await snapshot?.cleanup()
       await rm(metadata, { force: true })
     }
     const choice = await promptForRecovery(ui, {

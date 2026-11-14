@@ -6,6 +6,7 @@ import { acquireLease } from "../lease/index.ts"
 import type { installationSecrets } from "../secrets/index.ts"
 import type { AzureInstallation, Foundation, Installation } from "../types.ts"
 import { writePrivateFile } from "../../../installer/private-files/index.ts"
+import { retryableProvisioningFailure } from "../retryable-provisioning-failure/index.ts"
 
 export async function provisionDatabase(
   context: AzureInstallation,
@@ -22,6 +23,9 @@ export async function provisionDatabase(
     run,
     ui,
     env,
+    preapproved: context.approval !== undefined,
+    retryApply: retryableProvisioningFailure,
+    signal: context.signal,
   })
   await module.init(backend)
   const complete = await secrets.provisioned()
@@ -148,7 +152,17 @@ export async function provisionDatabase(
         throw new Error("Provisioning timed out. Check the execution before releasing any lock.")
       await secrets.markProvisioned()
     }
-    await module.apply(variables, { destroy: true })
+    await module.apply(variables, {
+      destroy: true,
+      allowedDeletions: [
+        "azurerm_container_app_job.provision",
+        "azurerm_user_assigned_identity.provision",
+        "azurerm_role_assignment.image[0]",
+        'azurerm_role_assignment.secrets["DATABASE_URL"]',
+        'azurerm_role_assignment.secrets["HUB_MIGRATION_PASSWORD"]',
+        'azurerm_role_assignment.secrets["HUB_RUNTIME_PASSWORD"]',
+      ],
+    })
     await lease.release()
   } finally {
     lease.reportRetained()

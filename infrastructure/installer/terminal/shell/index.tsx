@@ -128,15 +128,21 @@ export function TerminalShell({
         {!tiny && (
           <>
             <Text bold color={terminalColors.accent}>
-              Replica Hub installation
+              {view.removing ? "Replica Hub removal" : "Replica Hub installation"}
             </Text>
-            <Progress
-              phase={view.phase}
-              configureOnly={configureOnly}
-              complete={view.complete}
-              compact={compact}
-              blocked={question?.kind === "wait" || view.notice?.level === "error"}
-            />
+            {view.removing ? (
+              <Text color={terminalColors.warning}>
+                {view.complete ? "Removal complete" : "Remove an installation (destructive)"}
+              </Text>
+            ) : (
+              <Progress
+                phase={view.phase}
+                configureOnly={configureOnly}
+                complete={view.complete}
+                compact={compact}
+                blocked={question?.kind === "wait" || view.notice?.level === "error"}
+              />
+            )}
           </>
         )}
         <Box marginTop={tiny ? 0 : 1} flexDirection="column" flexGrow={fullscreen ? 1 : 0}>

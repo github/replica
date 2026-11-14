@@ -71,10 +71,7 @@ describe("private installer telemetry", () => {
     const run = telemetry.command(runCommand)
     const failure: unknown = await run(
       process.execPath,
-      [
-        "-e",
-        `process.stderr.write(${JSON.stringify(secret)}, () => process.exit(29))`,
-      ],
+      ["-e", `process.stderr.write(${JSON.stringify(secret)}, () => process.exit(29))`],
       { label: "Synthetic diagnostic step" },
     ).catch((error: unknown) => error)
     expect(failure).toBeInstanceOf(CommandExecutionError)
@@ -151,7 +148,10 @@ describe("private installer telemetry", () => {
     })
     const run = telemetry.command(runner)
     const args = ["storage", "account", "create", "--name", "synthetic-account"]
-    const options = { label: "Create state storage", env: { SYNTHETIC_OPTION: "value" } }
+    const options = {
+      label: "Create state storage",
+      env: { SYNTHETIC_OPTION: "value" },
+    }
 
     await observed.phase?.("checks")
     await observed.phase?.("provision")
@@ -176,7 +176,10 @@ describe("private installer telemetry", () => {
     expect(provision.status).toBe("error")
     expect(success.status).toBe("ok")
     expect(failed.status).toBe("error")
-    expect(failed.attributes).toMatchObject({ exit_code: 23, outcome: "failed" })
+    expect(failed.attributes).toMatchObject({
+      exit_code: 23,
+      outcome: "failed",
+    })
     for (const phase of [checks, provision]) expect(phase.parent_span_id).toBe(root.span_id)
     for (const command of [success, failed]) expect(command.parent_span_id).toBe(provision.span_id)
     const spans = [root, checks, provision, success, failed]
@@ -353,7 +356,10 @@ describe("private installer telemetry", () => {
     const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true)
     const telemetry = await start(await target())
     const cancellation = new CommandExecutionError(`${secret.stderr}: ${secret.error}`, true)
-    Object.assign(cancellation, { cause: new Error(secret.env), output: secret.stdout })
+    Object.assign(cancellation, {
+      cause: new Error(secret.env),
+      output: secret.stdout,
+    })
     const run = telemetry.command(async (executable) => {
       if (executable === secret.executable) throw cancellation
       return secret.stdout
@@ -366,6 +372,7 @@ describe("private installer telemetry", () => {
       text: vi.fn(async () => secret.answer),
       field: vi.fn(async () => secret.answer),
       select: vi.fn(async () => secret.choice),
+      removal: vi.fn(),
       confirm: vi.fn(async () => {
         throw new Error(secret.error)
       }),
@@ -386,6 +393,8 @@ describe("private installer telemetry", () => {
     await observed.field?.(field, secret.answer)
     await observed.field?.({ ...field, id: secret.fieldId }, secret.answer)
     await observed.select(secret.message, [{ label: secret.message, value: secret.choice }])
+    observed.removal!(true)
+    expect(ui.removal).toHaveBeenCalledWith(true)
     await observed.wait(secret.message)
     await expect(observed.confirm(secret.message)).rejects.toThrow(secret.error)
     await expect(
@@ -395,7 +404,9 @@ describe("private installer telemetry", () => {
       }),
     ).resolves.toBe(secret.stdout)
     await expect(
-      run(secret.executable, [secret.subcommand, secret.argv], { label: secret.label }),
+      run(secret.executable, [secret.subcommand, secret.argv], {
+        label: secret.label,
+      }),
     ).rejects.toBe(cancellation)
     await telemetry.close(cancellation)
 

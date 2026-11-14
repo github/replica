@@ -1,11 +1,19 @@
 import type { DeploymentConfig, InstallerUI, RunCommand } from "../../installer/types.ts"
 
+export interface DeploymentApproval {
+  sourceRevision: string
+  sourceStatus: string
+  sourceFingerprint: string
+}
+
 export interface AzureInstallation {
   config: DeploymentConfig
   directory: string
   run: RunCommand
   ui: InstallerUI
   env: NodeJS.ProcessEnv
+  approval?: DeploymentApproval
+  signal?: AbortSignal
   azure(...args: string[]): Promise<string>
   saveNpmRegistry?(registry: string): Promise<void>
 }

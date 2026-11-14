@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises"
-import { resolve } from "node:path"
+import { join, relative, resolve } from "node:path"
 import { afterEach, expect, it, vi } from "vitest"
 
 import { CommandExecutionError } from "../../../installer/command/index.ts"
 import type { InstallerUI, RunCommand } from "../../../installer/types.ts"
 import type { AzureInstallation, Foundation } from "../types.ts"
+import { createBuildSnapshot } from "../build-context/index.ts"
 import { publishImage } from "./index.ts"
 
 const directories: string[] = []
@@ -27,6 +28,18 @@ async function writeDigest(args: string[], value: string) {
     args[args.indexOf("--metadata-file") + 1]!,
     JSON.stringify({ "containerimage.digest": value }),
   )
+}
+
+async function buildFingerprint(parent: string) {
+  const snapshot = await createBuildSnapshot(
+    resolve(import.meta.dirname, "../../../.."),
+    parent,
+  )
+  try {
+    return snapshot.fingerprint
+  } finally {
+    await snapshot.cleanup()
+  }
 }
 
 async function scenario(build: (args: string[]) => Promise<string>) {
@@ -69,28 +82,37 @@ async function scenario(build: (args: string[]) => Promise<string>) {
   return { context, run, azure, messages }
 }
 
-it("fails without a recovery menu even when deployment confirmation and proxy editing are available", async () => {
-  const failure = new CommandExecutionError(
-    "npm ci failed: ECONNRESET registry.npmjs.org",
-    false,
-    1,
-  )
-  const build = vi.fn(async () => {
-    throw failure
-  })
-  const s = await scenario(build)
-  s.context.saveNpmRegistry = vi.fn()
-  s.context.ui.text = vi.fn()
+it.each([false, true])(
+  "fails without a recovery menu or automatic retry with initial deployment approval %s",
+  async (preapproved) => {
+    const failure = new CommandExecutionError(
+      "npm ci failed: ECONNRESET registry.npmjs.org",
+      false,
+      1,
+    )
+    const build = vi.fn(async () => {
+      throw failure
+    })
+    const s = await scenario(build)
+    if (preapproved)
+      s.context.approval = {
+        sourceRevision: "a".repeat(40),
+        sourceStatus: "",
+        sourceFingerprint: await buildFingerprint(s.context.directory),
+      }
+    s.context.saveNpmRegistry = vi.fn()
+    s.context.ui.text = vi.fn()
 
-  await expect(publishImage(s.context, foundation)).rejects.toBe(failure)
+    await expect(publishImage(s.context, foundation)).rejects.toBe(failure)
 
-  expect(build).toHaveBeenCalledTimes(1)
-  expect(s.context.ui.confirm).not.toHaveBeenCalled()
-  expect(s.context.ui.text).not.toHaveBeenCalled()
-  expect(s.context.saveNpmRegistry).not.toHaveBeenCalled()
-  expect(s.context.config.npmRegistry).toBeUndefined()
-  expect(await readdir(s.context.directory)).toEqual([])
-})
+    expect(build).toHaveBeenCalledTimes(1)
+    expect(s.context.ui.confirm).not.toHaveBeenCalled()
+    expect(s.context.ui.text).not.toHaveBeenCalled()
+    expect(s.context.saveNpmRegistry).not.toHaveBeenCalled()
+    expect(s.context.config.npmRegistry).toBeUndefined()
+    expect(await readdir(s.context.directory)).toEqual([])
+  },
+)
 
 it.each(["persistence", "input"] as const)(
   "offers retry and exit but no proxy edit without %s capability",
@@ -127,6 +149,16 @@ it("retries publication with fresh source approval, ACR login, metadata and tag,
   const attempts: string[][] = []
   const s = await scenario(async (args) => {
     attempts.push(args)
+    const snapshot = args.at(-1)!
+    expect(relative(s.context.directory, snapshot)).not.toMatch(/^\.\./)
+    expect(args).toContain("--file")
+    expect(args[args.indexOf("--file") + 1]).toBe(join(snapshot, "hub/Dockerfile"))
+    await expect(readFile(join(snapshot, "hub/Dockerfile"), "utf8")).resolves.toContain(
+      "COPY hub/",
+    )
+    await expect(readFile(join(snapshot, "packages/learning/package.json"), "utf8")).resolves.toContain(
+      '"name"',
+    )
     if (attempts.length === 1) {
       await writeDigest(args, `sha256:${"a".repeat(64)}`)
       throw new CommandExecutionError("Image push failed", false, 1)
@@ -264,47 +296,180 @@ it("does not rebuild or change runtime configuration when the corrected proxy ca
   expect(await readdir(s.context.directory)).toEqual([])
 })
 
-it("requires fresh dirty-source consent after retry even when the previous build was approved", async () => {
-  const build = vi.fn(async () => {
+it.each([
+  { preapproved: false, choice: "retry" },
+  { preapproved: true, choice: "retry" },
+  { preapproved: true, choice: "registry" },
+] as const)(
+  "requires fresh dirty-source consent after $choice with initial deployment approval $preapproved",
+  async ({ preapproved, choice }) => {
+    const build = vi.fn(async () => {
+      throw new CommandExecutionError("Image push failed", false, 1)
+    })
+    const s = await scenario(build)
+    let sourceRevision = "a".repeat(40)
+    let sourceStatus = " M hub/Dockerfile"
+    if (preapproved)
+      s.context.approval = {
+        sourceRevision,
+        sourceStatus,
+        sourceFingerprint: await buildFingerprint(s.context.directory),
+      }
+    if (choice === "registry") {
+      s.context.saveNpmRegistry = vi.fn()
+      s.context.ui.text = vi.fn(async () => "https://packages.example/npm/")
+    }
+    const run = s.context.run
+    s.context.run = async (executable, args, options) => {
+      const result = await run(executable, args, options)
+      if (executable !== "git") return result
+      return args[0] === "status" ? sourceStatus : sourceRevision
+    }
+    s.context.ui.confirm = preapproved
+      ? vi.fn(async () => false)
+      : vi.fn().mockResolvedValueOnce(true).mockResolvedValue(false)
+    s.context.ui.select = vi.fn<Select>(async (_message, options) => {
+      expect(build).toHaveBeenCalledOnce()
+      expect(s.context.ui.confirm).toHaveBeenCalledTimes(preapproved ? 0 : 1)
+      expect(options.map(({ value }) => value)).toContain(choice)
+      sourceRevision = "c".repeat(40)
+      sourceStatus = " M hub/server/index.ts"
+      return choice
+    })
+
+    await expect(publishImage(s.context, foundation)).rejects.toThrow(
+      preapproved ? /source revision|build contents changed/i : /cancel|approved source/i,
+    )
+
+    expect(build).toHaveBeenCalledTimes(1)
+    expect(s.context.ui.confirm).toHaveBeenCalledTimes(preapproved ? 0 : 2)
+    expect(s.context.ui.select).toHaveBeenCalledTimes(1)
+    expect(s.azure).toHaveBeenCalledTimes(1)
+    expect(s.run.mock.calls.filter(([executable]) => executable === "git")).toHaveLength(4)
+    expect(await readdir(s.context.directory)).toEqual([])
+  },
+)
+
+it.each(["revision", "working-tree status"] as const)(
+  "stops before registry login or build when the %s changed after initial approval",
+  async (changed) => {
+    const build = vi.fn(async (args: string[]) => {
+      await writeDigest(args, digest)
+      return ""
+    })
+    const s = await scenario(build)
+    const sourceRevision = "a".repeat(40)
+    const sourceStatus = " M hub/Dockerfile"
+    s.context.approval = {
+      sourceRevision,
+      sourceStatus,
+      sourceFingerprint: await buildFingerprint(s.context.directory),
+    }
+    const run = s.context.run
+    s.context.run = async (executable, args, options) => {
+      const result = await run(executable, args, options)
+      if (executable !== "git") return result
+      if (args[0] === "rev-parse")
+        return changed === "revision" ? "c".repeat(40) : sourceRevision
+      return changed === "working-tree status" ? " M hub/server/index.ts" : sourceStatus
+    }
+    s.context.ui.select = vi.fn(async () => "exit")
+
+    await expect(publishImage(s.context, foundation)).rejects.toMatchObject({ name: "AbortError" })
+
+    expect(s.context.ui.confirm).not.toHaveBeenCalled()
+    expect(s.context.ui.select).not.toHaveBeenCalled()
+    expect(s.azure).not.toHaveBeenCalled()
+    expect(build).not.toHaveBeenCalled()
+    expect(await readdir(s.context.directory)).toEqual([])
+  },
+)
+
+it("keeps source approval across image retries when the clean commit changes", async () => {
+  const build = vi.fn(async (args: string[]) => {
+    await writeDigest(args, digest)
     throw new CommandExecutionError("Image push failed", false, 1)
   })
   const s = await scenario(build)
+  let sourceRevision = "a".repeat(40)
+  s.context.approval = {
+    sourceRevision,
+    sourceStatus: "",
+    sourceFingerprint: await buildFingerprint(s.context.directory),
+  }
   const run = s.context.run
   s.context.run = async (executable, args, options) => {
     const result = await run(executable, args, options)
-    return executable === "git" && args[0] === "status" ? " M Dockerfile" : result
+    if (executable !== "git") return result
+    return args[0] === "rev-parse" ? sourceRevision : ""
   }
-  s.context.ui.confirm = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false)
-  s.context.ui.select = vi.fn().mockResolvedValueOnce("retry").mockResolvedValue("exit")
+  s.context.ui.select = vi.fn<Select>(async () => {
+    sourceRevision = "c".repeat(40)
+    return "retry"
+  })
 
-  await expect(publishImage(s.context, foundation)).rejects.toThrow(/cancel|approved source/i)
+  await expect(publishImage(s.context, foundation)).rejects.toMatchObject({ name: "AbortError" })
 
-  expect(build).toHaveBeenCalledTimes(1)
-  expect(s.context.ui.confirm).toHaveBeenCalledTimes(2)
-  expect(s.context.ui.select).toHaveBeenCalledTimes(1)
-  expect(s.azure).toHaveBeenCalledTimes(1)
+  expect(s.context.ui.select).toHaveBeenCalledOnce()
+  expect(s.azure).toHaveBeenCalledOnce()
+  expect(build).toHaveBeenCalledOnce()
   expect(await readdir(s.context.directory)).toEqual([])
 })
 
-it("cancels dirty-source publication without ACR login or a build when only unattended approval is available", async () => {
+it("stops publication when an already-dirty source file changes after approval", async () => {
   const build = vi.fn(async (args: string[]) => {
     await writeDigest(args, digest)
     return ""
   })
   const s = await scenario(build)
+  const sourceRevision = "a".repeat(40)
+  const sourceStatus = " M hub/synthetic-source"
+  // The approved fingerprint differs from the current Hub tree, as after an edit to a dirty file.
+  // Editing the shared Hub tree here would race with other suites that fingerprint it.
+  const sourceFingerprint = "0".repeat(64)
+  s.context.approval = { sourceRevision, sourceStatus, sourceFingerprint }
   const run = s.context.run
   s.context.run = async (executable, args, options) => {
     const result = await run(executable, args, options)
-    return executable === "git" && args[0] === "status" ? " M Dockerfile" : result
+    if (executable !== "git") return result
+    return args[0] === "status" ? sourceStatus : sourceRevision
   }
 
   await expect(publishImage(s.context, foundation)).rejects.toMatchObject({ name: "AbortError" })
 
-  expect(s.context.ui.confirm).not.toHaveBeenCalled()
   expect(s.azure).not.toHaveBeenCalled()
   expect(build).not.toHaveBeenCalled()
-  expect(await readdir(s.context.directory)).toEqual([])
 })
+
+it.each([false, true])(
+  "refuses unattended dirty-source publication even with matching deployment approval %s",
+  async (preapproved) => {
+    const build = vi.fn(async (args: string[]) => {
+      await writeDigest(args, digest)
+      return ""
+    })
+    const s = await scenario(build)
+    const sourceStatus = " M hub/Dockerfile"
+    if (preapproved)
+      s.context.approval = {
+        sourceRevision: "a".repeat(40),
+        sourceStatus,
+        sourceFingerprint: await buildFingerprint(s.context.directory),
+      }
+    const run = s.context.run
+    s.context.run = async (executable, args, options) => {
+      const result = await run(executable, args, options)
+      return executable === "git" && args[0] === "status" ? sourceStatus : result
+    }
+
+    await expect(publishImage(s.context, foundation)).rejects.toMatchObject({ name: "AbortError" })
+
+    expect(s.context.ui.confirm).not.toHaveBeenCalled()
+    expect(s.azure).not.toHaveBeenCalled()
+    expect(build).not.toHaveBeenCalled()
+    expect(await readdir(s.context.directory)).toEqual([])
+  },
+)
 
 it.each(["retry", "cancel"] as const)(
   "shows full error details without another attempt before choosing to %s",

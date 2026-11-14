@@ -10,7 +10,7 @@ The API responds to a health check and gives signed-in members read access to th
 
 Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has a provider-neutral identity transaction foundation with explicit GitHub and single-tenant Microsoft Entra sign-in adapters. A reusable deployment bootstrap secret can enroll a verified provider identity as a Hub administrator. Members can browse a seeded, read-only repository index. The app cannot yet discover real repositories, import Builds, host published previews, edit product data, or support live multi-user reviews.
 
-The [production runtime](deployment.md) serves the built frontend and API and runs both workers in one image. Deployment runs database and job setup separately before starting that image.
+The [production runtime](deployment.md) serves the built frontend and API and runs both workers in one image. Deployment runs database and job setup separately before starting that image. The Azure installation uses an explicit startup entrypoint to retrieve configured Key Vault values through each workload's managed identity before importing provisioning, setup, or runtime code. Local entrypoints and direct environment configuration remain unchanged.
 
 ## Backend
 

@@ -17,10 +17,34 @@ import { CommandExecutionError } from "../../installer/command/index.ts"
 import { installationWorkspace } from "../../installer/workspace/index.ts"
 import type { DeploymentConfig, InstallerUI, RunCommand } from "../../installer/types.ts"
 import { installAzure } from "./index.ts"
+import { installationNames } from "./settings.ts"
+import { guidedPostgresProfile, type PostgresAvailability, type PostgresProfile } from "./profile.ts"
 import type { DeploymentResult } from "./types.ts"
+
+vi.mock("node:timers/promises", async (importOriginal) => {
+  const timers = await importOriginal<typeof import("node:timers/promises")>()
+  return {
+    ...timers,
+    // Bridge promise timers to the fake clock so cooldown tests never wait in real time.
+    setTimeout: (milliseconds: number, value?: unknown, { signal }: { signal?: AbortSignal } = {}) =>
+      new Promise((resolve, reject) => {
+        signal?.throwIfAborted()
+        const abort = () => {
+          clearTimeout(timer)
+          reject(signal?.reason)
+        }
+        const timer = setTimeout(() => {
+          signal?.removeEventListener("abort", abort)
+          resolve(value)
+        }, milliseconds)
+        signal?.addEventListener("abort", abort, { once: true })
+      }),
+  }
+})
 
 const directories: string[] = []
 afterEach(async () => {
+  vi.useRealTimers()
   await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
 })
 
@@ -116,6 +140,16 @@ async function scenario({
     }
     if (executable !== "az") throw new Error(`Unexpected executable ${executable}`)
     const operation = args.slice(0, 3).join(" ")
+    if (operation === "postgres flexible-server list-skus")
+      return JSON.stringify([{
+        status: null, reason: null, restricted: null,
+        supportedServerVersions: ["16", "17"].map((name) => ({ name, status: null, reason: null })),
+        supportedServerEditions: [{
+          name: "Burstable", status: null, reason: null,
+          supportedServerSkus: ["Standard_B1ms", "Standard_B2s"].map((name) =>
+            ({ name, status: null, reason: null })),
+        }],
+      }])
     if (operation.startsWith("account show"))
       return JSON.stringify({
         id: config.azure.subscriptionId,
@@ -291,13 +325,72 @@ function installationChanges(events: { command: string[] }[]) {
   )
 }
 
+it("rejects an already cancelled installation before commands, approval, or workspace writes", async () => {
+  const s = await scenario()
+  const controller = new AbortController()
+  controller.abort()
+  const run = vi.fn(s.run)
+  s.ui.confirm = vi.fn(async () => true)
+
+  await expect(
+    installAzure(s.config, { ...s, run, signal: controller.signal }),
+  ).rejects.toMatchObject({ name: "AbortError" })
+
+  expect(run).not.toHaveBeenCalled()
+  expect(s.ui.confirm).not.toHaveBeenCalled()
+  expect(await readdir(s.directory)).toEqual([])
+})
+
+it("stops after cancellation during compatibility lookup before approval or cloud mutation", async () => {
+  const s = await scenario()
+  const controller = new AbortController()
+  const entered = Promise.withResolvers<void>()
+  const finish = Promise.withResolvers<boolean>()
+  const availability = vi.fn<PostgresAvailability>(async () => {
+    entered.resolve()
+    return finish.promise
+  })
+  s.ui.confirm = vi.fn(async () => true)
+  const installing = installAzure(s.config, {
+    ...s, availability, signal: controller.signal,
+  }).catch((failure: unknown) => failure)
+
+  await entered.promise
+  controller.abort()
+  finish.resolve(true)
+
+  expect(await installing).toMatchObject({ name: "AbortError" })
+  expect(s.ui.confirm).not.toHaveBeenCalled()
+  expect(installationChanges(s.events)).toEqual([])
+})
+
 it("preserves supported runtime, database and TLS customization in privately replaced installation inputs", async () => {
   const s = await scenario({ existing: true })
-  await installAzure(s.config, s)
+  const checked: PostgresProfile[] = []
+  const availability = vi.fn<PostgresAvailability>(async (subscription, region, profile) => {
+    expect(subscription).toBe(s.config.azure.subscriptionId)
+    expect(region).toBe("eastus2")
+    expect(installationChanges(s.events)).toEqual([])
+    expect(s.ui.confirm).not.toHaveBeenCalled()
+    checked.push(profile)
+    return true
+  })
+  s.ui.confirm = vi.fn(async () => true)
+  await installAzure(s.config, { ...s, availability })
   const workspace = installationWorkspace(s.config, s.directory)
   const filename = join(workspace, "installation.tfvars.json")
   const original = JSON.parse(await readFile(filename, "utf8")) as Record<string, unknown>
+  expect(checked).toEqual([guidedPostgresProfile])
+  expect(original).toMatchObject(checked[0]!)
+  expect(vi.mocked(s.ui.confirm).mock.calls[0]![0]).toContain(
+    `${guidedPostgresProfile.postgres_sku}, version ${guidedPostgresProfile.postgres_version}`,
+  )
   const customization = {
+    runtime_environment_variables: {
+      GITHUB_CLIENT_ID: "synthetic-public-client",
+      HUB_APPLICATION_ORIGIN: "https://synthetic-public-hub.example.com",
+      EMPTY_SETTING: "",
+    },
     runtime_secret_references: {
       SERVICE_API_KEY: {
         key_vault_id: `/subscriptions/${s.config.azure.subscriptionId}/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service`,
@@ -313,12 +406,25 @@ it("preserves supported runtime, database and TLS customization in privately rep
   const previous = `${JSON.stringify({ ...original, ...customization }, null, 2)}\n  \n`
   await writeFile(filename, previous, { mode: 0o600 })
   const reader = await open(filename, "r")
+  s.events.length = 0
+  s.messages.length = 0
+  vi.mocked(s.ui.confirm).mockClear()
 
   try {
-    await expect(installAzure(s.config, s)).resolves.toEqual(s.expectedResult())
+    await expect(installAzure(s.config, { ...s, availability })).resolves.toEqual(s.expectedResult())
 
     const replacement = await readFile(filename, "utf8")
+    expect(checked).toEqual([
+      guidedPostgresProfile,
+      { postgres_sku: customization.postgres_sku, postgres_version: customization.postgres_version },
+    ])
     expect(JSON.parse(replacement)).toMatchObject(customization)
+    expect(JSON.parse(replacement)).toMatchObject(checked[1]!)
+    const review = vi.mocked(s.ui.confirm).mock.calls[0]![0]
+    expect(review).toContain(`${customization.postgres_sku}, version ${customization.postgres_version}`)
+    expect(review).not.toContain(guidedPostgresProfile.postgres_sku)
+    const diagnostics = JSON.stringify([s.events, s.messages, vi.mocked(s.ui.confirm).mock.calls])
+    expect(diagnostics).not.toMatch(/synthetic-public-client|synthetic-public-hub/)
     expect(replacement).not.toBe(previous)
     expect(await reader.readFile("utf8")).toBe(previous)
     expect((await stat(filename)).mode & 0o777).toBe(0o600)
@@ -327,6 +433,35 @@ it("preserves supported runtime, database and TLS customization in privately rep
   } finally {
     await reader.close()
   }
+})
+
+it("refuses an unsupported retained PostgreSQL profile before approval, writes, or cloud mutation without retargeting", async () => {
+  const s = await scenario({ existing: true })
+  await installAzure(s.config, s)
+  const workspace = installationWorkspace(s.config, s.directory)
+  const filename = join(workspace, "installation.tfvars.json")
+  const retained = { postgres_sku: "B_Standard_B2s", postgres_version: "16" }
+  const previous = `${JSON.stringify({
+    ...JSON.parse(await readFile(filename, "utf8")),
+    ...retained,
+  }, null, 2)}\n`
+  await writeFile(filename, previous, { mode: 0o600 })
+  const files = await readdir(workspace)
+  const originalConfig = structuredClone(s.config)
+  s.events.length = 0
+  s.ui.confirm = vi.fn(async () => true)
+  const availability = vi.fn<PostgresAvailability>(async () => false)
+
+  await expect(installAzure(s.config, { ...s, availability })).rejects.toThrow(/region.*not advertise|not.*support/i)
+
+  expect(availability).toHaveBeenCalledExactlyOnceWith(
+    s.config.azure.subscriptionId, "eastus2", retained,
+  )
+  expect(s.ui.confirm).not.toHaveBeenCalled()
+  expect(installationChanges(s.events)).toEqual([])
+  expect(s.config).toEqual(originalConfig)
+  expect(await readFile(filename, "utf8")).toBe(previous)
+  expect(await readdir(workspace)).toEqual(files)
 })
 
 it.each([
@@ -339,6 +474,10 @@ it.each([
     change: { postgres_version: "18" },
   },
   { reason: "invalid backup retention", change: { backup_retention_days: 0 } },
+  {
+    reason: "a deployment-owned runtime environment override",
+    change: { runtime_environment_variables: { NODE_ENV: "synthetic-invalid-runtime-value" } },
+  },
   { reason: "different stored installation name", change: { name: "another-hub" } },
   { reason: "different stored ownership", change: { owner: "another-team" } },
   { reason: "different stored region", change: { location: "westus2" } },
@@ -369,10 +508,20 @@ it.each([
   await writeFile(filename, previous, { mode: 0o600 })
   const files = await readdir(workspace)
   s.events.length = 0
+  s.messages.length = 0
+  s.ui.confirm = vi.fn(async () => true)
+  const availability = vi.fn<PostgresAvailability>(async () => true)
 
-  await expect(installAzure(s.config, s)).rejects.toThrow()
+  const failure = await installAzure(s.config, { ...s, availability }).catch(
+    (error: unknown) => error,
+  )
 
+  expect(failure).toBeInstanceOf(Error)
+  expect(String(failure)).not.toContain("synthetic-invalid-runtime-value")
+  expect(availability).not.toHaveBeenCalled()
+  expect(s.ui.confirm).not.toHaveBeenCalled()
   expect(installationChanges(s.events)).toEqual([])
+  expect(JSON.stringify(s.messages)).not.toContain("synthetic-invalid-runtime-value")
   expect(await readFile(filename, "utf8")).toBe(previous)
   expect(await readdir(workspace)).toEqual(files)
 })
@@ -524,13 +673,50 @@ it("accepts the correct mixed-case signed-in Azure target and rejects a true mis
   expect(installationChanges(s.events)).toEqual([])
 })
 
-it("publishes through the chosen registry, provisions privately, removes temporary access, then invokes the guarded release", async () => {
+it("uses one deployment approval for dirty-source publication, nonempty plans, temporary cleanup, and guarded release", async () => {
   const s = await scenario()
+  const temporaryResources = [
+    "azurerm_container_app_job.provision",
+    "azurerm_user_assigned_identity.provision",
+    "azurerm_role_assignment.image[0]",
+    'azurerm_role_assignment.secrets["DATABASE_URL"]',
+    'azurerm_role_assignment.secrets["HUB_MIGRATION_PASSWORD"]',
+    'azurerm_role_assignment.secrets["HUB_RUNTIME_PASSWORD"]',
+  ]
+  let cleanupPlan = false
+  s.ui.confirm = vi.fn(async () => {
+    expect(installationChanges(s.events)).toEqual([])
+    return true
+  })
+  s.ui.select = vi.fn(async () => {
+    throw new Error("A normal deployment must not need recovery")
+  })
   const releasingLease = Promise.withResolvers<void>()
   const finishLeaseRelease = Promise.withResolvers<void>()
   let receiptReturned = false
   const run: RunCommand = async (executable, args, options) => {
     const result = await s.run(executable, args, options)
+    if (executable === "git" && args[0] === "status") return " M hub/server/index.ts"
+    if (executable === "terraform") {
+      if (args[0]!.endsWith("/provision") && args[1] === "plan")
+        cleanupPlan = args.includes("-destroy")
+      if (args[1] === "show") {
+        const changes = args[0]!.endsWith("/provision")
+          ? temporaryResources.map((address) => ({
+              address,
+              change: { actions: [cleanupPlan ? "delete" : "create"] },
+            }))
+          : args[0]!.endsWith("/foundation")
+            ? [
+                { address: "azurerm_container_registry.hub", change: { actions: ["create"] } },
+                { address: "azurerm_key_vault.hub", change: { actions: ["update"] } },
+              ]
+            : [
+                { address: "azurerm_storage_blob.release_lock", change: { actions: ["create"] } },
+              ]
+        return JSON.stringify({ resource_changes: changes })
+      }
+    }
     if (
       executable === "az" &&
       args.slice(0, 4).join(" ") === "storage blob lease release" &&
@@ -546,12 +732,22 @@ it("publishes through the chosen registry, provisions privately, removes tempora
     receiptReturned = true
     return result
   })
-  await releasingLease.promise
+  await Promise.race([releasingLease.promise, installing])
   await Promise.resolve()
   expect(receiptReturned).toBe(false)
   finishLeaseRelease.resolve()
   const result = await installing
   expect(result).toEqual(s.expectedResult())
+  expect(s.ui.confirm).toHaveBeenCalledOnce()
+  expect(s.ui.select).not.toHaveBeenCalled()
+  expect(s.messages).toEqual(
+    expect.arrayContaining([
+      "create azurerm_container_registry.hub",
+      "update azurerm_key_vault.hub",
+      "create azurerm_storage_blob.release_lock",
+      ...temporaryResources.flatMap((address) => [`create ${address}`, `delete ${address}`]),
+    ]),
+  )
   const commands = s.events.map(({ command }) => command)
   const start = commands.findIndex(
     (command) => command.slice(0, 4).join(" ") === "az containerapp job start",
@@ -602,11 +798,122 @@ it("publishes through the chosen registry, provisions privately, removes tempora
   }
 })
 
+it("shows the complete deployment review and stops before cloud changes when it is declined", async () => {
+  const s = await scenario()
+  const sourceRevision = "a".repeat(40)
+  s.ui.confirm = vi.fn(async () => false)
+  s.ui.select = vi.fn(async () => {
+    throw new Error("Declining deployment must not offer recovery")
+  })
+  const run: RunCommand = async (executable, args, options) => {
+    const result = await s.run(executable, args, options)
+    return executable === "git" && args[0] === "status" ? " M hub/server/index.ts" : result
+  }
+
+  await expect(installAzure(s.config, { ...s, run })).rejects.toThrow(/cancel/i)
+
+  expect(s.ui.confirm).toHaveBeenCalledOnce()
+  const review = vi.mocked(s.ui.confirm).mock.calls[0]![0]
+  for (const value of [
+    s.config.name,
+    s.config.owner,
+    s.config.azure.tenantId,
+    s.config.azure.subscriptionId,
+    s.config.azure.location,
+    s.config.azure.resourceGroup,
+    ...Object.values(installationNames(s.config)),
+    sourceRevision,
+    s.config.npmRegistry!,
+  ])
+    expect(review).toContain(value)
+  for (const disclosure of [
+    /ongoing.*(?:charge|cost)/i,
+    /(?:local|working tree).*(?:publish|build)|(?:publish|build).*(?:local|working tree)/i,
+    /uncommitted.*Hub|Hub.*uncommitted/i,
+    /state.*(?:storage|blob)/i,
+    /registry/i,
+    /key vault/i,
+    /(?:virtual network|networking)/i,
+    /PostgreSQL.*(?:database|backup)/i,
+    /artifact.*release.*container/i,
+    /Container Apps.*(?:Hub|app)/i,
+    /setup job/i,
+    /Log Analytics/i,
+    /identit/i,
+    /role assignment|scoped.*grant/i,
+    /temporary.*(?:removed|cleaned)|(?:remove|clean).*temporary/i,
+    /(?:unavailable|downtime|maintenance)/i,
+    /stops?.*Hub.*revision/i,
+    /migration/i,
+    /schedule.*setup/i,
+    /one.*retr.*15 seconds/i,
+  ])
+    expect(review).toMatch(disclosure)
+  expect(installationChanges(s.events)).toEqual([])
+  expect(s.ui.select).not.toHaveBeenCalled()
+  expect(s.ui.wait).not.toHaveBeenCalled()
+  expect(s.released()).toBe(false)
+})
+
+it("refuses unattended dirty source at the initial review before cloud changes", async () => {
+  const s = await scenario()
+  s.ui.confirm = vi.fn(async () => true)
+  const run: RunCommand = async (executable, args, options) => {
+    const result = await s.run(executable, args, options)
+    return executable === "git" && args[0] === "status" ? " M hub/server/index.ts" : result
+  }
+
+  await expect(installAzure(s.config, { ...s, run })).rejects.toThrow(/clean.*source|source.*clean/i)
+
+  expect(s.ui.confirm).not.toHaveBeenCalled()
+  expect(installationChanges(s.events)).toEqual([])
+})
+
+it("blocks unrelated resources in provisioning cleanup despite initial deployment approval", async () => {
+  const s = await scenario()
+  let cleanupPlan = false
+  s.ui.confirm = vi.fn(async () => true)
+  s.ui.select = vi.fn(async () => "exit")
+  const run: RunCommand = async (executable, args, options) => {
+    const result = await s.run(executable, args, options)
+    if (executable !== "terraform" || !args[0]!.endsWith("/provision")) return result
+    if (args[1] === "plan") cleanupPlan = args.includes("-destroy")
+    if (args[1] === "show" && cleanupPlan)
+      return JSON.stringify({
+        resource_changes: [
+          { address: "azurerm_container_app_job.provision", change: { actions: ["delete"] } },
+          { address: "azurerm_postgresql_flexible_server.hub", change: { actions: ["delete"] } },
+        ],
+      })
+    return result
+  }
+
+  await expect(installAzure(s.config, { ...s, run })).rejects.toThrow()
+
+  const commands = s.events.map(({ command }) => command)
+  const cleanup = commands.findIndex(
+    (command) =>
+      command[0] === "terraform" &&
+      command[1]!.endsWith("/provision") &&
+      command.includes("-destroy"),
+  )
+  expect(cleanup).toBeGreaterThan(-1)
+  expect(commands.slice(cleanup).some((command) => command[2] === "apply")).toBe(false)
+  expect(s.ui.confirm).toHaveBeenCalledOnce()
+  expect(s.ui.select).not.toHaveBeenCalled()
+  expect(s.released()).toBe(false)
+  expect(
+    commands.some((command) => command.slice(0, 5).join(" ") === "az storage blob lease release"),
+  ).toBe(false)
+})
+
 it("updates an installed app only through the release orchestrator and never reruns fresh role provisioning", async () => {
   const s = await scenario({ existing: true })
+  s.ui.confirm = vi.fn(async () => true)
   const result = await installAzure(s.config, s)
   expect(result).toEqual(s.expectedResult())
   expect(s.released()).toBe(true)
+  expect(s.ui.confirm).toHaveBeenCalledOnce()
   const commands = s.events.map(({ command }) => command)
   const release = commands.findIndex((command) => command[0] === process.execPath)
   const finalOutput = commands.findLastIndex(
@@ -693,6 +1000,173 @@ it("corrects an image-build proxy under the same installation lease without repl
   expect(releases[0]).toContain(s.image)
 })
 
+it.each(["application", "provisioning"] as const)(
+  "automatically replans only the failed %s infrastructure without replaying publication or database work",
+  async (stage) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    const s = await scenario()
+    const controller = new AbortController()
+    const waiting = Promise.withResolvers<void>()
+    const target = stage === "application" ? "/azure" : "/provision"
+    const address =
+      stage === "application"
+        ? "azurerm_storage_blob.release_lock"
+        : "azurerm_container_app_job.provision"
+    const details =
+      stage === "application"
+        ? `Error: checking Blob: unexpected status 403 (not authorized to perform this operation using this permission)
+  with ${address},
+  on storage.tf line 1:`
+        : `Error: unable to pull image using Managed identity
+  with ${address},
+  on job.tf line 1:`
+    const error = new CommandExecutionError("Synthetic apply failure", false, 1, details)
+    let attempts = 0
+    let failedAt = -1
+    let succeededAt = -1
+    const cleanupPlans = new Map<string, boolean>()
+    s.ui.confirm = vi.fn(async () => true)
+    s.ui.notice = vi.fn((level) => {
+      if (level === "info") waiting.resolve()
+    })
+    s.ui.select = vi.fn(async () => {
+      throw new Error("An eligible automatic retry must not need manual recovery")
+    })
+    const run: RunCommand = async (executable, args, options) => {
+      const result = await s.run(executable, args, options)
+      expect(options?.signal).toBe(controller.signal)
+      if (executable !== "terraform") return result
+      if (args[1] === "plan") {
+        cleanupPlans.set(args[0]!, args.includes("-destroy"))
+        await writeFile(args.find((arg) => arg.startsWith("-out="))!.slice(5), "synthetic plan")
+      }
+      if (!args[0]!.endsWith(target)) return result
+      const cleanup = cleanupPlans.get(args[0]!)
+      if (args[1] === "show")
+        return JSON.stringify({
+          variables: { image: { value: s.image } },
+          configuration: { root_module: { resources: [{ address }] } },
+          resource_changes: [{ address, change: { actions: [cleanup ? "delete" : "create"] } }],
+        })
+      if (args[1] === "apply" && !cleanup) {
+        attempts++
+        if (attempts === 1) {
+          failedAt = s.events.length - 1
+          throw error
+        }
+        succeededAt = s.events.length - 1
+      }
+      return result
+    }
+    const installing = installAzure(s.config, { ...s, run, signal: controller.signal })
+
+    await Promise.race([waiting.promise, installing])
+    const paused = s.events.map(({ command }) => command)
+    expect(paused.filter((command) => command[0] === "docker")).toHaveLength(1)
+    expect(paused.some((command) => command[0] === process.execPath)).toBe(false)
+    expect(
+      paused.some((command) => command.slice(0, 4).join(" ") === "az containerapp job start"),
+    ).toBe(false)
+    expect(
+      paused.some((command) => command.slice(0, 5).join(" ") === "az storage blob lease release"),
+    ).toBe(false)
+    expect(vi.getTimerCount()).toBe(1)
+    await vi.advanceTimersByTimeAsync(15_000)
+    const result = await installing
+    expect(result).toEqual(s.expectedResult())
+
+    expect(s.ui.confirm).toHaveBeenCalledOnce()
+    expect(s.ui.select).not.toHaveBeenCalled()
+    const commands = s.events.map(({ command }) => command)
+    expect(
+      commands.slice(failedAt + 1, succeededAt + 1).map((command) => command[2]),
+    ).toEqual(["plan", "show", "apply"])
+    expect(commands.filter((command) => command[0] === "docker")).toHaveLength(1)
+    expect(
+      commands.filter((command) =>
+        command[0] === "terraform" && command[1]!.endsWith("/foundation") && command[2] === "apply",
+      ),
+    ).toHaveLength(1)
+    const jobs = commands.filter(
+      (command) => command.slice(0, 4).join(" ") === "az containerapp job start",
+    )
+    expect(jobs).toHaveLength(1)
+    expect(commands.indexOf(jobs[0]!)).toBeGreaterThan(succeededAt)
+    const release = commands.filter((command) => command[0] === process.execPath)
+    expect(release).toHaveLength(1)
+    expect(release[0]).toContain(s.image)
+    const secretWrites = commands.filter(
+      (command) => command.slice(0, 4).join(" ") === "az keyvault secret set",
+    )
+    const secrets = secretWrites.map((command) => command[command.indexOf("--name") + 1])
+    expect(new Set(secrets).size).toBe(secrets.length)
+    const leases = commands.filter(
+      (command) => command.slice(0, 5).join(" ") === "az storage blob lease acquire",
+    )
+    expect(leases).toHaveLength(2)
+    expect(
+      new Set(leases.map((command) => command[command.indexOf("--blob-name") + 1])).size,
+    ).toBe(2)
+    expect(
+      commands.some((command) => command.slice(0, 5).join(" ") === "az storage blob lease break"),
+    ).toBe(false)
+    expect(s.secretValues.get("database-provisioned")).toBe(s.config.azure.resourceGroup)
+  },
+)
+
+it("cancels the installation retry cooldown without starting database work or releasing its lease", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+  const s = await scenario()
+  const controller = new AbortController()
+  const waiting = Promise.withResolvers<void>()
+  s.ui.notice = vi.fn((level) => {
+    if (level === "info") waiting.resolve()
+  })
+  s.ui.select = vi.fn(async () => "exit")
+  const run: RunCommand = async (executable, args, options) => {
+    const result = await s.run(executable, args, options)
+    if (executable !== "terraform" || !args[0]!.endsWith("/azure")) return result
+    if (args[1] === "show")
+      return JSON.stringify({
+        variables: { image: { value: s.image } },
+        configuration: { root_module: { resources: [] } },
+        resource_changes: [
+          { address: "azurerm_storage_blob.release_lock", change: { actions: ["create"] } },
+        ],
+      })
+    if (args[1] === "apply")
+      throw new CommandExecutionError(
+        "Synthetic apply failure", false, 1,
+        "Error: unexpected status 403 (not authorized)\n  with azurerm_storage_blob.release_lock,",
+      )
+    return result
+  }
+  const installing = installAzure(s.config, { ...s, run, signal: controller.signal }).catch(
+    (failure: unknown) => failure,
+  )
+
+  await Promise.race([waiting.promise, installing])
+  expect(vi.getTimerCount()).toBe(1)
+  const commandsAtCancellation = s.events.length
+  controller.abort()
+  await vi.advanceTimersByTimeAsync(15_000)
+
+  expect(await installing).toMatchObject({ name: "AbortError" })
+  expect(s.events).toHaveLength(commandsAtCancellation)
+  expect(s.ui.select).not.toHaveBeenCalled()
+  expect(
+    s.events.some(({ command }) =>
+      command.slice(0, 5).join(" ") === "az storage blob lease release" ||
+      command.slice(0, 4).join(" ") === "az containerapp job start" ||
+      command[0] === process.execPath,
+    ),
+  ).toBe(false)
+  expect(s.released()).toBe(false)
+  const workspace = installationWorkspace(s.config, s.directory)
+  expect(await readdir(join(workspace, "terraform", "app"))).toEqual([])
+  expect(await readdir(s.directory)).toEqual([workspace.slice(s.directory.length + 1)])
+})
+
 it("replans a failed application step under the same lease without replaying earlier or downstream work", async () => {
   const s = await scenario()
   const failure = new CommandExecutionError(
@@ -715,12 +1189,15 @@ it("replans a failed application step under the same lease without replaying ear
     if (executable !== "terraform" || !args[0]!.endsWith("/azure")) return result
     if (args[1] === "show")
       return JSON.stringify({
+        variables: { image: { value: s.image } },
+        configuration: { root_module: { resources: [] } },
         resource_changes: [
           { address: "azurerm_storage_blob.release_lock", change: { actions: ["create"] } },
         ],
       })
     if (args[1] === "apply") {
-      expect(approvals).toHaveLength(++attempts)
+      expect(approvals).toHaveLength(attempts)
+      attempts++
       if (attempts === 1) {
         failedAt = s.events.length - 1
         throw failure
@@ -759,7 +1236,7 @@ it("replans a failed application step under the same lease without replaying ear
   )
 
   expect(s.ui.select).toHaveBeenCalledOnce()
-  expect(approvals).toHaveLength(2)
+  expect(approvals).toHaveLength(1)
   const commands = s.events.map(({ command }) => command)
   const retry = commands.slice(failedAt + 1, succeededAt + 1)
   expect(retry.map((command) => command.slice(0, 3))).toEqual([
@@ -778,8 +1255,7 @@ it("replans a failed application step under the same lease without replaying ear
   expect(plans[0]).not.toBe(plans[1])
   expect(retry[1]!.at(-1)).toBe(plans[1])
   expect(retry[2]!.at(-1)).toBe(plans[1])
-  expect(approvals[0]).toBe(failedAt)
-  expect(approvals[1]).toBe(succeededAt)
+  expect(approvals[0]).toBe(succeededAt)
   expect(
     commands.filter(
       (command) =>
@@ -858,14 +1334,12 @@ it("propagates cancellation from ACR image recovery without downstream work or r
   expect(s.messages).toContainEqual(expect.stringContaining("installer.lock"))
 })
 
-it("recovers a retained release lease after fresh maintenance approval even when database provisioning is already complete", async () => {
+it("requires separate lock-recovery consent after deployment approval when database provisioning is already complete", async () => {
   const s = await scenario({ existing: true, retainedRelease: true })
-  let maintenanceApprovedAt = -1
-  const confirm = s.ui.confirm
-  s.ui.confirm = vi.fn(async (message) => {
-    const approved = await confirm(message)
-    if (/maintenance.window/i.test(message)) maintenanceApprovedAt = s.events.length
-    return approved
+  const approvals: number[] = []
+  s.ui.confirm = vi.fn(async () => {
+    approvals.push(s.events.length)
+    return true
   })
   s.ui.select = vi.fn(async (_message: string, options: { label: string; value: string }[]) => {
     expect(options.map(({ value }) => value)).toContain("recover")
@@ -886,9 +1360,12 @@ it("recovers a retained release lease after fresh maintenance approval even when
     (command) => command.slice(0, 5).join(" ") === "az storage blob lease break",
   )
   const release = commands.findIndex((command) => command[0] === process.execPath)
-  expect(maintenanceApprovedAt).toBeGreaterThan(-1)
-  expect(inspectRelease).toBeGreaterThanOrEqual(maintenanceApprovedAt)
+  expect(s.ui.confirm).toHaveBeenCalledTimes(2)
+  expect(vi.mocked(s.ui.confirm).mock.calls[1]![0]).toContain("artifactstore/releases/deployment.lock")
+  expect(inspectRelease).toBeGreaterThanOrEqual(approvals[0]!)
+  expect(approvals[1]).toBeGreaterThan(inspectRelease)
   expect(breakRelease).toBeGreaterThan(inspectRelease)
+  expect(breakRelease).toBeGreaterThanOrEqual(approvals[1]!)
   expect(release).toBeGreaterThan(breakRelease)
   expect(
     commands.filter((command) => command.slice(0, 5).join(" ") === "az storage blob lease break"),
@@ -915,12 +1392,13 @@ it("retains installation exclusion and does not report a ready app when release 
   expect(s.ui.wait).not.toHaveBeenCalled()
 })
 
-it("does not release or return a deployment receipt when fresh maintenance approval is declined for an update", async () => {
-  const s = await scenario({ existing: true })
+it("keeps a retained release lock when initial deployment approval is accepted but recovery consent is declined", async () => {
+  const s = await scenario({ existing: true, retainedRelease: true })
   s.ui.confirm = vi
     .fn<InstallerUI["confirm"]>()
     .mockResolvedValueOnce(true)
     .mockResolvedValueOnce(false)
+  s.ui.select = vi.fn().mockResolvedValueOnce("recover").mockResolvedValue("exit")
 
   await expect(installAzure(s.config, s)).rejects.toThrow()
 
@@ -931,8 +1409,8 @@ it("does not release or return a deployment receipt when fresh maintenance appro
     s.events.some(
       ({ command }) =>
         command[0] === process.execPath ||
-        (command.slice(0, 5).join(" ") === "az storage blob lease release" &&
-          command.includes(`${s.config.name}/installer.lock`)),
+        command.slice(0, 5).join(" ") === "az storage blob lease break" ||
+        command.slice(0, 5).join(" ") === "az storage blob lease release",
     ),
   ).toBe(false)
 })

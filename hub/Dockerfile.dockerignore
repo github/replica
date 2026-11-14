@@ -2,7 +2,9 @@
 !hub/
 !hub/**
 !packages/
+packages/*
 !packages/learning/
+packages/learning/*
 !packages/learning/package.json
 !packages/learning/package-lock.json
 !packages/learning/.npmrc
@@ -19,6 +21,7 @@ hub/.env*
 hub/.devcontainer
 hub/.local
 hub/.npm
+hub/.react-router
 hub/node_modules
 hub/dist
 hub/coverage

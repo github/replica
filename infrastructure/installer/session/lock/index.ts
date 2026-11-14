@@ -1,12 +1,16 @@
 import { randomUUID } from "node:crypto"
-import { open, readFile, unlink } from "node:fs/promises"
+import { open, unlink } from "node:fs/promises"
 import { hostname } from "node:os"
+import { readPrivateFile } from "../../private-files/index.ts"
 
 function hasCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code
 }
 
-export async function lockSession(path: string): Promise<() => Promise<void>> {
+export async function lockSession(
+  path: string,
+  { fresh = false }: { fresh?: boolean } = {},
+): Promise<() => Promise<void>> {
   const owner = { id: randomUUID(), pid: process.pid, host: hostname() }
   const busy = () =>
     new Error(
@@ -25,6 +29,7 @@ export async function lockSession(path: string): Promise<() => Promise<void>> {
     await create(path)
   } catch (error) {
     if (!hasCode(error, "EEXIST")) throw error
+    if (fresh) throw busy()
     const recovery = `${path}.recovery`
     try {
       await create(recovery)
@@ -37,7 +42,10 @@ export async function lockSession(path: string): Promise<() => Promise<void>> {
     try {
       let previous: unknown
       try {
-        previous = JSON.parse(await readFile(path, "utf8"))
+        const content = await readPrivateFile(path, { createDirectory: false })
+        if (content === undefined)
+          throw Object.assign(new Error("Local writer record not found."), { code: "ENOENT" })
+        previous = JSON.parse(content)
       } catch (error) {
         if (hasCode(error, "ENOENT")) {
           await create(path)
@@ -73,7 +81,9 @@ export async function lockSession(path: string): Promise<() => Promise<void>> {
     }
   }
   return async () => {
-    const current: unknown = JSON.parse(await readFile(path, "utf8"))
+    const content = await readPrivateFile(path, { createDirectory: false })
+    if (content === undefined) throw new Error(`Local writer record is missing: ${path}.`)
+    const current: unknown = JSON.parse(content)
     if (
       typeof current !== "object" ||
       current === null ||

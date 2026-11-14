@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { mkdir, open, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
+import { chmod, link, mkdir, open, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -26,7 +26,7 @@ const directories: string[] = []
 async function configDirectory() {
   const directory = path.resolve(`.installer-config-test-${randomUUID()}`)
   directories.push(directory)
-  await mkdir(directory)
+  await mkdir(directory, { mode: 0o700 })
   return directory
 }
 
@@ -210,7 +210,7 @@ describe("deployment configuration", () => {
     const directory = await configDirectory()
     const filename = path.join(directory, "config.json")
     const previous = JSON.stringify(configuration())
-    await writeFile(filename, previous, { mode: 0o644 })
+    await writeFile(filename, previous, { mode: 0o600 })
     const existingReader = await open(filename, "r")
     const replacement = { ...configuration(), owner: "new-team" }
 
@@ -243,7 +243,7 @@ describe("deployment configuration", () => {
   it("fails explicitly rather than returning defaults for invalid JSON", async () => {
     const directory = await configDirectory()
     const filename = path.join(directory, "config.json")
-    await writeFile(filename, '{"version":')
+    await writeFile(filename, '{"version":', { mode: 0o600 })
 
     await expect(loadConfig(filename)).rejects.toThrow()
   })
@@ -254,8 +254,65 @@ describe("deployment configuration", () => {
     await writeFile(
       filename,
       JSON.stringify({ ...configuration(), password: "synthetic-private-value" }),
+      { mode: 0o600 },
     )
 
     await expect(loadConfig(filename)).rejects.toThrow()
+  })
+
+  it("does not create a missing configuration directory while loading", async () => {
+    const directory = await configDirectory()
+    const missing = path.join(directory, "not-created")
+
+    await expect(loadConfig(path.join(missing, "config.json"))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
+
+    expect(await readdir(directory)).toEqual([])
+  })
+
+  it.each(["shared directory", "shared file", "symlink", "hard link"] as const)(
+    "refuses a %s without repairing permissions or changing contents",
+    async (kind) => {
+      const directory = await configDirectory()
+      const filename = path.join(directory, "config.json")
+      const original = path.join(directory, "original.json")
+      const contents = JSON.stringify(configuration())
+      await writeFile(original, contents, { mode: 0o600 })
+      if (kind === "symlink") await symlink(original, filename)
+      else if (kind === "hard link") await link(original, filename)
+      else {
+        await writeFile(filename, contents, { mode: 0o600 })
+        if (kind === "shared file") await chmod(filename, 0o644)
+        else await chmod(directory, 0o755)
+      }
+
+      await expect(loadConfig(filename)).rejects.toThrow()
+
+      expect(await readFile(original, "utf8")).toBe(contents)
+      expect(await readFile(filename, "utf8")).toBe(contents)
+      expect((await stat(directory)).mode & 0o777).toBe(kind === "shared directory" ? 0o755 : 0o700)
+      if (kind === "shared file") expect((await stat(filename)).mode & 0o777).toBe(0o644)
+    },
+  )
+
+  it("allows exactly one exclusive first save and preserves that winner on later collision", async () => {
+    const directory = await configDirectory()
+    const filename = path.join(directory, "config.json")
+    const contenders = [configuration(), { ...configuration(), owner: "another-team" }]
+
+    const results = await Promise.allSettled(
+      contenders.map((config) => saveConfig(filename, config, { exclusive: true })),
+    )
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1)
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1)
+    const winner = contenders[results.findIndex((result) => result.status === "fulfilled")]
+    expect(await loadConfig(filename)).toEqual(winner)
+    const previous = await readFile(filename, "utf8")
+    await expect(saveConfig(filename, configuration(), { exclusive: true })).rejects.toThrow()
+    expect(await readFile(filename, "utf8")).toBe(previous)
+    expect(await readdir(directory)).toEqual(["config.json"])
+    expect((await stat(filename)).mode & 0o777).toBe(0o600)
   })
 })

@@ -100,7 +100,7 @@ variable "runtime_database_secret" {
   validation {
     condition = (
       can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.KeyVault/vaults/[^/]+$", var.runtime_database_secret.key_vault_id)) &&
-      can(regex("^https://[a-zA-Z0-9-]+\\.vault\\.azure\\.net/secrets/[a-zA-Z0-9-]+(/[a-fA-F0-9]{32})?$", var.runtime_database_secret.secret_id)) &&
+      can(regex("^https://[a-zA-Z0-9-]{1,24}\\.vault\\.azure\\.net/secrets/[a-zA-Z0-9-]{1,127}(/[a-fA-F0-9]{32})?$", var.runtime_database_secret.secret_id)) &&
       lower(try(split("/", var.runtime_database_secret.secret_id)[2], "")) == "${lower(try(split("/", var.runtime_database_secret.key_vault_id)[8], ""))}.vault.azure.net"
     )
     error_message = "Supply a Key Vault resource ID and a public-cloud HTTPS secret URL, not a secret value."
@@ -117,11 +117,38 @@ variable "setup_database_secret" {
   validation {
     condition = (
       can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.KeyVault/vaults/[^/]+$", var.setup_database_secret.key_vault_id)) &&
-      can(regex("^https://[a-zA-Z0-9-]+\\.vault\\.azure\\.net/secrets/[a-zA-Z0-9-]+(/[a-fA-F0-9]{32})?$", var.setup_database_secret.secret_id)) &&
+      can(regex("^https://[a-zA-Z0-9-]{1,24}\\.vault\\.azure\\.net/secrets/[a-zA-Z0-9-]{1,127}(/[a-fA-F0-9]{32})?$", var.setup_database_secret.secret_id)) &&
       lower(try(split("/", var.setup_database_secret.secret_id)[2], "")) == "${lower(try(split("/", var.setup_database_secret.key_vault_id)[8], ""))}.vault.azure.net" &&
       lower("${var.setup_database_secret.key_vault_id}/secrets/${try(split("/", var.setup_database_secret.secret_id)[4], "")}") != lower("${var.runtime_database_secret.key_vault_id}/secrets/${try(split("/", var.runtime_database_secret.secret_id)[4], "")}")
     )
     error_message = "Supply a separate migration secret URL and its Key Vault resource ID."
+  }
+}
+
+locals {
+  runtime_reserved_environment_names = [
+    "DATABASE_URL", "DATABASE_RUNTIME_ROLE", "NODE_ENV", "RUNTIME_MODE", "HOST", "PORT",
+    "CLIENT_DIRECTORY", "SHUTDOWN_TIMEOUT_MS", "ARTIFACT_STORAGE_PROVIDER",
+    "ARTIFACT_STORAGE_DIRECTORY", "AZURE_STORAGE_ACCOUNT", "AZURE_STORAGE_CONTAINER",
+    "AZURE_CLIENT_ID", "AZURE_KEY_VAULT_SECRET_REFERENCES",
+  ]
+}
+
+variable "runtime_environment_variables" {
+  type        = map(string)
+  default     = {}
+  nullable    = false
+  description = "Non-secret Hub runtime environment values, stored directly in Terraform state and Container Apps configuration. Use runtime_secret_references for credentials."
+
+  validation {
+    condition = alltrue([
+      for name, value in var.runtime_environment_variables :
+      can(regex("^[A-Z][A-Z0-9_]{0,40}$", name)) &&
+      !contains(local.runtime_reserved_environment_names, name) &&
+      !contains(keys(var.runtime_secret_references), name) &&
+      value != null
+    ])
+    error_message = "Use uppercase environment names of at most 41 characters and non-null string values; deployment-owned settings and secret-reference names cannot be overridden."
   }
 }
 
@@ -134,19 +161,19 @@ variable "runtime_secret_references" {
   description = "Existing RBAC Key Vault secret references keyed by uppercase runtime environment name. Values remain outside Terraform."
 
   validation {
-    condition = alltrue([
+    condition = length(keys(var.runtime_secret_references)) <= 63 && alltrue([
       for name in keys(var.runtime_secret_references) :
       can(regex("^[A-Z][A-Z0-9_]{0,40}$", name)) &&
-      !contains(["DATABASE_URL", "DATABASE_RUNTIME_ROLE", "NODE_ENV", "RUNTIME_MODE", "HOST", "PORT", "CLIENT_DIRECTORY", "SHUTDOWN_TIMEOUT_MS", "ARTIFACT_STORAGE_PROVIDER", "ARTIFACT_STORAGE_DIRECTORY", "AZURE_STORAGE_ACCOUNT", "AZURE_STORAGE_CONTAINER", "AZURE_CLIENT_ID"], name)
+      !contains(local.runtime_reserved_environment_names, name)
     ])
-    error_message = "Use uppercase environment names of at most 41 characters; deployment-owned settings cannot be overridden."
+    error_message = "Supply at most 63 additional secret references, using uppercase environment names of at most 41 characters; deployment-owned settings cannot be overridden."
   }
 
   validation {
     condition = alltrue([
       for secret in values(var.runtime_secret_references) :
       can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.KeyVault/vaults/[^/]+$", secret.key_vault_id)) &&
-      can(regex("^https://[a-zA-Z0-9-]+\\.vault\\.azure\\.net/secrets/[a-zA-Z0-9-]+(/[a-fA-F0-9]{32})?$", secret.secret_id)) &&
+      can(regex("^https://[a-zA-Z0-9-]{1,24}\\.vault\\.azure\\.net/secrets/[a-zA-Z0-9-]{1,127}(/[a-fA-F0-9]{32})?$", secret.secret_id)) &&
       lower(try(split("/", secret.secret_id)[2], "")) == "${lower(try(split("/", secret.key_vault_id)[8], ""))}.vault.azure.net" &&
       lower("${secret.key_vault_id}/secrets/${try(split("/", secret.secret_id)[4], "")}") != lower("${var.setup_database_secret.key_vault_id}/secrets/${try(split("/", var.setup_database_secret.secret_id)[4], "")}")
     ])
