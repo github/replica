@@ -1,5 +1,6 @@
 import { join, resolve } from "node:path"
 import timers from "node:timers/promises"
+import { existingRoleAssignment } from "../existing-role-assignment/index.ts"
 
 import { terraformModule } from "../../../terraform/index.ts"
 import { acquireLease } from "../lease/index.ts"
@@ -26,6 +27,7 @@ export async function provisionDatabase(
     preapproved: context.approval !== undefined,
     retryApply: retryableProvisioningFailure,
     signal: context.signal,
+    findUntracked: existingRoleAssignment(azure, config.azure.subscriptionId),
   })
   await module.init(backend)
   const complete = await secrets.provisioned()

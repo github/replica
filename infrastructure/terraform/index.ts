@@ -7,6 +7,33 @@ import type { InstallerUI, RunCommand } from "../installer/types.ts"
 import { CommandExecutionError } from "../installer/command/index.ts"
 import { promptForRecovery } from "../installer/prompt-for-recovery/index.ts"
 import { privateDirectory } from "../installer/private-files/index.ts"
+import { applyOutcomes, type ApplyOutcome } from "./apply-outcomes/index.ts"
+
+export type PlannedCreate = { address: string; type?: string; after?: unknown }
+
+const uncertainKinds = new Set<ApplyOutcome["kind"]>([
+  "ambiguous-write",
+  "conflict",
+  "state-not-saved",
+])
+
+function describeOutcome({ address, kind }: ApplyOutcome) {
+  const subject = address ?? "Terraform"
+  switch (kind) {
+    case "ambiguous-write":
+      return `${subject}: the request was sent but its response was lost. Azure may have completed it.`
+    case "conflict":
+      return `${subject}: Azure reports that it already exists but Terraform state does not record it.`
+    case "state-not-saved":
+      return "Terraform could not save state. Completed changes may be missing from saved state."
+    case "connectivity":
+      return `${subject}: a network or name-resolution failure. This is not a permission denial.`
+    case "permission":
+      return `${subject}: access was denied.`
+    default:
+      return `${subject}: unrecognized error.`
+  }
+}
 
 export function terraformModule({
   directory,
@@ -18,6 +45,7 @@ export function terraformModule({
   retryApply,
   signal,
   validatePlan,
+  findUntracked,
 }: {
   directory: string
   dataDirectory: string
@@ -28,6 +56,8 @@ export function terraformModule({
   retryApply?(error: CommandExecutionError): boolean
   signal?: AbortSignal
   validatePlan?(value: unknown): void
+  // Read-only lookup of an existing cloud resource that a create-only change would duplicate.
+  findUntracked?(change: PlannedCreate): Promise<string | undefined>
 }) {
   const command = (args: string[]) => {
     signal?.throwIfAborted()
@@ -35,6 +65,21 @@ export function terraformModule({
       env: { ...env, TF_DATA_DIR: dataDirectory },
       ...(signal && { signal }),
     })
+  }
+  const listState = async () => (await command(["state", "list"])).split("\n").filter(Boolean)
+  const stateEvidence = async (addresses: string[]) => {
+    try {
+      const saved = new Set(await listState())
+      return [
+        `Saved Terraform state records ${saved.size} resources.`,
+        ...addresses.map(
+          (address) => `${address} is ${saved.has(address) ? "" : "not "}recorded in saved state.`,
+        ),
+      ].join("\n")
+    } catch (error) {
+      if (signal?.aborted) throw error
+      return "Saved Terraform state could not be read now; this does not mean saved state was lost."
+    }
   }
   return {
     async init(backend: string) {
@@ -57,9 +102,7 @@ export function terraformModule({
         }
       }
     },
-    async state(): Promise<string[]> {
-      return (await command(["state", "list"])).split("\n").filter(Boolean)
-    },
+    state: listState,
     async output<T>(name: string): Promise<T> {
       return JSON.parse(await command(["output", "-json", name])) as T
     },
@@ -74,6 +117,52 @@ export function terraformModule({
       let automaticRetryUsed = false
       let automaticRetryPending = false
       let approvedPlan: { signature: string; addresses: Set<string> } | undefined
+      const uncertainAddresses = new Set<string>()
+      const rejectUntracked = async (
+        lookup: NonNullable<typeof findUntracked>,
+        changes: {
+          address: string
+          type?: string
+          change: { actions: string[]; after?: unknown }
+        }[],
+      ) => {
+        const found: { address: string; id: string }[] = []
+        for (const { address, type, change } of changes) {
+          if (change.actions.length !== 1 || change.actions[0] !== "create") continue
+          try {
+            const id = await lookup({ address, type, after: change.after })
+            if (id) found.push({ address, id })
+          } catch (error) {
+            if (signal?.aborted) throw error
+            if (!uncertainAddresses.has(address)) {
+              ui.status(
+                `Could not check whether ${address} already exists; Terraform reports a conflict if it does.`,
+              )
+              continue
+            }
+            const message = `Terraform plan blocked: ${address} had an uncertain apply result and Azure could not be checked for it. Nothing from this plan was applied; saved progress and leases are kept. Retry when Azure is reachable.`
+            ui.notice?.("error", message)
+            throw new Error(message)
+          }
+        }
+        if (!found.length) return
+        const inputVariables = Object.keys(env)
+          .filter((name) => name.startsWith("TF_VAR_"))
+          .sort()
+        const message = [
+          "Terraform plan blocked: Azure already has resources that saved Terraform state does not record.",
+          ...found.map(({ address, id }) => `${address}: ${id}`),
+          "A previous apply probably completed these writes after their responses were lost. Nothing from this plan was applied, nothing was imported, and saved progress and leases are kept.",
+          `To recover: exit the wizard and keep the lease; make sure no other installer or release is running; save an owner-only backup of state with terraform state pull, because state contains secrets; confirm each listed ID is the exact resource this installation intended. Then run these from ${directory} with TF_DATA_DIR=${dataDirectory}, which keeps the same backend and workspace${inputVariables.length ? `, and set ${inputVariables.join(", ")} to the values this installation uses` : ""}:`,
+          ...found.map(
+            ({ address, id }) =>
+              `terraform import -input=false -var-file=${variables} -lock-timeout=60s '${address}' '${id}'`,
+          ),
+          "Run the wizard again and confirm the fresh plan has no deletions or replacements. Do not delete the existing resources to make the plan pass.",
+        ].join("\n")
+        ui.notice?.("error", message)
+        throw new Error(message)
+      }
       while (true) {
         const path = join(dataDirectory, `${randomUUID()}.tfplan`)
         let failure: CommandExecutionError
@@ -102,9 +191,11 @@ export function terraformModule({
             configuration?: Record<string, unknown>
             resource_changes?: {
               address: string
+              type?: string
               change: {
                 actions: string[]
                 replace_paths?: (string | number)[][]
+                after?: unknown
               }
             }[]
           }
@@ -122,6 +213,7 @@ export function terraformModule({
             ui.notice?.("error", message)
             throw new Error(message)
           }
+          if (!destroy && findUntracked) await rejectUntracked(findUntracked, changes)
           if (
             destroy &&
             preapproved &&
@@ -193,12 +285,16 @@ export function terraformModule({
         } finally {
           await rm(path, { force: true })
         }
+        const outcomes = failedOperation === "apply" ? applyOutcomes(failure.details()) : []
+        const uncertain = outcomes.filter(({ kind }) => uncertainKinds.has(kind))
+        for (const { address } of uncertain) if (address) uncertainAddresses.add(address)
         if (
           preapproved &&
           !requiresConfirmation &&
           !automaticRetryUsed &&
           failedOperation === "apply" &&
           approvedPlan &&
+          !uncertain.length &&
           retryApply?.(failure)
         ) {
           automaticRetryUsed = true
@@ -210,10 +306,24 @@ export function terraformModule({
           await delay(15_000, undefined, { signal })
           continue
         }
+        const diagnosis = outcomes.some(({ kind }) => kind !== "unknown")
+          ? [
+              ...outcomes.map(describeOutcome),
+              ...(uncertain.length
+                ? [
+                    await stateEvidence(
+                      uncertain.flatMap(({ address }) => (address ? [address] : [])),
+                    ),
+                    `Do not recreate these resources blindly.${findUntracked ? " Replanning checks supported resources against Azure and blocks before applying if one already exists outside saved state." : ""}`,
+                  ]
+                : []),
+            ].join("\n") + "\n"
+          : ""
+        if (diagnosis && !ui.select) ui.status(diagnosis.trimEnd())
         await promptForRecovery(ui, {
           error: failure,
           question: "How would you like to recover this Terraform step?",
-          message: `${
+          message: `${diagnosis}${
             failedOperation === "apply"
               ? "Terraform may have applied some changes."
               : "Terraform did not apply changes in this step."

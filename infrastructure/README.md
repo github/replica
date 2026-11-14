@@ -169,6 +169,34 @@ The database subnet explicitly includes the `Microsoft.Storage` service endpoint
 
 For a Storage 403 while creating `deployment.lock`, inspect Blob data permissions as well as resource-management permissions. The wizard grants its deployment identity `Storage Blob Data Contributor` on the application storage account, but creating that role assignment does not mean Blob authorization has propagated. Terraform's dependency ordering waits for the role assignment resource, not for successful Blob data requests. After allowing propagation or repairing permissions, choose **Replan and review this Terraform step**. If access remains denied, check the selected identity, role scope and conditions, network rules, and subscription policy. Do not enable shared keys or change network policy to bypass a denial.
 
+#### Lost write responses and untracked role assignments
+
+An apply can fail after Azure accepted a write. For example, a role assignment `PUT` may succeed while the connection resets before Terraform receives the response, so saved state never records that resource. When an apply fails, the wizard classifies each error by resource address. It separates these cases:
+
+- network or name-resolution failures that stopped a request from being delivered;
+- permission denials;
+- conflicts with existing resources;
+- writes whose response was lost;
+- failures to save state;
+- unknown errors, including missing or truncated details.
+
+A storage DNS failure in the same apply is reported separately as a network failure, not as a permission problem or lost state.
+
+A conflict, a lost write response, or a state-save failure disables the automatic retry. The recovery message lists which affected addresses saved Terraform state records. It also gives the recorded resource count. An unreadable state listing is reported as unread, not as lost state.
+
+Every infrastructure plan in guided installation and provisioning, including replans, runs a read-only check. For each planned role-assignment creation, it lists role assignments at the exact planned scope in the saved subscription. It then compares scope, principal ID, and role exactly. Inherited grants, other principals, other roles, and scopes outside the saved subscription do not match.
+
+If Azure already has that grant, the wizard blocks the plan before approval or apply and imports nothing. It shows the existing assignment ID and a manual recovery procedure:
+
+1. Exit and keep the lease.
+2. Confirm that no other installer or release is running.
+3. Take an owner-only private `terraform state pull` backup.
+4. Confirm the ID.
+5. Run the printed `terraform import` command against the same module, data directory, variables file, and backend, with a lock timeout. Set any `TF_VAR_*` environment variables the message names, such as the PostgreSQL administrator password, to this installation's values; the message names them without showing values.
+6. Rerun the wizard and confirm the new plan has no deletions or replacements.
+
+Do not delete the existing grant to make the plan pass. Within the same wizard run, a replan is blocked if a resource with an uncertain result cannot be checked. A failed check in a later run, or for any other resource, is reported and the plan continues; Terraform then reports a conflict instead of creating a duplicate grant. Planned role assignments whose principal is unknown until apply are not checked. Other resource types are not checked either.
+
 ### Azure discovery failures
 
 The wizard names each region and provider lookup before running it. Region discovery uses a read-only ARM request with the selected subscription in both the URL and authentication context; it does not change your Azure CLI default subscription.
