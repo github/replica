@@ -1,9 +1,14 @@
 import type { Prisma } from "../../../generated/prisma/client.ts"
+import { lockAuthenticationProvidersForSessionAuthority } from "../../authentication-providers/lock-authentication-providers-for-session-authority/index.ts"
+import { lockSessionRevocationState } from "../../session-revocation-states/lock-session-revocation-state/index.ts"
 
 export async function lockAdministratorHubSession(
   database: Pick<Prisma.TransactionClient, "$queryRaw">,
   digest: string,
 ) {
+  await lockAuthenticationProvidersForSessionAuthority(database)
+  await lockSessionRevocationState(database)
+
   const rows = await database.$queryRaw<
     Array<{
       externalIdentityId: string

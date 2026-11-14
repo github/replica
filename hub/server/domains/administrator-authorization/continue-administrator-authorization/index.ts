@@ -5,7 +5,9 @@ import { Prisma } from "../../../generated/prisma/client.ts"
 import { classifyPrismaTransactionError } from "../../../integrations/prisma/classify-transaction-error/index.ts"
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
 import { getSensitiveAuthorizationAuditData } from "../../../repositories/sensitive-authorizations/get-sensitive-authorization-audit-data/index.ts"
+import { lockAuthenticationProvidersForSessionAuthority } from "../../../repositories/authentication-providers/lock-authentication-providers-for-session-authority/index.ts"
 import { lockLiveHubSession } from "../../../repositories/hub-sessions/lock-live-hub-session/index.ts"
+import { lockSessionRevocationState } from "../../../repositories/session-revocation-states/lock-session-revocation-state/index.ts"
 import { lockSensitiveAuthorization } from "../../../repositories/sensitive-authorizations/lock-sensitive-authorization/index.ts"
 import { markSensitiveAuthorizationContinued } from "../../../repositories/sensitive-authorizations/mark-sensitive-authorization-continued/index.ts"
 import { isSensitiveAuthorizationCurrent } from "../../../repositories/sensitive-authorizations/is-sensitive-authorization-current/index.ts"
@@ -53,6 +55,10 @@ export async function continueAdministratorAuthorization(
         database
           .$transaction(
             async (transaction) => {
+              await lockAuthenticationProvidersForSessionAuthority(transaction)
+              if (!(await lockSessionRevocationState(transaction))) {
+                throw new AdministratorAuthorizationDeniedError("session_mismatch")
+              }
               const authorization = await lockSensitiveAuthorization(transaction, input.id)
               if (!authorization) {
                 throw new AdministratorAuthorizationDeniedError("invalid_operation")

@@ -8,7 +8,9 @@ import { getSensitiveAuthorizationAuditData } from "../../../repositories/sensit
 import { endAllOpenHubSessions } from "../../../repositories/hub-sessions/end-all-open-hub-sessions/index.ts"
 import { lockLiveHubSession } from "../../../repositories/hub-sessions/lock-live-hub-session/index.ts"
 import { lockEffectiveAdministrators } from "../../../repositories/memberships/lock-effective-administrators/index.ts"
+import { lockAuthenticationProvidersForSessionAuthority } from "../../../repositories/authentication-providers/lock-authentication-providers-for-session-authority/index.ts"
 import { incrementSessionRevocationState } from "../../../repositories/session-revocation-states/increment-session-revocation-state/index.ts"
+import { lockSessionRevocationStateForUpdate } from "../../../repositories/session-revocation-states/lock-session-revocation-state-for-update/index.ts"
 import { cancelOpenSensitiveAuthorizations } from "../../../repositories/sensitive-authorizations/cancel-open-sensitive-authorizations/index.ts"
 import { isSensitiveAuthorizationCurrent } from "../../../repositories/sensitive-authorizations/is-sensitive-authorization-current/index.ts"
 import { lockSensitiveAuthorization } from "../../../repositories/sensitive-authorizations/lock-sensitive-authorization/index.ts"
@@ -44,6 +46,9 @@ export async function endAllHubSessions(database: SessionRevocationDatabase, raw
         database
           .$transaction(
             async (transaction) => {
+              // Match restoration and reconciliation before locking revocation.
+              await lockAuthenticationProvidersForSessionAuthority(transaction)
+              await lockSessionRevocationStateForUpdate(transaction)
               const authorization = await lockSensitiveAuthorization(
                 transaction,
                 input.authorizationId,
