@@ -3,7 +3,7 @@ import pg from "pg"
 import { describe, expect, it } from "vitest"
 
 import { getDatabaseUrl } from "../../../../test/database/get-database-url"
-import { continueAdministratorAuthorization } from "../../../domains/administrator-authorization/continue-administrator-authorization/index.ts"
+import { continueAdministratorAuthorization } from "../../../domains/administrator-authorization/continue-administrator-authorization"
 import { prisma } from "../../../integrations/prisma"
 import { getSessionRevocationStatus } from "../../../repositories/session-revocation-states/get-session-revocation-status"
 import { endAllHubSessions } from "."
