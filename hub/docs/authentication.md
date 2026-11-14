@@ -56,6 +56,8 @@ The migration owns the single global revocation row. Its identity and history ar
 
 Restoration reads the current revision, locks active provider rows in key order, then share-locks the global revocation row and rechecks the revision before locking membership, assignments, and the session. It checks the revision again before returning authority. Administrator continuation, Copilot changes, and ending all Hub sessions lock provider rows in key order, then lock the global revocation row exclusively before changing state. This serializes mutations with restoration even when bootstrap or administrator authority has no provider row to lock. Those mutations can briefly block restoration and admission.
 
+Prototype name edits acquire provider rows in key order and then share-lock the global revocation row before restoring session authority and locking prototype visibility. They keep those locks through the write and detail read-back. Provider locks can briefly block sign-in, session restoration, and reconciliation; the revocation lock can delay global sign-out.
+
 `GET /api/auth/session` restores the current session and returns its current role plus the membership's provider-neutral presentation identity. `POST /api/auth/session/sign-out` ends it and clears the cookie. Hub does not issue refresh tokens, perform provider logout, or support step-up authentication.
 
 ## HTTP boundary

@@ -6,9 +6,9 @@ Hub contributors are rebuilding the app on `build/hub/new` before merging it int
 
 The team has chosen TypeScript, Express for the API, React and Vite for the frontend, and Vitest for tests. The old backend and the frontend code that connected to it have been removed rather than rewritten.
 
-The API responds to a health check and gives signed-in members read access to the seeded repository index and prototype details. The frontend connects the retained pages for local exploration. Storybook remains the presentation workbench.
+The API responds to a health check and gives signed-in members read access to the seeded repository index and prototype details, plus registered prototype name edits. The frontend connects the retained pages for local exploration. Storybook remains the presentation workbench.
 
-Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has a provider-neutral identity transaction foundation with explicit GitHub and single-tenant Microsoft Entra sign-in adapters. A reusable deployment bootstrap secret can enroll a verified provider identity as a Hub administrator. Members can browse a seeded, read-only repository index. The app cannot yet discover real repositories, import Builds, host published previews, edit product data, or support live multi-user reviews.
+Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has a provider-neutral identity transaction foundation with explicit GitHub and single-tenant Microsoft Entra sign-in adapters. A reusable deployment bootstrap secret can enroll a verified provider identity as a Hub administrator. Members can browse a seeded repository index and edit registered prototype names through the API. The app cannot yet discover real repositories, import Builds, host published previews, or support live multi-user reviews.
 
 The [production runtime](deployment.md) serves the built frontend and API and runs both workers in one image. Deployment runs database and job setup separately before starting that image.
 
@@ -20,7 +20,9 @@ API code lives under `server/`. As features are added, route handlers will read 
 
 The [database guide](database.md) defines the multi-file Prisma schema and shared client in integrations. The health route remains a process check, not a database readiness check.
 
-The [Pino integration](logging.md) writes structured application and HTTP logs to stdout. `createApp()` installs request logging before routes, so new endpoints inherit completion records and server-generated request IDs without explicit logging calls. Authentication routes install their bounded form parsing after origin and rate-limit checks; other routes inherit the shared JSON parser.
+The [Pino integration](logging.md) writes structured application and HTTP logs to stdout. `createApp()` installs request logging before routes, so new endpoints inherit completion records and server-generated request IDs without explicit logging calls. Authentication routes install their bounded form parsing after origin and rate-limit checks. Prototype edits check the application origin before bounded JSON parsing, including case and trailing-slash aliases; other routes inherit the shared JSON parser.
+
+`PATCH /api/repositories/:repositoryId/prototypes/:prototypeId` lets any signed-in member edit a visible registered prototype's name. It trims names, limits them to 255 Unicode characters, and rejects blank names and empty edits. Edits preserve the author and registration time. One transaction locks current session authority and prototype visibility through the write and detail response read, so revocation or lost visibility cannot leave a partial edit. UUID identity and Build relationships remain unchanged. Draft registration, a client editor, description and start-page editing, sharing, and management remain separate work. The API keeps `canEdit: false`.
 
 The [background-job foundation](background-jobs.md) uses BullMQ with PostgreSQL and separate on-demand and scheduled worker processes. Setup migrates BullMQ's own schema independently of Prisma. Product processors and schedules are not registered yet.
 
@@ -63,7 +65,7 @@ Imports follow the arrows above. Shared components, hooks, and utilities must no
 
 The theme provider wraps routes and their loading and error feedback.
 
-- In real mode, signed-out visitors use the authentication shell. Signed-in members can browse the read-only repository index and open prototype details. Administrators can use `/settings/administrators`, `/settings/sessions`, `/settings/copilot`, and `/settings/audit?scope=hub` through their production APIs without loading provisional product data.
+- In real mode, signed-out visitors use the authentication shell. Signed-in members can browse the repository index and open prototype details; the detail editor is not shown yet. Administrators can use `/settings/administrators`, `/settings/sessions`, `/settings/copilot`, and `/settings/audit?scope=hub` through their production APIs without loading provisional product data.
 - In mock mode, the root reads the simulated session. A nested layout loads the private workspace for signed-in pages.
 - Route loaders and actions request product data and refresh it after changes. Shareable filters and selections live in the URL.
 - Product screens keep product-facing copy. API failures remain visible errors.
