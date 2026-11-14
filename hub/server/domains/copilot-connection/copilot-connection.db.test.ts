@@ -244,8 +244,10 @@ describe("Copilot connection persistence", () => {
       await locker.query(
         `SELECT revision FROM session_revocation_states WHERE key = 'global' FOR UPDATE`,
       )
-      sessionLock = prisma.$transaction((transaction) =>
-        lockAdministratorHubSession(transaction, records.sessionDigest),
+      sessionLock = runCopilotConnectionTransaction(
+        prisma,
+        transactionRepositories,
+        (repositories) => repositories.lockAdministratorSession(records.sessionDigest),
       )
       const sessionLockResult = sessionLock.then(
         (value) => ({ status: "fulfilled" as const, value }),
@@ -261,7 +263,7 @@ describe("Copilot connection persistence", () => {
 
       await expect(sessionLockResult).resolves.toMatchObject({
         status: "fulfilled",
-        value: { id: records.sessionId },
+        value: { membershipId: records.membershipId },
       })
     } finally {
       if (lockerOpen) {
@@ -269,6 +271,52 @@ describe("Copilot connection persistence", () => {
       }
       if (sessionLock) {
         await Promise.allSettled([sessionLock])
+      }
+      await locker.end()
+    }
+  })
+
+  it("waits for provider authority before locking the Copilot connection", async () => {
+    const records = await createAdministratorConnection()
+    const locker = new pg.Client({ connectionString: getDatabaseUrl() })
+    await locker.connect()
+    let lockerOpen = false
+    let disconnect: Promise<unknown> | null = null
+
+    try {
+      await locker.query("BEGIN")
+      lockerOpen = true
+      await locker.query(`SELECT id FROM authentication_providers WHERE key = 'github' FOR UPDATE`)
+      disconnect = disconnectCopilot(
+        { sessionDigest: records.sessionDigest },
+        {
+          createId: randomUUID,
+          runTransaction: (operation) =>
+            runCopilotConnectionTransaction(prisma, transactionRepositories, operation),
+        },
+      )
+      const disconnectResult = disconnect.then(
+        (value) => ({ status: "fulfilled" as const, value }),
+        (reason: unknown) => ({ status: "rejected" as const, reason }),
+      )
+      await waitForDatabaseLock(getDatabaseUrl())
+
+      await locker.query(
+        `SELECT key FROM copilot_connection_states WHERE key = 'global' FOR UPDATE NOWAIT`,
+      )
+      await locker.query("COMMIT")
+      lockerOpen = false
+
+      await expect(disconnectResult).resolves.toMatchObject({
+        status: "fulfilled",
+        value: { disconnected: true },
+      })
+    } finally {
+      if (lockerOpen) {
+        await locker.query("ROLLBACK")
+      }
+      if (disconnect) {
+        await Promise.allSettled([disconnect])
       }
       await locker.end()
     }
