@@ -4,7 +4,7 @@ import { prisma } from "../../integrations/prisma"
 import { seedPrototypeIndexData } from "./seed-prototype-index-data"
 
 describe("prototype index seed", () => {
-  it("seeds a member's prototypes and restores their Build metadata on rerun", async () => {
+  it("seeds a member's prototypes and restores their metadata on rerun", async () => {
     const user = await prisma.user.create({ data: {} })
     await prisma.membership.create({ data: { userId: user.id } })
     await seedPrototypeIndexData(prisma, user.id)
@@ -26,8 +26,12 @@ describe("prototype index seed", () => {
     } as const
     const samples = await prisma.build.findMany({ select, orderBy: { id: "asc" } })
     expect(samples).toHaveLength(5)
-    const prototypes = await prisma.prototype.findMany({ select: { authorId: true } })
+    const prototypes = await prisma.prototype.findMany({
+      select: { id: true, authorId: true, startPage: true },
+      orderBy: { id: "asc" },
+    })
     expect(prototypes.every((prototype) => prototype.authorId === user.id)).toBe(true)
+    expect(prototypes.every((prototype) => prototype.startPage === null)).toBe(true)
     expect(samples.map((build) => build.state)).toEqual(
       expect.arrayContaining(["queued", "running", "successful", "failed", "superseded"]),
     )
@@ -91,7 +95,14 @@ describe("prototype index seed", () => {
         },
       })
     }
+    await prisma.prototype.updateMany({ data: { startPage: "/settings" } })
     await seedPrototypeIndexData(prisma, user.id)
     expect(await prisma.build.findMany({ select, orderBy: { id: "asc" } })).toEqual(samples)
+    expect(
+      await prisma.prototype.findMany({
+        select: { id: true, authorId: true, startPage: true },
+        orderBy: { id: "asc" },
+      }),
+    ).toEqual(prototypes)
   }, 60_000)
 })
