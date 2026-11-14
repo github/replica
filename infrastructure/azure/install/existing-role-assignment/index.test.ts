@@ -28,6 +28,18 @@ describe("existingRoleAssignment", () => {
     const azure = vi.fn(async () => JSON.stringify([assignment]))
 
     await expect(existingRoleAssignment(azure, subscription)(change)).resolves.toBe(id)
+    expect(azure).toHaveBeenCalledExactlyOnceWith("role", "assignment", "list", "--scope", scope)
+  })
+
+  it("matches a planned role name only when no role ID is planned", async () => {
+    const name = "Storage Blob Data Contributor"
+    const azure = vi.fn(async () => JSON.stringify([{ ...assignment, roleDefinitionName: name }]))
+    const named = {
+      ...change,
+      after: { scope, principal_id: principal, role_definition_name: name },
+    }
+
+    await expect(existingRoleAssignment(azure, subscription)(named)).resolves.toBe(id)
     expect(azure).toHaveBeenCalledExactlyOnceWith(
       "role",
       "assignment",
@@ -35,7 +47,7 @@ describe("existingRoleAssignment", () => {
       "--scope",
       scope,
       "--role",
-      role,
+      name,
     )
   })
 
@@ -45,6 +57,17 @@ describe("existingRoleAssignment", () => {
       "another role",
       {
         roleDefinitionId: "/providers/Microsoft.Authorization/roleDefinitions/other",
+      },
+    ],
+    [
+      "the same role GUID at another definition scope",
+      { roleDefinitionId: `/providers/Microsoft.Authorization/roleDefinitions/${role}` },
+    ],
+    [
+      "a matching role name when the planned role ID differs",
+      {
+        roleDefinitionId: `/subscriptions/${subscription}/providers/Microsoft.Authorization/roleDefinitions/other`,
+        roleDefinitionName: role,
       },
     ],
     ["an inherited scope", { scope: `/subscriptions/${subscription}/resourceGroups/hub` }],

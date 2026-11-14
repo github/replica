@@ -184,7 +184,7 @@ A storage DNS failure in the same apply is reported separately as a network fail
 
 A conflict, a lost write response, or a state-save failure disables the automatic retry. The recovery message lists which affected addresses saved Terraform state records. It also gives the recorded resource count. An unreadable state listing is reported as unread, not as lost state.
 
-Every infrastructure plan in guided installation and provisioning, including replans, runs a read-only check. For each planned role-assignment creation, it lists role assignments at the exact planned scope in the saved subscription. It then compares scope, principal ID, and role exactly. Inherited grants, other principals, other roles, and scopes outside the saved subscription do not match.
+Every infrastructure plan in guided installation and provisioning, including replans, runs a read-only check. For each planned role-assignment creation, it lists role assignments at the exact planned scope in the saved subscription. It then compares scope and principal ID exactly. When the plan supplies a role definition ID, it must equal the full returned ID, not only its final GUID. A role name is compared only when the plan supplies no ID. Inherited grants, other principals, other role definitions, and scopes outside the saved subscription do not match.
 
 If Azure already has that grant, the wizard blocks the plan before approval or apply and imports nothing. It shows the existing assignment ID and a manual recovery procedure:
 
