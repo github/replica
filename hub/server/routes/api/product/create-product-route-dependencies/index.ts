@@ -3,7 +3,7 @@ import { restoreHubSession } from "../../../../domains/admission/restore-hub-ses
 import { runSessionRestoreTransaction } from "../../../../domains/admission/run-session-restore-transaction/index.ts"
 import { editPrototypeMetadata } from "../../../../domains/prototypes/edit-prototype-metadata/index.ts"
 import { prisma } from "../../../../integrations/prisma/index.ts"
-import { lockAuthenticationProvidersForSessionAuthority } from "../../../../repositories/authentication-providers/lock-authentication-providers-for-session-authority/index.ts"
+import { lockAuthenticationProvidersForPrototypeEdit } from "../../../../repositories/authentication-providers/lock-authentication-providers-for-prototype-edit/index.ts"
 import { findRepositoryAuthors } from "../../../../repositories/prototype-index/find-repository-authors/index.ts"
 import { findRepositoryIndex } from "../../../../repositories/prototype-index/find-repository-index/index.ts"
 import { findPrototypeDetail } from "../../../../repositories/prototype-index/find-prototype-detail/index.ts"
@@ -27,7 +27,7 @@ export function createProductRouteDependencies(): ProductRouteDependencies {
         runTransaction: (operation) =>
           prisma.$transaction(
             async (transaction) => {
-              await lockAuthenticationProvidersForSessionAuthority(transaction)
+              await lockAuthenticationProvidersForPrototypeEdit(transaction)
               await lockSessionRevocationState(transaction)
               // Keep these reads in this transaction so authority and prototype locks remain
               // held through the read-back.

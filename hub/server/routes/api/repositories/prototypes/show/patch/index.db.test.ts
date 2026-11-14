@@ -11,6 +11,8 @@ import { waitForDatabaseLock } from "../../../../../../../test/database/wait-for
 import { createApp } from "../../../../../../create-app"
 import { endAllHubSessions } from "../../../../../../domains/session-revocation/end-all-hub-sessions"
 import { prisma } from "../../../../../../integrations/prisma"
+import { lockAuthenticationProviderForSessionRestore } from "../../../../../../repositories/authentication-providers/lock-authentication-provider-for-session-restore"
+import { lockAuthenticationProvidersForPrototypeEdit } from "../../../../../../repositories/authentication-providers/lock-authentication-providers-for-prototype-edit"
 import { lockEditablePrototype } from "../../../../../../repositories/prototypes/lock-editable-prototype"
 import { createAuthenticationRouteDependencies } from "../../../../auth/create-authentication-route-dependencies"
 import { createProductRouteDependencies } from "../../../../product/create-product-route-dependencies"
@@ -183,6 +185,10 @@ describe("prototype PATCH API", () => {
     expect(blankName.status).toBe(400)
     const longName = await patch(url, member.token, { name: "😀".repeat(256) })
     expect(longName.status).toBe(400)
+    const nulName = await patch(url, member.token, { name: "Invalid\u0000name" })
+    expect(nulName.status).toBe(400)
+    const unpairedSurrogate = await patch(url, member.token, { name: "Invalid\uD800name" })
+    expect(unpairedSurrogate.status).toBe(400)
     expect(await readPrototype(prototype.id)).toEqual(prototype)
 
     const maximum = await patch(url, member.token, { name: ` ${"😀".repeat(255)} ` })
@@ -203,6 +209,7 @@ describe("prototype PATCH API", () => {
       data: { nameWithOwner: "team/design", defaultBranch: "trunk" },
     })
     const registeredAt = new Date("2026-10-01T00:00:00Z")
+    const registration = { repositoryId: repository.id, registeredAt }
     const retired = await prisma.prototype.create({
       data: {
         repositoryId: repository.id,
@@ -222,9 +229,8 @@ describe("prototype PATCH API", () => {
     })
     const hidden = await prisma.prototype.createManyAndReturn({
       data: [
-        { repositoryId: repository.id, branchName: "trunk" },
-        { repositoryId: repository.id, branchName: "replica/install-workflow" },
-        { repositoryId: repository.id, branchName: "replica/internal", replica: true },
+        { ...registration, branchName: "trunk", name: "Default" },
+        { ...registration, branchName: "replica/install-workflow", name: "Installation" },
       ],
     })
     for (const prototype of hidden) {
@@ -370,6 +376,40 @@ describe("prototype PATCH API", () => {
       if (edit) await Promise.allSettled([edit])
       if (defaultBranchChange) await Promise.allSettled([defaultBranchChange])
       await Promise.all([database.end(), inspector.end()])
+    }
+  })
+
+  it("allows session restoration to share provider locks", async () => {
+    await openServer()
+    let notifyLocksHeld!: () => void
+    const locksHeld = new Promise<void>((resolve) => {
+      notifyLocksHeld = resolve
+    })
+    let releaseLocks!: () => void
+    const lockGate = new Promise<void>((resolve) => {
+      releaseLocks = resolve
+    })
+    let edit: Promise<void> | null = null
+    try {
+      edit = prisma.$transaction(async (transaction) => {
+        await lockAuthenticationProvidersForPrototypeEdit(transaction)
+        notifyLocksHeld()
+        await lockGate
+      })
+      await Promise.race([
+        locksHeld,
+        edit.then(() => {
+          throw new Error("The transaction finished before holding provider locks.")
+        }),
+      ])
+      const restoredProvider = await prisma.$transaction(async (transaction) => {
+        await transaction.$executeRaw`SET LOCAL lock_timeout = '1s'`
+        return lockAuthenticationProviderForSessionRestore(transaction, "github")
+      })
+      expect(restoredProvider).not.toBeNull()
+    } finally {
+      releaseLocks()
+      if (edit) await Promise.allSettled([edit])
     }
   })
 

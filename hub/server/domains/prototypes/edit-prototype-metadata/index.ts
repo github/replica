@@ -6,9 +6,15 @@ import { PrototypeMetadataError } from "../errors.ts"
 type Detail = NonNullable<Awaited<ReturnType<typeof findPrototypeDetail>>>
 
 // Matches the database metadata guard, which also treats NEL as blank.
-const space =
-  "[\\t-\\r \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff]"
-const edgeSpace = new RegExp(`^${space}+|${space}+$`, "gu")
+const edgeSpace = /^[\t-\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]$/u
+
+function trimName(value: string) {
+  let start = 0
+  let end = value.length
+  while (start < end && edgeSpace.test(value.charAt(start))) start += 1
+  while (end > start && edgeSpace.test(value.charAt(end - 1))) end -= 1
+  return value.slice(start, end)
+}
 
 export interface PrototypeMetadataChanges {
   name?: string | null
@@ -37,7 +43,10 @@ export async function editPrototypeMetadata(
     ) => Promise<Detail>
   },
 ) {
-  const name = input.changes.name?.replace(edgeSpace, "")
+  const name =
+    input.changes.name === null || input.changes.name === undefined
+      ? undefined
+      : trimName(input.changes.name)
   if (!name) throw new PrototypeMetadataError("invalid_input", "Enter a prototype name.")
   if (/[\p{Cs}\0]/u.test(name)) {
     throw new PrototypeMetadataError(
