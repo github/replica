@@ -9,8 +9,9 @@ import { getDatabaseUrl } from "../../../../../../../test/database/get-database-
 import { waitForBlockedQuery } from "../../../../../../../test/database/wait-for-blocked-query"
 import { waitForDatabaseLock } from "../../../../../../../test/database/wait-for-database-lock"
 import { createApp } from "../../../../../../create-app"
-import { endAllHubSessions } from "../../../../../../domains/session-revocation/end-all-hub-sessions/index.ts"
+import { endAllHubSessions } from "../../../../../../domains/session-revocation/end-all-hub-sessions"
 import { prisma } from "../../../../../../integrations/prisma"
+import { lockEditablePrototype } from "../../../../../../repositories/prototypes/lock-editable-prototype"
 import { createAuthenticationRouteDependencies } from "../../../../auth/create-authentication-route-dependencies"
 import { createProductRouteDependencies } from "../../../../product/create-product-route-dependencies"
 
@@ -306,6 +307,69 @@ describe("prototype PATCH API", () => {
         `DROP TRIGGER IF EXISTS "${trigger}" ON prototypes; DROP FUNCTION IF EXISTS "${trigger}"()`,
       )
       await database.end()
+    }
+  })
+
+  it("holds repository visibility until the edit commits", async () => {
+    const { repository, prototype } = await createPrototype("", "prototype/visibility")
+    const database = new pg.Client({ connectionString: getDatabaseUrl() })
+    const inspector = new pg.Client({ connectionString: getDatabaseUrl() })
+    await Promise.all([database.connect(), inspector.connect()])
+    let notifyEditReady!: () => void
+    const editReady = new Promise<void>((resolve) => {
+      notifyEditReady = resolve
+    })
+    let releaseEdit!: () => void
+    const editGate = new Promise<void>((resolve) => {
+      releaseEdit = resolve
+    })
+    let editPid: number | undefined
+    let edit: Promise<void> | null = null
+    let defaultBranchChange: Promise<pg.QueryResult> | null = null
+    try {
+      edit = prisma.$transaction(async (transaction) => {
+        expect(await lockEditablePrototype(transaction, repository.id, prototype.id)).toMatchObject(
+          { id: prototype.id, registeredAt: prototype.registeredAt },
+        )
+        const [connection] = await transaction.$queryRaw<Array<{ pid: number }>>`
+          SELECT pg_backend_pid() AS pid
+        `
+        if (!connection) throw new Error("The edit transaction has no PostgreSQL connection.")
+        editPid = connection.pid
+        await transaction.prototype.update({
+          where: { id: prototype.id },
+          data: { name: "Edited" },
+        })
+        notifyEditReady()
+        await editGate
+      })
+      await Promise.race([
+        editReady,
+        edit.then(() => {
+          throw new Error("The edit finished before holding the repository lock.")
+        }),
+      ])
+      if (editPid === undefined) throw new Error("The edit transaction has no PostgreSQL PID.")
+      defaultBranchChange = database.query(
+        `UPDATE repositories
+         SET default_branch = 'trunk', updated_at = clock_timestamp()
+         WHERE id = $1`,
+        [repository.id],
+      )
+      await waitForBlockedQuery(inspector, editPid, "UPDATE repositories")
+
+      releaseEdit()
+      await edit
+      await defaultBranchChange
+      expect(await readPrototype(prototype.id)).toMatchObject({ name: "Edited" })
+      expect(
+        await prisma.repository.findUniqueOrThrow({ where: { id: repository.id } }),
+      ).toMatchObject({ defaultBranch: "trunk" })
+    } finally {
+      releaseEdit()
+      if (edit) await Promise.allSettled([edit])
+      if (defaultBranchChange) await Promise.allSettled([defaultBranchChange])
+      await Promise.all([database.end(), inspector.end()])
     }
   })
 
