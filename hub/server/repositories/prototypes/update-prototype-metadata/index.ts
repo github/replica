@@ -5,6 +5,8 @@ export function updatePrototypeMetadata(
   id: string,
   data: {
     name: string
+    authorId?: string
+    registeredAt?: Date
   },
 ) {
   return database.prototype.update({ where: { id }, data, select: { id: true } })

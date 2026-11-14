@@ -27,7 +27,7 @@ export interface PrototypeMetadataRepositories {
   findDetail(repositoryId: string, prototypeId: string): Promise<Detail | null>
 }
 
-/** Saves metadata without changing the prototype's author or registration. */
+/** Registers a draft on its first name edit and preserves later registration history. */
 export async function editPrototypeMetadata(
   input: {
     changes: PrototypeMetadataChanges
@@ -64,11 +64,14 @@ export async function editPrototypeMetadata(
     const viewer = await repositories.restoreSession(input.sessionDigest)
     if (!viewer) throw new PrototypeMetadataError("not_signed_in", "Sign in to continue.")
     const prototype = await repositories.lockPrototype(input.repositoryId, input.prototypeId)
-    if (!prototype?.registeredAt) {
+    if (!prototype) {
       throw new PrototypeMetadataError("not_found", "Prototype not found.")
     }
 
-    await repositories.updatePrototype(prototype.id, { name })
+    await repositories.updatePrototype(prototype.id, {
+      name,
+      ...(prototype.registeredAt ? {} : { authorId: viewer.userId, registeredAt: new Date() }),
+    })
     const detail = await repositories.findDetail(input.repositoryId, input.prototypeId)
     if (!detail) throw new Error("The edited prototype is unavailable.")
     const currentViewer = await repositories.restoreSession(input.sessionDigest)

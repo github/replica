@@ -1,7 +1,8 @@
 import type pg from "pg"
 
 export async function waitForBlockedQuery(inspector: pg.Client, blockerPid: number, query: string) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  const deadline = Date.now() + 5_000
+  while (Date.now() < deadline) {
     const result = await inspector.query<{ pid: number }>(
       `SELECT waiter.pid
        FROM pg_stat_activity waiter
@@ -14,7 +15,7 @@ export async function waitForBlockedQuery(inspector: pg.Client, blockerPid: numb
     )
     const waiterPid = result.rows[0]?.pid
     if (waiterPid) return waiterPid
-    await new Promise<void>((resolve) => setImmediate(resolve))
+    await new Promise<void>((resolve) => setTimeout(resolve, 10))
   }
   throw new Error(`Timed out waiting for a blocked query containing ${query}.`)
 }
