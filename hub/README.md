@@ -2,7 +2,7 @@
 
 Hub is being rebuilt on `build/hub/new` using TypeScript, Express, React, Vite, and Vitest. This branch lets contributors start the new app locally. It is not ready to replace the existing Hub.
 
-The API has liveness, readiness, repository index, and prototype detail routes. Signed-in members can edit a visible prototype's name, description, and start page in the interface. React Router also connects the retained frontend pages to local mock data.
+The API has liveness, readiness, repository index, prototype detail, and Build history routes. Signed-in members can edit a visible prototype's name, description, and start page in the interface. React Router also connects the retained frontend pages to local mock data.
 
 Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The backend provides:
 
