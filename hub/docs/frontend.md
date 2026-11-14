@@ -191,7 +191,7 @@ These are frontend/mock contracts under [the application contracts](../client/ap
 | `GET /api/repositories/:repositoryId/authors` | Searchable user choices with a cursor |
 | `GET /api/repositories/:repositoryId/prototypes/:prototypeId` | Prototype, Build records, and selected successful Build; real mode does not include hosted preview URLs |
 | `GET /api/repositories/:repositoryId/prototypes/:prototypeId/builds` | Paginated build history |
-| `PATCH /api/repositories/:repositoryId/prototypes/:prototypeId` | Rename a visible, registered prototype |
+| `PATCH /api/repositories/:repositoryId/prototypes/:prototypeId` | Mock: update a prototype's name and description; both fields are required |
 | `/api/repositories/:repositoryId/prototypes/:prototypeId/review-comments` and its comment actions | Review collections, changes, reactions, and read positions |
 | `GET /api/repositories/:repositoryId/templates` and `/api/repositories/:repositoryId/templates/:templateId` | Template browsing |
 | `GET /api/repositories/:repositoryId/prototype-management`, `PATCH /api/repositories/:repositoryId/prototype-management/:prototypeId` | Management records and metadata changes |
@@ -209,7 +209,7 @@ In real mode, Express implements `GET /api/workspace`, `GET /api/repositories/:r
 
 ### Registered prototype name edits
 
-Any signed-in member can rename a visible, registered prototype with a strict JSON object containing only `name`. Hub checks the configured origin before parsing the bounded body, trims surrounding Unicode whitespace, and rejects blank names, names over 255 Unicode code points, NUL, and unpaired surrogate values. Invalid input returns 400, a wrong origin returns 403, and a missing or expired session returns 401. Drafts, the default branch, replicas, the reserved installation branch, removed repositories, and prototypes requested under another repository return 404. A successful response includes the updated detail while preserving the prototype ID, author, registration time, and Build relationships; `canEdit` remains false. Hub holds session authority and prototype visibility locked through the update and detail read-back. The client editor and draft registration are separate work.
+Unlike the mock contract above, the real endpoint accepts a strict JSON object containing only `name`. Any signed-in member can rename a visible, registered prototype. Hub checks the configured origin before parsing the bounded body, trims surrounding Unicode whitespace, and rejects blank names, names over 255 Unicode code points, NUL, and unpaired surrogate values. Invalid input returns 400, a wrong origin returns 403, and a missing or expired session returns 401. Drafts, the default branch, replicas, the reserved installation branch, removed repositories, and prototypes requested under another repository return 404. A successful response includes the updated detail while preserving the prototype ID, author, registration time, and Build relationships; `canEdit` remains false. Hub holds session authority and prototype visibility locked through the update and detail read-back. The client editor and draft registration are separate work.
 
 Real administrator management does not use the provisional settings contracts:
 
