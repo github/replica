@@ -8,6 +8,7 @@ export interface SessionRestoreRepositories {
     revocationRevision: number
   } | null>
   getRevocation(): Promise<{ revision: number } | null>
+  lockRevocation(): Promise<{ revision: number } | null>
   getActiveProviderKeys(membershipId: string): Promise<string[]>
   lockActiveAssignments(membershipId: string): Promise<
     Array<{

@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto"
+import pg from "pg"
 import { describe, expect, it } from "vitest"
 
+import { getDatabaseUrl } from "../../../../test/database/get-database-url"
+import { waitForBlockedQuery } from "../../../../test/database/wait-for-blocked-query"
+import { continueAdministratorAuthorization } from "../../../domains/administrator-authorization/continue-administrator-authorization"
 import { prisma } from "../../../integrations/prisma"
 import { getSessionRevocationStatus } from "../../../repositories/session-revocation-states/get-session-revocation-status"
 import { endAllHubSessions } from "."
@@ -23,7 +27,7 @@ async function createProvider() {
     data: { enabled: true, selectedRevisionId: providerRevisionId },
     where: { id: providerId },
   })
-  return providerRevisionId
+  return { providerId, providerRevisionId }
 }
 
 async function createMember(input: { administrator?: boolean; login: string }) {
@@ -82,7 +86,7 @@ async function createSession(input: {
 }
 
 async function createFixture(input: { authorizationExpired?: boolean } = {}) {
-  const providerRevisionId = await createProvider()
+  const { providerId, providerRevisionId } = await createProvider()
   const actor = await createMember({ administrator: true, login: "actor" })
   const other = await createMember({ login: "other" })
   const { revision } = await prisma.sessionRevocationState.findUniqueOrThrow({
@@ -162,14 +166,160 @@ async function createFixture(input: { authorizationExpired?: boolean } = {}) {
     actor,
     actorSessionId,
     authorizationId,
+    other,
     otherAuthorizationId,
     otherSessionId,
+    providerId,
     prototypeId,
     revision,
   }
 }
 
 describe("endAllHubSessions()", () => {
+  it("waits for revocation authority before locking the actor session or membership", async () => {
+    const fixture = await createFixture()
+    const authority = new pg.Client({ connectionString: getDatabaseUrl() })
+    const provider = new pg.Client({ connectionString: getDatabaseUrl() })
+    const contender = new pg.Client({ connectionString: getDatabaseUrl() })
+    const inspector = new pg.Client({ connectionString: getDatabaseUrl() })
+    await Promise.all([
+      authority.connect(),
+      provider.connect(),
+      contender.connect(),
+      inspector.connect(),
+    ])
+    let authorityOpen = false
+    let providerOpen = false
+    let contenderOpen = false
+    let revocation: ReturnType<typeof endAllHubSessions> | null = null
+    try {
+      await provider.query("BEGIN")
+      providerOpen = true
+      await provider.query("SELECT id FROM authentication_providers WHERE id = $1 FOR UPDATE", [
+        fixture.providerId,
+      ])
+      await authority.query("BEGIN")
+      authorityOpen = true
+      await authority.query(
+        `SELECT revision FROM session_revocation_states WHERE key = 'global' FOR SHARE`,
+      )
+      const { pid: providerPid } = (
+        await provider.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")
+      ).rows[0]!
+      const { pid: authorityPid } = (
+        await authority.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")
+      ).rows[0]!
+      revocation = endAllHubSessions(prisma, {
+        authorizationId: fixture.authorizationId,
+        hubSessionId: fixture.actorSessionId,
+      })
+      await waitForBlockedQuery(inspector, providerPid, "authentication_providers")
+      await provider.query("COMMIT")
+      providerOpen = false
+      await waitForBlockedQuery(inspector, authorityPid, "session_revocation_states")
+
+      await contender.query("BEGIN")
+      contenderOpen = true
+      await contender.query("SELECT id FROM hub_sessions WHERE id = $1 FOR UPDATE NOWAIT", [
+        fixture.actorSessionId,
+      ])
+      await contender.query("SELECT id FROM memberships WHERE id = $1 FOR UPDATE NOWAIT", [
+        fixture.actor.membershipId,
+      ])
+      await contender.query("COMMIT")
+      contenderOpen = false
+      await authority.query("COMMIT")
+      authorityOpen = false
+      await expect(revocation).resolves.toMatchObject({ revision: fixture.revision + 1 })
+    } finally {
+      if (contenderOpen) await contender.query("ROLLBACK")
+      if (providerOpen) await provider.query("ROLLBACK")
+      if (authorityOpen) await authority.query("ROLLBACK")
+      if (revocation) await Promise.allSettled([revocation])
+      await Promise.all([authority.end(), provider.end(), contender.end(), inspector.end()])
+    }
+  })
+
+  it("serializes administrator continuation with global session revocation", async () => {
+    const fixture = await createFixture()
+    const authority = new pg.Client({ connectionString: getDatabaseUrl() })
+    const contender = new pg.Client({ connectionString: getDatabaseUrl() })
+    const inspector = new pg.Client({ connectionString: getDatabaseUrl() })
+    await Promise.all([authority.connect(), contender.connect(), inspector.connect()])
+    let authorityOpen = false
+    let contenderOpen = false
+    let revocation: ReturnType<typeof endAllHubSessions> | null = null
+    let continuation: ReturnType<typeof continueAdministratorAuthorization> | null = null
+    try {
+      await authority.query("BEGIN")
+      authorityOpen = true
+      await authority.query(
+        "SELECT revision FROM session_revocation_states WHERE key = 'global' FOR UPDATE",
+      )
+      const { pid: authorityPid } = (
+        await authority.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")
+      ).rows[0]!
+      revocation = endAllHubSessions(prisma, {
+        authorizationId: fixture.authorizationId,
+        hubSessionId: fixture.actorSessionId,
+      })
+      const revocationResult = revocation.then(
+        (value) => ({ status: "fulfilled" as const, value }),
+        (reason: unknown) => ({ status: "rejected" as const, reason }),
+      )
+      const revocationPid = await waitForBlockedQuery(
+        inspector,
+        authorityPid,
+        "session_revocation_states",
+      )
+      continuation = continueAdministratorAuthorization(prisma, {
+        hubSessionId: fixture.actorSessionId,
+        id: fixture.otherAuthorizationId,
+        operation: "DESIGNATE_ADMINISTRATORS",
+        targetMembershipIds: [fixture.other.membershipId],
+      })
+      const continuationResult = continuation.then(
+        (value) => ({ status: "fulfilled" as const, value }),
+        (reason: unknown) => ({ status: "rejected" as const, reason }),
+      )
+      await waitForBlockedQuery(inspector, revocationPid, "authentication_providers")
+
+      await contender.query("BEGIN")
+      contenderOpen = true
+      await contender.query("SELECT id FROM hub_sessions WHERE id = $1 FOR UPDATE NOWAIT", [
+        fixture.actorSessionId,
+      ])
+      await contender.query("COMMIT")
+      contenderOpen = false
+
+      await authority.query("COMMIT")
+      authorityOpen = false
+      const [settledRevocation, settledContinuation] = await Promise.all([
+        revocationResult,
+        continuationResult,
+      ])
+      expect(settledRevocation).toMatchObject({
+        status: "fulfilled",
+        value: { revision: fixture.revision + 1 },
+      })
+      expect(settledContinuation).toMatchObject({
+        status: "rejected",
+        reason: { reason: "session_mismatch" },
+      })
+      expect(
+        await prisma.securityAudit.count({
+          where: { action: "session.revocation.end_all_failed" },
+        }),
+      ).toBe(0)
+    } finally {
+      if (contenderOpen) await contender.query("ROLLBACK")
+      if (authorityOpen) await authority.query("ROLLBACK")
+      if (revocation) await Promise.allSettled([revocation])
+      if (continuation) await Promise.allSettled([continuation])
+      await Promise.all([authority.end(), contender.end(), inspector.end()])
+    }
+  })
+
   it("atomically advances revocation, ends every session, cancels other authorization, and reports counts", async () => {
     const fixture = await createFixture()
 

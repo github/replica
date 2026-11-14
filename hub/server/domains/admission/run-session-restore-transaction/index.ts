@@ -7,6 +7,7 @@ import { getActiveProviderKeys } from "../../../repositories/membership-assignme
 import { lockActiveMembershipAssignments } from "../../../repositories/membership-assignments/lock-active-membership-assignments/index.ts"
 import { lockMembershipById } from "../../../repositories/memberships/lock-membership-by-id/index.ts"
 import { getSessionRevocationState } from "../../../repositories/session-revocation-states/get-session-revocation-state/index.ts"
+import { lockSessionRevocationState } from "../../../repositories/session-revocation-states/lock-session-revocation-state/index.ts"
 import type { SessionRestoreDatabaseClient, SessionRestoreRepositories } from "./types.ts"
 
 export function runSessionRestoreTransaction<Result>(
@@ -19,6 +20,7 @@ export function runSessionRestoreTransaction<Result>(
         findSession: (digest) => findRestorableHubSession(transaction, digest),
         getActiveProviderKeys: (membershipId) => getActiveProviderKeys(transaction, membershipId),
         getRevocation: () => getSessionRevocationState(transaction),
+        lockRevocation: () => lockSessionRevocationState(transaction),
         lockActiveAssignments: (membershipId) =>
           lockActiveMembershipAssignments(transaction, membershipId),
         lockMembership: (membershipId) => lockMembershipById(transaction, membershipId),
