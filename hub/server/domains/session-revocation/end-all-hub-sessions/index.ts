@@ -46,7 +46,7 @@ export async function endAllHubSessions(database: SessionRevocationDatabase, raw
         database
           .$transaction(
             async (transaction) => {
-              // Match restoration and reconciliation before locking revocation.
+              // Lock providers before the global revision, as restoration and reconciliation do.
               await lockAuthenticationProvidersForSessionAuthority(transaction)
               await lockSessionRevocationStateForUpdate(transaction)
               const authorization = await lockSensitiveAuthorization(
