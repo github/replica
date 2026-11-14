@@ -4,7 +4,9 @@ export function updatePrototypeMetadata(
   database: Pick<Prisma.TransactionClient, "prototype">,
   id: string,
   data: {
-    name: string
+    name?: string
+    description?: string | null
+    startPage?: string | null
     authorId?: string
     registeredAt?: Date
   },

@@ -15,6 +15,7 @@ model Prototype {
   branchName      String    @map("branch_name") @db.VarChar(255)
   name            String?   @db.VarChar(255)
   description     String?   @db.VarChar(500)
+  startPage       String?   @map("start_page") @db.VarChar(2048)
   registeredAt    DateTime? @map("registered_at") @db.Timestamptz(3)
   branchDeletedAt DateTime? @map("branch_deleted_at") @db.Timestamptz(3)
   replica         Boolean   @default(false)

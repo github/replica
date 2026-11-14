@@ -9,9 +9,13 @@ export async function lockEditablePrototype(
   repositoryId: string,
   prototypeId: string,
 ) {
-  const rows = await database.$queryRaw<Array<{ id: string; registeredAt: Date | null }>>`
+  const rows = await database.$queryRaw<
+    Array<{ id: string; name: string | null; branchName: string; registeredAt: Date | null }>
+  >`
     SELECT
       prototype."id",
+      prototype."name",
+      prototype."branch_name" AS "branchName",
       prototype."registered_at" AS "registeredAt"
     FROM "prototypes" prototype
     JOIN "repositories" repository ON repository."id" = prototype."repository_id"
