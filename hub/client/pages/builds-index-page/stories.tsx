@@ -93,8 +93,39 @@ export const Multiple: Story = {
         successfulBuild,
       ],
       latestBuild: { number: 3, state: "running", stateLabel: "Running" },
-      nextPagePath:
-        "/repositories/2001/prototypes/1/builds?before=1&before_at=2026-09-14T12%3A00%3A00.000000Z",
+    },
+  },
+}
+
+export const RealHistory: Story = {
+  args: {
+    data: {
+      ...data,
+      ...Multiple.args?.data,
+      branchPath: "/repositories/2001/prototypes/1?build=1",
+      buildOptions: [
+        ...Array.from({ length: 25 }, (_, index) => {
+          const number = 28 - index
+          return {
+            number,
+            label: `v${number}`,
+            path: `/repositories/2001/prototypes/1?build=${number}`,
+            state: "successful" as const,
+            stateLabel: "Successful",
+          }
+        }),
+        ...(Multiple.args?.data?.buildOptions ?? []),
+      ],
+      closeLabel: "Return to prototype",
+      closePath: "/repositories/2001/prototypes/1?build=1",
+      latestBuild: { number: 28, state: "successful", stateLabel: "Successful" },
+      newPrototypePath: null,
+      newestPagePath: "/repositories/2001/prototypes/1/builds?build=1",
+      securityAuditPath: null,
+      selectedBuild: { number: 1 },
+      selectedBuildNumber: 1,
+      shareLinksPath: undefined,
+      signOutPath: "/api/auth/session/sign-out",
     },
   },
 }

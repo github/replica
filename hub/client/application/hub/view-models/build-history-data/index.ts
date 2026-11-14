@@ -10,22 +10,28 @@ export function buildHistoryData(
   workspace: WorkspaceResponse,
   data: BuildHistoryResponse,
   search: URLSearchParams,
+  options: { real?: boolean } = {},
 ): BuildsIndexPageData {
   const prototypePath = `/repositories/${data.repository.id}/prototypes/${data.prototype.id}`
   const path = `${prototypePath}/builds`
   const selectedBuild =
-    data.prototype.builds.find((build) => String(build.number) === search.get("build")) ?? null
+    data.prototype.builds.find(
+      (build) => build.state === "successful" && String(build.number) === search.get("build"),
+    ) ?? null
   const selectedNumber = selectedBuild?.number ?? null
+  const workspaceData = prototypeWorkspace({
+    workspace,
+    repository: data.repository,
+    prototype: data.prototype,
+    selectedBuild,
+    search,
+    surface: "history",
+    real: options.real,
+  })
 
   return {
-    ...prototypeWorkspace({
-      workspace,
-      repository: data.repository,
-      prototype: data.prototype,
-      selectedBuild,
-      search,
-      surface: "history",
-    }),
+    ...workspaceData,
+    shareLinksPath: options.real ? undefined : workspaceData.shareLinksPath,
     builds: data.builds.map((build) => {
       const githubAuthor =
         build.commitAuthorProvider === undefined || build.commitAuthorProvider === "github"

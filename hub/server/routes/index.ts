@@ -16,6 +16,7 @@ import { get as handleRepositoryAuthorsGet } from "./api/repositories/authors/ge
 import { get as handleRepositoryGet } from "./api/repositories/show/get/index.ts"
 import { get as handlePrototypeGet } from "./api/repositories/prototypes/show/get/index.ts"
 import { patch as handlePrototypePatch } from "./api/repositories/prototypes/show/patch/index.ts"
+import { get as handleBuildHistoryGet } from "./api/repositories/prototypes/builds/get/index.ts"
 import { get as handleAdministratorsGet } from "./api/administrators/get/index.ts"
 import { get as handleAdministratorCandidatesGet } from "./api/administrators/candidates/get/index.ts"
 import { post as handleAdministratorAuthorizationStartPost } from "./api/administrators/authorizations/start/post/index.ts"
@@ -57,6 +58,10 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
       app.get(
         "/api/repositories/:repositoryId/prototypes/:prototypeId",
         handlePrototypeGet(authentication.currentSession, product),
+      )
+      app.get(
+        "/api/repositories/:repositoryId/prototypes/:prototypeId/builds",
+        handleBuildHistoryGet(authentication.currentSession, product),
       )
       app.patch(
         "/api/repositories/:repositoryId/prototypes/:prototypeId",
