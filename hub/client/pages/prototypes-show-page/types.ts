@@ -28,8 +28,6 @@ export interface PrototypesShowPageData extends PrototypeWorkspaceData {
   startPageHint?: string
   saveDetailsLabel?: string
   cancelEditLabel?: string
-  nameMaximumLength?: number
-  descriptionMaximumLength?: number
   descriptionLabel: string
   noDescriptionLabel: string
   prototypeInfoLabel: string
@@ -74,6 +72,7 @@ export interface PrototypesShowPageData extends PrototypeWorkspaceData {
 export interface PrototypeDetailsInput {
   name: string
   description: string | null
+  startPage: string
 }
 
 export interface PrototypeDetailsControls {

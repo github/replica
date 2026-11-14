@@ -128,27 +128,149 @@ describe("createMockHandlers()", () => {
     })
   })
 
-  it("rejects an edit to another author's prototype without changing it", async () => {
+  it("lets a member edit another author's details without granting management or sharing", async () => {
     vi.stubEnv("MODE", "development")
     const origin = "https://hub.example.test"
-    const server = setupServer(...createMockHandlers(createMockStore({ origin })))
+    const store = createMockStore({ origin })
+    const server = setupServer(...createMockHandlers(store))
     server.listen({ onUnhandledRequest: "error" })
     onTestFinished(() => server.close())
     const request = new Request(`${origin}/repositories/2001/prototypes/2`)
     const original = await getPrototype(request, "2001", "2")
-    expect(original.prototype.canEdit).toBe(false)
+
+    const edited = await updatePrototype(request, "2001", "2", {
+      name: "A teammate's edit",
+      description: null,
+      startPage: "/welcome?step=2#intro",
+    })
+
+    expect(edited.prototype).toMatchObject({
+      name: "A teammate's edit",
+      description: null,
+      startPage: "/welcome?step=2#intro",
+      authorLogin: original.prototype.authorLogin,
+    })
+    expect((await getPrototype(request, "2001", "2")).prototype).toEqual(edited.prototype)
+    expect(() =>
+      store.product.updateMetadata("2001", "2", {
+        name: "A separate management edit",
+        description: null,
+        startPage: "/",
+      }),
+    ).toThrow(expect.objectContaining({ status: 403 }))
+    expect(store.product.getShareLinks("2001", "2").canManage).toBe(false)
+  })
+
+  it("rejects a signed-out edit without changing saved details", async () => {
+    vi.stubEnv("MODE", "development")
+    const origin = "https://hub.example.test"
+    const store = createMockStore({ origin })
+    const original = store.getPrototype("2001", "1").prototype
+    store.session.select("signed-out")
+    const server = setupServer(...createMockHandlers(store))
+    server.listen({ onUnhandledRequest: "error" })
+    onTestFinished(() => server.close())
+    const request = new Request(`${origin}/repositories/2001/prototypes/1`)
 
     await expect(
-      updatePrototype(request, "2001", "2", {
-        name: "An unauthorized edit",
+      updatePrototype(request, "2001", "1", {
+        name: "An anonymous edit",
         description: null,
+        startPage: "/",
       }),
-    ).rejects.toMatchObject({ status: 403 })
+    ).rejects.toMatchObject({ status: 401 })
 
-    const unchanged = await getPrototype(request, "2001", "2")
-    expect(unchanged.prototype).toMatchObject({
-      name: original.prototype.name,
-      description: original.prototype.description,
+    store.session.select("owner")
+    expect(store.getPrototype("2001", "1").prototype).toEqual(original)
+  })
+
+  it("saves an implicit local route while preserving encoded spaces and percent signs", async () => {
+    const origin = "https://hub.example.test"
+    const store = createMockStore({ origin })
+    const server = setupServer(...createMockHandlers(store))
+    server.listen({ onUnhandledRequest: "error" })
+    onTestFinished(() => server.close())
+    const details = {
+      name: "Welcome",
+      description: null,
+      startPage: "welcome%20back/100%25?label=50%25%20done#section%201",
+    }
+
+    const response = await fetch(`${origin}/api/repositories/2001/prototypes/1`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(details),
     })
+
+    expect(response.status).toBe(200)
+    const expected = { ...details, startPage: `/${details.startPage}` }
+    expect(await response.json()).toMatchObject({ prototype: expected })
+    expect(store.getPrototype("2001", "1").prototype).toMatchObject(expected)
+  })
+
+  it("rejects a mock start page containing nested encoded traversal without saving it", async () => {
+    const origin = "https://hub.example.test"
+    const store = createMockStore({ origin })
+    const original = store.getPrototype("2001", "1").prototype
+    const server = setupServer(...createMockHandlers(store))
+    server.listen({ onUnhandledRequest: "error" })
+    onTestFinished(() => server.close())
+
+    const response = await fetch(`${origin}/api/repositories/2001/prototypes/1`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Do not save this edit",
+        description: null,
+        startPage: "/%252e%252e/private",
+      }),
+    })
+
+    expect(response.status).toBe(422)
+    expect(store.getPrototype("2001", "1").prototype).toEqual(original)
+  })
+
+  it("rejects a mock start page inside a reserved internal directory without saving it", async () => {
+    const origin = "https://hub.example.test"
+    const store = createMockStore({ origin })
+    const original = store.getPrototype("2001", "1").prototype
+    const server = setupServer(...createMockHandlers(store))
+    server.listen({ onUnhandledRequest: "error" })
+    onTestFinished(() => server.close())
+
+    const response = await fetch(`${origin}/api/repositories/2001/prototypes/1`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Do not save this edit",
+        description: null,
+        startPage: "/nested/.replica-internal/manifest.json",
+      }),
+    })
+
+    expect(response.status).toBe(422)
+    expect(store.getPrototype("2001", "1").prototype).toEqual(original)
+  })
+
+  it("rejects the reserved replica namespace before a query without saving it", async () => {
+    const origin = "https://hub.example.test"
+    const store = createMockStore({ origin })
+    const original = store.getPrototype("2001", "1").prototype
+    const server = setupServer(...createMockHandlers(store))
+    server.listen({ onUnhandledRequest: "error" })
+    onTestFinished(() => server.close())
+
+    const response = await fetch(`${origin}/api/repositories/2001/prototypes/1`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Do not save this edit",
+        description: null,
+        startPage: "/__replica?asset=controls",
+      }),
+    })
+
+    expect(response.status).toBe(422)
+    expect(store.getPrototype("2001", "1").prototype).toEqual(original)
   })
 })

@@ -1,6 +1,6 @@
 import { data, useFetcher, useOutletContext } from "react-router"
 
-import { prototypeDetailsSchema } from "@application/hub/contracts"
+import { prototypeEditSchema } from "@application/hub/contracts"
 import type {
   PrototypeActionResult,
   PrototypeResponse,
@@ -37,9 +37,10 @@ export async function clientAction({
   }
   const form = await request.formData()
   const description = form.get("description")
-  const parsed = prototypeDetailsSchema.safeParse({
+  const parsed = prototypeEditSchema.safeParse({
     name: form.get("name"),
-    description: typeof description === "string" ? description.trim() || null : description,
+    description,
+    startPage: form.has("startPage") ? form.get("startPage") : undefined,
   })
   if (!parsed.success) {
     return data<PrototypeActionResult>(
@@ -94,7 +95,11 @@ export default function Prototype({ loaderData }: Pick<Route.ComponentProps, "lo
       data={loaderData}
       onSaveDetails={(details) => {
         void fetcher.submit(
-          { name: details.name, description: details.description ?? "" },
+          {
+            name: details.name,
+            description: details.description ?? "",
+            startPage: details.startPage,
+          },
           { method: "post" },
         )
       }}

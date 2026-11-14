@@ -1,5 +1,5 @@
-import { prototypeDetailsSchema, prototypeResponseSchema } from "@application/hub/contracts"
-import type { PrototypeDetails } from "@application/hub/contracts/types"
+import { prototypeEditSchema, prototypeResponseSchema } from "@application/hub/contracts"
+import type { PrototypeEdit } from "@application/hub/contracts/types"
 
 import { requestJson } from "../request-json"
 
@@ -7,7 +7,7 @@ export function updatePrototype(
   request: Request,
   repositoryId: string,
   prototypeId: string,
-  details: PrototypeDetails,
+  details: PrototypeEdit,
 ) {
   return requestJson(
     new URL(`/api/repositories/${repositoryId}/prototypes/${prototypeId}`, request.url),
@@ -15,7 +15,7 @@ export function updatePrototype(
     {
       method: "PATCH",
       signal: request.signal,
-      body: JSON.stringify(prototypeDetailsSchema.parse(details)),
+      body: JSON.stringify(prototypeEditSchema.parse(details)),
     },
   )
 }

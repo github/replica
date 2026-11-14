@@ -36,12 +36,9 @@ const data: PrototypesShowPageData = {
   nameLabel: "Name",
   startPage: "/welcome?step=1#intro",
   startPageLabel: "Start page (optional)",
-  startPageHint:
-    "Paste a preview URL or route, including any query or fragment. Leave blank to start at /.",
+  startPageHint: "Enter a local path, including any query or fragment. Leave blank to start at /.",
   saveDetailsLabel: "Save details",
   cancelEditLabel: "Cancel",
-  nameMaximumLength: 255,
-  descriptionMaximumLength: 500,
   authenticityToken: "token",
   descriptionLabel: "Description",
   noDescriptionLabel: "No description has been added to this prototype.",
@@ -253,6 +250,7 @@ export const Empty: Story = {
 
 export const PreviewHostingUnavailable: Story = {
   args: {
+    onSaveDetails: noop,
     data: {
       ...data,
       author: { avatarUrl: null, label: "By Mona", url: null },
@@ -357,7 +355,7 @@ export const MinimizedWithComments: Story = {
 }
 
 export const EditingDetails: Story = {
-  args: { initialInfoOpen: false },
+  args: { initialInfoOpen: false, onSaveDetails: noop },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: "Edit details" }))
   },
@@ -365,7 +363,24 @@ export const EditingDetails: Story = {
 
 export const EditingDetailsWithoutStartPage: Story = {
   ...EditingDetails,
-  args: { initialInfoOpen: false, data: { ...data, startPage: null } },
+  args: { ...EditingDetails.args, data: { ...data, startPage: null } },
+}
+
+export const EditingDraft: Story = {
+  ...EditingDetails,
+  args: {
+    ...EditingDetails.args,
+    data: {
+      ...PreviewHostingUnavailable.args!.data!,
+      prototypeName: "Draft prototype",
+      prototypeDescription: null,
+      startPage: "/",
+      buildOptions: [],
+      selectedBuildNumber: undefined,
+      emptyHeading: "No preview available",
+      emptyLabel: "This prototype has no successful Build yet.",
+    },
+  },
 }
 
 export const ExpandedBranchInput: Story = {

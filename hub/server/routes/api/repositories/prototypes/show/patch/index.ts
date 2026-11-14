@@ -49,7 +49,11 @@ export function patch(
         repositoryId: repositoryId.data,
         sessionDigest: hashAuthenticationValue(cookie),
       })
-      response.json({ ...detail, showPrototypeInfo: false })
+      response.json({
+        ...detail,
+        prototype: { ...detail.prototype, canEdit: true },
+        showPrototypeInfo: false,
+      })
     } catch (error) {
       if (error instanceof PrototypeMetadataError) {
         response.status(errorStatus[error.code]).json({ error: error.message })

@@ -108,7 +108,12 @@ export function PrototypeDescriptionDialog({
     const values = new FormData(event.currentTarget)
     const name = values.get("prototype[name]")
     const description = values.get("prototype[description]")
-    if (typeof name !== "string" || typeof description !== "string") {
+    const startPage = values.get("prototype[start_page]")
+    if (
+      typeof name !== "string" ||
+      typeof description !== "string" ||
+      typeof startPage !== "string"
+    ) {
       setSubmissionError("Hub could not read the prototype details. Try again.")
       return
     }
@@ -116,7 +121,11 @@ export function PrototypeDescriptionDialog({
     submissionPending.current = true
     setSubmissionError(null)
     try {
-      onSaveDetails({ name, description: description.trim() ? description : null })
+      onSaveDetails({
+        name,
+        description: description.trim() || null,
+        startPage: startPage.trim() || "/",
+      })
     } catch {
       submissionPending.current = false
       setSubmissionError("Hub could not save the prototype details. Try again.")
@@ -214,7 +223,6 @@ export function PrototypeDescriptionDialog({
                 ref={nameInput}
                 name="prototype[name]"
                 defaultValue={data.prototypeName}
-                maxLength={data.nameMaximumLength}
                 required
                 fullWidth
                 disabled={savingDetails}
@@ -226,7 +234,6 @@ export function PrototypeDescriptionDialog({
               <Textarea
                 name="prototype[description]"
                 defaultValue={data.prototypeDescription ?? ""}
-                maxLength={data.descriptionMaximumLength}
                 rows={4}
                 fullWidth
                 resize="vertical"
@@ -234,18 +241,17 @@ export function PrototypeDescriptionDialog({
               />
             </FormControl>
 
-            {!onSaveDetails ? (
-              <FormControl id="prototype-description-start-page" fullWidth>
-                <FormControl.Label>{data.startPageLabel}</FormControl.Label>
-                <TextInput
-                  name="prototype[start_page]"
-                  defaultValue={data.startPage ?? ""}
-                  placeholder="/"
-                  fullWidth
-                />
-                <FormControl.Hint>{data.startPageHint}</FormControl.Hint>
-              </FormControl>
-            ) : null}
+            <FormControl id="prototype-description-start-page" fullWidth>
+              <FormControl.Label>{data.startPageLabel}</FormControl.Label>
+              <TextInput
+                name="prototype[start_page]"
+                defaultValue={data.startPage ?? ""}
+                placeholder="/"
+                fullWidth
+                disabled={savingDetails}
+              />
+              <FormControl.Hint>{data.startPageHint}</FormControl.Hint>
+            </FormControl>
 
             {savingDetails ? (
               <Text as="p" size="100" role="status">
