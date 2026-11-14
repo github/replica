@@ -223,7 +223,8 @@ describe("real Build history", () => {
     expect(screen.queryByRole("link", { name: "Older Builds" })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Choose build, v3" }))
     const picker = screen.getByRole("menu")
-    expect(within(picker).getByRole("menuitem", { name: /v3/ })).toHaveAttribute(
+    const selectedBuild = within(picker).getByRole("menuitem", { name: /v3/ })
+    expect(within(selectedBuild).getByRole("link")).toHaveAttribute(
       "href",
       `${prototypePath}?build=3`,
     )
