@@ -23,7 +23,6 @@ const firstCandidateId = 9001
 
 export function createProductStore(context: MockFlowContext) {
   const { resources, session } = context
-  const startPages = new Map<string, string | null>()
   const candidates = resources.repositories.flatMap((repository) =>
     ["exploration", "comparison"].map((name, index) => ({
       id: index + firstCandidateId,
@@ -69,10 +68,6 @@ export function createProductStore(context: MockFlowContext) {
     }
   }
 
-  function key(repositoryId: string, prototypeId: string) {
-    return `${repositoryId}/${prototypeId}`
-  }
-
   function templates(repositoryId: string): ProductTemplate[] {
     context.repositoryRecord(repositoryId)
     const base: ProductTemplate = {
@@ -104,7 +99,7 @@ export function createProductStore(context: MockFlowContext) {
               id: `prototype-${prototype.id}`,
               name: prototype.name,
               description: prototype.description ?? "Explore this prototype.",
-              route: startPages.get(key(repositoryId, prototype.id)) ?? "/",
+              route: prototype.startPage ?? "/",
               previewUrl: build.previewUrl,
               screenshotUrl: build.desktopScreenshotUrl,
               buildNumber: build.number,
@@ -140,6 +135,7 @@ export function createProductStore(context: MockFlowContext) {
       repositoryId,
       name,
       description,
+      startPage: startPage ?? "/",
       branchName: branchName ?? `prototype/mock-${id}`,
       authorLogin: viewer.login,
     }
@@ -163,7 +159,6 @@ export function createProductStore(context: MockFlowContext) {
     }
     resources.prototypes.push(prototype)
     resources.builds.push(build)
-    startPages.set(key(repositoryId, id), startPage)
     return context.prototypeResponse(repositoryId, id)
   }
 
@@ -200,10 +195,10 @@ export function createProductStore(context: MockFlowContext) {
         repository: context.repositoryRecord(repositoryId),
         registered: resources.prototypes
           .filter((prototype) => prototype.repositoryId === repositoryId)
-          .map(({ id }) => ({
-            ...context.prototypeResponse(repositoryId, id).prototype,
-            startPage: startPages.get(key(repositoryId, id)) ?? null,
-          })),
+          .map(({ id }) => {
+            const prototype = context.prototypeResponse(repositoryId, id).prototype
+            return { ...prototype, startPage: prototype.startPage ?? null }
+          }),
         candidates: candidates
           .filter((candidate) => candidate.repositoryId === repositoryId)
           .map(({ repositoryId: _repositoryId, ...candidate }) => {
@@ -226,7 +221,7 @@ export function createProductStore(context: MockFlowContext) {
       )!
       prototype.name = parsed.data.name
       prototype.description = parsed.data.description
-      startPages.set(key(repositoryId, prototypeId), parsed.data.startPage || null)
+      prototype.startPage = parsed.data.startPage || "/"
       return {
         notice: "Prototype details saved.",
       }

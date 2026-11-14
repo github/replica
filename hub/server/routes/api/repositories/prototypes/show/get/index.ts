@@ -67,7 +67,11 @@ export function get(
         return
       }
 
-      response.json({ ...detail, showPrototypeInfo: false })
+      response.json({
+        ...detail,
+        prototype: { ...detail.prototype, canEdit: true },
+        showPrototypeInfo: false,
+      })
     } catch (error) {
       next(error)
     }

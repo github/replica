@@ -138,6 +138,7 @@ describe("prototype PATCH API", () => {
     })
     const visible = await fetch(url, { headers: { cookie: `hub_session=${first.token}` } })
     expect(visible.status).toBe(200)
+    expect(await visible.json()).toMatchObject({ prototype: { canEdit: true } })
 
     const renamed = await patch(url, first.token, { name: " \u2003Welcome\u00a0 " })
     expect(renamed.status).toBe(200)
@@ -147,7 +148,7 @@ describe("prototype PATCH API", () => {
         repositoryId: repository.id,
         name: "Welcome",
         description: null,
-        canEdit: false,
+        canEdit: true,
       },
       selectedBuild: { number: 1, prototypeId: prototype.id },
     })
@@ -161,7 +162,7 @@ describe("prototype PATCH API", () => {
     const updated = await patch(url, second.token, { name: "Renamed" })
     expect(updated.status).toBe(200)
     expect(await updated.json()).toMatchObject({
-      prototype: { name: "Renamed", description: null },
+      prototype: { name: "Renamed", description: null, canEdit: true },
     })
     expect(await readPrototype(prototype.id)).toMatchObject({
       id: prototype.id,
@@ -572,7 +573,7 @@ describe("prototype PATCH API", () => {
         branchName: prototype.branchName,
         authorLogin: profile.login,
         description: null,
-        canEdit: false,
+        canEdit: true,
       },
       selectedBuild: { number: 1, prototypeId: prototype.id },
     })

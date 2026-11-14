@@ -100,23 +100,40 @@ describe("Hub mock session flow", () => {
     )
   })
 
-  it("keeps Mona read-only even on the prototype she authored", async () => {
+  it("lets Mona save details without granting creation, sharing or management", async () => {
     const store = createMockStore({ origin: window.location.origin })
     store.session.select("reader")
     const server = setupServer(...createMockHandlers(store))
 
-    await renderHubFlow(server, "/repositories/2001/prototypes/2")
+    const router = await renderHubFlow(server, "/repositories/2001/prototypes/1")
 
     expect(await screen.findByRole("button", { name: "Account menu for @mona" })).toBeVisible()
     fireEvent.click(screen.getByRole("button", { name: "View prototype" }))
-    expect(screen.queryByRole("button", { name: "Edit details" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Branch from here" })).not.toBeInTheDocument()
-    const response = await fetch(`${store.origin}/api/repositories/2001/prototypes/2`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "Reader must not save", description: null }),
+    fireEvent.click(screen.getByRole("button", { name: "Edit details" }))
+    const editor = screen.getByRole("dialog", { name: "Edit prototype details" })
+    fireEvent.change(within(editor).getByRole("textbox", { name: "Name" }), {
+      target: { value: "Mona's revised welcome" },
     })
-    expect(response.status).toBe(403)
-    expect(store.getPrototype("2001", "2").prototype.name).toBe("Navigation")
+    await router.settle(() =>
+      fireEvent.click(within(editor).getByRole("button", { name: "Save details" })),
+    )
+
+    expect(editor).not.toBeInTheDocument()
+    expect(store.getPrototype("2001", "1").prototype.name).toBe("Mona's revised welcome")
+    expect(store.session.read().capabilities).toEqual({
+      createPrototypes: false,
+      reviewPrototypes: false,
+      manageSharing: false,
+      administerHub: false,
+    })
+    expect(store.product.getShareLinks("2001", "1").canManage).toBe(false)
+    expect(() =>
+      store.product.updateMetadata("2001", "1", {
+        name: "A separate management edit",
+        description: null,
+        startPage: "/",
+      }),
+    ).toThrow(expect.objectContaining({ status: 403 }))
   })
 })
