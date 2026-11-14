@@ -1,4 +1,5 @@
 import type { PrototypeMetadataChanges } from "../../../domains/prototypes/edit-prototype-metadata/index.ts"
+import type { readPrototypeWithIntroduction } from "../../../domains/prototypes/read-prototype-with-introduction/index.ts"
 import type {
   findRepositoryAuthors,
   RepositoryAuthorsFilters,
@@ -21,6 +22,10 @@ export interface ProductRouteDependencies {
     prototypeId: string,
     buildNumber?: number,
   ): ReturnType<typeof findPrototypeDetail>
+  readPrototypeWithIntroduction(
+    input: Parameters<typeof readPrototypeWithIntroduction>[0],
+    prepare: Parameters<typeof readPrototypeWithIntroduction>[1]["prepare"],
+  ): ReturnType<typeof readPrototypeWithIntroduction>
   findRepositoryAuthors(
     repositoryId: string,
     filters: RepositoryAuthorsFilters,
