@@ -465,6 +465,8 @@ describe("prototype PATCH API", () => {
         RETURNING revision
       `)
       await vi.waitFor(async () => {
+        // Refresh activity data while the blocking transaction stays open.
+        await database.query("SELECT pg_stat_clear_snapshot()")
         const waiting = await database.query<{ blocked: boolean }>(
           `SELECT EXISTS (
              SELECT 1 FROM pg_stat_activity
