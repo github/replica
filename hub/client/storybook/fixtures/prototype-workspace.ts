@@ -19,6 +19,7 @@ export const prototypeWorkspaceData = {
       label: "v1",
       path: "/repositories/2001/prototypes/1?build=1",
       state: "successful",
+      stateLabel: "Successful",
     },
   ],
   buildSelectionLabel: "Choose build",
@@ -39,8 +40,6 @@ export const prototypeWorkspaceData = {
   repositoryMenuLabel: "Repositories",
   repositorySelectorLabel: "Choose repository. github/prototype selected",
   selectedBuild: {
-    detailsLabel: "Build details",
-    detailsPath: "/repositories/2001/prototypes/1/builds/1",
     number: 1,
   },
   selectedRepositoryId: "2001",

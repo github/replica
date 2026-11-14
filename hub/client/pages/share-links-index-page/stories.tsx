@@ -21,6 +21,10 @@ const shareLink = {
 const data: ShareLinksIndexPageData = {
   ...prototypeWorkspaceData,
   alert: null,
+  buildOptions: prototypeWorkspaceData.buildOptions.map((build) => ({
+    ...build,
+    path: `/repositories/2001/prototypes/1/share-links?build=${build.number}`,
+  })),
   closePath: "/repositories/2001/prototypes/1",
   copyErrorLabel: "Copy failed",
   copiedLabel: "Copied",
@@ -81,19 +85,6 @@ export const NoBuild: Story = {
 }
 
 export const Empty: Story = {}
-export const MandatorySevenDayMaximum: Story = {
-  args: {
-    data: {
-      ...data,
-      form: {
-        ...data.form,
-        expirationOptions: data.form.expirationOptions.filter((option) =>
-          ["one_day", "seven_days"].includes(option.value),
-        ),
-      },
-    },
-  },
-}
 
 export const ThirtyDayMaximum: Story = {
   args: {
@@ -107,6 +98,12 @@ export const ThirtyDayMaximum: Story = {
         ],
       },
     },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.selectOptions(
+      canvas.getByRole("combobox", { name: "Expires after" }),
+      "thirty_days",
+    )
   },
 }
 

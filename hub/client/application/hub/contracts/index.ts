@@ -114,12 +114,6 @@ export const prototypeResponseSchema = z.object({
   showPrototypeInfo: z.boolean().optional(),
 })
 
-export const buildResponseSchema = z.object({
-  repository: repositorySchema,
-  prototype: prototypeSchema,
-  build: buildSchema,
-})
-
 export const buildHistoryResponseSchema = z.object({
   repository: repositorySchema,
   prototype: prototypeSchema,

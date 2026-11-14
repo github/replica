@@ -181,13 +181,6 @@ const PROTOTYPES_SHOW_PAGE_DATA: PrototypesShowPageData = {
   },
   buildOptions: [
     {
-      number: 3,
-      label: "v3",
-      path: "/repositories/2001/prototypes/1/builds/3",
-      state: "failed",
-      stateLabel: "Failed to build",
-    },
-    {
       number: 2,
       label: "v2",
       path: "/repositories/2001/prototypes/1?build=2",
@@ -349,8 +342,6 @@ const PROTOTYPES_SHOW_PAGE_DATA: PrototypesShowPageData = {
     },
   },
   selectedBuild: {
-    detailsLabel: "Build details",
-    detailsPath: "/repositories/2001/prototypes/1/builds/2",
     frameTitle: "prototype/welcome, build 2 preview",
     number: 2,
     previewUrl: "http://b12.preview.replica.localhost:19500/",
@@ -1470,14 +1461,6 @@ describe("PrototypesShowPage()", () => {
         ?.style.getPropertyValue("--review-shell-build-menu-height"),
     ).not.toBe("")
     expect(screen.getByRole("menuitem", { name: "v2" })).toHaveAttribute("aria-current", "page")
-    expect(
-      screen.getByRole("menuitem", { name: /v3.*Failed to build/ }).querySelector("a"),
-    ).toHaveAttribute("href", "/repositories/2001/prototypes/1/builds/3")
-    const failedBuild = screen.getByRole("menuitem", { name: /v3.*Failed to build/ })
-    expect(failedBuild.querySelector(".review-shell__build-option-content")).toContainElement(
-      failedBuild.querySelector(".review-shell__build-status"),
-    )
-    expect(failedBuild.querySelector(".review-shell__build-option-label")).toHaveTextContent("v3")
     expect(screen.getByRole("menuitem", { name: "v1" }).querySelector("a")).toHaveAttribute(
       "href",
       "/repositories/2001/prototypes/1?build=1",
@@ -1496,7 +1479,6 @@ describe("PrototypesShowPage()", () => {
     for (const [label, path] of [
       ["Share links", "/repositories/2001/prototypes/1/share_links"],
       ["History", "/repositories/2001/prototypes/1/builds"],
-      ["Build details", "/repositories/2001/prototypes/1/builds/2"],
     ]) {
       expect(
         within(menu).getByRole("menuitem", { name: label }).querySelector("a"),

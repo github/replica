@@ -27,8 +27,6 @@ const PAGE_DATA: ShareLinksIndexPageData = {
     },
   ],
   selectedBuild: {
-    detailsLabel: "Build details",
-    detailsPath: "/repositories/2001/prototypes/1/builds/2",
     number: 2,
   },
   shareLinks: [

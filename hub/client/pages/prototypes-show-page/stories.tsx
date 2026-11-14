@@ -75,6 +75,7 @@ const data: PrototypesShowPageData = {
       label: "v1",
       path: "/repositories/2001/prototypes/1?build=1",
       state: "successful",
+      stateLabel: "Successful",
     },
   ],
   buildSelectionLabel: "Choose build",
@@ -118,8 +119,6 @@ const data: PrototypesShowPageData = {
     copy: reviewCommentsCopy,
   },
   selectedBuild: {
-    detailsLabel: "Build details",
-    detailsPath: "/repositories/2001/prototypes/1/builds/1",
     frameTitle: "prototype/welcome, build 1 preview",
     number: 1,
     previewUrl,
@@ -139,6 +138,16 @@ function unsuccessfulAction() {
   return Promise.resolve(false)
 }
 
+const secondReviewThread = {
+  ...repliedReviewThread,
+  root: {
+    ...repliedReviewThread.root,
+    id: 3,
+    body: "Please check the spacing on narrow screens too.",
+  },
+  replies: repliedReviewThread.replies.map((reply) => ({ ...reply, rootId: 3 })),
+}
+
 function reviewState(
   overrides: Partial<PrototypesShowPageProps["review"]> = {},
 ): PrototypesShowPageProps["review"] {
@@ -150,7 +159,18 @@ function reviewState(
       selectionMode: null,
       selectedAnchor: null,
       selectionFailure: null,
-      resolutions: new Map([[1, resolvedAnchor]]),
+      resolutions: new Map([
+        [1, resolvedAnchor],
+        [
+          3,
+          {
+            commentId: 3,
+            status: "resolved",
+            rect: { x: 180, y: 220, width: 120, height: 40 },
+            point: { x: 240, y: 240 },
+          },
+        ],
+      ]),
       handleFrameLoad: noop,
       startElementSelection: noop,
       startAreaSelection: noop,
@@ -219,7 +239,15 @@ type Story = StoryObj<typeof meta>
 
 export const Empty: Story = {
   args: {
-    data: { ...data, selectedBuild: undefined },
+    data: {
+      ...data,
+      buildOptions: [
+        { number: 2, label: "v2", path: null, state: "running", stateLabel: "Running" },
+        { number: 1, label: "v1", path: null, state: "failed", stateLabel: "Failed" },
+      ],
+      latestBuild: { number: 2, state: "running", stateLabel: "Running" },
+      selectedBuild: undefined,
+    },
   },
 }
 
@@ -235,6 +263,7 @@ export const PreviewHostingUnavailable: Story = {
           label: "v3",
           path: "/repositories/2001/prototypes/1?build=3",
           state: "successful",
+          stateLabel: "Successful",
         },
       ],
       emptyHeading: "Build 3 has no preview",
@@ -321,8 +350,8 @@ export const MinimizedWithComments: Story = {
     initialMinimized: true,
     review: reviewState({
       sidebarOpen: true,
-      threads: [singleReviewThread, repliedReviewThread],
-      visibleThreads: [singleReviewThread, repliedReviewThread],
+      threads: [singleReviewThread, secondReviewThread],
+      visibleThreads: [singleReviewThread, secondReviewThread],
     }),
   },
 }
@@ -421,9 +450,9 @@ export const Multiple: Story = {
         {
           number: 2,
           label: "v2",
-          path: "/repositories/2001/prototypes/1/builds/2",
+          path: null,
           state: "failed",
-          stateLabel: "Failed to build",
+          stateLabel: "Failed",
         },
         ...data.buildOptions,
       ],
@@ -431,8 +460,8 @@ export const Multiple: Story = {
     },
     review: reviewState({
       sidebarOpen: true,
-      threads: [singleReviewThread, repliedReviewThread],
-      visibleThreads: [singleReviewThread, repliedReviewThread],
+      threads: [singleReviewThread, secondReviewThread],
+      visibleThreads: [singleReviewThread, secondReviewThread],
     }),
   },
 }
@@ -450,14 +479,23 @@ export const Conversation: Story = {
   },
 }
 
+const readThread = {
+  ...singleReviewThread,
+  root: {
+    ...singleReviewThread.root,
+    viewerLastSeenActivityVersion: singleReviewThread.root.activityVersion,
+  },
+  unread: false,
+}
+
 export const ConversationWithCommentsClosed: Story = {
   args: {
     review: reviewState({
-      selectedThread: singleReviewThread,
-      selectedThreadId: singleReviewThread.root.id,
+      selectedThread: readThread,
+      selectedThreadId: readThread.root.id,
       selectedThreadPoint: { x: 180, y: 180 },
-      threads: [singleReviewThread],
-      visibleThreads: [singleReviewThread],
+      threads: [readThread],
+      visibleThreads: [readThread],
     }),
   },
 }

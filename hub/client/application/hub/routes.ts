@@ -27,10 +27,6 @@ export default [
       "repositories/:repositoryId/prototypes/:prototypeId/builds",
       "routes/build-history/index.tsx",
     ),
-    route(
-      "repositories/:repositoryId/prototypes/:prototypeId/builds/:buildNumber",
-      "routes/build/index.tsx",
-    ),
   ]),
   route("*", "routes/not-found/index.tsx"),
 ] satisfies RouteConfig

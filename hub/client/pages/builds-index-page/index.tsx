@@ -29,9 +29,15 @@ export function BuildsIndexPage({ data }: { data: BuildsIndexPageData }) {
               dateTime: build.createdAt,
               label: (
                 <span className="build-history__entry">
-                  <InlineLink href={build.path} className="build-history__build-link">
-                    {build.numberLabel}
-                  </InlineLink>
+                  {build.path ? (
+                    <InlineLink href={build.path} className="build-history__build-link">
+                      {build.numberLabel}
+                    </InlineLink>
+                  ) : (
+                    <Text size="100" className="build-history__build-link">
+                      {build.numberLabel}
+                    </Text>
+                  )}
 
                   <span className="build-history__meta">
                     <Text size="100" title={build.commitSha ?? undefined}>

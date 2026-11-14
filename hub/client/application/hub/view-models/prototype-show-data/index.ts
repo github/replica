@@ -5,7 +5,6 @@ import type { PrototypeResponse, WorkspaceResponse } from "@application/hub/cont
 import { buildStateLabel } from "../build-state-label"
 import { productContinuation } from "../product-continuation"
 import { prototypeWorkspace } from "../prototype-workspace"
-import { resourcePath } from "../resource-path"
 
 export function prototypeShowData(
   workspace: WorkspaceResponse,
@@ -28,9 +27,6 @@ export function prototypeShowData(
 
   return {
     ...workspaceData,
-    buildOptions: options.real
-      ? workspaceData.buildOptions.filter((build) => build.state === "successful")
-      : workspaceData.buildOptions,
     historyPath: options.real ? undefined : workspaceData.historyPath,
     shareLinksPath: options.real ? undefined : workspaceData.shareLinksPath,
     buildPinned: search.has("build"),
@@ -94,13 +90,6 @@ export function prototypeShowData(
     selectedBuild: previewBuild?.previewUrl
       ? {
           number: previewBuild.number,
-          detailsLabel: "Build details",
-          detailsPath: options.real
-            ? undefined
-            : resourcePath(
-                `/repositories/${data.repository.id}/prototypes/${data.prototype.id}/builds/${previewBuild.number}`,
-                search,
-              ),
           frameTitle: `${data.prototype.name}, Build ${previewBuild.number} preview`,
           previewUrl: previewBuild.previewUrl,
         }

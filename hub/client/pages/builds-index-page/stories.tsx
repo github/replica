@@ -68,12 +68,17 @@ export const Multiple: Story = {
   args: {
     data: {
       ...data,
+      buildOptions: [
+        { number: 3, label: "v3", path: null, state: "running", stateLabel: "Running" },
+        { number: 2, label: "v2", path: null, state: "failed", stateLabel: "Failed" },
+        ...data.buildOptions,
+      ],
       builds: [
         {
           ...successfulBuild,
           number: 3,
           numberLabel: "build 3",
-          path: "/repositories/2001/prototypes/1/builds/3",
+          path: null,
           state: "running",
           stateLabel: "Running",
         },
@@ -81,28 +86,11 @@ export const Multiple: Story = {
           ...successfulBuild,
           number: 2,
           numberLabel: "build 2",
-          path: "/repositories/2001/prototypes/1/builds/2",
+          path: null,
           state: "failed",
           stateLabel: "Failed",
         },
         successfulBuild,
-      ],
-      buildOptions: [
-        {
-          number: 3,
-          label: "v3",
-          path: "/repositories/2001/prototypes/1/builds/3",
-          state: "running",
-          stateLabel: "Running",
-        },
-        {
-          number: 2,
-          label: "v2",
-          path: "/repositories/2001/prototypes/1/builds/2",
-          state: "failed",
-          stateLabel: "Failed",
-        },
-        ...data.buildOptions,
       ],
       latestBuild: { number: 3, state: "running", stateLabel: "Running" },
       nextPagePath:
