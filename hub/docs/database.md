@@ -76,6 +76,8 @@ Keep ordinary value and shape validation in application code. Add a database gua
 
 For prototypes, one active branch has one identity per repository, including concurrent writes. Retired branches keep their history. A registered prototype must have a nonblank name and cannot be a replica branch. Non-null names and descriptions must not be blank, even for direct database writes. The metadata migration replaces existing blank draft names and blank descriptions with `NULL` before adding the guard. Start pages have a separate 2,048-byte database limit; the API validates their local path safety.
 
+One introduction belongs to each user and prototype. Preparing a normal detail response and recording its introduction occur in one transaction. A preparation failure rolls back the introduction; network delivery happens after commit and is not guaranteed.
+
 A Build number is positive and unique within its prototype. A known commit SHA uses 40 or 64 lowercase hexadecimal characters and is also unique within its prototype. A prototype's current Build, if set, belongs to that prototype.
 
 Builds retain the author's provider, issuer, and provider user ID independently of Hub user IDs. For a workflow Build, the author is the Git commit author. Those three identity values must be present together or absent together. Login, name, and avatar are snapshots and may be unavailable. When Build timestamps are present, they must match its state; older Builds may keep both timestamps unknown. A failure summary belongs only to a failed Build and is limited to 1,000 bytes.

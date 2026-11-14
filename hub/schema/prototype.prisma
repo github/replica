@@ -6,10 +6,11 @@ model Prototype {
   currentBuildId String? @map("current_build_id") @db.Uuid
 
   // Relations
-  repository   Repository @relation(fields: [repositoryId], references: [id], onDelete: Restrict)
-  author       User?      @relation(fields: [authorId], references: [id], onDelete: Restrict)
-  builds       Build[]    @relation("PrototypeBuilds")
-  currentBuild Build?     @relation("CurrentPrototypeBuild", fields: [currentBuildId, id], references: [id, prototypeId], onDelete: Restrict)
+  repository    Repository              @relation(fields: [repositoryId], references: [id], onDelete: Restrict)
+  author        User?                   @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  builds        Build[]                 @relation("PrototypeBuilds")
+  currentBuild  Build?                  @relation("CurrentPrototypeBuild", fields: [currentBuildId, id], references: [id, prototypeId], onDelete: Restrict)
+  introductions PrototypeIntroduction[]
 
   // Attribute columns
   branchName      String    @map("branch_name") @db.VarChar(255)

@@ -1,0 +1,18 @@
+model PrototypeIntroduction {
+  // ID columns
+  id          String @id @default(uuid()) @db.Uuid
+  userId      String @map("user_id") @db.Uuid
+  prototypeId String @map("prototype_id") @db.Uuid
+
+  // Relations
+  user      User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  prototype Prototype @relation(fields: [prototypeId], references: [id], onDelete: Restrict)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([userId, prototypeId])
+  @@index([prototypeId])
+  @@map("prototype_introductions")
+}
