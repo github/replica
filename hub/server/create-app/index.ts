@@ -37,7 +37,7 @@ export function createApp({
     authenticationSecurity(),
   )
   app.use(
-    /^(?!\/api\/copilot-connection(?:\/|$))(?!\/api\/(?:auth|administrators\/authorizations|session-revocation\/authorizations)(?:\/|$)).*/i,
+    /^(?!\/api\/copilot-connection(?:\/|$))(?!\/api\/(?:auth|administrators\/authorizations|session-revocation\/authorizations)(?:\/|$))(?!\/api\/repositories\/[^/]+\/prototypes\/[^/]+\/?$).*/i,
     express.json(),
   )
 

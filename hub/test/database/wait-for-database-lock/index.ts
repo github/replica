@@ -4,7 +4,8 @@ export async function waitForDatabaseLock(databaseUrl: string): Promise<void> {
   const client = new pg.Client({ connectionString: databaseUrl })
   await client.connect()
   try {
-    for (let attempt = 0; attempt < 100; attempt += 1) {
+    const deadline = Date.now() + 5_000
+    while (Date.now() < deadline) {
       const result = await client.query<{ waiting: boolean }>(
         `SELECT EXISTS (
            SELECT 1
@@ -15,9 +16,9 @@ export async function waitForDatabaseLock(databaseUrl: string): Promise<void> {
          ) AS waiting`,
       )
       if (result.rows[0]?.waiting) return
-      await new Promise<void>((resolve) => setImmediate(resolve))
+      await new Promise<void>((resolve) => setTimeout(resolve, 10))
     }
-    throw new Error("A competing database backend did not enter a lock wait.")
+    throw new Error("Timed out waiting for a competing database backend to enter a lock wait.")
   } finally {
     await client.end()
   }
