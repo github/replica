@@ -3,6 +3,7 @@ import { rm } from "node:fs/promises"
 import { join } from "node:path"
 
 import { InputValidationError } from "../../../installer/config/fields/index.ts"
+import { parseHttpsOrigin } from "../../../installer/config/https-origin/index.ts"
 import { CommandExecutionError } from "../../../installer/command/index.ts"
 import { writePrivateFile } from "../../../installer/private-files/index.ts"
 import type { WizardUI } from "../../../installer/types.ts"
@@ -324,15 +325,10 @@ export async function configurePostSetup(
       "Public HTTPS origin (no trailing slash). A custom origin must already be bound to this Hub.",
       currentOrigin,
       (value) => {
-        let url: URL
-        try {
-          url = new URL(value)
-        } catch {
+        const url = parseHttpsOrigin(value)
+        if (!url)
           throw new InputValidationError("Enter an exact HTTPS origin without a trailing slash.")
-        }
         if (
-          url.protocol !== "https:" ||
-          url.origin !== value ||
           ![
             new URL(deployment.origin).hostname,
             ...deployment.customHosts.map((host) => host.toLowerCase()),

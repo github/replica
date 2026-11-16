@@ -223,6 +223,22 @@ it("validates the authoritative origin and explicit proxy hops while preserving 
   expect(await otherFiles(test.context.directory)).toEqual([])
 })
 
+it("rejects an overlong bound origin before accepting a corrected origin", async () => {
+  const test = await scenario()
+  const host = "a".repeat(493)
+  test.deployment.customHosts.push(host)
+  vi.mocked(test.ui.text)
+    .mockResolvedValueOnce(`https://${host}`)
+    .mockResolvedValueOnce("https://bound.example.com")
+    .mockResolvedValueOnce("2")
+
+  const desired = await configurePostSetup(test.context, "sign-in", test.inputs, test.deployment)
+
+  expect(desired.hub_application_origin).toBe("https://bound.example.com")
+  expect(test.ui.notice).toHaveBeenCalledWith("error", expect.stringMatching(/exact HTTPS origin/i))
+  expect(test.uploads).toEqual([])
+})
+
 it("keeps the recovery error until the corrected answer is saved before asking the next question", async () => {
   const test = await scenario()
   const progressPath = join(test.context.directory, "post-sign-in-progress.json")
