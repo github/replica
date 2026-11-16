@@ -16,6 +16,8 @@ export function terraformModule({
   ui,
   preapproved = false,
   retryApply,
+  retryDestroy,
+  beforeApply,
   signal,
   validatePlan,
 }: {
@@ -26,6 +28,8 @@ export function terraformModule({
   ui: InstallerUI
   preapproved?: boolean
   retryApply?(error: CommandExecutionError): boolean
+  retryDestroy?(error: CommandExecutionError): boolean
+  beforeApply?(): Promise<void>
   signal?: AbortSignal
   validatePlan?(value: unknown): void
 }) {
@@ -41,12 +45,7 @@ export function terraformModule({
       await privateDirectory(dataDirectory)
       while (true) {
         try {
-          await command([
-            "init",
-            "-input=false",
-            "-lock-timeout=60s",
-            `-backend-config=${backend}`,
-          ])
+          await command(["init", "-input=false", "-lock-timeout=60s", `-backend-config=${backend}`])
           return
         } catch (error) {
           if (!(error instanceof CommandExecutionError) || error.aborted) throw error
@@ -73,11 +72,17 @@ export function terraformModule({
       {
         destroy = false,
         allowedDeletions,
-      }: { destroy?: boolean; allowedDeletions?: readonly string[] } = {},
+        targets,
+      }: {
+        destroy?: boolean
+        allowedDeletions?: readonly string[]
+        targets?: readonly string[]
+      } = {},
     ) {
       let requiresConfirmation = !preapproved
       let automaticRetryUsed = false
       let automaticRetryPending = false
+      let destroyRetries = 0
       let approvedPlan: { signature: string; addresses: Set<string> } | undefined
       while (true) {
         const path = join(dataDirectory, `${randomUUID()}.tfplan`)
@@ -101,13 +106,17 @@ export function terraformModule({
             `-var-file=${variables}`,
             `-out=${path}`,
             ...(destroy ? ["-destroy"] : []),
+            ...(targets ?? []).map((address) => `-target=${address}`),
           ])
           const plan = JSON.parse(await execute(["show", "-json", path])) as {
             variables?: Record<string, unknown>
             configuration?: Record<string, unknown>
             resource_changes?: {
               address: string
-              change: { actions: string[]; replace_paths?: (string | number)[][] }
+              change: {
+                actions: string[]
+                replace_paths?: (string | number)[][]
+              }
             }[]
           }
           validatePlan?.(plan)
@@ -181,19 +190,27 @@ export function terraformModule({
           }
           if (!approvedPlan && signature)
             approvedPlan = { signature, addresses: new Set(changes.map(({ address }) => address)) }
+          await beforeApply?.()
           await execute(["apply", "-input=false", "-lock-timeout=60s", path])
           return
         } catch (error) {
           if (
             error !== commandFailure ||
             !(error instanceof CommandExecutionError) ||
-            error.aborted ||
-            destroy
+            error.aborted
           )
             throw error
           failure = error
         } finally {
           await rm(path, { force: true })
+        }
+        if (destroy) {
+          if (destroyRetries >= 2 || !retryDestroy?.(failure)) throw failure
+          ui.status(
+            "Transient removal failure. Preparing a fresh checked Terraform plan before retrying.",
+          )
+          await delay([2_000, 5_000][destroyRetries++], undefined, { signal })
+          continue
         }
         if (
           preapproved &&

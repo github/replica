@@ -10,6 +10,7 @@ import { installationNames } from "../../install/settings.ts"
 import { parseTerraformLock } from "../parse-state-lock/index.ts"
 import type { RemovalContext } from "../types.ts"
 import { recoverTerraformState } from "./index.ts"
+import { readTerraformLock } from "../read-state-lock/index.ts"
 
 vi.mock("node:timers/promises", () => ({ setTimeout: vi.fn(async () => {}) }))
 
@@ -119,14 +120,36 @@ it("unlocks only the stable exact lease after canonical private initialization a
   const data = join(recovery, "app-data")
   const backend = join(recovery, "app-backend.hcl")
   expect(test.run.mock.calls).toEqual([
-    ["terraform", [`-chdir=${source}`, "init", "-input=false", "-lock-timeout=60s", `-backend-config=${backend}`], {
-      env: { ...test.context.env, TF_DATA_DIR: data, TF_WORKSPACE: "default" },
-      signal: test.abort.signal,
-    }],
-    ["terraform", [`-chdir=${source}`, "force-unlock", "-force", test.info.ID], {
-      env: { ...test.context.env, TF_DATA_DIR: data, TF_WORKSPACE: "default" },
-      signal: test.abort.signal,
-    }],
+    [
+      "terraform",
+      [
+        `-chdir=${source}`,
+        "init",
+        "-input=false",
+        "-lock-timeout=60s",
+        `-backend-config=${backend}`,
+      ],
+      {
+        env: {
+          ...test.context.env,
+          TF_DATA_DIR: data,
+          TF_WORKSPACE: "default",
+        },
+        signal: test.abort.signal,
+      },
+    ],
+    [
+      "terraform",
+      [`-chdir=${source}`, "force-unlock", "-force", test.info.ID],
+      {
+        env: {
+          ...test.context.env,
+          TF_DATA_DIR: data,
+          TF_WORKSPACE: "default",
+        },
+        signal: test.abort.signal,
+      },
+    ],
   ])
   const names = installationNames(test.context.config)
   expect(await readFile(backend, "utf8")).toBe([
@@ -161,6 +184,43 @@ it("skips an already unlocked state before staging or initialization", async () 
   expect(test.verify).toHaveBeenCalledOnce()
   expect(test.run).not.toHaveBeenCalled()
   expect(await readdir(test.staging)).toEqual([])
+})
+
+it("recovers an interrupted unlock with missing metadata only by proving the saved lease identity", async () => {
+  const test = await scenario()
+  test.state.forceError = new CommandExecutionError("Unlock result unknown")
+  await expect(test.recover()).rejects.toThrow(/unknown/)
+  test.state.head = {
+    ...test.head,
+    lock: null,
+    etag: '"metadata-removed-etag"',
+  }
+  const reads = test.context.azure
+  const leases: string[][] = []
+  test.context.azure = async (...args) => {
+    if (args.slice(0, 3).join(" ") === "storage blob lease") {
+      leases.push(args)
+      expect(args[args.indexOf("--lease-id") + 1]).toBe(test.info.ID)
+      expect(args[args.indexOf("--blob-name") + 1]).toBe("sample-hub/app.tfstate")
+      if (args[3] === "release")
+        test.state.head = { lease: { status: "unlocked", state: "available" } }
+      return "{}"
+    }
+    return reads(...args)
+  }
+  const expected = (await readTerraformLock(test.context, "app"))!
+  expect(expected.metadataMissing).toBe(true)
+  const retry = join(test.staging, "retry")
+  await mkdir(retry, { mode: 0o700 })
+  await recoverTerraformState(test.context, {
+    kind: "app",
+    staging: retry,
+    expected,
+    verify: test.verify,
+  })
+  expect(leases.map((args) => args[3])).toEqual(["renew", "release"])
+  expect(test.run.mock.calls.filter(([, args]) => args[1] === "force-unlock")).toHaveLength(1)
+  expect(await readTerraformLock(test.context, "app")).toBeUndefined()
 })
 
 it("rejects a replaced lock before initialization rather than unlocking the replacement ID", async () => {
@@ -257,22 +317,25 @@ it("does not force-unlock a state released by its original writer during the sta
   expect(test.run.mock.calls.map(([, args]) => args[1])).toEqual(["init"])
 })
 
-it.each([false, true])("never retries an ambiguous force-unlock failure and sanitizes diagnostics (aborted=%s)", async (aborted) => {
-  const test = await scenario()
-  const raw = `synthetic-private-command-output ${test.info.ID} ${test.info.Who}`
-  test.state.forceError = new CommandExecutionError(raw, aborted, 2, raw)
-  const error = await test.recover().catch((error: unknown) => error)
+it.each([false, true])(
+  "never retries an ambiguous force-unlock failure and sanitizes diagnostics (aborted=%s)",
+  async (aborted) => {
+    const test = await scenario()
+    const raw = `synthetic-private-command-output ${test.info.ID} ${test.info.Who}`
+    test.state.forceError = new CommandExecutionError(raw, aborted, 2, raw)
+    const error = await test.recover().catch((error: unknown) => error)
 
-  expect(error).toBeInstanceOf(CommandExecutionError)
-  expect(error).toMatchObject({ aborted, exitCode: 2 })
-  const displayed = `${String(error)} ${(error as CommandExecutionError).details()} ${
-    JSON.stringify(vi.mocked(test.context.ui.status).mock.calls)
-  }`
-  for (const privateValue of [raw, test.info.ID, test.info.Who])
-    expect(displayed).not.toContain(privateValue)
-  expect(test.run.mock.calls.filter(([, args]) => args[1] === "force-unlock")).toHaveLength(1)
-  expect(test.context.ui.select).not.toHaveBeenCalled()
-})
+    expect(error).toBeInstanceOf(CommandExecutionError)
+    expect(error).toMatchObject({ aborted, exitCode: 2 })
+    const displayed = `${String(error)} ${(error as CommandExecutionError).details()} ${JSON.stringify(
+      vi.mocked(test.context.ui.status).mock.calls,
+    )}`
+    for (const privateValue of [raw, test.info.ID, test.info.Who])
+      expect(displayed).not.toContain(privateValue)
+    expect(test.run.mock.calls.filter(([, args]) => args[1] === "force-unlock")).toHaveLength(1)
+    expect(test.context.ui.select).not.toHaveBeenCalled()
+  },
+)
 
 it("refuses success after force-unlock unless fresh HEAD verifies the state is unlocked", async () => {
   const test = await scenario()

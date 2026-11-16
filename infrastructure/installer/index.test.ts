@@ -273,6 +273,17 @@ it.each([
       },
     }
     await writeFile(path, JSON.stringify(config), { mode: 0o600 })
+    const secondPath = join(directory, "second.json")
+    const secondConfig: DeploymentConfig = {
+      ...config,
+      name: "second-hub",
+      azure: { ...config.azure, resourceGroup: "second-hub-rg" },
+    }
+    await writeFile(secondPath, JSON.stringify(secondConfig), { mode: 0o600 })
+    const targets = [
+      { path, config },
+      { path: secondPath, config: secondConfig },
+    ]
     const draft = `${path}.draft.json`
     const savedDraft = JSON.stringify({
       version: 1,
@@ -331,7 +342,7 @@ it.each([
           cloud: vi.fn(),
           text: vi.fn(async () => {
             events.push(`typed:${operation}`)
-            return config.name
+            return targets[vi.mocked(ui.text).mock.calls.length - 1]!.config.name
           }),
           confirm: vi.fn(async () => {
             events.push(`consent:${operation}`)
@@ -363,12 +374,12 @@ it.each([
         .mockResolvedValueOnce({
           action: "remove",
           path,
-          target: { path, config },
+          targets,
         })
         .mockResolvedValueOnce({
           action: "remove",
           path,
-          target: { path, config },
+          targets,
         })
         .mockResolvedValue(undefined)
       const writer = vi.spyOn(session, "openSession")
@@ -401,7 +412,7 @@ it.each([
       const setup = vi
         .spyOn(install, "installAzure")
         .mockRejectedValue(new Error("Synthetic unattended setup stop"))
-      const remove = vi.spyOn(removal, "removeAzureDeployment")
+      const remove = vi.spyOn(removal, "removeAzureDeployments")
       if (action === "failure") remove.mockRejectedValue(new Error("Synthetic removal failure"))
       const output = vi.spyOn(console, "log").mockImplementation(() => {
         events.push("shell report")
@@ -429,13 +440,13 @@ it.each([
         expect(remove).toHaveBeenCalledTimes(2)
         expect(choose).toHaveBeenCalledTimes(3)
         expect(diagnostics).toHaveBeenCalledTimes(2)
-        expect(writer).toHaveBeenCalledTimes(2)
+        expect(writer).toHaveBeenCalledTimes(4)
         expect(setup).not.toHaveBeenCalled()
         expect(check).not.toHaveBeenCalled()
         for (const operation of [1, 2]) {
           const ui = terminals[operation - 1]!
           expect(ui.confirm).toHaveBeenCalledOnce()
-          expect(ui.text).toHaveBeenCalledOnce()
+          expect(ui.text).toHaveBeenCalledTimes(2)
           expect(vi.mocked(ui.text).mock.calls[0]![1]).toBeUndefined()
           expect(ui.wait).toHaveBeenCalledWith(expect.stringContaining(config.name))
           expect(ui.close).toHaveBeenCalledOnce()
@@ -450,16 +461,13 @@ it.each([
             events.indexOf(`telemetry closed:${operation}`),
           )
           expect(report).toBeLessThan(events.indexOf(`terminal opened:${operation + 1}`))
-          expect(remove.mock.calls[operation - 1]![0]).toEqual({
-            path,
-            config,
-          })
+          expect(remove.mock.calls[operation - 1]![0]).toEqual(targets)
           expect(remove.mock.calls[operation - 1]![1].signal).toBeInstanceOf(AbortSignal)
           expect(vi.mocked(ui.confirm).mock.invocationCallOrder[0]).toBeLessThan(
-            writer.mock.invocationCallOrder[operation - 1]!,
+            writer.mock.invocationCallOrder[(operation - 1) * 2]!,
           )
-          expect(vi.mocked(ui.text).mock.invocationCallOrder[0]).toBeLessThan(
-            writer.mock.invocationCallOrder[operation - 1]!,
+          expect(vi.mocked(ui.text).mock.invocationCallOrder[1]).toBeLessThan(
+            writer.mock.invocationCallOrder[(operation - 1) * 2]!,
           )
         }
         expect(remove.mock.calls[0]![1].signal).not.toBe(remove.mock.calls[1]![1].signal)
@@ -472,6 +480,7 @@ it.each([
             .every(
               ([message]) =>
                 String(message).includes(config.name) &&
+                String(message).includes(secondConfig.name) &&
                 String(message).includes("local files retained"),
             ),
         ).toBe(true)

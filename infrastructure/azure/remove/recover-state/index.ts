@@ -7,6 +7,8 @@ import { stageRemovalModule } from "../stage-module/index.ts"
 import { readTerraformLock } from "../read-state-lock/index.ts"
 import type { TerraformLockSnapshot } from "../parse-state-lock/index.ts"
 import type { RemovalContext, RemovalModule } from "../types.ts"
+import { leaseOwnership } from "../../install/lease/ownership/index.ts"
+import { installationNames } from "../../install/settings.ts"
 
 export async function recoverTerraformState(
   context: RemovalContext,
@@ -58,12 +60,34 @@ export async function recoverTerraformState(
   if (!fresh) return
   if (fresh.fingerprint !== before.fingerprint || fresh.id !== before.id) changed()
   signal?.throwIfAborted()
+  const account = installationNames(context.config).stateAccount
+  const blob = `${context.config.name}/${kind}.tfstate`
+  const proof = await leaseOwnership(context, account, "terraform", blob)
+  await proof.save(fresh.id)
   ui.status(`Recovering the verified ${kind} state lock under confirmed removal`)
   try {
-    await run("terraform", [`-chdir=${source}`, "force-unlock", "-force", fresh.id], {
-      env: { ...env, TF_DATA_DIR: data },
-      signal,
-    })
+    if (fresh.metadataMissing) {
+      const args = [
+        "--account-name",
+        account,
+        "--container-name",
+        "terraform",
+        "--blob-name",
+        blob,
+        "--auth-mode",
+        "login",
+        "--lease-id",
+        fresh.id,
+      ]
+      await context.azure("storage", "blob", "lease", "renew", ...args)
+      await verify()
+      await context.azure("storage", "blob", "lease", "release", ...args)
+    } else {
+      await run("terraform", [`-chdir=${source}`, "force-unlock", "-force", fresh.id], {
+        env: { ...env, TF_DATA_DIR: data },
+        signal,
+      })
+    }
   } catch (error) {
     if (error instanceof CommandExecutionError)
       throw new CommandExecutionError(

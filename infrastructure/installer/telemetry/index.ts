@@ -145,7 +145,7 @@ export async function startInstallerTelemetry(configurationPath: string) {
   function observe(ui: WizardUI): WizardUI
   function observe(ui: InstallerUI): InstallerUI
   function observe(ui: InstallerUI & Partial<WizardUI>): InstallerUI & Partial<WizardUI> {
-    const { cloud, text, field, select } = ui
+    const { cloud, text, field, select, multiSelect } = ui
     return {
       ...ui,
       async phase(name) {
@@ -162,6 +162,16 @@ export async function startInstallerTelemetry(configurationPath: string) {
       ...(select && {
         select: (message: string, options: { label: string; value: string }[]) =>
           step("installer.prompt.select", () => select.call(ui, message, options)),
+      }),
+      ...(multiSelect && {
+        multiSelect: (
+          message: string,
+          options: { label: string; value: string }[],
+          initial?: string[],
+        ) =>
+          step("installer.prompt.multi_select", () =>
+            multiSelect.call(ui, message, options, initial),
+          ),
       }),
       ...(field && {
         field: (definition: Parameters<NonNullable<WizardUI["field"]>>[0], initial?: string) => {

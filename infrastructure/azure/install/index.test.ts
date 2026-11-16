@@ -220,7 +220,12 @@ async function scenario({
       releaseLocked = false
       return "{}"
     }
-    if (operation === "storage blob lease") return JSON.stringify("lease-id")
+    if (operation === "storage blob lease")
+      return JSON.stringify(
+        args.includes("--proposed-lease-id")
+          ? args[args.indexOf("--proposed-lease-id") + 1]
+          : "lease-id",
+      )
     if (operation === "containerapp job list" || args.slice(0, 2).join(" ") === "containerapp list")
       return "[]"
     if (operation === "keyvault secret list")

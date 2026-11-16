@@ -2,7 +2,7 @@ import { resolve, dirname } from "node:path"
 import { parseArgs, styleText } from "node:util"
 
 import { installAzure } from "../azure/install/index.ts"
-import { removeAzureDeployment } from "../azure/remove/index.ts"
+import { removeAzureDeployments } from "../azure/remove/index.ts"
 import { azurePreflight } from "../azure/install/preflight/index.ts"
 import { CommandExecutionError, runCommand } from "./command/index.ts"
 import { retryReadOnly } from "./command/retry-read-only/index.ts"
@@ -28,7 +28,7 @@ const { values } = parseArgs({
 })
 if (values.help) {
   console.log(
-    "Usage: npm run setup:server -- [--config FILE] [--configure-only] [--no-fullscreen]\nStart by choosing Create, Update, Remove an installation (destructive), Resume (when available), or Exit before local writes or Azure calls.\nConfig paths are relative to infrastructure/ when using the root shortcut.\nCreate keeps previous files and uses a fresh path; --config FILE uses that path only when unused.\nUpdate/Resume and removal can select local configurations or explicit config-file paths.\nRemoval selects one installation, requires irreversible confirmation and its exact deployment name, creates no backups, and retains local files.\nAfter successful removal, review the result and press Enter to return to the menu. Another removal requires fresh selection and consent.\nRemoval is interactive only and unavailable with --configure-only; --approve-deployment never authorizes deletion.\nInteractive setup progress is saved in a private companion draft; restart to resume setup.\nAutomation: --config FILE --non-interactive --approve-deployment\nApproval includes billable resources, role assignments, image publication, temporary provisioning cleanup, and a maintenance-window release.\nAutomation requires a clean source checkout and does not authorize removing state network restrictions; rerun interactively for separate consent.",
+    "Usage: npm run setup:server -- [--config FILE] [--configure-only] [--no-fullscreen]\nStart by choosing Create, Update, Remove installations (destructive), Resume (when available), or Exit before local writes or Azure calls.\nConfig paths are relative to infrastructure/ when using the root shortcut.\nCreate keeps previous files and uses a fresh path; --config FILE uses that path only when unused.\nUpdate/Resume and removal can select local configurations or explicit config-file paths.\nRemoval selects one or more installations, requires irreversible confirmation and each exact deployment name before cloud work, creates no backups, and retains local files. Installations are removed one at a time; a failure stops the batch.\nAfter successful removal, review the result and press Enter to return to the menu. Another removal requires fresh selection and consent.\nRemoval is interactive only and unavailable with --configure-only; --approve-deployment never authorizes deletion.\nInteractive setup progress is saved in a private companion draft; restart to resume setup.\nAutomation: --config FILE --non-interactive --approve-deployment\nApproval includes billable resources, role assignments, image publication, temporary provisioning cleanup, and a maintenance-window release.\nAutomation requires a clean source checkout and does not authorize removing state network restrictions; rerun interactively for separate consent.",
   )
 } else {
   let removalCompleted = false
@@ -121,7 +121,7 @@ if (values.help) {
           if (!terminal || !entry) throw new Error("Select a setup action before continuing.")
           const ui = telemetry.observe(terminal)
           if (entry.action === "remove") {
-            message = await removeAzureDeployment(entry.target, { run, ui, signal: abort.signal })
+            message = await removeAzureDeployments(entry.targets, { run, ui, signal: abort.signal })
             removalCompleted = true
             returnToMenu = true
             await ui.wait(`${message}\n\nReturn to the main menu to choose another action.`)

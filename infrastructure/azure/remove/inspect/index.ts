@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto"
 import { installationNames } from "../../install/settings.ts"
 import type { RemovalContext, RemovalModule, RemovalResource } from "../types.ts"
-import { inspectSharedRemoval } from "../inspect-shared/index.ts"
 import { RemovalLeaseError, type RemovalLeaseTarget } from "../lease-error/index.ts"
 import { readBlobLease } from "../../install/lease/read/index.ts"
 import { readTerraformLock } from "../read-state-lock/index.ts"
 import type { TerraformLockSnapshot } from "../parse-state-lock/index.ts"
+import { removalInventory } from "../inventory/index.ts"
 
 export async function inspectRemoval(
   context: RemovalContext,
@@ -64,6 +64,7 @@ export async function inspectRemoval(
       invalid("resource identity or ownership does not match the selected installation")
   }
   const groups = new Map<string, Record<string, unknown>[]>()
+  const untracked: { id: string; type: string; group: string }[] = []
   for (const [group, installer] of [
     [names.stateGroup, true],
     [names.foundationGroup, false],
@@ -78,7 +79,15 @@ export async function inspectRemoval(
       installer,
     )
     const resources = await list("resource", "list", "--resource-group", group)
-    if (resources.some(({ id, type }) => typeof id !== "string" || typeof type !== "string"))
+    const groupId = `${subscription}/resourceGroups/${group}`.toLowerCase()
+    if (
+      resources.some(
+        ({ id, type }) =>
+          typeof id !== "string" ||
+          typeof type !== "string" ||
+          !id.toLowerCase().startsWith(`${groupId}/`),
+      )
+    )
       invalid("resource identity metadata is incomplete")
     groups.set(group, resources)
     evidence.push(
@@ -106,6 +115,7 @@ export async function inspectRemoval(
       app: false,
       release: false,
       groups,
+      untracked,
       retained,
       stateLocks,
       evidence: fingerprint(),
@@ -119,11 +129,12 @@ export async function inspectRemoval(
       app: false,
       release: false,
       groups,
+      untracked,
       retained,
       stateLocks,
       evidence: fingerprint(),
     }
-  if (stateResources.length !== 1) invalid("state group contains missing or unexpected resources")
+  if (!stateResources.length) invalid("state group is missing its backend")
   owned(
     record(
       JSON.parse(
@@ -142,10 +153,19 @@ export async function inspectRemoval(
     true,
   )
   if (
-    typeof stateResources[0]!.id !== "string" ||
-    stateResources[0]!.id.toLowerCase() !== stateId.toLowerCase()
+    !stateResources.some(
+      ({ id }) => typeof id === "string" && id.toLowerCase() === stateId.toLowerCase(),
+    )
   )
     invalid("state group contains another resource")
+  for (const value of stateResources) {
+    if (String(value.id).toLowerCase() !== stateId.toLowerCase())
+      untracked.push({
+        id: String(value.id),
+        type: String(value.type),
+        group: names.stateGroup,
+      })
+  }
   const containers: unknown = JSON.parse(
     await azure(
       "storage",
@@ -293,102 +313,8 @@ export async function inspectRemoval(
   }
   if (!states.has(`${config.name}/installer.lock`))
     invalid("installation lock is missing; review the interrupted bootstrap")
-  const known =
-    resources &&
-    new Set(resources.filter(({ id }) => id.startsWith("/")).map(({ id }) => id.toLowerCase()))
-  if (known) {
-    const verifiedUntagged = new Set<string>()
-    const liveIds = new Set(
-      [...groups.values()]
-        .flat()
-        .map((value) => (typeof value.id === "string" ? value.id.toLowerCase() : "")),
-    )
-    const accountId = `${subscription}/resourceGroups/${config.azure.resourceGroup}/providers/Microsoft.Storage/storageAccounts/${config.name.replaceAll("-", "")}hub`
-    for (const resource of resources ?? []) {
-      if (
-        resource.type === "azurerm_storage_container" &&
-        ["artifacts", "releases"].includes(String(resource.values.name))
-      )
-        known.add(
-          `${accountId}/blobServices/default/containers/${String(resource.values.name)}`.toLowerCase(),
-        )
-      if (
-        resource.type === "azurerm_user_assigned_identity" &&
-        liveIds.has(resource.id.toLowerCase())
-      ) {
-        const identity = record(JSON.parse(await azure("identity", "show", "--ids", resource.id)))
-        if (
-          typeof identity.id !== "string" ||
-          identity.id.toLowerCase() !== resource.id.toLowerCase() ||
-          typeof identity.principalId !== "string" ||
-          identity.principalId.toLowerCase() !== String(resource.values.principal_id).toLowerCase()
-        )
-          invalid("workload identity no longer matches its Terraform state")
-        if (
-          resource.address === "azurerm_user_assigned_identity.provision" &&
-          (identity.name !== `${config.name}-provision` ||
-            typeof identity.resourceGroup !== "string" ||
-            identity.resourceGroup.toLowerCase() !== config.azure.resourceGroup.toLowerCase() ||
-            typeof identity.location !== "string" ||
-            identity.location.toLowerCase() !== config.azure.location.toLowerCase())
-        )
-          invalid("temporary provisioning identity no longer matches its selected installation")
-        if (resource.address === "azurerm_user_assigned_identity.provision")
-          verifiedUntagged.add(resource.id.toLowerCase())
-      }
-      if (
-        resource.address === "azurerm_container_app_job.provision" &&
-        liveIds.has(resource.id.toLowerCase())
-      ) {
-        const job = record(
-          JSON.parse(
-            await azure(
-              "containerapp",
-              "job",
-              "show",
-              "--name",
-              `${config.name}-provision`,
-              "--resource-group",
-              config.azure.resourceGroup,
-              "--query",
-              "{id:id,name:name,resourceGroup:resourceGroup,environmentId:properties.environmentId,identityIds:keys(identity.userAssignedIdentities)}",
-            ),
-          ),
-        )
-        const environment =
-          `${subscription}/resourceGroups/${config.azure.resourceGroup}/providers/Microsoft.App/managedEnvironments/${config.name}-environment`
-        const provisionIdentity =
-          `${subscription}/resourceGroups/${config.azure.resourceGroup}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${config.name}-provision`
-        const identities = job.identityIds
-        if (
-          typeof job.id !== "string" ||
-          job.id.toLowerCase() !== resource.id.toLowerCase() ||
-          job.name !== `${config.name}-provision` ||
-          typeof job.resourceGroup !== "string" ||
-          job.resourceGroup.toLowerCase() !== config.azure.resourceGroup.toLowerCase() ||
-          typeof job.environmentId !== "string" ||
-          job.environmentId.toLowerCase() !== environment.toLowerCase() ||
-          !Array.isArray(identities) ||
-          identities.length !== 1 ||
-          typeof identities[0] !== "string" ||
-          identities[0].toLowerCase() !== provisionIdentity.toLowerCase()
-        )
-          invalid("temporary provisioning job no longer matches its selected installation")
-        verifiedUntagged.add(resource.id.toLowerCase())
-      }
-    }
-    for (const [group, values] of groups) {
-      if (group === names.stateGroup) continue
-      for (const value of values) {
-        if (typeof value.id !== "string" || !known.has(value.id.toLowerCase()))
-          invalid("an unmanaged resource remains in an installation group")
-        if (value.tags !== undefined && value.tags !== null) {
-          const tags = record(value.tags)
-          if (!verifiedUntagged.has(value.id.toLowerCase()) || Object.keys(tags).length)
-            owned(value, value.id)
-        }
-      }
-    }
+  if (resources) {
+    untracked.splice(0, untracked.length, ...(await removalInventory(context, resources, groups)))
   }
   let app = false
   let release = false
@@ -401,6 +327,7 @@ export async function inspectRemoval(
       config.azure.resourceGroup,
     )) {
       if (typeof job.name !== "string") invalid("unknown job identity")
+      if (![`${config.name}-setup`, `${config.name}-provision`].includes(job.name)) continue
       evidence.push(JSON.stringify(["job", job.name]))
       for (const execution of await list(
         "containerapp",
@@ -430,6 +357,8 @@ export async function inspectRemoval(
       config.azure.resourceGroup,
     )) {
       const id = `${subscription}/resourceGroups/${config.azure.resourceGroup}/providers/Microsoft.App/containerApps/${config.name}-hub`
+      if (typeof value.id !== "string") invalid("unknown app identity")
+      if (value.id.toLowerCase() !== id.toLowerCase()) continue
       owned(value, id)
       evidence.push(JSON.stringify(["app", id.toLowerCase()]))
       app = true
@@ -439,7 +368,9 @@ export async function inspectRemoval(
       .find(
         (value) =>
           typeof value.type === "string" &&
-          value.type.toLowerCase() === "microsoft.storage/storageaccounts",
+          value.type.toLowerCase() === "microsoft.storage/storageaccounts" &&
+          typeof value.id === "string" &&
+          value.id.toLowerCase().endsWith(`/storageaccounts/${config.name.replaceAll("-", "")}hub`),
       )
     if (storage) {
       const account = `${config.name.replaceAll("-", "")}hub`
@@ -506,17 +437,6 @@ export async function inspectRemoval(
       }
     }
   }
-  await inspectSharedRemoval(
-    context,
-    resources?.filter(
-      ({ id }) =>
-        [...groups.values()]
-          .flat()
-          .some(
-            (value) => typeof value.id === "string" && value.id.toLowerCase() === id.toLowerCase(),
-          ) || id.toLowerCase().includes("/providers/microsoft.authorization/roleassignments/"),
-    ),
-  )
   return {
     absent: false as const,
     backendAbsent: false,
@@ -524,6 +444,7 @@ export async function inspectRemoval(
     app,
     release,
     groups,
+    untracked,
     retained,
     stateLocks,
     evidence: fingerprint(),

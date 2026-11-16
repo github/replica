@@ -8,7 +8,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
 import { approveDeployment } from "../../azure/install/approval/index.ts"
 import { installationNames } from "../../azure/install/settings.ts"
-import { removeAzureDeployment } from "../../azure/remove/index.ts"
+import { removeAzureDeployments } from "../../azure/remove/index.ts"
 import { configurationFields } from "../config/fields/index.ts"
 import { CommandExecutionError } from "../command/index.ts"
 import { selectInstallerEntry } from "../entry/index.ts"
@@ -139,19 +139,25 @@ it.each(["full-screen", "inline"])(
   },
 )
 
-it("rejects the pending question when Ctrl+C cancels the owned terminal", async () => {
-  const abort = new AbortController()
-  const ui = open(abort, { fullscreen: false })
-  const pending = ui.text("Synthetic question")
-  const terminal = show()
-  await setImmediate()
-  const rejected = expect(pending).rejects.toThrow(/cancel/i)
+it.each(["text", "multiSelect"] as const)(
+  "rejects the pending %s question when Ctrl+C cancels the owned terminal",
+  async (kind) => {
+    const abort = new AbortController()
+    const ui = open(abort, { fullscreen: false })
+    const pending =
+      kind === "text"
+        ? ui.text("Synthetic question")
+        : ui.multiSelect!("Synthetic question", [{ label: "Synthetic target", value: "target" }])
+    const terminal = show()
+    await setImmediate()
+    const rejected = expect(pending).rejects.toThrow(/cancel/i)
 
-  terminal.stdin.write("\u0003")
+    terminal.stdin.write("\u0003")
 
-  await rejected
-  expect(abort.signal.aborted).toBe(true)
-})
+    await rejected
+    expect(abort.signal.aborted).toBe(true)
+  },
+)
 
 it("keeps the deployment inventory and consent reachable with page keys before declining in a 24-row viewport", async () => {
   vi.stubEnv("TERM", "xterm")
@@ -415,7 +421,7 @@ it("keeps the first question and its input usable while the welcome banner resiz
   expect(await readdir(directory)).toEqual([])
 })
 
-it("selects one removal installation with Enter without requiring a batch selection", async () => {
+it("toggles a removal installation with Space and submits the selection with Enter", async () => {
   const directory = await entryDirectory()
   const path = join(directory, "selected.json")
   const config: DeploymentConfig = {
@@ -442,15 +448,67 @@ it("selects one removal installation with Enter without requiring a batch select
   await vi.waitFor(() => expect(terminal.lastFrame()).toContain("sample-selection"))
   expect(terminal.lastFrame()).toContain("Replica Hub removal")
   expect(terminal.lastFrame()).not.toContain("Choose cloud")
-  terminal.stdin.write("sample-selection")
-  await vi.waitFor(() => expect(terminal.lastFrame()).toMatch(/Search:\s*sample-selection/))
+  terminal.stdin.write(" ")
+  await setImmediate()
   terminal.stdin.write("\r")
   await expect(pending).resolves.toMatchObject({
     action: "remove",
     path,
-    target: { path, config },
+    targets: [{ path, config }],
   })
   expect(await readdir(directory)).toEqual(["selected.json"])
+})
+
+it("keeps initial selections while Space toggles individual targets until Enter submits", async () => {
+  const ui = open(new AbortController(), { fullscreen: false })
+  const pending = ui.multiSelect!(
+    "Select synthetic targets",
+    [
+      { label: "First synthetic target", value: "first" },
+      { label: "Second synthetic target", value: "second" },
+      { label: "Third synthetic target", value: "third" },
+    ],
+    ["second"],
+  )
+  const settled = vi.fn()
+  void pending.then(settled, settled)
+  const terminal = show()
+  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("Third synthetic target"))
+
+  terminal.stdin.write(" ")
+  await setImmediate()
+  terminal.stdin.write(" ")
+  await setImmediate()
+  terminal.stdin.write("\u001b[B")
+  await setImmediate()
+  terminal.stdin.write("\u001b[B")
+  await setImmediate()
+  terminal.stdin.write(" ")
+  await setImmediate()
+  expect(settled).not.toHaveBeenCalled()
+  terminal.stdin.write("\r")
+
+  await expect(pending).resolves.toEqual(["second", "third"])
+})
+
+it("returns an empty removal selection to the main menu without writing local files", async () => {
+  const directory = await entryDirectory()
+  const ui = open(new AbortController(), { fullscreen: false })
+  const pending = selectInstallerEntry(ui, { directory })
+  const terminal = show()
+  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("What would you like to do?"))
+  terminal.stdin.write("Remove")
+  await vi.waitFor(() => expect(terminal.lastFrame()).toMatch(/Search:\s*Remove/))
+  terminal.stdin.write("\r")
+  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("Enter another config-file path"))
+  terminal.stdin.write("\r")
+  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("What would you like to do?"))
+  terminal.stdin.write("Exit")
+  await vi.waitFor(() => expect(terminal.lastFrame()).toMatch(/Search:\s*Exit/))
+  terminal.stdin.write("\r")
+
+  await expect(pending).resolves.toBeUndefined()
+  expect(await readdir(directory)).toEqual([])
 })
 
 it.each(["decline", "confirm"] as const)(
@@ -498,10 +556,7 @@ it.each(["decline", "confirm"] as const)(
           value: path,
         })),
       )
-      return removeAzureDeployment(
-        targets.find(({ path }) => path === choice)!,
-        { run, ui },
-      )
+      return removeAzureDeployments([targets.find(({ path }) => path === choice)!], { run, ui })
     })()
     void pending.catch(() => undefined)
     const terminal = show()
@@ -593,7 +648,7 @@ it("keeps removal mounted through a read-only failure, full details, and an oper
   })
   const abort = new AbortController()
   const ui = open(abort, { fullscreen: false })
-  const pending = removeAzureDeployment({ path, config }, { run, ui, signal: abort.signal })
+  const pending = removeAzureDeployments([{ path, config }], { run, ui, signal: abort.signal })
   const settled = vi.fn()
   void pending.then(settled, settled)
   const terminal = show()

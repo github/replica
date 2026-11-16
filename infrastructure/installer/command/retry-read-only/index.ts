@@ -1,8 +1,8 @@
 import { setTimeout as delay } from "node:timers/promises"
 
 import type { RunCommand } from "../../types.ts"
-import { CommandExecutionError } from "../index.ts"
 import { describeCommand } from "../describe/index.ts"
+import { transientFailure } from "../transient-failure/index.ts"
 
 const readOnly = new Set([
   "az.account.list",
@@ -34,10 +34,8 @@ const readOnly = new Set([
   "az.containerapp.replica.list",
   "terraform.state.list",
   "terraform.output",
+  "terraform.show",
 ])
-
-const transient =
-  /\b(?:ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|EPIPE)\b|timed out|socket hang up|connection (?:aborted|reset)|temporarily unavailable|TooManyRequests|Too Many Requests|ServiceUnavailable|Service Unavailable|InternalServerError|Internal Server Error|GatewayTimeout|Gateway Timeout|Bad Gateway|status(?: code)?[ :=]+(?:429|50[0234])\b/i
 
 function isReadOnly(executable: string, args: string[]) {
   const { name } = describeCommand(executable, args)
@@ -58,15 +56,10 @@ export function retryReadOnly(
       try {
         return await run(executable, args, options)
       } catch (error) {
-        const details = error instanceof CommandExecutionError ? error.details() : undefined
         if (
           attempt >= delays.length ||
-          !(error instanceof CommandExecutionError) ||
-          error.aborted ||
           options?.signal?.aborted ||
-          !details ||
-          details.includes("Error details truncated after 64 KiB.") ||
-          !transient.test(details) ||
+          !transientFailure(error) ||
           !isReadOnly(executable, args)
         )
           throw error

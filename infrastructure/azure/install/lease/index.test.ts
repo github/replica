@@ -1,5 +1,7 @@
 import timers from "node:timers/promises"
-import { expect, it, vi } from "vitest"
+import { mkdtempSync, rmSync } from "node:fs"
+import { join } from "node:path"
+import { afterEach, expect, it, vi } from "vitest"
 
 import { CommandExecutionError } from "../../../installer/command/index.ts"
 import type { DeploymentConfig, InstallerUI, RunCommand } from "../../../installer/types.ts"
@@ -13,6 +15,10 @@ interface LeaseMetadata {
   status?: unknown
   duration?: unknown
 }
+const directories: string[] = []
+afterEach(() => {
+  for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
+})
 
 function option(args: string[], name: string) {
   const index = args.indexOf(name)
@@ -52,9 +58,18 @@ function scenario({ existing = false, release = false, canonical = false } = {})
     accountTags: { ...ownedTags } as Record<string, unknown>,
     appExists: existing,
     stateBlobs: [
-      { name: `${config.name}/foundation.tfstate`, lease: unlocked() as LeaseMetadata },
-      { name: `${config.name}/app.tfstate`, lease: unlocked() as LeaseMetadata },
-      { name: `${config.name}/provision.tfstate`, lease: unlocked() as LeaseMetadata },
+      {
+        name: `${config.name}/foundation.tfstate`,
+        lease: unlocked() as LeaseMetadata,
+      },
+      {
+        name: `${config.name}/app.tfstate`,
+        lease: unlocked() as LeaseMetadata,
+      },
+      {
+        name: `${config.name}/provision.tfstate`,
+        lease: unlocked() as LeaseMetadata,
+      },
       {
         name: `${config.name}/installer.lock`,
         lease: { state: "leased", status: "locked", duration: "infinite" },
@@ -203,13 +218,18 @@ function scenario({ existing = false, release = false, canonical = false } = {})
         if (acquireFailures-- > 0) throw new CommandExecutionError("Lease acquisition conflicted")
         if (evidence.lease.status !== "unlocked")
           throw new CommandExecutionError("Lease is still owned by another installer")
-        evidence.lease = { state: "leased", status: "locked", duration: "infinite" }
-        return JSON.stringify("new-lease-id")
+        evidence.lease = {
+          state: "leased",
+          status: "locked",
+          duration: "infinite",
+        }
+        return JSON.stringify(option(args, "--proposed-lease-id"))
       }
       if (args[3] === "release") {
         evidence.lease = unlocked()
         return "{}"
       }
+      if (args[3] === "renew") return "{}"
     }
     throw new Error(`Unexpected Azure command ${args.join(" ")}`)
   })
@@ -238,9 +258,11 @@ function scenario({ existing = false, release = false, canonical = false } = {})
   const run = vi.fn<RunCommand>(async () => {
     throw new Error("Lease recovery may only use the fake Azure runner")
   })
+  const directory = mkdtempSync(join(process.cwd(), ".lease-test-"))
+  directories.push(directory)
   const context: AzureInstallation = {
     config,
-    directory: process.cwd(),
+    directory,
     env: {},
     azure,
     run,
@@ -333,7 +355,7 @@ it.each([
   const released = s.commands.find(
     (args) => args.slice(0, 4).join(" ") === "storage blob lease release",
   )!
-  expect(option(released, "--lease-id")).toBe("new-lease-id")
+  expect(option(released, "--lease-id")).toBe(option(s.acquisitions()[0]!, "--proposed-lease-id"))
   expect(s.messages.join("\n")).not.toMatch(/Lock retained/)
 })
 
@@ -349,6 +371,38 @@ it("rechecks and acquires normally when the other owner releases the lease", asy
   expect(s.ui.confirm).not.toHaveBeenCalled()
   expect(s.menus.flat()).not.toContain("stop-hub")
   expect(s.deactivations()).toHaveLength(0)
+})
+
+it("reacquires its recorded lease by exact-identity renewal without clearing it or asking for recovery consent", async () => {
+  const s = scenario()
+  s.unlock()
+  await s.acquire()
+  const acquired = s.acquisitions()[0]!
+  const expected = option(acquired, "--proposed-lease-id")
+  vi.mocked(s.ui.confirm).mockClear()
+  vi.mocked(s.ui.select!).mockClear()
+  await s.acquire()
+  expect(s.acquisitions()).toHaveLength(1)
+  expect(s.breaks()).toHaveLength(0)
+  expect(
+    s.commands.some((args) => args[3] === "renew" && option(args, "--lease-id") === expected),
+  ).toBe(true)
+  expect(s.ui.confirm).not.toHaveBeenCalled()
+  expect(s.ui.select).not.toHaveBeenCalled()
+})
+
+it("does not clear a recorded lease when Azure rejects its exact ownership identity", async () => {
+  const s = scenario()
+  s.unlock()
+  await s.acquire()
+  const azure = s.context.azure
+  s.context.azure = async (...args) => {
+    if (args[3] === "renew") throw new CommandExecutionError("Ownership verification failed")
+    return azure(...args)
+  }
+  await expect(s.acquire()).rejects.toThrow(/Ownership verification/)
+  expect(s.breaks()).toHaveLength(0)
+  expect(s.acquisitions()).toHaveLength(1)
 })
 
 it("does not treat non-interactive deployment approval as permission to recover a lease", async () => {
@@ -532,7 +586,11 @@ it.each([
   "unknown app metadata",
 ])("requires matching app ownership and identity rather than group tags: %s", async (field) => {
   const s = scenario({ canonical: true })
-  const hub = s.evidence.hub as { id: string; name: string; tags: Record<string, string> }
+  const hub = s.evidence.hub as {
+    id: string
+    name: string
+    tags: Record<string, string>
+  }
   if (field in hub.tags) hub.tags[field] = "foreign"
   else if (field === "subscription")
     hub.id = hub.id.replace(s.config.azure.subscriptionId, "foreign")

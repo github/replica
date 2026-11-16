@@ -2,6 +2,7 @@ import { installationNames } from "../../install/settings.ts"
 import { parseTerraformLock } from "../parse-state-lock/index.ts"
 import type { RemovalContext, RemovalModule } from "../types.ts"
 import { RemovalLeaseError } from "../lease-error/index.ts"
+import { leaseOwnership } from "../../install/lease/ownership/index.ts"
 
 export async function readTerraformLock(context: RemovalContext, kind: RemovalModule) {
   context.signal?.throwIfAborted()
@@ -42,7 +43,8 @@ export async function readTerraformLock(context: RemovalContext, kind: RemovalMo
     )
   }
   try {
-    return parseTerraformLock(value, `terraform/${blob}`)
+    const proof = await leaseOwnership(context, account, "terraform", blob)
+    return parseTerraformLock(value, `terraform/${blob}`, proof.lease)
   } catch (error) {
     const lease =
       value && typeof value === "object" && !Array.isArray(value) && "lease" in value

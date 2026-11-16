@@ -4,7 +4,8 @@ import { dirname, join, resolve } from "node:path"
 import { afterEach, expect, it, vi } from "vitest"
 
 import { openSession, type WizardDraft } from "../session/index.ts"
-import { saveConfig } from "../config/index.ts"
+import { loadConfig, saveConfig } from "../config/index.ts"
+import { removalSession } from "../removal-session/index.ts"
 import type { DeploymentConfig, WizardUI } from "../types.ts"
 import { selectInstallerEntry, validateInstallerEntry } from "./index.ts"
 
@@ -50,14 +51,21 @@ async function fixture(path: string, value: unknown) {
   await writeFile(path, typeof value === "string" ? value : JSON.stringify(value), { mode: 0o600 })
 }
 
-function uiFor(...choices: string[]): WizardUI {
+function uiFor(...choices: (string | string[])[]): WizardUI {
   return {
     welcome: vi.fn(),
     cloud: vi.fn(),
     text: vi.fn(),
     select: vi.fn(async () => {
       if (!choices.length) throw new Error("Unexpected extra entry selection")
-      return choices.shift()!
+      const choice = choices.shift()!
+      if (typeof choice !== "string") throw new Error("Expected a single entry selection")
+      return choice
+    }),
+    multiSelect: vi.fn(async () => {
+      const choice = choices.shift()
+      if (!Array.isArray(choice)) throw new Error("Expected a removal selection")
+      return choice
     }),
     confirm: vi.fn(),
     wait: vi.fn(),
@@ -88,6 +96,39 @@ it("offers Exit without creating even a missing local directory", async () => {
   expect(ui.cloud).not.toHaveBeenCalled()
   expect(ui.text).not.toHaveBeenCalled()
   expect(ui.confirm).not.toHaveBeenCalled()
+})
+
+it("keeps interrupted removal inside Removal instead of offering setup Resume or loading it as a configuration", async () => {
+  const root = await directory()
+  const path = join(root, "first-hub.json")
+  await fixture(path, config())
+  const recovery = `${path}.removal.json`
+  await (await removalSession({ path, config: await loadConfig(path) })).save("removing")
+  const content = await readFile(recovery, "utf8")
+  const ui = uiFor("remove", "resume-removal")
+  ui.multiSelect = vi.fn<NonNullable<WizardUI["multiSelect"]>>(async (_question, choices) => {
+    expect(choices.some(({ value }) => value === recovery)).toBe(false)
+    return [path]
+  })
+
+  const entry = await selectInstallerEntry(ui, { directory: root })
+
+  expect(vi.mocked(ui.select).mock.calls[0]![1].map(({ value }) => value)).toEqual([
+    "create",
+    "update",
+    "remove",
+    "exit",
+  ])
+  expect(entry).toMatchObject({
+    action: "remove",
+    targets: [{ path, config: config() }],
+  })
+  expect(ui.notice).not.toHaveBeenCalled()
+  expect(ui.confirm).not.toHaveBeenCalled()
+  expect(await readFile(recovery, "utf8")).toBe(content)
+  expect(await readdir(root)).toEqual(
+    expect.arrayContaining(["first-hub.json", "first-hub.json.removal.json"]),
+  )
 })
 
 it("creates a fresh sibling rather than reusing an occupied config hint or its draft", async () => {
@@ -360,7 +401,7 @@ it.each(["config", "draft"] as const)(
   },
 )
 
-it("selects one removal target without consuming compatible drafts or opening writers", async () => {
+it("selects removal targets in operator order without consuming compatible drafts or opening writers", async () => {
   const local = await directory()
   const first = join(local, "first.json")
   const second = join(local, "second.json")
@@ -369,16 +410,19 @@ it("selects one removal target without consuming compatible drafts or opening wr
   await fixture(second, config("second-hub"))
   const files = await readdir(local)
   const contents = await Promise.all(files.map((name) => readFile(join(local, name), "utf8")))
-  const ui = uiFor("remove", second)
+  const ui = uiFor("remove", [second, first])
 
   expect(await selectInstallerEntry(ui, { directory: local })).toEqual({
     action: "remove",
     path: second,
-    target: { path: second, config: config("second-hub") },
+    targets: [
+      { path: second, config: config("second-hub") },
+      { path: first, config: config() },
+    ],
   })
 
-  expect(vi.mocked(ui.select).mock.calls[1]![1].map(({ value }) => value)).toEqual(
-    expect.arrayContaining([first, second, "config-file", "back"]),
+  expect(vi.mocked(ui.multiSelect!).mock.calls[0]![1].map(({ value }) => value)).toEqual(
+    expect.arrayContaining([first, second, "config-file"]),
   )
   expect(ui.confirm).not.toHaveBeenCalled()
   expect(await readdir(local)).toEqual(files)
@@ -387,22 +431,27 @@ it("selects one removal target without consuming compatible drafts or opening wr
   )
 })
 
-it("selects a private external removal configuration without opening a writer", async () => {
+it("preserves selected paths when adding a private external removal configuration without opening a writer", async () => {
   const local = await directory()
   const elsewhere = await directory()
   const first = join(local, "first.json")
   const second = join(elsewhere, "second.json")
   await fixture(first, config())
   await fixture(second, config("second-hub"))
-  const ui = uiFor("remove", "config-file")
+  const ui = uiFor("remove", [first, "config-file"], [first, second])
   vi.mocked(ui.text).mockResolvedValue(second)
 
   expect(await selectInstallerEntry(ui, { directory: local })).toMatchObject({
     action: "remove",
-    path: second,
-    target: { path: second, config: config("second-hub") },
+    path: first,
+    targets: [
+      { path: first, config: config() },
+      { path: second, config: config("second-hub") },
+    ],
   })
 
+  expect(vi.mocked(ui.multiSelect!).mock.calls[1]![2]).toEqual([first, second])
+  expect(ui.confirm).not.toHaveBeenCalled()
   expect(await readdir(local)).toEqual(["first.json"])
   expect(await readdir(elsewhere)).toEqual(["second.json"])
 })
@@ -415,25 +464,26 @@ it("rejects an unsafe external removal configuration and lets the operator selec
   await fixture(path, config())
   await fixture(external, config("external-hub"))
   await chmod(external, 0o644)
-  const ui = uiFor("remove", "config-file", path)
+  const ui = uiFor("remove", [path, "config-file"], [path])
   vi.mocked(ui.text).mockResolvedValue(external)
 
   expect(await selectInstallerEntry(ui, { directory: local })).toMatchObject({
     action: "remove",
     path,
-    target: { path, config: config() },
+    targets: [{ path, config: config() }],
   })
 
   expect(ui.notice).toHaveBeenCalledWith("error", expect.stringContaining(external))
+  expect(vi.mocked(ui.multiSelect!).mock.calls[1]![2]).toEqual([path])
   expect(ui.confirm).not.toHaveBeenCalled()
   expect(await readdir(local)).toEqual(["installation.json"])
   expect(await readdir(elsewhere)).toEqual(["public.json"])
   expect((await stat(external)).mode & 0o777).toBe(0o644)
 })
 
-it("returns from an explicit removal Back choice to Exit without any writable activity", async () => {
+it("returns from an empty removal selection to Exit without any writable activity", async () => {
   const local = await directory()
-  const ui = uiFor("remove", "back", "exit")
+  const ui = uiFor("remove", [], "exit")
   ui.removal = vi.fn()
 
   expect(await selectInstallerEntry(ui, { directory: local })).toBeUndefined()
@@ -472,11 +522,13 @@ it.each(["invalid config", "conflicting draft", "public config"])(
     if (problem === "public config") await chmod(path, 0o644)
     const files = await readdir(local)
     const before = await Promise.all(files.map((name) => readFile(join(local, name), "utf8")))
-    const ui = uiFor("remove", "back", "exit")
+    const ui = uiFor("remove", [], "exit")
 
     expect(await selectInstallerEntry(ui, { directory: local })).toBeUndefined()
 
-    expect(vi.mocked(ui.select).mock.calls[1]![1].some(({ value }) => value === path)).toBe(false)
+    expect(vi.mocked(ui.multiSelect!).mock.calls[0]![1].some(({ value }) => value === path)).toBe(
+      false,
+    )
     expect(ui.notice).toHaveBeenCalledWith("error", expect.stringContaining(path))
     expect(await readdir(local)).toEqual(files)
     expect(await Promise.all(files.map((name) => readFile(join(local, name), "utf8")))).toEqual(
@@ -485,29 +537,29 @@ it.each(["invalid config", "conflicting draft", "public config"])(
   },
 )
 
-it("reinspects selected removal files instead of trusting an earlier picker result", async () => {
+it("reinspects every selected removal file instead of trusting an earlier picker result", async () => {
   const local = await directory()
   const path = join(local, "installation.json")
+  const second = join(local, "second.json")
   await fixture(path, config())
+  await fixture(second, config("second-hub"))
   const ui = uiFor("remove")
-  vi.mocked(ui.select)
-    .mockResolvedValueOnce("remove")
-    .mockImplementationOnce(async () => {
-      await fixture(path, { ...config(), owner: "changed-team" })
-      return path
-    })
+  vi.mocked(ui.multiSelect!).mockImplementationOnce(async () => {
+    await fixture(second, { ...config("second-hub"), owner: "changed-team" })
+    return [path, second]
+  })
 
   await expect(selectInstallerEntry(ui, { directory: local })).rejects.toThrow(/changed|attention/i)
 
-  expect(JSON.parse(await readFile(path, "utf8")).owner).toBe("changed-team")
-  expect(await readdir(local)).toEqual(["installation.json"])
+  expect(JSON.parse(await readFile(second, "utf8")).owner).toBe("changed-team")
+  expect(await readdir(local)).toEqual(["installation.json", "second.json"])
 })
 
 it("rejects unlisted removal paths and setup-session activation of destructive targets", async () => {
   const local = await directory()
   const path = join(local, "installation.json")
   await fixture(path, config())
-  const ui = uiFor("remove", join(local, "not-listed.json"))
+  const ui = uiFor("remove", [path, join(local, "not-listed.json")])
   await expect(selectInstallerEntry(ui, { directory: local })).rejects.toThrow(/listed/i)
   const session = await openSession(path)
   sessions.push(session)
@@ -516,7 +568,7 @@ it("rejects unlisted removal paths and setup-session activation of destructive t
       {
         action: "remove",
         path,
-        target: { path, config: config() },
+        targets: [{ path, config: config() }],
       },
       session,
     ),

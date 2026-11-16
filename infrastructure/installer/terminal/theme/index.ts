@@ -11,5 +11,14 @@ export const terminalColors = {
 export const terminalTheme = extendTheme(defaultTheme, {
   components: {
     Spinner: { styles: { frame: () => ({ color: terminalColors.accent }) } },
+    MultiSelect: {
+      styles: {
+        option: (props: { isFocused: boolean }) => ({
+          ...defaultTheme.components.MultiSelect?.styles?.option?.(props),
+          flexDirection: "row-reverse",
+          justifyContent: "flex-end",
+        }),
+      },
+    },
   },
 })

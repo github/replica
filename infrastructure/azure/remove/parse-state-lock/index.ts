@@ -3,11 +3,13 @@ import { createHash } from "node:crypto"
 export interface TerraformLockSnapshot {
   id: string
   fingerprint: string
+  metadataMissing?: true
 }
 
 export function parseTerraformLock(
   value: unknown,
   expectedPath: string,
+  ownedLease?: string,
 ): TerraformLockSnapshot | undefined {
   const record = (input: unknown): input is Record<string, unknown> =>
     input !== null && typeof input === "object" && !Array.isArray(input)
@@ -37,6 +39,28 @@ export function parseTerraformLock(
     return undefined
   if (lease.status !== "locked" || lease.state !== "leased" || lease.duration !== "infinite")
     invalid("the lease is finite, changing, or unknown")
+  if ((value.lock === undefined || value.lock === null || value.lock === "") && ownedLease) {
+    if (
+      !/^terraform\/[a-z][a-z0-9-]*\/(?:app|foundation|provision)\.tfstate$/.test(expectedPath) ||
+      !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(ownedLease) ||
+      typeof value.etag !== "string" ||
+      !value.etag ||
+      value.etag.length > 512 ||
+      /[\u0000-\u001f\u007f]/.test(value.etag) ||
+      !timestamp(value.modified) ||
+      typeof value.size !== "number" ||
+      !Number.isSafeInteger(value.size) ||
+      value.size <= 0
+    )
+      invalid("the metadata-free state lease has no verifiable ownership evidence")
+    return {
+      id: ownedLease,
+      metadataMissing: true,
+      fingerprint: createHash("sha256")
+        .update(JSON.stringify([value.etag, value.modified, value.size, ownedLease]))
+        .digest("hex"),
+    }
+  }
   if (
     typeof value.lock !== "string" ||
     !value.lock ||

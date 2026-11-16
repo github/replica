@@ -9,11 +9,13 @@ import { stageRemovalModule } from "../stage-module/index.ts"
 import { validateRemovalPlan } from "../validate-plan/index.ts"
 import { validateRemovalState } from "../validate-state/index.ts"
 import type { RemovalContext, RemovalModule, RemovalResource } from "../types.ts"
+import { transientFailure } from "../../../installer/command/transient-failure/index.ts"
 
 export async function prepareRemovalModule(
   context: RemovalContext,
   kind: RemovalModule,
   staging: string,
+  retainedGroups: readonly string[] = [],
 ) {
   const { config, run, env, signal, directory } = context
   const names = installationNames(config)
@@ -21,6 +23,8 @@ export async function prepareRemovalModule(
   await stageRemovalModule(kind, source)
   const { backend, data } = await writeRemovalBackend(context, kind, staging)
   let resources: RemovalResource[] = []
+  let deletions: RemovalResource[] = []
+  let beforeDelete: (() => Promise<void>) | undefined
   const module = terraformModule({
     directory: source,
     dataDirectory: data,
@@ -29,7 +33,11 @@ export async function prepareRemovalModule(
     signal,
     ui: { ...context.ui, select: undefined },
     preapproved: true,
-    validatePlan: (plan) => validateRemovalPlan(plan, resources),
+    validatePlan: (plan) => validateRemovalPlan(plan, deletions),
+    retryDestroy: transientFailure,
+    beforeApply: async () => {
+      await beforeDelete?.()
+    },
   })
   await module.init(backend)
   resources = validateRemovalState(
@@ -42,6 +50,20 @@ export async function prepareRemovalModule(
     config,
     kind,
   )
+  const retained = new Set<string>()
+  function scope() {
+    deletions = resources.filter(
+      ({ type, id }) =>
+        type !== "azurerm_resource_group" ||
+        !retainedGroups.some((group) =>
+          id.toLowerCase().endsWith(`/resourcegroups/${group.toLowerCase()}`),
+        ),
+    )
+    retained.clear()
+    for (const resource of resources.filter((resource) => !deletions.includes(resource)))
+      retained.add(resource.address)
+  }
+  scope()
   const filename = kind === "app" ? "installation.tfvars.json" : `${kind}.tfvars.json`
   const original =
     kind === "foundation" || !resources.length
@@ -107,7 +129,8 @@ export async function prepareRemovalModule(
   }
   const path = join(staging, `${kind}-variables.json`)
   if (resources.length) await writePrivateFile(path, JSON.stringify(variables), { exclusive: true })
-  const managedState = async () => (await module.state()).filter((address) => !address.startsWith("data."))
+  const managedState = async () =>
+    (await module.state()).filter((address) => !address.startsWith("data."))
   return {
     kind,
     resources,
@@ -118,19 +141,26 @@ export async function prepareRemovalModule(
       )
         throw new Error("Saved module inputs changed after removal approval. Deletion stopped.")
     },
-    async destroy() {
-      if (!resources.length) return
+    async destroy(verify?: () => Promise<void>) {
+      scope()
+      beforeDelete = verify
+      if (!deletions.length) return
       await module.apply(path, {
         destroy: true,
-        allowedDeletions: resources.map(({ address }) => address),
+        allowedDeletions: deletions.map(({ address }) => address),
+        ...(retained.size && {
+          targets: deletions.map(({ address }) => address),
+        }),
       })
-      if ((await managedState()).length)
+      const remaining = await managedState()
+      if (remaining.length !== retained.size || remaining.some((address) => !retained.has(address)))
         throw new Error(
           "Removal did not leave an empty Terraform state. The backend was preserved.",
         )
     },
     async empty() {
-      if ((await managedState()).length)
+      const remaining = await managedState()
+      if (remaining.length !== retained.size || remaining.some((address) => !retained.has(address)))
         throw new Error("Terraform still tracks resources. State storage cannot be removed.")
     },
   }

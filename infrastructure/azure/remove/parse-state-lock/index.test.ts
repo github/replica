@@ -51,6 +51,20 @@ it("skips only explicitly verified unlocked terminal lease states", () => {
     expect(() => parseTerraformLock({ ...fixture().head, lease }, path)).toThrow()
 })
 
+it("requires a saved exact identity and a canonical blob name for metadata-free recovery", () => {
+  const { info, head } = fixture()
+  const orphaned = { ...head, lock: null }
+  expect(() => parseTerraformLock(orphaned, path)).toThrow(/metadata/)
+  expect(parseTerraformLock(orphaned, path, info.ID)).toMatchObject({
+    id: info.ID,
+    metadataMissing: true,
+  })
+  expect(() =>
+    parseTerraformLock(orphaned, "another/terraform/sample-hub/app.tfstate", info.ID),
+  ).toThrow()
+  expect(() => parseTerraformLock({ ...orphaned, size: 0 }, path, info.ID)).toThrow()
+})
+
 it("binds recovery to exactly the selected container and key, not an account-prefixed or foreign path", () => {
   const { info, head } = fixture()
   for (const Path of [

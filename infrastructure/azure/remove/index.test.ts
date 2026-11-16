@@ -4,6 +4,7 @@ import { basename, join, resolve } from "node:path"
 import { afterEach, expect, it, vi } from "vitest"
 
 import { CommandExecutionError } from "../../installer/command/index.ts"
+import { retryReadOnly } from "../../installer/command/retry-read-only/index.ts"
 import * as sessions from "../../installer/session/index.ts"
 import type {
   DeploymentConfig,
@@ -17,7 +18,7 @@ import { inspectRemoval } from "./inspect/index.ts"
 import { RemovalLeaseError } from "./lease-error/index.ts"
 import { prepareRemovalModule } from "./prepare-module/index.ts"
 import type { RemovalContext, RemovalModule, RemovalResource } from "./types.ts"
-import { removeAzureDeployment } from "./index.ts"
+import { removeAzureDeployments } from "./index.ts"
 
 vi.mock("./prepare-module/index.ts", () => ({ prepareRemovalModule: vi.fn() }))
 
@@ -27,179 +28,186 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
 })
 
-async function scenario() {
-  const root = resolve(`.removal-test-${randomUUID()}`)
+async function scenario(count = 1) {
+  const root = resolve(`.removal-batch-test-${randomUUID()}`)
   directories.push(root)
   await mkdir(root, { mode: 0o700 })
   const events: string[] = []
-  const deployment = await (async () => {
-    const config: DeploymentConfig = {
-      version: 1,
-      cloud: "azure",
-      name: "sample-0-hub",
-      owner: "sample-team",
-      azure: {
-        subscriptionId: "00000000-0000-0000-0000-000000000001",
-        tenantId: "00000000-0000-0000-0000-000000000002",
-        location: "eastus2",
-        resourceGroup: "sample-0-hub-rg",
-      },
-    }
-    const target: RemovalTarget = {
-      path: join(root, `${config.name}.json`),
-      config,
-    }
-    const directory = installationWorkspace(config, root)
-    await mkdir(directory, { mode: 0o700 })
-    const saved = new Map([
-      [target.path, JSON.stringify(config)],
-      [
-        `${target.path}.draft.json`,
-        JSON.stringify({
-          version: 1,
-          id: randomUUID(),
-          configPath: target.path,
-          createdAt: "2026-11-01T10:00:00.000Z",
-          updatedAt: "2026-11-02T10:00:00.000Z",
-          phase: "provision",
-          deploymentStarted: true,
-          answers: { cloud: "azure", name: config.name },
-        }),
-      ],
-      [join(directory, "installation.tfvars.json"), '{"synthetic":"retained input"}'],
-      [join(directory, "original.log"), "synthetic retained diagnostics\n"],
-    ])
-    for (const [path, content] of saved) await writeFile(path, content, { mode: 0o600 })
-    const names = installationNames(config)
-    const groupId = (group: string) =>
-      `/subscriptions/${config.azure.subscriptionId}/resourceGroups/${group}`
-    const tags = {
-      application: "replica-hub",
-      installation: config.name,
-      owner: config.owner,
-      managed_by: "terraform",
-    }
-    const resource = (address: string, group: string, path: string): RemovalResource => ({
-      address,
-      type: address.split(".")[0]!,
-      id: `${groupId(group)}/providers/${path}`,
-      values: {},
-    })
-    const resources: Record<RemovalModule, RemovalResource[]> = {
-      provision: [
-        resource(
-          "azurerm_container_app_job.provision",
-          config.azure.resourceGroup,
-          `Microsoft.App/jobs/${config.name}-provision`,
-        ),
-      ],
-      app: [
-        resource(
-          "azurerm_container_app.hub[0]",
-          config.azure.resourceGroup,
-          `Microsoft.App/containerApps/${config.name}-hub`,
-        ),
-        resource(
-          "azurerm_container_app_environment.hub",
-          config.azure.resourceGroup,
-          `Microsoft.App/managedEnvironments/${config.name}-environment`,
-        ),
-        resource(
-          "azurerm_storage_account.artifacts",
-          config.azure.resourceGroup,
-          `Microsoft.Storage/storageAccounts/${config.name.replaceAll("-", "")}hub`,
-        ),
-      ],
-      foundation: [
-        resource(
-          "azurerm_key_vault.hub",
-          names.foundationGroup,
-          `Microsoft.KeyVault/vaults/${names.vault}`,
-        ),
-      ],
-    }
-    resources.app.push({
-      ...resource(
-        "azurerm_user_assigned_identity.hub",
-        config.azure.resourceGroup,
-        `Microsoft.ManagedIdentity/userAssignedIdentities/${config.name}-hub`,
-      ),
-      values: { principal_id: "00000000-0000-0000-0000-000000000003" },
-    })
-    const live = (resource: RemovalResource) => ({
-      id: resource.id,
-      type: resource.id.split("/providers/")[1]!.split("/").slice(0, 2).join("/"),
-      tags: { ...tags },
-    })
-    const groups = new Map<
-      string,
-      { id: string; type: string; tags?: Record<string, string> | null }[]
-    >([
-      [config.azure.resourceGroup, [...resources.app, ...resources.provision].map(live)],
-      [names.foundationGroup, resources.foundation.map(live)],
-      [
-        names.stateGroup,
+  const deployments = await Promise.all(
+    Array.from({ length: count }, async (_, index) => {
+      const config: DeploymentConfig = {
+        version: 1,
+        cloud: "azure",
+        name: `sample-${index}-hub`,
+        owner: "sample-team",
+        azure: {
+          subscriptionId: "00000000-0000-0000-0000-000000000001",
+          tenantId: "00000000-0000-0000-0000-000000000002",
+          location: "eastus2",
+          resourceGroup: `sample-${index}-hub-rg`,
+        },
+      }
+      const target: RemovalTarget = {
+        path: join(root, `${config.name}.json`),
+        config,
+      }
+      const directory = installationWorkspace(config, root)
+      await mkdir(directory, { mode: 0o700 })
+      const saved = new Map([
+        [target.path, JSON.stringify(config)],
         [
-          {
-            id: `${groupId(names.stateGroup)}/providers/Microsoft.Storage/storageAccounts/${names.stateAccount}`,
-            type: "Microsoft.Storage/storageAccounts",
-            tags: { ...tags, managed_by: "replica-installer" },
-          },
+          `${target.path}.draft.json`,
+          JSON.stringify({
+            version: 1,
+            id: randomUUID(),
+            configPath: target.path,
+            createdAt: "2026-11-01T10:00:00.000Z",
+            updatedAt: "2026-11-02T10:00:00.000Z",
+            phase: "provision",
+            deploymentStarted: true,
+            answers: { cloud: "azure", name: config.name },
+          }),
         ],
-      ],
-    ])
-    const unlocked = () => ({
-      status: "unlocked",
-      state: "available",
-      duration: null as string | null,
-    })
-    const blobs = ["provision.tfstate", "app.tfstate", "foundation.tfstate", "installer.lock"].map(
-      (name) => ({ name: `${config.name}/${name}`, lease: unlocked() }),
-    )
-    return {
-      target,
-      directory,
-      saved,
-      names,
-      groupId,
-      tags,
-      groups,
-      resources,
-      blobs,
-      currentLeases: new Map<string, unknown>(),
-      stateMetadata: new Map<
+        [join(directory, "installation.tfvars.json"), '{"synthetic":"retained input"}'],
+        [join(directory, "original.log"), "synthetic retained diagnostics\n"],
+      ])
+      for (const [path, content] of saved) await writeFile(path, content, { mode: 0o600 })
+      const names = installationNames(config)
+      const groupId = (group: string) =>
+        `/subscriptions/${config.azure.subscriptionId}/resourceGroups/${group}`
+      const tags = {
+        application: "replica-hub",
+        installation: config.name,
+        owner: config.owner,
+        managed_by: "terraform",
+      }
+      const resource = (address: string, group: string, path: string): RemovalResource => ({
+        address,
+        type: address.split(".")[0]!,
+        id: `${groupId(group)}/providers/${path}`,
+        values: {},
+      })
+      const resources: Record<RemovalModule, RemovalResource[]> = {
+        provision: [
+          resource(
+            "azurerm_container_app_job.provision",
+            config.azure.resourceGroup,
+            `Microsoft.App/jobs/${config.name}-provision`,
+          ),
+        ],
+        app: [
+          resource(
+            "azurerm_container_app.hub[0]",
+            config.azure.resourceGroup,
+            `Microsoft.App/containerApps/${config.name}-hub`,
+          ),
+          resource(
+            "azurerm_container_app_environment.hub",
+            config.azure.resourceGroup,
+            `Microsoft.App/managedEnvironments/${config.name}-environment`,
+          ),
+          resource(
+            "azurerm_storage_account.artifacts",
+            config.azure.resourceGroup,
+            `Microsoft.Storage/storageAccounts/${config.name.replaceAll("-", "")}hub`,
+          ),
+        ],
+        foundation: [
+          resource(
+            "azurerm_key_vault.hub",
+            names.foundationGroup,
+            `Microsoft.KeyVault/vaults/${names.vault}`,
+          ),
+        ],
+      }
+      resources.app.push({
+        ...resource(
+          "azurerm_user_assigned_identity.hub",
+          config.azure.resourceGroup,
+          `Microsoft.ManagedIdentity/userAssignedIdentities/${config.name}-hub`,
+        ),
+        values: { principal_id: "00000000-0000-0000-0000-000000000003" },
+      })
+      const live = (resource: RemovalResource) => ({
+        id: resource.id,
+        type: resource.id.split("/providers/")[1]!.split("/").slice(0, 2).join("/"),
+        tags: { ...tags },
+      })
+      const groups = new Map<
         string,
-        {
-          lock?: string
-          etag: string
-          modified: string
-          size: number
-        }
-      >(),
-      unlockError: undefined as CommandExecutionError | undefined,
-      installationLease: "synthetic-installation-lease",
-      releaseLease: unlocked(),
-      releaseExists: true,
-      hubActive: true,
-      executions: [{ name: "terminal-job", status: "Succeeded" }] as unknown,
-      jobs: [{ name: `${config.name}-custom-job` }] as unknown,
-      sharedWorkloads: [] as { id: string; environment?: string }[],
-      externalGrants: [] as unknown[],
-      containers: ["terraform"] as unknown,
-      livePrincipal: "00000000-0000-0000-0000-000000000003",
-      badOwner: false,
-      wrongTenant: false,
-      failDestroy: undefined as RemovalModule | undefined,
-      destroyError: undefined as Error | undefined,
-      afterVerify: undefined as (() => Promise<void>) | undefined,
-    }
-  })()
-  const { target } = deployment
+        { id: string; type: string; tags?: Record<string, string> | null }[]
+      >([
+        [config.azure.resourceGroup, [...resources.app, ...resources.provision].map(live)],
+        [names.foundationGroup, resources.foundation.map(live)],
+        [
+          names.stateGroup,
+          [
+            {
+              id: `${groupId(names.stateGroup)}/providers/Microsoft.Storage/storageAccounts/${names.stateAccount}`,
+              type: "Microsoft.Storage/storageAccounts",
+              tags: { ...tags, managed_by: "replica-installer" },
+            },
+          ],
+        ],
+      ])
+      const unlocked = () => ({
+        status: "unlocked",
+        state: "available",
+        duration: null as string | null,
+      })
+      const blobs = [
+        "provision.tfstate",
+        "app.tfstate",
+        "foundation.tfstate",
+        "installer.lock",
+      ].map((name) => ({ name: `${config.name}/${name}`, lease: unlocked() }))
+      return {
+        target,
+        directory,
+        saved,
+        names,
+        groupId,
+        tags,
+        groups,
+        resources,
+        blobs,
+        currentLeases: new Map<string, unknown>(),
+        stateMetadata: new Map<
+          string,
+          {
+            lock?: string
+            etag: string
+            modified: string
+            size: number
+          }
+        >(),
+        stateLeaseIds: new Map<string, string>(),
+        unlockError: undefined as CommandExecutionError | undefined,
+        installationLease: "synthetic-installation-lease",
+        releaseLeaseId: "synthetic-release-lease",
+        releaseLease: unlocked(),
+        releaseExists: true,
+        hubActive: true,
+        executions: [{ name: "terminal-job", status: "Succeeded" }] as unknown,
+        jobs: [{ name: `${config.name}-setup` }] as unknown,
+        containers: ["terraform"] as unknown,
+        livePrincipal: "00000000-0000-0000-0000-000000000003",
+        badOwner: false,
+        wrongTenant: false,
+        failDestroy: undefined as RemovalModule | undefined,
+        destroyError: undefined as Error | undefined,
+        afterVerify: undefined as (() => Promise<void>) | undefined,
+      }
+    }),
+  )
+  const targets = deployments.map(({ target }) => target)
   const ui: WizardUI = {
     cloud: vi.fn(),
     select: vi.fn(async () => "exit"),
+    multiSelect: vi.fn(),
     removal: vi.fn(),
     text: vi.fn(async () => {
+      const target = targets[vi.mocked(ui.text).mock.calls.length - 1]!
       events.push(`typed:${target.config.name}`)
       return target.config.name
     }),
@@ -216,10 +224,12 @@ async function scenario() {
     const index = args.indexOf(flag)
     return index < 0 ? undefined : args[index + 1]
   }
+  let accountReads = 0
   const run = vi.fn<RunCommand>(async (executable, args) => {
     if (executable === "terraform") {
       const source = args[0]?.replace(/^-chdir=/, "")!
-      expect(source.startsWith(`${deployment.directory}/`)).toBe(true)
+      const deployment = deployments.find(({ directory }) => source.startsWith(`${directory}/`))!
+      expect(deployment).toBeDefined()
       const kind = basename(source) as RemovalModule
       expect(["provision", "app", "foundation"]).toContain(kind)
       expect(source).toContain(`/recover-${kind}/${kind}`)
@@ -231,6 +241,7 @@ async function scenario() {
         const name = `${deployment.target.config.name}/${kind}.tfstate`
         const metadata = deployment.stateMetadata.get(name)!
         const info = JSON.parse(Buffer.from(metadata.lock!, "base64").toString("utf8"))
+        deployment.stateLeaseIds.set(name, info.ID)
         expect(args.slice(1)).toEqual(["force-unlock", "-force", info.ID])
         events.push(`${deployment.target.config.name}:state-unlock:${kind}`)
         if (deployment.unlockError) throw deployment.unlockError
@@ -246,6 +257,21 @@ async function scenario() {
     }
     if (executable !== "az")
       throw new Error("Removal orchestration test must not execute a real program")
+    const deployment =
+      args[0] === "account"
+        ? deployments[accountReads++ % deployments.length]!
+        : (deployments.find(
+            ({ target }) =>
+              args.includes(target.config.azure.resourceGroup) ||
+              args.includes(installationNames(target.config).stateGroup) ||
+              args.includes(installationNames(target.config).foundationGroup) ||
+              args.includes(installationNames(target.config).stateAccount) ||
+              args.includes(
+                `/subscriptions/${target.config.azure.subscriptionId}/resourceGroups/${target.config.azure.resourceGroup}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${target.config.name}-hub`,
+              ) ||
+              args.includes(`${target.config.name.replaceAll("-", "")}hub`) ||
+              args.includes(`${target.config.name}-environment`),
+          ) ?? deployments[0]!)
     const {
       target: { config },
       names,
@@ -377,6 +403,20 @@ async function scenario() {
       return JSON.stringify(lease)
     }
     if (operation === "storage blob lease") {
+      const stateName = option(args, "--blob-name")
+      if (stateName?.endsWith(".tfstate")) {
+        expect(option(args, "--lease-id")).toBe(deployment.stateLeaseIds.get(stateName))
+        expect(["renew", "release"]).toContain(args[3])
+        if (args[3] === "release") {
+          Object.assign(deployment.blobs.find(({ name }) => name === stateName)!.lease, {
+            status: "unlocked",
+            state: "available",
+            duration: null,
+          })
+          deployment.stateMetadata.delete(stateName)
+        }
+        return "{}"
+      }
       const release = option(args, "--container-name") === "releases"
       const lease = release
         ? deployment.releaseLease
@@ -409,53 +449,38 @@ async function scenario() {
           state: "leased",
           duration: "infinite",
         })
-        return JSON.stringify(release ? "synthetic-release-lease" : deployment.installationLease)
+        const proposed = option(args, "--proposed-lease-id")
+        expect(proposed).toBeDefined()
+        if (release) deployment.releaseLeaseId = proposed!
+        else deployment.installationLease = proposed!
+        return JSON.stringify(proposed)
       }
       if (args[3] === "renew") {
         expect(option(args, "--lease-id")).toBe(
-          release ? "synthetic-release-lease" : deployment.installationLease,
+          release ? deployment.releaseLeaseId : deployment.installationLease,
         )
+        return "{}"
+      }
+      if (args[3] === "release") {
+        expect(option(args, "--lease-id")).toBe(
+          release ? deployment.releaseLeaseId : deployment.installationLease,
+        )
+        Object.assign(lease, {
+          status: "unlocked",
+          state: "available",
+          duration: null,
+        })
         return "{}"
       }
       throw new Error("Removal must not release retained locks")
     }
     if (operation === "storage blob delete") {
       expect(option(args, "--name")).toBe("deployment.lock")
-      expect(option(args, "--lease-id")).toBe("synthetic-release-lease")
+      expect(option(args, "--lease-id")).toBe(deployment.releaseLeaseId)
       deployment.releaseExists = false
       events.push(`${config.name}:delete-release-lock`)
       return "{}"
     }
-    if (
-      args[0] === "containerapp" &&
-      !args.includes("--resource-group") &&
-      (args[1] === "list" || operation === "containerapp job list")
-    ) {
-      const type = args[1] === "list" ? "Microsoft.App/containerApps" : "Microsoft.App/jobs"
-      return JSON.stringify([
-        ...[...deployment.groups.values()]
-          .flat()
-          .filter((value) => value.type === type)
-          .map((value) => ({
-            id: value.id,
-            environment: `${deployment.groupId(config.azure.resourceGroup)}/providers/Microsoft.App/managedEnvironments/${config.name}-environment`,
-            images: [],
-            initialImages: [],
-            registries: [],
-            secrets: [],
-            identityPresent: true,
-            identity: null,
-          })),
-        ...deployment.sharedWorkloads
-          .filter(({ id }) => id.toLowerCase().includes(`/providers/${type.toLowerCase()}/`))
-          .map((value) => ({
-            identityPresent: true,
-            identity: null,
-            ...value,
-          })),
-      ])
-    }
-    if (operation === "role assignment list") return JSON.stringify(deployment.externalGrants)
     if (operation === "containerapp job list")
       return JSON.stringify(
         option(args, "--query") === "[].name" && Array.isArray(deployment.jobs)
@@ -524,7 +549,7 @@ async function scenario() {
     throw new Error(`Unexpected synthetic Azure operation: ${args.slice(0, 4).join(" ")}`)
   })
   vi.mocked(prepareRemovalModule).mockImplementation(async (context, kind, staging) => {
-    expect(context.target.path).toBe(target.path)
+    const deployment = deployments.find(({ target }) => target.path === context.target.path)!
     events.push(`${context.config.name}:prepare:${kind}`)
     await writeFile(join(staging, `${kind}.synthetic`), "synthetic staged data", { mode: 0o600 })
     return {
@@ -555,22 +580,32 @@ async function scenario() {
       },
     }
   })
-  return { root, target, deployment, events, run, ui }
+  return {
+    root,
+    targets,
+    deployments,
+    events,
+    run,
+    ui,
+    installer: { run: retryReadOnly(run, { delays: [0, 0] }), ui },
+  }
 }
 
 async function preserved(test: Awaited<ReturnType<typeof scenario>>) {
-  const { saved, directory } = test.deployment
-  for (const [path, content] of saved) expect(await readFile(path, "utf8")).toBe(content)
-  expect(
-    (await readdir(directory)).some(
-      (name) => name.startsWith("removal-") || name.endsWith(".lock"),
-    ),
-  ).toBe(false)
+  for (const { saved, directory } of test.deployments) {
+    for (const [path, content] of saved) expect(await readFile(path, "utf8")).toBe(content)
+    expect(
+      (await readdir(directory)).some(
+        (name) => name.startsWith("removal-") || name.endsWith(".lock"),
+      ),
+    ).toBe(false)
+  }
+
   expect((await readdir(test.root)).some((name) => name.endsWith(".lock"))).toBe(false)
 }
 
-function inspectionContext(test: Awaited<ReturnType<typeof scenario>>): RemovalContext {
-  const { target, directory } = test.deployment
+function inspectionContext(test: Awaited<ReturnType<typeof scenario>>, index = 0): RemovalContext {
+  const { target, directory } = test.deployments[index]!
   return {
     target,
     config: target.config,
@@ -594,7 +629,7 @@ it.each(["empty", "null", "missing"] as const)(
   "accepts %s tags on exact verified temporary provisioning resources",
   async (tags) => {
     const test = await scenario()
-    const deployment = test.deployment
+    const deployment = test.deployments[0]!
     const { config } = deployment.target
     const identity: RemovalResource = {
       address: "azurerm_user_assigned_identity.provision",
@@ -625,7 +660,7 @@ it.each(["provision job", "provision identity", "other empty"] as const)(
   "blocks unverified ownership on %s",
   async (target) => {
     const test = await scenario()
-    const deployment = test.deployment
+    const deployment = test.deployments[0]!
     const { config } = deployment.target
     const identity: RemovalResource = {
       address: "azurerm_user_assigned_identity.provision",
@@ -660,7 +695,7 @@ it.each(["job", "identity"] as const)(
   "does not exempt an untagged provisioning %s whose live details changed",
   async (kind) => {
     const test = await scenario()
-    const deployment = test.deployment
+    const deployment = test.deployments[0]!
     const { config } = deployment.target
     const identity: RemovalResource = {
       address: "azurerm_user_assigned_identity.provision",
@@ -700,7 +735,7 @@ it.each(["job", "identity"] as const)(
 )
 
 function lockState(
-  deployment: Awaited<ReturnType<typeof scenario>>["deployment"],
+  deployment: Awaited<ReturnType<typeof scenario>>["deployments"][number],
   kind: RemovalModule = "app",
 ) {
   const name = `${deployment.target.config.name}/${kind}.tfstate`
@@ -729,12 +764,14 @@ function lockState(
 
 it("retains verified managed-group evidence when cleanup outlasts app deletion and rechecks it on retry", async () => {
   const test = await scenario()
-  const deployment = test.deployment
+  const deployment = test.deployments[0]!
   const managedGroup = `ME_${deployment.target.config.name}`
   deployment.groups.set(managedGroup, [])
   deployment.failDestroy = "foundation"
 
-  await expect(removeAzureDeployment(test.target, test)).rejects.toThrow("Synthetic destroy failed")
+  await expect(removeAzureDeployments(test.targets, test)).rejects.toThrow(
+    "Synthetic destroy failed",
+  )
   expect(test.events.some((event) => event.includes("delete-backend"))).toBe(false)
   expect(
     JSON.parse(await readFile(join(deployment.directory, "environment-removal.json"), "utf8")),
@@ -751,7 +788,7 @@ it("retains verified managed-group evidence when cleanup outlasts app deletion a
   vi.mocked(test.ui.text).mockClear()
   deployment.groups.delete(managedGroup)
 
-  await expect(removeAzureDeployment(test.target, test)).resolves.toContain(
+  await expect(removeAzureDeployments(test.targets, test)).resolves.toContain(
     "owned cloud resources removed",
   )
   expect(
@@ -765,41 +802,75 @@ it("retains verified managed-group evidence when cleanup outlasts app deletion a
   await preserved(test)
 })
 
-it.each(["decline", "wrong name", "padded name", "cancel before consent", "cancel during names"])(
-  "starts no command or writer activity after %s",
-  async (gate) => {
-    const test = await scenario()
-    const writer = vi.spyOn(sessions, "openSession")
-    const abort = new AbortController()
-    if (gate === "decline") vi.mocked(test.ui.confirm).mockResolvedValue(false)
-    if (gate === "wrong name") vi.mocked(test.ui.text).mockResolvedValue("not-selected")
-    if (gate === "padded name")
-      vi.mocked(test.ui.text).mockResolvedValue(` ${test.target.config.name}`)
-    if (gate === "cancel before consent") abort.abort()
-    if (gate === "cancel during names")
-      vi.mocked(test.ui.text).mockImplementation(async () => {
-        abort.abort()
-        return test.target.config.name
-      })
+it.each([
+  "decline",
+  "wrong first name",
+  "wrong second name",
+  "cancel before consent",
+  "cancel during names",
+])("starts no command or writer activity after %s", async (gate) => {
+  const test = await scenario(2)
+  const abort = new AbortController()
+  if (gate === "decline") vi.mocked(test.ui.confirm).mockResolvedValue(false)
+  if (gate === "wrong first name") vi.mocked(test.ui.text).mockResolvedValue("not-selected")
+  if (gate === "wrong second name")
+    vi.mocked(test.ui.text)
+      .mockResolvedValueOnce(test.targets[0]!.config.name)
+      .mockResolvedValueOnce(` ${test.targets[1]!.config.name}`)
+  if (gate === "cancel before consent") abort.abort()
+  if (gate === "cancel during names")
+    vi.mocked(test.ui.text).mockImplementation(async () => {
+      abort.abort()
+      return test.targets[0]!.config.name
+    })
 
-    await expect(
-      removeAzureDeployment(test.target, { ...test, signal: abort.signal }),
-    ).rejects.toThrow()
+  await expect(
+    removeAzureDeployments(test.targets, { ...test, signal: abort.signal }),
+  ).rejects.toThrow()
 
-    expect(test.run).not.toHaveBeenCalled()
-    expect(writer).not.toHaveBeenCalled()
-    expect(prepareRemovalModule).not.toHaveBeenCalled()
-    await preserved(test)
-  },
-)
+  expect(test.run).not.toHaveBeenCalled()
+  expect(prepareRemovalModule).not.toHaveBeenCalled()
+  await preserved(test)
+})
 
-it("rejects legacy target arrays before approval, writers, or cloud commands", async () => {
-  const test = await scenario()
+it("requires interactive distinct deployments rather than accepting deployment approval or duplicate paths", async () => {
+  const test = await scenario(2)
   const writer = vi.spyOn(sessions, "openSession")
-  for (const input of [[], [test.target], [test.target, test.target]])
-    await expect(removeAzureDeployment(input as unknown as RemovalTarget, test)).rejects.toThrow(
-      /one installation/i,
-    )
+  for (const targets of [
+    [],
+    [test.targets[0]!, test.targets[0]!],
+    [test.targets[0]!, { ...test.targets[0]!, path: test.targets[1]!.path }],
+    [test.targets[0]!, { ...test.targets[1]!, path: test.targets[0]!.path }],
+  ])
+    await expect(removeAzureDeployments(targets, test)).rejects.toThrow()
+  await expect(
+    removeAzureDeployments(test.targets, {
+      ...test,
+      ui: { ...test.ui, select: undefined } as unknown as WizardUI,
+    }),
+  ).rejects.toThrow(/interactive/i)
+  expect(test.ui.confirm).not.toHaveBeenCalled()
+  expect(writer).not.toHaveBeenCalled()
+  expect(test.run).not.toHaveBeenCalled()
+  await preserved(test)
+})
+
+it("validates later targets before requesting any destructive consent", async () => {
+  const test = await scenario(2)
+  const [first, second] = test.targets
+  const writer = vi.spyOn(sessions, "openSession")
+  for (const config of [
+    { ...second!.config, version: 2 } as unknown as DeploymentConfig,
+    {
+      ...second!.config,
+      azure: {
+        ...second!.config.azure,
+        resourceGroup: installationNames(second!.config).stateGroup,
+      },
+    },
+  ])
+    await expect(removeAzureDeployments([first!, { ...second!, config }], test)).rejects.toThrow()
+
   expect(test.ui.confirm).not.toHaveBeenCalled()
   expect(test.ui.text).not.toHaveBeenCalled()
   expect(writer).not.toHaveBeenCalled()
@@ -808,33 +879,22 @@ it("rejects legacy target arrays before approval, writers, or cloud commands", a
   await preserved(test)
 })
 
-it("requires interactive removal rather than accepting deployment approval alone", async () => {
-  const test = await scenario()
-  await expect(
-    removeAzureDeployment(test.target, {
-      ...test,
-      ui: { ...test.ui, select: undefined } as unknown as WizardUI,
-    }),
-  ).rejects.toThrow(/interactive/i)
-  expect(test.ui.confirm).not.toHaveBeenCalled()
-  expect(test.run).not.toHaveBeenCalled()
-  await preserved(test)
-})
-
 it("rejects overlapping resource-group roles before destructive consent", async () => {
   const test = await scenario()
-  const target = test.target
+  const target = test.targets[0]!
   const names = installationNames(target.config)
   for (const resourceGroup of [names.foundationGroup.toUpperCase(), names.stateGroup])
     await expect(
-      removeAzureDeployment(
-        {
-          ...target,
-          config: {
-            ...target.config,
-            azure: { ...target.config.azure, resourceGroup },
+      removeAzureDeployments(
+        [
+          {
+            ...target,
+            config: {
+              ...target.config,
+              azure: { ...target.config.azure, resourceGroup },
+            },
           },
-        },
+        ],
         test,
       ),
     ).rejects.toThrow(/separate.*resource groups/i)
@@ -843,21 +903,21 @@ it("rejects overlapping resource-group roles before destructive consent", async 
   await preserved(test)
 })
 
-it("obtains one review and exact name before removing the installation with state storage last", async () => {
-  const test = await scenario()
-  const summary = await removeAzureDeployment(test.target, test)
+it("obtains one batch review and every exact name, then completely removes each target before preparing or leasing the next", async () => {
+  const test = await scenario(2)
+  const summary = await removeAzureDeployments(test.targets, test)
 
   expect(test.ui.confirm).toHaveBeenCalledOnce()
   const review = vi.mocked(test.ui.confirm).mock.calls[0]![0]
-  const { path, config } = test.target
-  for (const value of [
-    path,
-    config.name,
-    config.azure.tenantId,
-    config.azure.subscriptionId,
-    config.azure.location,
-  ])
-    expect(review).toContain(value)
+  for (const { path, config } of test.targets)
+    for (const value of [
+      path,
+      config.name,
+      config.azure.tenantId,
+      config.azure.subscriptionId,
+      config.azure.location,
+    ])
+      expect(review).toContain(value)
   for (const warning of [
     /database/i,
     /queue/i,
@@ -872,31 +932,45 @@ it("obtains one review and exact name before removing the installation with stat
     /purge.protected|retention/i,
   ])
     expect(review).toMatch(warning)
-  expect(test.ui.text).toHaveBeenCalledOnce()
-  expect(vi.mocked(test.ui.text).mock.calls[0]![1]).toBeUndefined()
-  expect(test.events.slice(0, 2)).toEqual(["confirmed", `typed:${config.name}`])
-  const firstDelete = test.events.indexOf(`${config.name}:destroy:provision`)
-  for (const kind of ["provision", "app", "foundation"])
-    expect(test.events.indexOf(`${config.name}:prepare:${kind}`)).toBeLessThan(firstDelete)
-  const operations = test.events.filter(
-    (event) =>
-      event.startsWith(`${config.name}:`) &&
-      !event.includes(":lease:") &&
-      !event.includes(":prepare:"),
-  )
-  expect(operations).toEqual([
-    `${config.name}:stop-hub`,
-    `${config.name}:destroy:provision`,
-    `${config.name}:delete-release-lock`,
-    `${config.name}:destroy:app`,
-    `${config.name}:destroy:foundation`,
-    `${config.name}:empty:provision`,
-    `${config.name}:empty:app`,
-    `${config.name}:empty:foundation`,
-    `${config.name}:delete-backend`,
-    `${config.name}:delete-state-group`,
+  expect(test.events.slice(0, 3)).toEqual([
+    "confirmed",
+    ...test.targets.map(({ config }) => `typed:${config.name}`),
   ])
-  expect(summary).toContain(`${config.name}: owned cloud resources removed`)
+  for (const typed of vi.mocked(test.ui.text).mock.invocationCallOrder)
+    expect(typed).toBeLessThan(test.run.mock.invocationCallOrder[0]!)
+  for (const { config } of test.targets) {
+    const firstDelete = test.events.indexOf(`${config.name}:destroy:provision`)
+    for (const kind of ["provision", "app", "foundation"])
+      expect(test.events.indexOf(`${config.name}:prepare:${kind}`)).toBeLessThan(firstDelete)
+  }
+  const firstFinished = test.events.indexOf(`${test.targets[0]!.config.name}:delete-state-group`)
+  for (const event of [
+    `${test.targets[1]!.config.name}:lease:acquire:installation`,
+    `${test.targets[1]!.config.name}:lease:acquire:release`,
+    `${test.targets[1]!.config.name}:prepare:provision`,
+  ])
+    expect(test.events.indexOf(event)).toBeGreaterThan(firstFinished)
+  for (const { config } of test.targets) {
+    const operations = test.events.filter(
+      (event) =>
+        event.startsWith(`${config.name}:`) &&
+        !event.includes(":lease:") &&
+        !event.includes(":prepare:"),
+    )
+    expect(operations).toEqual([
+      `${config.name}:stop-hub`,
+      `${config.name}:destroy:provision`,
+      `${config.name}:delete-release-lock`,
+      `${config.name}:destroy:app`,
+      `${config.name}:destroy:foundation`,
+      `${config.name}:empty:provision`,
+      `${config.name}:empty:app`,
+      `${config.name}:empty:foundation`,
+      `${config.name}:delete-backend`,
+      `${config.name}:delete-state-group`,
+    ])
+    expect(summary).toContain(`${config.name}: owned cloud resources removed`)
+  }
   expect(test.ui.complete).toHaveBeenCalledOnce()
   expect(test.ui.select).not.toHaveBeenCalled()
   expect(test.ui.wait).not.toHaveBeenCalled()
@@ -910,7 +984,7 @@ it("obtains one review and exact name before removing the installation with stat
 
 it("keeps an exit-code-2 inventory failure read-only until details and an explicit recheck succeed", async () => {
   const test = await scenario()
-  const failedTarget = test.deployment
+  const failedTarget = test.deployments[0]!
   const failure = new CommandExecutionError(
     "Inspect Terraform state leases failed (exit code 2).",
     false,
@@ -935,7 +1009,7 @@ it("keeps an exit-code-2 inventory failure read-only until details and an explic
     async () => new Promise<string>((resolve) => choices.push(resolve)),
   )
   const settled = vi.fn()
-  const pending = removeAzureDeployment(test.target, test)
+  const pending = removeAzureDeployments(test.targets, test)
   void pending.then(settled, settled)
 
   await vi.waitFor(() => expect(test.ui.select).toHaveBeenCalledOnce())
@@ -962,128 +1036,301 @@ it("keeps an exit-code-2 inventory failure read-only until details and an explic
 
   await expect(pending).resolves.toContain("Removal finished")
   expect(test.ui.confirm).toHaveBeenCalledOnce()
-  expect(test.ui.text).toHaveBeenCalledOnce()
+  expect(test.ui.text).toHaveBeenCalledTimes(test.targets.length)
   expect(test.ui.select).toHaveBeenCalledTimes(2)
   expect(test.ui.notice).toHaveBeenCalledWith(
     expect.stringMatching(/info|success/),
     expect.stringMatching(/continu/i),
   )
-  expect(test.events).toContain(`${test.target.config.name}:delete-state-group`)
+  for (const { config } of test.targets)
+    expect(test.events).toContain(`${config.name}:delete-state-group`)
   await preserved(test)
 })
 
-it("keeps an actual shared-consumer blocker read-only through details before rechecking the same installation", async () => {
-  const test = await scenario()
-  const blocked = test.deployment
-  const foreignId = `${blocked.groupId("unrelated")}/providers/Microsoft.App/containerApps/foreign`
-  const environment = `${blocked.groupId(blocked.target.config.azure.resourceGroup)}/providers/Microsoft.App/managedEnvironments/${blocked.target.config.name}-environment`
-  blocked.sharedWorkloads.push({ id: foreignId, environment })
-  const choices: ((value: string) => void)[] = []
-  vi.mocked(test.ui.select).mockImplementation(
-    async () => new Promise<string>((resolve) => choices.push(resolve)),
-  )
-  let returnFromDetails = () => {}
-  vi.mocked(test.ui.wait).mockImplementationOnce(
-    async () =>
-      new Promise<void>((resolve) => {
-        returnFromDetails = resolve
-      }),
-  )
-  const settled = vi.fn()
-  const pending = removeAzureDeployment(test.target, test)
-  void pending.then(settled, settled)
-
-  await vi.waitFor(() => expect(test.ui.select).toHaveBeenCalledOnce())
-  const commandsAtFailure = test.run.mock.calls.length
-  expect(prepareRemovalModule).not.toHaveBeenCalled()
-  expect(test.events.some((event) => /:lease:|:stop-hub|:destroy:|delete-/.test(event))).toBe(false)
-  choices[0]!("details")
-
-  await vi.waitFor(() => expect(test.ui.wait).toHaveBeenCalledOnce())
-  expect(settled).not.toHaveBeenCalled()
-  expect(test.ui.select).toHaveBeenCalledOnce()
-  expect(test.run).toHaveBeenCalledTimes(commandsAtFailure)
-  expect(prepareRemovalModule).not.toHaveBeenCalled()
-  returnFromDetails()
-
-  await vi.waitFor(() => expect(test.ui.select).toHaveBeenCalledTimes(2))
-  expect(test.run).toHaveBeenCalledTimes(commandsAtFailure)
-  expect(test.events.some((event) => /:lease:|:stop-hub|:destroy:|delete-/.test(event))).toBe(false)
-  blocked.sharedWorkloads = []
-  choices[1]!("retry")
-
-  await expect(pending).resolves.toContain("Removal finished")
-  for (const [, actions] of vi.mocked(test.ui.select).mock.calls)
-    expect(actions.map(({ value }) => value)).toEqual(["retry", "details", "exit"])
-  const details = vi.mocked(test.ui.wait).mock.calls[0]![0]
-  for (const target of [
-    foreignId,
-    blocked.target.config.name,
-    blocked.target.config.azure.subscriptionId,
-    `${blocked.target.config.name}-environment`,
-  ])
-    expect(details).toContain(target)
-  expect(details).toMatch(/move|remove|exclude|keep/i)
-  expect(test.ui.confirm).toHaveBeenCalledOnce()
-  expect(test.ui.text).toHaveBeenCalledOnce()
-  expect(test.events).toContain(`${test.target.config.name}:delete-state-group`)
-  await preserved(test)
-})
-
-it("keeps a still-shared consumer protected after a read-only recheck without renewing consent", async () => {
-  const test = await scenario()
-  const blocked = test.deployment
-  const foreignId = `${blocked.groupId("unrelated")}/providers/Microsoft.App/containerApps/foreign`
-  blocked.sharedWorkloads.push({
-    id: foreignId,
-    environment: `${blocked.groupId(blocked.target.config.azure.resourceGroup)}/providers/Microsoft.App/managedEnvironments/${blocked.target.config.name}-environment`,
-  })
-  vi.mocked(test.ui.select).mockImplementation(async () =>
-    vi.mocked(test.ui.select).mock.calls.length === 1 ? "retry" : "exit",
-  )
-
-  await expect(removeAzureDeployment(test.target, test)).rejects.toMatchObject({
-    name: "RemovalInspectionError",
-    message: expect.stringContaining(foreignId),
+it("removes selected tracked resources without subscription-wide workload or role-assignment inspection", async () => {
+  const test = await scenario(2)
+  const execute = test.run.getMockImplementation()!
+  test.run.mockImplementation(async (executable, args, options) => {
+    if (
+      args.slice(0, 3).join(" ") === "role assignment list" ||
+      ["acr list", "keyvault list", "group list"].includes(args.slice(0, 2).join(" ")) ||
+      (args[0] === "containerapp" &&
+        (args[1] === "list" || args.slice(0, 3).join(" ") === "containerapp job list") &&
+        !args.includes("--resource-group"))
+    )
+      throw new Error("Removal must not require subscription-wide discovery or inspect roles")
+    return execute(executable, args, options)
   })
 
-  expect(test.ui.select).toHaveBeenCalledTimes(2)
-  expect(
-    test.run.mock.calls.filter(
-      ([, args]) =>
-        args[0] === "containerapp" && args[1] === "list" && !args.includes("--resource-group"),
-    ),
-  ).toHaveLength(2)
+  await expect(removeAzureDeployments(test.targets, test)).resolves.toContain("Removal finished")
+
+  expect(test.ui.select).not.toHaveBeenCalled()
   expect(test.ui.confirm).toHaveBeenCalledOnce()
-  expect(test.ui.text).toHaveBeenCalledOnce()
-  expect(prepareRemovalModule).not.toHaveBeenCalled()
-  expect(test.events.some((event) => /:lease:|:stop-hub|:destroy:|delete-/.test(event))).toBe(false)
+  expect(test.ui.text).toHaveBeenCalledTimes(test.targets.length)
+  for (const { config } of test.targets)
+    expect(test.events).toContain(`${config.name}:delete-state-group`)
   await preserved(test)
 })
 
-it("rereads a saved configuration before retrying an actual shared-consumer blocker", async () => {
+it("returns a clean retained result when a group still contains an untracked resource", async () => {
   const test = await scenario()
-  const blocked = test.deployment
+  const blocked = test.deployments[0]!
+  const group = blocked.target.config.azure.resourceGroup
+  const foreign = {
+    id: `${blocked.groupId(group)}/providers/Microsoft.Storage/storageAccounts/diagnostics`,
+    type: "Microsoft.Storage/storageAccounts",
+    tags: { owner: "another-team" },
+  }
+  blocked.groups.get(group)!.push(foreign)
+  const prepare = vi.mocked(prepareRemovalModule).getMockImplementation()!
+  vi.mocked(prepareRemovalModule).mockImplementation(async (...args) => {
+    const module = await prepare(...args)
+    if (args[1] !== "app") return module
+    return {
+      ...module,
+      async destroy() {
+        await module.destroy()
+        blocked.groups.set(group, [foreign])
+      },
+    }
+  })
+
+  const summary = await removeAzureDeployments(test.targets, test)
+
+  expect(summary).toMatch(/retain/i)
+  expect(summary).toContain(group)
+  expect(blocked.groups.get(group)).toEqual([foreign])
+  expect(blocked.groups.has(blocked.names.stateGroup)).toBe(true)
+  expect(test.events).toContain(`${blocked.target.config.name}:destroy:app`)
+  expect(test.events).toContain(`${blocked.target.config.name}:destroy:foundation`)
+  expect(test.events.some((event) => /delete-backend|delete-state-group/.test(event))).toBe(false)
+  expect(test.ui.select).not.toHaveBeenCalled()
+  expect(test.ui.complete).toHaveBeenCalledOnce()
+  await preserved(test)
+})
+
+it("reports untracked group members without adopting their tags or blocking tracked cleanup", async () => {
+  const test = await scenario()
+  const blocked = test.deployments[0]!
   const target = blocked.target
-  blocked.sharedWorkloads.push({
-    id: `${blocked.groupId("unrelated")}/providers/Microsoft.App/containerApps/foreign`,
-    environment: `${blocked.groupId(target.config.azure.resourceGroup)}/providers/Microsoft.App/managedEnvironments/${target.config.name}-environment`,
-  })
-  const changed = JSON.stringify({ ...target.config, owner: "changed-team" })
-  let commandsAtFailure = 0
-  vi.mocked(test.ui.select).mockImplementationOnce(async () => {
-    commandsAtFailure = test.run.mock.calls.length
-    await writeFile(target.path, changed, { mode: 0o600 })
-    blocked.saved.set(target.path, changed)
-    return "retry"
-  })
+  const group = target.config.azure.resourceGroup
+  const resource = {
+    id: `${blocked.groupId(group)}/providers/Microsoft.OperationalInsights/workspaces/diagnostics`,
+    type: "Microsoft.OperationalInsights/workspaces",
+    tags: { owner: "another-team" },
+  }
+  blocked.groups.get(group)!.push(resource)
 
-  await expect(removeAzureDeployment(test.target, test)).rejects.toThrow(/changed/i)
+  const inspection = await inspectRemoval(
+    inspectionContext(test),
+    Object.values(blocked.resources).flat(),
+  )
 
-  expect(test.run).toHaveBeenCalledTimes(commandsAtFailure)
-  expect(test.ui.confirm).toHaveBeenCalledOnce()
+  expect(inspection).toMatchObject({
+    untracked: expect.arrayContaining([
+      expect.objectContaining({
+        id: resource.id,
+        type: resource.type,
+        group,
+      }),
+    ]),
+  })
+  expect(test.events.some((event) => /:lease:|:stop-hub|:destroy:|delete-/.test(event))).toBe(false)
+  await preserved(test)
+})
+
+it.each(["foreign group", "foreign subscription", "untracked nested child"] as const)(
+  "stops actual deletion when inventory contains a %s",
+  async (boundary) => {
+    const test = await scenario()
+    const deployment = test.deployments[0]!
+    const { config } = deployment.target
+    let id = `${deployment.groupId(config.azure.resourceGroup)}/providers/Microsoft.Storage/storageAccounts/diagnostics`
+    if (boundary === "foreign group") id = id.replace(config.azure.resourceGroup, "external-group")
+    if (boundary === "foreign subscription")
+      id = id.replace(config.azure.subscriptionId, config.azure.tenantId)
+    if (boundary === "untracked nested child")
+      id = `${deployment.resources.app.find(({ type }) => type === "azurerm_storage_account")!.id}/queueServices/default/queues/untracked`
+    deployment.groups.get(config.azure.resourceGroup)!.push({
+      id,
+      type:
+        boundary === "untracked nested child"
+          ? "Microsoft.Storage/storageAccounts/queueServices/queues"
+          : "Microsoft.Storage/storageAccounts",
+      tags: { ...deployment.tags },
+    })
+
+    await expect(removeAzureDeployments(test.targets, test)).rejects.toThrow(
+      boundary === "untracked nested child"
+        ? /inside a tracked resource/i
+        : /resource identity metadata/i,
+    )
+
+    if (boundary !== "untracked nested child") {
+      expect(prepareRemovalModule).not.toHaveBeenCalled()
+      expect(test.events.some((event) => /:lease:/.test(event))).toBe(false)
+      expect(test.events.some((event) => /:stop-hub/.test(event))).toBe(false)
+    }
+    expect(test.events.some((event) => /:destroy:|delete-/.test(event))).toBe(false)
+    expect(deployment.groups.has(deployment.names.stateGroup)).toBe(true)
+    await preserved(test)
+  },
+)
+
+it("resumes a failed removal with fresh destructive consent and proves ownership without breaking its retained lease", async () => {
+  const test = await scenario()
+  const deployment = test.deployments[0]!
+  deployment.failDestroy = "app"
+  await expect(removeAzureDeployments(test.targets, test)).rejects.toThrow(
+    "Synthetic destroy failed",
+  )
+  expect(deployment.hubActive).toBe(false)
+  const lease = deployment.installationLease
+  deployment.failDestroy = undefined
+  vi.mocked(test.ui.text).mockClear()
+  test.run.mockClear()
+
+  await expect(removeAzureDeployments(test.targets, test)).resolves.toContain("Removal finished")
+
+  expect(test.ui.confirm).toHaveBeenCalledTimes(2)
   expect(test.ui.text).toHaveBeenCalledOnce()
-  expect(prepareRemovalModule).not.toHaveBeenCalled()
+  expect(
+    test.run.mock.calls.some(
+      ([, args]) =>
+        args.slice(0, 4).join(" ") === "storage blob lease renew" && args.includes(lease),
+    ),
+  ).toBe(true)
+  expect(test.run.mock.calls.some(([, args]) => args.includes("break"))).toBe(false)
+  await preserved(test)
+})
+
+it("does not recover a failed removal when fresh destructive consent is declined", async () => {
+  const test = await scenario()
+  test.deployments[0]!.failDestroy = "app"
+  await expect(removeAzureDeployments(test.targets, test)).rejects.toThrow(
+    "Synthetic destroy failed",
+  )
+  test.run.mockClear()
+  vi.mocked(test.ui.confirm).mockResolvedValue(false)
+  vi.mocked(test.ui.text).mockClear()
+
+  await expect(removeAzureDeployments(test.targets, test)).rejects.toMatchObject({
+    name: "AbortError",
+  })
+
+  expect(test.run).not.toHaveBeenCalled()
+  expect(test.ui.text).not.toHaveBeenCalled()
+  expect(test.deployments[0]!.hubActive).toBe(false)
+  await preserved(test)
+})
+
+it("resumes a metadata-deleted Terraform unlock interruption using exact saved ownership rather than a lease break", async () => {
+  const test = await scenario()
+  const deployment = test.deployments[0]!
+  const { name, info, metadata } = lockState(deployment)
+  const failure = new CommandExecutionError("Synthetic unlock interruption", false, 1)
+  deployment.unlockError = failure
+  const execute = test.run.getMockImplementation()!
+  test.run.mockImplementation(async (executable, args, options) => {
+    try {
+      return await execute(executable, args, options)
+    } catch (error) {
+      if (executable === "terraform" && args[1] === "force-unlock") {
+        const { lock: _lock, ...remaining } = metadata
+        deployment.stateMetadata.set(name, remaining)
+      }
+      throw error
+    }
+  })
+
+  await expect(removeAzureDeployments(test.targets, test)).rejects.toThrow(
+    /recovery.*did not complete/i,
+  )
+  expect(deployment.blobs.find((blob) => blob.name === name)!.lease.status).toBe("locked")
+  expect(deployment.stateMetadata.get(name)?.lock).toBeUndefined()
+  expect(test.events.filter((event) => event.includes(":state-unlock:"))).toHaveLength(1)
+  test.run.mockClear()
+  vi.mocked(test.ui.text).mockClear()
+  deployment.unlockError = undefined
+
+  await expect(removeAzureDeployments(test.targets, test)).resolves.toContain("Removal finished")
+
+  expect(test.ui.confirm).toHaveBeenCalledTimes(2)
+  for (const operation of ["renew", "release"])
+    expect(
+      test.run.mock.calls.some(
+        ([, args]) =>
+          args.slice(0, 4).join(" ") === `storage blob lease ${operation}` &&
+          args.includes(name) &&
+          args.includes(info.ID),
+      ),
+    ).toBe(true)
+  expect(
+    test.run.mock.calls.some(
+      ([executable, args]) =>
+        args.includes("break") || (executable === "terraform" && args[1] === "force-unlock"),
+    ),
+  ).toBe(false)
+  await preserved(test)
+})
+
+it.each(["read", "delete"] as const)(
+  "retries a classified transient %s failure without replaying Terraform or reacquiring held locks",
+  async (operation) => {
+    const test = await scenario()
+    const execute = test.run.getMockImplementation()!
+    let attempts = 0
+    test.run.mockImplementation(async (executable, args, options) => {
+      const selected =
+        operation === "read"
+          ? args.slice(0, 3).join(" ") === "resource list --resource-group" &&
+            args.includes(test.deployments[0]!.names.stateGroup)
+          : args.slice(0, 3).join(" ") === "storage account delete"
+      if (selected && ++attempts === 1)
+        throw new CommandExecutionError(
+          "Synthetic temporary Azure failure",
+          false,
+          1,
+          "ServiceUnavailable",
+        )
+      return execute(executable, args, options)
+    })
+
+    await expect(removeAzureDeployments(test.targets, test.installer)).resolves.toContain(
+      "Removal finished",
+    )
+
+    expect(attempts).toBeGreaterThanOrEqual(2)
+    expect(test.ui.select).not.toHaveBeenCalled()
+    for (const kind of ["provision", "app", "foundation"])
+      expect(test.events.filter((event) => event.endsWith(`:destroy:${kind}`))).toHaveLength(1)
+    expect(test.events.filter((event) => event.includes(":lease:acquire:"))).toHaveLength(2)
+    await preserved(test)
+  },
+)
+
+it("bounds persistent transient read retries and stops before acquiring locks", async () => {
+  const test = await scenario()
+  const failure = new CommandExecutionError(
+    "Synthetic unavailable Azure read",
+    false,
+    1,
+    "ServiceUnavailable",
+  )
+  const execute = test.run.getMockImplementation()!
+  let attempts = 0
+  test.run.mockImplementation(async (executable, args, options) => {
+    if (args.slice(0, 3).join(" ") === "resource list --resource-group") {
+      attempts++
+      throw failure
+    }
+    return execute(executable, args, options)
+  })
+
+  await expect(removeAzureDeployments(test.targets, test.installer)).rejects.toBe(failure)
+
+  expect(attempts).toBeGreaterThan(1)
+  expect(attempts).toBeLessThanOrEqual(3)
   expect(test.events.some((event) => /:lease:|:stop-hub|:destroy:|delete-/.test(event))).toBe(false)
   await preserved(test)
 })
@@ -1100,7 +1347,7 @@ it("retains the original preflight failure until explicit exit without opening a
       }),
   )
   const settled = vi.fn()
-  const pending = removeAzureDeployment(test.target, test)
+  const pending = removeAzureDeployments(test.targets, test)
   void pending.then(settled, settled)
 
   await vi.waitFor(() => expect(test.ui.select).toHaveBeenCalledOnce())
@@ -1120,13 +1367,13 @@ it("retains the original preflight failure until explicit exit without opening a
   )
   const summary = vi.mocked(test.ui.notice!).mock.calls.at(-1)![1]
   expect(summary).not.toMatch(/partly removed|may be partly|partial deletion/i)
-  expect(summary).toContain(test.target.config.name)
+  expect(summary).toContain(test.targets[0]!.config.name)
   await preserved(test)
 })
 
 it("rechecks the saved target after a read-only retry instead of using newly changed configuration", async () => {
   const test = await scenario()
-  const target = test.target
+  const target = test.targets[0]!
   const changed = JSON.stringify({ ...target.config, owner: "changed-team" })
   test.run.mockRejectedValueOnce(
     new CommandExecutionError("Inspect Azure target failed (exit code 2).", false, 2),
@@ -1138,7 +1385,7 @@ it("rechecks the saved target after a read-only retry instead of using newly cha
     return recheck!.value
   })
 
-  await expect(removeAzureDeployment(test.target, test)).rejects.toThrow(/changed/i)
+  await expect(removeAzureDeployments(test.targets, test)).rejects.toThrow(/changed/i)
 
   expect(test.run).toHaveBeenCalledOnce()
   expect(prepareRemovalModule).not.toHaveBeenCalled()
@@ -1163,7 +1410,7 @@ it.each(["command cancellation", "aborted signal"])(
     })
 
     await expect(
-      removeAzureDeployment(test.target, { ...test, signal: abort.signal }),
+      removeAzureDeployments(test.targets, { ...test, signal: abort.signal }),
     ).rejects.toBe(failure)
 
     expect(test.ui.select).not.toHaveBeenCalled()
@@ -1178,14 +1425,14 @@ function failInspectionAfterLease(
   test: Awaited<ReturnType<typeof scenario>>,
   failure: CommandExecutionError,
 ) {
-  const leased = `${test.target.config.name}:lease:acquire:installation`
+  const leased = `${test.targets[0]!.config.name}:lease:acquire:installation`
   const execute = test.run.getMockImplementation()!
   let failed = false
   test.run.mockImplementation(async (executable, args, options) => {
     if (
       !failed &&
       test.events.includes(leased) &&
-      args.slice(0, 3).join(" ") === "resource list --resource-group"
+      args.slice(0, 3).join(" ") === "containerapp job execution"
     ) {
       failed = true
       throw failure
@@ -1194,29 +1441,21 @@ function failInspectionAfterLease(
   })
 }
 
-it("offers a read-only recheck when an inspection command fails after preflight and continues once it passes", async () => {
+it("stops without replaying destruction when later setup-job inspection fails", async () => {
   const test = await scenario()
-  failInspectionAfterLease(
-    test,
-    new CommandExecutionError("Inspect installation resources failed (exit code 1).", false, 1),
-  )
-  vi.mocked(test.ui.select).mockImplementationOnce(async (_question, actions) => {
-    expect(test.events.some((event) => /:stop-hub|:destroy:|delete-/.test(event))).toBe(false)
-    const recheck = actions.find(({ label }) => /recheck/i.test(label))
-    expect(recheck).toBeDefined()
-    return recheck!.value
-  })
+  const failure = new CommandExecutionError("Inspect setup jobs failed (exit code 1).", false, 1)
+  failInspectionAfterLease(test, failure)
 
-  await expect(removeAzureDeployment(test.target, test)).resolves.toContain("Removal finished")
+  await expect(removeAzureDeployments(test.targets, test)).rejects.toBe(failure)
 
   expect(test.ui.select).toHaveBeenCalledOnce()
-  expect(test.ui.notice).toHaveBeenCalledWith(
-    "error",
-    expect.stringContaining("A read-only Azure or Terraform check failed."),
-  )
+  expect(vi.mocked(test.ui.select).mock.calls[0]![1].map(({ value }) => value)).toEqual([
+    "details",
+    "exit",
+  ])
+  expect(test.events.some((event) => /:destroy:|delete-/.test(event))).toBe(false)
   expect(test.ui.confirm).toHaveBeenCalledOnce()
-  expect(test.events).toContain(`${test.target.config.name}:lease:acquire:installation`)
-  expect(test.events).toContain(`${test.target.config.name}:delete-state-group`)
+  expect(test.deployments[0]!.hubActive).toBe(false)
 })
 
 it("does not offer an inspection recheck for a cancelled inspection command", async () => {
@@ -1224,10 +1463,10 @@ it("does not offer an inspection recheck for a cancelled inspection command", as
   const failure = new CommandExecutionError("Inspect installation resources cancelled.", true)
   failInspectionAfterLease(test, failure)
 
-  await expect(removeAzureDeployment(test.target, test)).rejects.toBe(failure)
+  await expect(removeAzureDeployments(test.targets, test)).rejects.toBe(failure)
 
   expect(test.ui.select).not.toHaveBeenCalled()
-  expect(test.events.some((event) => /:stop-hub|:destroy:|delete-/.test(event))).toBe(false)
+  expect(test.events.some((event) => /:destroy:|delete-/.test(event))).toBe(false)
 })
 
 it("offers only details and exit for malformed metadata without exposing JSON snippets", async () => {
@@ -1243,7 +1482,7 @@ it("offers only details and exit for malformed metadata without exposing JSON sn
     return vi.mocked(test.ui.select).mock.calls.length === 1 ? "details" : "exit"
   })
 
-  await expect(removeAzureDeployment(test.target, test)).rejects.toBeInstanceOf(SyntaxError)
+  await expect(removeAzureDeployments(test.targets, test)).rejects.toBeInstanceOf(SyntaxError)
 
   expect(test.ui.select).toHaveBeenCalledTimes(2)
   expect(test.ui.wait).toHaveBeenCalledOnce()
@@ -1258,7 +1497,7 @@ it("offers only details and exit for malformed metadata without exposing JSON sn
 it.each([
   "wrong owner",
   "wrong tenant",
-  "active unrelated job",
+  "active setup job",
   "unknown execution",
   "retained state lock",
   "unknown release lock",
@@ -1266,198 +1505,148 @@ it.each([
   "foreign historical blob",
   "foreign container",
   "missing backend",
-  "shared environment",
-])(
-  "blocks deletion and operational lock recovery when the installation has %s",
-  async (problem) => {
-    const test = await scenario()
-    const deployment = test.deployment
-    Object.assign(deployment.blobs.find(({ name }) => name.endsWith("installer.lock"))!.lease, {
-      status: "locked",
-      state: "leased",
-      duration: "infinite",
-    })
-    if (problem === "wrong owner") deployment.badOwner = true
-    if (problem === "wrong tenant") deployment.wrongTenant = true
-    if (problem === "active unrelated job")
-      deployment.executions = [{ name: "custom-running", status: "Running" }]
-    if (problem === "unknown execution")
-      deployment.executions = [{ name: "custom-unknown", status: null }]
-    if (problem === "retained state lock")
-      Object.assign(deployment.blobs[0]!.lease, {
+])("blocks the current installation before any deletion when it has %s", async (problem) => {
+  const test = await scenario()
+  const second = test.deployments[0]!
+  if (
+    [
+      "wrong owner",
+      "wrong tenant",
+      "active setup job",
+      "unknown execution",
+      "retained state lock",
+      "unknown release lock",
+      "foreign blob",
+      "foreign historical blob",
+      "foreign container",
+      "missing backend",
+    ].includes(problem)
+  )
+    for (const deployment of test.deployments)
+      Object.assign(deployment.blobs.find(({ name }) => name.endsWith("installer.lock"))!.lease, {
         status: "locked",
         state: "leased",
         duration: "infinite",
       })
-    if (problem === "unknown release lock")
-      Object.assign(deployment.releaseLease, {
-        status: "locked",
-        state: "breaking",
-        duration: "infinite",
-      })
-    if (problem === "foreign blob") deployment.blobs[0]!.name = "another-installation/app.tfstate"
-    if (problem === "foreign historical blob")
-      deployment.blobs.push(
-        Object.assign(
-          { ...deployment.blobs[0]! },
-          {
-            name: "another-installation/app.tfstate",
-            current: false,
-            deleted: true,
-          },
-        ),
-      )
-    if (problem === "foreign container") deployment.containers = ["terraform", "unrelated-data"]
-    if (problem === "missing backend") deployment.groups.delete(deployment.names.stateGroup)
-    if (problem === "shared environment")
-      deployment.sharedWorkloads.push({
-        id: `${deployment.groupId("unrelated")}/providers/Microsoft.App/containerApps/foreign`,
-        environment: `${deployment.groupId(deployment.target.config.azure.resourceGroup)}/providers/Microsoft.App/managedEnvironments/${deployment.target.config.name}-environment`,
-      })
-
-    await expect(removeAzureDeployment(test.target, test)).rejects.toThrow()
-
-    expect(
-      test.events.some((event) =>
-        /:destroy:|:stop-hub|delete-backend|delete-state-group/.test(event),
+  if (problem === "wrong owner") second.badOwner = true
+  if (problem === "wrong tenant") second.wrongTenant = true
+  if (problem === "active setup job") {
+    second.jobs = [{ name: `${second.target.config.name}-setup` }]
+    second.executions = [{ name: "setup-running", status: "Running" }]
+  }
+  if (problem === "unknown execution")
+    second.executions = [{ name: "custom-unknown", status: null }]
+  if (problem === "retained state lock")
+    Object.assign(second.blobs[0]!.lease, {
+      status: "locked",
+      state: "leased",
+      duration: "infinite",
+    })
+  if (problem === "unknown release lock")
+    Object.assign(second.releaseLease, {
+      status: "locked",
+      state: "breaking",
+      duration: "infinite",
+    })
+  if (problem === "foreign blob") second.blobs[0]!.name = "another-installation/app.tfstate"
+  if (problem === "foreign historical blob")
+    second.blobs.push(
+      Object.assign(
+        { ...second.blobs[0]! },
+        {
+          name: "another-installation/app.tfstate",
+          current: false,
+          deleted: true,
+        },
       ),
-    ).toBe(false)
-    expect(
-      test.run.mock.calls.some(([, args]) => args.includes("break") || args.includes("cancel")),
-    ).toBe(false)
-    expect(test.ui.select).toHaveBeenCalledOnce()
-    expect(vi.mocked(test.ui.select).mock.calls[0]![1].map(({ value }) => value)).toEqual([
-      ...(["retained state lock", "unknown release lock", "shared environment"].includes(problem)
-        ? ["retry"]
-        : []),
-      "details",
-      "exit",
-    ])
-    await preserved(test)
-  },
-)
-
-it.each([
-  "unmanaged resource",
-  "external foundation grant",
-  "changed identity principal",
-  "conflicting managed evidence",
-])("preserves the installation's state-dependent %s guard", async (problem) => {
-  const test = await scenario()
-  const deployment = test.deployment
-  const name = deployment.target.config.name
-  if (problem === "unmanaged resource")
-    deployment.groups.get(deployment.target.config.azure.resourceGroup)!.push({
-      id: `${deployment.groupId(deployment.target.config.azure.resourceGroup)}/providers/Microsoft.Storage/storageAccounts/unmanaged`,
-      type: "Microsoft.Storage/storageAccounts",
-      tags: { ...deployment.tags },
-    })
-  if (problem === "external foundation grant")
-    deployment.externalGrants.push({
-      id: `${deployment.groupId(deployment.names.foundationGroup)}/providers/Microsoft.Authorization/roleAssignments/foreign`,
-      scope: deployment.groupId(deployment.names.foundationGroup),
-    })
-  if (problem === "changed identity principal")
-    deployment.livePrincipal = "00000000-0000-0000-0000-000000000099"
-  if (problem === "conflicting managed evidence")
-    await writeFile(
-      join(deployment.directory, "environment-removal.json"),
-      JSON.stringify({
-        version: 1,
-        target: "another deployment",
-        managedGroup: "ME_unrelated",
-      }),
-      { mode: 0o600 },
     )
-
-  await expect(removeAzureDeployment(test.target, test)).rejects.toThrow()
+  if (problem === "foreign container") second.containers = ["terraform", "unrelated-data"]
+  if (problem === "missing backend") second.groups.delete(second.names.stateGroup)
+  await expect(removeAzureDeployments(test.targets, test)).rejects.toThrow()
 
   expect(
-    test.events.some(
-      (event) => event.startsWith(`${name}:`) && /:destroy:|:stop-hub|delete-/.test(event),
+    test.events.some((event) =>
+      /:destroy:|:stop-hub|delete-backend|delete-state-group/.test(event),
     ),
   ).toBe(false)
-  expect(deployment.groups.has(deployment.names.stateGroup)).toBe(true)
-  expect(test.events.some((event) => /:lease:break:/.test(event))).toBe(false)
+  expect(
+    test.run.mock.calls.some(([, args]) => args.includes("break") || args.includes("cancel")),
+  ).toBe(false)
   expect(test.ui.select).toHaveBeenCalledOnce()
   expect(vi.mocked(test.ui.select).mock.calls[0]![1].map(({ value }) => value)).toEqual([
-    ...(problem === "external foundation grant" ? ["retry"] : []),
+    ...(["retained state lock", "unknown release lock"].includes(problem) ? ["retry"] : []),
     "details",
     "exit",
   ])
   await preserved(test)
 })
 
-it("rechecks an untracked grant after preparation without restarting preparation or acquiring another lease", async () => {
+it("preserves conflicting managed evidence after serially completing earlier targets", async () => {
+  const test = await scenario(3)
+  const second = test.deployments[1]!
+  const name = second.target.config.name
+  await writeFile(
+    join(second.directory, "environment-removal.json"),
+    JSON.stringify({
+      version: 1,
+      target: "another deployment",
+      managedGroup: "ME_unrelated",
+    }),
+    { mode: 0o600 },
+  )
+
+  await expect(removeAzureDeployments(test.targets, test)).rejects.toThrow()
+
+  expect(test.events).toContain(`${test.targets[0]!.config.name}:delete-state-group`)
+  expect(
+    test.events.some((event) => event.startsWith(`${name}:`) && /:destroy:|delete-/.test(event)),
+  ).toBe(false)
+  expect(test.events.some((event) => event.startsWith(`${test.targets[2]!.config.name}:`))).toBe(
+    false,
+  )
+  expect(second.groups.has(second.names.stateGroup)).toBe(true)
+  expect(test.events.some((event) => /:lease:break:/.test(event))).toBe(false)
+  expect(test.ui.select).toHaveBeenCalledOnce()
+  expect(vi.mocked(test.ui.select).mock.calls[0]![1].map(({ value }) => value)).toEqual([
+    "details",
+    "exit",
+  ])
+  await preserved(test)
+})
+
+it("uses held-lease and setup-job checks after shutdown instead of repeating full safety discovery", async () => {
   const test = await scenario()
-  const blocked = test.deployment
-  const scope = blocked.groupId(blocked.names.foundationGroup)
-  const grantId = `${scope}/providers/Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000099`
-  blocked.externalGrants.push({ id: grantId, scope })
-  const verifyInputs = vi.fn(async () => {})
-  blocked.afterVerify = verifyInputs
-  const choices: ((value: string) => void)[] = []
-  vi.mocked(test.ui.select).mockImplementation(
-    async () => new Promise<string>((resolve) => choices.push(resolve)),
-  )
-  let returnFromDetails = () => {}
-  vi.mocked(test.ui.wait).mockImplementationOnce(
-    async () =>
-      new Promise<void>((resolve) => {
-        returnFromDetails = resolve
-      }),
-  )
-  const settled = vi.fn()
-  const pending = removeAzureDeployment(test.target, test)
-  void pending.then(settled, settled)
+  const blocked = test.deployments[0]!
+  const afterShutdown: string[] = []
+  const execute = test.run.getMockImplementation()!
+  test.run.mockImplementation(async (executable, args, options) => {
+    if (test.events.includes(`${blocked.target.config.name}:stop-hub`)) {
+      const operation = args.slice(0, 3).join(" ")
+      afterShutdown.push(operation)
+      if (
+        operation === "group show --name" ||
+        (operation === "resource list --resource-group" &&
+          !args.includes(blocked.names.stateGroup)) ||
+        operation === "storage container list" ||
+        operation === "storage blob list"
+      )
+        throw new Error("Full safety preflight must not repeat after shutdown")
+    }
+    return execute(executable, args, options)
+  })
 
-  await vi.waitFor(() => expect(test.ui.select).toHaveBeenCalledOnce())
-  const commandsAtFailure = test.run.mock.calls.length
-  const verificationsAtFailure = verifyInputs.mock.calls.length
+  await expect(removeAzureDeployments(test.targets, test)).resolves.toContain("Removal finished")
+
+  expect(afterShutdown).toContain("storage blob lease")
+  expect(afterShutdown).toContain("containerapp job execution")
   expect(prepareRemovalModule).toHaveBeenCalledTimes(3)
-  expect(test.events.filter((event) => event.includes(":lease:acquire:"))).toEqual([
-    `${blocked.target.config.name}:lease:acquire:installation`,
-  ])
-  expect(test.events.some((event) => /:stop-hub|:destroy:|delete-|:lease:break:/.test(event))).toBe(
-    false,
-  )
-  choices[0]!("details")
-
-  await vi.waitFor(() => expect(test.ui.wait).toHaveBeenCalledOnce())
-  expect(settled).not.toHaveBeenCalled()
-  expect(test.run).toHaveBeenCalledTimes(commandsAtFailure)
-  expect(prepareRemovalModule).toHaveBeenCalledTimes(3)
-  returnFromDetails()
-
-  await vi.waitFor(() => expect(test.ui.select).toHaveBeenCalledTimes(2))
-  expect(test.run).toHaveBeenCalledTimes(commandsAtFailure)
-  expect(test.events.filter((event) => event.includes(":lease:acquire:"))).toHaveLength(1)
-  expect(test.events.some((event) => /:stop-hub|:destroy:|delete-|:lease:break:/.test(event))).toBe(
-    false,
-  )
-  blocked.externalGrants = []
-  choices[1]!("retry")
-
-  await expect(pending).resolves.toContain("Removal finished")
-  for (const [, actions] of vi.mocked(test.ui.select).mock.calls)
-    expect(actions.map(({ value }) => value)).toEqual(["retry", "details", "exit"])
-  const details = vi.mocked(test.ui.wait).mock.calls[0]![0]
-  expect(details).toContain(scope)
-  expect(details).toContain(grantId)
-  expect(verifyInputs.mock.calls.length).toBeGreaterThan(verificationsAtFailure)
-  expect(test.ui.confirm).toHaveBeenCalledOnce()
-  expect(test.ui.text).toHaveBeenCalledOnce()
-  expect(prepareRemovalModule).toHaveBeenCalledTimes(3)
-  expect(test.events.filter((event) => event.includes(":lease:acquire:"))).toEqual([
-    `${blocked.target.config.name}:lease:acquire:installation`,
-    `${blocked.target.config.name}:lease:acquire:release`,
-  ])
+  expect(test.ui.select).not.toHaveBeenCalled()
   await preserved(test)
 })
 
 it("allows historical versions of owned state without interpreting their old leases as current locks", async () => {
   const test = await scenario()
-  const deployment = test.deployment
+  const deployment = test.deployments[0]!
   deployment.blobs.push(
     Object.assign(
       { ...deployment.blobs[0]! },
@@ -1469,7 +1658,7 @@ it("allows historical versions of owned state without interpreting their old lea
     ),
   )
 
-  await expect(removeAzureDeployment(test.target, test)).resolves.toContain(
+  await expect(removeAzureDeployments(test.targets, test)).resolves.toContain(
     "owned cloud resources removed",
   )
 
@@ -1488,12 +1677,14 @@ it.each(["already absent", "only empty state group"])(
   "finishes an interrupted cleanup that is %s without recreating a backend or touching local files",
   async (remaining) => {
     const test = await scenario()
-    const deployment = test.deployment
+    const deployment = test.deployments[0]!
     deployment.groups.clear()
     if (remaining === "only empty state group")
       deployment.groups.set(deployment.names.stateGroup, [])
 
-    await expect(removeAzureDeployment(test.target, test)).resolves.toMatch(/local files retained/)
+    await expect(removeAzureDeployments(test.targets, test)).resolves.toMatch(
+      /local files retained/,
+    )
 
     expect(prepareRemovalModule).not.toHaveBeenCalled()
     expect(test.events.some((event) => /:lease:|:destroy:|delete-backend/.test(event))).toBe(false)
@@ -1504,36 +1695,45 @@ it.each(["already absent", "only empty state group"])(
   },
 )
 
-it("stops partial removal on failure, retains owned leases and backend, and cleans private staging", async () => {
-  const test = await scenario()
-  test.deployment.failDestroy = "app"
+it("stops a partly completed batch on failure, retains owned leases and backend, and cleans private staging", async () => {
+  const test = await scenario(3)
+  test.deployments[1]!.failDestroy = "app"
   const failure = new CommandExecutionError(
     "Synthetic destroy failed",
     false,
     2,
     "Synthetic ambiguous Terraform result",
   )
-  test.deployment.destroyError = failure
+  test.deployments[1]!.destroyError = failure
   vi.mocked(test.ui.select).mockImplementation(async (_question, actions) => {
     expect(actions.map(({ value }) => value)).toEqual(["details", "exit"])
     return vi.mocked(test.ui.select).mock.calls.length === 1 ? "details" : "exit"
   })
 
-  await expect(removeAzureDeployment(test.target, test)).rejects.toBe(failure)
+  await expect(removeAzureDeployments(test.targets, test)).rejects.toBe(failure)
 
-  expect(test.events).toContain(`${test.target.config.name}:destroy:provision`)
+  expect(test.events).toContain(`${test.targets[0]!.config.name}:delete-state-group`)
   expect(
-    test.events.filter((event) => event === `${test.target.config.name}:destroy:app`),
+    test.events.filter((event) => event === `${test.targets[1]!.config.name}:destroy:app`),
   ).toHaveLength(1)
-  expect(test.events).not.toContain(`${test.target.config.name}:destroy:foundation`)
-  expect(test.events).not.toContain(`${test.target.config.name}:delete-backend`)
-  expect(test.deployment.groups.has(test.deployment.names.stateGroup)).toBe(true)
-  expect(test.deployment.releaseLease.status).toBe("locked")
-  expect(test.ui.notice).toHaveBeenCalledWith(
-    "error",
-    expect.stringMatching(
-      new RegExp(`${test.target.config.name}.*partly.*local.*files.*retain`, "i"),
+  expect(test.events).not.toContain(`${test.targets[1]!.config.name}:destroy:foundation`)
+  expect(test.events).not.toContain(`${test.targets[1]!.config.name}:delete-backend`)
+  expect(
+    test.events.some(
+      (event) =>
+        event.startsWith(`${test.targets[2]!.config.name}:`) &&
+        /:lease:|:prepare:|:destroy:|:state-/.test(event),
     ),
+  ).toBe(false)
+  expect(test.ui.notice).toHaveBeenCalledWith("error", expect.stringMatching(/partly removed/i))
+  expect(test.deployments[1]!.hubActive).toBe(false)
+  expect(
+    vi
+      .mocked(test.ui.notice!)
+      .mock.calls.map(([, message]) => message)
+      .join("\n"),
+  ).toMatch(
+    /Hub.*(?:remain.*stopped|stay.*stopped|already.*stopped|still.*stopped|stopped.*not restarted)/i,
   )
   expect(test.ui.status).toHaveBeenCalledWith(
     expect.stringMatching(/Lock retained.*installer\.lock/),
@@ -1546,63 +1746,112 @@ it("stops partial removal on failure, retains owned leases and backend, and clea
   await preserved(test)
 })
 
+it.each(["command cancellation", "cleanup failure", "between-target cancellation"] as const)(
+  "stops the batch after %s without starting later targets or losing completed results",
+  async (problem) => {
+    const test = await scenario(3)
+    const [first, second, third] = test.deployments
+    const abort = new AbortController()
+    const failure = new CommandExecutionError("Synthetic cancellation", true)
+    if (problem === "command cancellation") {
+      const execute = test.run.getMockImplementation()!
+      test.run.mockImplementation(async (executable, args, options) => {
+        if (args.includes(second!.names.stateAccount)) throw failure
+        return execute(executable, args, options)
+      })
+    } else {
+      const open = sessions.openSession
+      vi.spyOn(sessions, "openSession").mockImplementation(async (...args) => {
+        const session = await open(...args)
+        const close = session.close.bind(session)
+        session.close = async () => {
+          await close()
+          if (problem === "cleanup failure" && args[0] === second!.target.path)
+            throw new Error("Synthetic local cleanup failed")
+          if (problem === "between-target cancellation" && args[0] === first!.target.path)
+            abort.abort(new DOMException("Synthetic batch cancellation", "AbortError"))
+        }
+        return session
+      })
+    }
+
+    const pending = removeAzureDeployments(test.targets, {
+      ...test,
+      signal: abort.signal,
+    })
+    if (problem === "cleanup failure") await expect(pending).rejects.toThrow(/cleanup/i)
+    else if (problem === "between-target cancellation")
+      await expect(pending).rejects.toMatchObject({ name: "AbortError" })
+    else await expect(pending).rejects.toBe(failure)
+
+    const stopped = problem === "between-target cancellation" ? second! : third!
+    expect(test.events.some((event) => event.startsWith(`${stopped.target.config.name}:`))).toBe(
+      false,
+    )
+    expect(
+      vi
+        .mocked(prepareRemovalModule)
+        .mock.calls.some(([context]) => context.config.name === stopped.target.config.name),
+    ).toBe(false)
+    expect(test.ui.complete).not.toHaveBeenCalled()
+    const finalNotice = vi.mocked(test.ui.notice!).mock.calls.at(-1)![1]
+    expect(finalNotice).toContain(`${first!.target.config.name}: owned cloud resources removed`)
+    expect(finalNotice).toMatch(
+      new RegExp(`Not completed:.*${second!.target.config.name}.*${third!.target.config.name}`),
+    )
+    if (problem === "cleanup failure")
+      expect(finalNotice).toMatch(/Removal cleanup did not complete/)
+    if (problem === "command cancellation")
+      expect(finalNotice).toMatch(/No deployment resources were removed or stopped/)
+    await preserved(test)
+  },
+)
+
 it("rechecks saved configuration after names are confirmed without retargeting the deployment", async () => {
   const test = await scenario()
-  const target = test.target
+  const target = test.targets[0]!
   const changed = JSON.stringify({ ...target.config, owner: "changed-team" })
   vi.mocked(test.ui.text).mockImplementation(async () => {
     await writeFile(target.path, changed, { mode: 0o600 })
     return target.config.name
   })
 
-  await expect(removeAzureDeployment(test.target, test)).rejects.toThrow(/changed/i)
+  await expect(removeAzureDeployments(test.targets, test)).rejects.toThrow(/changed/i)
 
   expect(test.run).not.toHaveBeenCalled()
   expect(await readFile(target.path, "utf8")).toBe(changed)
   expect(await readdir(test.root)).not.toContain(`${basename(target.path)}.draft.json.lock`)
 })
 
-it("stops before deletion if saved inputs change after all selected modules were prepared", async () => {
+it("stops before deletion and leaves Hub stopped if saved inputs change after modules were prepared", async () => {
   const test = await scenario()
-  test.deployment.afterVerify = async () => {
+  test.deployments[0]!.afterVerify = async () => {
     throw new Error("Synthetic saved module inputs changed")
   }
 
-  await expect(removeAzureDeployment(test.target, test)).rejects.toThrow(/inputs changed/i)
+  await expect(removeAzureDeployments(test.targets, test)).rejects.toThrow(/inputs changed/i)
 
-  expect(
-    test.events.some((event) => event.includes(":destroy:") || event.includes(":stop-hub")),
-  ).toBe(false)
-  expect(test.ui.notice).toHaveBeenCalledWith(
-    "error",
-    expect.stringMatching(
-      /no deployment resources were (?:removed or stopped|stopped or removed)/i,
-    ),
-  )
+  expect(test.events.some((event) => event.includes(":destroy:"))).toBe(false)
+  expect(test.ui.notice).toHaveBeenCalledWith("error", expect.stringMatching(/Hub.*stopped/i))
   expect(test.ui.status).toHaveBeenCalledWith(expect.stringMatching(/Lock retained/))
   await preserved(test)
 })
 
-it("blocks before shutdown when a current state key disappears after module preparation", async () => {
+it("blocks deletion when a setup job starts after module preparation", async () => {
   const test = await scenario()
-  const deployment = test.deployment
-  const missing = `${deployment.target.config.name}/app.tfstate`
-  const remaining = deployment.blobs.map(({ name }) => name).filter((name) => name !== missing)
+  const deployment = test.deployments[0]!
   let stateChanged = false
   deployment.afterVerify = async () => {
     if (stateChanged) return
     stateChanged = true
-    const index = deployment.blobs.findIndex(({ name }) => name === missing)
-    expect(index).toBeGreaterThanOrEqual(0)
-    deployment.blobs.splice(index, 1)
+    deployment.executions = [{ name: "new-setup-job", status: "Running" }]
   }
 
-  await expect(removeAzureDeployment(test.target, test)).rejects.toThrow(/state.*changed/i)
+  await expect(removeAzureDeployments(test.targets, test)).rejects.toThrow(/job|execution/i)
 
   expect(stateChanged).toBe(true)
   expect(prepareRemovalModule).toHaveBeenCalledTimes(3)
-  expect(test.events.some((event) => /:stop-hub|:destroy:|:empty:|delete-/.test(event))).toBe(false)
-  expect(deployment.blobs.map(({ name }) => name)).toEqual(remaining)
+  expect(test.events.some((event) => /:destroy:|:empty:|delete-/.test(event))).toBe(false)
   expect(deployment.groups.size).toBe(3)
   expect(deployment.releaseExists).toBe(true)
   expect(deployment.blobs.find(({ name }) => name.endsWith("installer.lock"))!.lease).toMatchObject(
@@ -1622,7 +1871,7 @@ it("blocks before shutdown when a current state key disappears after module prep
 
 it("uses one current HEAD per ambiguous state name instead of stale locked list rows", async () => {
   const test = await scenario()
-  const deployment = test.deployment
+  const deployment = test.deployments[0]!
   const state = deployment.blobs[0]!
   Object.assign(state.lease, {
     status: "locked",
@@ -1653,7 +1902,7 @@ it.each(["installation", "release"] as const)(
   "strict inspection still rejects a retained %s lease while approved preflight can collect it",
   async (kind) => {
     const test = await scenario()
-    const deployment = test.deployment
+    const deployment = test.deployments[0]!
     const blob = `${deployment.target.config.name}/installer.lock`
     const lease = { status: "locked", state: "leased", duration: "infinite" }
     if (kind === "installation") deployment.currentLeases.set(blob, lease)
@@ -1705,21 +1954,22 @@ it("reports unknown release HEAD metadata as an exact typed blocker rather than 
 it.each(["provision.tfstate", "app.tfstate", "foundation.tfstate"])(
   "keeps default inspection strict when current %s still belongs to Terraform",
   async (suffix) => {
-    const test = await scenario()
-    const deployment = test.deployment
-    Object.assign(deployment.blobs.find(({ name }) => name.endsWith("installer.lock"))!.lease, {
+    const test = await scenario(2)
+    const first = test.deployments[0]!
+    const second = test.deployments[1]!
+    Object.assign(first.blobs.find(({ name }) => name.endsWith("installer.lock"))!.lease, {
       status: "locked",
       state: "leased",
       duration: "infinite",
     })
-    const name = `${deployment.target.config.name}/${suffix}`
-    Object.assign(deployment.blobs.find((blob) => blob.name === name)!.lease, {
+    const name = `${second.target.config.name}/${suffix}`
+    Object.assign(second.blobs.find((blob) => blob.name === name)!.lease, {
       status: "locked",
       state: "leased",
       duration: "infinite",
     })
 
-    const pending = inspectRemoval(inspectionContext(test), undefined, {
+    const pending = inspectRemoval(inspectionContext(test, 1), undefined, {
       collectRetained: true,
     })
     await expect(pending).rejects.toBeInstanceOf(RemovalLeaseError)
@@ -1727,15 +1977,15 @@ it.each(["provision.tfstate", "app.tfstate", "foundation.tfstate"])(
       knownRetained: false,
       target: {
         kind: "terraform",
-        installation: deployment.target.config.name,
-        subscription: deployment.target.config.azure.subscriptionId,
-        account: deployment.names.stateAccount,
+        installation: second.target.config.name,
+        subscription: second.target.config.azure.subscriptionId,
+        account: second.names.stateAccount,
         container: "terraform",
         blob: name,
       },
     })
     const error = await pending.catch((error: Error) => error)
-    expect(String(error)).toContain(`${deployment.names.stateAccount}/terraform/${name}`)
+    expect(String(error)).toContain(`${second.names.stateAccount}/terraform/${name}`)
     expect(String(error)).toContain("Terraform state lock")
     expect(test.events.some((event) => /:lease:|:stop-hub|:destroy:|delete-/.test(event))).toBe(
       false,
@@ -1754,7 +2004,7 @@ it.each([
   "refuses unknown current state even when the list claims it is only a stale lock: %j",
   async (current) => {
     const test = await scenario()
-    const deployment = test.deployment
+    const deployment = test.deployments[0]!
     const state = deployment.blobs[1]!
     Object.assign(state.lease, {
       status: "locked",
@@ -1781,7 +2031,7 @@ it.each([
 
 it("keeps typed consent while a Terraform blocker is rechecked read-only, without clearing it", async () => {
   const test = await scenario()
-  const deployment = test.deployment
+  const deployment = test.deployments[0]!
   const state = deployment.blobs[1]!
   Object.assign(state.lease, {
     status: "locked",
@@ -1802,7 +2052,7 @@ it("keeps typed consent while a Terraform blocker is rechecked read-only, withou
     return "retry"
   })
 
-  await expect(removeAzureDeployment(test.target, test)).resolves.toContain("Removal finished")
+  await expect(removeAzureDeployments(test.targets, test)).resolves.toContain("Removal finished")
 
   expect(test.ui.confirm).toHaveBeenCalledOnce()
   expect(test.ui.text).toHaveBeenCalledOnce()
@@ -1815,7 +2065,7 @@ it.each(["", "synthetic-private-malformed-head"])(
   "turns malformed or empty current HEAD output into an exact typed unknown blocker: %j",
   async (output) => {
     const test = await scenario()
-    const deployment = test.deployment
+    const deployment = test.deployments[0]!
     const state = deployment.blobs[1]!
     Object.assign(state.lease, {
       status: "locked",
@@ -1833,7 +2083,7 @@ it.each(["", "synthetic-private-malformed-head"])(
       return vi.mocked(test.ui.select).mock.calls.length === 1 ? "details" : "exit"
     })
 
-    await expect(removeAzureDeployment(test.target, test)).rejects.toMatchObject({
+    await expect(removeAzureDeployments(test.targets, test)).rejects.toMatchObject({
       name: "RemovalLeaseError",
       knownRetained: false,
       target: {
@@ -1862,57 +2112,69 @@ it.each(["", "synthetic-private-malformed-head"])(
   },
 )
 
-it("uses removal consent for only owned operational recovery after read-only inspection and the local writer lock", async () => {
-  const test = await scenario()
-  const deployment = test.deployment
-  Object.assign(deployment.blobs.find(({ name }) => name.endsWith("installer.lock"))!.lease, {
-    status: "locked",
-    state: "leased",
-    duration: "infinite",
-  })
-  Object.assign(deployment.releaseLease, {
-    status: "locked",
-    state: "leased",
-    duration: "infinite",
-  })
+it("uses batch consent for owned operational recovery after the current snapshot and local writer lock", async () => {
+  const test = await scenario(2)
+  for (const deployment of test.deployments) {
+    Object.assign(deployment.blobs.find(({ name }) => name.endsWith("installer.lock"))!.lease, {
+      status: "locked",
+      state: "leased",
+      duration: "infinite",
+    })
+    Object.assign(deployment.releaseLease, {
+      status: "locked",
+      state: "leased",
+      duration: "infinite",
+    })
+  }
   const execute = test.run.getMockImplementation()!
   test.run.mockImplementation(async (executable, args, options) => {
     if (args.slice(0, 4).join(" ") === "storage blob lease break") {
+      const selected = test.deployments.find(
+        (deployment) =>
+          args.includes(deployment.names.stateAccount) ||
+          args.includes(`${deployment.target.config.name.replaceAll("-", "")}hub`),
+      )!
       expect(
         test.run.mock.calls.some(
           ([, call]) =>
             call.slice(0, 3).join(" ") === "storage blob list" &&
-            call.includes(deployment.names.stateAccount) &&
+            call.includes(selected.names.stateAccount) &&
             call.includes("--include"),
         ),
       ).toBe(true)
-      expect(await readdir(deployment.directory)).toContain("workspace.lock")
-      expect(test.events.slice(0, 2)).toEqual(["confirmed", `typed:${test.target.config.name}`])
+      expect(await readdir(selected.directory)).toContain("workspace.lock")
+      expect(test.events.slice(0, 3)).toEqual([
+        "confirmed",
+        ...test.targets.map(({ config }) => `typed:${config.name}`),
+      ])
     }
     return execute(executable, args, options)
   })
 
-  await expect(removeAzureDeployment(test.target, test)).resolves.toContain("Removal finished")
+  await expect(removeAzureDeployments(test.targets, test)).resolves.toContain("Removal finished")
 
   expect(test.ui.confirm).toHaveBeenCalledOnce()
-  expect(test.ui.text).toHaveBeenCalledOnce()
+  expect(test.ui.text).toHaveBeenCalledTimes(2)
   expect(test.ui.select).not.toHaveBeenCalled()
-  const { config } = test.target
-  for (const kind of ["installation", "release"])
-    expect(
-      test.events.filter((event) => event === `${config.name}:lease:break:${kind}`),
-    ).toHaveLength(1)
-  const stopped = test.events.indexOf(`${config.name}:stop-hub`)
-  const cleared = test.events.indexOf(`${config.name}:lease:break:installation`)
-  expect(stopped).toBeLessThan(cleared)
-  expect(test.events.indexOf(`${config.name}:lease:acquire:installation`)).toBeGreaterThan(cleared)
-  expect(test.events).toContain(`${config.name}:delete-state-group`)
+  for (const { config } of test.targets) {
+    for (const kind of ["installation", "release"])
+      expect(
+        test.events.filter((event) => event === `${config.name}:lease:break:${kind}`),
+      ).toHaveLength(1)
+    const stopped = test.events.indexOf(`${config.name}:stop-hub`)
+    const cleared = test.events.indexOf(`${config.name}:lease:break:installation`)
+    expect(stopped).toBeLessThan(cleared)
+    expect(test.events.indexOf(`${config.name}:lease:acquire:installation`)).toBeGreaterThan(
+      cleared,
+    )
+    expect(test.events).toContain(`${config.name}:delete-state-group`)
+  }
   await preserved(test)
 })
 
 it("does not replay ambiguous operational clearing and reports Hub already stopped", async () => {
   const test = await scenario()
-  const deployment = test.deployment
+  const deployment = test.deployments[0]!
   Object.assign(deployment.blobs.find(({ name }) => name.endsWith("installer.lock"))!.lease, {
     status: "locked",
     state: "leased",
@@ -1926,7 +2188,7 @@ it("does not replay ambiguous operational clearing and reports Hub already stopp
     return result
   })
 
-  await expect(removeAzureDeployment(test.target, test)).rejects.toBe(failure)
+  await expect(removeAzureDeployments(test.targets, test)).rejects.toBe(failure)
 
   expect(test.events).toContain(`${deployment.target.config.name}:stop-hub`)
   expect(test.events.filter((event) => event.includes(":lease:break:"))).toHaveLength(1)
@@ -1951,7 +2213,7 @@ it("does not replay ambiguous operational clearing and reports Hub already stopp
 
 it("revalidates the saved target before recovering a second operational lock", async () => {
   const test = await scenario()
-  const deployment = test.deployment
+  const deployment = test.deployments[0]!
   const target = deployment.target
   for (const lease of [
     deployment.blobs.find(({ name }) => name.endsWith("installer.lock"))!.lease,
@@ -1971,7 +2233,7 @@ it("revalidates the saved target before recovering a second operational lock", a
     return result
   })
 
-  await expect(removeAzureDeployment(test.target, test)).rejects.toThrow(/changed/i)
+  await expect(removeAzureDeployments(test.targets, test)).rejects.toThrow(/changed/i)
 
   expect(test.events.filter((event) => event.includes(":lease:break:"))).toEqual([
     `${target.config.name}:lease:break:installation`,
@@ -1986,16 +2248,18 @@ it("revalidates the saved target before recovering a second operational lock", a
   await preserved(test)
 })
 
-it("recovers only verified installation state leases under the original consent after stopping Hub", async () => {
-  const test = await scenario()
-  const deployment = test.deployment
-  for (const kind of ["provision", "app", "foundation"] as const) lockState(deployment, kind)
-  Object.assign(deployment.blobs.find(({ name }) => name.endsWith("installer.lock"))!.lease, {
+it("recovers only verified selected state leases under the original consent and completes the first target before recovering the next", async () => {
+  const test = await scenario(2)
+  const first = test.deployments[0]!
+  const second = test.deployments[1]!
+  for (const kind of ["provision", "app", "foundation"] as const) lockState(first, kind)
+  lockState(second)
+  Object.assign(first.blobs.find(({ name }) => name.endsWith("installer.lock"))!.lease, {
     status: "locked",
     state: "leased",
     duration: "infinite",
   })
-  Object.assign(deployment.releaseLease, {
+  Object.assign(first.releaseLease, {
     status: "locked",
     state: "leased",
     duration: "infinite",
@@ -2003,37 +2267,47 @@ it("recovers only verified installation state leases under the original consent 
   const execute = test.run.getMockImplementation()!
   test.run.mockImplementation(async (executable, args, options) => {
     if (executable === "terraform" && args[1] === "force-unlock") {
+      const selected = test.deployments.find(({ directory }) => args[0]!.includes(directory))!
       expect(
         test.run.mock.calls.some(
           ([, call]) =>
             call.slice(0, 3).join(" ") === "storage blob list" &&
-            call.includes(deployment.names.stateAccount),
+            call.includes(selected.names.stateAccount),
         ),
       ).toBe(true)
-      expect(await readdir(deployment.directory)).toContain("workspace.lock")
-      expect(deployment.hubActive).toBe(false)
+      expect(await readdir(selected.directory)).toContain("workspace.lock")
+      expect(selected.hubActive).toBe(false)
+      if (selected === first)
+        expect(await readdir(second.directory)).not.toContain("workspace.lock")
     }
     return execute(executable, args, options)
   })
 
-  await expect(removeAzureDeployment(test.target, test)).resolves.toContain("Removal finished")
+  await expect(removeAzureDeployments(test.targets, test)).resolves.toContain("Removal finished")
 
   expect(test.ui.confirm).toHaveBeenCalledOnce()
-  expect(test.ui.text).toHaveBeenCalledOnce()
+  expect(test.ui.text).toHaveBeenCalledTimes(2)
   expect(test.ui.select).not.toHaveBeenCalled()
+  const firstDone = test.events.indexOf(`${first.target.config.name}:delete-state-group`)
   for (const kind of ["provision", "app", "foundation"])
     expect(
-      test.events.filter(
-        (event) => event === `${deployment.target.config.name}:state-unlock:${kind}`,
-      ),
+      test.events.filter((event) => event === `${first.target.config.name}:state-unlock:${kind}`),
     ).toHaveLength(1)
-  const name = deployment.target.config.name
-  const unlocks = test.events.filter((event) => event.startsWith(`${name}:state-unlock:`))
-  for (const unlock of unlocks) {
-    expect(test.events.indexOf(unlock)).toBeGreaterThan(test.events.indexOf(`${name}:stop-hub`))
-    expect(test.events.indexOf(unlock)).toBeLessThan(
-      test.events.indexOf(`${name}:lease:acquire:installation`),
-    )
+  expect(test.events.indexOf(`${second.target.config.name}:state-init:app`)).toBeGreaterThan(
+    firstDone,
+  )
+  expect(
+    test.events.indexOf(`${second.target.config.name}:lease:acquire:installation`),
+  ).toBeGreaterThan(firstDone)
+  for (const deployment of test.deployments) {
+    const name = deployment.target.config.name
+    const unlocks = test.events.filter((event) => event.startsWith(`${name}:state-unlock:`))
+    for (const unlock of unlocks) {
+      expect(test.events.indexOf(unlock)).toBeGreaterThan(test.events.indexOf(`${name}:stop-hub`))
+      expect(test.events.indexOf(unlock)).toBeLessThan(
+        test.events.indexOf(`${name}:lease:acquire:installation`),
+      )
+    }
   }
   const breaks = test.run.mock.calls.filter(
     ([, args]) => args.slice(0, 4).join(" ") === "storage blob lease break",
@@ -2046,7 +2320,7 @@ it("recovers only verified installation state leases under the original consent 
 
 it("collects valid state-lock candidates only in explicit removal recovery inspection, without clearing them", async () => {
   const test = await scenario()
-  const deployment = test.deployment
+  const deployment = test.deployments[0]!
   const { info } = lockState(deployment)
   const context = inspectionContext(test)
 
@@ -2085,16 +2359,16 @@ it.each(["missing", "malformed", "foreign path"] as const)(
   "never starts recovery or clears operational locks when locked state metadata is %s",
   async (problem) => {
     const test = await scenario()
-    const deployment = test.deployment
-    Object.assign(deployment.blobs.find(({ name }) => name.endsWith("installer.lock"))!.lease, {
+    const second = test.deployments[0]!
+    Object.assign(second.blobs.find(({ name }) => name.endsWith("installer.lock"))!.lease, {
       status: "locked",
       state: "leased",
       duration: "infinite",
     })
-    const { name, info, metadata } = lockState(deployment)
+    const { name, info, metadata } = lockState(second)
     if (problem === "missing") {
       const { lock: _lock, ...blobEvidence } = metadata
-      deployment.stateMetadata.set(name, blobEvidence)
+      second.stateMetadata.set(name, blobEvidence)
     }
     if (problem === "malformed") metadata.lock = "synthetic-private-non-base64"
     if (problem === "foreign path")
@@ -2105,7 +2379,7 @@ it.each(["missing", "malformed", "foreign path"] as const)(
         }),
       ).toString("base64")
 
-    await expect(removeAzureDeployment(test.target, test)).rejects.toThrow()
+    await expect(removeAzureDeployments(test.targets, test)).rejects.toThrow()
 
     expect(prepareRemovalModule).not.toHaveBeenCalled()
     expect(
@@ -2124,11 +2398,11 @@ it.each(["missing", "malformed", "foreign path"] as const)(
   },
 )
 
-it.each(["active job", "missing ownership", "configuration drift"] as const)(
-  "rechecks %s after recovery initialization without unlocking or starting deletion",
+it.each(["active job", "configuration drift"] as const)(
+  "rechecks %s after recovery initialization and does not unlock or start a future target",
   async (problem) => {
-    const test = await scenario()
-    const deployment = test.deployment
+    const test = await scenario(2)
+    const deployment = test.deployments[0]!
     lockState(deployment)
     const execute = test.run.getMockImplementation()!
     test.run.mockImplementation(async (executable, args, options) => {
@@ -2136,7 +2410,6 @@ it.each(["active job", "missing ownership", "configuration drift"] as const)(
       if (executable === "terraform" && args[1] === "init") {
         if (problem === "active job")
           deployment.executions = [{ name: "new-database-job", status: "Running" }]
-        if (problem === "missing ownership") deployment.badOwner = true
         if (problem === "configuration drift") {
           const content = JSON.stringify({
             ...deployment.target.config,
@@ -2149,7 +2422,7 @@ it.each(["active job", "missing ownership", "configuration drift"] as const)(
       return result
     })
 
-    await expect(removeAzureDeployment(test.target, test)).rejects.toThrow()
+    await expect(removeAzureDeployments(test.targets, test)).rejects.toThrow()
 
     expect(test.events).toContain(`${deployment.target.config.name}:state-init:app`)
     expect(
@@ -2168,9 +2441,9 @@ it.each(["active job", "missing ownership", "configuration drift"] as const)(
   },
 )
 
-it("does not retry an ambiguous state unlock and retains every original file", async () => {
-  const test = await scenario()
-  const deployment = test.deployment
+it("does not retry or continue the batch after an ambiguous state unlock and retains every original file", async () => {
+  const test = await scenario(2)
+  const deployment = test.deployments[0]!
   const { info } = lockState(deployment)
   const privateDetails = `synthetic-private-unlock-output ${info.ID} ${info.Who}`
   deployment.unlockError = new CommandExecutionError(privateDetails, false, 2, privateDetails)
@@ -2178,7 +2451,7 @@ it("does not retry an ambiguous state unlock and retains every original file", a
     expect(actions.map(({ value }) => value)).toEqual(["details", "exit"])
     return vi.mocked(test.ui.select).mock.calls.length === 1 ? "details" : "exit"
   })
-  const pending = removeAzureDeployment(test.target, test)
+  const pending = removeAzureDeployments(test.targets, test)
 
   await expect(pending).rejects.toMatchObject({
     name: "CommandExecutionError",
@@ -2189,6 +2462,9 @@ it("does not retry an ambiguous state unlock and retains every original file", a
     `${deployment.target.config.name}:state-unlock:app`,
   ])
   expect(test.events.some((event) => /:lease:|:prepare:|:destroy:|delete-/.test(event))).toBe(false)
+  expect(test.events.some((event) => event.startsWith(`${test.targets[1]!.config.name}:`))).toBe(
+    false,
+  )
   const visible = [
     ...vi.mocked(test.ui.notice!).mock.calls.map(([, message]) => message),
     ...vi.mocked(test.ui.wait).mock.calls.map(([message]) => message),
@@ -2200,7 +2476,7 @@ it("does not retry an ambiguous state unlock and retains every original file", a
     /no deployment resources were (?:removed or stopped|stopped or removed)/i,
   )
   expect(test.ui.confirm).toHaveBeenCalledOnce()
-  expect(test.ui.text).toHaveBeenCalledOnce()
+  expect(test.ui.text).toHaveBeenCalledTimes(2)
   expect(test.ui.wait).toHaveBeenCalledOnce()
   await preserved(test)
 })

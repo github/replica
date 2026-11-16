@@ -7,6 +7,7 @@ import { InputValidationError } from "../config/fields/index.ts"
 import { privateDirectory } from "../private-files/index.ts"
 import { readSession, type WizardDraft, type WizardSession } from "../session/index.ts"
 import type { DeploymentConfig, RemovalTarget, WizardUI } from "../types.ts"
+import { removalSession } from "../removal-session/index.ts"
 
 export interface SetupEntry {
   action: "create" | "update" | "resume"
@@ -20,7 +21,7 @@ export type InstallerEntry =
   | {
       action: "remove"
       path: string
-      target: RemovalTarget
+      targets: RemovalTarget[]
     }
 
 interface Candidate {
@@ -28,6 +29,7 @@ interface Candidate {
   existing?: DeploymentConfig
   draft?: WizardDraft
   problem?: string
+  removal?: "removing" | "retained" | "complete"
 }
 
 function configPath(value: unknown): string {
@@ -71,7 +73,16 @@ async function inspect(path: string): Promise<Candidate> {
   }
   if (!problem && !existing && session.draft?.deploymentStarted)
     problem = `The interrupted deployment at ${path} needs its saved configuration restored before resuming. The draft was preserved; do not start with empty state.`
-  return { path, existing, draft: session.draft, problem }
+  let removal: Candidate["removal"]
+  if (existing && !problem) {
+    try {
+      removal = (await removalSession({ path, config: existing })).phase
+    } catch (error) {
+      if (!(error instanceof Error)) throw error
+      problem = `Removal evidence at ${path} needs attention. ${error.message}`
+    }
+  }
+  return { path, existing, draft: session.draft, problem, removal }
 }
 
 function label(candidate: Candidate): string {
@@ -82,11 +93,13 @@ function label(candidate: Candidate): string {
   const region = existing?.azure.location ?? draft?.answers.location ?? "not selected"
   const state = problem
     ? "needs attention"
-    : draft
-      ? `unfinished setup; saved ${draft.updatedAt}`
-      : existing
-        ? "saved configuration; deployment not verified"
-        : "configuration not found"
+    : candidate.removal === "removing" || candidate.removal === "retained"
+      ? "unfinished removal; fresh deletion consent required"
+      : draft
+        ? `unfinished setup; saved ${draft.updatedAt}`
+        : existing
+          ? "saved configuration; deployment not verified"
+          : "configuration not found"
   return `${name} | subscription ${subscription} | region ${region} | ${path} | ${state}`
 }
 
@@ -97,7 +110,8 @@ async function discover(ui: WizardUI, directory: string, known: Set<string>): Pr
       for (const file of await readdir(directory)) {
         if (file.endsWith(".draft.json"))
           paths.add(join(directory, file.slice(0, -".draft.json".length)))
-        else if (file.endsWith(".json")) paths.add(join(directory, file))
+        else if (file.endsWith(".json") && !file.endsWith(".removal.json"))
+          paths.add(join(directory, file))
       }
     }
   } catch (error) {
@@ -118,6 +132,7 @@ async function unused(path: string): Promise<boolean> {
     `${path}.draft.json`,
     `${path}.draft.json.lock`,
     `${path}.draft.json.lock.recovery`,
+    `${path}.removal.json`,
   ]) {
     try {
       await lstat(target)
@@ -155,7 +170,7 @@ export async function selectInstallerEntry(
         { label: "Create a new installation", value: "create" },
         { label: "Update existing installation", value: "update" },
         ...(!configureOnly
-          ? [{ label: "Remove an installation (destructive)", value: "remove" }]
+          ? [{ label: "Remove installations (destructive)", value: "remove" }]
           : []),
         ...(resumable ? [{ label: "Resume in progress setup", value: "resume" }] : []),
         { label: "Exit and do nothing", value: "exit" },
@@ -164,13 +179,39 @@ export async function selectInstallerEntry(
     if (action === "exit") return undefined
     if (action === "remove") {
       if (configureOnly) throw new Error("Configuration-only mode cannot remove deployments.")
+      if (!ui.multiSelect)
+        throw new Error("This terminal does not support installation multi-selection.")
       ui.removal?.(true)
+      const interrupted = candidates.some(
+        ({ removal, problem }) => !problem && (removal === "removing" || removal === "retained"),
+      )
+      let resumeOnly = false
+      if (interrupted) {
+        const flow = await ui.select(
+          "Removal: choose a new selection or resume interrupted cleanup. Both require fresh destructive confirmation.",
+          [
+            { label: "Resume interrupted removal", value: "resume-removal" },
+            { label: "Select deployments to remove", value: "select-removal" },
+            { label: "Back to main menu (no removal)", value: "back" },
+          ],
+        )
+        if (flow === "back") continue
+        if (!["resume-removal", "select-removal"].includes(flow))
+          throw new Error("Choose a supported removal action.")
+        resumeOnly = flow === "resume-removal"
+      }
+      let selected: string[] = []
       while (true) {
         const discovered = await discover(ui, directory, known)
-        const available = discovered.filter((candidate) => candidate.existing && !candidate.problem)
-        const choice = await ui.select(
+        const available = discovered.filter(
+          (candidate) =>
+            candidate.existing &&
+            !candidate.problem &&
+            (!resumeOnly || candidate.removal === "removing" || candidate.removal === "retained"),
+        )
+        const choices = await ui.multiSelect(
           [
-            "Choose one installation to remove. Saved files do not prove cloud resources exist.",
+            "Select saved installations to remove. Files do not prove cloud resources exist.",
             ...discovered
               .filter(({ problem }) => problem)
               .map((candidate) => `Not selectable: ${label(candidate)}`),
@@ -178,41 +219,46 @@ export async function selectInstallerEntry(
           [
             ...available.map((candidate) => ({ label: label(candidate), value: candidate.path })),
             { label: "Enter another config-file path", value: "config-file" },
-            { label: "Back to main menu (no removal)", value: "back" },
           ],
+          selected,
         )
-        if (choice === "back") break
-        let previous: Candidate | undefined
-        let path: string
-        if (choice === "config-file") {
+        if (!choices.length) break
+        if (
+          choices.some(
+            (choice) => choice !== "config-file" && !available.some(({ path }) => path === choice),
+          )
+        )
+          throw new Error("Select only listed deployment configurations.")
+        if (choices.includes("config-file")) {
+          selected = choices.filter((choice) => available.some(({ path }) => path === choice))
           try {
-            path = configPath(await ui.text("Config-file path"))
+            const path = configPath(await ui.text("Config-file path"))
             known.add(path)
-            previous = await inspect(path)
-            if (!previous.existing || previous.problem) {
-              attention(ui, previous.problem ?? "A complete saved configuration is required.")
-              continue
-            }
+            const candidate = await inspect(path)
+            if (candidate.existing && !candidate.problem)
+              selected = [...new Set([...selected, path])]
+            else attention(ui, candidate.problem ?? "A complete saved configuration is required.")
           } catch (error) {
             if (!(error instanceof InputValidationError)) throw error
             attention(ui, error.message)
-            continue
           }
-        } else {
-          previous = available.find(({ path }) => path === choice)
-          if (!previous) throw new Error("Select only listed deployment configurations.")
-          path = choice
+          continue
         }
-        const current = await inspect(path)
-        if (
-          !current.existing ||
-          current.problem ||
-          JSON.stringify(current.existing) !== JSON.stringify(previous.existing)
-        )
-          throw new Error(
-            "Selected configuration changed or needs attention. Removal was not started.",
+        const targets: RemovalTarget[] = []
+        for (const path of new Set(choices)) {
+          const previous = available.find((candidate) => candidate.path === path)
+          const current = await inspect(path)
+          if (
+            !current.existing ||
+            current.problem ||
+            JSON.stringify(current.existing) !== JSON.stringify(previous?.existing)
           )
-        return { action: "remove", path, target: { path, config: current.existing } }
+            throw new Error(
+              "Selected configuration changed or needs attention. Removal was not started.",
+            )
+          targets.push({ path, config: current.existing })
+        }
+        return { action: "remove", path: targets[0]!.path, targets }
       }
       continue
     }

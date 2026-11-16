@@ -3,10 +3,13 @@ import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { afterEach, expect, it, vi } from "vitest"
 
+import { CommandExecutionError } from "../../../installer/command/index.ts"
 import type { DeploymentConfig, RunCommand, WizardUI } from "../../../installer/types.ts"
 import { installationNames } from "../../install/settings.ts"
 import type { RemovalContext, RemovalModule } from "../types.ts"
 import { prepareRemovalModule } from "./index.ts"
+
+vi.mock("node:timers/promises", () => ({ setTimeout: vi.fn(async () => {}) }))
 
 const directories: string[] = []
 afterEach(async () => {
@@ -82,6 +85,7 @@ async function scenario(kind: RemovalModule = "app") {
   })
   const evidence = {
     resources: [resource],
+    plannedResources: undefined as (typeof resource)[] | undefined,
     actions: ["delete"],
     plannedId: resource.values.id,
     stateAfter: [] as string[],
@@ -92,9 +96,15 @@ async function scenario(kind: RemovalModule = "app") {
     if (operation === "show" && args.at(-1)?.endsWith(".tfplan"))
       return JSON.stringify({
         format_version: "1.2",
-        resource_changes: evidence.resources.map((value) => ({
+        resource_changes: (evidence.plannedResources ?? evidence.resources).map((value) => ({
           address: value.address,
-          change: { actions: evidence.actions, before: { id: evidence.plannedId }, after: null },
+          change: {
+            actions: evidence.actions,
+            before: {
+              id: evidence.plannedResources ? value.values.id : evidence.plannedId,
+            },
+            after: null,
+          },
         })),
       })
     if (operation === "show")
@@ -199,6 +209,28 @@ it("detects changed generated inputs before a later deletion", async () => {
   expect(test.run.mock.calls.some(([, args]) => args[1] === "apply")).toBe(false)
 })
 
+it.each(["foreign subscription", "foreign resource group"] as const)(
+  "rejects %s state before preparing any deletion plan",
+  async (boundary) => {
+    const test = await scenario()
+    test.resource.values.id =
+      boundary === "foreign subscription"
+        ? test.resource.values.id.replace(
+            test.context.config.azure.subscriptionId,
+            test.context.config.azure.tenantId,
+          )
+        : test.resource.values.id.replace(test.context.config.azure.resourceGroup, "external-group")
+
+    await expect(prepareRemovalModule(test.context, "app", test.staging)).rejects.toThrow(
+      /scope|ownership|unknown/i,
+    )
+
+    expect(test.run.mock.calls.some(([, args]) => ["plan", "apply"].includes(args[1]!))).toBe(false)
+    expect(test.context.azure).not.toHaveBeenCalled()
+    expect(await readFile(test.original, "utf8")).toBe(test.retained)
+  },
+)
+
 it("accepts empty app state without reading or overwriting invalid legacy generated inputs", async () => {
   const test = await scenario()
   test.evidence.resources = []
@@ -257,19 +289,19 @@ it("removes retained provisioning with case-insensitive ARM IDs without retrievi
   const group = `/subscriptions/${config.azure.subscriptionId}/resourceGroups/${config.azure.resourceGroup.toUpperCase()}`
   test.resource.address = "azurerm_container_app_job.provision"
   test.resource.type = "azurerm_container_app_job"
-  delete test.resource.values.tags
-  const identityId =
-    `${group}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${config.name}-provision`
+  Reflect.deleteProperty(test.resource.values, "tags")
+  const identityId = `${group}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${config.name}-provision`
   test.resource.values.id = `${group}/providers/Microsoft.App/jobs/${config.name}-provision`
   Object.assign(test.resource.values, {
     name: `${config.name}-provision`,
     resource_group_name: config.azure.resourceGroup,
-    container_app_environment_id:
-      `${group}/providers/Microsoft.App/managedEnvironments/${config.name}-environment`,
-    identity: [{
-      type: "UserAssigned",
-      identity_ids: [identityId],
-    }],
+    container_app_environment_id: `${group}/providers/Microsoft.App/managedEnvironments/${config.name}-environment`,
+    identity: [
+      {
+        type: "UserAssigned",
+        identity_ids: [identityId],
+      },
+    ],
   })
   test.evidence.plannedId = test.resource.values.id
   const original = join(test.context.directory, "provision.tfvars.json")
@@ -327,3 +359,126 @@ it("requires empty Terraform state after apply and before deleting state storage
   expect(test.run.mock.calls.filter(([, args]) => args[1] === "apply")).toHaveLength(1)
   expect(await readFile(test.original, "utf8")).toBe(test.retained)
 })
+
+it("destroys tracked children but retains a group and its Terraform state when untracked members remain", async () => {
+  const test = await scenario()
+  const child = {
+    ...test.resource,
+    address: "azurerm_container_app_environment.hub",
+    type: "azurerm_container_app_environment",
+    values: {
+      ...test.resource.values,
+      id: `${test.resource.values.id}/providers/Microsoft.App/managedEnvironments/${test.context.config.name}-environment`,
+    },
+  }
+  test.evidence.resources.push(child)
+  test.evidence.plannedResources = [child]
+  test.evidence.stateAfter = [test.resource.address]
+  const retainedGroups: string[] = []
+  const module = await prepareRemovalModule(test.context, "app", test.staging, retainedGroups)
+  retainedGroups.push(test.context.config.azure.resourceGroup.toUpperCase())
+
+  await expect(module.destroy()).resolves.toBeUndefined()
+  await expect(module.empty()).resolves.toBeUndefined()
+
+  const plan = test.run.mock.calls.find(([, args]) => args[1] === "plan")![1]
+  expect(plan).toContain(`-target=${child.address}`)
+  expect(plan).not.toContain(`-target=${test.resource.address}`)
+  expect(test.run.mock.calls.some(([, args]) => args.includes("rm"))).toBe(false)
+  expect(await readFile(test.original, "utf8")).toBe(test.retained)
+})
+
+it("does not accept an unrelated remaining tracked resource as a retained group", async () => {
+  const test = await scenario()
+  const module = await prepareRemovalModule(test.context, "app", test.staging, [
+    test.context.config.azure.resourceGroup,
+  ])
+  test.evidence.stateAfter = ["azurerm_postgresql_flexible_server.hub"]
+
+  await expect(module.empty()).rejects.toThrow()
+})
+
+it("awaits the caller's verification after planning and before deleting", async () => {
+  const test = await scenario()
+  const module = await prepareRemovalModule(test.context, "app", test.staging)
+  const release = Promise.withResolvers<void>()
+  const verify = vi.fn(async () => {
+    expect(test.run.mock.calls.slice(-2).map(([, args]) => args[1])).toEqual(["plan", "show"])
+    await release.promise
+  })
+  const deleting = module.destroy(verify)
+  await vi.waitFor(() => expect(verify).toHaveBeenCalledOnce())
+
+  expect(test.run.mock.calls.some(([, args]) => args[1] === "apply")).toBe(false)
+  release.resolve()
+  await deleting
+
+  expect(test.run.mock.calls.filter(([, args]) => args[1] === "apply")).toHaveLength(1)
+})
+
+it("stops deletion when saved inputs drift while the destroy plan is being prepared", async () => {
+  const test = await scenario()
+  const module = await prepareRemovalModule(test.context, "app", test.staging)
+  const changed = JSON.stringify({ ...test.inputs, postgres_version: "16" })
+  const run = test.run.getMockImplementation()!
+  test.run.mockImplementation(async (executable, args, options) => {
+    const result = await run(executable, args, options)
+    if (args[1] === "plan") await writeFile(test.original, changed, { mode: 0o600 })
+    return result
+  })
+
+  await expect(module.destroy(() => module.verifyInputs())).rejects.toThrow(/changed/i)
+
+  expect(test.run.mock.calls.filter(([, args]) => args[1] === "plan")).toHaveLength(1)
+  expect(test.run.mock.calls.some(([, args]) => args[1] === "apply")).toBe(false)
+  expect(test.context.ui.select).not.toHaveBeenCalled()
+  expect(await readFile(test.original, "utf8")).toBe(changed)
+  expect(await readdir(join(test.staging, "app-data"))).toEqual([])
+})
+
+it("stops deletion if the held locks or setup jobs change after the plan was prepared", async () => {
+  const test = await scenario()
+  const module = await prepareRemovalModule(test.context, "app", test.staging)
+  const failure = new Error("Synthetic setup job started")
+  const verify = vi.fn(async () => {
+    throw failure
+  })
+
+  await expect(module.destroy(verify)).rejects.toBe(failure)
+
+  expect(verify).toHaveBeenCalled()
+  expect(test.run.mock.calls.some(([, args]) => args[1] === "apply")).toBe(false)
+})
+
+it.each(["changed identity", "changed guard"] as const)(
+  "rejects a fresh destroy retry with a %s instead of replaying the previous approved deletion",
+  async (boundary) => {
+    const test = await scenario()
+    const module = await prepareRemovalModule(test.context, "app", test.staging)
+    const execute = test.run.getMockImplementation()!
+    let failed = false
+    test.run.mockImplementation(async (executable, args, options) => {
+      if (args[1] === "apply" && !failed) {
+        failed = true
+        if (boundary === "changed identity") test.evidence.plannedId += "-foreign"
+        throw new CommandExecutionError(
+          "Synthetic deletion response lost",
+          false,
+          1,
+          "ServiceUnavailable",
+        )
+      }
+      return execute(executable, args, options)
+    })
+    const verify = vi.fn(async () => {
+      if (failed && boundary === "changed guard") throw new Error("Synthetic ownership changed")
+    })
+
+    await expect(module.destroy(verify)).rejects.toThrow(/identity|scope|ownership/i)
+
+    expect(test.run.mock.calls.filter(([, args]) => args[1] === "plan")).toHaveLength(2)
+    expect(test.run.mock.calls.filter(([, args]) => args[1] === "apply")).toHaveLength(1)
+    expect(test.context.ui.select).not.toHaveBeenCalled()
+    expect(await readdir(join(test.staging, "app-data"))).toEqual([])
+  },
+)

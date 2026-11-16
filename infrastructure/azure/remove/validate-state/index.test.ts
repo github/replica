@@ -43,10 +43,8 @@ function state(...resources: unknown[]) {
 
 function untaggedProvisionResources() {
   const { config, group } = fixture()
-  const identityId =
-    `${group}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${config.name}-provision`
-  const environmentId =
-    `${group}/providers/Microsoft.App/managedEnvironments/${config.name}-environment`
+  const identityId = `${group}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${config.name}-provision`
+  const environmentId = `${group}/providers/Microsoft.App/managedEnvironments/${config.name}-environment`
   const identity = {
     address: "azurerm_user_assigned_identity.provision",
     mode: "managed",
@@ -139,12 +137,14 @@ it.each([
     job.values.container_app_environment_id =
       `${group}/providers/Microsoft.App/managedEnvironments/unrelated`
   if (problem === "wrong identity relationship")
-    job.values.identity = [{
-      type: "UserAssigned",
-      identity_ids: [
-        `${group}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/unrelated`,
-      ],
-    }]
+    job.values.identity = [
+      {
+        type: "UserAssigned",
+        identity_ids: [
+          `${group}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/unrelated`,
+        ],
+      },
+    ]
 
   expect(() => validateRemovalState(state(identity, job), config, "provision")).toThrow()
 })
@@ -152,18 +152,83 @@ it.each([
 it.each(["artifacts", "releases", "releases/deployment.lock"])(
   "recognizes the owned URL-format storage ID for %s",
   (path) => {
-    const { config } = fixture()
+    const { config, group } = fixture()
     const blob = path.includes("/")
     const type = blob ? "azurerm_storage_blob" : "azurerm_storage_container"
     const address = `${type}.${blob ? "release_lock" : path}`
     const id = `https://samplehubhub.blob.core.windows.net/${path}`
     expect(
       validateRemovalState(
-        state({ address, type, mode: "managed", values: { id } }),
+        state({
+          address,
+          type,
+          mode: "managed",
+          values: {
+            id,
+            ...(blob
+              ? { storage_account_name: "samplehubhub" }
+              : {
+                  storage_account_id: `${group}/providers/Microsoft.Storage/storageAccounts/samplehubhub`,
+                }),
+          },
+        }),
         config,
         "app",
       ),
     ).toMatchObject([{ address, id }])
+  },
+)
+
+it.each(["foreign group", "foreign subscription", "missing account"] as const)(
+  "rejects a matching storage URL whose account binding has a %s",
+  (boundary) => {
+    const { config, group } = fixture()
+    let account: string | undefined =
+      `${group}/providers/Microsoft.Storage/storageAccounts/samplehubhub`
+    if (boundary === "foreign group")
+      account = account.replace(config.azure.resourceGroup, "external-group")
+    if (boundary === "foreign subscription")
+      account = account.replace(config.azure.subscriptionId, config.azure.tenantId)
+    if (boundary === "missing account") account = undefined
+
+    expect(() =>
+      validateRemovalState(
+        state({
+          address: "azurerm_storage_container.artifacts",
+          type: "azurerm_storage_container",
+          mode: "managed",
+          values: {
+            id: "https://samplehubhub.blob.core.windows.net/artifacts",
+            storage_account_id: account,
+          },
+        }),
+        config,
+        "app",
+      ),
+    ).toThrow(/scope|ownership|unknown/i)
+  },
+)
+
+it.each(["externalaccount", undefined])(
+  "rejects a release-lock URL whose account name is %s",
+  (storage_account_name) => {
+    const { config } = fixture()
+
+    expect(() =>
+      validateRemovalState(
+        state({
+          address: "azurerm_storage_blob.release_lock",
+          type: "azurerm_storage_blob",
+          mode: "managed",
+          values: {
+            id: "https://samplehubhub.blob.core.windows.net/releases/deployment.lock",
+            storage_account_name,
+          },
+        }),
+        config,
+        "app",
+      ),
+    ).toThrow(/scope|ownership|unknown/i)
   },
 )
 
@@ -310,7 +375,9 @@ it.each(["", "[1]", '["0"]', "[0].unreviewed"])(
           address: `azurerm_container_app.hub${suffix}`,
           type: "azurerm_container_app",
           mode: "managed",
-          values: { id: `${group}/providers/Microsoft.App/containerApps/${config.name}-hub` },
+          values: {
+            id: `${group}/providers/Microsoft.App/containerApps/${config.name}-hub`,
+          },
         }),
         config,
         "app",
@@ -358,7 +425,7 @@ it.each(["", "[0]", '["FIRST","SECOND"]'])(
 
 it("rejects a runtime-secret state key that does not identify its grant scope", () => {
   const { config, identity } = fixture()
-  const scope = `/subscriptions/${config.azure.subscriptionId}/resourceGroups/external/providers/Microsoft.KeyVault/vaults/external/secrets/runtime`
+  const scope = `/subscriptions/${config.azure.subscriptionId}/resourceGroups/${installationNames(config).foundationGroup}/providers/Microsoft.KeyVault/vaults/${installationNames(config).vault}/secrets/runtime`
   const role = {
     address: `azurerm_role_assignment.runtime_secrets[${JSON.stringify(scope)}]`,
     type: "azurerm_role_assignment",
@@ -375,13 +442,72 @@ it("rejects a runtime-secret state key that does not identify its grant scope", 
   expect(() => validateRemovalState(state(identity, role), config, "app")).toThrow()
 })
 
+it.each(["foreign group", "foreign subscription", "subscription scope"] as const)(
+  "rejects a runtime-secret grant at a %s even with matching state key and principal",
+  (boundary) => {
+    const { config, identity } = fixture()
+    const group = `/subscriptions/${config.azure.subscriptionId}/resourceGroups/${installationNames(config).foundationGroup}`
+    let scope = `${group}/providers/Microsoft.KeyVault/vaults/external/secrets/runtime`
+    if (boundary === "foreign group")
+      scope = scope.replace(installationNames(config).foundationGroup, "external-group")
+    if (boundary === "foreign subscription")
+      scope = scope.replace(config.azure.subscriptionId, config.azure.tenantId)
+    if (boundary === "subscription scope") scope = `/subscriptions/${config.azure.subscriptionId}`
+    const role = {
+      address: `azurerm_role_assignment.runtime_secrets[${JSON.stringify(scope)}]`,
+      type: "azurerm_role_assignment",
+      mode: "managed",
+      values: {
+        scope,
+        role_definition_name: "Key Vault Secrets User",
+        principal_id: identity.values.principal_id,
+        id: `${scope}/providers/Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000004`,
+      },
+    }
+
+    expect(() => validateRemovalState(state(identity, role), config, "app")).toThrow(
+      /scope|ownership|unknown/i,
+    )
+  },
+)
+
+it.each(["foreign group", "foreign subscription"] as const)(
+  "rejects a role assignment ID in a %s even when its declared scope is owned",
+  (boundary) => {
+    const { config, identity } = fixture()
+    const names = installationNames(config)
+    const scope = `/subscriptions/${config.azure.subscriptionId}/resourceGroups/${names.foundationGroup}/providers/Microsoft.KeyVault/vaults/${names.vault}/secrets/runtime`
+    const idScope =
+      boundary === "foreign group"
+        ? scope.replace(names.foundationGroup, "external-group")
+        : scope.replace(config.azure.subscriptionId, config.azure.tenantId)
+
+    expect(() =>
+      validateRemovalState(
+        state(identity, {
+          address: `azurerm_role_assignment.runtime_secrets[${JSON.stringify(scope)}]`,
+          type: "azurerm_role_assignment",
+          mode: "managed",
+          values: {
+            scope,
+            role_definition_name: "Key Vault Secrets User",
+            principal_id: identity.values.principal_id,
+            id: `${idScope}/providers/Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000004`,
+          },
+        }),
+        config,
+        "app",
+      ),
+    ).toThrow(/scope|ownership|unknown/i)
+  },
+)
+
 it("limits provisioning secret keys to the declared database credentials", () => {
   const { config, group, identity } = fixture()
   const names = installationNames(config)
   identity.address = "azurerm_user_assigned_identity.provision"
-  delete identity.values.tags
-  identity.values.id =
-    `${group}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${config.name}-provision`
+  Reflect.deleteProperty(identity.values, "tags")
+  identity.values.id = `${group}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${config.name}-provision`
   Object.assign(identity.values, {
     name: `${config.name}-provision`,
     resource_group_name: config.azure.resourceGroup,

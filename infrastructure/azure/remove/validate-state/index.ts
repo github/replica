@@ -86,6 +86,9 @@ export function validateRemovalState(
     managed_by: "terraform",
   }
   const names = installationNames(config)
+  const ownedGroups = [config.azure.resourceGroup, names.foundationGroup, names.stateGroup].map(
+    (name) => `/subscriptions/${config.azure.subscriptionId}/resourceGroups/${name}`.toLowerCase(),
+  )
   const group =
     `/subscriptions/${config.azure.subscriptionId}/resourceGroups/${module === "foundation" ? names.foundationGroup : config.azure.resourceGroup}`.toLowerCase()
   const projected: RemovalResource[] = []
@@ -139,6 +142,21 @@ export function validateRemovalState(
       invalid()
     const id = values.id
     if (typeof id !== "string" || !id) invalid()
+    const account = `${config.name.replaceAll("-", "")}hub`
+    const accountId = `${group}/providers/microsoft.storage/storageaccounts/${account}`
+    if (
+      resource.type === "azurerm_storage_container" &&
+      (typeof values.storage_account_id !== "string" ||
+        values.storage_account_id.toLowerCase() !== accountId)
+    )
+      invalid()
+    if (resource.type === "azurerm_storage_blob" && values.storage_account_name !== account)
+      invalid()
+    if (
+      resource.type === "azurerm_role_assignment" &&
+      !ownedGroups.some((group) => id.toLowerCase().startsWith(`${group}/`))
+    )
+      invalid()
     if (
       values.location !== undefined &&
       (typeof values.location !== "string" ||
@@ -162,7 +180,6 @@ export function validateRemovalState(
       id.toLowerCase() !== group &&
       !id.toLowerCase().startsWith(`${group}/`)
     ) {
-      const account = `${config.name.replaceAll("-", "")}hub`
       const containers = new Set([
         `https://${account}.blob.core.windows.net/artifacts`,
         `https://${account}.blob.core.windows.net/releases`,
@@ -184,10 +201,8 @@ export function validateRemovalState(
     projected.push({ address, id, type: resource.type, values })
   }
   if (module === "provision") {
-    const identityId =
-      `${group}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${config.name}-provision`
-    const environmentId =
-      `/subscriptions/${config.azure.subscriptionId}/resourceGroups/${config.azure.resourceGroup}/providers/Microsoft.App/managedEnvironments/${config.name}-environment`
+    const identityId = `${group}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${config.name}-provision`
+    const environmentId = `/subscriptions/${config.azure.subscriptionId}/resourceGroups/${config.azure.resourceGroup}/providers/Microsoft.App/managedEnvironments/${config.name}-environment`
     const identity = projected.find(
       ({ address }) => address === "azurerm_user_assigned_identity.provision",
     )
@@ -247,6 +262,12 @@ export function validateRemovalState(
       typeof principal !== "string" ||
       !guid.test(principal) ||
       typeof role !== "string"
+    )
+      invalid()
+    if (
+      !ownedGroups.some(
+        (group) => scope.toLowerCase() === group || scope.toLowerCase().startsWith(`${group}/`),
+      )
     )
       invalid()
     const prefix = `${scope.toLowerCase()}/providers/microsoft.authorization/roleassignments/`
