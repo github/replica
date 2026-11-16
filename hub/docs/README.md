@@ -10,6 +10,7 @@ Hub is being rebuilt. The [Hub overview](../README.md) describes what the baseli
 - [Development](development.md): local API and frontend setup.
 - [Deployment](deployment.md): production image, runtime roles, setup, and health.
 - [Artifact storage](artifact-storage.md): provider selection and immutable byte storage.
+- [Build previews](build-previews.md): authenticated access, isolated Build origins, file behavior, screenshots, and bridge injection.
 - [Database](database.md): Prisma schema conventions, migrations, and the shared client.
 - [Authentication and Hub sessions](authentication.md): provider-neutral proof, reusable administrator enrollment, admission, browser sessions, and existing-user administrator management.
 - [Copilot connection](copilot.md): operator token configuration, fresh administrator authorization, durable connection state, and credential safety.

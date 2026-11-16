@@ -7,6 +7,7 @@ describe("prototype index seed", () => {
     const userId = "00000000-0000-4000-8000-000000000001"
     const prisma = { $disconnect: vi.fn() }
     const seed = vi.fn()
+    const write = vi.fn().mockResolvedValue({ status: "ok" })
     const originalArgv = process.argv
 
     try {
@@ -14,17 +15,28 @@ describe("prototype index seed", () => {
       vi.stubEnv("NODE_ENV", "development")
       vi.stubEnv("DATABASE_URL", "postgresql://replica:replica@127.0.0.1:5432/replica")
       vi.stubEnv("DOTENV_CONFIG_OVERRIDE", "false")
+      vi.doMock("node:fs/promises", () => ({ mkdir: vi.fn() }))
       vi.doMock("../../integrations/prisma/index.ts", () => ({ prisma }))
-      vi.doMock("./seed-prototype-index-data/index.ts", () => ({ seedPrototypeIndexData: seed }))
+      vi.doMock("../../domains/artifacts/create-configured-artifact-storage/index.ts", () => ({
+        createConfiguredArtifactStorage: vi.fn().mockResolvedValue({ write }),
+      }))
+      vi.doMock("./seed-prototype-index-data/index.ts", () => ({
+        seedPrototypeIndexData: seed,
+        seededBuildArtifactBytes: new Map([["seed-key", new Uint8Array([1])]]),
+        seededBuildArtifacts: [{ path: "dist/index.html", storageKey: "seed-key" }],
+      }))
       vi.spyOn(console, "log").mockImplementation(() => {})
 
       await import(".")
 
       expect(seed).toHaveBeenCalledExactlyOnceWith(prisma, userId)
+      expect(write).toHaveBeenCalledExactlyOnceWith("seed-key", new Uint8Array([1]))
       expect(prisma.$disconnect).toHaveBeenCalledOnce()
     } finally {
       process.argv = originalArgv
       vi.doUnmock("../../integrations/prisma/index.ts")
+      vi.doUnmock("node:fs/promises")
+      vi.doUnmock("../../domains/artifacts/create-configured-artifact-storage/index.ts")
       vi.doUnmock("./seed-prototype-index-data/index.ts")
     }
   })

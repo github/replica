@@ -5,6 +5,77 @@ import { prisma } from "../../../integrations/prisma"
 import { findPrototypeDetail } from "."
 
 describe("findPrototypeDetail()", () => {
+  it("maps successful Build artifacts to access URLs and the selected Controls identity", async () => {
+    const repositoryId = randomUUID()
+    const prototypeId = randomUUID()
+    const buildId = randomUUID()
+    await prisma.repository.create({
+      data: { id: repositoryId, nameWithOwner: "team/design", defaultBranch: "main" },
+    })
+    await prisma.prototype.create({
+      data: {
+        id: prototypeId,
+        repositoryId,
+        branchName: "prototype/checkout",
+        startPage: "/checkout",
+      },
+    })
+    await prisma.build.create({
+      data: {
+        id: buildId,
+        prototypeId,
+        number: 42,
+        state: "successful",
+        artifacts: {
+          create: [
+            {
+              path: "dist/index.html",
+              kind: "dist",
+              storageKey: "preview-index",
+              byteLength: 10,
+            },
+            {
+              path: "screenshots/desktop.png",
+              kind: "screenshot",
+              storageKey: "desktop-image",
+              byteLength: 20,
+            },
+            {
+              path: "screenshots/narrow.png",
+              kind: "screenshot",
+              storageKey: "narrow-image",
+              byteLength: 20,
+            },
+            {
+              path: "dist/controls.replica.json",
+              kind: "dist",
+              storageKey: "controls-binding",
+              byteLength: 30,
+            },
+          ],
+        },
+      },
+    })
+
+    const detail = await findPrototypeDetail(
+      prisma,
+      repositoryId,
+      prototypeId,
+      42,
+      undefined,
+      (_buildId, repository, prototype, build, target) =>
+        `/api/repositories/${repository}/prototypes/${prototype}/builds/${build}/access?target=${target}`,
+    )
+
+    expect(detail?.selectedBuild).toMatchObject({
+      number: 42,
+      previewUrl: `/api/repositories/${repositoryId}/prototypes/${prototypeId}/builds/42/access?target=preview`,
+      desktopScreenshotUrl: `/api/repositories/${repositoryId}/prototypes/${prototypeId}/builds/42/access?target=desktop`,
+      narrowScreenshotUrl: `/api/repositories/${repositoryId}/prototypes/${prototypeId}/builds/42/access?target=narrow`,
+    })
+    expect(detail?.controlsIdentity).toBe("controls-binding")
+  })
+
   it("bounds database results on later pages while retaining the global current Build", async () => {
     const repositoryId = randomUUID()
     const prototypeId = randomUUID()

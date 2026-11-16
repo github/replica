@@ -24,6 +24,9 @@ import { delete_ as handleReviewCommentDelete } from "./api/repositories/prototy
 import { post as handleReviewCommentReplyPost } from "./api/repositories/prototypes/review-comments/replies/post/index.ts"
 import { post as handleReviewThreadResolutionPost } from "./api/repositories/prototypes/review-comments/resolution/post/index.ts"
 import { delete_ as handleReviewThreadResolutionDelete } from "./api/repositories/prototypes/review-comments/resolution/delete/index.ts"
+import { get as handleBuildPreviewAccessGet } from "./api/repositories/prototypes/builds/access/get/index.ts"
+import { get as handleBuildPreviewAuthorizeGet } from "./build-preview/authorize/get/index.ts"
+import { get as handleBuildPreviewServeGet } from "./build-preview/serve/get/index.ts"
 import { get as handleAdministratorsGet } from "./api/administrators/get/index.ts"
 import { get as handleAdministratorCandidatesGet } from "./api/administrators/candidates/get/index.ts"
 import { post as handleAdministratorAuthorizationStartPost } from "./api/administrators/authorizations/start/post/index.ts"
@@ -49,7 +52,12 @@ import type { RouteDependencies } from "./types.ts"
 
 /** Keep endpoint registration separate from the app's shared middleware. */
 export function routes(app: Express, dependencies: RouteDependencies = {}): void {
-  const { authentication, copilotConnection, isReady, learnings, logger, product } = dependencies
+  const { authentication, copilotConnection, isReady, learnings, logger, preview, product } =
+    dependencies
+  if (preview) {
+    app.get("/__replica/authorize", handleBuildPreviewAuthorizeGet(preview))
+    app.get("/{*path}", handleBuildPreviewServeGet(preview))
+  }
   app.get("/api/health", handleApiHealthGet)
   app.get("/api/ready", (request, response) =>
     handleApiReadyGet(request, response, { isReady, logger }),
@@ -73,6 +81,12 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
         "/api/repositories/:repositoryId/prototypes/:prototypeId/builds",
         handleBuildHistoryGet(authentication.currentSession, product),
       )
+      if (preview) {
+        app.get(
+          "/api/repositories/:repositoryId/prototypes/:prototypeId/builds/:buildNumber/access",
+          handleBuildPreviewAccessGet(authentication.currentSession, product, preview),
+        )
+      }
       app.patch(
         "/api/repositories/:repositoryId/prototypes/:prototypeId",
         requireOrigin(authentication.signOut.applicationOrigin),

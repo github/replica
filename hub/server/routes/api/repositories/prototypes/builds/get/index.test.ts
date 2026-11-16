@@ -36,6 +36,7 @@ async function withHistory(
     findRepositoryAuthors: vi.fn(),
     editPrototypeMetadata: vi.fn(),
     readPrototypeWithIntroduction: vi.fn(),
+    findBuildPreviewTarget: vi.fn(),
     findPrototypeDetail: vi.fn().mockResolvedValue({
       repository: { id: repositoryId },
       prototype: {

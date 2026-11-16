@@ -3,6 +3,7 @@ import { LinkExternalIcon, ScreenFullIcon } from "@primer/octicons-react"
 import { CopyableTextInput } from "@components/copyable-text-input"
 import { HubIconButton } from "@components/hub-icon-button"
 import { getPreviewFrameUrl } from "@utils/get-preview-frame-url"
+import { getUrlOrigin } from "@utils/get-url-origin"
 import { BuildControls } from "@features/build-controls"
 
 import type { PrototypePreviewProps } from "./types"
@@ -87,7 +88,7 @@ export function PrototypePreview({
           <BuildControls
             key={controlsIdentity}
             identity={controlsIdentity}
-            origin={new URL(previewUrl, window.location.href).origin}
+            origin={getUrlOrigin(previewUrl) ?? window.location.origin}
             iframeRef={iframeRef}
             frameVersion={previewUrl}
             toolbar={minimized ? (minimizedControlsToolbar ?? null) : (controlsToolbar ?? null)}

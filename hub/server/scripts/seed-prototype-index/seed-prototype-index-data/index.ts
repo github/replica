@@ -115,6 +115,76 @@ const builds = [
     failureSummary: null,
   },
 ] as const
+export const seededBuildArtifactBytes = new Map([
+  [
+    "seed_navigation_index",
+    new TextEncoder().encode(
+      '<!doctype html><html><head><title>Navigation</title></head><body><main><h1>Navigation prototype</h1><label>Heading <input id="navigation-heading" value="Navigation prototype"></label></main></body></html>',
+    ),
+  ],
+  [
+    "seed_navigation_controls",
+    new TextEncoder().encode(
+      JSON.stringify({
+        version: 1,
+        controls: [
+          {
+            id: "heading",
+            label: "Heading",
+            type: "text",
+            default: "Navigation prototype",
+            binding: { type: "field", selector: "#navigation-heading" },
+          },
+        ],
+      }),
+    ),
+  ],
+  [
+    "seed_navigation_desktop",
+    Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+X2NDWQAAAABJRU5ErkJggg==",
+      "base64",
+    ),
+  ],
+  [
+    "seed_navigation_narrow",
+    Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+X2NDWQAAAABJRU5ErkJggg==",
+      "base64",
+    ),
+  ],
+])
+
+export const seededBuildArtifacts = [
+  {
+    buildId: "00000000-0000-4000-8000-000000000302",
+    kind: "dist",
+    path: "dist/index.html",
+    storageKey: "seed_navigation_index",
+    byteLength: seededBuildArtifactBytes.get("seed_navigation_index")!.byteLength,
+  },
+  {
+    buildId: "00000000-0000-4000-8000-000000000302",
+    kind: "dist",
+    path: "dist/controls.replica.json",
+    storageKey: "seed_navigation_controls",
+    byteLength: seededBuildArtifactBytes.get("seed_navigation_controls")!.byteLength,
+  },
+  {
+    buildId: "00000000-0000-4000-8000-000000000302",
+    kind: "screenshot",
+    path: "screenshots/desktop.png",
+    storageKey: "seed_navigation_desktop",
+    byteLength: seededBuildArtifactBytes.get("seed_navigation_desktop")!.byteLength,
+  },
+  {
+    buildId: "00000000-0000-4000-8000-000000000302",
+    kind: "screenshot",
+    path: "screenshots/narrow.png",
+    storageKey: "seed_navigation_narrow",
+    byteLength: seededBuildArtifactBytes.get("seed_navigation_narrow")!.byteLength,
+  },
+] as const
 
 export async function seedPrototypeIndexData(prisma: PrismaClient, userId: string) {
   await prisma.$transaction(async (database) => {
@@ -158,5 +228,9 @@ export async function seedPrototypeIndexData(prisma: PrismaClient, userId: strin
         data: { currentBuildId: build.id },
       })
     }
+    await database.buildArtifact.deleteMany({
+      where: { buildId: "00000000-0000-4000-8000-000000000302" },
+    })
+    await database.buildArtifact.createMany({ data: [...seededBuildArtifacts] })
   })
 }

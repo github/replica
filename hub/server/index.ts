@@ -19,6 +19,7 @@ import type { AuthenticationRouteDependencies } from "./routes/api/auth/types.ts
 import type { CopilotConnectionRouteDependencies } from "./routes/api/copilot-connection/types.ts"
 import type { LearningsRouteDependencies } from "./routes/api/learnings/types.ts"
 import type { ProductRouteDependencies } from "./routes/api/product/types.ts"
+import type { BuildPreviewRouteDependencies } from "./routes/build-preview/types.ts"
 
 class AuthenticationConfigurationError extends Error {}
 
@@ -47,6 +48,7 @@ try {
     let copilotConnection: CopilotConnectionRouteDependencies | undefined
     let learnings: LearningsRouteDependencies | undefined
     let product: ProductRouteDependencies | undefined
+    let preview: BuildPreviewRouteDependencies | undefined
     if (runsApi) {
       const authenticationEnvironment = resolveLocalSignInEnvironment(process.env)
       const authenticationConfiguration =
@@ -84,6 +86,12 @@ try {
         try {
           if (authenticationConfiguration.providerConfigured) {
             authentication = await createAuthenticationRouteDependencies(authenticationEnvironment)
+            const previewConfigured = storage && authenticationEnvironment.HUB_PREVIEW_ORIGIN
+            if (previewConfigured) {
+              const { createBuildPreviewRouteDependencies } =
+                await import("./routes/build-preview/create-build-preview-route-dependencies/index.ts")
+              preview = createBuildPreviewRouteDependencies(authenticationEnvironment, storage)
+            }
             const { createCopilotConnectionRouteDependencies } =
               await import("./routes/api/copilot-connection/create-copilot-connection-route-dependencies/index.ts")
             copilotConnection = await createCopilotConnectionRouteDependencies(
@@ -102,7 +110,13 @@ try {
             const { createProductRouteDependencies } =
               await import("./routes/api/product/create-product-route-dependencies/index.ts")
             product = createProductRouteDependencies({
+              applicationOrigin: previewConfigured
+                ? authenticationEnvironment.HUB_APPLICATION_ORIGIN
+                : undefined,
               onReviewCommentDeleted: (input) => learningDependencies.redactComment(input),
+              previewBaseOrigin: previewConfigured
+                ? authenticationEnvironment.HUB_PREVIEW_ORIGIN
+                : undefined,
               withReviewCommentDeleteLock: (operation) =>
                 learningDependencies.serializeReviewCommentDeletion(operation),
             })
@@ -129,6 +143,7 @@ try {
         copilotConnection,
         learnings,
         product,
+        preview,
         trustedProxyHops,
       })
     else {
@@ -144,6 +159,7 @@ try {
           copilotConnection,
           learnings,
           product,
+          preview,
           trustedProxyHops,
         })
       } else {

@@ -15,9 +15,12 @@ import { lockEditablePrototype } from "../../../../repositories/prototypes/lock-
 import { lockVisiblePrototype } from "../../../../repositories/prototypes/lock-visible-prototype/index.ts"
 import { updatePrototypeMetadata } from "../../../../repositories/prototypes/update-prototype-metadata/index.ts"
 import { lockSessionRevocationState } from "../../../../repositories/session-revocation-states/lock-session-revocation-state/index.ts"
+import { findBuildPreviewTarget } from "../../../../repositories/build-artifacts/find-build-preview-target/index.ts"
+import { createBuildPreviewOrigin } from "../../../../domains/build-preview/create-build-preview-origin/index.ts"
 import type { ProductRouteDependencies } from "../types.ts"
 
 interface CreateProductRouteDependenciesOptions {
+  applicationOrigin?: string
   authorizeReviewMutation?: (
     transaction: Prisma.TransactionClient,
     sessionDigest: string,
@@ -28,12 +31,15 @@ interface CreateProductRouteDependenciesOptions {
     commentId: number
     actorLogin: string
   }) => Promise<void>
+  previewBaseOrigin?: string
   withReviewCommentDeleteLock?: <T>(operation: () => Promise<T>) => Promise<T>
 }
 
 export function createProductRouteDependencies({
+  applicationOrigin,
   authorizeReviewMutation,
   onReviewCommentDeleted,
+  previewBaseOrigin,
   withReviewCommentDeleteLock,
 }: CreateProductRouteDependenciesOptions = {}): ProductRouteDependencies {
   const authorizeReview =
@@ -52,6 +58,27 @@ export function createProductRouteDependencies({
       })
       return restored?.userId === userId
     })
+  const buildArtifactUrl =
+    applicationOrigin && previewBaseOrigin
+      ? (
+          buildId: string,
+          repositoryId: string,
+          prototypeId: string,
+          buildNumber: number,
+          target: "preview" | "desktop" | "narrow",
+        ) => {
+          const url = new URL(
+            `/api/repositories/${repositoryId}/prototypes/${prototypeId}/builds/${buildNumber}/access`,
+            applicationOrigin,
+          )
+          url.searchParams.set("target", target)
+          url.searchParams.set(
+            "preview_origin",
+            createBuildPreviewOrigin(buildId, previewBaseOrigin),
+          )
+          return url.toString()
+        }
+      : undefined
   return {
     reviewComments: createReviewCommentService(prisma, authorizeReview, {
       onDeleted: onReviewCommentDeleted,
@@ -61,7 +88,14 @@ export function createProductRouteDependencies({
     findRepositoryIndex: (repositoryId, filters) =>
       findRepositoryIndex(prisma, repositoryId, filters),
     findPrototypeDetail: (repositoryId, prototypeId, buildNumber, buildPage) =>
-      findPrototypeDetail(prisma, repositoryId, prototypeId, buildNumber, buildPage),
+      findPrototypeDetail(
+        prisma,
+        repositoryId,
+        prototypeId,
+        buildNumber,
+        buildPage,
+        buildArtifactUrl,
+      ),
     readPrototypeWithIntroduction: (input, prepare) =>
       readPrototypeWithIntroduction(input, {
         prepare,
@@ -84,7 +118,14 @@ export function createProductRouteDependencies({
                 lockPrototype: (repositoryId, prototypeId) =>
                   lockVisiblePrototype(transaction, repositoryId, prototypeId),
                 findDetail: (repositoryId, prototypeId, buildNumber) =>
-                  findPrototypeDetail(joined, repositoryId, prototypeId, buildNumber),
+                  findPrototypeDetail(
+                    joined,
+                    repositoryId,
+                    prototypeId,
+                    buildNumber,
+                    undefined,
+                    buildArtifactUrl,
+                  ),
                 recordIntroduction: (userId, prototypeId) =>
                   recordPrototypeIntroduction(transaction, userId, prototypeId),
               })
@@ -118,11 +159,20 @@ export function createProductRouteDependencies({
                   lockEditablePrototype(transaction, repositoryId, prototypeId),
                 updatePrototype: (id, data) => updatePrototypeMetadata(transaction, id, data),
                 findDetail: (repositoryId, prototypeId) =>
-                  findPrototypeDetail(joined, repositoryId, prototypeId),
+                  findPrototypeDetail(
+                    joined,
+                    repositoryId,
+                    prototypeId,
+                    undefined,
+                    undefined,
+                    buildArtifactUrl,
+                  ),
               })
             },
             { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
           ),
       }),
+    findBuildPreviewTarget: (repositoryId, prototypeId, buildNumber, target) =>
+      findBuildPreviewTarget(prisma, { repositoryId, prototypeId, buildNumber, target }),
   }
 }

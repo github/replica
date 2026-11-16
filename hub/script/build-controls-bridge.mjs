@@ -1,5 +1,5 @@
 import { build } from "vite"
-import { readFile } from "node:fs/promises"
+import { readFile, writeFile } from "node:fs/promises"
 
 import { viteAliases } from "../vite-aliases.ts"
 
@@ -54,4 +54,34 @@ for (const [entry, destination, fileName, name] of [
     if (generated !== existing)
       throw new Error(`The Controls bundle ${fileName} is stale. Run npm run controls:build.`)
   }
+}
+
+const hosted = await build({
+  configFile: false,
+  publicDir: false,
+  logLevel: "warn",
+  resolve: { alias: viteAliases },
+  build: {
+    write: false,
+    minify: true,
+    lib: {
+      entry: new URL("../client/application/prototype-preview-bridge/index.ts", import.meta.url)
+        .pathname,
+      formats: ["iife"],
+      name: "ReplicaHostedPreviewBridge",
+      fileName: () => "preview-bridge.js",
+    },
+  },
+})
+const hostedSource = (Array.isArray(hosted) ? hosted[0] : hosted).output.find(
+  (entry) => entry.type === "chunk",
+).code
+const generatedPath = new URL("../server/assets/hosted-preview-bridge.ts", import.meta.url)
+const generated = `// prettier-ignore\nexport const hostedPreviewBridgeSource = ${JSON.stringify(hostedSource)}\n`
+if (check) {
+  if ((await readFile(generatedPath, "utf8")) !== generated) {
+    throw new Error("The hosted preview bridge is stale. Run npm run controls:build.")
+  }
+} else {
+  await writeFile(generatedPath, generated)
 }

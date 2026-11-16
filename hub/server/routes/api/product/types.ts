@@ -10,6 +10,10 @@ import type {
 } from "../../../repositories/prototype-index/find-repository-index/index.ts"
 import type { findPrototypeDetail } from "../../../repositories/prototype-index/find-prototype-detail/index.ts"
 import type { listRepositories } from "../../../repositories/prototype-index/list-repositories/index.ts"
+import type {
+  BuildPreviewTarget,
+  findBuildPreviewTarget,
+} from "../../../repositories/build-artifacts/find-build-preview-target/index.ts"
 import type { ReviewCommentService } from "../../../domains/review-comments/types.ts"
 
 export interface ProductRouteDependencies {
@@ -39,4 +43,10 @@ export interface ProductRouteDependencies {
     repositoryId: string
     sessionDigest: string
   }): Promise<NonNullable<Awaited<ReturnType<typeof findPrototypeDetail>>>>
+  findBuildPreviewTarget(
+    repositoryId: string,
+    prototypeId: string,
+    buildNumber: number,
+    target: BuildPreviewTarget,
+  ): ReturnType<typeof findBuildPreviewTarget>
 }

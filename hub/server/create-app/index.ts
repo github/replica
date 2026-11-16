@@ -18,6 +18,7 @@ export function createApp({
   isReady,
   learnings,
   logger,
+  preview,
   product,
   trustedProxyHops = 0,
 }: CreateAppOptions = {}) {
@@ -49,6 +50,7 @@ export function createApp({
     isReady,
     learnings,
     logger,
+    preview,
     product,
   })
   app.use("/api", respondNotFound)

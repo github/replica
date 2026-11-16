@@ -15,6 +15,13 @@ export async function findPrototypeDetail(
   prototypeId: string,
   buildNumber?: number,
   buildPage?: { page: number; pageSize: number },
+  buildArtifactUrl?: (
+    buildId: string,
+    repositoryId: string,
+    prototypeId: string,
+    buildNumber: number,
+    target: "preview" | "desktop" | "narrow",
+  ) => string,
 ) {
   const detail = await database.$transaction(
     async (transaction) => {
@@ -87,6 +94,7 @@ export async function findPrototypeDetail(
           startedAt: true,
           finishedAt: true,
           failureSummary: true,
+          artifacts: { select: { path: true, storageKey: true } },
         },
       })
       builds.sort((first, second) => {
@@ -133,14 +141,44 @@ export async function findPrototypeDetail(
         failureSummary: build.failureSummary,
         repositoryId: prototype.repositoryId,
         prototypeId: prototype.id,
-        previewUrl: null,
-        desktopScreenshotUrl: null,
-        narrowScreenshotUrl: null,
+        previewUrl:
+          build.artifacts.some(({ path }) => path === "dist/index.html") && buildArtifactUrl
+            ? buildArtifactUrl(
+                build.id,
+                prototype.repositoryId,
+                prototype.id,
+                build.number,
+                "preview",
+              )
+            : null,
+        desktopScreenshotUrl:
+          build.artifacts.some(({ path }) => path === "screenshots/desktop.png") && buildArtifactUrl
+            ? buildArtifactUrl(
+                build.id,
+                prototype.repositoryId,
+                prototype.id,
+                build.number,
+                "desktop",
+              )
+            : null,
+        narrowScreenshotUrl:
+          build.artifacts.some(({ path }) => path === "screenshots/narrow.png") && buildArtifactUrl
+            ? buildArtifactUrl(
+                build.id,
+                prototype.repositoryId,
+                prototype.id,
+                build.number,
+                "narrow",
+              )
+            : null,
       }))
       const selectedBuildRecord = selectedBuild
         ? (buildRecords.find(({ number }) => number === selectedBuild.number) ?? null)
         : null
 
+      const controlsIdentity = selectedBuild?.artifacts.find(
+        ({ path }) => path === "dist/controls.replica.json",
+      )?.storageKey
       return {
         repository,
         prototype: {
@@ -160,6 +198,7 @@ export async function findPrototypeDetail(
           builds: buildRecords,
         },
         selectedBuild: selectedBuildRecord,
+        ...(controlsIdentity ? { controlsIdentity } : {}),
         ...(page
           ? {
               buildPage: {

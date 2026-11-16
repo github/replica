@@ -8,6 +8,7 @@ import type { AuthenticationRouteDependencies } from "../routes/api/auth/types.t
 import type { CopilotConnectionRouteDependencies } from "../routes/api/copilot-connection/types.ts"
 import type { LearningsRouteDependencies } from "../routes/api/learnings/types.ts"
 import type { ProductRouteDependencies } from "../routes/api/product/types.ts"
+import type { BuildPreviewRouteDependencies } from "../routes/build-preview/types.ts"
 import { attachRealtimeServer } from "../integrations/ws/attach-realtime-server/index.ts"
 import { shutdownServer } from "../shutdown-server/index.ts"
 
@@ -17,6 +18,7 @@ export async function runApi({
   authentication,
   copilotConnection,
   learnings,
+  preview,
   product,
   trustedProxyHops = 0,
   shutdownTimeoutMs = 30_000,
@@ -30,6 +32,7 @@ export async function runApi({
   authentication?: AuthenticationRouteDependencies
   copilotConnection?: CopilotConnectionRouteDependencies
   learnings?: LearningsRouteDependencies
+  preview?: BuildPreviewRouteDependencies
   product?: ProductRouteDependencies
   trustedProxyHops?: number
   shutdownTimeoutMs?: number
@@ -72,6 +75,7 @@ export async function runApi({
         : undefined,
       learnings,
       product,
+      preview,
       trustedProxyHops,
     }),
   )
