@@ -3,10 +3,11 @@ model User {
   id String @id @default(uuid()) @db.Uuid
 
   // Relations
-  externalIdentities ExternalIdentity[]
-  membership         Membership?
-  profile            UserProfile?
-  prototypes         Prototype[]
+  externalIdentities     ExternalIdentity[]
+  membership             Membership?
+  profile                UserProfile?
+  prototypes             Prototype[]
+  prototypeIntroductions PrototypeIntroduction[]
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

@@ -58,6 +58,8 @@ Restoration reads the current revision, locks active provider rows in key order,
 
 Prototype details edits share-lock provider rows in key order and then share-lock the global revocation row before restoring session authority and locking prototype visibility. They keep those locks through the write and detail read-back. Shared provider locks allow sign-in and session restoration to proceed concurrently; provider reconciliation waits for the edit, and the revocation lock can delay global sign-out.
 
+Normal prototype views use the same authority lock order and share-lock repository and prototype visibility while preparing the detail response and recording the introduction. Hub rechecks the session after waits and response preparation. The transaction ends before sending the response.
+
 `GET /api/auth/session` restores the current session and returns its current role plus the membership's provider-neutral presentation identity. `POST /api/auth/session/sign-out` ends it and clears the cookie. Hub does not issue refresh tokens, perform provider logout, or support step-up authentication.
 
 ## HTTP boundary

@@ -1,6 +1,8 @@
 import type { RequestHandler } from "express"
 import { z } from "zod"
 
+import { hashAuthenticationValue } from "../../../../../../domains/authentication/hash-authentication-value/index.ts"
+import { PrototypeViewError } from "../../../../../../domains/prototypes/read-prototype-with-introduction/index.ts"
 import { hubSessionCookieName } from "../../../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../../../../../integrations/express/read-cookie/index.ts"
 import type { CurrentSessionDependencies } from "../../../../auth/types.ts"
@@ -25,7 +27,7 @@ export function get(
     try {
       const cookie = readCookie(request, hubSessionCookieName)
       const initial = await readProductSession(cookie, session)
-      if (!initial) {
+      if (!cookie || !initial) {
         response.status(401).json({ error: "Sign in to continue." })
         return
       }
@@ -52,13 +54,41 @@ export function get(
         return
       }
 
+      if (query.data.view !== "minimized" && request.method === "GET") {
+        const body = await product.readPrototypeWithIntroduction(
+          {
+            buildNumber,
+            membershipId: initial.membershipId,
+            prototypeId: prototypeId.data,
+            repositoryId: repositoryId.data,
+            sessionDigest: hashAuthenticationValue(cookie),
+            userId: initial.userId,
+          },
+          (detail, showPrototypeInfo) =>
+            JSON.stringify({
+              ...detail,
+              prototype: { ...detail.prototype, canEdit: true },
+              showPrototypeInfo,
+            }),
+        )
+        // Avoid conditional 304 responses after the introduction has been recorded.
+        response.setHeader("Content-Type", "application/json; charset=utf-8")
+        response.setHeader("Content-Length", Buffer.byteLength(body))
+        response.end(body)
+        return
+      }
+
       const detail = await product.findPrototypeDetail(
         repositoryId.data,
         prototypeId.data,
         buildNumber,
       )
       const current = await readProductSession(cookie, session)
-      if (!current || current.membershipId !== initial.membershipId) {
+      if (
+        !current ||
+        current.membershipId !== initial.membershipId ||
+        current.userId !== initial.userId
+      ) {
         response.status(401).json({ error: "Sign in to continue." })
         return
       }
@@ -73,6 +103,10 @@ export function get(
         showPrototypeInfo: false,
       })
     } catch (error) {
+      if (error instanceof PrototypeViewError) {
+        response.status(error.code === "not_signed_in" ? 401 : 404).json({ error: error.message })
+        return
+      }
       next(error)
     }
   }
