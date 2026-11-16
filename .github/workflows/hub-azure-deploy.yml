@@ -31,6 +31,7 @@ jobs:
       AZURE_DEPLOYMENT_STORAGE_PRINCIPAL_ID: ${{ vars.AZURE_DEPLOYMENT_STORAGE_PRINCIPAL_ID }}
       AZURE_RUNTIME_DATABASE_SECRET_URL: ${{ vars.AZURE_RUNTIME_DATABASE_SECRET_URL }}
       AZURE_SETUP_DATABASE_SECRET_URL: ${{ vars.AZURE_SETUP_DATABASE_SECRET_URL }}
+      AZURE_RUNTIME_ENVIRONMENT_JSON: ${{ vars.AZURE_RUNTIME_ENVIRONMENT_JSON }}
       AZURE_RUNTIME_SECRET_REFERENCES_JSON: ${{ vars.AZURE_RUNTIME_SECRET_REFERENCES_JSON }}
       AZURE_STATE_RESOURCE_GROUP: ${{ vars.AZURE_STATE_RESOURCE_GROUP }}
       AZURE_STATE_STORAGE_ACCOUNT: ${{ vars.AZURE_STATE_STORAGE_ACCOUNT }}
@@ -132,11 +133,51 @@ jobs:
             if (!value) throw new Error(`Missing required GitHub Environment variable: ${name}`)
             return value
           }
-          const references = process.env.AZURE_RUNTIME_SECRET_REFERENCES_JSON?.trim()
-            ? JSON.parse(process.env.AZURE_RUNTIME_SECRET_REFERENCES_JSON)
-            : {}
-          if (typeof references !== "object" || references === null || Array.isArray(references)) {
-            throw new Error("AZURE_RUNTIME_SECRET_REFERENCES_JSON must be a JSON object.")
+          const record = (name) => {
+            const source = process.env[name]?.trim()
+            if (!source) return {}
+            const value = JSON.parse(source)
+            if (
+              typeof value !== "object" ||
+              value === null ||
+              Array.isArray(value) ||
+              Object.getPrototypeOf(value) !== Object.prototype
+            ) {
+              throw new Error(`${name} must be a JSON object.`)
+            }
+            return value
+          }
+          const environment = record("AZURE_RUNTIME_ENVIRONMENT_JSON")
+          const reserved = new Set([
+            "DATABASE_URL",
+            "DATABASE_RUNTIME_ROLE",
+            "NODE_ENV",
+            "RUNTIME_MODE",
+            "HOST",
+            "PORT",
+            "CLIENT_DIRECTORY",
+            "SHUTDOWN_TIMEOUT_MS",
+            "ARTIFACT_STORAGE_PROVIDER",
+            "ARTIFACT_STORAGE_DIRECTORY",
+            "AZURE_STORAGE_ACCOUNT",
+            "AZURE_STORAGE_CONTAINER",
+            "AZURE_CLIENT_ID",
+            "AZURE_KEY_VAULT_SECRET_REFERENCES",
+          ])
+          for (const [name, value] of Object.entries(environment)) {
+            if (
+              !/^[A-Z][A-Z0-9_]{0,40}$/.test(name) ||
+              reserved.has(name) ||
+              typeof value !== "string"
+            ) {
+              throw new Error(
+                "AZURE_RUNTIME_ENVIRONMENT_JSON contains an invalid or reserved setting.",
+              )
+            }
+          }
+          const references = record("AZURE_RUNTIME_SECRET_REFERENCES_JSON")
+          if (Object.keys(references).some((name) => Object.hasOwn(environment, name))) {
+            throw new Error("Runtime environment settings and secret references cannot share names.")
           }
           const runnerTemp = required("RUNNER_TEMP")
           const keyVaultId = required("AZURE_KEY_VAULT_ID")
@@ -163,6 +204,7 @@ jobs:
                 key_vault_id: keyVaultId,
                 secret_id: required("AZURE_SETUP_DATABASE_SECRET_URL"),
               },
+              runtime_environment_variables: environment,
               runtime_secret_references: references,
             }),
           )

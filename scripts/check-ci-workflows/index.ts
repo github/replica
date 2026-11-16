@@ -163,6 +163,11 @@ export function checkWorkflows(root: string): void {
   assert.deepEqual(Object.keys(deployment.jobs), ["deploy"])
   const deploy = deployment.jobs.deploy
   assert.equal(deploy.environment, "hub-azure-development")
+  assert.equal(
+    deploy.env?.AZURE_RUNTIME_ENVIRONMENT_JSON,
+    "${{ vars.AZURE_RUNTIME_ENVIRONMENT_JSON }}",
+    "Deployment must read non-secret runtime settings from the protected Environment",
+  )
   assert(!JSON.stringify(deployment).includes("secrets."), "Deployment must not read GitHub secrets")
   assert(
     deploy.steps?.every(
@@ -194,8 +199,11 @@ export function checkWorkflows(root: string): void {
   )
   assert(
     configuration?.run?.includes("deployment_storage_principal_id: required(") &&
-      configuration.run.includes('"AZURE_DEPLOYMENT_STORAGE_PRINCIPAL_ID"'),
-    "Deployment must preserve the Terraform-managed installation storage principal",
+      configuration.run.includes('"AZURE_DEPLOYMENT_STORAGE_PRINCIPAL_ID"') &&
+      configuration.run.includes('record("AZURE_RUNTIME_ENVIRONMENT_JSON")') &&
+      configuration.run.includes("runtime_environment_variables: environment") &&
+      configuration.run.includes("runtime_secret_references: references"),
+    "Deployment must preserve the storage principal and separate public runtime settings from secret references",
   )
   const release = deploy.steps?.find(
     (step) => step.name === "Run the serialized maintenance-window release",

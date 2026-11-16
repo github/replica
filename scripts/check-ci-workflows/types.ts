@@ -12,6 +12,7 @@ interface Job {
   uses?: string
   needs?: string | string[]
   if?: string
+  env?: Record<string, string>
   environment?: string
   permissions?: Record<string, string>
   concurrency?: {

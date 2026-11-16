@@ -197,6 +197,28 @@ describe("checkWorkflows()", () => {
         configuration.run = mutated
       },
     },
+    {
+      name: "deployment configuration that drops non-secret runtime settings",
+      mutate(workflow: Workflow) {
+        const configuration = workflow.jobs.deploy.steps?.find(
+          (step) => step.name === "Prepare non-secret deployment configuration",
+        )
+        assert(configuration?.run)
+        const mutated = configuration.run.replace(
+          "runtime_environment_variables: environment,",
+          "",
+        )
+        assert.notEqual(mutated, configuration.run)
+        configuration.run = mutated
+      },
+    },
+    {
+      name: "a missing protected runtime environment mapping",
+      mutate(workflow: Workflow) {
+        assert(workflow.jobs.deploy.env)
+        delete workflow.jobs.deploy.env.AZURE_RUNTIME_ENVIRONMENT_JSON
+      },
+    },
   ])("rejects an Azure deployment workflow with $name", ({ mutate }) => {
     const { directory, path, workflow } = deploymentFixture()
     mutate(workflow)
