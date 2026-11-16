@@ -1,5 +1,7 @@
 import { Prisma } from "../../../generated/prisma/client.ts"
 import { classifyPrismaTransactionError } from "../../../integrations/prisma/classify-transaction-error/index.ts"
+import { lockAuthenticationProvidersForSessionAuthority } from "../../../repositories/authentication-providers/lock-authentication-providers-for-session-authority/index.ts"
+import { lockSessionRevocationStateForUpdate } from "../../../repositories/session-revocation-states/lock-session-revocation-state-for-update/index.ts"
 import { CopilotConnectionError } from "../errors.ts"
 import type { CopilotConnectionTransactionRepositories } from "../types.ts"
 
@@ -18,9 +20,15 @@ export function runCopilotConnectionTransaction<Result>(
   operation: (repositories: CopilotConnectionTransactionRepositories) => Promise<Result>,
 ) {
   return database
-    .$transaction((transaction) => operation(createRepositories(transaction)), {
-      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-    })
+    .$transaction(
+      async (transaction) => {
+        // Reconciliation locks providers first, so keep that order to avoid deadlocks.
+        await lockAuthenticationProvidersForSessionAuthority(transaction)
+        await lockSessionRevocationStateForUpdate(transaction)
+        return operation(createRepositories(transaction))
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    )
     .catch((error: unknown) => {
       if (classifyPrismaTransactionError(error) === "retryable") {
         throw new CopilotConnectionError(

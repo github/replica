@@ -54,6 +54,8 @@ These expiry, lifecycle, assignment, provider, and global-revision checks are en
 
 The migration owns the single global revocation row. Its identity and history are immutable, its revision can only increment by one, and runtime code never recreates a missing row. Admission and restoration fail closed when that authority is missing. Admissions use shared locks for provider selection and revocation authority so unrelated users can proceed concurrently while authority mutations wait.
 
+Restoration reads the current revision, locks active provider rows in key order, then share-locks the global revocation row and rechecks the revision before locking membership, assignments, and the session. It checks the revision again before returning authority. Administrator continuation, Copilot changes, and ending all Hub sessions lock provider rows in key order, then lock the global revocation row exclusively before changing state. This serializes mutations with restoration even when bootstrap or administrator authority has no provider row to lock. Those mutations can briefly block restoration and admission.
+
 `GET /api/auth/session` restores the current session and returns its current role plus the membership's provider-neutral presentation identity. `POST /api/auth/session/sign-out` ends it and clears the cookie. Hub does not issue refresh tokens, perform provider logout, or support step-up authentication.
 
 ## HTTP boundary

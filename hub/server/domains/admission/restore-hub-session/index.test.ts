@@ -21,6 +21,7 @@ function repositories(
     findSession: vi.fn().mockResolvedValue(session),
     getActiveProviderKeys: vi.fn().mockResolvedValue(["entra"]),
     getRevocation: vi.fn().mockResolvedValue({ revision: 0 }),
+    lockRevocation: vi.fn().mockResolvedValue({ revision: 0 }),
     lockActiveAssignments: vi
       .fn()
       .mockResolvedValue([
@@ -49,13 +50,17 @@ describe("restoreHubSession()", () => {
     })
   })
 
-  it("locks each provider before locking membership authority", async () => {
+  it("locks providers before revision and membership authority", async () => {
     const order: string[] = []
     const records = repositories({
-      getActiveProviderKeys: vi.fn().mockResolvedValue(["entra"]),
-      lockProvider: vi.fn().mockImplementation(() => {
-        order.push("provider")
+      getActiveProviderKeys: vi.fn().mockResolvedValue(["entra", "github"]),
+      lockProvider: vi.fn().mockImplementation((key: string) => {
+        order.push(`provider:${key}`)
         return Promise.resolve({ enabled: true, id: "provider-id" })
+      }),
+      lockRevocation: vi.fn().mockImplementation(() => {
+        order.push("revocation")
+        return Promise.resolve({ revision: 0 })
       }),
       lockMembership: vi.fn().mockImplementation(() => {
         order.push("membership")
@@ -65,13 +70,35 @@ describe("restoreHubSession()", () => {
           userId: "user-id",
         })
       }),
+      lockActiveAssignments: vi.fn().mockImplementation(() => {
+        order.push("assignments")
+        return Promise.resolve([
+          { id: "assignment-id", role: "MEMBER", source: "AUTHENTICATION_PROVIDER" },
+        ])
+      }),
+      lockSession: vi.fn().mockImplementation(() => {
+        order.push("session")
+        return Promise.resolve({
+          externalIdentityId: "external-identity-id",
+          id: "session-id",
+          membershipId: "membership-id",
+          revocationRevision: 0,
+        })
+      }),
     })
 
     await restoreHubSession("a".repeat(64), {
       runTransaction: (operation) => operation(records),
     })
 
-    expect(order).toEqual(["provider", "membership"])
+    expect(order).toEqual([
+      "provider:entra",
+      "provider:github",
+      "revocation",
+      "membership",
+      "assignments",
+      "session",
+    ])
   })
 
   it("fails closed when global revocation authority is missing", async () => {
