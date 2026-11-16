@@ -60,6 +60,7 @@ export type ReviewRouteActor = ReviewActor
 export interface ReviewCommentService {
   listPrototypeThreads(repositoryId: string, prototypeId: string): Promise<ReviewThread[]>
   createThread(input: {
+    sessionDigest: string
     repositoryId: string
     prototypeId: string
     buildNumber: number
@@ -68,6 +69,7 @@ export interface ReviewCommentService {
     actor: ReviewRouteActor
   }): Promise<ReviewThread>
   createReply(input: {
+    sessionDigest: string
     repositoryId: string
     prototypeId: string
     threadId: number
@@ -75,6 +77,7 @@ export interface ReviewCommentService {
     actor: ReviewRouteActor
   }): Promise<ReviewThread>
   editComment(input: {
+    sessionDigest: string
     repositoryId: string
     prototypeId: string
     commentId: number
@@ -82,12 +85,14 @@ export interface ReviewCommentService {
     actor: ReviewRouteActor
   }): Promise<ReviewThread>
   deleteComment(input: {
+    sessionDigest: string
     repositoryId: string
     prototypeId: string
     commentId: number
     actor: ReviewRouteActor
   }): Promise<ReviewThread>
   setResolution(input: {
+    sessionDigest: string
     repositoryId: string
     prototypeId: string
     threadId: number

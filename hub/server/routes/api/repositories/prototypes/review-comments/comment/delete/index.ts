@@ -28,6 +28,7 @@ export function delete_(
         return
       }
       const thread = await reviewComments.deleteComment({
+        sessionDigest: current.sessionDigest,
         repositoryId: identifiers.repositoryId,
         prototypeId: identifiers.prototypeId,
         commentId: Number(identifiers.commentId),

@@ -28,6 +28,7 @@ export function delete_(
         return
       }
       const thread = await reviewComments.setResolution({
+        sessionDigest: current.sessionDigest,
         repositoryId: identifiers.repositoryId,
         prototypeId: identifiers.prototypeId,
         threadId: Number(identifiers.threadId),

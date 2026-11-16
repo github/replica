@@ -35,6 +35,8 @@ function persistenceError(reason: ReviewPersistenceFailure): ReviewCommentError 
       return new ReviewCommentError("not_found", "Reviewable prototype not found.")
     case "repository_not_found":
       return new ReviewCommentError("not_found", "Repository not found.")
+    case "session_invalid":
+      return new ReviewCommentError("unauthorized", "Sign in to continue.")
     case "thread_not_found":
       return new ReviewCommentError("not_found", "Review thread not found.")
   }
@@ -56,6 +58,11 @@ async function runReviewMutation<Result>(operation: () => Promise<Result>): Prom
 
 export function createReviewCommentService(
   database: Pick<PrismaClient, "$transaction">,
+  authorizeMutation: (
+    transaction: Prisma.TransactionClient,
+    sessionDigest: string,
+    userId: string,
+  ) => Promise<boolean> = () => Promise.resolve(true),
 ): ReviewCommentService {
   const repository = createReviewCommentRepository(database)
   return {
@@ -68,30 +75,62 @@ export function createReviewCommentService(
       const body = parseReviewBody(input.body)
       const anchor = parseReviewAnchor(input.anchor) as unknown as Prisma.InputJsonValue
       const result = await runReviewMutation(() =>
-        repository.createThread({ ...input, body, anchor }),
+        repository.createThread({
+          ...input,
+          body,
+          anchor,
+          authorize: (transaction) =>
+            authorizeMutation(transaction, input.sessionDigest, input.actor.userId),
+        }),
       )
       if (!result.ok) throw persistenceError(result.reason)
       return serializeReviewThread(result.value)
     },
     async createReply(input) {
       const body = parseReviewBody(input.body)
-      const result = await runReviewMutation(() => repository.createReply({ ...input, body }))
+      const result = await runReviewMutation(() =>
+        repository.createReply({
+          ...input,
+          body,
+          authorize: (transaction) =>
+            authorizeMutation(transaction, input.sessionDigest, input.actor.userId),
+        }),
+      )
       if (!result.ok) throw persistenceError(result.reason)
       return serializeReviewThread(result.value)
     },
     async editComment(input) {
       const body = parseReviewBody(input.body)
-      const result = await runReviewMutation(() => repository.editComment({ ...input, body }))
+      const result = await runReviewMutation(() =>
+        repository.editComment({
+          ...input,
+          body,
+          authorize: (transaction) =>
+            authorizeMutation(transaction, input.sessionDigest, input.actor.userId),
+        }),
+      )
       if (!result.ok) throw persistenceError(result.reason)
       return serializeReviewThread(result.value)
     },
     async deleteComment(input) {
-      const result = await runReviewMutation(() => repository.deleteComment(input))
+      const result = await runReviewMutation(() =>
+        repository.deleteComment({
+          ...input,
+          authorize: (transaction) =>
+            authorizeMutation(transaction, input.sessionDigest, input.actor.userId),
+        }),
+      )
       if (!result.ok) throw persistenceError(result.reason)
       return serializeReviewThread(result.value)
     },
     async setResolution(input) {
-      const result = await runReviewMutation(() => repository.setResolution(input))
+      const result = await runReviewMutation(() =>
+        repository.setResolution({
+          ...input,
+          authorize: (transaction) =>
+            authorizeMutation(transaction, input.sessionDigest, input.actor.userId),
+        }),
+      )
       if (!result.ok) throw persistenceError(result.reason)
       return serializeReviewThread(result.value)
     },

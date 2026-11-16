@@ -10,6 +10,8 @@ interface Actor {
   name: string | null
 }
 
+type AuthorizeMutation = (transaction: Prisma.TransactionClient) => Promise<boolean>
+
 async function findStoredThread(
   transaction: Prisma.TransactionClient,
   repositoryId: string,
@@ -61,6 +63,8 @@ export function createReviewCommentRepository(database: Database) {
             where: {
               id: prototypeId,
               repositoryId,
+              registeredAt: { not: null },
+              branchDeletedAt: null,
               replica: false,
               branchName: { notIn: [repository.defaultBranch, "replica/install-workflow"] },
             },
@@ -85,9 +89,13 @@ export function createReviewCommentRepository(database: Database) {
       body: string
       anchor: Prisma.InputJsonValue
       actor: Actor
+      authorize: AuthorizeMutation
     }): Promise<ReviewPersistenceResult<StoredReviewThread>> {
       return database.$transaction(
         async (transaction) => {
+          if (!(await input.authorize(transaction))) {
+            return { ok: false, reason: "session_invalid" }
+          }
           const repository = await transaction.repository.findFirst({
             where: { id: input.repositoryId, removedAt: null },
             select: { defaultBranch: true },
@@ -97,6 +105,8 @@ export function createReviewCommentRepository(database: Database) {
             where: {
               id: input.prototypeId,
               repositoryId: input.repositoryId,
+              registeredAt: { not: null },
+              branchDeletedAt: null,
               replica: false,
               branchName: { notIn: [repository.defaultBranch, "replica/install-workflow"] },
             },
@@ -142,9 +152,13 @@ export function createReviewCommentRepository(database: Database) {
       threadId: number
       body: string
       actor: Actor
+      authorize: AuthorizeMutation
     }): Promise<ReviewPersistenceResult<StoredReviewThread>> {
       return database.$transaction(
         async (transaction) => {
+          if (!(await input.authorize(transaction))) {
+            return { ok: false, reason: "session_invalid" }
+          }
           const thread = await findStoredThreadByPublicId(
             transaction,
             input.repositoryId,
@@ -190,9 +204,13 @@ export function createReviewCommentRepository(database: Database) {
       commentId: number
       body: string
       actor: Actor
+      authorize: AuthorizeMutation
     }): Promise<ReviewPersistenceResult<StoredReviewThread>> {
       return database.$transaction(
         async (transaction) => {
+          if (!(await input.authorize(transaction))) {
+            return { ok: false, reason: "session_invalid" }
+          }
           const comment = await transaction.reviewComment.findFirst({
             where: {
               publicId: input.commentId,
@@ -244,9 +262,13 @@ export function createReviewCommentRepository(database: Database) {
       prototypeId: string
       commentId: number
       actor: Actor
+      authorize: AuthorizeMutation
     }): Promise<ReviewPersistenceResult<StoredReviewThread>> {
       return database.$transaction(
         async (transaction) => {
+          if (!(await input.authorize(transaction))) {
+            return { ok: false, reason: "session_invalid" }
+          }
           const comment = await transaction.reviewComment.findFirst({
             where: {
               publicId: input.commentId,
@@ -297,9 +319,13 @@ export function createReviewCommentRepository(database: Database) {
       threadId: number
       resolved: boolean
       actor: Actor
+      authorize: AuthorizeMutation
     }): Promise<ReviewPersistenceResult<StoredReviewThread>> {
       return database.$transaction(
         async (transaction) => {
+          if (!(await input.authorize(transaction))) {
+            return { ok: false, reason: "session_invalid" }
+          }
           const thread = await findStoredThreadByPublicId(
             transaction,
             input.repositoryId,

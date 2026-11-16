@@ -9,6 +9,7 @@ export function respondReviewError(error: unknown, response: Response): boolean 
     forbidden: 403,
     conflict: 409,
     not_found: 404,
+    unauthorized: 401,
     unprocessable: 422,
   }[error.code]
   response

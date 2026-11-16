@@ -85,26 +85,35 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
         )
         app.post(
           reviewCommentsPath,
+          requireOrigin(authentication.signOut.applicationOrigin),
+          express.json({ limit: "32kb", strict: true }),
           handleReviewCommentsPost(authentication.currentSession, product.reviewComments),
         )
         app.patch(
           `${reviewCommentsPath}/:commentId`,
+          requireOrigin(authentication.signOut.applicationOrigin),
+          express.json({ limit: "32kb", strict: true }),
           handleReviewCommentPatch(authentication.currentSession, product.reviewComments),
         )
         app.delete(
           `${reviewCommentsPath}/:commentId`,
+          requireOrigin(authentication.signOut.applicationOrigin),
           handleReviewCommentDelete(authentication.currentSession, product.reviewComments),
         )
         app.post(
           `${reviewCommentsPath}/:threadId/replies`,
+          requireOrigin(authentication.signOut.applicationOrigin),
+          express.json({ limit: "32kb", strict: true }),
           handleReviewCommentReplyPost(authentication.currentSession, product.reviewComments),
         )
         app.post(
           `${reviewCommentsPath}/:threadId/resolution`,
+          requireOrigin(authentication.signOut.applicationOrigin),
           handleReviewThreadResolutionPost(authentication.currentSession, product.reviewComments),
         )
         app.delete(
           `${reviewCommentsPath}/:threadId/resolution`,
+          requireOrigin(authentication.signOut.applicationOrigin),
           handleReviewThreadResolutionDelete(authentication.currentSession, product.reviewComments),
         )
       }

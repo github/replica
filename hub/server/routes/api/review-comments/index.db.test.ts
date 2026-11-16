@@ -33,7 +33,12 @@ async function withServer(
     signOut: { applicationOrigin: "http://127.0.0.1:5173", secureCookie: false, end: vi.fn() },
   }
   const server = createServer(
-    createApp({ authentication, product: createProductRouteDependencies() }),
+    createApp({
+      authentication,
+      product: createProductRouteDependencies({
+        authorizeReviewMutation: () => Promise.resolve(true),
+      }),
+    }),
   )
   server.listen(0, "127.0.0.1")
   await once(server, "listening")
@@ -90,9 +95,37 @@ async function createReviewTarget() {
 const sessionHeaders = {
   cookie: "hub_session=member-session",
   "content-type": "application/json",
+  origin: "http://127.0.0.1:5173",
 }
 
 describe("review comments API", () => {
+  it("rejects cross-origin review mutations before saving data", async () => {
+    const target = await createReviewTarget()
+    const member = await createMember("mona", "Mona")
+    const restore = vi.fn().mockResolvedValue(member)
+
+    await withServer(restore, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}${target.path}`, {
+        method: "POST",
+        headers: {
+          cookie: sessionHeaders.cookie,
+          "content-type": sessionHeaders["content-type"],
+          origin: "https://attacker.example",
+        },
+        body: JSON.stringify({
+          review_comment: {
+            build_number: target.build.number,
+            body: "Cross-origin comment",
+            anchor,
+          },
+        }),
+      })
+
+      expect(response.status).toBe(403)
+      expect(await prisma.reviewThread.count()).toBe(0)
+    })
+  })
+
   it("requires a live member session and hides removed repositories", async () => {
     const target = await createReviewTarget()
     const member = await createMember("mona", "Mona")

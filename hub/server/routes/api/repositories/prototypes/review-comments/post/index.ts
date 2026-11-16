@@ -38,6 +38,7 @@ export function post(
         return
       }
       const thread = await reviewComments.createThread({
+        sessionDigest: current.sessionDigest,
         repositoryId: identifiers.repositoryId,
         prototypeId: identifiers.prototypeId,
         buildNumber: body.data.review_comment.build_number,

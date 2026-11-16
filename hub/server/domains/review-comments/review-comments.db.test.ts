@@ -5,6 +5,9 @@ import { prisma } from "../../integrations/prisma"
 
 import { captureRepositoryReviewSnapshot } from "./capture-repository-review-snapshot"
 import { createReviewCommentService } from "./create-review-comment-service"
+import type { ReviewCommentService } from "./types"
+
+const sessionDigest = "a".repeat(64)
 
 const anchor = {
   schemaVersion: 1 as const,
@@ -77,6 +80,29 @@ async function createRepository(nameWithOwner = "team/reviewable") {
   })
 }
 
+function createTestReviewService() {
+  const service = createReviewCommentService(prisma)
+  return {
+    createThread: (
+      input: Omit<Parameters<ReviewCommentService["createThread"]>[0], "sessionDigest">,
+    ) => service.createThread({ ...input, sessionDigest }),
+    createReply: (
+      input: Omit<Parameters<ReviewCommentService["createReply"]>[0], "sessionDigest">,
+    ) => service.createReply({ ...input, sessionDigest }),
+    editComment: (
+      input: Omit<Parameters<ReviewCommentService["editComment"]>[0], "sessionDigest">,
+    ) => service.editComment({ ...input, sessionDigest }),
+    deleteComment: (
+      input: Omit<Parameters<ReviewCommentService["deleteComment"]>[0], "sessionDigest">,
+    ) => service.deleteComment({ ...input, sessionDigest }),
+    setResolution: (
+      input: Omit<Parameters<ReviewCommentService["setResolution"]>[0], "sessionDigest">,
+    ) => service.setResolution({ ...input, sessionDigest }),
+    listPrototypeThreads: (repositoryId: string, prototypeId: string) =>
+      service.listPrototypeThreads(repositoryId, prototypeId),
+  }
+}
+
 describe("review comments", () => {
   it("stores stable root identity and flat replies without crossing prototype scope", async () => {
     const repository = await createRepository()
@@ -84,7 +110,7 @@ describe("review comments", () => {
     const second = await createReviewablePrototype(repository.id, "prototype/profile", 7)
     const author = await createUser("mona", "Mona Lisa")
     const reviewer = await createUser("hubot", "Hubot")
-    const service = createReviewCommentService(prisma)
+    const service = createTestReviewService()
 
     const thread = await service.createThread({
       repositoryId: repository.id,
@@ -153,11 +179,25 @@ describe("review comments", () => {
     const repository = await createRepository()
     const first = await createReviewablePrototype(repository.id, "prototype/checkout", 1)
     const second = await createReviewablePrototype(repository.id, "prototype/profile", 2)
+    const draft = await prisma.prototype.create({
+      data: {
+        repositoryId: repository.id,
+        branchName: "prototype/draft",
+      },
+    })
+    const draftBuild = await prisma.build.create({
+      data: { prototypeId: draft.id, number: 1, state: "successful" },
+    })
+    const deleted = await createReviewablePrototype(repository.id, "prototype/deleted", 1)
+    await prisma.prototype.update({
+      where: { id: deleted.prototype.id },
+      data: { branchDeletedAt: new Date("2026-11-15T00:00:00Z") },
+    })
     const failed = await prisma.build.create({
       data: { prototypeId: first.prototype.id, number: 3, state: "failed" },
     })
     const author = await createUser("mona", "Mona")
-    const service = createReviewCommentService(prisma)
+    const service = createTestReviewService()
 
     const invalidInputs = [
       { body: " ", anchor },
@@ -200,6 +240,32 @@ describe("review comments", () => {
         actor: author,
       }),
     ).rejects.toMatchObject({ code: "not_found" })
+    await expect(
+      service.createThread({
+        repositoryId: repository.id,
+        prototypeId: draft.id,
+        buildNumber: draftBuild.number,
+        body: "Draft branch",
+        anchor,
+        actor: author,
+      }),
+    ).rejects.toMatchObject({ code: "not_found" })
+    await expect(
+      service.createThread({
+        repositoryId: repository.id,
+        prototypeId: deleted.prototype.id,
+        buildNumber: deleted.build.number,
+        body: "Deleted branch",
+        anchor,
+        actor: author,
+      }),
+    ).rejects.toMatchObject({ code: "not_found" })
+    await expect(service.listPrototypeThreads(repository.id, draft.id)).rejects.toMatchObject({
+      code: "not_found",
+    })
+    await expect(
+      service.listPrototypeThreads(repository.id, deleted.prototype.id),
+    ).rejects.toMatchObject({ code: "not_found" })
   })
 
   it("permanently clears deleted text while retaining comment identity and position", async () => {
@@ -209,7 +275,7 @@ describe("review comments", () => {
       "prototype/checkout",
     )
     const author = await createUser("mona", "Mona")
-    const service = createReviewCommentService(prisma)
+    const service = createTestReviewService()
     const thread = await service.createThread({
       repositoryId: repository.id,
       prototypeId: prototype.id,
@@ -269,7 +335,7 @@ describe("review comments", () => {
     const author = await createUser("mona", "Mona")
     const firstReviewer = await createUser("hubot", "Hubot")
     const secondReviewer = await createUser("octocat", "The Octocat")
-    const service = createReviewCommentService(prisma)
+    const service = createTestReviewService()
     const thread = await service.createThread({
       repositoryId: repository.id,
       prototypeId: prototype.id,
@@ -333,7 +399,7 @@ describe("review comments", () => {
     const second = await createReviewablePrototype(repository.id, "prototype/profile", 9)
     const author = await createUser("mona", "Mona")
     const reviewer = await createUser("hubot", null)
-    const service = createReviewCommentService(prisma)
+    const service = createTestReviewService()
     const firstThread = await service.createThread({
       repositoryId: repository.id,
       prototypeId: first.prototype.id,

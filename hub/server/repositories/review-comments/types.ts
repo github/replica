@@ -17,6 +17,7 @@ export type ReviewPersistenceFailure =
   | "comment_not_found"
   | "conflict"
   | "repository_not_found"
+  | "session_invalid"
   | "thread_closed"
   | "thread_deleted"
   | "thread_not_found"

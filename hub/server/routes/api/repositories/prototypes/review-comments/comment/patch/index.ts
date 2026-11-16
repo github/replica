@@ -32,6 +32,7 @@ export function patch(
         return
       }
       const thread = await reviewComments.editComment({
+        sessionDigest: current.sessionDigest,
         repositoryId: identifiers.repositoryId,
         prototypeId: identifiers.prototypeId,
         commentId: Number(identifiers.commentId),

@@ -1,5 +1,5 @@
 export type ReviewCommentErrorCode =
-  "conflict" | "forbidden" | "invalid" | "not_found" | "unprocessable"
+  "conflict" | "forbidden" | "invalid" | "not_found" | "unprocessable" | "unauthorized"
 
 export class ReviewCommentError extends Error {
   readonly code: ReviewCommentErrorCode
