@@ -1,4 +1,5 @@
 import { isAbsolute, relative, resolve } from "node:path"
+import { tmpdir } from "node:os"
 
 import { LocalDevelopmentConfigurationError } from "../errors.ts"
 import type { LocalDevelopmentConfiguration } from "../types.ts"
@@ -24,9 +25,10 @@ export function readLocalDevelopmentConfiguration(
       "HUB_LOCAL_MODE is available only when NODE_ENV=development.",
     )
   }
-  if ((environment.RUNTIME_MODE ?? "api") !== "api") {
+  const runtimeMode = environment.RUNTIME_MODE ?? "api"
+  if (runtimeMode !== "api" && runtimeMode !== "on-demand") {
     throw new LocalDevelopmentConfigurationError(
-      "HUB_LOCAL_MODE is available only for the development API runtime.",
+      "HUB_LOCAL_MODE is available only for the development API or on-demand worker runtime.",
     )
   }
 
@@ -44,6 +46,12 @@ export function readLocalDevelopmentConfiguration(
       "LOCAL_REPLICA_BUILD_ACTION_ROOT must be an absolute directory.",
     )
   }
+  const configuredTemporaryRoot = environment.LOCAL_BUILD_TEMPORARY_ROOT
+  if (configuredTemporaryRoot && !isAbsolute(configuredTemporaryRoot)) {
+    throw new LocalDevelopmentConfigurationError(
+      "LOCAL_BUILD_TEMPORARY_ROOT must be an absolute directory.",
+    )
+  }
   const root = configuredRoot ?? resolve(hubRoot, ".local/prototypes")
   if (root === hubRoot || isWithin(resolve(hubRoot, "storage"), root)) {
     throw new LocalDevelopmentConfigurationError(
@@ -57,5 +65,6 @@ export function readLocalDevelopmentConfiguration(
     sourceRoot,
     buildActionDirectory: configuredBuildAction ?? resolve(sourceRoot, "actions/build"),
     createPrototypeScript: resolve(sourceRoot, "scripts/create-prototype-repo.sh"),
+    temporaryRoot: configuredTemporaryRoot ?? tmpdir(),
   }
 }

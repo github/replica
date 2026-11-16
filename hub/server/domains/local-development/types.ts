@@ -8,6 +8,7 @@ export type LocalDevelopmentConfiguration =
       enabled: true
       root: string
       sourceRoot: string
+      temporaryRoot: string
     }
 
 export type PrepareLocalDevelopmentDependencies = {

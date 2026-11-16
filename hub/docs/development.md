@@ -57,9 +57,9 @@ Open <http://127.0.0.1:5173>. React Router's Vite development server forwards `/
 
 With `npm run dev:api`, the home page shows **Sign in as local developer**. Selecting it signs you in as one fixed local developer who is a Hub administrator. No password or outside account is involved. The command explicitly enables `HUB_LOCAL_MODE` and local sign-in. The API refuses local mode unless `NODE_ENV` is `development`, the runtime role is API-only, and `DATABASE_URL` points at a local development database. It also requires `HOST` to be `127.0.0.1`, `::1`, or `localhost` and `HUB_APPLICATION_ORIGIN` to be a loopback origin. It refuses GitHub or Entra settings at the same time. Unset origin, encryption key, and bootstrap secret values get local defaults. See [Local developer sign-in](authentication.md#local-developer-sign-in) for how this mode reuses the normal sign-in checks.
 
-Local-mode startup prepares the absolute `LOCAL_PROTOTYPE_ROOT`, defaulting to the ignored `hub/.local/prototypes/` directory. The root is separate from `hub/storage/`, which remains available for production-shaped database, artifact, and learning data. Production and worker runtimes reject local mode rather than changing their startup requirements. The local Build pipeline uses the same root and the optional `LOCAL_REPLICA_BUILD_ACTION_ROOT`, so bootstrap and Build synchronization do not need parallel path settings.
+Local-mode startup prepares the absolute `LOCAL_PROTOTYPE_ROOT`, defaulting to the ignored `hub/.local/prototypes/` directory. The root is separate from `hub/storage/`, which remains available for production-shaped database, artifact, and learning data. Production, combined, scheduled-worker, and setup runtimes reject local mode rather than changing their startup requirements. The development API, local commands, and local on-demand worker use this root, the optional `LOCAL_REPLICA_BUILD_ACTION_ROOT`, and the optional `LOCAL_BUILD_TEMPORARY_ROOT` through one configuration contract.
 
-When the prototype root is empty, the first start creates `minimal/` from the canonical [Replica Starter](../../starter/), installs its locked dependencies, commits `main`, and creates the committed `prototype/example` branch with a scaffolded example route. The commits use fixed example authorship and timestamps so the same starter revision produces the same repository history. Startup also installs the shared [Build action](../../actions/build/) runtime dependencies from its lockfile. It skips each install when the required dependencies are already present.
+When the prototype root is empty, the first start creates `minimal/` from the canonical [Replica Starter](../../starter/), installs its locked dependencies, commits `main`, and creates the committed `prototype/example` branch with a scaffolded example route. The commits use fixed example authorship and timestamps so the same starter revision produces the same repository history. Preparation also installs the shared [Build action](../../actions/build/) runtime dependencies from its lockfile and its pinned Chromium browser. It skips the npm install when the required dependencies are already present; Playwright's browser installation is idempotent.
 
 Later starts always prepare the shared Build action dependencies, but they do not add, replace, switch, or commit anything in a nonempty prototype root. This includes the seeded repository after a developer edits it. To prepare without keeping the API running, use:
 
@@ -67,7 +67,7 @@ Later starts always prepare the shared Build action dependencies, but they do no
 npm run local:prepare
 ```
 
-To add another local repository, create a Git repository as an immediate child of the configured root and give its default branch at least one commit. Keep unrelated repositories and production data outside this directory. Repository discovery and Build execution are separate work and are not implemented by this bootstrap.
+To add another local repository, create a Git repository as an immediate child of the configured root and give its default branch at least one commit. Keep unrelated repositories and production data outside this directory.
 
 Remove GitHub or Entra settings from `.env` before switching to local mode; otherwise, use `npm run dev:api:live`. The live entrypoint explicitly disables local mode and does not prepare or read local prototype repositories. Starting local mode on a database with enabled providers disables those providers. To switch back to live mode on that database, increase the revision of each provider you re-enable by exactly one above its last stored revision. For example, if the last GitHub revision was `1`, set `GITHUB_PROVIDER_REVISION=2`.
 
@@ -93,32 +93,24 @@ The command requires an active Hub member and a local development database. It a
 
 ## Build local prototype repositories
 
-Local Build discovery is a development-only replacement for the old Rails local mode. It needs no GitHub App, remote repository, workflow, or GitHub authorization. Sign in once as the fixed local developer, configure filesystem artifact storage, and point `LOCAL_PROTOTYPE_ROOT` at a directory whose immediate child directories are prototype Git repositories:
+Local Build discovery is a development-only replacement for the old Rails local mode. It needs no GitHub App, remote repository, workflow, or GitHub authorization. Sign in once as the fixed local developer and configure filesystem artifact storage:
 
 ```sh
 ARTIFACT_STORAGE_PROVIDER=filesystem
 ARTIFACT_STORAGE_DIRECTORY=/absolute/service-owned/artifacts
-LOCAL_PROTOTYPE_ROOT=/absolute/path/to/prototypes
 ```
 
-The filesystem provider requires the Linux protections described in [Artifact storage](artifact-storage.md), so use the devcontainer or another supported Linux environment. Prepare the shared build action once:
+The filesystem provider requires the Linux protections described in [Artifact storage](artifact-storage.md), so use the devcontainer or another supported Linux environment. Docker must be available to the Hub process because the shared action builds each prototype in its pinned Node container. `npm run dev:api` and every `local:*` command run the same safe preparation first. Run one scan and Build synchronization directly:
 
 ```sh
-npm ci --prefix ../actions/build --ignore-scripts
-(cd ../actions/build && npx playwright install --with-deps chromium)
+npm run local:builds
 ```
 
-Docker must be available to the Hub process because the shared action builds each prototype in its pinned Node container. Run one synchronization directly:
+Alternatively, after `npm run setup`, enqueue the same scan and run the local on-demand worker:
 
 ```sh
-NODE_ENV=development npm run local:builds
-```
-
-Alternatively, after `npm run setup`, enqueue the same work and run the on-demand worker:
-
-```sh
-NODE_ENV=development npm run local:builds:enqueue
-npm run worker:on-demand
+npm run local:builds:enqueue
+npm run local:worker
 ```
 
 Each scan considers committed heads for the default branch and every other local branch. Hub creates one stable local repository and branch prototype, records the observed head, and creates at most one Build for that exact commit. An unchanged successful or failed head is not rebuilt. A queued or interrupted running Build may resume. Discovery and Build failures are isolated so another repository can still finish.

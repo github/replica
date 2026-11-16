@@ -47,6 +47,11 @@ export async function prepareLocalDevelopment(
       cwd: configuration.buildActionDirectory,
     })
   }
+  await runCommand({
+    command: process.execPath,
+    arguments: ["node_modules/playwright/cli.js", "install", "chromium"],
+    cwd: configuration.buildActionDirectory,
+  })
 
   if ((await readdir(configuration.root)).length > 0) {
     return { root: configuration.root, seeded: false }

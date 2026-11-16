@@ -41,27 +41,38 @@ function expectSeedDependencyInstall(directory: string, prototypesRoot: string) 
 
 function testConfiguration(): {
   configuration: LocalDevelopmentConfiguration & { enabled: true }
+  browserDirectories: string[]
   npmDirectories: string[]
   runTestCommand: (options: RunCommandOptions) => Promise<void>
 } {
   const root = resolve(
     `server/domains/local-development/prepare-local-development/.prepare-test-${randomUUID()}`,
   )
+  const browserDirectories: string[] = []
   const npmDirectories: string[] = []
   onTestFinished(() => rm(root, { force: true, recursive: true }))
 
   return {
+    browserDirectories,
     configuration: {
-      buildActionDirectory: resolve(sourceRepositoryRoot, "actions/build"),
+      buildActionDirectory: resolve(root, ".build-action"),
       createPrototypeScript: resolve(sourceRepositoryRoot, "scripts/create-prototype-repo.sh"),
       enabled: true,
       root,
       sourceRoot: sourceRepositoryRoot,
+      temporaryRoot: resolve(root, ".temporary"),
     },
     npmDirectories,
     runTestCommand: async (options) => {
       if (options.command === "npm" && options.arguments[0] === "ci") {
         npmDirectories.push(options.cwd)
+        return
+      }
+      if (
+        options.command === process.execPath &&
+        options.arguments.join(" ") === "node_modules/playwright/cli.js install chromium"
+      ) {
+        browserDirectories.push(options.cwd)
         return
       }
       await runCommand(options)
@@ -86,6 +97,7 @@ describe("prepareLocalDevelopment()", () => {
     expect(first.npmDirectories[0]).toBe(first.configuration.buildActionDirectory)
     expectSeedDependencyInstall(first.npmDirectories[1]!, first.configuration.root)
     expect(first.npmDirectories).toHaveLength(2)
+    expect(first.browserDirectories).toEqual([first.configuration.buildActionDirectory])
 
     const second = testConfiguration()
     await prepareLocalDevelopment(second.configuration, { runCommand: second.runTestCommand })
@@ -106,6 +118,7 @@ describe("prepareLocalDevelopment()", () => {
       readFile(resolve(fixture.configuration.root, "minimal/package.json"), "utf8"),
     ).rejects.toThrow()
     expect(fixture.npmDirectories).toEqual([fixture.configuration.buildActionDirectory])
+    expect(fixture.browserDirectories).toEqual([fixture.configuration.buildActionDirectory])
   })
 
   it("preserves edited files, commits, and branches on later starts", async () => {
@@ -138,5 +151,9 @@ describe("prepareLocalDevelopment()", () => {
     expectSeedDependencyInstall(fixture.npmDirectories[1]!, fixture.configuration.root)
     expect(fixture.npmDirectories[2]).toBe(fixture.configuration.buildActionDirectory)
     expect(fixture.npmDirectories).toHaveLength(3)
+    expect(fixture.browserDirectories).toEqual([
+      fixture.configuration.buildActionDirectory,
+      fixture.configuration.buildActionDirectory,
+    ])
   })
 })
