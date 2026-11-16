@@ -12,6 +12,8 @@ import type { ProductRouteDependencies } from "../../../../product/types.ts"
 const bodySchema = z
   .object({
     name: z.string().nullable().optional(),
+    description: z.string().nullable().optional(),
+    startPage: z.string().nullable().optional(),
   })
   .strict()
 
@@ -37,7 +39,7 @@ export function patch(
       }
       const changes = bodySchema.safeParse(request.body)
       if (!changes.success || Object.keys(changes.data).length === 0) {
-        response.status(400).json({ error: "Send a prototype name." })
+        response.status(400).json({ error: "Send a prototype edit." })
         return
       }
 

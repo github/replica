@@ -185,7 +185,7 @@ describe("prototype PATCH API", () => {
 
     expect((await patch(draftUrl, member.token, { name: "\u0085\u00a0 " })).status).toBe(400)
     expect(
-      (await patch(draftUrl, member.token, { name: "Valid", description: "Extra" })).status,
+      (await patch(draftUrl, member.token, { name: "Valid", unsupported: "Extra" })).status,
     ).toBe(400)
     expect(await readPrototype(draft.id)).toEqual(draft)
 
@@ -753,4 +753,337 @@ describe("prototype PATCH API", () => {
       await Promise.all([blocker.end(), inspector.end()])
     }
   }, 20_000)
+})
+
+describe("prototype descriptions", () => {
+  it("registers a draft through its description and keeps its first author and Builds", async () => {
+    const server = await openServer()
+    const first = await createMember()
+    const second = await createMember()
+    const { prototype, url } = await createPrototype(server.url, "prototype/description", {
+      draft: true,
+    })
+    const build = await prisma.build.create({
+      data: { prototypeId: prototype.id, number: 1, state: "successful" },
+    })
+    await prisma.prototype.update({
+      where: { id: prototype.id },
+      data: { name: "\u0085Existing name\ufeff", currentBuildId: build.id },
+    })
+
+    const response = await patch(url, first.token, {
+      description: "\u0085\u00a0\u2003Summary\nwith details\ufeff",
+    })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      prototype: {
+        id: prototype.id,
+        name: "Existing name",
+        description: "Summary\nwith details",
+      },
+      selectedBuild: { prototypeId: prototype.id, number: 1 },
+    })
+    const registered = await readPrototype(prototype.id)
+    expect(registered).toMatchObject({
+      authorId: first.user.id,
+      name: "Existing name",
+      description: "Summary\nwith details",
+      currentBuildId: build.id,
+    })
+    expect(registered.registeredAt).toBeInstanceOf(Date)
+
+    expect((await patch(url, second.token, { description: "Revised" })).status).toBe(200)
+    expect(await readPrototype(prototype.id)).toMatchObject({
+      authorId: first.user.id,
+      registeredAt: registered.registeredAt,
+      name: "Existing name",
+      description: "Revised",
+      currentBuildId: build.id,
+      createdAt: prototype.createdAt,
+    })
+    expect(await prisma.build.findUniqueOrThrow({ where: { id: build.id } })).toEqual(build)
+  })
+
+  it("uses the branch name when a description registers an unnamed draft", async () => {
+    const server = await openServer()
+    const member = await createMember()
+    const { prototype, url } = await createPrototype(server.url, "prototype/unnamed", {
+      draft: true,
+    })
+
+    expect((await patch(url, member.token, { description: "First description" })).status).toBe(200)
+    const registered = await readPrototype(prototype.id)
+    expect(registered).toMatchObject({
+      name: prototype.branchName,
+      description: "First description",
+      authorId: member.user.id,
+    })
+    expect(registered.registeredAt).toBeInstanceOf(Date)
+  })
+
+  it("accepts 500 Unicode characters after trimming the description", async () => {
+    const server = await openServer()
+    const member = await createMember()
+    const { prototype, url } = await createPrototype(server.url, "prototype/description-limit")
+    const description = "😀".repeat(500)
+
+    const response = await patch(url, member.token, {
+      name: "Updated together",
+      description: `\u0085${description}\ufeff`,
+    })
+    expect(response.status).toBe(200)
+    expect(await readPrototype(prototype.id)).toMatchObject({
+      name: "Updated together",
+      description,
+    })
+  })
+
+  it("rejects a long description without partly editing or registering a draft", async () => {
+    const server = await openServer()
+    const member = await createMember()
+    const { prototype, url } = await createPrototype(server.url, "prototype/long-description", {
+      draft: true,
+    })
+
+    expect(
+      (await patch(url, member.token, { name: "Must not save", description: "😀".repeat(501) }))
+        .status,
+    ).toBe(400)
+    expect(await readPrototype(prototype.id)).toEqual(prototype)
+  })
+
+  it("clears a whitespace-only description to NULL", async () => {
+    const server = await openServer()
+    const member = await createMember()
+    const { prototype, url } = await createPrototype(server.url, "prototype/clear-description")
+    await prisma.prototype.update({
+      where: { id: prototype.id },
+      data: { description: "Previous description" },
+    })
+
+    const response = await patch(url, member.token, {
+      description:
+        "\t\n\v\f\r \u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff",
+    })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ prototype: { description: null } })
+    expect(await readPrototype(prototype.id)).toMatchObject({ description: null })
+  })
+
+  it("clears an empty description to NULL", async () => {
+    const server = await openServer()
+    const member = await createMember()
+    const { prototype, url } = await createPrototype(server.url, "prototype/empty-description")
+    await prisma.prototype.update({
+      where: { id: prototype.id },
+      data: { description: "Previous description" },
+    })
+
+    expect((await patch(url, member.token, { description: "" })).status).toBe(200)
+    expect(await readPrototype(prototype.id)).toMatchObject({ description: null })
+  })
+
+  it("rejects whitespace-only draft names written directly to the database", async () => {
+    const server = await openServer()
+    const { prototype } = await createPrototype(server.url, "prototype/blank-draft-name", {
+      draft: true,
+    })
+    const whitespace =
+      "\t\n\v\f\r \u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
+
+    await expect(prisma.$executeRaw`
+      UPDATE prototypes SET name = ${whitespace} WHERE id = ${prototype.id}::uuid
+    `).rejects.toThrow()
+    expect(await readPrototype(prototype.id)).toEqual(prototype)
+  })
+
+  it("rejects whitespace-only draft descriptions written directly to the database", async () => {
+    const server = await openServer()
+    const { prototype } = await createPrototype(server.url, "prototype/blank-draft-description", {
+      draft: true,
+    })
+    const whitespace =
+      "\t\n\v\f\r \u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
+
+    await expect(prisma.$executeRaw`
+      UPDATE prototypes SET description = ${whitespace} WHERE id = ${prototype.id}::uuid
+    `).rejects.toThrow()
+    expect(await readPrototype(prototype.id)).toEqual(prototype)
+  })
+})
+
+describe("prototype start pages", () => {
+  it("registers a draft through a start page with encoded spaces and percent signs", async () => {
+    const server = await openServer()
+    const member = await createMember()
+    const { prototype, url } = await createPrototype(server.url, "prototype/start-page", {
+      draft: true,
+    })
+    const startPage = "/welcome%20back/100%25?tab=first#/details"
+
+    const response = await patch(url, member.token, { startPage })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      prototype: { id: prototype.id, name: prototype.branchName, startPage },
+    })
+    const registered = await readPrototype(prototype.id)
+    expect(registered).toMatchObject({
+      name: prototype.branchName,
+      authorId: member.user.id,
+    })
+    expect(registered.registeredAt).toBeInstanceOf(Date)
+  })
+
+  it("reads a missing start page as root and preserves a saved page when omitted", async () => {
+    const server = await openServer()
+    const member = await createMember()
+    const { url } = await createPrototype(server.url, "prototype/default-page")
+    const headers = { cookie: `hub_session=${member.token}` }
+    const initial = await fetch(url, { headers })
+    expect(initial.status).toBe(200)
+    expect(await initial.json()).toMatchObject({ prototype: { startPage: "/" } })
+
+    expect((await patch(url, member.token, { startPage: "/saved" })).status).toBe(200)
+    expect((await patch(url, member.token, { name: "Renamed" })).status).toBe(200)
+    expect((await patch(url, member.token, { description: "New description" })).status).toBe(200)
+    const detail = await fetch(url, { headers })
+    expect(detail.status).toBe(200)
+    expect(await detail.json()).toMatchObject({ prototype: { startPage: "/saved" } })
+  })
+
+  it("reads a blank start page as root after clearing a saved page", async () => {
+    const server = await openServer()
+    const member = await createMember()
+    const { url } = await createPrototype(server.url, "prototype/clear-page")
+
+    expect((await patch(url, member.token, { startPage: "/saved" })).status).toBe(200)
+    expect((await patch(url, member.token, { startPage: "" })).status).toBe(200)
+    const response = await fetch(url, { headers: { cookie: `hub_session=${member.token}` } })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ prototype: { startPage: "/" } })
+  })
+
+  it("accepts a start page of exactly 2048 UTF-8 bytes", async () => {
+    const server = await openServer()
+    const member = await createMember()
+    const { url } = await createPrototype(server.url, "prototype/page-limit")
+    const startPage = `/${"a".repeat(2047)}`
+
+    const response = await patch(url, member.token, { startPage })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ prototype: { startPage } })
+  })
+
+  it("rejects a start page over the byte limit even when its character count fits", async () => {
+    const server = await openServer()
+    const member = await createMember()
+    const { prototype, url } = await createPrototype(server.url, "prototype/page-byte-limit")
+
+    expect((await patch(url, member.token, { startPage: `/${"é".repeat(1024)}` })).status).toBe(400)
+    expect(await readPrototype(prototype.id)).toEqual(prototype)
+  })
+
+  it("rejects an external URL without partly applying other edits", async () => {
+    const server = await openServer()
+    const member = await createMember()
+    const { prototype, url } = await createPrototype(server.url, "prototype/external-page")
+
+    expect(
+      (await patch(url, member.token, { name: "Must not save", startPage: "https://evil.test/" }))
+        .status,
+    ).toBe(400)
+    expect(await readPrototype(prototype.id)).toEqual(prototype)
+  })
+
+  it("rejects a protocol-relative start page", async () => {
+    const server = await openServer()
+    const member = await createMember()
+    const { url } = await createPrototype(server.url, "prototype/relative-host")
+
+    expect((await patch(url, member.token, { startPage: "//evil.test/page" })).status).toBe(400)
+  })
+
+  it("rejects an encoded protocol-relative start page", async () => {
+    const server = await openServer()
+    const member = await createMember()
+    const { url } = await createPrototype(server.url, "prototype/encoded-host")
+
+    expect((await patch(url, member.token, { startPage: "/%2fevil.test/page" })).status).toBe(400)
+  })
+
+  it("rejects parent traversal in a start page", async () => {
+    const server = await openServer()
+    const member = await createMember()
+    const { url } = await createPrototype(server.url, "prototype/traversal")
+
+    expect((await patch(url, member.token, { startPage: "/safe/../secret" })).status).toBe(400)
+  })
+
+  it("rejects encoded parent traversal in a start page", async () => {
+    const server = await openServer()
+    const member = await createMember()
+    const { url } = await createPrototype(server.url, "prototype/encoded-traversal")
+
+    expect((await patch(url, member.token, { startPage: "/safe/%2e%2e/secret" })).status).toBe(400)
+  })
+
+  it("rejects nested encoding that hides parent traversal", async () => {
+    const server = await openServer()
+    const member = await createMember()
+    const { url } = await createPrototype(server.url, "prototype/nested-traversal")
+
+    expect((await patch(url, member.token, { startPage: "/safe/%252e%252e/secret" })).status).toBe(
+      400,
+    )
+  })
+
+  it("rejects a control character in a start page", async () => {
+    const server = await openServer()
+    const member = await createMember()
+    const { url } = await createPrototype(server.url, "prototype/control-page")
+
+    expect((await patch(url, member.token, { startPage: "/safe\npage" })).status).toBe(400)
+  })
+
+  it("rejects an encoded control character in a start page", async () => {
+    const server = await openServer()
+    const member = await createMember()
+    const { url } = await createPrototype(server.url, "prototype/encoded-control")
+
+    expect((await patch(url, member.token, { startPage: "/safe?query=%00" })).status).toBe(400)
+  })
+
+  it("rejects a backslash in a start page", async () => {
+    const server = await openServer()
+    const member = await createMember()
+    const { url } = await createPrototype(server.url, "prototype/backslash-page")
+
+    expect((await patch(url, member.token, { startPage: "/safe\\page" })).status).toBe(400)
+  })
+
+  it("rejects an encoded backslash in a start page", async () => {
+    const server = await openServer()
+    const member = await createMember()
+    const { url } = await createPrototype(server.url, "prototype/encoded-backslash")
+
+    expect((await patch(url, member.token, { startPage: "/safe%5cpage" })).status).toBe(400)
+  })
+
+  it("rejects the reserved preview authorization path", async () => {
+    const server = await openServer()
+    const member = await createMember()
+    const { url } = await createPrototype(server.url, "prototype/reserved-page")
+
+    expect((await patch(url, member.token, { startPage: "/__replica/authorize" })).status).toBe(400)
+  })
+
+  it("rejects an encoded reserved preview path", async () => {
+    const server = await openServer()
+    const member = await createMember()
+    const { url } = await createPrototype(server.url, "prototype/encoded-reserved")
+
+    expect(
+      (await patch(url, member.token, { startPage: "/%2ereplica-internal/page" })).status,
+    ).toBe(400)
+  })
 })

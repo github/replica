@@ -131,6 +131,7 @@ export async function seedPrototypeIndexData(prisma: PrismaClient, userId: strin
         ...prototype,
         authorId: userId,
         registeredAt: new Date(),
+        startPage: null,
         branchDeletedAt: null,
         replica: false,
         currentBuildId: null,

@@ -1,23 +1,16 @@
 import type { findPrototypeDetail } from "../../../repositories/prototype-index/find-prototype-detail/index.ts"
 import type { lockEditablePrototype } from "../../../repositories/prototypes/lock-editable-prototype/index.ts"
 import type { updatePrototypeMetadata } from "../../../repositories/prototypes/update-prototype-metadata/index.ts"
+import { normalizeStartPage } from "../../../utils/normalize-start-page/index.ts"
+import { trimPrototypeMetadata } from "../../../utils/trim-prototype-metadata/index.ts"
 import { PrototypeMetadataError } from "../errors.ts"
 
 type Detail = NonNullable<Awaited<ReturnType<typeof findPrototypeDetail>>>
 
-// Matches the database metadata guard, which also treats NEL as blank.
-const edgeSpace = /^[\t-\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]$/u
-
-function trimName(value: string) {
-  let start = 0
-  let end = value.length
-  while (start < end && edgeSpace.test(value.charAt(start))) start += 1
-  while (end > start && edgeSpace.test(value.charAt(end - 1))) end -= 1
-  return value.slice(start, end)
-}
-
 export interface PrototypeMetadataChanges {
   name?: string | null
+  description?: string | null
+  startPage?: string | null
 }
 
 export interface PrototypeMetadataRepositories {
@@ -27,7 +20,25 @@ export interface PrototypeMetadataRepositories {
   findDetail(repositoryId: string, prototypeId: string): Promise<Detail | null>
 }
 
-/** Registers a draft on its first name edit and preserves later registration history. */
+function readText(value: string | null | undefined, maximum: number, label: string) {
+  if (value === undefined) return undefined
+  const text = value === null ? null : trimPrototypeMetadata(value) || null
+  if (text && /[\p{Cs}\0]/u.test(text)) {
+    throw new PrototypeMetadataError(
+      "invalid_input",
+      `Remove unsupported characters from the ${label}.`,
+    )
+  }
+  if (text && [...text].length > maximum) {
+    throw new PrototypeMetadataError(
+      "invalid_input",
+      `Use at most ${maximum} characters for the ${label}.`,
+    )
+  }
+  return text
+}
+
+/** Registers a draft on its first edit and preserves later registration history. */
 export async function editPrototypeMetadata(
   input: {
     changes: PrototypeMetadataChanges
@@ -43,23 +54,31 @@ export async function editPrototypeMetadata(
     ) => Promise<Detail>
   },
 ) {
-  const name =
-    input.changes.name === null || input.changes.name === undefined
+  const { changes } = input
+  if (
+    changes.name === undefined &&
+    changes.description === undefined &&
+    changes.startPage === undefined
+  ) {
+    throw new PrototypeMetadataError("invalid_input", "Send a prototype edit.")
+  }
+  const name = readText(changes.name, 255, "prototype name")
+  if (name === null) throw new PrototypeMetadataError("invalid_input", "Enter a prototype name.")
+  const description = readText(changes.description, 500, "description")
+  const startPageText =
+    changes.startPage === undefined
       ? undefined
-      : trimName(input.changes.name)
-  if (!name) throw new PrototypeMetadataError("invalid_input", "Enter a prototype name.")
-  if (/[\p{Cs}\0]/u.test(name)) {
+      : changes.startPage === null
+        ? null
+        : trimPrototypeMetadata(changes.startPage) || null
+  const startPage = startPageText ? normalizeStartPage(startPageText) : startPageText
+  if (startPageText && !startPage) {
     throw new PrototypeMetadataError(
       "invalid_input",
-      "Remove unsupported characters from the prototype name.",
+      "Enter a start page path within this prototype, such as /settings.",
     )
   }
-  if ([...name].length > 255) {
-    throw new PrototypeMetadataError(
-      "invalid_input",
-      "Use at most 255 characters for the prototype name.",
-    )
-  }
+
   return runTransaction(async (repositories) => {
     const viewer = await repositories.restoreSession(input.sessionDigest)
     if (!viewer) throw new PrototypeMetadataError("not_signed_in", "Sign in to continue.")
@@ -68,8 +87,21 @@ export async function editPrototypeMetadata(
       throw new PrototypeMetadataError("not_found", "Prototype not found.")
     }
 
+    let savedName = name
+    if (!prototype.registeredAt && savedName === undefined) {
+      savedName = [prototype.name, prototype.branchName]
+        .map((candidate) => (candidate === null ? "" : trimPrototypeMetadata(candidate)))
+        .find(
+          (candidate) =>
+            candidate && !/[\p{Cs}\0]/u.test(candidate) && [...candidate].length <= 255,
+        )
+      if (!savedName) throw new PrototypeMetadataError("invalid_input", "Enter a prototype name.")
+    }
+
     await repositories.updatePrototype(prototype.id, {
-      name,
+      name: savedName,
+      description,
+      startPage,
       ...(prototype.registeredAt ? {} : { authorId: viewer.userId, registeredAt: new Date() }),
     })
     const detail = await repositories.findDetail(input.repositoryId, input.prototypeId)

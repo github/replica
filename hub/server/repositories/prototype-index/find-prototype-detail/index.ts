@@ -1,4 +1,5 @@
 import type { Prisma } from "../../../generated/prisma/client.ts"
+import { trimPrototypeMetadata } from "../../../utils/trim-prototype-metadata/index.ts"
 
 const hiddenBranches = ["replica/install-workflow"]
 
@@ -34,6 +35,7 @@ export async function findPrototypeDetail(
           repositoryId: true,
           name: true,
           description: true,
+          startPage: true,
           branchName: true,
           author: { select: { profile: { select: { login: true, name: true, provider: true } } } },
           currentBuildId: true,
@@ -105,6 +107,7 @@ export async function findPrototypeDetail(
           name: prototype.name?.trim() || prototype.branchName,
           branchName: prototype.branchName,
           description: prototype.description,
+          startPage: (prototype.startPage && trimPrototypeMetadata(prototype.startPage)) || "/",
           authorLogin: prototype.author?.profile?.login ?? null,
           authorName: prototype.author?.profile?.name ?? null,
           authorProvider: prototype.author?.profile?.provider ?? null,
