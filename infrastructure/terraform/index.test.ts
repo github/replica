@@ -84,6 +84,7 @@ async function scenario({
   planVariables,
   planConfiguration = { root_module: { resources: [] } },
   retryApply,
+  beforeApply,
   validatePlan,
   findUntracked,
   extraEnv,
@@ -100,6 +101,7 @@ async function scenario({
   planVariables?: Record<string, unknown>
   planConfiguration?: Record<string, unknown> | null
   retryApply?(error: CommandExecutionError): boolean
+  beforeApply?(): Promise<void>
   validatePlan?(value: unknown): void
   findUntracked?: Parameters<typeof terraformModule>[0]["findUntracked"]
   extraEnv?: Record<string, string>
@@ -174,6 +176,7 @@ async function scenario({
     ui,
     preapproved,
     retryApply,
+    beforeApply,
     validatePlan,
     findUntracked,
     signal,
@@ -283,12 +286,20 @@ describe("Terraform module", () => {
     )
     const retryApply = vi.fn(() => true)
     const controller = new AbortController()
+    const validatedPlans: unknown[] = []
+    const guardedPlans: unknown[] = []
     const test = await scenario({
       preapproved: true,
       failure: "apply",
       failureCount: 1,
       error,
       retryApply,
+      validatePlan: (plan) => {
+        validatedPlans.push(plan)
+      },
+      beforeApply: async () => {
+        guardedPlans.push(validatedPlans.at(-1))
+      },
       signal: controller.signal,
       planVariables: { image: { value: "synthetic-immutable-image" } },
       planConfiguration: {
@@ -328,6 +339,8 @@ describe("Terraform module", () => {
     await applying
 
     expect(test.events).toEqual(["plan", "show", "apply", "plan", "show", "apply"])
+    expect(guardedPlans).toHaveLength(2)
+    expect(guardedPlans).toEqual(validatedPlans)
     expect(test.ui.confirm).not.toHaveBeenCalled()
     expect(test.ui.select).not.toHaveBeenCalled()
     const plans = test.calls.filter(({ args }) => args[1] === "plan")
@@ -626,6 +639,81 @@ describe("Terraform module", () => {
     expect(await readdir(test.dataDirectory)).toEqual([])
   })
 
+  it("awaits the guard after plan validation and consent before applying the saved plan", async () => {
+    const events: string[] = []
+    const release = Promise.withResolvers<void>()
+    const validatePlan = vi.fn(() => {
+      events.push("validate")
+    })
+    const beforeApply = vi.fn(async () => {
+      events.push("guard")
+      await release.promise
+    })
+    const test = await scenario({ beforeApply, validatePlan })
+    const run = test.run.getMockImplementation()!
+    test.run.mockImplementation(async (executable, args, options) => {
+      events.push(args[1]!)
+      return run(executable, args, options)
+    })
+    test.ui.confirm = vi.fn(async () => {
+      events.push("confirm")
+      return true
+    })
+    const applying = test.module.apply("installation.tfvars")
+    await vi.waitFor(() => expect(beforeApply).toHaveBeenCalledOnce())
+
+    expect(events).toEqual(["plan", "show", "validate", "confirm", "guard"])
+    expect(test.events).not.toContain("apply")
+    release.resolve()
+    await applying
+
+    expect(events).toEqual(["plan", "show", "validate", "confirm", "guard", "apply"])
+    expect(await readdir(test.dataDirectory)).toEqual([])
+  })
+
+  it("propagates a transient command error from the guard without applying or offering retry", async () => {
+    fakeRetryTimers()
+    const error = new CommandExecutionError("Guard read failed.", false, 1, "ECONNRESET")
+    const beforeApply = vi.fn(async () => {
+      throw error
+    })
+    const retryApply = vi.fn(() => true)
+    const test = await scenario({
+      preapproved: true,
+      planVariables: {},
+      beforeApply,
+      retryApply,
+    })
+    test.ui.select = vi.fn(async () => "exit")
+
+    await expect(test.module.apply("installation.tfvars")).rejects.toBe(error)
+
+    expect(beforeApply).toHaveBeenCalledOnce()
+    expect(test.events).toEqual(["plan", "show"])
+    expect(test.ui.select).not.toHaveBeenCalled()
+    expect(retryApply).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+    expect(await readdir(test.dataDirectory)).toEqual([])
+  })
+
+  it("stops a rejected custom plan before running the guard or applying", async () => {
+    const error = new Error("The fresh plan is outside the approved identity.")
+    const beforeApply = vi.fn(async () => {})
+    const test = await scenario({
+      beforeApply,
+      validatePlan: () => {
+        throw error
+      },
+    })
+
+    await expect(test.module.apply("installation.tfvars")).rejects.toBe(error)
+
+    expect(beforeApply).not.toHaveBeenCalled()
+    expect(test.events).toEqual(["plan", "show"])
+    expect(test.ui.confirm).not.toHaveBeenCalled()
+    expect(await readdir(test.dataDirectory)).toEqual([])
+  })
+
   it.each([
     { actions: ["delete"] },
     { actions: ["delete", "create"] },
@@ -633,13 +721,15 @@ describe("Terraform module", () => {
   ])(
     "rejects destructive normal-plan actions $actions even after deployment approval",
     async ({ actions }) => {
-      const test = await scenario({ actions, preapproved: true })
+      const beforeApply = vi.fn(async () => {})
+      const test = await scenario({ actions, preapproved: true, beforeApply })
       test.ui.select = vi.fn(async () => "exit")
 
       await expect(test.module.apply("installation.tfvars")).rejects.toThrow()
 
       expect(test.ui.confirm).not.toHaveBeenCalled()
       expect(test.ui.select).not.toHaveBeenCalled()
+      expect(beforeApply).not.toHaveBeenCalled()
       expect(test.events).not.toContain("apply")
       expect(await readdir(test.dataDirectory)).toEqual([])
     },
@@ -721,13 +811,15 @@ describe("Terraform module", () => {
   })
 
   it("does not apply when the operator refuses, and removes the sensitive plan", async () => {
-    const test = await scenario({ approved: false })
+    const beforeApply = vi.fn(async () => {})
+    const test = await scenario({ approved: false, beforeApply })
     test.ui.select = vi.fn(async () => "exit")
 
     await expect(test.module.apply("installation.tfvars")).rejects.toThrow()
 
     expect(test.ui.confirm).toHaveBeenCalledOnce()
     expect(test.ui.select).not.toHaveBeenCalled()
+    expect(beforeApply).not.toHaveBeenCalled()
     expect(test.events).not.toContain("apply")
     expect(await readdir(test.dataDirectory)).toEqual([])
   })

@@ -51,6 +51,7 @@ export function terraformModule({
   ui,
   preapproved = false,
   retryApply,
+  beforeApply,
   signal,
   validatePlan,
   findUntracked,
@@ -62,6 +63,7 @@ export function terraformModule({
   ui: InstallerUI
   preapproved?: boolean
   retryApply?(error: CommandExecutionError): boolean
+  beforeApply?(): Promise<void>
   signal?: AbortSignal
   validatePlan?(value: unknown): void
   // Read-only lookup of an existing cloud resource that a create-only change would duplicate.
@@ -282,6 +284,7 @@ export function terraformModule({
           }
           if (!approvedPlan && signature)
             approvedPlan = { signature, addresses: new Set(changes.map(({ address }) => address)) }
+          await beforeApply?.()
           await execute(["apply", "-input=false", "-lock-timeout=60s", path])
           ui.recoveryNotice?.()
           return
