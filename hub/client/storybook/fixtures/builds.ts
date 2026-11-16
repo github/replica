@@ -67,7 +67,7 @@ export const successfulBuild: BuildsIndexPageData["builds"][number] = {
   commitLabel: "Commit aaaaaaa",
   commitSha: "a".repeat(40),
   createdAt: "2026-09-14T12:00:00Z",
-  createdLabel: "Created Sep 14, 2026, 12:00 PM UTC",
+  createdLabel: "Added to Hub Sep 14, 2026, 12:00 PM UTC",
   number: 1,
   numberLabel: "build 1",
   path: "/repositories/2001/prototypes/1?build=1",

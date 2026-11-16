@@ -59,7 +59,7 @@ export function buildHistoryData(
           : "Commit unavailable",
         commitSha: build.commitSha,
         createdAt: build.createdAt,
-        createdLabel: `Created ${formatBuildTime(build.createdAt)}`,
+        createdLabel: `Added to Hub ${formatBuildTime(build.createdAt)}`,
         number: build.number,
         numberLabel: `Build ${build.number}`,
         path:
