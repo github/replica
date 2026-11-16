@@ -178,6 +178,16 @@ describe("prototype PATCH API", () => {
     const server = await openServer()
     const member = await createMember()
     const { prototype, url } = await createPrototype(server.url, "prototype/limits")
+    const draft = await prisma.prototype.create({
+      data: { repositoryId: prototype.repositoryId, branchName: "prototype/draft-limits" },
+    })
+    const draftUrl = `${server.url}/api/repositories/${prototype.repositoryId}/prototypes/${draft.id}`
+
+    expect((await patch(draftUrl, member.token, { name: "\u0085\u00a0 " })).status).toBe(400)
+    expect(
+      (await patch(draftUrl, member.token, { name: "Valid", description: "Extra" })).status,
+    ).toBe(400)
+    expect(await readPrototype(draft.id)).toEqual(draft)
 
     const empty = await patch(url, member.token, {})
     expect(empty.status).toBe(400)
@@ -287,6 +297,10 @@ describe("prototype PATCH API", () => {
     const server = await openServer()
     const member = await createMember()
     const { prototype, repository, url } = await createPrototype(server.url, "prototype/rollback")
+    const draft = await prisma.prototype.create({
+      data: { repositoryId: repository.id, branchName: "prototype/draft-rollback" },
+    })
+    const draftUrl = `${server.url}/api/repositories/${repository.id}/prototypes/${draft.id}`
     const database = new pg.Client({ connectionString: getDatabaseUrl() })
     await database.connect()
     const trigger = `hide_repository_${randomUUID().replaceAll("-", "")}`
@@ -305,6 +319,11 @@ describe("prototype PATCH API", () => {
       const response = await patch(url, member.token, { name: "Changed" })
       expect(response.status).toBe(500)
       expect(await readPrototype(prototype.id)).toEqual(prototype)
+      expect(await prisma.repository.findUniqueOrThrow({ where: { id: repository.id } })).toEqual(
+        repository,
+      )
+      expect((await patch(draftUrl, member.token, { name: "Registered" })).status).toBe(500)
+      expect(await readPrototype(draft.id)).toEqual(draft)
       expect(await prisma.repository.findUniqueOrThrow({ where: { id: repository.id } })).toEqual(
         repository,
       )
@@ -526,15 +545,150 @@ describe("prototype PATCH API", () => {
     expect(await readPrototype(prototype.id)).toEqual(prototype)
   })
 
-  it("does not edit a draft before registration is enabled", async () => {
+  it("registers a visible retired draft with its first author and Builds", async () => {
     const server = await openServer()
-    const member = await createMember()
-    const { prototype, url } = await createPrototype(server.url, "prototype/draft", {
+    const first = await createMember()
+    const second = await createMember()
+    const { repository, prototype, url } = await createPrototype(server.url, "prototype/draft", {
       draft: true,
     })
-    const denied = await patch(url, member.token, { name: "Must remain a draft" })
-    expect(denied.status).toBe(404)
-    expect(await readPrototype(prototype.id)).toEqual(prototype)
+    const profile = await prisma.userProfile.findUniqueOrThrow({ where: { userId: first.user.id } })
+    const branchDeletedAt = new Date("2026-10-02T00:00:00Z")
+    const build = await prisma.build.create({
+      data: { prototypeId: prototype.id, number: 1, state: "successful" },
+    })
+    await prisma.prototype.update({
+      where: { id: prototype.id },
+      data: { currentBuildId: build.id, branchDeletedAt },
+    })
+
+    const registered = await patch(url, first.token, { name: " \u2003Welcome\u00a0 " })
+    expect(registered.status).toBe(200)
+    expect(await registered.json()).toMatchObject({
+      prototype: {
+        id: prototype.id,
+        repositoryId: repository.id,
+        name: "Welcome",
+        branchName: prototype.branchName,
+        authorLogin: profile.login,
+        description: null,
+        canEdit: false,
+      },
+      selectedBuild: { number: 1, prototypeId: prototype.id },
+    })
+    const saved = await readPrototype(prototype.id)
+    expect(saved).toMatchObject({
+      id: prototype.id,
+      authorId: first.user.id,
+      name: "Welcome",
+      currentBuildId: build.id,
+      createdAt: prototype.createdAt,
+      branchDeletedAt,
+    })
+    expect(saved.registeredAt).toBeInstanceOf(Date)
+
+    expect((await patch(url, second.token, { name: "Updated" })).status).toBe(200)
+    expect(await readPrototype(prototype.id)).toMatchObject({
+      id: prototype.id,
+      name: "Updated",
+      authorId: first.user.id,
+      registeredAt: saved.registeredAt,
+      currentBuildId: build.id,
+    })
+    expect(await prisma.build.findUniqueOrThrow({ where: { id: build.id } })).toEqual(build)
+  })
+
+  it("does not register a hidden replica draft", async () => {
+    const server = await openServer()
+    const member = await createMember()
+    const { prototype, url } = await createPrototype(server.url, "prototype/internal", {
+      draft: true,
+    })
+    const hidden = await prisma.prototype.update({
+      where: { id: prototype.id },
+      data: { replica: true },
+    })
+    expect((await patch(url, member.token, { name: "Hidden" })).status).toBe(404)
+    expect(await readPrototype(prototype.id)).toEqual(hidden)
+  })
+
+  it("preserves the first registration when two members edit a draft concurrently", async () => {
+    const server = await openServer()
+    const first = await createMember()
+    const second = await createMember()
+    const { prototype, url } = await createPrototype(server.url, "prototype/concurrent", {
+      draft: true,
+    })
+    const blocker = new pg.Client({ connectionString: getDatabaseUrl() })
+    const inspector = new pg.Client({ connectionString: getDatabaseUrl() })
+    await Promise.all([blocker.connect(), inspector.connect()])
+    const suffix = randomUUID().replaceAll("-", "")
+    const gate = `registration_${suffix}`
+    const firstLock = 1729034823
+    const secondLock = 1729034824
+    let firstEdit: Promise<Response> | null = null
+    let secondEdit: Promise<Response> | null = null
+    let firstLocked = false
+    let secondLocked = false
+    try {
+      await blocker.query(`
+        CREATE FUNCTION "${gate}"() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          IF NEW.name = 'First' THEN
+            PERFORM pg_advisory_xact_lock(${firstLock});
+          ELSIF NEW.name = 'Second' THEN
+            PERFORM pg_advisory_xact_lock(${secondLock});
+          END IF;
+          RETURN NEW;
+        END $$;
+        CREATE TRIGGER "${gate}" AFTER UPDATE ON prototypes
+        FOR EACH ROW EXECUTE FUNCTION "${gate}"();
+      `)
+      await blocker.query("SELECT pg_advisory_lock($1)", [firstLock])
+      firstLocked = true
+      await blocker.query("SELECT pg_advisory_lock($1)", [secondLock])
+      secondLocked = true
+      const { pid: blockerPid } = (
+        await blocker.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")
+      ).rows[0]!
+      firstEdit = patch(url, first.token, { name: "First" })
+      const firstPid = await Promise.race([
+        waitForBlockedQuery(inspector, blockerPid, ""),
+        firstEdit.then((response) => {
+          expect(response.status).toBe(200)
+          throw new Error("The first edit finished before the concurrent edit began.")
+        }),
+      ])
+      secondEdit = patch(url, second.token, { name: "Second" })
+      await waitForBlockedQuery(inspector, firstPid, "")
+      await blocker.query("SELECT pg_advisory_unlock($1)", [firstLock])
+      firstLocked = false
+      expect((await firstEdit).status).toBe(200)
+      await waitForBlockedQuery(inspector, blockerPid, "")
+      const initial = await readPrototype(prototype.id)
+      expect(initial).toMatchObject({
+        name: "First",
+        authorId: first.user.id,
+      })
+      expect(initial.registeredAt).toBeInstanceOf(Date)
+      await blocker.query("SELECT pg_advisory_unlock($1)", [secondLock])
+      secondLocked = false
+      expect((await secondEdit).status).toBe(200)
+      expect(await readPrototype(prototype.id)).toMatchObject({
+        name: "Second",
+        authorId: first.user.id,
+        registeredAt: initial.registeredAt,
+      })
+    } finally {
+      if (firstLocked) await blocker.query("SELECT pg_advisory_unlock($1)", [firstLock])
+      if (secondLocked) await blocker.query("SELECT pg_advisory_unlock($1)", [secondLock])
+      if (firstEdit) await Promise.allSettled([firstEdit])
+      if (secondEdit) await Promise.allSettled([secondEdit])
+      await blocker.query(
+        `DROP TRIGGER IF EXISTS "${gate}" ON prototypes; DROP FUNCTION IF EXISTS "${gate}"()`,
+      )
+      await Promise.all([blocker.end(), inspector.end()])
+    }
   })
 
   it("denies an admin edit blocked behind successful session revocation", async () => {
