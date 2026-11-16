@@ -2,7 +2,7 @@ import type { Prisma, PrismaClient } from "../../../generated/prisma/client.ts"
 import { reviewThreadInclude } from "../types.ts"
 import type { ReviewPersistenceResult, StoredReviewThread } from "../types.ts"
 
-type Database = Pick<PrismaClient, "$transaction" | "prototype" | "repository">
+type Database = Pick<PrismaClient, "$transaction" | "repository">
 
 interface Actor {
   userId: string
@@ -106,16 +106,14 @@ export function createReviewCommentRepository(database: Database) {
         { isolationLevel: "RepeatableRead" },
       )
       if (!result.ok) return result
-      const prototype = await database.prototype.findFirst({
-        where: reviewablePrototypeWhere(repositoryId, prototypeId, result.value.defaultBranch),
-        select: { id: true },
-      })
-      if (!prototype) return { ok: false, reason: "prototype_not_found" }
       const repository = await database.repository.findFirst({
         where: {
           id: repositoryId,
           removedAt: null,
           defaultBranch: result.value.defaultBranch,
+          prototypes: {
+            some: reviewablePrototypeWhere(repositoryId, prototypeId, result.value.defaultBranch),
+          },
         },
         select: { id: true },
       })

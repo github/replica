@@ -292,7 +292,7 @@ describe("review comments", () => {
     ).resolves.toMatchObject({ anchor: nearLimit })
   })
 
-  it("rejects a repository removed after the repeatable-read snapshot", async () => {
+  it("rejects repository or prototype changes after the repeatable-read snapshot", async () => {
     const repository = await createRepository()
     const { prototype } = await createReviewablePrototype(repository.id, "prototype/checkout")
     const service = createTestReviewService()

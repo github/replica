@@ -10,10 +10,7 @@ describe("createReviewCommentService()", () => {
       operation({} as never),
     )
     const service = createReviewCommentService(
-      { $transaction: transaction } as unknown as Pick<
-        PrismaClient,
-        "$transaction" | "prototype" | "repository"
-      >,
+      { $transaction: transaction } as unknown as Pick<PrismaClient, "$transaction" | "repository">,
       () => Promise.resolve(false),
     )
 
@@ -39,7 +36,7 @@ describe("createReviewCommentService()", () => {
     const transaction = vi.fn().mockRejectedValue({ originalCode: "40001" })
     const service = createReviewCommentService({
       $transaction: transaction,
-    } as unknown as Pick<PrismaClient, "$transaction" | "prototype" | "repository">)
+    } as unknown as Pick<PrismaClient, "$transaction" | "repository">)
 
     await expect(
       service.deleteComment({

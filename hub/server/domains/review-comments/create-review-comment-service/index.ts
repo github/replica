@@ -57,7 +57,7 @@ async function runReviewMutation<Result>(operation: () => Promise<Result>): Prom
 }
 
 export function createReviewCommentService(
-  database: Pick<PrismaClient, "$transaction" | "prototype" | "repository">,
+  database: Pick<PrismaClient, "$transaction" | "repository">,
   authorizeMutation: (
     transaction: Prisma.TransactionClient,
     sessionDigest: string,
