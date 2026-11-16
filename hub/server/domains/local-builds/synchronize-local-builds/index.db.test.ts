@@ -210,19 +210,16 @@ describe("synchronizeLocalBuilds()", () => {
           kind: "dist",
           path: "dist/index.html",
           byteLength: 16,
-          storageKey: expect.any(String),
         }),
         expect.objectContaining({
           kind: "screenshot",
           path: "screenshots/desktop.png",
           byteLength: 3,
-          storageKey: expect.any(String),
         }),
         expect.objectContaining({
           kind: "screenshot",
           path: "screenshots/narrow.png",
           byteLength: 2,
-          storageKey: expect.any(String),
         }),
         expect.objectContaining({ kind: "manifest", path: "templates.json" }),
       ]),
@@ -257,20 +254,17 @@ describe("synchronizeLocalBuilds()", () => {
         startPage: "/",
         artifactPath: expected.path,
       })
+      if (!target) throw new Error(`Missing ${expected.target} preview target.`)
 
-      const artifact = await findBuildArtifact(
-        prisma,
-        target!.buildId,
-        target!.artifactPath,
-      )
-      expect(artifact).toEqual({
-        storageKey: expect.any(String),
-        byteLength: expected.bytes.byteLength,
-      })
-      await expect(storage.read(artifact!.storageKey)).resolves.toEqual({
-        status: "ok",
-        bytes: expected.bytes,
-      })
+      const artifact = await findBuildArtifact(prisma, target.buildId, target.artifactPath)
+      if (!artifact) throw new Error(`Missing ${expected.path} artifact.`)
+      expect(artifact.byteLength).toBe(expected.bytes.byteLength)
+      expect(artifact.storageKey.length).toBeGreaterThan(0)
+      const stored = await storage.read(artifact.storageKey)
+      expect(stored.status).toBe("ok")
+      if (stored.status === "ok") {
+        expect(Buffer.from(stored.bytes)).toEqual(Buffer.from(expected.bytes))
+      }
     }
   })
 
