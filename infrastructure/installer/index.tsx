@@ -2,6 +2,8 @@ import { resolve, dirname } from "node:path"
 import { parseArgs, styleText } from "node:util"
 
 import { installAzure } from "../azure/install/index.ts"
+import { postSetupAzure } from "../azure/post/index.ts"
+import { PostSetupExit } from "../azure/post/errors.ts"
 import { azurePreflight } from "../azure/install/preflight/index.ts"
 import { CommandExecutionError, runCommand } from "./command/index.ts"
 import { retryReadOnly } from "./command/retry-read-only/index.ts"
@@ -18,6 +20,7 @@ import { selectInstallerEntry, validateInstallerEntry, type InstallerEntry } fro
 const { values } = parseArgs({
   options: {
     config: { type: "string" },
+    post: { type: "boolean" },
     "configure-only": { type: "boolean" },
     "non-interactive": { type: "boolean" },
     "approve-deployment": { type: "boolean" },
@@ -27,7 +30,9 @@ const { values } = parseArgs({
 })
 if (values.help) {
   console.log(
-    "Usage: npm run setup:server -- [--config FILE] [--configure-only] [--no-fullscreen]\nStart by choosing Create, Update, Resume (when available), or Exit before local writes or Azure calls.\nConfig paths are relative to infrastructure/ when using the root shortcut.\nCreate keeps previous files and uses a fresh path; --config FILE uses that path only when unused.\nUpdate/Resume can select local configurations or explicit config-file paths.\nInteractive setup progress is saved in a private companion draft; restart to resume setup.\nAutomation: --config FILE --non-interactive --approve-deployment\nApproval includes billable resources, role assignments, image publication, temporary provisioning cleanup, and a maintenance-window release.\nAutomation requires a clean source checkout and does not authorize removing state network restrictions; rerun interactively for separate consent.",
+    values.post
+      ? "Usage: npm run setup:post -- [--config FILE] [--no-fullscreen]\nConfigure sign-in/setup access, configure GitHub App, or restart an existing saved Hub.\nInteractive only. Reuses the deployed image; never builds, bootstraps infrastructure, or runs database setup.\nSecret input uses private files, never command-line values. Configuration actions review a scoped Terraform plan; restart targets only the active serving revision."
+      : "Usage: npm run setup:server -- [--config FILE] [--configure-only] [--no-fullscreen]\nStart by choosing Create, Update, Resume (when available), or Exit before local writes or Azure calls.\nConfig paths are relative to infrastructure/ when using the root shortcut.\nCreate keeps previous files and uses a fresh path; --config FILE uses that path only when unused.\nUpdate/Resume can select local configurations or explicit config-file paths.\nInteractive setup progress is saved in a private companion draft; restart to resume setup.\nAutomation: --config FILE --non-interactive --approve-deployment\nApproval includes billable resources, role assignments, image publication, temporary provisioning cleanup, and a maintenance-window release.\nAutomation requires a clean source checkout and does not authorize removing state network restrictions; rerun interactively for separate consent.",
   )
 } else {
   const abort = new AbortController()
@@ -46,6 +51,13 @@ if (values.help) {
   try {
     let existing: DeploymentConfig | undefined
     let entry: InstallerEntry | undefined
+    if (
+      values.post &&
+      (values["non-interactive"] || values["configure-only"] || values["approve-deployment"])
+    )
+      throw new Error(
+        "Post-setup is interactive only and cannot be combined with deployment or configuration-only flags.",
+      )
     if (values["non-interactive"]) {
       if (!values.config || !values["approve-deployment"] || values["configure-only"])
         throw new Error(
@@ -61,10 +73,12 @@ if (values.help) {
       terminal = createTerminalUI(abort, {
         fullscreen: !values["no-fullscreen"],
         configureOnly: values["configure-only"],
+        postSetup: values.post,
       })
       entry = await selectInstallerEntry(terminal, {
         directory: resolve(import.meta.dirname, "../.local"),
         configPath: values.config,
+        postSetup: values.post,
       })
       if (entry) {
         path = entry.path
@@ -80,8 +94,10 @@ if (values.help) {
         try {
           return await observed(executable, args, options)
         } catch (error) {
-          if (error instanceof CommandExecutionError && !error.aborted)
-            terminal?.notice?.("error", error.message)
+          if (error instanceof CommandExecutionError && !error.aborted) {
+            if (values.post) terminal?.recoveryNotice?.(error.message)
+            else terminal?.notice?.("error", error.message)
+          }
           throw error
         }
       }
@@ -108,26 +124,38 @@ if (values.help) {
       } else {
         if (!terminal || !entry) throw new Error("Select a setup action before continuing.")
         const ui = telemetry.observe(terminal)
-        message = await runWizard({
-          ui,
-          run,
-          path,
-          directory: dirname(path),
-          existing,
-          configureOnly: values["configure-only"],
-          session,
-          entryAction: entry.action,
-          signal: abort.signal,
-        })
+        if (entry.postAction) {
+          if (!existing) throw new Error("Post-setup requires an existing saved installation.")
+          message = await postSetupAzure(
+            { path, config: existing },
+            { action: entry.postAction, run, ui, signal: abort.signal },
+          )
+        } else {
+          message = await runWizard({
+            ui,
+            run,
+            path,
+            directory: dirname(path),
+            existing,
+            configureOnly: values["configure-only"],
+            session,
+            entryAction: entry.action,
+            signal: abort.signal,
+          })
+        }
       }
     }
   } catch (error) {
-    failure = error
-    interrupted =
-      abort.signal.aborted &&
-      abort.signal.reason instanceof DOMException &&
-      abort.signal.reason.name === "AbortError"
-    abort.abort()
+    if (values.post && error instanceof PostSetupExit) {
+      message = error.message
+    } else {
+      failure = error
+      interrupted =
+        abort.signal.aborted &&
+        abort.signal.reason instanceof DOMException &&
+        abort.signal.reason.name === "AbortError"
+      abort.abort()
+    }
   } finally {
     try {
       await terminal?.close()

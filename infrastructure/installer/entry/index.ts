@@ -6,13 +6,14 @@ import { assertDraftMatchesConfig, loadConfig } from "../config/index.ts"
 import { InputValidationError } from "../config/fields/index.ts"
 import { privateDirectory } from "../private-files/index.ts"
 import { readSession, type WizardDraft, type WizardSession } from "../session/index.ts"
-import type { DeploymentConfig, WizardUI } from "../types.ts"
+import type { DeploymentConfig, PostSetupAction, WizardUI } from "../types.ts"
 
 export interface SetupEntry {
   action: "create" | "update" | "resume"
   path: string
   existing?: DeploymentConfig
   draft?: WizardDraft
+  postAction?: PostSetupAction
 }
 
 export type InstallerEntry = SetupEntry
@@ -128,7 +129,15 @@ async function unused(path: string): Promise<boolean> {
 
 export async function selectInstallerEntry(
   ui: WizardUI,
-  { directory, configPath: explicitPath }: { directory: string; configPath?: string },
+  {
+    directory,
+    configPath: explicitPath,
+    postSetup = false,
+  }: {
+    directory: string
+    configPath?: string
+    postSetup?: boolean
+  },
 ): Promise<InstallerEntry | undefined> {
   directory = resolve(directory)
   const explicit = explicitPath === undefined ? undefined : configPath(explicitPath)
@@ -137,16 +146,32 @@ export async function selectInstallerEntry(
   while (true) {
     const candidates = await discover(ui, directory, known)
     const resumable = candidates.some(({ draft, problem }) => draft && !problem)
-    const action = await ui.select(
-      "What would you like to do? Saved files do not prove that Azure is deployed.",
-      [
-        { label: "Create a new installation", value: "create" },
-        { label: "Update existing installation", value: "update" },
-        ...(resumable ? [{ label: "Resume in progress setup", value: "resume" }] : []),
-        { label: "Exit and do nothing", value: "exit" },
-      ],
+    let action = await ui.select(
+      postSetup
+        ? "Post-setup: configure or restart an existing Hub without rebuilding or running database setup."
+        : "What would you like to do? Saved files do not prove that Azure is deployed.",
+      postSetup
+        ? [
+            { label: "Configure sign-in and setup access", value: "sign-in" },
+            { label: "Configure GitHub App", value: "github" },
+            { label: "Restart Hub (keep current settings)", value: "restart" },
+            { label: "Exit and do nothing", value: "exit" },
+          ]
+        : [
+            { label: "Create a new installation", value: "create" },
+            { label: "Update existing installation", value: "update" },
+            ...(resumable ? [{ label: "Resume in progress setup", value: "resume" }] : []),
+            { label: "Exit and do nothing", value: "exit" },
+          ],
     )
     if (action === "exit") return undefined
+    let postAction: PostSetupAction | undefined
+    if (postSetup) {
+      if (action !== "sign-in" && action !== "github" && action !== "restart")
+        throw new Error("Choose a supported post-setup action.")
+      postAction = action
+      action = "update"
+    }
     if (action === "create") {
       let path = explicit
       if (!path || !(await unused(path))) {
@@ -224,7 +249,13 @@ export async function selectInstallerEntry(
         ui.status(
           `Fixed installation: ${candidate.existing.name}; owner: ${candidate.existing.owner}; Azure tenant: ${candidate.existing.azure.tenantId}; subscription: ${candidate.existing.azure.subscriptionId}; region: ${candidate.existing.azure.location}; app resource group: ${candidate.existing.azure.resourceGroup}.`,
         )
-      return { action, path, existing: candidate.existing, draft: candidate.draft }
+      return {
+        action,
+        path,
+        existing: candidate.existing,
+        draft: candidate.draft,
+        ...(postAction && { postAction }),
+      }
     }
   }
 }

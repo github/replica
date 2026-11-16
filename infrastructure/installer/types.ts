@@ -12,6 +12,8 @@ export interface DeploymentConfig {
   }
 }
 
+export type PostSetupAction = "sign-in" | "github" | "restart"
+
 export interface CommandOptions {
   cwd?: string
   env?: NodeJS.ProcessEnv
