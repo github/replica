@@ -3,14 +3,16 @@ model Repository {
   id String @id @default(uuid()) @db.Uuid
 
   // Relations
-  learningRuns  LearningRun[]
+  learningRuns               LearningRun[]
   learningDecisionOperations LearningDecisionOperation[]
-  prototypes    Prototype[]
-  reviewThreads ReviewThread[]
+  prototypes             Prototype[]
+  branchHeadObservations BranchHeadObservation[]
+  reviewThreads          ReviewThread[]
 
   // Attribute columns
   nameWithOwner String    @map("name_with_owner") @db.VarChar(255)
   defaultBranch String    @map("default_branch") @db.VarChar(255)
+  localPath     String?   @unique @map("local_path") @db.VarChar(2048)
   removedAt     DateTime? @map("removed_at") @db.Timestamptz(3)
 
   // Timestamp columns

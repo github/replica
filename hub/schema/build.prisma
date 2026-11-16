@@ -4,9 +4,11 @@ model Build {
   prototypeId String @map("prototype_id") @db.Uuid
 
   // Relations
-  prototype  Prototype   @relation("PrototypeBuilds", fields: [prototypeId], references: [id], onDelete: Restrict)
-  currentFor Prototype[] @relation("CurrentPrototypeBuild")
-  reviewThreads ReviewThread[]
+  prototype              Prototype               @relation("PrototypeBuilds", fields: [prototypeId], references: [id], onDelete: Restrict)
+  currentFor             Prototype[]             @relation("CurrentPrototypeBuild")
+  artifacts              BuildArtifact[]
+  branchHeadObservations BranchHeadObservation[]
+  reviewThreads          ReviewThread[]
 
   // Attribute columns
   number               Int

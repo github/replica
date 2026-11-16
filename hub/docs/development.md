@@ -77,7 +77,43 @@ When you sign in through GitHub or Entra instead, find your `userId` in the brow
 NODE_ENV=development npm run db:seed:index -- USER_UUID
 ```
 
-The command requires an active Hub member and a local development database. It accepts a loopback PostgreSQL URL or the exact devcontainer database URL, and rejects query parameters that override the host, address, port, or service. It creates a sample repository and six prototypes with fixed IDs. Five show each Build state, and one has no Build. Their commit and author values are synthetic. Running it again restores those samples, including metadata added after an upgrade. All active Hub members can currently read every non-removed repository. Repository discovery and per-repository authorization are not connected; do not add real repository data until those controls exist.
+The command requires an active Hub member and a local development database. It accepts a loopback PostgreSQL URL or the exact devcontainer database URL, and rejects query parameters that override the host, address, port, or service. It creates a sample repository and six prototypes with fixed IDs. Five show each Build state, and one has no Build. Their commit and author values are synthetic. Running it again restores those samples, including metadata added after an upgrade. All active Hub members can currently read every non-removed repository. Hosted repository discovery and per-repository authorization are not connected. The local repository flow below is limited to one development machine and one local identity.
+
+## Build local prototype repositories
+
+Local Build discovery is a development-only replacement for the old Rails local mode. It needs no GitHub App, remote repository, workflow, or GitHub authorization. Sign in once as the fixed local developer, configure filesystem artifact storage, and point `LOCAL_PROTOTYPE_ROOT` at a directory whose immediate child directories are prototype Git repositories:
+
+```sh
+ARTIFACT_STORAGE_PROVIDER=filesystem
+ARTIFACT_STORAGE_DIRECTORY=/absolute/service-owned/artifacts
+LOCAL_PROTOTYPE_ROOT=/absolute/path/to/prototypes
+```
+
+The filesystem provider requires the Linux protections described in [Artifact storage](artifact-storage.md), so use the devcontainer or another supported Linux environment. Prepare the shared build action once:
+
+```sh
+npm ci --prefix ../actions/build --ignore-scripts
+(cd ../actions/build && npx playwright install --with-deps chromium)
+```
+
+Docker must be available to the Hub process because the shared action builds each prototype in its pinned Node container. Run one synchronization directly:
+
+```sh
+NODE_ENV=development npm run local:builds
+```
+
+Alternatively, after `npm run setup`, enqueue the same work and run the on-demand worker:
+
+```sh
+NODE_ENV=development npm run local:builds:enqueue
+npm run worker:on-demand
+```
+
+Each scan considers committed heads for the default branch and every other local branch. Hub creates one stable local repository and branch prototype, records the observed head, and creates at most one Build for that exact commit. An unchanged successful or failed head is not rebuilt. A queued or interrupted running Build may resume. Discovery and Build failures are isolated so another repository can still finish.
+
+The runner uses an isolated detached Git worktree for the exact commit, so working-tree changes and untracked files do not enter the Build. Successful packages store validated `dist` files, screenshots, and the optional template manifest as immutable artifact bytes. Hub records failed state and a bounded error summary when validation, the prototype build, screenshots, packaging, storage, or persistence fails.
+
+This layer does not serve previews, create reviews, share Builds, discover hosted repositories, install workflows, or authorize GitHub access. The existing prototype and Build APIs can read the resulting records, but screenshot and preview URLs remain unavailable until a later serving layer.
 
 Vite also forwards WebSocket upgrades under `/api`. The `/api/realtime` endpoint rejects connections until application access checks are connected; see [WebSocket updates](websockets.md). Stopping the API closes its WebSocket connections as well.
 

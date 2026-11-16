@@ -1,0 +1,23 @@
+model BranchHeadObservation {
+  // ID columns
+  id           String @id @default(uuid()) @db.Uuid
+  repositoryId String @map("repository_id") @db.Uuid
+  buildId      String @map("build_id") @db.Uuid
+
+  // Relations
+  repository Repository @relation(fields: [repositoryId], references: [id], onDelete: Restrict)
+  build      Build      @relation(fields: [buildId], references: [id], onDelete: Restrict)
+
+  // Attribute columns
+  branchName     String   @map("branch_name") @db.VarChar(255)
+  commitSha      String   @map("commit_sha") @db.VarChar(64)
+  lastObservedAt DateTime @default(now()) @map("last_observed_at") @db.Timestamptz(3)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([repositoryId, branchName, commitSha])
+  @@index([repositoryId, branchName, lastObservedAt])
+  @@map("branch_head_observations")
+}

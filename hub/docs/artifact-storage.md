@@ -1,6 +1,6 @@
 # Artifact storage
 
-The artifact storage foundation saves immutable bytes behind a provider-neutral domain API. It does not import Builds, extract archives, host previews, authorize access, or add product routes or database models.
+The artifact storage foundation saves immutable bytes behind a provider-neutral domain API. Development-only local Builds use it to save checked package files and record their keys, paths, kinds, and byte lengths in the database. Storage still does not extract archives, host previews, or authorize access.
 
 ## Composition
 
