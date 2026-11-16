@@ -764,6 +764,100 @@ run "github_settings_are_omitted_when_unset" {
     ]) == 0
     error_message = "Unset GitHub App settings must not reach Hub's environment."
   }
+  assert {
+    condition = (
+      var.hub_application_origin == null &&
+      length([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.name if env.name == "HUB_APPLICATION_ORIGIN"]) == 0 &&
+      length(azurerm_container_app_custom_domain.hub) == 0 &&
+      azurerm_container_app.hub[0].ingress[0].external_enabled &&
+      output.installation.url == "https://${azurerm_container_app.hub[0].ingress[0].fqdn}"
+    )
+    error_message = "An unset origin must leave the default HTTPS hosting and environment unchanged."
+  }
+}
+
+run "hub_application_origin_retains_a_nondefault_port" {
+  command = plan
+
+  variables {
+    deploy_hub             = true
+    hub_application_origin = "https://hub.example.com:8443"
+  }
+
+  assert {
+    condition     = one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == "HUB_APPLICATION_ORIGIN"]) == "https://hub.example.com:8443"
+    error_message = "The exact canonical origin, including its non-default port, must reach Hub."
+  }
+}
+
+run "hub_application_origin_accepts_a_single_label_hostname" {
+  command = plan
+
+  variables {
+    deploy_hub             = true
+    hub_application_origin = "https://localhost"
+  }
+
+  assert {
+    condition     = one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == "HUB_APPLICATION_ORIGIN"]) == "https://localhost"
+    error_message = "A canonical single-label hostname must remain unchanged."
+  }
+}
+
+run "hub_application_origin_accepts_ipv6" {
+  command = plan
+
+  variables {
+    deploy_hub             = true
+    hub_application_origin = "https://[::1]:65535"
+  }
+
+  assert {
+    condition     = one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == "HUB_APPLICATION_ORIGIN"]) == "https://[::1]:65535"
+    error_message = "A canonical IPv6 origin with the highest port must remain unchanged."
+  }
+}
+
+run "hub_application_origin_accepts_ipv4" {
+  command = plan
+
+  variables {
+    deploy_hub             = true
+    hub_application_origin = "https://127.0.0.1:0"
+  }
+
+  assert {
+    condition     = one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == "HUB_APPLICATION_ORIGIN"]) == "https://127.0.0.1:0"
+    error_message = "A canonical IPv4 origin with port zero must remain unchanged."
+  }
+}
+
+run "hub_application_origin_accepts_mapped_ipv6" {
+  command = plan
+
+  variables {
+    deploy_hub             = true
+    hub_application_origin = "https://[::ffff:c000:280]"
+  }
+
+  assert {
+    condition     = one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == "HUB_APPLICATION_ORIGIN"]) == "https://[::ffff:c000:280]"
+    error_message = "A canonical mapped IPv6 origin must remain unchanged."
+  }
+}
+
+run "hub_application_origin_accepts_the_maximum_length" {
+  command = plan
+
+  variables {
+    deploy_hub             = true
+    hub_application_origin = "https://${join(".", [for i in range(7) : join("", [for j in range(61) : "a"])])}.${join("", [for i in range(58) : "a"])}"
+  }
+
+  assert {
+    condition     = one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == "HUB_APPLICATION_ORIGIN"]) == var.hub_application_origin
+    error_message = "A canonical 500-character origin must remain unchanged."
+  }
 }
 
 run "generic_github_identifiers_satisfy_secret_reference_requirements" {
@@ -894,6 +988,136 @@ run "invalid_hub_application_origin_is_rejected" {
 
   variables {
     hub_application_origin = "https://hub.example.com/"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_an_origin_longer_than_the_maximum" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://${join(".", [for i in range(7) : join("", [for j in range(61) : "a"])])}.${join("", [for i in range(59) : "a"])}"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_a_dotted_mapped_ipv6_address" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://[::ffff:192.0.2.128]"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_an_uppercase_host" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://HUB.example.com"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_a_shortened_ipv4_address" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://127.1"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_an_explicit_default_port" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://hub.example.com:443"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_a_zero_padded_port" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://hub.example.com:08443"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_a_non_numeric_port" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://hub.example.com:not-a-port"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_an_out_of_range_port" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://hub.example.com:65536"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_a_path" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://hub.example.com/path"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_a_query" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://hub.example.com?synthetic-query"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_a_fragment" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://hub.example.com#synthetic-fragment"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_credentials" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://synthetic-user:synthetic-password@hub.example.com"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_http" {
+  command = plan
+
+  variables {
+    hub_application_origin = "http://hub.example.com"
   }
 
   expect_failures = [var.hub_application_origin]
