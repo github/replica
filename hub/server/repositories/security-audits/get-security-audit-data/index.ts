@@ -320,6 +320,7 @@ export function getSecurityAuditData(
         targetId: event.learningId,
         context: {
           actorMembershipId: event.actorMembershipId,
+          operationId: event.operationId,
           repositoryId: event.repositoryId,
           ...(event.reason ? { reason: event.reason } : {}),
         },

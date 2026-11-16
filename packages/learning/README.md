@@ -6,7 +6,7 @@ The design and its trade-offs are in [ADR 0001](../../docs/adr/0001-learning-ext
 
 ## What the first loop does
 
-The package turns saved Hub review comments into guidance that a person approved. Its CLI, providers, and demos work independently. The [new Hub](../../hub/README.md) does not collect comments or run these steps automatically.
+The package turns saved Hub review comments into guidance that a person approved. Its CLI, providers, and demos work independently. The [new Hub](../../hub/README.md) captures complete repository review snapshots and runs the explicit learning loop through this command boundary.
 
 1. A person records consent for named purposes, such as review and instruction.
 2. A host imports one complete snapshot of a repository's comments. Each review thread becomes an episode pinned to its prototype and to the Build the reviewer commented on.

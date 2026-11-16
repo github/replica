@@ -158,11 +158,26 @@ describe("replica-learning CLI: the first learning milestone", () => {
         "github:ana-designer",
         "--content-file",
         "edited.txt",
+        "--operation-id",
+        "11111111-2222-4333-8444-555555555555",
         "--json",
       ])
     ).json()
     assert.equal(accepted.state, "accepted")
     assert.equal(accepted.accepted.edited, true)
+    assert.equal(accepted.accepted.operationId, "11111111-2222-4333-8444-555555555555")
+    assert.deepEqual(
+      (
+        await ok(repo, [
+          "operation-status",
+          proposal.id,
+          "--operation-id",
+          "11111111-2222-4333-8444-555555555555",
+          "--json",
+        ])
+      ).json(),
+      { state: "accepted" },
+    )
     assert.equal(
       accepted.content,
       "Put a visible label above every form field. Placeholder text never replaces the label.",
@@ -997,6 +1012,24 @@ describe("replica-learning CLI: guard rails", () => {
     assert.equal((await cli(repo, ["recall", "--preview"])).code, 2)
     assert.equal((await cli(repo, ["status", "--bogus"])).code, 2)
     assert.equal((await cli(repo, ["--help"])).code, 0)
+  })
+
+  it("reads a dash-leading decision reason from a file", async () => {
+    const repo = checkout("decision-reason-file")
+    writeFileSync(path.join(repo, "reason.txt"), "-private repository context\n")
+
+    const result = await cli(repo, [
+      "retire",
+      "mem_missing01",
+      "--by",
+      "github:ana-designer",
+      "--reason-file",
+      "reason.txt",
+    ])
+
+    assert.equal(result.code, 1)
+    assert.match(result.stderr, /not_found/)
+    assert.doesNotMatch(result.stderr, /Run replica-learning --help/)
   })
 
   it("refuses an identity with control or invisible formatting characters", async () => {

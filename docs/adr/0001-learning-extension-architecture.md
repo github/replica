@@ -2,7 +2,7 @@
 
 Status: proposed on October 6, 2026, and revised on October 10, 2026 to follow the requirements the Replica maintainers agreed on. Needs review by the Replica maintainers.
 
-The learning package, providers, CLI, and demos still work. Hub descriptions below record an earlier proposal, not what the [new Hub](../../hub/README.md) can do today. It does not collect comments, run learning jobs, store learning data, sign people in, or connect Copilot. Adding those features requires separate product and architecture decisions.
+The learning package, providers, CLI, and demos implement this architecture. The [new Hub](../../hub/README.md) now stores review conversations, captures complete repository snapshots, connects Copilot, runs explicit learning jobs, records decisions, recalls accepted guidance, and redacts deleted comment text. Daily change-driven discovery remains separate work.
 
 ## Context
 
@@ -96,9 +96,9 @@ Each import records whether every list page and reply page was present. The impo
 
 ### Integration with Hub
 
-The earlier proposal had Hub run `replica-learning` for every step, so the package's rules applied throughout. It kept one store per repository outside any checkout. A background job imported review comments, removed deleted text, labeled new or edited comments, and proposed learnings. Administrators reviewed proposals, and the plugin read accepted learnings. The [new Hub](../../hub/README.md) does not run these steps.
+Hub runs `replica-learning` for every step, so the package's rules apply throughout. It keeps one store per repository outside any checkout. An explicit background job imports review comments, removes deleted text, labels new or edited comments, and proposes learnings. Administrators review proposals, and recall returns accepted learnings for agents.
 
-The package can label through the [Copilot SDK](https://github.com/github/copilot-sdk). Its session has no tools, refuses every permission request, and never sees who wrote a comment. Copilot chooses the model unless the store's configuration names one, and each run records the usage Copilot reports. The new Hub does not set up or authorize this connection.
+The package can label through the [Copilot SDK](https://github.com/github/copilot-sdk). Its session has no tools, refuses every permission request, treats comment text as untrusted data rather than instructions, and never sees who wrote a comment. Copilot chooses the model unless the store's configuration names one, and each run records the usage Copilot reports. Hub supplies only a currently usable configured credential.
 
 The command still runs in a checkout, with data under `.replica/learning/`, for contributors and for other hosts. This complements #230: its discovery output can become labels, and its judge can become a consolidator.
 

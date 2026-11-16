@@ -87,6 +87,8 @@ describe("Hub review collections", () => {
     }
     root.resolutionHistory = [
       {
+        id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        sequence: 1,
         state: "resolved",
         at: root.resolvedAt,
         actor: root.resolvedBy,
@@ -119,13 +121,17 @@ describe("Hub review collections", () => {
     root.resolvedBy = null
     root.resolutionHistory = [
       {
+        id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        sequence: 1,
         state: "resolved",
         at: "2026-10-04T12:00:00.000000Z",
         actor: { login: "resolver", hubUserId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee" },
       },
       {
+        id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        sequence: 2,
         state: "unresolved",
-        at: "2026-10-04T13:00:00.000000Z",
+        at: "2026-10-04T11:00:00.000000Z",
         actor: { login: "reopener", hubUserId: "ffffffff-eeee-4ddd-8ccc-bbbbbbbbbbbb" },
       },
     ]
@@ -145,7 +151,7 @@ describe("Hub review collections", () => {
         .map((event) => [event.payload.status, event.at]),
       [
         ["resolved", "2026-10-04T12:00:00.000000Z"],
-        ["unresolved", "2026-10-04T13:00:00.000000Z"],
+        ["unresolved", "2026-10-04T11:00:00.000000Z"],
       ],
     )
     assert.deepEqual(
@@ -157,6 +163,29 @@ describe("Hub review collections", () => {
         existing: events,
       }),
       [],
+    )
+  })
+
+  it("accepts provider-neutral display logins when a Hub UUID identifies the reviewer", () => {
+    const log = weekOneLog()
+    const root = log.calls[1].result.threads[0]
+    root.author.login = "mona@example.com"
+    root.author.hubUserId = "11111111-2222-4333-8444-555555555555"
+
+    const collection = read(log)
+    const thread = collection.threads.find((item) => item.root.id === root.id)
+    const [event] = hubThreadEvents({
+      meta: collection.meta,
+      thread,
+      scope: expected,
+      episodeId: "ep_entrareviewer1",
+      existing: [],
+    })
+
+    assert.equal(event.actor.login, "mona@example.com")
+    assert.equal(
+      event.actor.id,
+      "hub-user:https://replica.example.com/11111111-2222-4333-8444-555555555555",
     )
   })
 

@@ -105,6 +105,8 @@ describe("createHubReviewCollection()", () => {
     })
     expect(thread.resolutionHistory).toEqual([
       {
+        id: "66666666-6666-4666-8666-666666666666",
+        sequence: 1,
         state: "resolved",
         at: "2026-11-13T10:04:00.000Z",
         actor: {
@@ -121,6 +123,8 @@ describe("createHubReviewCollection()", () => {
     const laterCapture = snapshot()
     laterCapture.snapshotId = "88888888-8888-4888-8888-888888888888"
     laterCapture.capturedAt = new Date("2026-11-13T10:06:00Z")
+    laterCapture.threads[0]!.updatedAt = new Date("2026-11-13T10:06:00Z")
+    laterCapture.threads[0]!.root.updatedAt = new Date("2026-11-13T10:06:00Z")
     expect(createHubReviewCollection(laterCapture, "https://hub.example.com").digest).toBe(
       result.digest,
     )

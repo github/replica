@@ -31,6 +31,8 @@ Inspect
                                   100 event IDs and only their containing episodes
   memories [--state <s>]...       Learnings with their state and whether they are recalled
   show <memory-id> [--history]    One learning, its evidence, and its digests
+  operation-status <memory-id> --operation-id <uuid>
+                                  Whether one host decision operation is in intact history
   verify                          Re-check every record's schema, digest, and history
   copilot status                  Whether Copilot answers here, as whom, and with which models
 
@@ -61,8 +63,8 @@ Capture and propose
 
 Review (a person decides; --by github:<login>)
   accept <memory-id> --digest <sha256:...> --by <id> [--content-file <file>] [--note <text>]
-  reject <memory-id> --digest <sha256:...> --by <id> --reason <text>
-  retire <memory-id> --by <id> --reason <text>
+  reject <memory-id> --digest <sha256:...> --by <id> (--reason <text> | --reason-file <file>)
+  retire <memory-id> --by <id> (--reason <text> | --reason-file <file>)
   supersede <old-id>... --with <new-id> --by <id> [--reason <text>]
                                   Only for a learning that recall uses and that
                                   replaces nothing yet
@@ -108,6 +110,8 @@ const OPTIONS = {
   history: { type: "boolean" },
   digest: { type: "string" },
   "content-file": { type: "string" },
+  "reason-file": { type: "string" },
+  "operation-id": { type: "string" },
   note: { type: "string" },
   with: { type: "string" },
   task: { type: "string" },
@@ -234,6 +238,8 @@ async function run(session) {
       return memories(session)
     case "show":
       return show(session)
+    case "operation-status":
+      return operationStatus(session)
     case "accept":
     case "reject":
       return review(session, command)
@@ -800,6 +806,7 @@ async function show(session) {
     )
     return
   }
+
   const lines = [
     ...head,
     `Content: ${quoted(record.content, 4000)}`,
@@ -859,6 +866,18 @@ async function show(session) {
   session.out(item, lines.join("\n"))
 }
 
+async function operationStatus(session) {
+  const id = argument(session, 1, "memory ID")
+  const operationId = session.values["operation-id"]
+  if (!operationId) throw new UsageError("Name the host operation with --operation-id.")
+  const { store } = await open(session)
+  const result = await store.findMemoryOperation(context(session, actor(session)), id, operationId)
+  session.out(
+    result,
+    result.state ? `${operationId}: ${result.state}` : `${operationId}: not found`,
+  )
+}
+
 async function review(session, command) {
   const id = argument(session, 1, "memory ID")
   const digest = session.values.digest
@@ -876,6 +895,7 @@ async function review(session, command) {
       expectedDigest: digest,
       content,
       note: session.values.note,
+      operationId: session.values["operation-id"],
     })
     session.out(
       record,
@@ -883,23 +903,39 @@ async function review(session, command) {
     )
     return
   }
-  if (!session.values.reason) throw new UsageError("Say why with --reason.")
+  const reason = await reasonOf(session)
   const record = await store.rejectMemory(context(session, principal), id, {
     expectedDigest: digest,
-    reason: session.values.reason,
+    reason,
+    operationId: session.values["operation-id"],
   })
   session.out(record, `Rejected ${id}. The reason is kept with it.`)
 }
 
 async function retire(session) {
   const id = argument(session, 1, "memory ID")
-  if (!session.values.reason) throw new UsageError("Say why with --reason.")
+  const reason = await reasonOf(session)
   const principal = person(session)
   const { store } = await open(session)
   const record = await store.retireMemory(context(session, principal), id, {
-    reason: session.values.reason,
+    reason,
+    operationId: session.values["operation-id"],
   })
   session.out(record, `Retired ${id}. It is no longer recalled; its history stays.`)
+}
+
+async function reasonOf(session) {
+  const file = session.values["reason-file"]
+  if (file !== undefined && session.values.reason !== undefined)
+    throw new UsageError("Pass either --reason or --reason-file, not both.")
+  if (file === undefined) {
+    if (!session.values.reason) throw new UsageError("Say why with --reason or --reason-file.")
+    return session.values.reason
+  }
+  const bytes = await readFile(path.resolve(session.cwd, file))
+  const reason = decodeUtf8(bytes, file).replace(/\r?\n$/, "")
+  if (!reason) throw new UsageError("The reason file is empty.")
+  return reason
 }
 
 async function redact(session) {

@@ -120,7 +120,7 @@
         "login": {
           "description": "The login shown at import time, for display only. Stable actor IDs, not this mutable login, identify reviewers.",
           "type": "string",
-          "pattern": "^[A-Za-z0-9_-]{1,256}$"
+          "pattern": "^[^\\s\\p{Cc}\\p{Cf}\\u{E0000}-\\u{E007F}]{1,256}$"
         },
         "model": {
           "type": "string",

@@ -13,6 +13,12 @@ export function updateLearningRunProgress(
 ) {
   return database.learningRun.updateMany({
     where: { id: runId, state: "RUNNING" },
-    data: input,
+    data: {
+      commentsConsidered: { increment: input.commentsConsidered },
+      commentsLabeled: { increment: input.commentsLabeled },
+      commentsRemaining: input.commentsRemaining,
+      copilotRequests: { increment: input.copilotRequests },
+      aiCredits: { increment: input.aiCredits },
+    },
   })
 }

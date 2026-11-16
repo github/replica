@@ -130,9 +130,23 @@ export function createReviewCommentService(
           }),
         )
       }
-      const result = options.withDeleteLock
-        ? await options.withDeleteLock(operation)
-        : await operation()
+      let result
+      try {
+        result = options.withDeleteLock
+          ? await options.withDeleteLock(operation)
+          : await operation()
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message === "Another learning operation is still running."
+        ) {
+          throw new ReviewCommentError(
+            "conflict",
+            "A learning operation is using review comments. Try again.",
+          )
+        }
+        throw error
+      }
       if (!result.ok) throw persistenceError(result.reason)
       const thread = serializeReviewThread(result.value)
       await options.onDeleted?.({

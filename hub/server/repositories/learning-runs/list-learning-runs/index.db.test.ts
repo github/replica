@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { describe, expect, it } from "vitest"
 
 import { prisma } from "../../../integrations/prisma"
+import { updateLearningRunProgress } from "../update-learning-run-progress"
 import { listLearningRuns } from "."
 
 describe("listLearningRuns()", () => {
@@ -84,5 +85,41 @@ describe("listLearningRuns()", () => {
         },
       }),
     ).rejects.toThrow()
+  })
+
+  it("accumulates recovered labeling work without replacing earlier usage", async () => {
+    const repositoryId = randomUUID()
+    await prisma.repository.create({
+      data: { id: repositoryId, nameWithOwner: "team/design", defaultBranch: "main" },
+    })
+    const run = await prisma.learningRun.create({
+      data: {
+        repositoryId,
+        snapshotDigest: `sha256:${"a".repeat(64)}`,
+        state: "RUNNING",
+        startedAt: new Date(),
+        commentsConsidered: 4,
+        commentsLabeled: 3,
+        commentsRemaining: 2,
+        copilotRequests: 1,
+        aiCredits: "0.001",
+      },
+    })
+    await updateLearningRunProgress(prisma, run.id, {
+      commentsConsidered: 2,
+      commentsLabeled: 1,
+      commentsRemaining: 0,
+      copilotRequests: 1,
+      aiCredits: "0.0025",
+    })
+
+    const updated = await prisma.learningRun.findUniqueOrThrow({ where: { id: run.id } })
+    expect(updated).toMatchObject({
+      commentsConsidered: 6,
+      commentsLabeled: 4,
+      commentsRemaining: 0,
+      copilotRequests: 2,
+    })
+    expect(updated.aiCredits.toString()).toBe("0.0035")
   })
 })

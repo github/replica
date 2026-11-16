@@ -41,11 +41,7 @@ describe("processReviewCommentRedaction()", () => {
     expect(lockCalls).toBe(1)
     expect(prepare).not.toHaveBeenCalled()
     expect(runCommand).not.toHaveBeenCalled()
-    expect(markComplete).toHaveBeenCalledWith({
-      repositoryId: "repository",
-      commentId: 101,
-      redactedAt: new Date("2026-11-13T10:00:00Z"),
-    })
+    expect(markComplete).not.toHaveBeenCalled()
   })
 
   it("redacts by Hub comment ID while holding the store lock", async () => {
@@ -96,6 +92,33 @@ describe("processReviewCommentRedaction()", () => {
         commentId: 101,
         redactedAt: new Date("2026-11-13T10:00:00Z"),
       })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("keeps redaction pending when the store is inaccessible", async () => {
+    const root = await mkdtemp(join(tmpdir(), "replica-redaction-"))
+    await mkdir(join(root, "repositories", "repository"), { recursive: true })
+    await writeFile(join(root, "repositories", "repository", "config.json"), "{}")
+    try {
+      const markComplete = vi.fn()
+      await expect(
+        processReviewCommentRedaction(
+          { repositoryId: "repository", commentId: 101, actor: "human:mona" },
+          {
+            root,
+            markComplete,
+            now: () => new Date(),
+            prepare: vi
+              .fn()
+              .mockRejectedValue(Object.assign(new Error("denied"), { code: "EACCES" })),
+            runCommand: vi.fn(),
+            withLock: withLearningLock,
+          },
+        ),
+      ).rejects.toMatchObject({ code: "EACCES" })
+      expect(markComplete).not.toHaveBeenCalled()
     } finally {
       await rm(root, { recursive: true, force: true })
     }

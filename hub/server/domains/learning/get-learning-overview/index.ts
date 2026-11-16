@@ -5,8 +5,8 @@ import { z } from "zod"
 import { runLearningCommand } from "../../../integrations/learning/run-learning-command/index.ts"
 import { LearningCommandError } from "../../../integrations/learning/run-learning-command/errors.ts"
 import { validatePrivateStorageRoot } from "../../../utils/validate-private-storage-root/index.ts"
-import type { AcceptedLearning, LearningSuggestion } from "../../../routes/api/learnings/types.ts"
 import type { ReviewCommentLearningSource } from "../review-comment-learning-source/types.ts"
+import type { AcceptedLearning, LearningSuggestion } from "../types.ts"
 
 const referenceSchema = z
   .object({
@@ -124,7 +124,8 @@ export async function getLearningOverview(input: {
   )
   try {
     await access(resolve(directory, "config.json"))
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     return {
       loadError: null,
       identityReviewCount: 0,
@@ -165,7 +166,7 @@ export async function getLearningOverview(input: {
     loadError =
       "Review comment evidence is not available yet, so Hub withheld learning suggestions."
   } else if (input.evidenceSource) {
-    for (const item of proposed) {
+    const prepared = proposed.map((item) => {
       if (!item.record.content || !item.record.reviewDigest) {
         throw new LearningCommandError(
           "unreadable_output",
@@ -174,39 +175,62 @@ export async function getLearningOverview(input: {
       }
       const evidenceReferences = item.record.evidence ?? []
       const contradictionReferences = item.record.contradictions ?? []
-      const references = [...evidenceReferences, ...contradictionReferences]
-      const eventIds = [...new Set(references.flatMap((reference) => reference.eventIds))]
-      const events = []
-      for (let index = 0; index < eventIds.length; index += 100) {
-        const batch = eventIds.slice(index, index + 100)
-        const result = observationsSchema.parse(
-          await runLearningCommand(
-            [
-              "observations",
-              "--purpose",
-              "review",
-              ...batch.flatMap((eventId) => ["--event", eventId]),
-              ...commonArguments,
-            ],
-            commandOptions,
-          ),
-        )
-        events.push(...result.events)
+      return {
+        item,
+        content: item.record.content,
+        reviewDigest: item.record.reviewDigest,
+        evidenceReferences,
+        contradictionReferences,
+        references: [...evidenceReferences, ...contradictionReferences],
       }
-      const resolved = await input.evidenceSource.resolveEvidence({
-        repositoryId: input.repositoryId,
-        references,
-        events,
-      })
-      const byIndex = new Map(resolved.map((entry) => [entry.referenceIndex, entry.evidence]))
-      const evidence = evidenceReferences.flatMap((_, index) => byIndex.get(index) ?? [])
+    })
+    const references = prepared.flatMap((entry) => entry.references)
+    const eventIds = [...new Set(references.flatMap((reference) => reference.eventIds))]
+    const events = []
+    for (let index = 0; index < eventIds.length; index += 100) {
+      const batch = eventIds.slice(index, index + 100)
+      const result = observationsSchema.parse(
+        await runLearningCommand(
+          [
+            "observations",
+            "--purpose",
+            "review",
+            ...batch.flatMap((eventId) => ["--event", eventId]),
+            ...commonArguments,
+          ],
+          commandOptions,
+        ),
+      )
+      events.push(...result.events)
+    }
+    const resolved =
+      references.length === 0
+        ? []
+        : await input.evidenceSource.resolveEvidence({
+            repositoryId: input.repositoryId,
+            references,
+            events,
+          })
+    const byIndex = new Map(resolved.map((entry) => [entry.referenceIndex, entry.evidence]))
+    let referenceOffset = 0
+    for (const {
+      item,
+      content,
+      reviewDigest,
+      evidenceReferences,
+      contradictionReferences,
+      references: itemReferences,
+    } of prepared) {
+      const evidence = evidenceReferences.flatMap(
+        (_, index) => byIndex.get(referenceOffset + index) ?? [],
+      )
       const contradictions = contradictionReferences.flatMap(
-        (_, index) => byIndex.get(evidenceReferences.length + index) ?? [],
+        (_, index) => byIndex.get(referenceOffset + evidenceReferences.length + index) ?? [],
       )
       suggestions.push({
         id: item.record.id,
-        content: item.record.content,
-        reviewDigest: item.record.reviewDigest,
+        content,
+        reviewDigest,
         support: item.record.support
           ? {
               reviewers: item.record.support.distinctReviewers,
@@ -219,13 +243,15 @@ export async function getLearningOverview(input: {
         })),
         evidence,
         otherEvidenceCount: evidenceReferences.filter(
-          (_, index) => (byIndex.get(index) ?? []).length === 0,
+          (_, index) => (byIndex.get(referenceOffset + index) ?? []).length === 0,
         ).length,
         contradictions,
         otherContradictionsCount: contradictionReferences.filter(
-          (_, index) => (byIndex.get(evidenceReferences.length + index) ?? []).length === 0,
+          (_, index) =>
+            (byIndex.get(referenceOffset + evidenceReferences.length + index) ?? []).length === 0,
         ).length,
       })
+      referenceOffset += itemReferences.length
     }
   }
   const learnings: AcceptedLearning[] = memories

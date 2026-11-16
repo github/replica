@@ -20,9 +20,13 @@ import { getCopilotConnection } from "../../../../repositories/copilot-connectio
 import { createLearningRun } from "../../../../repositories/learning-runs/create-learning-run/index.ts"
 import { finishLearningRun } from "../../../../repositories/learning-runs/finish-learning-run/index.ts"
 import { listLearningRuns } from "../../../../repositories/learning-runs/list-learning-runs/index.ts"
+import { createLearningDecisionOperation } from "../../../../repositories/learning-decision-operations/create-learning-decision-operation/index.ts"
+import { deleteLearningDecisionOperation } from "../../../../repositories/learning-decision-operations/delete-learning-decision-operation/index.ts"
 import { isEffectiveAdministrator } from "../../../../repositories/memberships/is-effective-administrator/index.ts"
+import { findActiveRepository } from "../../../../repositories/prototype-index/find-active-repository/index.ts"
 import { createSecurityAudit } from "../../../../repositories/security-audits/create-security-audit/index.ts"
 import { LearningsError } from "../errors.ts"
+import { isDefinitiveDecisionRejection } from "../is-definitive-decision-rejection/index.ts"
 import type { CurrentSessionDependencies } from "../../auth/types.ts"
 import type { LearningsRouteDependencies } from "../types.ts"
 
@@ -78,11 +82,7 @@ export async function createLearningsRouteDependencies(
   return {
     applicationOrigin,
     currentSession,
-    findRepository: (repositoryId) =>
-      prisma.repository.findFirst({
-        where: { id: repositoryId, removedAt: null },
-        select: { id: true, nameWithOwner: true, defaultBranch: true },
-      }),
+    findRepository: (repositoryId) => findActiveRepository(prisma, repositoryId),
     getOverview: async ({ repositoryId, viewer }) => {
       try {
         return await getLearningOverview({
@@ -220,15 +220,8 @@ export async function createLearningsRouteDependencies(
         run: () => operation(),
       }),
     decide: async ({ actorMembershipId, ...input }) => {
-      await createSecurityAudit(prisma, {
-        id: randomUUID(),
-        type: "learning_decision",
-        actorMembershipId,
-        decision: input.decision.decision,
-        learningId: input.learningId,
-        outcome: "requested",
-        repositoryId: input.repositoryId,
-      })
+      const operationId = randomUUID()
+      let operationCreated = false
       try {
         const result = await withLearningExecutionLock({
           databaseUrl,
@@ -240,22 +233,48 @@ export async function createLearningsRouteDependencies(
                 "Repository administrator access is required.",
               )
             }
+            await prisma.$transaction(async (transaction) => {
+              await createLearningDecisionOperation(transaction, {
+                id: operationId,
+                actorMembershipId,
+                decision: input.decision.decision,
+                learningId: input.learningId,
+                repositoryId: input.repositoryId,
+              })
+              await createSecurityAudit(transaction, {
+                id: randomUUID(),
+                type: "learning_decision",
+                actorMembershipId,
+                decision: input.decision.decision,
+                learningId: input.learningId,
+                operationId,
+                outcome: "requested",
+                repositoryId: input.repositoryId,
+              })
+            })
+            operationCreated = true
             return executeLearningDecision({
               ...configuration,
               ...input,
+              operationId,
               signal,
             })
           },
         })
         try {
-          await createSecurityAudit(prisma, {
-            id: randomUUID(),
-            type: "learning_decision",
-            actorMembershipId,
-            decision: input.decision.decision,
-            learningId: input.learningId,
-            outcome: "succeeded",
-            repositoryId: input.repositoryId,
+          await prisma.$transaction(async (transaction) => {
+            const claimed = await deleteLearningDecisionOperation(transaction, operationId)
+            if (claimed.count !== 1) return
+            await createSecurityAudit(transaction, {
+              id: randomUUID(),
+              type: "learning_decision",
+              actorMembershipId,
+              decision: input.decision.decision,
+              learningId: input.learningId,
+              operationId,
+              outcome: "succeeded",
+              repositoryId: input.repositoryId,
+            })
           })
         } catch (error) {
           logger.error(
@@ -270,16 +289,24 @@ export async function createLearningsRouteDependencies(
         }
         return result
       } catch (error) {
-        if (error instanceof LearningCommandError || error instanceof LearningsError) {
-          await createSecurityAudit(prisma, {
-            id: randomUUID(),
-            type: "learning_decision",
-            actorMembershipId,
-            decision: input.decision.decision,
-            learningId: input.learningId,
-            outcome: "failed",
-            reason: error instanceof LearningCommandError ? error.code.slice(0, 100) : error.code,
-            repositoryId: input.repositoryId,
+        if (operationCreated && isDefinitiveDecisionRejection(error)) {
+          await prisma.$transaction(async (transaction) => {
+            const claimed = await deleteLearningDecisionOperation(transaction, operationId)
+            if (claimed.count !== 1) return
+            await createSecurityAudit(transaction, {
+              id: randomUUID(),
+              type: "learning_decision",
+              actorMembershipId,
+              decision: input.decision.decision,
+              learningId: input.learningId,
+              operationId,
+              outcome: "failed",
+              reason:
+                error instanceof LearningCommandError || error instanceof LearningsError
+                  ? error.code.slice(0, 100)
+                  : "decision_rejected",
+              repositoryId: input.repositoryId,
+            })
           })
           throw error
         }

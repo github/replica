@@ -4,8 +4,8 @@ import { resolve } from "node:path"
 
 import { runLearningCommand } from "../../../integrations/learning/run-learning-command/index.ts"
 import { validatePrivateStorageRoot } from "../../../utils/validate-private-storage-root/index.ts"
-import { LearningsError } from "../../../routes/api/learnings/errors.ts"
-import type { LearningDecision } from "../../../routes/api/learnings/types.ts"
+import { LearningCommandError } from "../../../integrations/learning/run-learning-command/errors.ts"
+import type { LearningDecision } from "../types.ts"
 
 export async function executeLearningDecision(input: {
   actor: string
@@ -14,6 +14,7 @@ export async function executeLearningDecision(input: {
   decision: LearningDecision
   learningId: string
   nodePath: string
+  operationId: string
   repositoryId: string
   root: string
   signal?: AbortSignal
@@ -31,19 +32,24 @@ export async function executeLearningDecision(input: {
   )
   try {
     await access(resolve(directory, "config.json"))
-  } catch {
-    throw new LearningsError(404, "learning_not_found", "That learning no longer exists.")
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    throw new LearningCommandError("not_found", "That learning no longer exists.")
   }
   const arguments_ = [input.decision.decision, input.learningId]
+  arguments_.push("--operation-id", input.operationId)
   if (input.decision.decision !== "retire") {
     arguments_.push("--digest", input.decision.digest)
   }
   arguments_.push("--by", input.actor)
-  if (input.decision.decision !== "accept") {
-    arguments_.push("--reason", input.decision.reason)
-  }
   let temporaryDirectory: string | undefined
   try {
+    if (input.decision.decision !== "accept") {
+      temporaryDirectory = await mkdtemp(resolve(tmpdir(), "replica-learning-decision-"))
+      const reasonPath = resolve(temporaryDirectory, "reason.txt")
+      await writeFile(reasonPath, input.decision.reason, { mode: 0o600 })
+      arguments_.push("--reason-file", reasonPath)
+    }
     if (input.decision.decision === "accept" && input.decision.content !== undefined) {
       temporaryDirectory = await mkdtemp(resolve(tmpdir(), "replica-learning-decision-"))
       const contentPath = resolve(temporaryDirectory, "content.txt")

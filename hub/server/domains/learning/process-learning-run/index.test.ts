@@ -225,4 +225,48 @@ describe("processLearningRun()", () => {
       },
     })
   })
+
+  it("does not record credential refusal when Copilot is simply not connected", async () => {
+    const refuseCredential = vi.fn()
+    const deps = dependencies({
+      credential: vi.fn().mockResolvedValue(null),
+      refuseCredential,
+    })
+
+    await processLearningRun("11111111-2222-4333-8444-555555555555", deps)
+
+    expect(refuseCredential).not.toHaveBeenCalled()
+    expect(deps.finished[0]).toMatchObject({
+      input: {
+        state: "FAILED",
+        failureCode: "copilot_not_connected",
+      },
+    })
+  })
+
+  it("records refusal when the configured installation can no longer mint a credential", async () => {
+    const refuseCredential = vi.fn().mockResolvedValue(undefined)
+    const deps = dependencies({
+      credential: vi
+        .fn()
+        .mockRejectedValue(
+          new LearningCommandError(
+            "installation_revoked",
+            "The configured GitHub App installation is unavailable.",
+          ),
+        ),
+      refuseCredential,
+    })
+
+    await processLearningRun("11111111-2222-4333-8444-555555555555", deps)
+
+    expect(refuseCredential).toHaveBeenCalledOnce()
+    expect(deps.finished[0]).toMatchObject({
+      input: {
+        state: "FAILED",
+        failureCode: "installation_revoked",
+        failureSummary: "The configured GitHub App installation is unavailable.",
+      },
+    })
+  })
 })

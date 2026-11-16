@@ -10,6 +10,7 @@ model Membership {
   sensitiveAuthorizations SensitiveAuthorization[]
   copilotConnections      CopilotConnection[]
   learningRuns            LearningRun[]
+  learningDecisionOperations LearningDecisionOperation[]
 
   // Attribute columns
   lifecycle MembershipLifecycle @default(ACTIVE)

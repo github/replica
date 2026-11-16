@@ -4,7 +4,7 @@ model LearningRun {
   repositoryId  String  @map("repository_id") @db.Uuid
   requestedById String? @map("requested_by_id") @db.Uuid
   requestedByMembershipId String? @map("requested_by_membership_id") @db.Uuid
-  number        Int     @default(autoincrement())
+  number        Int     @unique @default(autoincrement())
 
   // Relations
   repository  Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)

@@ -43,8 +43,8 @@ export interface SourcePin {
   kind: string
   hubOrigin?: string
   repository?: string
-  repositoryId?: number
-  prototypeId?: number
+  repositoryId?: number | string
+  prototypeId?: number | string
   prototypeName?: string
   branch?: string
   buildNumber?: number
@@ -267,7 +267,7 @@ export interface HubReviewCollection {
   meta: {
     hubOrigin: string
     repository: string
-    repositoryId: number
+    repositoryId: number | string
     snapshotId: string
     capturedAt: Timestamp
   }
@@ -358,14 +358,16 @@ export interface MemoryRecord {
     reviewedDigest: Digest
     edited: boolean
     note?: string
+    operationId?: string
   }
   rejected?: {
     by: Actor
     at: Timestamp
     reviewedDigest: Digest
     reason: string
+    operationId?: string
   }
-  retired?: { by?: Actor; at: Timestamp; reason: string }
+  retired?: { by?: Actor; at: Timestamp; reason: string; operationId?: string }
   provenance: Provenance
   createdAt: Timestamp
   updatedAt: Timestamp
@@ -758,6 +760,11 @@ export interface LearningStore {
       versions?: Array<MemoryRecord | (MemoryMetadata & { withheld: true })>
     }
   >
+  findMemoryOperation(
+    context: LearningContext,
+    id: string,
+    operationId: string,
+  ): Promise<{ state: MemoryState | null }>
   queryMemory(
     context: LearningContext,
     query?: { states?: MemoryState[]; kinds?: MemoryKind[]; purpose?: Purpose },
@@ -765,17 +772,17 @@ export interface LearningStore {
   acceptMemory(
     context: LearningContext,
     id: string,
-    input: { expectedDigest: Digest; content?: string; note?: string },
+    input: { expectedDigest: Digest; content?: string; note?: string; operationId?: string },
   ): Promise<MemoryRecord>
   rejectMemory(
     context: LearningContext,
     id: string,
-    input: { expectedDigest: Digest; reason: string },
+    input: { expectedDigest: Digest; reason: string; operationId?: string },
   ): Promise<MemoryRecord>
   retireMemory(
     context: LearningContext,
     id: string,
-    input: { reason: string },
+    input: { reason: string; operationId?: string },
   ): Promise<MemoryRecord>
   supersedeMemory(
     context: LearningContext,

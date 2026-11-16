@@ -211,7 +211,7 @@ export async function processLearningRun(
 
       const credential = await dependencies.credential()
       if (!credential) {
-        throw new LearningCommandError("unauthorized", "Copilot is not connected.")
+        throw new LearningCommandError("copilot_not_connected", "Copilot is not connected.")
       }
       let labeled: z.infer<typeof labelSchema>
       try {
@@ -295,7 +295,10 @@ export async function processLearningRun(
     }
     const current = await dependencies.getRun(runId)
     if (current?.state === "QUEUED") throw error
-    if (error instanceof LearningCommandError && error.code === "unauthorized") {
+    if (
+      error instanceof LearningCommandError &&
+      ["unauthorized", "installation_revoked", "permission_denied"].includes(error.code)
+    ) {
       await dependencies.refuseCredential?.()
     }
     const code = error instanceof LearningCommandError ? error.code : "failed"

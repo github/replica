@@ -8,6 +8,31 @@ CREATE INDEX "review_comments_pending_learning_redaction_idx"
 ON "review_comments"("deleted_at", "id")
 WHERE "deleted_at" IS NOT NULL AND "learning_redacted_at" IS NULL;
 
+CREATE TABLE "learning_decision_operations" (
+    "id" UUID NOT NULL,
+    "repository_id" UUID NOT NULL,
+    "actor_membership_id" UUID NOT NULL,
+    "learning_id" VARCHAR(255) NOT NULL,
+    "decision" VARCHAR(20) NOT NULL,
+    "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "learning_decision_operations_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "learning_decision_operations_decision_check"
+      CHECK ("decision" IN ('accept', 'reject', 'retire'))
+);
+
+CREATE INDEX "learning_decision_operations_repository_id_created_at_idx"
+ON "learning_decision_operations"("repository_id", "created_at");
+
+ALTER TABLE "learning_decision_operations"
+ADD CONSTRAINT "learning_decision_operations_repository_id_fkey"
+FOREIGN KEY ("repository_id") REFERENCES "repositories"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "learning_decision_operations"
+ADD CONSTRAINT "learning_decision_operations_actor_membership_id_fkey"
+FOREIGN KEY ("actor_membership_id") REFERENCES "memberships"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
 CREATE TABLE "learning_runs" (
     "id" UUID NOT NULL,
     "repository_id" UUID NOT NULL,

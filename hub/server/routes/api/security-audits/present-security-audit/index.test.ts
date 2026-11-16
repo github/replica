@@ -404,6 +404,7 @@ describe("presentSecurityAudit()", () => {
         decision: "accept",
         id: auditId,
         learningId: "mem_1",
+        operationId: sessionId,
         outcome: "succeeded",
         repositoryId: providerId,
         type: "learning_decision",
@@ -411,7 +412,7 @@ describe("presentSecurityAudit()", () => {
       expected: expectedRecord({
         action: "learning.accept",
         actor: { membershipId: actorMembershipId },
-        context: { repositoryId: providerId, learningId: "mem_1" },
+        context: { repositoryId: providerId, learningId: "mem_1", operationId: sessionId },
         outcome: "success",
       }),
     },
@@ -422,6 +423,7 @@ describe("presentSecurityAudit()", () => {
         decision: "accept",
         id: auditId,
         learningId: "mem_1",
+        operationId: sessionId,
         outcome: "requested",
         repositoryId: providerId,
         type: "learning_decision",
@@ -429,7 +431,7 @@ describe("presentSecurityAudit()", () => {
       expected: expectedRecord({
         action: "learning.accept.requested",
         actor: { membershipId: actorMembershipId },
-        context: { repositoryId: providerId, learningId: "mem_1" },
+        context: { repositoryId: providerId, learningId: "mem_1", operationId: sessionId },
         outcome: null,
       }),
     },

@@ -1,3 +1,4 @@
+import { access } from "node:fs/promises"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { runLearningCommand } from "../../../integrations/learning/run-learning-command"
@@ -15,6 +16,7 @@ vi.mock("../../../utils/validate-private-storage-root", () => ({
 describe("getLearningOverview()", () => {
   beforeEach(() => {
     vi.mocked(validatePrivateStorageRoot).mockResolvedValue("/private/learning/repositories/repo")
+    vi.mocked(access).mockResolvedValue(undefined)
   })
 
   it("uses only the review source's exact event resolution for displayed evidence", async () => {
@@ -135,5 +137,84 @@ describe("getLearningOverview()", () => {
       },
     ])
     expect(result.suggestions[0]?.otherEvidenceCount).toBe(1)
+  })
+
+  it("propagates an inaccessible store instead of reporting an empty overview", async () => {
+    vi.mocked(access).mockRejectedValue(Object.assign(new Error("denied"), { code: "EACCES" }))
+
+    await expect(
+      getLearningOverview({
+        applicationRoot: "/app",
+        cliPath: "/app/replica-learning.mjs",
+        nodePath: "/node",
+        repositoryId: "11111111-2222-4333-8444-555555555555",
+        root: "/private/learning",
+        staticDirectories: [],
+        viewer: "human:mona",
+      }),
+    ).rejects.toMatchObject({ code: "EACCES" })
+  })
+
+  it("loads observations and the repository snapshot once for all suggestions", async () => {
+    function proposal(id: string, eventId: string, commentId: number) {
+      return {
+        withheld: false,
+        record: {
+          id,
+          state: "proposed" as const,
+          content: `Guidance ${id}`,
+          reviewDigest: `sha256:${(id === "mem_1" ? "a" : "b").repeat(64)}`,
+          evidence: [
+            {
+              episodeId: `episode-${commentId}`,
+              eventIds: [eventId],
+              source: {
+                kind: "hub_review_comments",
+                repositoryId: "11111111-2222-4333-8444-555555555555",
+                commentId,
+              },
+            },
+          ],
+          contradictions: [],
+          proposal: { lifecycle: { targets: [] } },
+        },
+        status: { recallEligible: false, problems: [], conflicts: [] },
+      }
+    }
+    const memories = [proposal("mem_1", "event-1", 17), proposal("mem_2", "event-2", 18)]
+    vi.mocked(runLearningCommand)
+      .mockResolvedValueOnce(memories)
+      .mockResolvedValueOnce({ text: "", memories: [] })
+      .mockResolvedValueOnce({
+        events: [
+          {
+            id: "event-1",
+            episodeId: "episode-17",
+            at: "2026-11-01T10:00:00Z",
+            payload: { commentId: 17, body: "one" },
+          },
+          {
+            id: "event-2",
+            episodeId: "episode-18",
+            at: "2026-11-01T11:00:00Z",
+            payload: { commentId: 18, body: "two" },
+          },
+        ],
+      })
+    const resolveEvidence = vi.fn().mockResolvedValue([])
+
+    await getLearningOverview({
+      applicationRoot: "/app",
+      cliPath: "/app/replica-learning.mjs",
+      evidenceSource: { resolveEvidence },
+      nodePath: "/node",
+      repositoryId: "11111111-2222-4333-8444-555555555555",
+      root: "/private/learning",
+      staticDirectories: [],
+      viewer: "human:mona",
+    })
+
+    expect(resolveEvidence).toHaveBeenCalledOnce()
+    expect(vi.mocked(runLearningCommand)).toHaveBeenCalledTimes(3)
   })
 })

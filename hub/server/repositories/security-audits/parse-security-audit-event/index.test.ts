@@ -71,6 +71,7 @@ describe("parseSecurityAuditEvent()", () => {
       decision: "accept" as const,
       id: "5dd31031-6f1c-4c16-87c2-aee5342145cc",
       learningId: "mem_1",
+      operationId: "e02c9c4c-f661-4618-8ff5-ab9cf10eaece",
       outcome: "succeeded" as const,
       repositoryId: "df75faa4-ed4c-44ed-8db0-443cc3b426ed",
       type: "learning_decision" as const,

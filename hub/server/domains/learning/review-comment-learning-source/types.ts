@@ -1,4 +1,4 @@
-import type { LearningEvidence } from "../../../routes/api/learnings/types.ts"
+import type { LearningEvidence } from "../types.ts"
 
 export interface LearningEvidenceReference {
   episodeId: string

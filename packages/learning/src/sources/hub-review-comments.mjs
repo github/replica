@@ -21,7 +21,7 @@ const LIST = "list_repository_comments"
 const THREAD = "get_repository_comment_thread"
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i
 const ORIGIN = /^https?:\/\/[A-Za-z0-9.-]+(?::[0-9]{1,5})?$/
-const LOGIN = /^[A-Za-z0-9_-]{1,256}$/
+const LOGIN = /^[^\s\p{Cc}\p{Cf}\u{E0000}-\u{E007F}]{1,256}$/u
 
 /**
  * Read a log of Replica canvas comment calls and decide whether it is a complete collection.
@@ -458,7 +458,12 @@ export function hubThreadEvents({ meta, thread, scope, episodeId, existing }) {
           meta,
         )
       : { kind: "system", id: `system:${HUB_SOURCE}` }
-    const id = derivedId("ev", { episodeId, status: change.state, at })
+    const id = derivedId("ev", {
+      episodeId,
+      status: change.state,
+      ...(change.id ? { resolutionEventId: change.id } : { at }),
+      ...(change.sequence ? { sequence: change.sequence } : {}),
+    })
     if (ids.has(id)) {
       recorded = change.state
       continue
@@ -739,17 +744,22 @@ function readMessage(value, kind) {
   function readResolutionHistory(history) {
     if (history === undefined) return []
     if (!Array.isArray(history)) invalid(`Thread ${value.id} resolutionHistory must be an array.`)
-    let lastAt
+    let lastSequence = 0
     return history.map((change, index) => {
       if (!isObject(change) || !["resolved", "unresolved"].includes(change.state))
         invalid(`Resolution change ${index + 1} is invalid.`)
       const at = timestamp(change.at, "resolutionHistory.at")
-      if (lastAt && at <= lastAt) invalid("Resolution history must be chronological.")
-      lastAt = at
+      if (typeof change.id !== "string" || !UUID.test(change.id))
+        invalid(`Resolution change ${index + 1} needs its durable event ID.`)
+      if (!positive(change.sequence) || change.sequence <= lastSequence)
+        invalid("Resolution history sequence must increase.")
+      lastSequence = change.sequence
       if (!isObject(change.actor) || !LOGIN.test(change.actor.login ?? ""))
         invalid(`Resolution change ${index + 1} needs an actor.`)
       const identity = readIdentity(change.actor, `Resolution change ${index + 1} actor`)
       return {
+        id: change.id.toLowerCase(),
+        sequence: change.sequence,
         state: change.state,
         at,
         actorLogin: change.actor.login,

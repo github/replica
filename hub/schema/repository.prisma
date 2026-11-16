@@ -4,6 +4,7 @@ model Repository {
 
   // Relations
   learningRuns  LearningRun[]
+  learningDecisionOperations LearningDecisionOperation[]
   prototypes    Prototype[]
   reviewThreads ReviewThread[]
 

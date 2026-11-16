@@ -283,6 +283,7 @@ const eventSchema = z.discriminatedUnion("type", [
       decision: z.enum(["accept", "reject", "retire"]),
       id: z.uuid(),
       learningId: z.string().min(1).max(255),
+      operationId: z.uuid(),
       outcome: z.enum(["requested", "succeeded", "failed"]),
       reason: z.string().min(1).max(100).optional(),
       repositoryId: z.uuid(),

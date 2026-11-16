@@ -40,6 +40,43 @@ function message(
   }
 }
 
+function digestMessage(value: ReviewMessage) {
+  return {
+    id: value.id,
+    rootId: value.rootId,
+    body: value.body,
+    author: value.author,
+    createdAt: value.createdAt.toISOString(),
+    editedAt: value.editedAt?.toISOString() ?? null,
+    deletedAt: value.deletedAt?.toISOString() ?? null,
+  }
+}
+
+function reviewState(snapshot: RepositoryReviewSnapshot) {
+  return {
+    repository: snapshot.repository,
+    threads: snapshot.threads.map((thread) => ({
+      id: thread.id,
+      repositoryId: thread.repositoryId,
+      prototype: thread.prototype,
+      buildNumber: thread.buildNumber,
+      anchor: thread.anchor,
+      activityVersion: thread.activityVersion,
+      resolvedAt: thread.resolvedAt?.toISOString() ?? null,
+      resolvedBy: thread.resolvedBy,
+      root: digestMessage(thread.root),
+      replies: thread.replies.map(digestMessage),
+      resolutionHistory: thread.resolutionHistory.map((event) => ({
+        id: event.id,
+        sequence: event.sequence,
+        state: event.state,
+        actor: event.actor,
+        occurredAt: event.occurredAt.toISOString(),
+      })),
+    })),
+  }
+}
+
 export function createHubReviewCollection(snapshot: RepositoryReviewSnapshot, hubOrigin: string) {
   const target = {
     hubOrigin,
@@ -60,6 +97,8 @@ export function createHubReviewCollection(snapshot: RepositoryReviewSnapshot, hu
     resolvedAt: thread.resolvedAt?.toISOString() ?? null,
     resolvedBy: thread.resolvedBy ? actor(thread.resolvedBy) : null,
     resolutionHistory: thread.resolutionHistory.map((event) => ({
+      id: event.id,
+      sequence: event.sequence,
       state: event.state === "resolved" ? "resolved" : "unresolved",
       at: event.occurredAt.toISOString(),
       actor: actor(event.actor),
@@ -90,12 +129,7 @@ export function createHubReviewCollection(snapshot: RepositoryReviewSnapshot, hu
   return {
     collection,
     digest: `sha256:${createHash("sha256")
-      .update(
-        JSON.stringify({
-          repository: snapshot.repository,
-          threads: snapshot.threads,
-        }),
-      )
+      .update(JSON.stringify(reviewState(snapshot)))
       .digest("hex")}` as const,
   }
 }

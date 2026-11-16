@@ -20,12 +20,8 @@ export async function processReviewCommentRedaction(
     const directory = resolve(dependencies.root, "repositories", input.repositoryId)
     try {
       await access(resolve(directory, "config.json"))
-    } catch {
-      await dependencies.markComplete({
-        repositoryId: input.repositoryId,
-        commentId: input.commentId,
-        redactedAt: dependencies.now(),
-      })
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
       return
     }
     const store = await dependencies.prepare(input.repositoryId)

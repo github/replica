@@ -338,6 +338,7 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
       const parsed = z
         .object({
           actorMembershipId: z.uuid(),
+          operationId: z.uuid().optional(),
           repositoryId: z.uuid(),
           reason: reasonSchema.optional(),
         })
@@ -346,6 +347,7 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
       return parsed.success
         ? {
             repositoryId: parsed.data.repositoryId,
+            ...(parsed.data.operationId ? { operationId: parsed.data.operationId } : {}),
             ...(record.targetId
               ? record.action.startsWith("learning.run.")
                 ? { runId: record.targetId }
