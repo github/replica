@@ -9,6 +9,8 @@ import { describe, expect, it, onTestFinished, vi } from "vitest"
 import { prisma } from "../../../integrations/prisma"
 import type { LocalRepositoryDiscovery } from "../../../integrations/git/discover-local-repositories/types"
 import type { LocalReplicaBuildRunner } from "../../../integrations/local-replica-build/run-local-replica-build/types"
+import { findBuildArtifact } from "../../../repositories/build-artifacts/find-build-artifact"
+import { findBuildPreviewTarget } from "../../../repositories/build-artifacts/find-build-preview-target"
 import type { ArtifactStorage } from "../../artifacts/create-artifact-storage/types"
 import { synchronizeLocalBuilds } from "."
 
@@ -62,7 +64,8 @@ async function createPackage(root: string, name: string, source = "built output"
   await mkdir(`${directory}/dist`, { recursive: true })
   await mkdir(`${directory}/screenshots`)
   await writeFile(`${directory}/dist/index.html`, source)
-  await writeFile(`${directory}/screenshots/home.png`, Uint8Array.of(1, 2, 3))
+  await writeFile(`${directory}/screenshots/desktop.png`, Uint8Array.of(1, 2, 3))
+  await writeFile(`${directory}/screenshots/narrow.png`, Uint8Array.of(4, 5))
   await writeFile(`${directory}/templates.json`, "{}")
   return directory
 }
@@ -72,6 +75,7 @@ function discovery(
     path: string
     name: string
     branch?: string
+    defaultBranch?: string
     commitSha: string
   }>,
 ): LocalRepositoryDiscovery {
@@ -80,7 +84,7 @@ function discovery(
     repositories: repositories.map((repository) => ({
       path: repository.path,
       name: repository.name,
-      defaultBranch: repository.branch ?? "main",
+      defaultBranch: repository.defaultBranch ?? "main",
       branches: [
         {
           name: repository.branch ?? "main",
@@ -145,12 +149,19 @@ describe("synchronizeLocalBuilds()", () => {
       await writeFile(`${packageDirectory}/dist/index.html`, committedSource)
       return { packageDirectory, cleanup: vi.fn().mockResolvedValue(undefined) }
     })
-    const { files, storage } = createMemoryStorage()
+    const { storage } = createMemoryStorage()
 
     await expect(
       synchronize(
         root,
-        discovery([{ path: repositoryPath, name: "prototype", commitSha }]),
+        discovery([
+          {
+            path: repositoryPath,
+            name: "prototype",
+            branch: "feature/prototype",
+            commitSha,
+          },
+        ]),
         runBuild,
         storage,
       ),
@@ -175,7 +186,10 @@ describe("synchronizeLocalBuilds()", () => {
       defaultBranch: "main",
       localPath: repositoryPath,
     })
-    expect(prototype).toMatchObject({ branchName: "main", currentBuildId: build.id })
+    expect(prototype).toMatchObject({
+      branchName: "feature/prototype",
+      currentBuildId: build.id,
+    })
     expect(build).toMatchObject({
       number: 1,
       state: "successful",
@@ -184,17 +198,80 @@ describe("synchronizeLocalBuilds()", () => {
       authorName: "Prototype Author",
     })
     expect(repository.branchHeadObservations).toEqual([
-      expect.objectContaining({ branchName: "main", commitSha, buildId: build.id }),
+      expect.objectContaining({
+        branchName: "feature/prototype",
+        commitSha,
+        buildId: build.id,
+      }),
     ])
     expect(build.artifacts).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ kind: "dist", path: "dist/index.html" }),
-        expect.objectContaining({ kind: "screenshot", path: "screenshots/home.png" }),
+        expect.objectContaining({
+          kind: "dist",
+          path: "dist/index.html",
+          byteLength: 16,
+          storageKey: expect.any(String),
+        }),
+        expect.objectContaining({
+          kind: "screenshot",
+          path: "screenshots/desktop.png",
+          byteLength: 3,
+          storageKey: expect.any(String),
+        }),
+        expect.objectContaining({
+          kind: "screenshot",
+          path: "screenshots/narrow.png",
+          byteLength: 2,
+          storageKey: expect.any(String),
+        }),
         expect.objectContaining({ kind: "manifest", path: "templates.json" }),
       ]),
     )
-    const sourceArtifact = build.artifacts.find(({ path }) => path === "dist/index.html")!
-    expect(new TextDecoder().decode(files.get(sourceArtifact.storageKey))).toBe("committed source")
+
+    const previewArtifacts = [
+      {
+        target: "preview" as const,
+        path: "dist/index.html",
+        bytes: new TextEncoder().encode("committed source"),
+      },
+      {
+        target: "desktop" as const,
+        path: "screenshots/desktop.png",
+        bytes: Uint8Array.of(1, 2, 3),
+      },
+      {
+        target: "narrow" as const,
+        path: "screenshots/narrow.png",
+        bytes: Uint8Array.of(4, 5),
+      },
+    ]
+    for (const expected of previewArtifacts) {
+      const target = await findBuildPreviewTarget(prisma, {
+        repositoryId: repository.id,
+        prototypeId: prototype.id,
+        buildNumber: build.number,
+        target: expected.target,
+      })
+      expect(target).toEqual({
+        buildId: build.id,
+        startPage: "/",
+        artifactPath: expected.path,
+      })
+
+      const artifact = await findBuildArtifact(
+        prisma,
+        target!.buildId,
+        target!.artifactPath,
+      )
+      expect(artifact).toEqual({
+        storageKey: expect.any(String),
+        byteLength: expected.bytes.byteLength,
+      })
+      await expect(storage.read(artifact!.storageKey)).resolves.toEqual({
+        status: "ok",
+        bytes: expected.bytes,
+      })
+    }
   })
 
   it("does not rebuild or duplicate records when a branch head is unchanged", async () => {
@@ -308,6 +385,6 @@ describe("synchronizeLocalBuilds()", () => {
     expect(failed.prototypes[0]!.builds[0]!.startedAt).toBeInstanceOf(Date)
     expect(failed.prototypes[0]!.builds[0]!.finishedAt).toBeInstanceOf(Date)
     expect(successful.prototypes[0]!.currentBuild).toMatchObject({ state: "successful" })
-    expect(successful.prototypes[0]!.builds[0]!.artifacts).toHaveLength(3)
+    expect(successful.prototypes[0]!.builds[0]!.artifacts).toHaveLength(4)
   })
 })
