@@ -177,6 +177,34 @@ describe("review comments API", () => {
     })
   })
 
+  it("rejects review identifiers and Build numbers outside PostgreSQL integer range", async () => {
+    const target = await createReviewTarget()
+    const member = await createMember("mona", "Mona")
+    const restore = vi.fn().mockResolvedValue(member)
+
+    await withServer(restore, async (baseUrl) => {
+      const buildResponse = await fetch(`${baseUrl}${target.path}`, {
+        method: "POST",
+        headers: sessionHeaders,
+        body: JSON.stringify({
+          review_comment: {
+            build_number: 2_147_483_648,
+            body: "Oversized Build",
+            anchor,
+          },
+        }),
+      })
+      expect(buildResponse.status).toBe(400)
+
+      const identifierResponse = await fetch(`${baseUrl}${target.path}/3000000000/replies`, {
+        method: "POST",
+        headers: sessionHeaders,
+        body: JSON.stringify({ review_comment: { body: "Oversized ID" } }),
+      })
+      expect(identifierResponse.status).toBe(400)
+    })
+  })
+
   it("creates and lists the same complete canonical thread", async () => {
     const target = await createReviewTarget()
     const member = await createMember("mona", "Mona")
@@ -404,7 +432,7 @@ describe("review comments API", () => {
       })
       expect(rejectedReply.status).toBe(422)
       expect(await rejectedReply.json()).toEqual({
-        errors: ["Resolved review threads must be reopened before replying"],
+        error: "Resolved review threads must be reopened before replying",
       })
 
       const reopenedResponse = await fetch(`${baseUrl}${resolutionPath}`, {

@@ -83,10 +83,7 @@ CHECK (
     OR ("resolved_at" IS NOT NULL AND "resolved_by_id" IS NOT NULL)
 );
 ALTER TABLE "review_threads" ADD CONSTRAINT "review_threads_anchor_check"
-CHECK (
-    jsonb_typeof("anchor") = 'object'
-    AND octet_length("anchor"::text) BETWEEN 2 AND 16384
-);
+CHECK (jsonb_typeof("anchor") = 'object');
 ALTER TABLE "review_comments" ADD CONSTRAINT "review_comments_root_not_self_check"
 CHECK ("root_id" IS NULL OR "root_id" <> "id");
 ALTER TABLE "review_comments" ADD CONSTRAINT "review_comments_body_check"

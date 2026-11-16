@@ -6,6 +6,7 @@ export function parseReviewBody(value: unknown): string {
   if (
     typeof value !== "string" ||
     !value.trim() ||
+    value.includes("\0") ||
     Buffer.byteLength(value, "utf8") > maximumBytes
   ) {
     throw new ReviewCommentError(

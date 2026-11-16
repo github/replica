@@ -12,8 +12,6 @@ export function respondReviewError(error: unknown, response: Response): boolean 
     unauthorized: 401,
     unprocessable: 422,
   }[error.code]
-  response
-    .status(status)
-    .json(error.code === "unprocessable" ? { errors: [error.message] } : { error: error.message })
+  response.status(status).json({ error: error.message })
   return true
 }

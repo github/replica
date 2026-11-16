@@ -10,7 +10,10 @@ describe("createReviewCommentService()", () => {
       operation({} as never),
     )
     const service = createReviewCommentService(
-      { $transaction: transaction } as unknown as Pick<PrismaClient, "$transaction">,
+      { $transaction: transaction } as unknown as Pick<
+        PrismaClient,
+        "$transaction" | "prototype" | "repository"
+      >,
       () => Promise.resolve(false),
     )
 
@@ -34,7 +37,9 @@ describe("createReviewCommentService()", () => {
 
   it("returns a conflict after bounded transaction retries are exhausted", async () => {
     const transaction = vi.fn().mockRejectedValue({ originalCode: "40001" })
-    const service = createReviewCommentService({ $transaction: transaction })
+    const service = createReviewCommentService({
+      $transaction: transaction,
+    } as unknown as Pick<PrismaClient, "$transaction" | "prototype" | "repository">)
 
     await expect(
       service.deleteComment({

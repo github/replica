@@ -6,6 +6,7 @@ import type { ReviewAnchor } from "../types.ts"
 function byteString(maximumBytes: number, required = false, prefix?: string) {
   return z.string().superRefine((value, context) => {
     if (required && !value.trim()) context.addIssue({ code: "custom", message: "cannot be blank" })
+    if (value.includes("\0")) context.addIssue({ code: "custom", message: "cannot contain NUL" })
     if (Buffer.byteLength(value, "utf8") > maximumBytes) {
       context.addIssue({ code: "custom", message: `must be ${maximumBytes} UTF-8 bytes or fewer` })
     }

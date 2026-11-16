@@ -2,7 +2,7 @@ import type { Prisma, PrismaClient } from "../../../generated/prisma/client.ts"
 import { reviewThreadInclude } from "../types.ts"
 import type { ReviewPersistenceResult, StoredReviewThread } from "../types.ts"
 
-type Database = Pick<PrismaClient, "$transaction">
+type Database = Pick<PrismaClient, "$transaction" | "prototype" | "repository">
 
 interface Actor {
   userId: string
@@ -71,7 +71,10 @@ export function createReviewCommentRepository(database: Database) {
       repositoryId: string,
       prototypeId: string,
     ): Promise<ReviewPersistenceResult<StoredReviewThread[]>> {
-      return database.$transaction(
+      const result: ReviewPersistenceResult<{
+        defaultBranch: string
+        threads: StoredReviewThread[]
+      }> = await database.$transaction(
         async (transaction) => {
           const repository = await transaction.repository.findFirst({
             where: { id: repositoryId, removedAt: null },
@@ -95,10 +98,30 @@ export function createReviewCommentRepository(database: Database) {
             include: reviewThreadInclude,
             orderBy: [{ createdAt: "desc" }, { id: "desc" }],
           })
-          return { ok: true, value: threads }
+          return {
+            ok: true,
+            value: { defaultBranch: repository.defaultBranch, threads },
+          }
         },
         { isolationLevel: "RepeatableRead" },
       )
+      if (!result.ok) return result
+      const prototype = await database.prototype.findFirst({
+        where: reviewablePrototypeWhere(repositoryId, prototypeId, result.value.defaultBranch),
+        select: { id: true },
+      })
+      if (!prototype) return { ok: false, reason: "prototype_not_found" }
+      const repository = await database.repository.findFirst({
+        where: {
+          id: repositoryId,
+          removedAt: null,
+          defaultBranch: result.value.defaultBranch,
+        },
+        select: { id: true },
+      })
+      return repository
+        ? { ok: true, value: result.value.threads }
+        : { ok: false, reason: "repository_not_found" }
     },
 
     async createThread(input: {

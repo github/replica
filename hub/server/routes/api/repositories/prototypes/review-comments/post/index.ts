@@ -12,7 +12,7 @@ const bodySchema = z
   .object({
     review_comment: z
       .object({
-        build_number: z.number().int().positive(),
+        build_number: z.number().int().positive().max(2_147_483_647),
         body: z.unknown(),
         anchor: z.unknown(),
       })

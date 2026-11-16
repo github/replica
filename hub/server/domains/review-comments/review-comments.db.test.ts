@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { prisma } from "../../integrations/prisma"
 
@@ -201,8 +201,13 @@ describe("review comments", () => {
 
     const invalidInputs = [
       { body: " ", anchor },
+      { body: "Contains \0 NUL", anchor },
       { body: "x".repeat(10_001), anchor },
       { body: "Unknown anchor field", anchor: { ...anchor, unknown: true } },
+      {
+        body: "NUL anchor",
+        anchor: { ...anchor, route: { ...anchor.route, hash: "\0" } },
+      },
       {
         body: "Invalid geometry",
         anchor: { ...anchor, rect: { ...anchor.rect, width: -1 } },
@@ -266,6 +271,36 @@ describe("review comments", () => {
     await expect(
       service.listPrototypeThreads(repository.id, deleted.prototype.id),
     ).rejects.toMatchObject({ code: "not_found" })
+
+    const nearLimit = structuredClone(areaAnchor)
+    nearLimit.elements = Array.from({ length: 3 }, (_, index) => ({
+      ...areaAnchor.elements[0]!,
+      selector: `#${String(index)}${"x".repeat(3_500)}`,
+      accessibleName: "a".repeat(1_000),
+      textExcerpt: "t".repeat(500),
+    }))
+    expect(Buffer.byteLength(JSON.stringify(nearLimit), "utf8")).toBeGreaterThan(15_000)
+    await expect(
+      service.createThread({
+        repositoryId: repository.id,
+        prototypeId: first.prototype.id,
+        buildNumber: first.build.number,
+        body: "Near-limit anchor",
+        anchor: nearLimit,
+        actor: author,
+      }),
+    ).resolves.toMatchObject({ anchor: nearLimit })
+  })
+
+  it("rejects a repository removed after the repeatable-read snapshot", async () => {
+    const repository = await createRepository()
+    const { prototype } = await createReviewablePrototype(repository.id, "prototype/checkout")
+    const service = createTestReviewService()
+    vi.spyOn(prisma.repository, "findFirst").mockResolvedValueOnce(null)
+
+    await expect(service.listPrototypeThreads(repository.id, prototype.id)).rejects.toMatchObject({
+      code: "not_found",
+    })
   })
 
   it("permanently clears deleted text while retaining comment identity and position", async () => {
