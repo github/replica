@@ -253,13 +253,35 @@ export function createMockStore({ origin, seed = createFixtureSeed() }: Options)
       }
     },
 
-    getBuildHistory(repositoryId: string, prototypeId: string, page = 1): BuildHistoryResponse {
+    getBuildHistory(
+      repositoryId: string,
+      prototypeId: string,
+      page = 1,
+      buildNumber?: number,
+    ): BuildHistoryResponse {
       session.requireViewer()
       const prototype = prototypeRecord(repositoryId, prototypeId)
       const selected = paginate(prototype.builds, page, buildHistoryPageSize)
+      const pinnedBuild = prototype.builds.find(
+        ({ number, state }) => number === buildNumber && state === "successful",
+      )
+      const pickerBuilds = [...selected.records]
+      if (pinnedBuild && !pickerBuilds.some(({ number }) => number === pinnedBuild.number)) {
+        pickerBuilds.push(pinnedBuild)
+      }
+      const latestBuild = prototype.builds[0]
       return {
         repository: repositoryRecord(repositoryId),
-        prototype,
+        prototype: {
+          ...prototype,
+          builds: pickerBuilds,
+          latestBuild:
+            prototype.latestBuild !== undefined
+              ? prototype.latestBuild
+              : latestBuild
+                ? { number: latestBuild.number, state: latestBuild.state }
+                : null,
+        },
         builds: selected.records,
         pagination: selected.pagination,
       }

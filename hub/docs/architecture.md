@@ -6,7 +6,7 @@ Hub contributors are rebuilding the app on `build/hub/new` before merging it int
 
 The team has chosen TypeScript, Express for the API, React and Vite for the frontend, and Vitest for tests. The old backend and the frontend code that connected to it have been removed rather than rewritten.
 
-The API responds to a health check and gives signed-in members read access to the seeded repository index and prototype details, plus prototype metadata edits and draft registration. The frontend connects the retained pages for local exploration. Storybook remains the presentation workbench.
+The API responds to a health check and gives signed-in members read access to the seeded repository index, prototype details, and Build history, plus prototype metadata edits and draft registration. The frontend connects the retained pages for local exploration. Storybook remains the presentation workbench.
 
 Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has a provider-neutral identity transaction foundation with explicit GitHub and single-tenant Microsoft Entra sign-in adapters. A reusable deployment bootstrap secret can enroll a verified provider identity as a Hub administrator. Members can browse a seeded repository index and edit visible prototype metadata through the API. The app cannot yet discover real repositories, import Builds, host published previews, or support live multi-user reviews.
 
@@ -65,7 +65,7 @@ Imports follow the arrows above. Shared components, hooks, and utilities must no
 
 The theme provider wraps routes and their loading and error feedback.
 
-- In real mode, signed-out visitors use the authentication shell. Signed-in members can browse the repository index and edit visible prototype details. Administrators can use `/settings/administrators`, `/settings/sessions`, `/settings/copilot`, and `/settings/audit?scope=hub` through their production APIs without loading provisional product data.
+- In real mode, signed-out visitors use the authentication shell. Signed-in members can browse the repository index and Build history and edit visible prototype details. Administrators can use `/settings/administrators`, `/settings/sessions`, `/settings/copilot`, and `/settings/audit?scope=hub` through their production APIs without loading provisional product data.
 - In mock mode, the root reads the simulated session. A nested layout loads the private workspace for signed-in pages.
 - Route loaders and actions request product data and refresh it after changes. Shareable filters and selections live in the URL.
 - Product screens keep product-facing copy. API failures remain visible errors.

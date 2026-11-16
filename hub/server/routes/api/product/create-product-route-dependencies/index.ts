@@ -21,8 +21,8 @@ export function createProductRouteDependencies(): ProductRouteDependencies {
     listRepositories: () => listRepositories(prisma),
     findRepositoryIndex: (repositoryId, filters) =>
       findRepositoryIndex(prisma, repositoryId, filters),
-    findPrototypeDetail: (repositoryId, prototypeId, buildNumber) =>
-      findPrototypeDetail(prisma, repositoryId, prototypeId, buildNumber),
+    findPrototypeDetail: (repositoryId, prototypeId, buildNumber, buildPage) =>
+      findPrototypeDetail(prisma, repositoryId, prototypeId, buildNumber, buildPage),
     readPrototypeWithIntroduction: (input, prepare) =>
       readPrototypeWithIntroduction(input, {
         prepare,

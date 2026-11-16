@@ -90,15 +90,28 @@ describe("mock collection pagination", () => {
     expect(first.pagination.pageSize).toBe(25)
     expect(first.pagination.totalCount).toBeGreaterThan(50)
     expect(first.builds).toHaveLength(25)
+    expect(first.prototype.builds.map(({ number }) => number)).toEqual(
+      first.builds.map(({ number }) => number),
+    )
+    const pinnedBuild = first.builds.find(({ state }) => state === "successful")
+    if (!pinnedBuild) throw new Error("The history requires a successful Build to pin.")
     const numbers = first.builds.map(({ number }) => number)
     for (let page = 2; page <= first.pagination.pageCount; page += 1) {
-      const next = await getBuildHistory(new Request(`${url}?page=${page}`), "2001", "1")
+      const next = await getBuildHistory(
+        new Request(`${url}?page=${page}&build=${pinnedBuild.number}`),
+        "2001",
+        "1",
+      )
       expect(next.pagination).toMatchObject({
         page,
         pageSize: 25,
         totalCount: first.pagination.totalCount,
       })
       expect(next.builds).toHaveLength(Math.min(25, first.pagination.totalCount - (page - 1) * 25))
+      expect(next.prototype.builds.map(({ number }) => number).sort((a, b) => b - a)).toEqual(
+        [pinnedBuild.number, ...next.builds.map(({ number }) => number)].sort((a, b) => b - a),
+      )
+      expect(next.prototype.latestBuild).toEqual(first.prototype.latestBuild)
       numbers.push(...next.builds.map(({ number }) => number))
     }
     expect(numbers).toHaveLength(first.pagination.totalCount)
@@ -110,12 +123,14 @@ describe("mock collection pagination", () => {
       "3",
     )
     expect(empty.builds).toEqual([])
+    expect(empty.prototype.builds).toEqual([])
     expect(empty.pagination.pageSize).toBe(25)
     const forcedEmpty = await fetch(`${store.origin}/api/repositories/2001/prototypes/1/builds`, {
       headers: { "X-Replica-Mock-Scenario": "empty" },
     })
     await expect(forcedEmpty.json()).resolves.toMatchObject({
       builds: [],
+      prototype: { builds: [], latestBuild: null },
       pagination: { page: 1, pageSize: 25, totalCount: 0, pageCount: 1 },
     })
   })

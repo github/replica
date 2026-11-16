@@ -109,10 +109,13 @@ export function createMockHandlers(store: MockStore) {
             recordIdentifier(params.repositoryId),
             recordIdentifier(params.prototypeId),
             filters.page,
+            filters.build,
           )
           if (scenario === "empty") {
             if (filters.page !== 1) throw new MockStoreError(404, "Page not found.")
             response.builds = []
+            response.prototype.builds = []
+            response.prototype.latestBuild = null
             response.pagination = {
               page: 1,
               pageSize: response.pagination.pageSize,

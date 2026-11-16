@@ -392,7 +392,7 @@ describe("real prototype index", () => {
       "https://github.com/mona",
     )
 
-    expect(screen.queryByRole("button", { name: "More actions" })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "More actions" })).toBeVisible()
     expect(document.querySelector('form[action="/api/auth/session/sign-out"]')).not.toBeNull()
     expect(document.querySelector('form[action="/session"]')).toBeNull()
 
@@ -539,7 +539,7 @@ describe("real prototype index", () => {
     expect(screen.queryByRole("link", { name: "Create" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Branch from here" })).not.toBeInTheDocument()
     expect(screen.queryByRole("link", { name: "Edit prototype listings" })).not.toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "More actions" })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "More actions" })).toBeVisible()
     fireEvent.click(await screen.findByRole("button", { name: "Edit details" }))
     const editor = screen.getByRole("dialog", { name: "Edit prototype details" })
     fireEvent.change(within(editor).getByRole("textbox", { name: "Name" }), {

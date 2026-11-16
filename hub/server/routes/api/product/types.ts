@@ -21,6 +21,7 @@ export interface ProductRouteDependencies {
     repositoryId: string,
     prototypeId: string,
     buildNumber?: number,
+    buildPage?: Parameters<typeof findPrototypeDetail>[4],
   ): ReturnType<typeof findPrototypeDetail>
   readPrototypeWithIntroduction(
     input: Parameters<typeof readPrototypeWithIntroduction>[0],

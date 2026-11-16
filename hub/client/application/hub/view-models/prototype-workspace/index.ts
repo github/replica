@@ -63,7 +63,7 @@ export function prototypeWorkspace({
           : null,
     },
     branchName: prototype.branchName,
-    branchPath: resourcePath(path, search),
+    branchPath: resourcePath(path, search, { build: pinnedBuild }),
     prototypeName: prototype.name,
     buildOptions: builds.map((build) => ({
       number: build.number,

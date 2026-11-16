@@ -254,6 +254,7 @@ export const PreviewHostingUnavailable: Story = {
     data: {
       ...data,
       author: { avatarUrl: null, label: "By Mona", url: null },
+      branchPath: "/repositories/2001/prototypes/1?build=3",
       branchSubmissionMode: "disabled",
       buildOptions: [
         {
@@ -267,14 +268,17 @@ export const PreviewHostingUnavailable: Story = {
       emptyHeading: "Build 3 has no preview",
       emptyLabel: "Preview hosting is not available for this Build.",
       buildSelectionLabel: "Build 3 · Successful",
+      buildPinned: true,
       detailsEditPath: undefined,
-      historyPath: undefined,
+      historyPath: "/repositories/2001/prototypes/1/builds?build=3",
       latestBuild: undefined,
       newPrototypePath: null,
       reviewReadOnly: true,
+      securityAuditPath: null,
       selectedBuild: undefined,
       selectedBuildNumber: 3,
       shareLinksPath: undefined,
+      signOutPath: "/api/auth/session/sign-out",
     },
   },
 }
@@ -372,6 +376,9 @@ export const EditingDraft: Story = {
     ...EditingDetails.args,
     data: {
       ...PreviewHostingUnavailable.args!.data!,
+      branchPath: "/repositories/2001/prototypes/1",
+      buildPinned: false,
+      historyPath: "/repositories/2001/prototypes/1/builds",
       prototypeName: "Draft prototype",
       prototypeDescription: null,
       startPage: "/",
