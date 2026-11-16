@@ -99,6 +99,34 @@ describe("recordCopilotConnectionRefusal()", () => {
     expect(records.advanceState).toHaveBeenCalledOnce()
   })
 
+  it("includes the GitHub App and billed organization in a refusal audit", async () => {
+    const records = repositories({ getConnection: vi.fn().mockResolvedValue(null) })
+
+    await recordCopilotConnectionRefusal(
+      {
+        appId: "123",
+        at: new Date(),
+        billedOrganization: "github",
+        credentialDigest: "a".repeat(64),
+        credentialProvider: "github_app_installation",
+        reason: "credential_permission_denied",
+        sessionDigest: "session-digest",
+        snapshot: { connectionId: null, generation: 1n },
+      },
+      { createId: randomUUID, runTransaction: (operation) => operation(records) },
+    )
+
+    expect(records.writeAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "123",
+        billedOrganization: "github",
+        credentialProvider: "github_app_installation",
+        phase: "denied",
+        reason: "credential_permission_denied",
+      }),
+    )
+  })
+
   it("does not advance or audit when refusal state cannot be recorded", async () => {
     const records = repositories({ recordRefusal: vi.fn().mockResolvedValue(false) })
 

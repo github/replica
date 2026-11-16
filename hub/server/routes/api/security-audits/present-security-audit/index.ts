@@ -292,6 +292,11 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
       const parsed = z
         .object({
           actorMembershipId: z.uuid().nullable(),
+          appId: z
+            .string()
+            .regex(/^[1-9]\d*$/)
+            .optional(),
+          billedOrganization: z.string().min(1).max(39).optional(),
           credentialProvider: z.string().min(1).max(100),
           phase: z.enum(["connected", "disconnected", "denied", "failed"]),
           reason: reasonSchema.optional(),
@@ -300,6 +305,10 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
         .safeParse(record.context)
       return parsed.success
         ? {
+            ...(parsed.data.appId ? { appId: parsed.data.appId } : {}),
+            ...(parsed.data.billedOrganization
+              ? { billedOrganization: parsed.data.billedOrganization }
+              : {}),
             provider: parsed.data.credentialProvider,
             phase: parsed.data.phase,
             ...(parsed.data.reason ? { reason: parsed.data.reason } : {}),

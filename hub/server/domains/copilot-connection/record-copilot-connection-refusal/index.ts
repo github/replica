@@ -5,9 +5,12 @@ import type {
 
 export function recordCopilotConnectionRefusal(
   input: {
+    appId?: string
     at: Date
+    billedOrganization?: string
     credentialDigest: string
     credentialProvider: string
+    reason?: "credential_permission_denied" | "credential_refused" | "credential_revoked"
     sessionDigest: string
     snapshot: CopilotConnectionSnapshot
   },
@@ -45,6 +48,8 @@ export function recordCopilotConnectionRefusal(
     await repositories.advanceState()
     await repositories.writeAudit({
       actorMembershipId: session.membershipId,
+      ...(input.appId ? { appId: input.appId } : {}),
+      ...(input.billedOrganization ? { billedOrganization: input.billedOrganization } : {}),
       connectionId:
         connection?.credentialProvider === input.credentialProvider &&
         connection.credentialDigest === input.credentialDigest
@@ -53,7 +58,7 @@ export function recordCopilotConnectionRefusal(
       credentialProvider: input.credentialProvider,
       id: createId(),
       phase: "denied",
-      reason: "credential_refused",
+      reason: input.reason ?? "credential_refused",
       type: "copilot_connection",
     })
     return "recorded" as const

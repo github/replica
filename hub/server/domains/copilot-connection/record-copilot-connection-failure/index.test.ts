@@ -48,4 +48,38 @@ describe("recordCopilotConnectionFailure()", () => {
       type: "copilot_connection",
     })
   })
+
+  it("includes the GitHub App and billed organization in a provider failure audit", async () => {
+    const writeAudit = vi.fn().mockResolvedValue(undefined)
+    const records = {
+      advanceState: vi.fn(),
+      clearRefusal: vi.fn(),
+      deleteConnection: vi.fn(),
+      lockAdministratorSession: vi.fn().mockResolvedValue({ membershipId: randomUUID() }),
+      getConnection: vi.fn(),
+      lockState: vi.fn().mockResolvedValue({ generation: 1n }),
+      recordRefusal: vi.fn(),
+      replaceConnection: vi.fn(),
+      writeAudit,
+    } satisfies CopilotConnectionTransactionRepositories
+
+    await recordCopilotConnectionFailure(
+      {
+        appId: "123",
+        billedOrganization: "github",
+        credentialProvider: "github_app_installation",
+        sessionDigest: "session-digest",
+      },
+      { createId: randomUUID, runTransaction: (operation) => operation(records) },
+    )
+
+    expect(writeAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "123",
+        billedOrganization: "github",
+        credentialProvider: "github_app_installation",
+        phase: "failed",
+      }),
+    )
+  })
 })

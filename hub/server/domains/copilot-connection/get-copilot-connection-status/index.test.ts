@@ -11,6 +11,7 @@ const connectedBy = {
 describe("getCopilotConnectionStatus()", () => {
   const provider = {
     configurationDigest: "a".repeat(64),
+    githubAppInstallation: null,
     key: "environment_token" as const,
   }
   const noRefusal = {
@@ -32,9 +33,34 @@ describe("getCopilotConnectionStatus()", () => {
       configured: true,
       connected: true,
       savedConnection: true,
+      credentialIdentity: null,
       connectedBy,
       refusedAt: null,
       verifiedAt,
+    })
+  })
+
+  it("reports the billed organization and App identity without exposing credential material", () => {
+    const githubAppInstallation = {
+      appId: "123",
+      installationId: "456",
+      organization: "github",
+    }
+
+    expect(
+      getCopilotConnectionStatus(
+        null,
+        {
+          configurationDigest: "b".repeat(64),
+          githubAppInstallation,
+          key: "github_app_installation",
+        },
+        true,
+        noRefusal,
+      ),
+    ).toMatchObject({
+      configured: true,
+      credentialIdentity: githubAppInstallation,
     })
   })
 
@@ -50,6 +76,7 @@ describe("getCopilotConnectionStatus()", () => {
       configured: true,
       connected: false,
       savedConnection: true,
+      credentialIdentity: null,
       connectedBy: null,
       refusedAt: null,
       verifiedAt: null,
@@ -142,6 +169,7 @@ describe("getCopilotConnectionStatus()", () => {
       configured: true,
       connected: false,
       savedConnection: true,
+      credentialIdentity: null,
       connectedBy: null,
       refusedAt,
       verifiedAt: null,

@@ -132,6 +132,7 @@ describe("copilotConnectionRoutes()", () => {
       configured: true,
       connected: true,
       savedConnection: true,
+      credentialIdentity: null,
       connectedBy: {
         login: "octocat",
         membershipId: session.membershipId,
@@ -153,6 +154,7 @@ describe("copilotConnectionRoutes()", () => {
         configured: true,
         connected: true,
         savedConnection: true,
+        credentialIdentity: null,
         connectedBy: {
           login: "octocat",
           membershipId: session.membershipId,

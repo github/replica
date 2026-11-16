@@ -79,7 +79,7 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
-    "@github/copilot-sdk": "1.0.16",
+    "@github/copilot-sdk": "1.0.28",
     "@react-router/dev": "8.5.0",
     "@react-router/node": "8.5.0",
     "@storybook/addon-a11y": "10.6.1",

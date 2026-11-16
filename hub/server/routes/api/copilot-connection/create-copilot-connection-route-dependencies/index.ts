@@ -130,6 +130,7 @@ export async function createCopilotConnectionRouteDependencies(
           : disconnectCopilot(
               {
                 authorizationId,
+                credentialProvider: configuration.copilotCredentialProvider,
                 hubSessionId: input.hubSessionId,
                 sessionDigest: input.sessionDigest,
               },

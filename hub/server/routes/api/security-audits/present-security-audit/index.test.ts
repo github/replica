@@ -427,6 +427,31 @@ describe("presentSecurityAudit()", () => {
         outcome,
       }),
     })),
+    {
+      label: "GitHub App Copilot connection identity",
+      event: {
+        actorMembershipId,
+        appId: "123",
+        billedOrganization: "github",
+        connectionId: providerId,
+        credentialProvider: "github_app_installation",
+        id: auditId,
+        phase: "connected",
+        type: "copilot_connection",
+      },
+      expected: expectedRecord({
+        action: "copilot.connection.connected",
+        actor: { membershipId: actorMembershipId },
+        context: {
+          appId: "123",
+          billedOrganization: "github",
+          provider: "github_app_installation",
+          phase: "connected",
+          targetId: providerId,
+        },
+        outcome: "success",
+      }),
+    },
   ])("presents the stored projection for $label", ({ event, expected }) => {
     const presented = presentSecurityAudit(storedRecordFor(event))
 
