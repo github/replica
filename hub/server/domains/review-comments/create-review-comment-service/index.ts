@@ -1,6 +1,8 @@
 import type { Prisma, PrismaClient } from "../../../generated/prisma/client.ts"
+import { classifyPrismaTransactionError } from "../../../integrations/prisma/classify-transaction-error/index.ts"
 import { createReviewCommentRepository } from "../../../repositories/review-comments/create-review-comment-repository/index.ts"
 import type { ReviewPersistenceFailure } from "../../../repositories/review-comments/types.ts"
+import { runWithBoundedRetries } from "../../identity/run-with-bounded-retries/index.ts"
 import { ReviewCommentError } from "../errors.ts"
 import { parseReviewAnchor } from "../parse-review-anchor/index.ts"
 import { parseReviewBody } from "../parse-review-body/index.ts"
@@ -38,6 +40,20 @@ function persistenceError(reason: ReviewPersistenceFailure): ReviewCommentError 
   }
 }
 
+async function runReviewMutation<Result>(operation: () => Promise<Result>): Promise<Result> {
+  try {
+    return await runWithBoundedRetries(
+      () => operation(),
+      (error) => classifyPrismaTransactionError(error) === "retryable",
+    )
+  } catch (error) {
+    if (classifyPrismaTransactionError(error) === "retryable") {
+      throw new ReviewCommentError("conflict", "The review thread changed. Try again.")
+    }
+    throw error
+  }
+}
+
 export function createReviewCommentService(
   database: Pick<PrismaClient, "$transaction">,
 ): ReviewCommentService {
@@ -49,37 +65,33 @@ export function createReviewCommentService(
       return result.value.map(serializeReviewThread)
     },
     async createThread(input) {
-      const result = await repository.createThread({
-        ...input,
-        body: parseReviewBody(input.body),
-        anchor: parseReviewAnchor(input.anchor) as unknown as Prisma.InputJsonValue,
-      })
+      const body = parseReviewBody(input.body)
+      const anchor = parseReviewAnchor(input.anchor) as unknown as Prisma.InputJsonValue
+      const result = await runReviewMutation(() =>
+        repository.createThread({ ...input, body, anchor }),
+      )
       if (!result.ok) throw persistenceError(result.reason)
       return serializeReviewThread(result.value)
     },
     async createReply(input) {
-      const result = await repository.createReply({
-        ...input,
-        body: parseReviewBody(input.body),
-      })
+      const body = parseReviewBody(input.body)
+      const result = await runReviewMutation(() => repository.createReply({ ...input, body }))
       if (!result.ok) throw persistenceError(result.reason)
       return serializeReviewThread(result.value)
     },
     async editComment(input) {
-      const result = await repository.editComment({
-        ...input,
-        body: parseReviewBody(input.body),
-      })
+      const body = parseReviewBody(input.body)
+      const result = await runReviewMutation(() => repository.editComment({ ...input, body }))
       if (!result.ok) throw persistenceError(result.reason)
       return serializeReviewThread(result.value)
     },
     async deleteComment(input) {
-      const result = await repository.deleteComment(input)
+      const result = await runReviewMutation(() => repository.deleteComment(input))
       if (!result.ok) throw persistenceError(result.reason)
       return serializeReviewThread(result.value)
     },
     async setResolution(input) {
-      const result = await repository.setResolution(input)
+      const result = await runReviewMutation(() => repository.setResolution(input))
       if (!result.ok) throw persistenceError(result.reason)
       return serializeReviewThread(result.value)
     },

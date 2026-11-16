@@ -27,6 +27,11 @@ export function get(
         identifiers.repositoryId,
         identifiers.prototypeId,
       )
+      const final = await readReviewSession(request, session)
+      if (!final || final.membershipId !== current.membershipId) {
+        response.status(401).json({ error: "Sign in to continue." })
+        return
+      }
       const comments = threads
         .flatMap((thread) => presentReviewThreadComments(thread, current.userId))
         .sort(

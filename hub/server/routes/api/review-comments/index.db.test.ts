@@ -203,6 +203,33 @@ describe("review comments API", () => {
     })
   })
 
+  it("does not return review data after the session is revoked during the read", async () => {
+    const target = await createReviewTarget()
+    const member = await createMember("mona", "Mona")
+    const restore = vi.fn().mockResolvedValue(member)
+
+    await withServer(restore, async (baseUrl) => {
+      const createdResponse = await fetch(`${baseUrl}${target.path}`, {
+        method: "POST",
+        headers: sessionHeaders,
+        body: JSON.stringify({
+          review_comment: {
+            build_number: target.build.number,
+            body: "Do not return this after revocation.",
+            anchor,
+          },
+        }),
+      })
+      expect(createdResponse.status).toBe(201)
+      restore.mockReset().mockResolvedValueOnce(member).mockResolvedValueOnce(null)
+
+      const response = await fetch(`${baseUrl}${target.path}`, { headers: sessionHeaders })
+
+      expect(response.status).toBe(401)
+      expect(await response.json()).toEqual({ error: "Sign in to continue." })
+    })
+  })
+
   it("allows only the stable author UUID to edit or delete a comment", async () => {
     const target = await createReviewTarget()
     const author = await createMember("mona", "Mona")
@@ -375,6 +402,56 @@ describe("review comments API", () => {
             author: { login: member.login, name: member.name },
           },
           { id: root.id, kind: "root" },
+        ],
+      })
+    })
+  })
+
+  it("returns the reply created by this request when timestamps do not preserve insertion order", async () => {
+    const target = await createReviewTarget()
+    const member = await createMember("mona", "Mona")
+    const restore = vi.fn().mockResolvedValue(member)
+
+    await withServer(restore, async (baseUrl) => {
+      const createdResponse = await fetch(`${baseUrl}${target.path}`, {
+        method: "POST",
+        headers: sessionHeaders,
+        body: JSON.stringify({
+          review_comment: {
+            build_number: target.build.number,
+            body: "Root",
+            anchor,
+          },
+        }),
+      })
+      const created = (await createdResponse.json()) as { comments: { id: number }[] }
+      const root = created.comments[0]
+      if (!root) throw new Error("Expected a root comment")
+      const repliesPath = `${target.path}/${root.id}/replies`
+      const firstResponse = await fetch(`${baseUrl}${repliesPath}`, {
+        method: "POST",
+        headers: sessionHeaders,
+        body: JSON.stringify({ review_comment: { body: "First reply" } }),
+      })
+      const first = (await firstResponse.json()) as { comments: { id: number }[] }
+      const firstReply = first.comments[0]
+      if (!firstReply) throw new Error("Expected a reply")
+      await prisma.reviewComment.update({
+        where: { publicId: firstReply.id },
+        data: { createdAt: new Date("2099-01-01T00:00:00Z") },
+      })
+
+      const secondResponse = await fetch(`${baseUrl}${repliesPath}`, {
+        method: "POST",
+        headers: sessionHeaders,
+        body: JSON.stringify({ review_comment: { body: "Second reply" } }),
+      })
+
+      expect(secondResponse.status).toBe(201)
+      expect(await secondResponse.json()).toMatchObject({
+        comments: [
+          { kind: "reply", body: "Second reply", rootId: root.id },
+          { kind: "root", id: root.id },
         ],
       })
     })

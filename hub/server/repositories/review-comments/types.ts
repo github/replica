@@ -3,7 +3,7 @@ import type { Prisma } from "../../generated/prisma/client.ts"
 export const reviewThreadInclude = {
   prototype: { select: { id: true, name: true, branchName: true } },
   build: { select: { number: true } },
-  comments: { orderBy: [{ createdAt: "asc" }, { id: "asc" }] },
+  comments: { orderBy: { publicId: "asc" } },
   resolutionEvents: { orderBy: { sequence: "asc" } },
 } satisfies Prisma.ReviewThreadInclude
 
