@@ -137,6 +137,8 @@ All administrator routes, the Hub-wide security-audit route, and global session-
 
 Start and sign-out requests require the exact configured application origin. Authentication routes use database-backed per-address-digest rate limits, disable response storage, and omit query, form, and cookie payloads from request completion logs. Callback rate limiting runs before callback parsing.
 
+Home sign-in forms submit native, form-encoded requests without a legacy `authenticity_token` field. The start routes accept only the optional `switch_account=true` choice and reject unknown fields. Exact-origin checks protect these submissions against cross-site requests; OAuth state and the browser-binding cookie protect the callback.
+
 The address digest uses the trusted client address. Behind a protected proxy, configure `HUB_TRUSTED_PROXY_HOPS` to the exact proxy-chain length; leaving it at zero intentionally treats the proxy as the client and shares one rate-limit budget across traffic from that proxy.
 
 Consumed attempts remain available as short-lived protocol state for ten minutes after consumption so a trusted same-request consumer can reread them. Cleanup removes expired unconsumed attempts and consumed attempts after that fixed retention window; this is not authentication history.

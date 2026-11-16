@@ -30,7 +30,6 @@ export default function SignIn() {
       <HomeIndexPage
         colorMode={resolvedColorMode}
         data={{
-          authenticityToken: "",
           alert: null,
           notice: null,
           badge: "Collaborative prototyping",

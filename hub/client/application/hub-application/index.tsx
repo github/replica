@@ -195,7 +195,6 @@ export function HubApplication() {
               : authentication === "no_repository_access"
                 ? "Your GitHub account cannot read any repository connected to this Hub. Ask a repository owner for access, then sign in again."
                 : null,
-        authenticityToken: "",
         badge: "Collaborative prototyping",
         badgeAlternate: "Built for feedback",
         description: "Sign in with an active Replica Hub membership.",
