@@ -12,11 +12,27 @@ interface Actor {
 
 type AuthorizeMutation = (transaction: Prisma.TransactionClient) => Promise<boolean>
 
+function reviewablePrototypeWhere(
+  repositoryId: string,
+  prototypeId: string,
+  defaultBranch: string,
+): Prisma.PrototypeWhereInput {
+  return {
+    id: prototypeId,
+    repositoryId,
+    registeredAt: { not: null },
+    branchDeletedAt: null,
+    replica: false,
+    branchName: { notIn: [defaultBranch, "replica/install-workflow"] },
+  }
+}
+
 async function findStoredThread(
   transaction: Prisma.TransactionClient,
   repositoryId: string,
   prototypeId: string,
   threadId: string,
+  defaultBranch: string,
 ) {
   return transaction.reviewThread.findFirst({
     where: {
@@ -24,6 +40,7 @@ async function findStoredThread(
       repositoryId,
       prototypeId,
       repository: { removedAt: null },
+      prototype: reviewablePrototypeWhere(repositoryId, prototypeId, defaultBranch),
     },
     include: reviewThreadInclude,
   })
@@ -34,12 +51,14 @@ async function findStoredThreadByPublicId(
   repositoryId: string,
   prototypeId: string,
   threadId: number,
+  defaultBranch: string,
 ) {
   return transaction.reviewThread.findFirst({
     where: {
       repositoryId,
       prototypeId,
       repository: { removedAt: null },
+      prototype: reviewablePrototypeWhere(repositoryId, prototypeId, defaultBranch),
       comments: { some: { publicId: threadId, rootId: null } },
     },
     include: reviewThreadInclude,
@@ -159,11 +178,17 @@ export function createReviewCommentRepository(database: Database) {
           if (!(await input.authorize(transaction))) {
             return { ok: false, reason: "session_invalid" }
           }
+          const repository = await transaction.repository.findFirst({
+            where: { id: input.repositoryId, removedAt: null },
+            select: { defaultBranch: true },
+          })
+          if (!repository) return { ok: false, reason: "repository_not_found" }
           const thread = await findStoredThreadByPublicId(
             transaction,
             input.repositoryId,
             input.prototypeId,
             input.threadId,
+            repository.defaultBranch,
           )
           if (!thread) return { ok: false, reason: "thread_not_found" }
           const root = thread.comments.find((comment) => comment.rootId === null)
@@ -191,6 +216,7 @@ export function createReviewCommentRepository(database: Database) {
             input.repositoryId,
             input.prototypeId,
             thread.id,
+            repository.defaultBranch,
           )
           return stored ? { ok: true, value: stored } : { ok: false, reason: "thread_not_found" }
         },
@@ -211,6 +237,11 @@ export function createReviewCommentRepository(database: Database) {
           if (!(await input.authorize(transaction))) {
             return { ok: false, reason: "session_invalid" }
           }
+          const repository = await transaction.repository.findFirst({
+            where: { id: input.repositoryId, removedAt: null },
+            select: { defaultBranch: true },
+          })
+          if (!repository) return { ok: false, reason: "repository_not_found" }
           const comment = await transaction.reviewComment.findFirst({
             where: {
               publicId: input.commentId,
@@ -218,6 +249,11 @@ export function createReviewCommentRepository(database: Database) {
                 repositoryId: input.repositoryId,
                 prototypeId: input.prototypeId,
                 repository: { removedAt: null },
+                prototype: reviewablePrototypeWhere(
+                  input.repositoryId,
+                  input.prototypeId,
+                  repository.defaultBranch,
+                ),
               },
             },
             select: {
@@ -250,6 +286,7 @@ export function createReviewCommentRepository(database: Database) {
             input.repositoryId,
             input.prototypeId,
             comment.threadId,
+            repository.defaultBranch,
           )
           return stored ? { ok: true, value: stored } : { ok: false, reason: "thread_not_found" }
         },
@@ -269,6 +306,11 @@ export function createReviewCommentRepository(database: Database) {
           if (!(await input.authorize(transaction))) {
             return { ok: false, reason: "session_invalid" }
           }
+          const repository = await transaction.repository.findFirst({
+            where: { id: input.repositoryId, removedAt: null },
+            select: { defaultBranch: true },
+          })
+          if (!repository) return { ok: false, reason: "repository_not_found" }
           const comment = await transaction.reviewComment.findFirst({
             where: {
               publicId: input.commentId,
@@ -276,6 +318,11 @@ export function createReviewCommentRepository(database: Database) {
                 repositoryId: input.repositoryId,
                 prototypeId: input.prototypeId,
                 repository: { removedAt: null },
+                prototype: reviewablePrototypeWhere(
+                  input.repositoryId,
+                  input.prototypeId,
+                  repository.defaultBranch,
+                ),
               },
             },
             select: {
@@ -306,6 +353,7 @@ export function createReviewCommentRepository(database: Database) {
             input.repositoryId,
             input.prototypeId,
             comment.threadId,
+            repository.defaultBranch,
           )
           return stored ? { ok: true, value: stored } : { ok: false, reason: "thread_not_found" }
         },
@@ -326,11 +374,17 @@ export function createReviewCommentRepository(database: Database) {
           if (!(await input.authorize(transaction))) {
             return { ok: false, reason: "session_invalid" }
           }
+          const repository = await transaction.repository.findFirst({
+            where: { id: input.repositoryId, removedAt: null },
+            select: { defaultBranch: true },
+          })
+          if (!repository) return { ok: false, reason: "repository_not_found" }
           const thread = await findStoredThreadByPublicId(
             transaction,
             input.repositoryId,
             input.prototypeId,
             input.threadId,
+            repository.defaultBranch,
           )
           if (!thread) return { ok: false, reason: "thread_not_found" }
           const alreadyDesired = input.resolved
@@ -368,6 +422,7 @@ export function createReviewCommentRepository(database: Database) {
             input.repositoryId,
             input.prototypeId,
             thread.id,
+            repository.defaultBranch,
           )
           return stored ? { ok: true, value: stored } : { ok: false, reason: "thread_not_found" }
         },

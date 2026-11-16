@@ -392,6 +392,65 @@ describe("review comments", () => {
     expect(resolvedAgain.resolvedBy).toEqual(secondReviewer)
   })
 
+  it("rejects every mutation after the prototype becomes hidden", async () => {
+    const repository = await createRepository()
+    const { prototype, build } = await createReviewablePrototype(
+      repository.id,
+      "prototype/checkout",
+    )
+    const author = await createUser("mona", "Mona")
+    const reviewer = await createUser("hubot", "Hubot")
+    const service = createTestReviewService()
+    const thread = await service.createThread({
+      repositoryId: repository.id,
+      prototypeId: prototype.id,
+      buildNumber: build.number,
+      body: "Hide this branch.",
+      anchor,
+      actor: author,
+    })
+    await prisma.prototype.update({
+      where: { id: prototype.id },
+      data: { branchDeletedAt: new Date("2026-11-16T00:00:00Z") },
+    })
+
+    await expect(
+      service.createReply({
+        repositoryId: repository.id,
+        prototypeId: prototype.id,
+        threadId: thread.id,
+        body: "Reply",
+        actor: reviewer,
+      }),
+    ).rejects.toMatchObject({ code: "not_found" })
+    await expect(
+      service.editComment({
+        repositoryId: repository.id,
+        prototypeId: prototype.id,
+        commentId: thread.root.id,
+        body: "Edited",
+        actor: author,
+      }),
+    ).rejects.toMatchObject({ code: "not_found" })
+    await expect(
+      service.deleteComment({
+        repositoryId: repository.id,
+        prototypeId: prototype.id,
+        commentId: thread.root.id,
+        actor: author,
+      }),
+    ).rejects.toMatchObject({ code: "not_found" })
+    await expect(
+      service.setResolution({
+        repositoryId: repository.id,
+        prototypeId: prototype.id,
+        threadId: thread.id,
+        resolved: true,
+        actor: reviewer,
+      }),
+    ).rejects.toMatchObject({ code: "not_found" })
+  })
+
   it("captures one complete repository snapshot and rejects removed repositories", async () => {
     const capturedAt = new Date("2026-11-13T18:00:00Z")
     const repository = await createRepository("team/snapshot")
