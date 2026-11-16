@@ -375,6 +375,10 @@ describe("real prototype index", () => {
     fireEvent.change(search, { target: { value: " welcome " } })
     fireEvent.keyDown(search, { key: "Enter" })
     await waitFor(() => expect(searches).toContain(`/api/repositories/${repositoryId}?q=welcome`))
+    await waitFor(() => {
+      expect(new URLSearchParams(router.state.location.search).get("q")).toBe("welcome")
+      expect(router.state.navigation.state).toBe("idle")
+    })
 
     fireEvent.click(screen.getByRole("link", { name: "Welcome flow" }))
     expect(
@@ -447,6 +451,243 @@ describe("real prototype index", () => {
       router.navigate(`/repositories/${repositoryId}/prototypes/${unknownPrototypeId}`),
     )
     expect((await screen.findByLabelText("Unknown author")).closest("a")).toBeNull()
+  }, 15_000)
+
+  it("sends a member's draft edit in real mode and shows its registration without extra permissions", async () => {
+    vi.stubEnv("MODE", "development")
+    vi.stubEnv("DEV", true)
+    const repositoryId = "11111111-1111-4111-8111-111111111111"
+    const prototypeId = "22222222-2222-4222-8222-222222222222"
+    const userId = "44444444-4444-4444-8444-444444444444"
+    const repository = { id: repositoryId, nameWithOwner: "team/design", defaultBranch: "main" }
+    const path = `/repositories/${repositoryId}/prototypes/${prototypeId}`
+    const details = {
+      name: "🧪".repeat(255),
+      description: "🌱".repeat(500),
+      startPage: `/${"é".repeat(1020)}?q=1#hi`,
+    }
+    let submission: unknown
+    let prototype = {
+      id: prototypeId,
+      repositoryId,
+      name: "prototype/draft",
+      branchName: "prototype/draft",
+      description: null as string | null,
+      startPage: "/",
+      authorLogin: null as string | null,
+      authorName: null as string | null,
+      authorProvider: null as string | null,
+      canEdit: true,
+      latestBuild: null,
+      builds: [],
+    }
+    const patch = vi.fn(async ({ request }: { request: Request }) => {
+      const input = (await request.json()) as typeof details
+      submission = input
+      prototype = {
+        ...prototype,
+        ...input,
+        authorLogin: "member@example.test",
+        authorName: "Member",
+        authorProvider: "entra",
+      }
+      return HttpResponse.json({ repository, prototype, selectedBuild: null })
+    })
+    const server = setupServer(
+      http.get(`${window.location.origin}/api/auth/session`, () =>
+        HttpResponse.json({
+          authenticated: true,
+          membershipId: "55555555-5555-4555-8555-555555555555",
+          userId,
+          provider: "entra",
+          login: "member@example.test",
+          name: "Member",
+          role: "MEMBER",
+        }),
+      ),
+      http.get(`${window.location.origin}/api/workspace`, () =>
+        HttpResponse.json({
+          viewer: {
+            id: userId,
+            provider: "entra",
+            login: "member@example.test",
+            name: "Member",
+            avatarUrl: null,
+          },
+          repositories: [repository],
+          capabilities: {
+            createPrototypes: false,
+            reviewPrototypes: false,
+            manageSharing: false,
+            administerHub: false,
+          },
+        }),
+      ),
+      http.get(`${window.location.origin}/api${path}`, () =>
+        HttpResponse.json({ repository, prototype, selectedBuild: null }),
+      ),
+      http.get(
+        `${window.location.origin}/api${path}/review-comments`,
+        () => new HttpResponse(null, { status: 404 }),
+      ),
+      http.patch(`${window.location.origin}/api${path}`, patch),
+    )
+    server.listen({ onUnhandledRequest: "error" })
+    onTestFinished(() => server.close())
+    const router = await renderApplication(path)
+
+    expect(screen.queryByRole("link", { name: "Create" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Branch from here" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "Edit prototype listings" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "More actions" })).not.toBeInTheDocument()
+    fireEvent.click(await screen.findByRole("button", { name: "Edit details" }))
+    const editor = screen.getByRole("dialog", { name: "Edit prototype details" })
+    fireEvent.change(within(editor).getByRole("textbox", { name: "Name" }), {
+      target: { value: ` ${details.name} ` },
+    })
+    fireEvent.change(within(editor).getByRole("textbox", { name: "Description" }), {
+      target: { value: ` ${details.description} ` },
+    })
+    fireEvent.change(within(editor).getByRole("textbox", { name: "Start page (optional)" }), {
+      target: { value: details.startPage },
+    })
+
+    fireEvent.click(within(editor).getByRole("button", { name: "Save details" }))
+
+    await waitFor(() => expect(editor).not.toBeInTheDocument())
+    expect(patch).toHaveBeenCalledOnce()
+    expect(submission).toEqual(details)
+    expect(router.state.location.pathname).toBe(path)
+    expect(screen.getByLabelText("By Member")).toBeVisible()
+    fireEvent.click(screen.getByRole("button", { name: "Edit details" }))
+    const reopened = screen.getByRole("dialog", { name: "Edit prototype details" })
+    expect(within(reopened).getByRole("textbox", { name: "Name" })).toHaveValue(details.name)
+    expect(within(reopened).getByRole("textbox", { name: "Description" })).toHaveValue(
+      details.description,
+    )
+    expect(within(reopened).getByRole("textbox", { name: "Start page (optional)" })).toHaveValue(
+      details.startPage,
+    )
+  }, 15_000)
+
+  it("retains a rejected real start page and retries with a cleared description and default route", async () => {
+    vi.stubEnv("MODE", "development")
+    vi.stubEnv("DEV", true)
+    const repositoryId = "11111111-1111-4111-8111-111111111111"
+    const prototypeId = "22222222-2222-4222-8222-222222222222"
+    const userId = "44444444-4444-4444-8444-444444444444"
+    const repository = { id: repositoryId, nameWithOwner: "team/design", defaultBranch: "main" }
+    const path = `/repositories/${repositoryId}/prototypes/${prototypeId}`
+    let prototype = {
+      id: prototypeId,
+      repositoryId,
+      name: "Welcome",
+      branchName: "prototype/welcome",
+      description: "An existing description." as string | null,
+      startPage: "/welcome",
+      authorLogin: "another-author",
+      canEdit: true,
+      latestBuild: null,
+      builds: [],
+    }
+    const submissions: unknown[] = []
+    const patch = vi.fn(async ({ request }: { request: Request }) => {
+      const input = (await request.json()) as {
+        name: string
+        description: string | null
+        startPage: string
+      }
+      submissions.push(input)
+      if (submissions.length === 1) {
+        return HttpResponse.json(
+          { error: "The API could not save the start page. Try again." },
+          { status: 503 },
+        )
+      }
+      prototype = { ...prototype, ...input }
+      return HttpResponse.json({ repository, prototype, selectedBuild: null })
+    })
+    const server = setupServer(
+      http.get(`${window.location.origin}/api/auth/session`, () =>
+        HttpResponse.json({
+          authenticated: true,
+          membershipId: "55555555-5555-4555-8555-555555555555",
+          userId,
+          provider: "github",
+          login: "member",
+          name: "Member",
+          role: "MEMBER",
+        }),
+      ),
+      http.get(`${window.location.origin}/api/workspace`, () =>
+        HttpResponse.json({
+          viewer: {
+            id: userId,
+            provider: "github",
+            login: "member",
+            name: "Member",
+            avatarUrl: null,
+          },
+          repositories: [repository],
+          capabilities: {
+            createPrototypes: false,
+            reviewPrototypes: false,
+            manageSharing: false,
+            administerHub: false,
+          },
+        }),
+      ),
+      http.get(`${window.location.origin}/api${path}`, () =>
+        HttpResponse.json({ repository, prototype, selectedBuild: null }),
+      ),
+      http.get(
+        `${window.location.origin}/api${path}/review-comments`,
+        () => new HttpResponse(null, { status: 404 }),
+      ),
+      http.patch(`${window.location.origin}/api${path}`, patch),
+    )
+    server.listen({ onUnhandledRequest: "error" })
+    onTestFinished(() => server.close())
+    await renderApplication(path)
+    fireEvent.click(await screen.findByRole("button", { name: "Edit details" }))
+    const editor = screen.getByRole("dialog", { name: "Edit prototype details" })
+    const name = within(editor).getByRole("textbox", { name: "Name" })
+    const description = within(editor).getByRole("textbox", { name: "Description" })
+    const startPage = within(editor).getByRole("textbox", { name: "Start page (optional)" })
+    fireEvent.change(name, { target: { value: "Revised welcome" } })
+    fireEvent.change(description, { target: { value: "Keep my unsaved description." } })
+    fireEvent.change(startPage, { target: { value: "/welcome?step=2#intro" } })
+
+    fireEvent.click(within(editor).getByRole("button", { name: "Save details" }))
+
+    expect(await within(editor).findByRole("alert")).toHaveTextContent(
+      "The API could not save the start page. Try again.",
+    )
+    expect(name).toHaveValue("Revised welcome")
+    expect(description).toHaveValue("Keep my unsaved description.")
+    expect(startPage).toHaveValue("/welcome?step=2#intro")
+    expect(prototype.name).toBe("Welcome")
+    expect(within(editor).getByRole("button", { name: "Save details" })).toBeEnabled()
+    fireEvent.change(description, { target: { value: "   " } })
+    fireEvent.change(startPage, { target: { value: "   " } })
+    fireEvent.click(within(editor).getByRole("button", { name: "Save details" }))
+
+    await waitFor(() => expect(patch).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(editor).not.toBeInTheDocument())
+    expect(submissions).toEqual([
+      {
+        name: "Revised welcome",
+        description: "Keep my unsaved description.",
+        startPage: "/welcome?step=2#intro",
+      },
+      { name: "Revised welcome", description: null, startPage: "/" },
+    ])
+    fireEvent.click(screen.getByRole("button", { name: "Edit details" }))
+    const reopened = screen.getByRole("dialog", { name: "Edit prototype details" })
+    expect(within(reopened).getByRole("textbox", { name: "Description" })).toHaveValue("")
+    expect(within(reopened).getByRole("textbox", { name: "Start page (optional)" })).toHaveValue(
+      "/",
+    )
   }, 15_000)
 
   it("returns not-found for a standalone Build detail URL", async () => {

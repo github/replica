@@ -4,6 +4,7 @@ import {
   prototypeDetailsSchema,
   prototypeResponseSchema,
   prototypeSchema,
+  prototypeStartPageSchema,
   recordIdentifierSchema,
   repositorySchema,
 } from "../contracts"
@@ -19,26 +20,7 @@ const routeSegment = z
 
 export const productTemplateIdSchema = routeSegment
 export const productShareIdSchema = routeSegment
-export const productStartPageSchema = z
-  .string()
-  .trim()
-  .max(2048, "Use at most 2,048 characters for the start page.")
-  .refine((value) => {
-    if (!value) return true
-    try {
-      const decoded = decodeURIComponent(value)
-      const url = new URL(value, "http://preview.invalid")
-      return (
-        value.startsWith("/") &&
-        !decoded.startsWith("//") &&
-        !/[\s\\\p{Cc}]/u.test(decoded) &&
-        url.origin === "http://preview.invalid"
-      )
-    } catch {
-      return false
-    }
-  }, "Enter a local route beginning with /, not an external URL.")
-  .nullable()
+export const productStartPageSchema = prototypeStartPageSchema.nullable()
 
 export const productTemplateSchema = z.object({
   id: productTemplateIdSchema,

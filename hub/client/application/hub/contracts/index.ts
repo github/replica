@@ -1,5 +1,7 @@
 import { z } from "zod"
 
+import { normalizeStartPage } from "@utils/normalize-start-page"
+
 const identifier = z.number().int().positive()
 const httpUrl = z.url({ protocol: /^https?$/ })
 const timestamp = z.iso.datetime({ offset: true })
@@ -60,6 +62,7 @@ export const prototypeSchema = z.object({
   name: z.string().min(1),
   branchName: z.string().min(1),
   description: z.string().nullable(),
+  startPage: z.string().nullable().optional(),
   authorLogin: z.string().min(1).nullable(),
   authorName: z.string().nullable().optional(),
   authorProvider: z.string().min(1).nullable().optional(),
@@ -138,6 +141,56 @@ export const prototypeDetailsSchema = z
       .trim()
       .max(4000, "Use at most 4,000 characters for the description.")
       .nullable(),
+  })
+  .strict()
+
+const metadataSpace = /^[\s\u0085]$/u
+
+function trimMetadata(value: string) {
+  let start = 0
+  let end = value.length
+  while (start < end && metadataSpace.test(value.charAt(start))) start += 1
+  while (end > start && metadataSpace.test(value.charAt(end - 1))) end -= 1
+  return value.slice(start, end)
+}
+
+export const prototypeStartPageSchema = z.string().transform((value, context) => {
+  const startPage = normalizeStartPage(trimMetadata(value) || "/")
+  if (startPage !== null) return startPage
+  context.addIssue({
+    code: "custom",
+    message: "Enter a local route of at most 2,048 bytes, such as /settings.",
+  })
+  return z.NEVER
+})
+
+export const prototypeEditSchema = z
+  .object({
+    name: z
+      .string()
+      .transform(trimMetadata)
+      .refine((value) => value.length > 0, "Enter a prototype name.")
+      .refine((value) => !/[\p{Cs}\0]/u.test(value), "Remove unsupported characters from the name.")
+      .refine(
+        (value) => [...value].length <= 255,
+        "Use at most 255 characters for the prototype name.",
+      ),
+    description: z
+      .string()
+      .nullable()
+      .transform((value) => (value === null ? null : trimMetadata(value) || null))
+      .refine(
+        (value) => !value || !/[\p{Cs}\0]/u.test(value),
+        "Remove unsupported characters from the description.",
+      )
+      .refine(
+        (value) => !value || [...value].length <= 500,
+        "Use at most 500 characters for the description.",
+      ),
+    startPage: prototypeStartPageSchema
+      .nullable()
+      .transform((value) => value ?? "/")
+      .optional(),
   })
   .strict()
 

@@ -2,7 +2,7 @@ import { z } from "zod"
 
 import {
   buildSchema,
-  prototypeDetailsSchema,
+  prototypeEditSchema,
   prototypeSchema,
   repositorySchema,
   userSchema,
@@ -10,7 +10,7 @@ import {
 import type {
   AuthorResults,
   BuildHistoryResponse,
-  PrototypeDetails,
+  PrototypeEdit,
   PrototypeRecord,
   PrototypeResponse,
   RepositoryResponse,
@@ -285,18 +285,18 @@ export function createMockStore({ origin, seed = createFixtureSeed() }: Options)
     updatePrototype(
       repositoryId: string,
       prototypeId: string,
-      details: PrototypeDetails,
+      details: PrototypeEdit,
     ): PrototypeResponse {
       session.requireViewer()
-      const prototype = prototypeRecord(repositoryId, prototypeId)
-      if (!prototype.canEdit) throw new MockStoreError(403, "You cannot edit this prototype.")
-      const parsed = prototypeDetailsSchema.parse(details)
+      prototypeRecord(repositoryId, prototypeId)
+      const parsed = prototypeEditSchema.parse(details)
       const target = data.prototypes.find(
         ({ id, repositoryId: owner }) => id === prototypeId && owner === repositoryId,
       )
       if (!target) throw new MockStoreError(404, "Prototype not found.")
       target.name = parsed.name
       target.description = parsed.description
+      if (parsed.startPage !== undefined) target.startPage = parsed.startPage
       return prototypeResponse(repositoryId, prototypeId)
     },
   }

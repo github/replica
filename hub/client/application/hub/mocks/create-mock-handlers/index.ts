@@ -1,7 +1,7 @@
 import { http, HttpResponse } from "msw"
 
 import {
-  prototypeDetailsSchema,
+  prototypeEditSchema,
   prototypeQuerySchema,
   routeQuerySchema,
 } from "@application/hub/contracts"
@@ -139,7 +139,7 @@ export function createMockHandlers(store: MockStore) {
           }
           throw error
         }
-        const parsed = prototypeDetailsSchema.safeParse(body)
+        const parsed = prototypeEditSchema.safeParse(body)
         if (!parsed.success) {
           return HttpResponse.json(
             { error: parsed.error.issues.map(({ message }) => message).join(" ") },

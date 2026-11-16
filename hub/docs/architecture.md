@@ -22,7 +22,7 @@ The [database guide](database.md) defines the multi-file Prisma schema and share
 
 The [Pino integration](logging.md) writes structured application and HTTP logs to stdout. `createApp()` installs request logging before routes, so new endpoints inherit completion records and server-generated request IDs without explicit logging calls. Authentication routes install their bounded form parsing after origin and rate-limit checks. Prototype edits check the application origin before bounded JSON parsing, including case and trailing-slash aliases; other routes inherit the shared JSON parser.
 
-The [prototype metadata API](frontend.md#prototype-metadata-edits) lets signed-in members edit visible prototypes and register drafts. Hub holds session authority and prototype visibility locks through the write and detail read-back. The frontend editor remains separate work.
+The [prototype details editor](frontend.md#prototype-metadata-edits) lets signed-in members edit visible prototypes and register drafts. Hub holds session authority and prototype visibility locks through the write and detail read-back.
 
 The [background-job foundation](background-jobs.md) uses BullMQ with PostgreSQL and separate on-demand and scheduled worker processes. Setup migrates BullMQ's own schema independently of Prisma. Product processors and schedules are not registered yet.
 
@@ -65,7 +65,7 @@ Imports follow the arrows above. Shared components, hooks, and utilities must no
 
 The theme provider wraps routes and their loading and error feedback.
 
-- In real mode, signed-out visitors use the authentication shell. Signed-in members can browse the repository index and open prototype details; the detail editor is not shown yet. Administrators can use `/settings/administrators`, `/settings/sessions`, `/settings/copilot`, and `/settings/audit?scope=hub` through their production APIs without loading provisional product data.
+- In real mode, signed-out visitors use the authentication shell. Signed-in members can browse the repository index and edit visible prototype details. Administrators can use `/settings/administrators`, `/settings/sessions`, `/settings/copilot`, and `/settings/audit?scope=hub` through their production APIs without loading provisional product data.
 - In mock mode, the root reads the simulated session. A nested layout loads the private workspace for signed-in pages.
 - Route loaders and actions request product data and refresh it after changes. Shareable filters and selections live in the URL.
 - Product screens keep product-facing copy. API failures remain visible errors.

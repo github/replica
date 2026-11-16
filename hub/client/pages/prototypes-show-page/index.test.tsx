@@ -151,8 +151,6 @@ const PROTOTYPES_SHOW_PAGE_DATA: PrototypesShowPageData = {
     "Paste a preview URL or route, including any query or fragment. Leave blank to start at /.",
   saveDetailsLabel: "Save details",
   cancelEditLabel: "Cancel",
-  nameMaximumLength: 255,
-  descriptionMaximumLength: 500,
   descriptionLabel: "Description",
   noDescriptionLabel: "No description has been added to this prototype.",
   prototypeInfoLabel: "About this prototype",

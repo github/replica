@@ -33,6 +33,8 @@ export function PrototypeScreen({
   const { resolvedColorMode } = useHubTheme()
   const session = useRouteLoaderData<SessionResponse>("root")
   const mock = import.meta.env.DEV && import.meta.env.MODE === "mock"
+  // Mock canEdit still protects its separate management and sharing workflows.
+  const canEditDetails = mock ? Boolean(session?.viewer) : data.prototype.canEdit
   const pageData = prototypeShowData(workspace, data, new URLSearchParams(location.search), {
     real: !mock,
   })
@@ -100,7 +102,7 @@ export function PrototypeScreen({
       previewTheme={resolvedColorMode}
       review={review}
       initialMinimized={pageData.minimizedPreview}
-      onSaveDetails={data.prototype.canEdit ? onSaveDetails : undefined}
+      onSaveDetails={canEditDetails ? onSaveDetails : undefined}
       savingDetails={savingDetails}
       detailsError={detailsError}
       detailsSaved={detailsSaved}

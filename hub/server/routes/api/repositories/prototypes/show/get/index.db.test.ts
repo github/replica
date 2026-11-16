@@ -236,7 +236,7 @@ describe("prototype detail API", () => {
       expect(unregisteredDetail.prototype).toMatchObject({
         name: "prototype/unregistered",
         branchName: "prototype/unregistered",
-        canEdit: false,
+        canEdit: true,
       })
 
       const deletedResponse = await fetch(
