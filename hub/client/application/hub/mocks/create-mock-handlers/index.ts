@@ -9,7 +9,6 @@ import { sessionResponseSchema } from "@application/hub/session-contracts"
 
 import type { MockStore } from "../create-mock-store/types"
 import { MockStoreError } from "../store-error"
-import { parseMockIdentifier as identifier } from "../parse-mock-identifier"
 import { parseMockRecordIdentifier as recordIdentifier } from "../parse-mock-record-identifier"
 import { parseMockQuery } from "../parse-mock-query"
 import { respondMock } from "../respond-mock"
@@ -123,20 +122,6 @@ export function createMockHandlers(store: MockStore) {
           }
           return HttpResponse.json(response)
         }),
-    ),
-
-    http.get(
-      api("/repositories/:repositoryId/prototypes/:prototypeId/builds/:buildNumber"),
-      ({ request, params }) =>
-        withScenario(request, () =>
-          HttpResponse.json(
-            store.getBuild(
-              recordIdentifier(params.repositoryId),
-              recordIdentifier(params.prototypeId),
-              identifier(params.buildNumber),
-            ),
-          ),
-        ),
     ),
 
     http.patch(api("/repositories/:repositoryId/prototypes/:prototypeId"), ({ request, params }) =>

@@ -10,7 +10,6 @@ import {
 import type {
   AuthorResults,
   BuildHistoryResponse,
-  BuildResponse,
   PrototypeDetails,
   PrototypeRecord,
   PrototypeResponse,
@@ -251,17 +250,6 @@ export function createMockStore({ origin, seed = createFixtureSeed() }: Options)
           response.prototype.branchName,
         ]),
         showPrototypeInfo,
-      }
-    },
-
-    getBuild(repositoryId: string, prototypeId: string, buildNumber: number): BuildResponse {
-      session.requireViewer()
-      const response = prototypeResponse(repositoryId, prototypeId, buildNumber)
-      if (!response.selectedBuild) throw new MockStoreError(404, "Build not found.")
-      return {
-        repository: response.repository,
-        prototype: response.prototype,
-        build: response.selectedBuild,
       }
     },
 

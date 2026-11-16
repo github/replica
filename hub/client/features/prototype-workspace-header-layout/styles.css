@@ -180,12 +180,15 @@ div:has(> [data-testid="ActionMenu"] .review-shell__more-trigger[aria-expanded="
 }
 
 .review-shell__build-option > a > span,
-.review-shell__build-option > a > span > span {
+.review-shell__build-option > a > span > span,
+.review-shell__build-option > span,
+.review-shell__build-option > span > span {
   width: 100%;
   min-width: 0;
 }
 
-.review-shell__build-option > a > span > span {
+.review-shell__build-option > a > span > span,
+.review-shell__build-option > span > span {
   display: block;
 }
 
@@ -201,6 +204,10 @@ div:has(> [data-testid="ActionMenu"] .review-shell__more-trigger[aria-expanded="
 
 .review-shell__build-option-label {
   flex: none;
+}
+
+.review-shell__build-option[aria-disabled="true"] .review-shell__build-option-label {
+  color: var(--hub-fg-default);
 }
 
 .review-shell__build-status {

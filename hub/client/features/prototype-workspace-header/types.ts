@@ -16,8 +16,6 @@ interface WorkspaceHeaderData {
   repositoryPath: string
   selectedBuild?: {
     number: number
-    detailsLabel?: string
-    detailsPath?: string
   }
   selectedBuildNumber?: number
   useDarkThemeLabel: string
@@ -35,7 +33,7 @@ export interface PrototypeWorkspaceHeaderData extends WorkspaceHeaderData {
   buildOptions: Array<{
     number: number
     label: string
-    path: string
+    path: string | null
     state: BuildState
     stateLabel?: string
   }>

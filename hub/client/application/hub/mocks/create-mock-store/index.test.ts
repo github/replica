@@ -23,8 +23,6 @@ describe("createMockStore()", () => {
     expect(() => store.getPrototype("2001", "1", 5)).toThrow(
       expect.objectContaining({ status: 404 }),
     )
-    expect(store.getBuild("2001", "1", 4).build.state).toBe("failed")
-    expect(store.getBuild("2001", "1", 5).build.state).toBe("running")
   })
 
   it("does not offer an unsuccessful Build as a preview when no successful Build exists", () => {
@@ -32,7 +30,6 @@ describe("createMockStore()", () => {
 
     expect(store.getPrototype("2001", "2").selectedBuild).toBeNull()
     expect(store.getPrototype("2001", "3").selectedBuild).toBeNull()
-    expect(store.getBuild("2001", "2", 1).build.state).toBe("running")
   })
 
   it("registers another prototype when existing identifiers include a UUID", () => {

@@ -32,7 +32,9 @@ The dataset includes `octocat`, `mona`, additional fictional collaborators, `git
 
 In mock mode, the neutral root reads the simulated session. Private pages load their workspace in a separate layout; public shared previews and signed-out pages do not load a private workspace. These provisional product contracts are not adapters for real authentication or authorization.
 
-In real mode, signed-out visitors see the authentication shell without loading provisional session or workspace data. Signed-in members open the first repository or an empty workspace. Administrators can open `/settings/administrators`, `/settings/sessions`, `/settings/copilot`, and `/settings/audit?scope=hub` without loading provisional product workspace data. The sessions page reads current Hub authentication counts, requires explicit confirmation, leaves for fresh authorization through the current session provider, and keeps the signed-out completion result visible after the API ends every Hub session. Sign-in, enrollment, and sign-out forms submit natively to the configured API. Members can search the read-only index, filter it by user, page through 24 prototypes at a time, and open prototype details. The detail API selects the latest successful Build by default; `build` pins another successful Build, and invalid or unavailable selections return 404. The page offers only successful Builds until Build history and details are available. Sharing links are also unavailable. Users from other providers are shown by name or login without a GitHub link. Build user metadata may be unknown for older records. Hosted previews and live review remain unavailable, and other real product routes retain explicit API failures. In mock mode, `/` keeps the product entry flow, and `/admin-enrollment` redirects to the mock `/settings/enroll` flow. See [Hub development](development.md) for seed data and access limitations.
+In real mode, signed-out visitors see the authentication shell without loading provisional session or workspace data. Signed-in members open the first repository or an empty workspace. Administrators can open `/settings/administrators`, `/settings/sessions`, `/settings/copilot`, and `/settings/audit?scope=hub` without loading provisional product workspace data. The sessions page reads current Hub authentication counts, requires explicit confirmation, leaves for fresh authorization through the current session provider, and keeps the signed-out completion result visible after the API ends every Hub session. Sign-in, enrollment, and sign-out forms submit natively to the configured API. Members can search the read-only index, filter it by user, page through 24 prototypes at a time, and open prototype details. The detail API selects the latest successful Build by default; `build` pins another successful Build, and invalid or unavailable selections return 404. Build history and sharing links are unavailable in real mode. Users from other providers are shown by name or login without a GitHub link. Build user metadata may be unknown for older records. Hosted previews and live review remain unavailable, and other real product routes retain explicit API failures. In mock mode, `/` keeps the product entry flow, and `/admin-enrollment` redirects to the mock `/settings/enroll` flow. See [Hub development](development.md) for seed data and access limitations.
+
+The Build pickers on the prototype and History views list successful, failed, and running Builds with their status. The mock Build history lists all Builds. On these views, successful Builds open the prototype view with `?build=N`; failed and running Builds are plain text because Hub does not store workflow run URLs. The separate share-link picker offers only successful Builds with a preview and keeps selections on the share-links page.
 
 Product screens retain product-facing copy from the retained pages and their original fixtures. They do not describe mock data, simulations, or synthetic accounts. The bottom-right test toolbar is the only orange development surface and the only place for mock-only warnings, request diagnostics, and explanations of local actions. It can be collapsed on any viewport. Normal product validation, access-denied, and failure feedback remain in the product UI.
 
@@ -56,8 +58,7 @@ Start the mock development server before opening these examples. The links use t
 | `/settings/audit?scope=hub` | Real Hub-wide administrator security records; mock mode retains Hub and repository fixtures | `before` is the opaque server cursor; real mode accepts only Hub scope | Requires a configured real-mode administrator session |
 | `/repositories/:repositoryId` | Repository prototypes | `q`, `author`, `page`, `view` | [github/prototype](http://127.0.0.1:5173/repositories/2001) |
 | `/repositories/:repositoryId/prototypes/:prototypeId` | Preview, metadata, and review conversations | `build` pins the preview; `comment` opens a conversation | [Welcome review](http://127.0.0.1:5173/repositories/2001/prototypes/1?build=3&comment=1) |
-| `/repositories/:repositoryId/prototypes/:prototypeId/builds` | Build history | `page` | [Welcome build history](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds) |
-| `/repositories/:repositoryId/prototypes/:prototypeId/builds/:buildNumber` | Build metadata and representative images | Build selection is in the path | [Successful Build 3](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds/3) |
+| `/repositories/:repositoryId/prototypes/:prototypeId/builds` | Build history; successful Builds open in the prototype view | `page` | [Welcome build history](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds) |
 | Other paths | Explicit not-found feedback | No success-shaped placeholder | [Not-found page (intentional 404)](http://127.0.0.1:5173/not-connected) |
 
 Other seeded page states:
@@ -65,7 +66,6 @@ Other seeded page states:
 - Repositories: [list view](http://127.0.0.1:5173/repositories/2001?view=list) and [empty github/empty repository](http://127.0.0.1:5173/repositories/2002).
 - Prototypes: [Welcome pinned to Build 1](http://127.0.0.1:5173/repositories/2001/prototypes/1?build=1), [Navigation with a running build](http://127.0.0.1:5173/repositories/2001/prototypes/2), and [Settings without builds](http://127.0.0.1:5173/repositories/2001/prototypes/3).
 - Build history: [older Welcome builds](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds?page=2) and [empty Settings history](http://127.0.0.1:5173/repositories/2001/prototypes/3/builds).
-- Build details: [failed Welcome Build 2](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds/2) and [running Navigation Build 1](http://127.0.0.1:5173/repositories/2001/prototypes/2/builds/1).
 - Templates: [default starter](http://127.0.0.1:5173/repositories/2001/templates/default) and [Welcome template](http://127.0.0.1:5173/repositories/2001/templates/prototype-1).
 - Shared previews: [active link](http://127.0.0.1:5173/shared/demo-active), [expired link](http://127.0.0.1:5173/shared/demo-expired), and [revoked link](http://127.0.0.1:5173/shared/demo-revoked).
 
@@ -125,7 +125,7 @@ Use this map to find the frontend destination when converting a Rails page. The 
 | Manage prototypes | `/repositories/:repo/prototypes/manage` | `/repositories/:repo/prototypes/manage` |
 | Prototype | `/repositories/:repo/prototypes/:prototypeId` | `/repositories/:repo/prototypes/:prototypeId` |
 | Build history | `/repositories/:repo/prototypes/:prototypeId/builds` | `/repositories/:repo/prototypes/:prototypeId/builds` |
-| Specific Build | `/repositories/:repo/prototypes/:prototypeId/builds/:id` | `/repositories/:repo/prototypes/:prototypeId/builds/:buildNumber` |
+| Specific Build | `/repositories/:repo/prototypes/:prototypeId/builds/:id` | Not ported; select a successful Build with `/repositories/:repo/prototypes/:prototypeId?build=:number` |
 | Prototype share links | `/repositories/:repo/prototypes/:prototypeId/share_links` | `/repositories/:repo/prototypes/:prototypeId/share-links` |
 | Browse template | `/repositories/:repo/templates/:templateId` | `/repositories/:repo/templates/:templateId` |
 | Analytics | `/repositories/:repo/analytics` | `/repositories/:repo/analytics` |
@@ -191,7 +191,6 @@ These are frontend/mock contracts under [the application contracts](../client/ap
 | `GET /api/repositories/:repositoryId/authors` | Searchable user choices with a cursor |
 | `GET /api/repositories/:repositoryId/prototypes/:prototypeId` | Prototype, Build records, and selected successful Build; real mode does not include hosted preview URLs |
 | `GET /api/repositories/:repositoryId/prototypes/:prototypeId/builds` | Paginated build history |
-| `GET /api/repositories/:repositoryId/prototypes/:prototypeId/builds/:buildNumber` | Build details |
 | `PATCH /api/repositories/:repositoryId/prototypes/:prototypeId` | Updated name/description and prototype data |
 | `/api/repositories/:repositoryId/prototypes/:prototypeId/review-comments` and its comment actions | Review collections, changes, reactions, and read positions |
 | `GET /api/repositories/:repositoryId/templates` and `/api/repositories/:repositoryId/templates/:templateId` | Template browsing |
@@ -278,7 +277,6 @@ GitHub App setup, registration, and installation pages can be opened directly wi
 | [Repositories show](../client/pages/repositories-show-page/) | Connected repository listing, filters, and pagination | [github/prototype](http://127.0.0.1:5173/repositories/2001) |
 | [Prototypes show](../client/pages/prototypes-show-page/) | Preview, metadata, and mock review conversations | [Welcome review](http://127.0.0.1:5173/repositories/2001/prototypes/1?build=3&comment=1) |
 | [Builds index](../client/pages/builds-index-page/) | Connected build history | [Welcome history](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds) |
-| [Builds show](../client/pages/builds-show-page/) | Connected build details | [Successful Build 3](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds/3) |
 | [Home](../client/pages/home-index-page/) | `/sign-in` | [Mock sign-in](http://127.0.0.1:5173/sign-in) |
 | [Analytics](../client/pages/analytics-page/) | `/repositories/:repositoryId/analytics` | [Repository analytics](http://127.0.0.1:5173/repositories/2001/analytics) |
 | [Canvas pairings](../client/pages/canvas-pairings-page/) | `/settings/canvas` and `/settings/canvas/approve` | [Connections](http://127.0.0.1:5173/settings/canvas?repositoryId=2001) and [approval](http://127.0.0.1:5173/settings/canvas/approve?repositoryId=2001) |

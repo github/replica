@@ -14,7 +14,7 @@ export interface BuildsIndexPageData extends PrototypeWorkspaceData {
     createdLabel: string
     number: number
     numberLabel: string
-    path: string
+    path: string | null
     shortCommitSha: string | null
     state: BuildState
     stateLabel: string

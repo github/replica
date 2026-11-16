@@ -6,7 +6,6 @@ import { onTestFailed, onTestFinished, vi } from "vitest"
 import { HubThemeProvider } from "@hooks/use-hub-theme"
 import * as hubApi from "@application/hub/bootstrap-hub-api"
 import { clientLoader as loadSession, ErrorBoundary, HydrateFallback } from "@application/hub/root"
-import { clientLoader as loadBuild } from "@application/hub/routes/build"
 import { clientLoader as loadBuildHistory } from "@application/hub/routes/build-history"
 import { clientLoader as loadHome } from "@application/hub/routes/home"
 import {
@@ -24,7 +23,6 @@ import { WorkspaceComponent } from "./workspace-component"
 import { HomeComponent } from "./home-component"
 import { RepositoryComponent } from "./repository-component"
 import { PrototypeComponent } from "./prototype-component"
-import { BuildComponent } from "./build-component"
 import { BuildHistoryComponent } from "./build-history-component"
 import { readTestRouteParameter } from "./read-test-route-parameter"
 
@@ -131,19 +129,6 @@ export async function renderHubFlow(
                     },
                   }),
                 Component: BuildHistoryComponent,
-              },
-              {
-                path: "/repositories/:repositoryId/prototypes/:prototypeId/builds/:buildNumber",
-                loader: ({ request, params }) =>
-                  loadBuild({
-                    request,
-                    params: {
-                      repositoryId: readTestRouteParameter(params, "repositoryId"),
-                      prototypeId: readTestRouteParameter(params, "prototypeId"),
-                      buildNumber: readTestRouteParameter(params, "buildNumber"),
-                    },
-                  }),
-                Component: BuildComponent,
               },
               ...workspaceRoutes,
             ],

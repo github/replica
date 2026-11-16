@@ -1,4 +1,4 @@
-import { createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { HubThemeProvider } from "@hooks/use-hub-theme"
@@ -27,6 +27,50 @@ describe("PrototypeWorkspaceHeader()", () => {
     expect(screen.getByRole("link", { name: "By @octocat" })).toHaveAttribute(
       "href",
       "https://github.com/octocat",
+    )
+  })
+
+  it("does not announce an unavailable latest Build as the current page", () => {
+    render(
+      <HubThemeProvider>
+        <PrototypeWorkspaceHeader
+          {...story.args}
+          data={{
+            ...story.args.data,
+            selectedBuild: undefined,
+            selectedBuildNumber: undefined,
+            latestBuild: { number: 2, state: "running", stateLabel: "Running" },
+            buildOptions: [
+              { number: 2, label: "v2", path: null, state: "running", stateLabel: "Running" },
+              { number: 1, label: "v1", path: null, state: "failed", stateLabel: "Failed" },
+            ],
+          }}
+        />
+      </HubThemeProvider>,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: /Choose build/ }))
+    const menu = screen.getByRole("menu", { name: "Choose build" })
+    const running = within(menu).getByRole("menuitem", { name: /v2.*Running/ })
+    const failed = within(menu).getByRole("menuitem", { name: /v1.*Failed/ })
+
+    expect(running).toHaveAttribute("aria-disabled", "true")
+    expect(failed).toHaveAttribute("aria-disabled", "true")
+    expect(running).not.toHaveAttribute("aria-current")
+    expect(failed).not.toHaveAttribute("aria-current")
+  })
+
+  it("announces the selected successful Build as the current page", () => {
+    render(
+      <HubThemeProvider>
+        <PrototypeWorkspaceHeader {...story.args} />
+      </HubThemeProvider>,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Choose build, v1" }))
+    expect(screen.getByRole("menuitem", { name: /v1.*Successful/ })).toHaveAttribute(
+      "aria-current",
+      "page",
     )
   })
 

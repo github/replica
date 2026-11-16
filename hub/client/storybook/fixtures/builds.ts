@@ -70,7 +70,7 @@ export const successfulBuild: BuildsIndexPageData["builds"][number] = {
   createdLabel: "Added to Hub September 14, 2026",
   number: 1,
   numberLabel: "build 1",
-  path: "/repositories/2001/prototypes/1/builds/1",
+  path: "/repositories/2001/prototypes/1?build=1",
   shortCommitSha: "aaaaaaa",
   state: "successful",
   stateLabel: "Successful",

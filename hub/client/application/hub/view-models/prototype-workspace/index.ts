@@ -49,7 +49,7 @@ export function prototypeWorkspace({
       ? workspace.viewer
       : null
   const previewPath = resourcePath(path, search, {
-    build: selectedBuild?.previewUrl ? selectedBuild.number : null,
+    build: selectedBuild?.state === "successful" ? selectedBuild.number : null,
   })
 
   return {
@@ -69,9 +69,7 @@ export function prototypeWorkspace({
       number: build.number,
       label: `v${build.number}`,
       path:
-        surface === "preview" && build.state === "successful"
-          ? resourcePath(path, search, { build: build.number })
-          : resourcePath(`${path}/builds/${build.number}`, search),
+        build.state === "successful" ? resourcePath(path, search, { build: build.number }) : null,
       state: build.state,
       stateLabel: buildStateLabel(build.state),
     })),
@@ -103,13 +101,7 @@ export function prototypeWorkspace({
     prototypeInfoLabel: "About this prototype",
     repositoryPath: resourcePath(`/repositories/${repository.id}`, search),
     selectedBuildNumber: selectedBuild?.number,
-    selectedBuild: selectedBuild
-      ? {
-          number: selectedBuild.number,
-          detailsLabel: "Build details",
-          detailsPath: resourcePath(`${path}/builds/${selectedBuild.number}`, search),
-        }
-      : undefined,
+    selectedBuild: selectedBuild ? { number: selectedBuild.number } : undefined,
     useDarkThemeLabel: "Use dark theme",
     useLightThemeLabel: "Use light theme",
   }

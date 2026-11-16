@@ -21,6 +21,7 @@ const data: PrototypeWorkspaceHeaderData = {
       label: "v1",
       path: "/repositories/2001/prototypes/1?build=1",
       state: "successful",
+      stateLabel: "Successful",
     },
   ],
   buildSelectionLabel: "Choose build",
@@ -30,8 +31,6 @@ const data: PrototypeWorkspaceHeaderData = {
   moreActionsLabel: "More actions",
   repositoryPath: "/repositories/2001",
   selectedBuild: {
-    detailsLabel: "Build details",
-    detailsPath: "/repositories/2001/prototypes/1/builds/1",
     number: 1,
   },
   shareLinksLabel: "Share links",
@@ -110,53 +109,29 @@ export const NewerBuildFailed: Story = {
     data: {
       ...data,
       newerBuildLabel: "The latest update failed. You're viewing an earlier version.",
+      latestBuild: { number: 3, state: "failed", stateLabel: "Failed" },
       buildOptions: [
-        ...data.buildOptions,
+        {
+          number: 3,
+          label: "v3",
+          path: null,
+          state: "failed",
+          stateLabel: "Failed",
+        },
         {
           number: 2,
           label: "v2",
-          path: "/repositories/2001/prototypes/1/builds/2",
-          state: "failed",
-          stateLabel: "Failed to build",
+          path: null,
+          state: "running",
+          stateLabel: "Running",
         },
+        ...data.buildOptions,
       ],
     },
   },
-}
-
-const longBuildStatus = {
-  ...data,
-  buildOptions: [
-    {
-      number: 1,
-      label: "v1",
-      path: "/repositories/2001/prototypes/1?build=1",
-      state: "successful" as const,
-      stateLabel: "Pending review (12 checks remaining)",
-    },
-    {
-      number: 2,
-      label: "v2",
-      path: "/repositories/2001/prototypes/1?build=2",
-      state: "failed" as const,
-      stateLabel: "Failed to build",
-    },
-  ],
-}
-
-export const LongBuildStatus: Story = {
-  args: { data: longBuildStatus },
-}
-
-export const NarrowLongBuildStatus: Story = {
-  args: { data: longBuildStatus },
-  decorators: [
-    (Story) => (
-      <div style={{ containerType: "inline-size", width: "20rem" }}>
-        <Story />
-      </div>
-    ),
-  ],
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /Choose build/ }))
+  },
 }
 
 export const ManyBuilds: Story = {
@@ -168,7 +143,7 @@ export const ManyBuilds: Story = {
         label: `v${index + 1}`,
         path: `/repositories/2001/prototypes/1?build=${index + 1}`,
         state: "successful" as const,
-        stateLabel: index % 3 === 0 ? "Ready to review" : undefined,
+        stateLabel: "Successful",
       })),
     },
   },
