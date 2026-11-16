@@ -4,6 +4,8 @@ import { join, resolve } from "node:path"
 import { afterEach, expect, it, vi } from "vitest"
 
 import { CommandExecutionError } from "../../installer/command/index.ts"
+import { withDefaultSignal } from "../../installer/command/default-signal/index.ts"
+import { retryReadOnly } from "../../installer/command/retry-read-only/index.ts"
 import type { DeploymentConfig, RunCommand, WizardUI } from "../../installer/types.ts"
 import { installationWorkspace } from "../../installer/workspace/index.ts"
 import { installationNames } from "../install/settings.ts"
@@ -614,6 +616,41 @@ it("keeps desired inputs and runtime unchanged after prompt and signal cancellat
   )
   expect(allReleases).toHaveLength(4)
   for (const [, , options] of allReleases) expect(options?.signal?.aborted).toBe(false)
+})
+
+it("releases owned leases through the CLI command runner after the session is cancelled", async () => {
+  const test = await scenario()
+  const controller = new AbortController()
+  const execute = test.run.getMockImplementation()!
+  test.run.mockImplementation(async (executable, args, options) => {
+    options?.signal?.throwIfAborted()
+    return execute(executable, args, options)
+  })
+  test.inputs.hub_application_origin = test.origin
+  await writeFile(test.inputsPath, JSON.stringify(test.inputs), { mode: 0o600 })
+  test.state.environment.HUB_APPLICATION_ORIGIN = test.origin
+  vi.mocked(test.ui.text).mockImplementationOnce(async () => {
+    controller.abort(new DOMException("Synthetic CLI cancellation", "AbortError"))
+    controller.signal.throwIfAborted()
+    return ""
+  })
+
+  await expect(
+    postSetupAzure(test.target, {
+      action: "github",
+      run: retryReadOnly(withDefaultSignal(test.run, controller.signal)),
+      ui: test.ui,
+      request: test.request,
+      signal: controller.signal,
+    }),
+  ).rejects.toMatchObject({ name: "AbortError" })
+
+  const releases = test.run.mock.calls.filter(
+    ([, args]) => args.slice(0, 4).join(" ") === "storage blob lease release",
+  )
+  expect(releases).toHaveLength(2)
+  for (const [, , options] of releases) expect(options?.signal?.aborted).toBe(false)
+  expect(test.leases.size).toBe(0)
 })
 
 it("retains desired inputs and owned leases after a failed apply and resumes the stopped Hub only on an explicit rerun", async () => {

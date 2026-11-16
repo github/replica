@@ -7,6 +7,7 @@ import { PostSetupExit } from "../azure/post/errors.ts"
 import { azurePreflight } from "../azure/install/preflight/index.ts"
 import { CommandExecutionError, runCommand } from "./command/index.ts"
 import { retryReadOnly } from "./command/retry-read-only/index.ts"
+import { withDefaultSignal } from "./command/default-signal/index.ts"
 import { tailLines } from "./command/tail-lines/index.ts"
 import { loadConfig } from "./config/index.ts"
 import { createTerminalUI } from "./terminal/index.tsx"
@@ -36,8 +37,7 @@ if (values.help) {
   )
 } else {
   const abort = new AbortController()
-  const execute: RunCommand = (executable, args, options) =>
-    runCommand(executable, args, { ...options, signal: abort.signal })
+  const execute = withDefaultSignal(runCommand, abort.signal)
   let path = resolve(values.config ?? resolve(import.meta.dirname, "../.local/installation.json"))
   let terminal: ReturnType<typeof createTerminalUI> | undefined
   let session: WizardSession | undefined

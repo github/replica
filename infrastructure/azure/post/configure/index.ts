@@ -612,9 +612,15 @@ export async function configurePostSetup(
       ),
       (value) => {
         numeric(value)
-        if (Number(value) < liveRevision || (changed && Number(value) !== liveRevision + 1))
+        const revision = Number(value)
+        if (changed && revision !== liveRevision + 1)
           throw new InputValidationError(
-            "Changed GitHub settings require the next consecutive deployed provider revision.",
+            `Changed GitHub settings require the next consecutive provider revision, ${liveRevision + 1}.`,
+          )
+        // Hub rejects any revision other than the deployed one or its immediate successor.
+        if (revision !== liveRevision && revision !== liveRevision + 1)
+          throw new InputValidationError(
+            `Use the deployed provider revision ${liveRevision} or the next consecutive revision ${liveRevision + 1}.`,
           )
         return value
       },

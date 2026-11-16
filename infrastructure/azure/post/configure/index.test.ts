@@ -977,6 +977,62 @@ it("keeps all existing GitHub references and the deployed provider revision when
   expect(await otherFiles(test.context.directory)).toEqual([])
 })
 
+it.each([
+  { deployedAppId: "123", answer: "4", accepted: true },
+  { deployedAppId: "123", answer: "5", accepted: true },
+  { deployedAppId: "123", answer: "6", accepted: false },
+  { deployedAppId: "123", answer: "3", accepted: false },
+  { deployedAppId: "999", answer: "5", accepted: true },
+  { deployedAppId: "999", answer: "4", accepted: false },
+  { deployedAppId: "999", answer: "6", accepted: false },
+])(
+  "accepts provider revision $answer for deployed App $deployedAppId only when Hub would start: $accepted",
+  async ({ deployedAppId, answer, accepted }) => {
+    const test = await scenario()
+    Object.assign(test.inputs, {
+      hub_application_origin: test.deployment.origin,
+      github_app_id: "123",
+      github_client_id: "Iv23synthetic",
+      github_app_installation_id: "456",
+      github_provider_revision: 4,
+    })
+    Object.assign(test.inputs.runtime_secret_references!, {
+      GITHUB_CLIENT_SECRET: test.reference("github-client-secret"),
+      GITHUB_APP_PRIVATE_KEY_BASE64: test.reference("github-app-private-key"),
+      GITHUB_WEBHOOK_SECRET: test.reference("github-webhook-secret"),
+    })
+    test.secrets.set("github-client-secret", "synthetic-client-secret")
+    test.secrets.set(
+      "github-app-private-key",
+      Buffer.from(
+        generateKeyPairSync("rsa", { modulusLength: 2048 })
+          .privateKey.export({ type: "pkcs8", format: "pem" })
+          .toString(),
+      ).toString("base64"),
+    )
+    test.secrets.set("github-webhook-secret", "synthetic-webhook-secret-for-tests-only")
+    test.deployment.environment = {
+      GITHUB_APP_ID: deployedAppId,
+      GITHUB_CLIENT_ID: "Iv23synthetic",
+      GITHUB_APP_INSTALLATION_ID: "456",
+      GITHUB_PROVIDER_REVISION: "4",
+    }
+    const correction = deployedAppId === "123" ? "4" : "5"
+    const answers = [answer, correction]
+    vi.mocked(test.ui.text).mockImplementation(async (label, initial) =>
+      label.startsWith("GitHub provider revision") ? answers.shift()! : (initial ?? ""),
+    )
+
+    const desired = await configurePostSetup(test.context, "github", test.inputs, test.deployment)
+
+    const revisionPrompts = vi
+      .mocked(test.ui.text)
+      .mock.calls.filter(([label]) => label.startsWith("GitHub provider revision"))
+    expect(revisionPrompts).toHaveLength(accepted ? 1 : 2)
+    expect(desired.github_provider_revision).toBe(Number(accepted ? answer : correction))
+  },
+)
+
 it("rejects a non-RSA credential before uploading any supplied GitHub secret", async () => {
   const test = await scenario()
   test.inputs.hub_application_origin = test.deployment.origin
