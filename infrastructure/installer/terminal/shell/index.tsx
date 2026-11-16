@@ -20,6 +20,7 @@ export function TerminalShell({
   feedback,
   fullscreen,
   configureOnly,
+  postSetup = false,
   started,
 }: {
   view: TerminalView
@@ -29,6 +30,7 @@ export function TerminalShell({
   feedback: () => void
   fullscreen: boolean
   configureOnly: boolean
+  postSetup?: boolean
   started: number
 }) {
   const { stdout } = useStdout()
@@ -58,10 +60,15 @@ export function TerminalShell({
   )
   useInput((input, key) => {
     if (key.ctrl && input === "c") cancel()
-    if (question?.kind === "wait" && key.return) question.resolve()
+    if (!view.transitioning && question?.kind === "wait" && key.return) question.resolve()
   })
   const main = (
     <Box flexDirection="column">
+      {view.recoveryError && (
+        <Box marginBottom={1}>
+          <Text color={terminalColors.error}>Error: {view.recoveryError}</Text>
+        </Box>
+      )}
       {view.notice && (
         <Box marginBottom={1}>
           <Text color={terminalColors[view.notice.level]}>
@@ -73,7 +80,9 @@ export function TerminalShell({
       {!question && (
         <Spinner label={view.complete ? "Complete" : (view.history.at(-1) ?? "Working...")} />
       )}
-      {question?.kind === "cloud" && <CloudPicker onSelect={question.resolve} />}
+      {question?.kind === "cloud" && (
+        <CloudPicker onSelect={question.resolve} isDisabled={view.transitioning} />
+      )}
       {question?.kind === "field" && (
         <FieldPrompt
           key={view.revision}
@@ -83,29 +92,43 @@ export function TerminalShell({
           onError={fail}
           onEdit={edit}
           onFeedback={feedback}
+          isDisabled={view.transitioning}
         />
       )}
       {question?.kind === "text" && (
         <Box flexDirection="column" key={view.revision}>
           <Text bold>{question.message}</Text>
           <Text dimColor>Edit the value, then press Enter.</Text>
-          <TextInput defaultValue={question.initial} onChange={edit} onSubmit={question.resolve} />
+          <TextInput
+            defaultValue={question.initial}
+            onChange={edit}
+            onSubmit={question.resolve}
+            isDisabled={view.transitioning}
+          />
         </Box>
       )}
       {question?.kind === "select" && (
         <Box flexDirection="column" key={view.revision}>
           <Text bold>{question.message}</Text>
-          <SearchSelect options={question.options} onChange={question.resolve} />
+          <SearchSelect
+            options={question.options}
+            onChange={question.resolve}
+            isDisabled={view.transitioning}
+          />
         </Box>
       )}
       {question?.kind === "confirm" && (
         <Box flexDirection="column" key={view.revision}>
           <Text bold>{question.message}</Text>
-          <ConfirmInput
-            defaultChoice="cancel"
-            onConfirm={() => question.resolve(true)}
-            onCancel={() => question.resolve(false)}
-          />
+          {view.transitioning ? (
+            <Text dimColor>Answer received.</Text>
+          ) : (
+            <ConfirmInput
+              defaultChoice="cancel"
+              onConfirm={() => question.resolve(true)}
+              onCancel={() => question.resolve(false)}
+            />
+          )}
         </Box>
       )}
       {question?.kind === "wait" && (
@@ -128,15 +151,27 @@ export function TerminalShell({
         {!tiny && (
           <>
             <Text bold color={terminalColors.accent}>
-              Replica Hub installation
+              {postSetup ? "Replica Hub post-setup" : "Replica Hub installation"}
             </Text>
-            <Progress
-              phase={view.phase}
-              configureOnly={configureOnly}
-              complete={view.complete}
-              compact={compact}
-              blocked={question?.kind === "wait" || view.notice?.level === "error"}
-            />
+            {postSetup ? (
+              <Text dimColor>
+                {view.complete
+                  ? "Post-setup complete"
+                  : "Existing installation | no build or database setup"}
+              </Text>
+            ) : (
+              <Progress
+                phase={view.phase}
+                configureOnly={configureOnly}
+                complete={view.complete}
+                compact={compact}
+                blocked={
+                  question?.kind === "wait" ||
+                  view.notice?.level === "error" ||
+                  view.recoveryError !== undefined
+                }
+              />
+            )}
           </>
         )}
         <Box marginTop={tiny ? 0 : 1} flexDirection="column" flexGrow={fullscreen ? 1 : 0}>
@@ -159,13 +194,23 @@ export function TerminalShell({
           </Box>
         )}
         <Box justifyContent="space-between">
-          <Text dimColor>
-            {tiny || (fullscreen && compact)
-              ? "PgUp/Dn | Ctrl+C"
-              : fullscreen
-                ? "PgUp/PgDn scroll. Ctrl+C stops safely."
-                : "Ctrl+C stops safely."}
-          </Text>
+          {view.transitioning ? (
+            <Spinner
+              label={
+                tiny || (fullscreen && compact)
+                  ? "Continuing... | Ctrl+C"
+                  : "Answer received. Continuing... Ctrl+C stops safely."
+              }
+            />
+          ) : (
+            <Text dimColor>
+              {tiny || (fullscreen && compact)
+                ? "PgUp/Dn | Ctrl+C"
+                : fullscreen
+                  ? "PgUp/PgDn scroll. Ctrl+C stops safely."
+                  : "Ctrl+C stops safely."}
+            </Text>
+          )}
           {!tiny && <Elapsed started={started} animate={fullscreen} />}
         </Box>
       </Box>

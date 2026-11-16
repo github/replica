@@ -50,6 +50,7 @@ export interface FieldDefinition {
 export interface InstallerUI {
   status(message: string): void
   notice?(level: NoticeLevel, message: string): void
+  recoveryNotice?(message?: string): void
   phase?(phase: WizardPhase): void | Promise<void>
   confirm(message: string): Promise<boolean>
   wait(message: string): Promise<void>

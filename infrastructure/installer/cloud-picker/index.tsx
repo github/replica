@@ -1,9 +1,18 @@
 import { Box, Text, useInput } from "ink"
 
-export function CloudPicker({ onSelect }: { onSelect: (cloud: "azure") => void }) {
-  useInput((_input, key) => {
-    if (key.return) onSelect("azure")
-  })
+export function CloudPicker({
+  onSelect,
+  isDisabled = false,
+}: {
+  onSelect: (cloud: "azure") => void
+  isDisabled?: boolean
+}) {
+  useInput(
+    (_input, key) => {
+      if (key.return) onSelect("azure")
+    },
+    { isActive: !isDisabled },
+  )
   return (
     <Box flexDirection="column">
       <Text bold>Which cloud do you want to deploy to?</Text>
