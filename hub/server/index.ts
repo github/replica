@@ -4,6 +4,12 @@ import { createConfiguredArtifactStorage } from "./domains/artifacts/create-conf
 import { LocalSignInConfigurationError } from "./domains/authentication/errors.ts"
 import { readLearningConfiguration } from "./domains/learning/read-learning-configuration/index.ts"
 import { LearningConfigurationError } from "./domains/learning/errors.ts"
+import {
+  LocalDevelopmentConfigurationError,
+  LocalDevelopmentPreparationError,
+} from "./domains/local-development/errors.ts"
+import { prepareLocalDevelopment } from "./domains/local-development/prepare-local-development/index.ts"
+import { readLocalDevelopmentConfiguration } from "./domains/local-development/read-local-development-configuration/index.ts"
 import { readAuthenticationConfigurationState } from "./domains/authentication/read-authentication-configuration-state/index.ts"
 import { resolveLocalSignInEnvironment } from "./domains/authentication/resolve-local-sign-in-environment/index.ts"
 import { startTelemetry } from "./integrations/opentelemetry/start-telemetry/index.ts"
@@ -25,6 +31,8 @@ class AuthenticationConfigurationError extends Error {}
 
 try {
   const configuration = parseRuntimeConfig(process.env)
+  const localDevelopment = readLocalDevelopmentConfiguration(process.env)
+  await prepareLocalDevelopment(localDevelopment)
   if (configuration.mode !== "setup") await readLearningConfiguration(process.env)
   const storage =
     configuration.mode !== "setup" && configuration.hasArtifactStorage
@@ -183,7 +191,9 @@ try {
 } catch (error) {
   logger.fatal(
     error instanceof AuthenticationConfigurationError ||
-      error instanceof LocalSignInConfigurationError
+      error instanceof LocalSignInConfigurationError ||
+      error instanceof LocalDevelopmentConfigurationError ||
+      error instanceof LocalDevelopmentPreparationError
       ? error.message
       : error instanceof LearningConfigurationError
         ? error.message

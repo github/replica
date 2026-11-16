@@ -38,7 +38,7 @@ Run these commands from `hub/`, inside the devcontainer or with local Node.js. F
 
 | Command | Sign-in | Use it when |
 | --- | --- | --- |
-| `npm run dev:api` | One fixed local developer who is a Hub administrator | You want to try or test Hub without setting up a sign-in provider. This is the default. |
+| `npm run dev:api` | One fixed local developer who is a Hub administrator | You want local repositories and no sign-in provider. This is the default. |
 | `npm run dev:api:live` | GitHub or Entra, as configured in `.env` | You are testing provider sign-in, administrator enrollment through a provider, or real user identities. |
 
 For example, to start with local sign-in:
@@ -55,9 +55,21 @@ npm run dev
 
 Open <http://127.0.0.1:5173>. React Router's Vite development server forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` and `GET /api/ready` return JSON. The [authentication and Hub session guide](authentication.md) describes configured sign-in and enrollment. A signed-in member opens the first available repository, or an empty workspace when none exist. The real index supports search, user filtering, pagination, and latest Build status. Members can browse Build history and edit a visible prototype's name, description, and start page; saving a draft registers it. Hosted previews and live review remain unavailable.
 
-With `npm run dev:api`, the home page shows **Sign in as local developer**. Selecting it signs you in as one fixed local developer who is a Hub administrator. No password or outside account is involved. The API refuses to start in this mode unless `NODE_ENV` is `development` and `DATABASE_URL` points at a local development database. It also requires `HOST` to be `127.0.0.1`, `::1`, or `localhost` and `HUB_APPLICATION_ORIGIN` to be a loopback origin. It refuses GitHub or Entra settings at the same time. Unset origin, encryption key, and bootstrap secret values get local defaults. See [Local developer sign-in](authentication.md#local-developer-sign-in) for how this mode reuses the normal sign-in checks. The command defaults `NODE_ENV` to `development` and enables local sign-in for you.
+With `npm run dev:api`, the home page shows **Sign in as local developer**. Selecting it signs you in as one fixed local developer who is a Hub administrator. No password or outside account is involved. The command explicitly enables `HUB_LOCAL_MODE` and local sign-in. The API refuses local mode unless `NODE_ENV` is `development`, the runtime role is API-only, and `DATABASE_URL` points at a local development database. It also requires `HOST` to be `127.0.0.1`, `::1`, or `localhost` and `HUB_APPLICATION_ORIGIN` to be a loopback origin. It refuses GitHub or Entra settings at the same time. Unset origin, encryption key, and bootstrap secret values get local defaults. See [Local developer sign-in](authentication.md#local-developer-sign-in) for how this mode reuses the normal sign-in checks.
 
-Remove GitHub or Entra settings from `.env` before switching to local mode; otherwise, use `npm run dev:api:live`. Starting local mode on a database with enabled providers disables those providers. To switch back to live mode on that database, increase the revision of each provider you re-enable by exactly one above its last stored revision. For example, if the last GitHub revision was `1`, set `GITHUB_PROVIDER_REVISION=2`.
+Local-mode startup prepares the absolute `LOCAL_PROTOTYPE_ROOT`, defaulting to the ignored `hub/.local/prototypes/` directory. The root is separate from `hub/storage/`, which remains available for production-shaped database, artifact, and learning data. Production and worker runtimes reject local mode rather than changing their startup requirements. The local Build pipeline uses the same root and the optional `LOCAL_REPLICA_BUILD_ACTION_ROOT`, so bootstrap and Build synchronization do not need parallel path settings.
+
+When the prototype root is empty, the first start creates `minimal/` from the canonical [Replica Starter](../../starter/), installs its locked dependencies, commits `main`, and creates the committed `prototype/example` branch with a scaffolded example route. The commits use fixed example authorship and timestamps so the same starter revision produces the same repository history. Startup also installs the shared [Build action](../../actions/build/) runtime dependencies from its lockfile. It skips each install when the required dependencies are already present.
+
+Later starts always prepare the shared Build action dependencies, but they do not add, replace, switch, or commit anything in a nonempty prototype root. This includes the seeded repository after a developer edits it. To prepare without keeping the API running, use:
+
+```sh
+npm run local:prepare
+```
+
+To add another local repository, create a Git repository as an immediate child of the configured root and give its default branch at least one commit. Keep unrelated repositories and production data outside this directory. Repository discovery and Build execution are separate work and are not implemented by this bootstrap.
+
+Remove GitHub or Entra settings from `.env` before switching to local mode; otherwise, use `npm run dev:api:live`. The live entrypoint explicitly disables local mode and does not prepare or read local prototype repositories. Starting local mode on a database with enabled providers disables those providers. To switch back to live mode on that database, increase the revision of each provider you re-enable by exactly one above its last stored revision. For example, if the last GitHub revision was `1`, set `GITHUB_PROVIDER_REVISION=2`.
 
 With `npm run dev:api:live`, configure `HUB_APPLICATION_ORIGIN` and at least one complete GitHub or Entra profile. Set the shared encryption key and bootstrap secret at the same time. This command refuses to start without provider settings and disables local sign-in even if it is enabled in `.env`. See `.env.example` and [Microsoft Entra OIDC](entra-oidc.md). With the default `HOST`, both development servers accept connections only from this machine. Stop each with Ctrl+C.
 
