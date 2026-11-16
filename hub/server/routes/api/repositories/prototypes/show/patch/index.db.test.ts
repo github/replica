@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto"
+import { createHash, generateKeyPairSync, randomBytes, randomUUID } from "node:crypto"
 import { once } from "node:events"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
@@ -19,17 +19,26 @@ import { createProductRouteDependencies } from "../../../../product/create-produ
 
 const origin = "http://127.0.0.1:5173"
 
-async function openServer() {
+async function openServer(
+  options: { scopeGitHubMembers: boolean } = { scopeGitHubMembers: false },
+) {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
   const authentication = await createAuthenticationRouteDependencies({
     GITHUB_CLIENT_ID: "test-client",
     GITHUB_CLIENT_SECRET: "test-secret",
     GITHUB_PROVIDER_REVISION: "1",
+    GITHUB_APP_ID: "123",
+    GITHUB_APP_INSTALLATION_ID: "456",
+    GITHUB_APP_PRIVATE_KEY_BASE64: Buffer.from(
+      privateKey.export({ format: "pem", type: "pkcs8" }).toString(),
+    ).toString("base64"),
+    GITHUB_WEBHOOK_SECRET: "test-webhook-secret-at-least-20-characters",
     HUB_APPLICATION_ORIGIN: origin,
     HUB_AUTHENTICATION_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
     HUB_BOOTSTRAP_SECRET: "test-bootstrap-secret-at-least-32-characters",
   })
   const server = createServer(
-    createApp({ authentication, product: createProductRouteDependencies() }),
+    createApp({ authentication, product: createProductRouteDependencies(options) }),
   )
   server.listen(0, "127.0.0.1")
   await once(server, "listening")
@@ -43,12 +52,16 @@ async function openServer() {
   return { authentication, url: `http://127.0.0.1:${port}` }
 }
 
-async function createMember(options: { administrator?: boolean; expiresAt?: Date } = {}) {
+async function createMember(
+  options: { administrator?: boolean; expiresAt?: Date; profileProvider?: string } = {},
+) {
   const provider = await prisma.authenticationProvider.findUniqueOrThrow({
     where: { key: "github" },
   })
   const user = await prisma.user.create({
-    data: { profile: { create: { provider: "github", login: randomUUID() } } },
+    data: {
+      profile: { create: { provider: options.profileProvider ?? "github", login: randomUUID() } },
+    },
   })
   const identity = await prisma.externalIdentity.create({
     data: { userId: user.id, provider: "github", issuer: "https://github.com", subject: user.id },
@@ -120,6 +133,75 @@ function patch(url: string, token: string, body: unknown) {
 }
 
 describe("prototype PATCH API", () => {
+  it("uses the session identity and current repository grant before editing metadata", async () => {
+    const server = await openServer({ scopeGitHubMembers: true })
+    const member = await createMember({ profileProvider: "entra" })
+    const administrator = await createMember({ administrator: true })
+    const { prototype, url } = await createPrototype(server.url, "prototype/scoped", {
+      name: "Original",
+    })
+    const retained = await prisma.repository.create({
+      data: { nameWithOwner: "team/retained", defaultBranch: "main" },
+    })
+    await prisma.repositoryAccessGrant.create({
+      data: {
+        membershipId: member.membership.id,
+        repositoryId: retained.id,
+        observedAt: new Date(),
+      },
+    })
+
+    expect((await patch(url, member.token, { name: "Denied" })).status).toBe(404)
+    expect(await readPrototype(prototype.id)).toEqual(prototype)
+
+    const adminEdit = await patch(url, administrator.token, { name: "Admin edit" })
+    expect(adminEdit.status).toBe(200)
+    expect(await adminEdit.json()).toMatchObject({ prototype: { name: "Admin edit" } })
+
+    await prisma.repositoryAccessGrant.create({
+      data: {
+        membershipId: member.membership.id,
+        repositoryId: prototype.repositoryId,
+        observedAt: new Date(),
+      },
+    })
+    const granted = await patch(url, member.token, { name: "Member edit", description: "Allowed" })
+    expect(granted.status).toBe(200)
+    expect(await granted.json()).toMatchObject({
+      prototype: { name: "Member edit", description: "Allowed", canEdit: true },
+    })
+    const saved = await readPrototype(prototype.id)
+
+    const restore = server.authentication.currentSession.restore.bind(
+      server.authentication.currentSession,
+    )
+    vi.spyOn(server.authentication.currentSession, "restore").mockImplementationOnce(
+      async (digest) => {
+        const current = await restore(digest)
+        await prisma.repositoryAccessGrant.deleteMany({
+          where: { membershipId: member.membership.id, repositoryId: prototype.repositoryId },
+        })
+        return current
+      },
+    )
+    expect((await patch(url, member.token, { name: "Revoked" })).status).toBe(404)
+    expect(await readPrototype(prototype.id)).toEqual(saved)
+
+    await prisma.repositoryAccessGrant.create({
+      data: {
+        membershipId: member.membership.id,
+        repositoryId: prototype.repositoryId,
+        observedAt: new Date(),
+      },
+    })
+    await prisma.hubSession.update({
+      where: { id: member.session.id },
+      data: { endedAt: new Date() },
+    })
+    expect((await patch(url, member.token, { name: "Expired" })).status).toBe(401)
+    expect(await readPrototype(prototype.id)).toEqual(saved)
+  })
+
   it("renames a registered prototype and preserves its author, identity and Builds", async () => {
     const server = await openServer()
     const first = await createMember()

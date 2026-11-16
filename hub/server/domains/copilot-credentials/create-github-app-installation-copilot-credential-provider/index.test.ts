@@ -22,6 +22,32 @@ function privateKey() {
     .toString()
 }
 
+function installationRequests() {
+  return vi
+    .fn<typeof fetch>()
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          account: { login: "GitHub", type: "Organization" },
+          app_id: 123,
+          id: 456,
+          permissions: { organization_copilot_requests: "read" },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          expires_at: "2026-11-12T19:00:00.000Z",
+          permissions: { organization_copilot_requests: "read" },
+          token: "installation-token",
+        }),
+        { status: 201, headers: { "content-type": "application/json" } },
+      ),
+    )
+}
+
 describe("createGitHubAppInstallationCopilotCredentialProvider()", () => {
   it("uses only the App and installation identity for its stable configuration digest", () => {
     const firstPrivateKey = privateKey()
@@ -59,59 +85,69 @@ describe("createGitHubAppInstallationCopilotCredentialProvider()", () => {
     ).not.toBe(original.configurationDigest)
   })
 
-  it("uses the configured local private key through the signer boundary", async () => {
-    const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
-    const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs8" }).toString()
-    const request = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            account: { login: "GitHub", type: "Organization" },
-            app_id: 123,
-            id: 456,
-            permissions: { organization_copilot_requests: "read" },
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        ),
+  it.each(["PEM", "base64"] as const)(
+    "uses the configured %s private key through the signer boundary",
+    async (format) => {
+      const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+      const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs8" }).toString()
+      const request = installationRequests()
+      vi.stubGlobal("fetch", request)
+      const now = new Date("2026-11-12T18:00:00.000Z")
+      vi.setSystemTime(now)
+      const provider = createGitHubAppInstallationCopilotCredentialProvider(
+        format === "PEM"
+          ? configuration(privateKeyPem)
+          : configuration("", {
+              GITHUB_APP_PRIVATE_KEY_BASE64: Buffer.from(privateKeyPem).toString("base64"),
+            }),
       )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            expires_at: "2026-11-12T19:00:00.000Z",
-            permissions: { organization_copilot_requests: "read" },
-            token: "installation-token",
-          }),
-          { status: 201, headers: { "content-type": "application/json" } },
-        ),
-      )
+
+      await expect(provider.getCredential()).resolves.toEqual({
+        expiresAt: new Date("2026-11-12T19:00:00.000Z"),
+        githubToken: "installation-token",
+      })
+
+      expect(request.mock.calls.map(([url]) => url)).toEqual([
+        "https://api.github.com/app/installations/456",
+        "https://api.github.com/app/installations/456/access_tokens",
+      ])
+      const authorization = new Headers(request.mock.calls[0]?.[1]?.headers).get("authorization")
+      const jwt = authorization?.replace("Bearer ", "") ?? ""
+      const [header, payload, signature] = jwt.split(".")
+      const issuedAt = Math.floor(now.getTime() / 1_000) - 60
+      expect(JSON.parse(Buffer.from(payload!, "base64url").toString())).toEqual({
+        exp: issuedAt + 600,
+        iat: issuedAt,
+        iss: "123",
+      })
+      const verifier = createVerify("RSA-SHA256")
+      verifier.update(`${header}.${payload}`)
+      verifier.end()
+      expect(verifier.verify(publicKey, Buffer.from(signature!, "base64url"))).toBe(true)
+    },
+  )
+
+  it("uses an injected signer instead of selecting a configured key", async () => {
+    const signer = { sign: vi.fn().mockResolvedValue("injected-jwt") }
+    const request = installationRequests()
     vi.stubGlobal("fetch", request)
     vi.setSystemTime(new Date("2026-11-12T18:00:00.000Z"))
     const provider = createGitHubAppInstallationCopilotCredentialProvider(
-      configuration(privateKeyPem),
+      configuration("invalid-pem", { GITHUB_APP_PRIVATE_KEY_BASE64: "invalid-base64" }),
+      signer,
     )
 
-    await expect(provider.getCredential()).resolves.toEqual({
-      expiresAt: new Date("2026-11-12T19:00:00.000Z"),
+    await expect(provider.getCredential()).resolves.toMatchObject({
       githubToken: "installation-token",
     })
-
-    expect(request.mock.calls.map(([url]) => url)).toEqual([
-      "https://api.github.com/app/installations/456",
-      "https://api.github.com/app/installations/456/access_tokens",
-    ])
-    const authorization = new Headers(request.mock.calls[0]?.[1]?.headers).get("authorization")
-    const jwt = authorization?.replace("Bearer ", "") ?? ""
-    const [header, payload, signature] = jwt.split(".")
-    expect(JSON.parse(Buffer.from(payload!, "base64url").toString())).toEqual({
-      exp: 1_794_506_940,
-      iat: 1_794_506_340,
-      iss: "123",
+    expect(signer.sign).toHaveBeenCalledWith({
+      appId: "123",
+      issuedAt: new Date("2026-11-12T17:59:00.000Z"),
+      expiresAt: new Date("2026-11-12T18:09:00.000Z"),
     })
-    const verifier = createVerify("RSA-SHA256")
-    verifier.update(`${header}.${payload}`)
-    verifier.end()
-    expect(verifier.verify(publicKey, Buffer.from(signature!, "base64url"))).toBe(true)
+    expect(new Headers(request.mock.calls[0]?.[1]?.headers).get("authorization")).toBe(
+      "Bearer injected-jwt",
+    )
   })
 
   it("reports invalid identity settings in plain language", () => {
@@ -127,17 +163,29 @@ describe("createGitHubAppInstallationCopilotCredentialProvider()", () => {
     )
   })
 
-  it("names the required PEM private-key setting", () => {
+  it("reports missing or invalid selected keys without falling back", () => {
     expect(() =>
       createGitHubAppInstallationCopilotCredentialProvider(
         configuration("", { GITHUB_APP_PRIVATE_KEY: undefined }),
       ),
     ).toThrow(
-      "GITHUB_APP_PRIVATE_KEY is required and must contain a PEM-encoded GitHub App private key.",
+      "GITHUB_APP_PRIVATE_KEY or GITHUB_APP_PRIVATE_KEY_BASE64 is required for the GitHub App private key.",
     )
 
     expect(() =>
-      createGitHubAppInstallationCopilotCredentialProvider(configuration("not-a-private-key")),
+      createGitHubAppInstallationCopilotCredentialProvider(
+        configuration("not-a-private-key", {
+          GITHUB_APP_PRIVATE_KEY_BASE64: Buffer.from(privateKey()).toString("base64"),
+        }),
+      ),
     ).toThrow("GITHUB_APP_PRIVATE_KEY must contain a valid PEM-encoded GitHub App private key.")
+
+    expect(() =>
+      createGitHubAppInstallationCopilotCredentialProvider(
+        configuration("", { GITHUB_APP_PRIVATE_KEY_BASE64: "not-a-private-key" }),
+      ),
+    ).toThrow(
+      "GITHUB_APP_PRIVATE_KEY_BASE64 must contain a valid base64-encoded GitHub App private key.",
+    )
   })
 })

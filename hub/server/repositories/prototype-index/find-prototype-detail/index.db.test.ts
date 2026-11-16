@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { prisma } from "../../../integrations/prisma"
 import { findPrototypeDetail } from "."
@@ -66,5 +66,136 @@ describe("findPrototypeDetail()", () => {
     expect(detail?.prototype.builds).toHaveLength(100)
     expect(detail?.selectedBuild?.number).toBe(100)
     expect(detail?.prototype.latestBuild).toEqual({ number: 1, state: "successful" })
+  })
+
+  it("withholds a visible snapshot after its repository grant is revoked while another grant remains", async () => {
+    const membership = await prisma.membership.create({
+      data: { user: { create: {} } },
+    })
+    const repositoryId = randomUUID()
+    const retainedRepositoryId = randomUUID()
+    const currentBuildId = randomUUID()
+    const commitSha = "a".repeat(40)
+    await prisma.repository.createMany({
+      data: [
+        { id: repositoryId, nameWithOwner: "team/private", defaultBranch: "main" },
+        { id: retainedRepositoryId, nameWithOwner: "team/retained", defaultBranch: "main" },
+      ],
+    })
+    await prisma.repositoryAccessGrant.createMany({
+      data: [repositoryId, retainedRepositoryId].map((id) => ({
+        membershipId: membership.id,
+        repositoryId: id,
+        observedAt: new Date(),
+      })),
+    })
+    const prototype = await prisma.prototype.create({
+      data: {
+        repositoryId,
+        branchName: "prototype/private",
+        name: "Private prototype",
+        builds: {
+          create: [
+            { number: 1, state: "successful", createdAt: new Date("2026-10-02T00:00:00Z") },
+            {
+              id: currentBuildId,
+              number: 2,
+              state: "successful",
+              commitSha,
+              authorProvider: "github",
+              authorIssuer: "https://github.com",
+              authorProviderUserId: "123",
+              authorLogin: "mona",
+              createdAt: new Date("2026-10-01T00:00:00Z"),
+            },
+          ],
+        },
+      },
+    })
+    await prisma.prototype.update({ where: { id: prototype.id }, data: { currentBuildId } })
+    const retainedPrototype = await prisma.prototype.create({
+      data: {
+        repositoryId: retainedRepositoryId,
+        branchName: "prototype/retained",
+        name: "Retained prototype",
+      },
+    })
+    const scope = { membershipId: membership.id }
+    const visibleDetail = {
+      repository: { id: repositoryId },
+      prototype: {
+        id: prototype.id,
+        latestBuild: { number: 2, state: "successful" },
+      },
+      selectedBuild: { number: 1, state: "successful" },
+    }
+    await expect(
+      findPrototypeDetail(prisma, repositoryId, prototype.id, undefined, undefined, scope),
+    ).resolves.toMatchObject(visibleDetail)
+
+    const transaction = prisma.$transaction.bind(prisma)
+    const transactionSpy = vi.spyOn(prisma, "$transaction")
+    function revokeAfterSnapshot() {
+      transactionSpy.mockImplementationOnce(async (operation, options) => {
+        const snapshot = await transaction(operation, options)
+        await prisma.repositoryAccessGrant.deleteMany({
+          where: { membershipId: membership.id, repositoryId },
+        })
+        return snapshot
+      })
+    }
+
+    revokeAfterSnapshot()
+    const revokedDetail = await findPrototypeDetail(
+      prisma,
+      repositoryId,
+      prototype.id,
+      undefined,
+      undefined,
+      scope,
+    )
+    await expect(
+      findPrototypeDetail(
+        prisma,
+        retainedRepositoryId,
+        retainedPrototype.id,
+        undefined,
+        undefined,
+        scope,
+      ),
+    ).resolves.toMatchObject({ repository: { id: retainedRepositoryId } })
+    await expect(findPrototypeDetail(prisma, repositoryId, prototype.id)).resolves.toMatchObject(
+      visibleDetail,
+    )
+    expect(revokedDetail).toBeNull()
+
+    const buildPage = { page: 1, pageSize: 1 }
+    await expect(
+      findPrototypeDetail(prisma, repositoryId, prototype.id, 2, buildPage, scope),
+    ).resolves.toBeNull()
+
+    await prisma.repositoryAccessGrant.create({
+      data: { membershipId: membership.id, repositoryId, observedAt: new Date() },
+    })
+    await expect(
+      findPrototypeDetail(prisma, repositoryId, prototype.id, 2, buildPage, scope),
+    ).resolves.toMatchObject({
+      ...visibleDetail,
+      selectedBuild: {
+        number: 2,
+        state: "successful",
+        commitSha,
+        commitAuthorProvider: "github",
+        commitAuthorIssuer: "https://github.com",
+        commitAuthorProviderUserId: "123",
+        commitAuthorLogin: "mona",
+      },
+      buildPage: { builds: [{ number: 1, state: "successful" }], totalCount: 2 },
+    })
+
+    revokeAfterSnapshot()
+    await expect(
+      findPrototypeDetail(prisma, repositoryId, prototype.id, 2, buildPage, scope),
+    ).resolves.toBeNull()
   })
 })

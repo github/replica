@@ -8,6 +8,7 @@ model Membership {
   assignments             MembershipAssignment[]
   sessions                HubSession[]
   sensitiveAuthorizations SensitiveAuthorization[]
+  repositoryAccessGrants  RepositoryAccessGrant[]
   copilotConnections      CopilotConnection[]
   learningRuns            LearningRun[]
   learningDecisionOperations LearningDecisionOperation[]

@@ -14,7 +14,7 @@ Changing the active provider or its configuration digest makes the saved connect
 
 The GitHub App digest contains the stable App ID, organization login, and installation ID, but never signing material or an installation token. Rotating the App private key or changing a workload-backed signer does not change the connection identity. Changing the App, organization, or installation does. Installation removal and Copilot Requests permission denial are terminal refusals for that configuration; rate limits, network errors, and GitHub service failures remain transient failures. Hub never falls back to a personal credential mode.
 
-App JWT signing is an explicit integration boundary in code. The shipped runtime requires `GITHUB_APP_PRIVATE_KEY`. A future governed runtime composition can replace the signer with secret-store or workload-backed signing without exposing key material to the learning command.
+App JWT signing is an explicit integration boundary in code. The shipped runtime uses `GITHUB_APP_PRIVATE_KEY_BASE64`, or the `GITHUB_APP_PRIVATE_KEY` PEM override when set. A future governed runtime composition can replace the signer with secret-store or workload-backed signing without exposing key material to the learning command.
 
 Disconnecting removes the connection record and advances the generation. It does not remove the operator's credential source or any learning store.
 
@@ -64,7 +64,7 @@ Soft deletion queues an idempotent package redaction job after the review transa
 | --- | --- |
 | `REPLICA_COPILOT_AUTHENTICATION` | Explicit provider: `github-app-installation` for organization billing, or `ambient-cli` / `environment-token` for local and compatibility use. There is no default or fallback. |
 | `GITHUB_APP_ID` | Stable GitHub App ID used by `github-app-installation`. This is the same Hub App integration identity, not a separate personal App. |
-| `GITHUB_APP_PRIVATE_KEY` | App signing key required by the shipped runtime. The signer remains replaceable in code for future governed runtime composition. |
+| `GITHUB_APP_PRIVATE_KEY_BASE64`, `GITHUB_APP_PRIVATE_KEY` | The App signing key as base64 or a PEM override. The signer remains replaceable in code for future governed runtime composition. |
 | `REPLICA_COPILOT_GITHUB_ORGANIZATION` | Organization billed for Copilot requests and shown in status and security audits. |
 | `REPLICA_COPILOT_GITHUB_INSTALLATION_ID` | Numeric installation ID for that organization. |
 | `REPLICA_COPILOT_TOKEN` | Required only with `environment-token`; used only for Copilot-backed package commands. Usage is attributed to the GitHub identity represented by this credential. |

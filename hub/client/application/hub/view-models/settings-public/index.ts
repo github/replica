@@ -1,7 +1,6 @@
 import type { FreshAuthorizationPageData } from "@pages/fresh-authorization-page/types"
 import type { GithubAppSetupInstallPageData } from "@pages/github-app-setup-install-page/types"
 import type { GithubAppSetupRegisterPageData } from "@pages/github-app-setup-register-page/types"
-import type { GithubAppSetupShowPageData } from "@pages/github-app-setup-show-page/types"
 import type { HubAdminEnrollmentPageData } from "@pages/hub-admin-enrollment-page/types"
 import type { SessionRevocationPageData } from "@pages/session-revocation-page/types"
 import type { SettingsPublicResponse } from "@application/hub/settings-contracts/types"
@@ -12,18 +11,6 @@ export function settingsPublic(state: SettingsPublicResponse, search: URLSearchP
   const shared = { productName: "Replica Hub", authenticityToken: "" }
   const allowed = state.session.capabilities.administerHub
   const signedOut = !state.session.viewer
-  const setup: GithubAppSetupShowPageData = {
-    ...shared,
-    canContinue: allowed,
-    pageTitle: "Set up Replica Hub",
-    heading: "Connect GitHub",
-    description: "Connect a private GitHub App owned by your organization or personal account.",
-    organizationLabel: "Organization",
-    organizationHint: "Leave blank to create the App for your personal account.",
-    secretLabel: "Bootstrap secret",
-    submitLabel: "Continue",
-    submitPath: resourcePath("/settings/github/setup", search),
-  }
   const register: GithubAppSetupRegisterPageData = {
     ...shared,
     canContinue: allowed,
@@ -115,5 +102,5 @@ export function settingsPublic(state: SettingsPublicResponse, search: URLSearchP
     signInLabel: "Return to sign-in",
     signInPath: "/",
   }
-  return { setup, register, install, enrollment, authorization, sessions }
+  return { register, install, enrollment, authorization, sessions }
 }

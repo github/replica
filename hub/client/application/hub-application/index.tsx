@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react"
+import { Navigate } from "react-router"
 import { z } from "zod"
 
 import { currentHubSessionSchema } from "@application/hub/administrator-contracts"
+import { noRepositoryAccessLocation } from "@application/hub/no-repository-access-location"
+import { ApiRequestError } from "@application/hub/requests/api-request-error"
 import { useHubTheme } from "@hooks/use-hub-theme"
 import { CurrentSessionPage } from "@pages/current-session-page"
 import { HomeIndexPage } from "@pages/home-index-page"
@@ -11,6 +14,7 @@ import { SessionLoadingPage } from "@pages/session-loading-page"
 
 type SessionState =
   | { status: "loading" }
+  | { status: "no-access"; location: string }
   | {
       status: "signed-out"
       providerDiscoveryFailed: boolean
@@ -47,7 +51,12 @@ export function HubApplication() {
   const authentication = new URLSearchParams(window.location.search).get("authentication")
 
   useEffect(() => {
-    void fetch("/api/auth/providers", { credentials: "same-origin", cache: "no-store" })
+    const controller = new AbortController()
+    void fetch("/api/auth/providers", {
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: controller.signal,
+    })
       .then(async (response) => {
         if (response.status === 404) return { failed: false, providers: [] }
         if (!response.ok) throw new Error("Authentication provider discovery failed.")
@@ -58,12 +67,27 @@ export function HubApplication() {
         providers: [] as HomeSignInAction["provider"][],
       }))
       .then(async (providerResult) => {
+        if (controller.signal.aborted) return
         try {
           const response = await fetch("/api/auth/session", {
             credentials: "same-origin",
             cache: "no-store",
+            signal: controller.signal,
           })
+          if (controller.signal.aborted) return
           if (response.status === 401 || response.status === 404) {
+            if (
+              response.status === 401 &&
+              response.headers.get("content-type")?.includes("application/json")
+            ) {
+              const body: unknown = await response.json()
+              if (controller.signal.aborted) return
+              const location = noRepositoryAccessLocation(new ApiRequestError(401, "", body))
+              if (location) {
+                setSession({ status: "no-access", location })
+                return
+              }
+            }
             setSession({
               status: "signed-out",
               providerDiscoveryFailed: providerResult.failed,
@@ -74,6 +98,7 @@ export function HubApplication() {
           }
           if (!response.ok) throw new Error("Session restoration failed.")
           const parsed = currentHubSessionSchema.safeParse(await response.json())
+          if (controller.signal.aborted) return
           if (!parsed.success) throw new Error("Session restoration returned an invalid response.")
           setSession({
             status: "signed-in",
@@ -82,6 +107,7 @@ export function HubApplication() {
             ...parsed.data,
           })
         } catch {
+          if (controller.signal.aborted) return
           setSession({
             status: "signed-out",
             providerDiscoveryFailed: providerResult.failed,
@@ -90,9 +116,11 @@ export function HubApplication() {
           })
         }
       })
+    return () => controller.abort()
   }, [authentication])
 
   if (session.status === "loading") return <SessionLoadingPage />
+  if (session.status === "no-access") return <Navigate to={session.location} replace />
   const providerActions = session.providers.map((provider) => ({
     label: signInLabels[provider],
     path: `/api/auth/${provider}/start`,
@@ -164,7 +192,9 @@ export function HubApplication() {
             ? "Replica Hub could not restore your session. Sign in again to continue."
             : authentication === "denied"
               ? "Sign-in could not be completed, or this account is not an active Hub member."
-              : null,
+              : authentication === "no_repository_access"
+                ? "Your GitHub account cannot read any repository connected to this Hub. Ask a repository owner for access, then sign in again."
+                : null,
         authenticityToken: "",
         badge: "Collaborative prototyping",
         badgeAlternate: "Built for feedback",

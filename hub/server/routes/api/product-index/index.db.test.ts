@@ -147,6 +147,7 @@ describe("real product index", () => {
       membershipId: randomUUID(),
       userId: randomUUID(),
       provider: "github",
+      sessionProvider: "github",
       login: "mona",
       name: "Mona",
       role: "MEMBER",
@@ -291,6 +292,7 @@ describe("real product index", () => {
       membershipId: randomUUID(),
       userId: authorId,
       provider: "github",
+      sessionProvider: "github",
       login: "mona",
       name: "Mona",
       role: "MEMBER" as const,
@@ -299,6 +301,7 @@ describe("real product index", () => {
       membershipId: randomUUID(),
       userId: randomUUID(),
       provider: "entra",
+      sessionProvider: "entra",
       login: "member",
       name: "Member",
       role: "MEMBER" as const,
@@ -467,6 +470,7 @@ describe("real product index", () => {
       membershipId: randomUUID(),
       userId: viewerId,
       provider: "entra",
+      sessionProvider: "entra",
       login: "viewer@example.test",
       name: "Viewer",
       role: "MEMBER",
@@ -591,6 +595,7 @@ describe("real product index", () => {
       membershipId: randomUUID(),
       userId: randomUUID(),
       provider: "github",
+      sessionProvider: "github",
       login: "mona",
       name: "Mona",
       role: "MEMBER" as const,
@@ -600,23 +605,23 @@ describe("real product index", () => {
     const product = createProductRouteDependencies()
     const listRepositories = product.listRepositories.bind(product)
     const findRepositoryIndex = product.findRepositoryIndex.bind(product)
-    const list = vi.spyOn(product, "listRepositories").mockImplementation(async () => {
-      const repositories = await listRepositories()
+    const list = vi.spyOn(product, "listRepositories").mockImplementation(async (viewer) => {
+      const repositories = await listRepositories(viewer)
       currentSession = null
       return repositories
     })
     const findRepositoryAuthors = product.findRepositoryAuthors.bind(product)
     const find = vi
       .spyOn(product, "findRepositoryIndex")
-      .mockImplementation(async (id, filters) => {
-        const index = await findRepositoryIndex(id, filters)
+      .mockImplementation(async (viewer, id, filters) => {
+        const index = await findRepositoryIndex(viewer, id, filters)
         currentSession = null
         return index
       })
     const findAuthors = vi
       .spyOn(product, "findRepositoryAuthors")
-      .mockImplementation(async (id, filters) => {
-        const authors = await findRepositoryAuthors(id, filters)
+      .mockImplementation(async (viewer, id, filters) => {
+        const authors = await findRepositoryAuthors(viewer, id, filters)
         currentSession = null
         return authors
       })
@@ -648,6 +653,7 @@ describe("real product index", () => {
       membershipId: randomUUID(),
       userId: randomUUID(),
       provider: "entra",
+      sessionProvider: "entra",
       login: "member",
       name: "Member",
       role: "MEMBER" as "MEMBER" | "ADMINISTRATOR",
@@ -657,8 +663,8 @@ describe("real product index", () => {
     const restore = vi.fn(() => Promise.resolve(currentSession))
     const product = createProductRouteDependencies()
     const listRepositories = product.listRepositories.bind(product)
-    vi.spyOn(product, "listRepositories").mockImplementation(async () => {
-      const repositories = await listRepositories()
+    vi.spyOn(product, "listRepositories").mockImplementation(async (viewer) => {
+      const repositories = await listRepositories(viewer)
       currentSession = { ...currentSession, role: roleAfterRead }
       return repositories
     })
@@ -682,6 +688,57 @@ describe("real product index", () => {
     })
   })
 
+  it("rescopes workspace repositories when a GitHub administrator becomes a member", async () => {
+    const user = await prisma.user.create({ data: {} })
+    const membership = await prisma.membership.create({ data: { userId: user.id } })
+    const readable = await prisma.repository.create({
+      data: { nameWithOwner: "team/readable", defaultBranch: "main" },
+    })
+    const hidden = await prisma.repository.create({
+      data: { nameWithOwner: "team/hidden", defaultBranch: "main" },
+    })
+    await prisma.repositoryAccessGrant.create({
+      data: { membershipId: membership.id, repositoryId: readable.id, observedAt: new Date() },
+    })
+    let currentSession = {
+      membershipId: membership.id,
+      userId: user.id,
+      provider: "github",
+      sessionProvider: "github",
+      login: "mona",
+      name: "Mona",
+      role: "ADMINISTRATOR" as "MEMBER" | "ADMINISTRATOR",
+    }
+    const restore = vi.fn(() => Promise.resolve(currentSession))
+    const product = createProductRouteDependencies({ scopeGitHubMembers: true })
+    const listRepositories = product.listRepositories.bind(product)
+    let administratorRepositories: string[] = []
+    vi.spyOn(product, "listRepositories").mockImplementation(async (viewer) => {
+      const repositories = await listRepositories(viewer)
+      if (viewer.role === "ADMINISTRATOR") {
+        administratorRepositories = repositories.map(({ id }) => id)
+        currentSession = { ...currentSession, role: "MEMBER" }
+      }
+      return repositories
+    })
+
+    await withServer(restore, product, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/workspace`, {
+        headers: { cookie: "hub_session=member-session" },
+      })
+
+      expect(response.status).toBe(200)
+      const workspace = (await response.json()) as {
+        repositories: { id: string }[]
+        capabilities: { administerHub: boolean }
+      }
+      expect(administratorRepositories.sort()).toEqual([readable.id, hidden.id].sort())
+      expect(workspace.repositories.map(({ id }) => id)).toEqual([readable.id])
+      expect(workspace.capabilities.administerHub).toBe(false)
+      expect(restore).toHaveBeenCalledTimes(3)
+    })
+  })
+
   it("distinguishes malformed, missing, and removed repositories", async () => {
     const removedId = randomUUID()
     await prisma.repository.create({
@@ -696,6 +753,7 @@ describe("real product index", () => {
       membershipId: randomUUID(),
       userId: randomUUID(),
       provider: "github",
+      sessionProvider: "github",
       login: "mona",
       name: "Mona",
       role: "MEMBER",
@@ -713,11 +771,81 @@ describe("real product index", () => {
     })
   })
 
+  it("shows a scoped GitHub member only repositories they can read", async () => {
+    const readableId = randomUUID()
+    const hiddenId = randomUUID()
+    const userId = randomUUID()
+    const membershipId = randomUUID()
+    await prisma.repository.createMany({
+      data: [
+        { id: readableId, nameWithOwner: `team/readable-${readableId}`, defaultBranch: "main" },
+        { id: hiddenId, nameWithOwner: `team/hidden-${hiddenId}`, defaultBranch: "main" },
+      ],
+    })
+    await prisma.user.create({ data: { id: userId } })
+    await prisma.membership.create({ data: { id: membershipId, userId } })
+    await prisma.repositoryAccessGrant.create({
+      data: { membershipId, repositoryId: readableId, observedAt: new Date() },
+    })
+    const hiddenPrototype = await prisma.prototype.create({
+      data: {
+        repositoryId: hiddenId,
+        authorId: userId,
+        branchName: "prototype/hidden",
+        name: "Hidden",
+      },
+    })
+    const hiddenDetailPath = `/api/repositories/${hiddenId}/prototypes/${hiddenPrototype.id}?view=minimized`
+    const viewer = {
+      membershipId,
+      userId,
+      provider: "github",
+      sessionProvider: "github",
+      login: "mona",
+      name: "Mona",
+      role: "MEMBER" as const,
+    }
+    const headers = { cookie: "hub_session=member-session" }
+    const product = createProductRouteDependencies({ scopeGitHubMembers: true })
+
+    await withServer(vi.fn().mockResolvedValue(viewer), product, async (baseUrl) => {
+      const workspace = (await (await fetch(`${baseUrl}/api/workspace`, { headers })).json()) as {
+        repositories: { id: string }[]
+      }
+      const readable = await fetch(`${baseUrl}/api/repositories/${readableId}`, { headers })
+      const hidden = await fetch(`${baseUrl}/api/repositories/${hiddenId}`, { headers })
+      const hiddenUsers = await fetch(`${baseUrl}/api/repositories/${hiddenId}/authors`, {
+        headers,
+      })
+
+      expect(workspace.repositories.map(({ id }) => id)).toContain(readableId)
+      expect(workspace.repositories.map(({ id }) => id)).not.toContain(hiddenId)
+      expect(readable.status).toBe(200)
+      expect(hidden.status).toBe(404)
+      const hiddenDetail = await fetch(`${baseUrl}${hiddenDetailPath}`, { headers })
+
+      expect(hiddenUsers.status).toBe(404)
+      expect(hiddenDetail.status).toBe(404)
+    })
+    await withServer(
+      vi.fn().mockResolvedValue({ ...viewer, role: "ADMINISTRATOR" }),
+      product,
+      async (baseUrl) => {
+        const hidden = await fetch(`${baseUrl}/api/repositories/${hiddenId}`, { headers })
+        const hiddenDetail = await fetch(`${baseUrl}${hiddenDetailPath}`, { headers })
+
+        expect(hidden.status).toBe(200)
+        expect(hiddenDetail.status).toBe(200)
+      },
+    )
+  })
+
   it("returns an error when the repository lookup fails", async () => {
     const restore = vi.fn().mockResolvedValue({
       membershipId: randomUUID(),
       userId: randomUUID(),
       provider: "entra",
+      sessionProvider: "entra",
       login: "member",
       name: "Member",
       role: "MEMBER",

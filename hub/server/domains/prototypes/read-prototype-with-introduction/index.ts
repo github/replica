@@ -1,8 +1,8 @@
 import type { findPrototypeDetail } from "../../../repositories/prototype-index/find-prototype-detail/index.ts"
 import type { lockVisiblePrototype } from "../../../repositories/prototypes/lock-visible-prototype/index.ts"
+import type { PrototypeViewer } from "../types.ts"
 
 type Detail = NonNullable<Awaited<ReturnType<typeof findPrototypeDetail>>>
-type Viewer = { membershipId: string; userId: string }
 
 export class PrototypeViewError extends Error {
   readonly code: "not_found" | "not_signed_in"
@@ -17,11 +17,16 @@ export class PrototypeViewError extends Error {
 }
 
 export interface PrototypeViewRepositories {
-  restoreSession(digest: string): Promise<Viewer | null>
-  lockPrototype(repositoryId: string, prototypeId: string): ReturnType<typeof lockVisiblePrototype>
+  restoreSession(digest: string): Promise<PrototypeViewer | null>
+  lockPrototype(
+    repositoryId: string,
+    prototypeId: string,
+    viewer: PrototypeViewer,
+  ): ReturnType<typeof lockVisiblePrototype>
   findDetail(
     repositoryId: string,
     prototypeId: string,
+    viewer: PrototypeViewer,
     buildNumber?: number,
   ): Promise<Detail | null>
   recordIntroduction(userId: string, prototypeId: string): Promise<boolean>
@@ -48,20 +53,34 @@ export async function readPrototypeWithIntroduction(
   },
 ) {
   return runTransaction(async (repositories) => {
+    let authority: PrototypeViewer | undefined
     async function checkViewer() {
       const viewer = await repositories.restoreSession(input.sessionDigest)
-      if (!viewer || viewer.membershipId !== input.membershipId || viewer.userId !== input.userId) {
+      if (
+        !viewer ||
+        viewer.membershipId !== input.membershipId ||
+        viewer.userId !== input.userId ||
+        (authority &&
+          (viewer.sessionProvider !== authority.sessionProvider || viewer.role !== authority.role))
+      ) {
         throw new PrototypeViewError("not_signed_in")
       }
+      authority = viewer
+      return viewer
     }
 
-    await checkViewer()
-    const prototype = await repositories.lockPrototype(input.repositoryId, input.prototypeId)
+    const viewer = await checkViewer()
+    const prototype = await repositories.lockPrototype(
+      input.repositoryId,
+      input.prototypeId,
+      viewer,
+    )
     await checkViewer()
     if (!prototype) throw new PrototypeViewError("not_found")
     const detail = await repositories.findDetail(
       input.repositoryId,
       input.prototypeId,
+      viewer,
       input.buildNumber,
     )
     await checkViewer()

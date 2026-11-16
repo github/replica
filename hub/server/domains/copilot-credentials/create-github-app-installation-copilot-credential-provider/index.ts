@@ -3,6 +3,7 @@ import { z } from "zod"
 
 import { createGitHubAppJwtSigner } from "../../../integrations/github/create-github-app-jwt-signer/index.ts"
 import { createInstallationAccessToken } from "../../../integrations/github/create-installation-access-token/index.ts"
+import { readGitHubAppPrivateKey } from "../../authentication/read-github-app-private-key/index.ts"
 import type { GitHubAppJwtSigner } from "../../../integrations/github/create-github-app-jwt-signer/types.ts"
 import type { CopilotCredentialProvider } from "../types.ts"
 
@@ -40,15 +41,11 @@ export function createGitHubAppInstallationCopilotCredentialProvider(
   }
   const configuration = parsedConfiguration.data
   const privateKey = environment.GITHUB_APP_PRIVATE_KEY?.replaceAll("\\n", "\n").trim()
+  const encodedPrivateKey = environment.GITHUB_APP_PRIVATE_KEY_BASE64?.trim()
   let jwtSigner: GitHubAppJwtSigner
   if (signer) {
     jwtSigner = signer
-  } else {
-    if (!privateKey) {
-      throw new Error(
-        "GITHUB_APP_PRIVATE_KEY is required and must contain a PEM-encoded GitHub App private key.",
-      )
-    }
+  } else if (privateKey) {
     try {
       jwtSigner = createGitHubAppJwtSigner(privateKey)
     } catch (error) {
@@ -57,6 +54,18 @@ export function createGitHubAppInstallationCopilotCredentialProvider(
         { cause: error },
       )
     }
+  } else if (encodedPrivateKey) {
+    const key = readGitHubAppPrivateKey(encodedPrivateKey)
+    if (!key) {
+      throw new Error(
+        "GITHUB_APP_PRIVATE_KEY_BASE64 must contain a valid base64-encoded GitHub App private key.",
+      )
+    }
+    jwtSigner = createGitHubAppJwtSigner(key)
+  } else {
+    throw new Error(
+      "GITHUB_APP_PRIVATE_KEY or GITHUB_APP_PRIVATE_KEY_BASE64 is required for the GitHub App private key.",
+    )
   }
   const identity = {
     appId: configuration.GITHUB_APP_ID,

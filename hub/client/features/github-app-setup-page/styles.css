@@ -15,8 +15,18 @@
   background: var(--hub-canvas-default);
 }
 
+.setup__card--wide {
+  width: min(100%, 48rem);
+  padding: var(--hub-space-24);
+}
+
 .setup__content {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+}
+
+.setup__form {
+  display: grid;
+  gap: var(--hub-space-16);
 }

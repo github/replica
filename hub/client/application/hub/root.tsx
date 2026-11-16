@@ -20,6 +20,7 @@ import type { Route } from "./+types/root"
 import type { SessionResponse } from "./session-contracts/types"
 import { DevelopmentTools } from "./development-tools"
 import { isAuthenticationRoute } from "./is-authentication-route"
+import { noRepositoryAccessLocation } from "./no-repository-access-location"
 import { HubNavigation } from "./hub-navigation"
 import { ApiContractError } from "./requests/api-contract-error"
 import { ApiRequestError } from "./requests/api-request-error"
@@ -50,6 +51,8 @@ export async function clientLoader({
     try {
       session = await getCurrentHubSession(request)
     } catch (error) {
+      const noAccess = noRepositoryAccessLocation(error)
+      if (noAccess) return redirect(noAccess)
       if (error instanceof ApiRequestError && (error.status === 401 || error.status === 404)) {
         return redirect("/")
       }

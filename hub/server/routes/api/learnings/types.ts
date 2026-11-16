@@ -1,4 +1,5 @@
 import type { CurrentSessionDependencies } from "../auth/types.ts"
+import type { ProductViewer } from "../product/types.ts"
 import type {
   AcceptedLearning,
   LearningDecision,
@@ -30,7 +31,10 @@ export interface LearningRun {
 export interface LearningsRouteDependencies {
   applicationOrigin: string
   currentSession: CurrentSessionDependencies
-  findRepository(repositoryId: string): Promise<{
+  findRepository(
+    viewer: ProductViewer,
+    repositoryId: string,
+  ): Promise<{
     id: string
     nameWithOwner: string
     defaultBranch: string

@@ -156,12 +156,20 @@ export async function completeAuthenticationProof(
   return {
     purpose: attempt.purpose,
     sensitiveAuthorizationId: attempt.sensitiveAuthorizationId ?? undefined,
+    ...(evidence.identity.provider === "github" && evidence.profile
+      ? { githubLogin: evidence.profile.login }
+      : {}),
     providerAssignment: evidence.providerAssignment
       ? {
           ...evidence.providerAssignment,
+          issuedAt:
+            evidence.identity.provider === "github" && evidence.repositoryAccess
+              ? attempt.createdAt
+              : evidence.providerAssignment.issuedAt,
           providerRevisionId: attempt.providerRevisionId,
         }
       : undefined,
+    repositoryAccess: evidence.repositoryAccess,
     proof: {
       authorizationAttemptId: attempt.id,
       externalIdentityId: identity.externalIdentityId,

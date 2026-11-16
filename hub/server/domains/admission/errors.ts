@@ -7,6 +7,7 @@ export type AdmissionDenialReason =
   | "membership_missing"
   | "provider_evidence_missing"
   | "provider_evidence_stale"
+  | "no_repository_access"
 
 export class AdmissionDeniedError extends Error {
   readonly reason: AdmissionDenialReason

@@ -20,7 +20,7 @@ export function get(dependencies: LearningsRouteDependencies): RequestHandler {
         response.status(401).json({ code: "sign_in_required", error: "Sign in to continue." })
         return
       }
-      const repository = await dependencies.findRepository(repositoryId.data)
+      const repository = await dependencies.findRepository(initial, repositoryId.data)
       if (!repository) {
         response.status(404).json({ code: "repository_not_found", error: "Repository not found." })
         return

@@ -1,6 +1,8 @@
 import { z } from "zod"
 
 import { GitHubProviderRequestError } from "../errors.ts"
+import { listReadableInstallationRepositories } from "../list-readable-installation-repositories/index.ts"
+import { requestGitHubUser } from "../request-github-user/index.ts"
 import type {
   CreateGitHubUserAuthenticationAdapterInput,
   GitHubUserAuthenticationAdapter,
@@ -40,7 +42,29 @@ export function createGitHubUserAuthenticationAdapter(
   if (!input.clientSecret || input.clientSecret.length > 2_000) {
     throw new Error("GitHub client secret must be between 1 and 2000 characters.")
   }
+  if (
+    input.installationId !== undefined &&
+    (!Number.isSafeInteger(input.installationId) || input.installationId <= 0)
+  ) {
+    throw new Error("GitHub App installation ID must be a positive integer.")
+  }
   const request = input.fetch ?? globalThis.fetch
+
+  async function repositoryAccessEvidence(installationId: number, accessToken: string) {
+    const repositoryAccess = await listReadableInstallationRepositories(
+      request,
+      installationId,
+      accessToken,
+    )
+    return {
+      providerAssignment: {
+        assignmentSubject: "github_repository_access",
+        issuedAt: new Date(),
+        role: repositoryAccess.length ? ("MEMBER" as const) : null,
+      },
+      repositoryAccess,
+    }
+  }
 
   return {
     providerKey: "github",
@@ -51,8 +75,9 @@ export function createGitHubUserAuthenticationAdapter(
       clientId: configuration.clientId,
       tokenEndpoint: configuration.tokenEndpoint,
       userEndpoint: configuration.userEndpoint,
+      ...(input.installationId === undefined ? {} : { installationId: input.installationId }),
     }),
-    createAuthorizationUrl({ callbackUri, codeChallenge, state }) {
+    createAuthorizationUrl({ callbackUri, codeChallenge, freshAuthentication, state }) {
       if (callbackUri !== configuration.callbackUri) {
         throw new Error("GitHub callback URI does not match the configured callback URI.")
       }
@@ -64,6 +89,7 @@ export function createGitHubUserAuthenticationAdapter(
         code_challenge: codeChallenge,
         code_challenge_method: "S256",
       }).toString()
+      if (freshAuthentication) url.searchParams.set("prompt", "select_account")
       return url
     },
     async completeAuthenticationProof({ callbackUri, code, codeVerifier }) {
@@ -94,20 +120,11 @@ export function createGitHubUserAuthenticationAdapter(
       if (!tokenResponse.ok) throw new GitHubProviderRequestError()
       const token = tokenResponseSchema.parse(await tokenResponse.json())
 
-      let userResponse: Response
-      try {
-        userResponse = await request(configuration.userEndpoint, {
-          headers: {
-            accept: "application/vnd.github+json",
-            authorization: ["Bearer", token.access_token].join(" "),
-            "x-github-api-version": "2022-11-28",
-          },
-          redirect: "error",
-          signal: AbortSignal.timeout(providerRequestTimeoutMs),
-        })
-      } catch (error) {
-        throw new GitHubProviderRequestError({ cause: error })
-      }
+      const userResponse = await requestGitHubUser(
+        request,
+        configuration.userEndpoint,
+        token.access_token,
+      )
       if (!userResponse.ok) throw new GitHubProviderRequestError()
       const user = userResponseSchema.parse(await userResponse.json())
 
@@ -125,6 +142,9 @@ export function createGitHubUserAuthenticationAdapter(
               },
             }
           : {}),
+        ...(input.installationId === undefined
+          ? {}
+          : await repositoryAccessEvidence(input.installationId, token.access_token)),
       }
     },
   }

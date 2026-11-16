@@ -25,6 +25,7 @@ import { deleteLearningDecisionOperation } from "../../../../repositories/learni
 import { isEffectiveAdministrator } from "../../../../repositories/memberships/is-effective-administrator/index.ts"
 import { findActiveRepository } from "../../../../repositories/prototype-index/find-active-repository/index.ts"
 import { createSecurityAudit } from "../../../../repositories/security-audits/create-security-audit/index.ts"
+import { resolveRepositoryScope } from "../../product/resolve-repository-scope/index.ts"
 import { LearningsError } from "../errors.ts"
 import { isDefinitiveDecisionRejection } from "../is-definitive-decision-rejection/index.ts"
 import type { CurrentSessionDependencies } from "../../auth/types.ts"
@@ -34,7 +35,7 @@ export async function createLearningsRouteDependencies(
   environment: NodeJS.ProcessEnv,
   currentSession: CurrentSessionDependencies,
   logger: Logger,
-  options: { source?: ReviewCommentLearningSource } = {},
+  options: { scopeGitHubMembers?: boolean; source?: ReviewCommentLearningSource } = {},
 ): Promise<LearningsRouteDependencies> {
   const configuration = await readLearningConfiguration(environment)
   const applicationOrigin = environment.HUB_APPLICATION_ORIGIN
@@ -82,7 +83,12 @@ export async function createLearningsRouteDependencies(
   return {
     applicationOrigin,
     currentSession,
-    findRepository: (repositoryId) => findActiveRepository(prisma, repositoryId),
+    findRepository: (viewer, repositoryId) =>
+      findActiveRepository(
+        prisma,
+        repositoryId,
+        resolveRepositoryScope(viewer, options.scopeGitHubMembers ?? false),
+      ),
     getOverview: async ({ repositoryId, viewer }) => {
       try {
         return await getLearningOverview({
