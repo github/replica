@@ -145,10 +145,24 @@ variable "runtime_environment_variables" {
       for name, value in var.runtime_environment_variables :
       can(regex("^[A-Z][A-Z0-9_]{0,40}$", name)) &&
       !contains(local.runtime_reserved_environment_names, name) &&
+      !contains(keys(local.github_environment), name) &&
       !contains(keys(var.runtime_secret_references), name) &&
       value != null
     ])
     error_message = "Use uppercase environment names of at most 41 characters and non-null string values; deployment-owned settings and secret-reference names cannot be overridden."
+  }
+
+  validation {
+    condition = (
+      (!contains(keys(var.runtime_secret_references), "GITHUB_APP_PRIVATE_KEY_BASE64") || (
+        (var.github_app_id != null || try(var.runtime_environment_variables["GITHUB_APP_ID"] != "", false)) &&
+        (var.github_client_id != null || try(var.runtime_environment_variables["GITHUB_CLIENT_ID"] != "", false)) &&
+        (var.github_app_installation_id != null || try(var.runtime_environment_variables["GITHUB_APP_INSTALLATION_ID"] != "", false))
+      )) &&
+      (!contains(keys(var.runtime_secret_references), "GITHUB_CLIENT_SECRET") ||
+      var.github_client_id != null || try(var.runtime_environment_variables["GITHUB_CLIENT_ID"] != "", false))
+    )
+    error_message = "Supply the client ID for a GitHub client secret, and the App, client, and installation IDs for a private key, through named variables or runtime_environment_variables."
   }
 }
 
@@ -164,7 +178,7 @@ variable "runtime_secret_references" {
     condition = length(keys(var.runtime_secret_references)) <= 63 && alltrue([
       for name in keys(var.runtime_secret_references) :
       can(regex("^[A-Z][A-Z0-9_]{0,40}$", name)) &&
-      !contains(local.runtime_reserved_environment_names, name)
+      !contains(concat(local.runtime_reserved_environment_names, ["GITHUB_APP_ID", "GITHUB_CLIENT_ID", "GITHUB_APP_INSTALLATION_ID", "GITHUB_PROVIDER_REVISION"]), name)
     ])
     error_message = "Supply at most 63 additional secret references, using uppercase environment names of at most 41 characters; deployment-owned settings cannot be overridden."
   }
@@ -178,6 +192,69 @@ variable "runtime_secret_references" {
       lower("${secret.key_vault_id}/secrets/${try(split("/", secret.secret_id)[4], "")}") != lower("${var.setup_database_secret.key_vault_id}/secrets/${try(split("/", var.setup_database_secret.secret_id)[4], "")}")
     ])
     error_message = "Supply Key Vault resource IDs and HTTPS secret URLs, not secret values."
+  }
+}
+
+variable "hub_application_origin" {
+  type        = string
+  default     = null
+  description = "Optional exact public HTTPS origin for Hub authentication and setup, without a trailing slash."
+
+  validation {
+    condition     = var.hub_application_origin == null ? true : can(regex("^https://[^/?#@[:space:]]+$", var.hub_application_origin))
+    error_message = "Supply an HTTPS origin without a path, query, fragment, credentials, or trailing slash."
+  }
+
+  validation {
+    condition     = var.hub_application_origin == null || !contains(keys(var.runtime_secret_references), "HUB_APPLICATION_ORIGIN")
+    error_message = "Supply HUB_APPLICATION_ORIGIN either as hub_application_origin or as a runtime secret reference, not both."
+  }
+}
+
+variable "github_app_id" {
+  type        = string
+  default     = null
+  description = "Optional numeric GitHub App ID, passed to Hub as GITHUB_APP_ID. Required when GITHUB_APP_PRIVATE_KEY_BASE64 is referenced."
+
+  validation {
+    condition     = var.github_app_id == null ? true : can(regex("^[1-9][0-9]*$", var.github_app_id))
+    error_message = "Supply the GitHub App ID as digits only."
+  }
+
+}
+
+variable "github_client_id" {
+  type        = string
+  default     = null
+  description = "Optional GitHub App client ID, passed to Hub as GITHUB_CLIENT_ID. Required when the client secret or private key is referenced."
+
+  validation {
+    condition     = var.github_client_id == null ? true : can(regex("^[^[:space:]]+$", var.github_client_id))
+    error_message = "Supply a non-empty GitHub App client ID without whitespace."
+  }
+
+}
+
+variable "github_app_installation_id" {
+  type        = string
+  default     = null
+  description = "Optional numeric GitHub App installation ID, passed to Hub as GITHUB_APP_INSTALLATION_ID. Required when GITHUB_APP_PRIVATE_KEY_BASE64 is referenced."
+
+  validation {
+    condition     = var.github_app_installation_id == null ? true : can(regex("^[1-9][0-9]*$", var.github_app_installation_id))
+    error_message = "Supply the GitHub App installation ID as digits only."
+  }
+
+}
+
+variable "github_provider_revision" {
+  type        = number
+  default     = null
+  description = "Optional positive integer passed to Hub as GITHUB_PROVIDER_REVISION. Increase it whenever GitHub App credentials or references change."
+
+  validation {
+    condition     = var.github_provider_revision == null ? true : var.github_provider_revision >= 1 && floor(var.github_provider_revision) == var.github_provider_revision
+    error_message = "Supply a positive integer GitHub provider revision."
   }
 }
 
