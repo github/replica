@@ -7,6 +7,11 @@ import type { DeploymentConfig } from "../../../installer/types.ts"
 type SecretReference = { key_vault_id: string; secret_id: string }
 interface OperatorInputs {
   runtime_environment_variables?: Record<string, string>
+  hub_application_origin?: string
+  github_app_id?: string
+  github_client_id?: string
+  github_app_installation_id?: string
+  github_provider_revision?: number
   runtime_secret_references?: Record<string, SecretReference>
   postgres_sku?: string
   postgres_version?: string
@@ -49,6 +54,11 @@ export async function readInstallationInputs(
   ]
   const optional = [
     "runtime_environment_variables",
+    "hub_application_origin",
+    "github_app_id",
+    "github_client_id",
+    "github_app_installation_id",
+    "github_provider_revision",
     "runtime_secret_references",
     "postgres_sku",
     "postgres_version",
@@ -86,6 +96,30 @@ export async function readInstallationInputs(
     return { key_vault_id: secret.key_vault_id, secret_id: secret.secret_id }
   }
   const result: OperatorInputs = {}
+  for (const key of ["github_app_id", "github_app_installation_id"] as const) {
+    const value = inputs[key]
+    if (value == null) continue
+    if (typeof value !== "string" || !/^[1-9][0-9]*$/.test(value)) throw invalid()
+    result[key] = value
+  }
+  if (inputs.github_client_id != null) {
+    if (typeof inputs.github_client_id !== "string" || !/^\S+$/.test(inputs.github_client_id))
+      throw invalid()
+    result.github_client_id = inputs.github_client_id
+  }
+  if (inputs.hub_application_origin != null) {
+    if (
+      typeof inputs.hub_application_origin !== "string" ||
+      !/^https:\/\/[^/?#@\s]+$/.test(inputs.hub_application_origin)
+    )
+      throw invalid()
+    result.hub_application_origin = inputs.hub_application_origin
+  }
+  if (inputs.github_provider_revision != null) {
+    const revision = inputs.github_provider_revision
+    if (typeof revision !== "number" || !Number.isInteger(revision) || revision < 1) throw invalid()
+    result.github_provider_revision = revision
+  }
   // Match the pinned provider's input contract before maintenance can stop Hub.
   const sku =
     /^(?:B_Standard_B(?:(?:1|2|4|8|12|16|20)ms|2s)|GP_Standard_D(?:(?:2|4|8|16|32|48|64)s_v3|(?:2|4|8|16|32|48|64)ds_v4|(?:2|4|8|16|32|48|64|96)(?:ds|ads)_v5)|MO_Standard_E(?:(?:2|4|8|16|20|32|48|64)s_v3|(?:2|4|6|8|16|20|32|48|64)ds_v4|(?:2|4|8|16|20|32|48|64|96)ds_v5|(?:2|4|8|16|32|48|64|96)ads_v5))$/
@@ -152,11 +186,28 @@ export async function readInstallationInputs(
       `${secret.key_vault_id}/secrets/${new URL(secret.secret_id).pathname.split("/")[2]}`.toLowerCase()
     result.runtime_secret_references = {}
     for (const [key, value] of Object.entries(inputs.runtime_secret_references)) {
-      if (!/^[A-Z][A-Z0-9_]{0,40}$/.test(key) || reserved.includes(key)) throw invalid()
+      if (
+        !/^[A-Z][A-Z0-9_]{0,40}$/.test(key) ||
+        reserved.includes(key) ||
+        [
+          "GITHUB_APP_ID",
+          "GITHUB_CLIENT_ID",
+          "GITHUB_APP_INSTALLATION_ID",
+          "GITHUB_PROVIDER_REVISION",
+        ].includes(key)
+      )
+        throw invalid()
       const secret = reference(value)
       if (identity(secret) === identity(setup)) throw invalid()
       result.runtime_secret_references[key] = secret
     }
+  }
+  const githubEnvironment: Record<string, string | number | undefined> = {
+    HUB_APPLICATION_ORIGIN: result.hub_application_origin,
+    GITHUB_APP_ID: result.github_app_id,
+    GITHUB_CLIENT_ID: result.github_client_id,
+    GITHUB_APP_INSTALLATION_ID: result.github_app_installation_id,
+    GITHUB_PROVIDER_REVISION: result.github_provider_revision,
   }
   if (inputs.runtime_environment_variables !== undefined) {
     if (
@@ -170,6 +221,7 @@ export async function readInstallationInputs(
       if (
         !/^[A-Z][A-Z0-9_]{0,40}$/.test(name) ||
         reserved.includes(name) ||
+        githubEnvironment[name] !== undefined ||
         Object.hasOwn(result.runtime_secret_references ?? {}, name) ||
         typeof value !== "string"
       )
@@ -177,5 +229,19 @@ export async function readInstallationInputs(
       result.runtime_environment_variables[name] = value
     }
   }
+  const secrets = result.runtime_secret_references ?? {}
+  const environment = { ...result.runtime_environment_variables }
+  for (const [name, value] of Object.entries(githubEnvironment)) {
+    if (value !== undefined) environment[name] = String(value)
+  }
+  if (
+    (result.hub_application_origin && secrets.HUB_APPLICATION_ORIGIN) ||
+    (secrets.GITHUB_CLIENT_SECRET && !environment.GITHUB_CLIENT_ID) ||
+    (secrets.GITHUB_APP_PRIVATE_KEY_BASE64 &&
+      (!environment.GITHUB_APP_ID ||
+        !environment.GITHUB_CLIENT_ID ||
+        !environment.GITHUB_APP_INSTALLATION_ID))
+  )
+    throw invalid()
   return result
 }

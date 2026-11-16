@@ -1,5 +1,15 @@
 locals {
-  runtime_environment = {
+  github_environment = {
+    for name, value in {
+      HUB_APPLICATION_ORIGIN     = var.hub_application_origin
+      GITHUB_APP_ID              = var.github_app_id
+      GITHUB_CLIENT_ID           = var.github_client_id
+      GITHUB_APP_INSTALLATION_ID = var.github_app_installation_id
+      GITHUB_PROVIDER_REVISION   = var.github_provider_revision == null ? null : tostring(var.github_provider_revision)
+    } : name => value if value != null
+  }
+
+  runtime_environment = merge({
     NODE_ENV                  = "production"
     RUNTIME_MODE              = "combined"
     HOST                      = "0.0.0.0"
@@ -14,7 +24,7 @@ locals {
       { DATABASE_URL = var.runtime_database_secret.secret_id },
       { for name, reference in var.runtime_secret_references : name => reference.secret_id },
     ))
-  }
+  }, local.github_environment)
 }
 
 resource "azurerm_container_app" "hub" {

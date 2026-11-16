@@ -43,6 +43,80 @@ describe("readInstallationInputs()", () => {
     })
   })
 
+  it("retains named GitHub settings alongside generic client configuration and Key Vault references", async () => {
+    const { config, inputs, reference } = boundaryInputs()
+    const settings = {
+      hub_application_origin: "https://hub.example.com",
+      github_app_id: "123456",
+      github_app_installation_id: "7890123",
+      github_provider_revision: 2,
+      runtime_environment_variables: {
+        GITHUB_CLIENT_ID: "Iv23liExampleClient",
+        PUBLIC_SETTING: "public",
+      },
+      runtime_secret_references: {
+        GITHUB_CLIENT_SECRET: reference(6, 24, "client"),
+        GITHUB_APP_PRIVATE_KEY_BASE64: reference(6, 24, "private"),
+      },
+    }
+    vi.mocked(readPrivateFile).mockResolvedValue(JSON.stringify({ ...inputs, ...settings }))
+
+    await expect(readInstallationInputs("synthetic-installation", config)).resolves.toEqual(settings)
+  })
+
+  it("uses generic GitHub identifiers to satisfy client-secret and private-key requirements", async () => {
+    const { config, inputs, reference } = boundaryInputs()
+    const settings = {
+      runtime_environment_variables: {
+        HUB_APPLICATION_ORIGIN: "https://hub.example.com",
+        GITHUB_APP_ID: "123456",
+        GITHUB_CLIENT_ID: "Iv23liExampleClient",
+        GITHUB_APP_INSTALLATION_ID: "7890123",
+        GITHUB_PROVIDER_REVISION: "2",
+      },
+      runtime_secret_references: {
+        GITHUB_CLIENT_SECRET: reference(6, 24, "client"),
+        GITHUB_APP_PRIVATE_KEY_BASE64: reference(6, 24, "private"),
+      },
+    }
+    vi.mocked(readPrivateFile).mockResolvedValue(JSON.stringify({ ...inputs, ...settings }))
+
+    await expect(readInstallationInputs("synthetic-installation", config)).resolves.toEqual(settings)
+  })
+
+  it.each([
+    {
+      named: "hub_application_origin",
+      environment: "HUB_APPLICATION_ORIGIN",
+      value: "https://hub.example.com",
+    },
+    { named: "github_app_id", environment: "GITHUB_APP_ID", value: "123456" },
+    { named: "github_client_id", environment: "GITHUB_CLIENT_ID", value: "Iv23liExampleClient" },
+    {
+      named: "github_app_installation_id",
+      environment: "GITHUB_APP_INSTALLATION_ID",
+      value: "7890123",
+    },
+    { named: "github_provider_revision", environment: "GITHUB_PROVIDER_REVISION", value: 2 },
+  ])("rejects $named supplied again through generic configuration even when equal", async ({
+    named,
+    environment,
+    value,
+  }) => {
+    const { config, inputs } = boundaryInputs()
+    vi.mocked(readPrivateFile).mockResolvedValue(
+      JSON.stringify({
+        ...inputs,
+        [named]: value,
+        runtime_environment_variables: { [environment]: String(value) },
+      }),
+    )
+
+    await expect(readInstallationInputs("synthetic-installation", config)).rejects.toBeInstanceOf(
+      Error,
+    )
+  })
+
   it.each([
     { reason: "a null map", environment: null },
     { reason: "an array map", environment: [] },
