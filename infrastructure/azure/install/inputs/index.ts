@@ -1,6 +1,7 @@
 import { join } from "node:path"
 
 import { parseAzureId } from "../../../installer/config/fields/index.ts"
+import { parseHttpsOrigin } from "../../../installer/config/https-origin/index.ts"
 import { readPrivateFile } from "../../../installer/private-files/index.ts"
 import type { DeploymentConfig } from "../../../installer/types.ts"
 
@@ -108,12 +109,12 @@ export async function readInstallationInputs(
     result.github_client_id = inputs.github_client_id
   }
   if (inputs.hub_application_origin != null) {
-    if (
-      typeof inputs.hub_application_origin !== "string" ||
-      !/^https:\/\/[^/?#@\s]+$/.test(inputs.hub_application_origin)
-    )
-      throw invalid()
-    result.hub_application_origin = inputs.hub_application_origin
+    const origin = parseHttpsOrigin(inputs.hub_application_origin)
+    if (!origin)
+      throw new Error(
+        "Saved Terraform inputs are invalid. Supply hub_application_origin as an exact HTTPS origin such as https://hub.example.com. Review the private inputs before retrying; no cloud changes or input rewrites were started.",
+      )
+    result.hub_application_origin = origin.origin
   }
   if (inputs.github_provider_revision != null) {
     const revision = inputs.github_provider_revision

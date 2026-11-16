@@ -198,11 +198,33 @@ variable "runtime_secret_references" {
 variable "hub_application_origin" {
   type        = string
   default     = null
-  description = "Optional exact public HTTPS origin for Hub authentication and setup, without a trailing slash."
+  description = "Optional exact public HTTPS origin for Hub authentication and setup."
 
   validation {
-    condition     = var.hub_application_origin == null ? true : can(regex("^https://[^/?#@[:space:]]+$", var.hub_application_origin))
-    error_message = "Supply an HTTPS origin without a path, query, fragment, credentials, or trailing slash."
+    condition = var.hub_application_origin == null ? true : (
+      length(var.hub_application_origin) <= 500 && alltrue([
+        for parts in [try(regex("^https://(\\[[0-9a-f:]+\\]|[a-z0-9!\"$&'()*+,;=_`{}~.-]+)(?::(0|[1-9][0-9]{0,4}))?$", var.hub_application_origin), [])] :
+        length(parts) == 2 && alltrue([
+          for host in [try(parts[0], "")] :
+          (try(parts[1], null) == null ? true : (
+            parts[1] != "443" && tonumber(parts[1]) <= 65535
+            )) && (startswith(host, "[") ? alltrue([
+              # Terraform renders IPv4-mapped IPv6 as dotted IPv4; URL origins use hexadecimal.
+              for ip in [try(cidrhost("${trim(host, "[]")}/128", 0), "")] :
+              trim(host, "[]") == ip || trim(host, "[]") == try(format(
+                "::ffff:%x:%x",
+                256 * tonumber(split(".", ip)[0]) + tonumber(split(".", ip)[1]),
+                256 * tonumber(split(".", ip)[2]) + tonumber(split(".", ip)[3]),
+              ), "")
+            ]) : (
+            # A host ending in a number is interpreted as IPv4 by URL parsers.
+            !can(regex("(?:^|\\.)(?:[0-9]+|0x[0-9a-f]*)(?:\\.)?$", host)) ||
+            try(cidrhost("${host}/32", 0) == host, false)
+          ))
+        ])
+      ])
+    )
+    error_message = "Supply an exact HTTPS origin such as https://hub.example.com, with a lowercase host and no default port, path, query, fragment, credentials, or trailing slash."
   }
 
   validation {

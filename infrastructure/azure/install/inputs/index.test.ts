@@ -64,6 +64,82 @@ describe("readInstallationInputs()", () => {
     await expect(readInstallationInputs("synthetic-installation", config)).resolves.toEqual(settings)
   })
 
+  it.each([
+    { form: "a hostname", origin: "https://hub.example.com" },
+    { form: "a non-default port", origin: "https://hub.example.com:8443" },
+    { form: "a single-label hostname", origin: "https://localhost" },
+    { form: "an IPv4 address and the lowest port", origin: "https://127.0.0.1:0" },
+    { form: "an IPv6 address and the highest port", origin: "https://[::1]:65535" },
+    { form: "a mapped IPv6 address", origin: "https://[::ffff:c000:280]" },
+    {
+      form: "the maximum length",
+      origin: `https://${Array(7).fill("a".repeat(61)).join(".")}.${"a".repeat(58)}`,
+    },
+  ])("retains an exact HTTPS application origin with $form", async ({ origin }) => {
+    const { config, inputs } = boundaryInputs()
+    vi.mocked(readPrivateFile).mockResolvedValue(
+      JSON.stringify({ ...inputs, hub_application_origin: origin }),
+    )
+
+    await expect(readInstallationInputs("synthetic-installation", config)).resolves.toEqual({
+      hub_application_origin: origin,
+      runtime_secret_references: {},
+    })
+  })
+
+  it.each([
+    { form: "omitted", origin: undefined },
+    { form: "null", origin: null },
+  ])("keeps the application origin optional when $form", async ({ origin }) => {
+    const { config, inputs } = boundaryInputs()
+    vi.mocked(readPrivateFile).mockResolvedValue(
+      JSON.stringify({ ...inputs, hub_application_origin: origin }),
+    )
+
+    await expect(readInstallationInputs("synthetic-installation", config)).resolves.toEqual({
+      runtime_secret_references: {},
+    })
+  })
+
+  it.each([
+    { form: "an uppercase host", origin: "https://HUB.example.com" },
+    { form: "a shortened IPv4 address", origin: "https://127.1" },
+    { form: "a dotted mapped IPv6 address", origin: "https://[::ffff:192.0.2.128]" },
+    { form: "an explicit default port", origin: "https://hub.example.com:443" },
+    { form: "a zero-padded port", origin: "https://hub.example.com:08443" },
+    { form: "a non-numeric port", origin: "https://hub.example.com:not-a-port" },
+    { form: "an out-of-range port", origin: "https://hub.example.com:65536" },
+    {
+      form: "an origin longer than the maximum",
+      origin: `https://${Array(7).fill("a".repeat(61)).join(".")}.${"a".repeat(59)}`,
+    },
+    { form: "a trailing slash", origin: "https://hub.example.com/" },
+    { form: "a path", origin: "https://hub.example.com/path" },
+    { form: "a query", origin: "https://hub.example.com?synthetic-query" },
+    { form: "a fragment", origin: "https://hub.example.com#synthetic-fragment" },
+    {
+      form: "credentials",
+      origin: "https://synthetic-user:synthetic-password@hub.example.com",
+    },
+    { form: "an HTTP URL", origin: "http://hub.example.com" },
+  ])("rejects $form as an application origin with a safe diagnostic", async ({ origin }) => {
+    const { config, inputs } = boundaryInputs()
+    vi.mocked(readPrivateFile).mockResolvedValue(
+      JSON.stringify({ ...inputs, hub_application_origin: origin }),
+    )
+
+    const failure = await readInstallationInputs("synthetic-installation", config).catch(
+      (error: unknown) => error,
+    )
+
+    expect(failure).toBeInstanceOf(Error)
+    expect(String(failure)).toMatch(/exact|canonical/i)
+    expect(String(failure)).toMatch(/origin/i)
+    expect(String(failure)).toContain("https://hub.example.com")
+    expect(String(failure)).not.toContain(origin)
+    expect(String(failure)).not.toMatch(/synthetic-(user|password|query|fragment)/)
+  })
+
   it("uses generic GitHub identifiers to satisfy client-secret and private-key requirements", async () => {
     const { config, inputs, reference } = boundaryInputs()
     const settings = {
