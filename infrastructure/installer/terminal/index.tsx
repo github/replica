@@ -10,7 +10,7 @@ const plain = (value: string) =>
 
 export function createTerminalUI(
   abort: AbortController,
-  options: { fullscreen?: boolean; configureOnly?: boolean } = {},
+  options: { fullscreen?: boolean; configureOnly?: boolean; postSetup?: boolean } = {},
 ): WizardUI & { close(): Promise<void>; summary(): string | undefined } {
   let rejectQuestion: ((error: Error) => void) | undefined
   const view: TerminalView = {
@@ -42,7 +42,7 @@ export function createTerminalUI(
   abort.signal.addEventListener("abort", cancelled)
   const cancel = () => abort.abort()
   const edit = (value: string) => {
-    if (view.question?.kind === "text" || view.question?.kind === "field")
+    if (!view.transitioning && (view.question?.kind === "text" || view.question?.kind === "field"))
       view.question.initial = value
   }
   const feedback = () => {
@@ -58,6 +58,7 @@ export function createTerminalUI(
       feedback={feedback}
       fullscreen={fullscreen}
       configureOnly={options.configureOnly ?? false}
+      postSetup={options.postSetup}
       started={started}
     />
   )
@@ -77,14 +78,20 @@ export function createTerminalUI(
   function ask<T>(create: (resolve: (value: T) => void) => Question): Promise<T> {
     abort.signal.throwIfAborted()
     return new Promise((resolve, reject) => {
+      let answered = false
       rejectQuestion = reject
+      view.transitioning = false
       view.question = create((value) => {
-        if (view.question?.kind === "confirm" || view.question?.kind === "wait")
+        if (answered) return
+        answered = true
+        if (
+          !options.postSetup &&
+          (view.question?.kind === "confirm" || view.question?.kind === "wait")
+        )
           view.notice = undefined
         view.welcome = false
-        view.question = undefined
+        view.transitioning = true
         rejectQuestion = undefined
-        view.revision++
         draw()
         resolve(value)
       })
@@ -115,11 +122,18 @@ export function createTerminalUI(
     wait: (message) => ask<void>((resolve) => ({ kind: "wait", message: plain(message), resolve })),
     phase(phase) {
       view.phase = phase
-      view.notice = undefined
+      if (!options.postSetup) view.notice = undefined
       draw()
     },
     notice(level, message) {
       view.notice = { level, message: plain(message) }
+      view.feedback++
+      draw()
+    },
+    recoveryNotice(message) {
+      const next = message === undefined ? undefined : plain(message)
+      if (view.recoveryError === next) return
+      view.recoveryError = next
       view.feedback++
       draw()
     },
@@ -128,17 +142,24 @@ export function createTerminalUI(
       draw()
     },
     complete() {
+      view.question = undefined
+      view.transitioning = false
       view.complete = true
       draw()
     },
     status(message) {
+      if (view.transitioning) {
+        view.question = undefined
+        view.transitioning = false
+      }
       view.history = [...view.history.slice(-19), plain(message)]
       draw()
     },
     summary: () =>
-      view.notice?.level === "error" || view.notice?.level === "warning"
+      view.recoveryError ??
+      (view.notice?.level === "error" || view.notice?.level === "warning"
         ? view.notice.message
-        : undefined,
+        : undefined),
     async close() {
       abort.signal.removeEventListener("abort", cancelled)
       instance.unmount()

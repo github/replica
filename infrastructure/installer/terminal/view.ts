@@ -19,6 +19,8 @@ export interface TerminalView {
   feedback: number
   history: string[]
   notice?: { level: NoticeLevel; message: string }
+  recoveryError?: string
+  transitioning?: boolean
   phase: WizardPhase
   complete: boolean
   welcome: boolean

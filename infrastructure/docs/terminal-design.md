@@ -46,6 +46,10 @@ Use the installed Ink renderer's `alternateScreen` option for interactive termin
 
 Keep the shell mounted while questions change. Reset only the input component that needs a fresh cursor or selection. The header, progress, notices, and clock must not reset when a question resolves.
 
+Submitting a question disables its input but keeps that content rendered until the next question replaces it or an explicit work status begins. Do not render an empty or previous-activity spinner between consecutive prompts. Reset a new step's scroll position before its first frame, not in an effect after painting content at the old step's offset. Measure viewport overflow in the layout phase so stale scroll geometry cannot flash through.
+
+While a submitted question remains visible, show that its answer was received and work is continuing; do not leave a disabled `y/N` control looking unanswered. Keep this feedback in the footer so long approval text cannot scroll it out of view. Ctrl+C must remain usable during this handoff.
+
 Give each area a clear responsibility:
 
 | Area            | Responsibility                                                                               |
