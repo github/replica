@@ -1,6 +1,7 @@
 import { join, isAbsolute } from "node:path"
 import { createHash } from "node:crypto"
 
+import { parseHttpsOrigin } from "../../../installer/config/https-origin/index.ts"
 import { readPrivateFile, writePrivateFile } from "../../../installer/private-files/index.ts"
 import { promptForRecovery } from "../../../installer/prompt-for-recovery/index.ts"
 import type { AzureInstallation } from "../../install/types.ts"
@@ -74,13 +75,7 @@ export async function postSetupProgress(
       if (action === "sign-in" && !["origin", "proxyHops"].includes(key)) invalid()
       if (action === "github" && ["origin", "proxyHops"].includes(key)) invalid()
       if (key === "origin") {
-        let url: URL
-        try {
-          url = new URL(value)
-        } catch {
-          invalid()
-        }
-        if (url.protocol !== "https:" || url.origin !== value) invalid()
+        if (!parseHttpsOrigin(value)) invalid()
       } else if (key === "proxyHops") {
         if (!/^(?:[0-9]|10)$/.test(value)) invalid()
       } else if (key === "github_client_id") {

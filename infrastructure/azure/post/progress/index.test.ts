@@ -102,6 +102,33 @@ it("isolates actions and refuses to reuse another installation's saved answers",
   expect(await readFile(github.path, "utf8")).toBe(saved)
 })
 
+it("rejects an overlong origin without overwriting a valid saved answer", async () => {
+  const test = await scenario()
+  const progress = await postSetupProgress(test.context, "sign-in")
+  const maximum = `https://${"a".repeat(492)}`
+  await progress.saveAnswer("origin", maximum)
+  const saved = await readFile(progress.path, "utf8")
+
+  await expect(progress.saveAnswer("origin", `${maximum}a`)).rejects.toThrow(/invalid/i)
+
+  expect(await readFile(progress.path, "utf8")).toBe(saved)
+  expect((await postSetupProgress(test.context, "sign-in")).answers.origin).toBe(maximum)
+})
+
+it("preserves previously saved overlong origins for manual recovery", async () => {
+  const test = await scenario()
+  const progress = await postSetupProgress(test.context, "sign-in")
+  await progress.saveAnswer("origin", "https://sample.example.com")
+  const record = JSON.parse(await readFile(progress.path, "utf8"))
+  record.answers.origin = `https://${"a".repeat(493)}`
+  const saved = JSON.stringify(record)
+  await writeFile(progress.path, saved)
+
+  await expect(postSetupProgress(test.context, "sign-in")).rejects.toThrow(/invalid/i)
+
+  expect(await readFile(progress.path, "utf8")).toBe(saved)
+})
+
 it.each(["malformed JSON", "wrong action", "unexpected secret field"] as const)(
   "preserves and rejects %s without printing its contents",
   async (damage) => {
