@@ -99,30 +99,82 @@ const sessionHeaders = {
 }
 
 describe("review comments API", () => {
-  it("rejects cross-origin review mutations before saving data", async () => {
+  it.each([
+    ["missing", undefined],
+    ["foreign", "https://attacker.example"],
+  ] as const)("rejects %s origins for every review mutation", async (_label, origin) => {
     const target = await createReviewTarget()
     const member = await createMember("mona", "Mona")
     const restore = vi.fn().mockResolvedValue(member)
 
     await withServer(restore, async (baseUrl) => {
-      const response = await fetch(`${baseUrl}${target.path}`, {
+      const headers = {
+        cookie: sessionHeaders.cookie,
+        "content-type": sessionHeaders["content-type"],
+        ...(origin ? { origin } : {}),
+      }
+      const createResponse = await fetch(`${baseUrl}${target.path}`, {
         method: "POST",
-        headers: {
-          cookie: sessionHeaders.cookie,
-          "content-type": sessionHeaders["content-type"],
-          origin: "https://attacker.example",
-        },
+        headers,
         body: JSON.stringify({
           review_comment: {
             build_number: target.build.number,
-            body: "Cross-origin comment",
+            body: "Rejected comment",
             anchor,
           },
         }),
       })
-
-      expect(response.status).toBe(403)
+      expect(createResponse.status).toBe(403)
       expect(await prisma.reviewThread.count()).toBe(0)
+
+      const accepted = await fetch(`${baseUrl}${target.path}`, {
+        method: "POST",
+        headers: sessionHeaders,
+        body: JSON.stringify({
+          review_comment: {
+            build_number: target.build.number,
+            body: "Accepted comment",
+            anchor,
+          },
+        }),
+      })
+      const created = (await accepted.json()) as { comments: { id: number }[] }
+      const root = created.comments[0]
+      if (!root) throw new Error("Expected a root comment")
+
+      const mutations = [
+        {
+          path: `${target.path}/${root.id}/replies`,
+          method: "POST",
+          body: { review_comment: { body: "Rejected reply" } },
+        },
+        {
+          path: `${target.path}/${root.id}`,
+          method: "PATCH",
+          body: { review_comment: { body: "Rejected edit" } },
+        },
+        { path: `${target.path}/${root.id}`, method: "DELETE" },
+        { path: `${target.path}/${root.id}/resolution`, method: "POST" },
+      ] as const
+      for (const mutation of mutations) {
+        const response = await fetch(`${baseUrl}${mutation.path}`, {
+          method: mutation.method,
+          headers,
+          ...("body" in mutation ? { body: JSON.stringify(mutation.body) } : {}),
+        })
+        expect(response.status).toBe(403)
+      }
+
+      const stored = await prisma.reviewComment.findUniqueOrThrow({
+        where: { publicId: root.id },
+        select: { body: true, deletedAt: true, thread: { select: { resolvedAt: true } } },
+      })
+      expect(stored).toEqual({
+        body: "Accepted comment",
+        deletedAt: null,
+        thread: { resolvedAt: null },
+      })
+      expect(await prisma.reviewComment.count()).toBe(1)
     })
   })
 
