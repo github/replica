@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { LearningError } from "../errors.mjs"
 import { oneLine } from "../recall.mjs"
@@ -65,7 +65,7 @@ export async function writeDecisionTaskset(
       for (const screenshot of task.screenshots)
         candidates.push({
           ...(await copyImage(
-            path.resolve(baseDirectory, screenshot.path),
+            await resolveWithinBase(baseDirectory, screenshot.path),
             directory,
             `${task.id}-${screenshot.size}-${screenshot.theme}`,
             "candidate",
@@ -171,6 +171,37 @@ async function readImage(source) {
     if (error instanceof LearningError) throw error
     throw new LearningError("not_found", `Cannot read ${source} (${error.code ?? error.message}).`)
   }
+}
+
+/** Resolve a Builds-file image without allowing an absolute path, traversal, or symlink escape. */
+async function resolveWithinBase(baseDirectory, candidate) {
+  const root = await realpath(baseDirectory)
+  const resolved = path.resolve(root, candidate)
+  if (leaves(root, resolved))
+    throw new LearningError(
+      "invalid_input",
+      `Screenshot path ${JSON.stringify(candidate)} leaves the Builds directory.`,
+    )
+  let canonical
+  try {
+    canonical = await realpath(resolved)
+  } catch (error) {
+    throw new LearningError(
+      "not_found",
+      `Cannot read screenshot ${candidate} (${error.code ?? error.message}).`,
+    )
+  }
+  if (leaves(root, canonical))
+    throw new LearningError(
+      "invalid_input",
+      `Screenshot path ${JSON.stringify(candidate)} leaves the Builds directory through a symbolic link.`,
+    )
+  return canonical
+}
+
+function leaves(root, candidate) {
+  const relative = path.relative(root, candidate)
+  return relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)
 }
 
 async function copyImage(source, directory, name, role) {

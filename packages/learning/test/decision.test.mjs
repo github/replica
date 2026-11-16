@@ -1,7 +1,15 @@
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import { execFileSync } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { Readable } from "node:stream"
@@ -694,6 +702,45 @@ describe("replica-learning decision", () => {
     )
     assert.match(otherPage.stderr, /Skipped: 4 screenshot-missing/)
     for (const result of [outside, empty, otherPage]) assert.equal(result.code, 1)
+  })
+
+  it("refuses screenshot paths outside the Builds directory without copying them", async () => {
+    const { repo, by } = await acceptedLearning("screenshot-paths")
+    await grantTraining(repo, by)
+    await ok(repo, ["export", "--purpose", "training", ...by, "--out", ".replica/training.json"])
+    const outside = path.join(repo, ".replica", "outside.png")
+    writeFileSync(outside, Buffer.concat([PNG, Buffer.from("outside")]))
+    const symlink = path.join(repo, ".replica", "builds", "outside-link.png")
+    mkdirSync(path.dirname(symlink), { recursive: true })
+    symlinkSync(outside, symlink)
+    const cases = [
+      ["absolute", outside],
+      ["parent traversal", "../outside.png"],
+      ["outside symlink", "outside-link.png"],
+    ]
+
+    for (const [name, screenshotPath] of cases) {
+      const builds = buildsFile(repo, { name: `${name.replaceAll(" ", "-")}.json` })
+      const value = JSON.parse(readFileSync(builds, "utf8"))
+      value.builds[0].screenshots[0].path = screenshotPath
+      writeFileSync(builds, JSON.stringify(value))
+      const out = `.replica/tasksets/${name.replaceAll(" ", "-")}`
+
+      const result = await cli(repo, [
+        "decision",
+        "taskset",
+        "--export",
+        ".replica/training.json",
+        "--builds",
+        builds,
+        "--out",
+        out,
+      ])
+
+      assert.equal(result.code, 1, `${name} unexpectedly succeeded`)
+      assert.match(result.stderr, /screenshot.*outside.*Builds directory/i)
+      assert.equal(existsSync(path.join(repo, out)), false)
+    }
   })
 
   it("writes beneath cwd when cwd is not a Git checkout", async () => {
