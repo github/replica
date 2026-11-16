@@ -124,7 +124,7 @@ The list leaves out models above 10 billion parameters and models built on a bas
 
 A trained model replaces the base model only when a repository administrator approves it. The evaluation report gives them two numbers to compare against the base model on the test set: the mean reward, which should be higher, and the calibration error, which should not be worse. This version writes the report, but Hub does not record the decision or serve a model yet.
 
-The customer-operated reference runtime records that decision outside Hub. It accepts a taskset, tracks a job bounded by update and wall-time limits, writes the adapter and evaluation report as an immutable candidate, and serves only the candidate an operator explicitly promotes. Its HTTP contracts separate jobs, candidates, promotion, and evaluation from the local filesystem and trainer, so a customer can later implement the same lifecycle on its cloud platform. A deterministic fixture backend runs the complete lifecycle without a GPU or external model download; the d1 backend invokes the environment, trainer, scoring code, and evaluator described above. Replica does not run or receive data from either backend.
+The customer-operated local reference runtime records that decision outside Hub. It accepts a taskset, tracks a job bounded by update and wall-time limits, writes the adapter and evaluation report as an immutable candidate, and serves only the candidate an operator explicitly promotes. A deterministic fixture backend runs this lifecycle without a GPU or external model download. Fixture candidates are for development and tests only and cannot be promoted in production. The runtime keeps a backend interface for a later real-model implementation without adding one here.
 
 ## Consequences
 

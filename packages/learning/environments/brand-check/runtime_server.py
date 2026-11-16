@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from .runtime import D1OmniBackend, FixtureBackend, LocalRuntime, RuntimeFailure
+from .runtime import ENVIRONMENTS, FixtureBackend, LocalRuntime, RuntimeFailure
 
 TOKEN_VARIABLE = "REPLICA_RUNTIME_TOKEN"
 MIN_TOKEN_LENGTH = 32
@@ -80,7 +80,10 @@ class RuntimeHandler(BaseHTTPRequestHandler):
         except RuntimeFailure as error:
             self._failure(error)
         except Exception as error:
-            self._failure(RuntimeFailure("internal_error", str(error), 500))
+            self.log_error("Unhandled runtime error: %r", error)
+            self._failure(
+                RuntimeFailure("internal_error", "The runtime failed unexpectedly.", 500)
+            )
 
     def do_POST(self) -> None:
         try:
@@ -103,6 +106,12 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                     ),
                 )
                 return
+            if path == "/v1/rollbacks":
+                self._send(
+                    200,
+                    self.server.runtime.rollback(rolled_back_by=body.get("rolledBackBy")),
+                )
+                return
             if path in ("/score", "/v1/evaluations"):
                 self._send(200, self.server.runtime.evaluate(body))
                 return
@@ -110,7 +119,10 @@ class RuntimeHandler(BaseHTTPRequestHandler):
         except RuntimeFailure as error:
             self._failure(error)
         except Exception as error:
-            self._failure(RuntimeFailure("internal_error", str(error), 500))
+            self.log_error("Unhandled runtime error: %r", error)
+            self._failure(
+                RuntimeFailure("internal_error", "The runtime failed unexpectedly.", 500)
+            )
 
     def log_message(self, format: str, *args: Any) -> None:
         """Keep the default access log, which never includes Authorization header values."""
@@ -169,21 +181,21 @@ def main() -> None:
     parser.add_argument("--taskset", required=True, type=Path, help="read-only decision taskset")
     parser.add_argument("--host", default="127.0.0.1", help="address to listen on")
     parser.add_argument("--port", type=int, default=8010, help="port to listen on")
-    parser.add_argument("--d1-model", type=Path, help="downloaded d1-omni-600M model directory")
     parser.add_argument(
-        "--environment-url",
-        default="http://127.0.0.1:8000",
-        help="brand-check OpenEnv server used by d1 training",
+        "--environment",
+        choices=ENVIRONMENTS,
+        default="development",
+        help="runtime environment; fixture candidates cannot be promoted in production",
     )
     args = parser.parse_args()
     token = runtime_token(dict(os.environ))
     os.environ.pop(TOKEN_VARIABLE, None)
-    backends: dict[str, Any] = {"fixture": FixtureBackend()}
-    if args.d1_model:
-        backends["d1-omni"] = D1OmniBackend(
-            args.d1_model, environment_url=args.environment_url
-        )
-    runtime = LocalRuntime(args.state, args.taskset, backends)
+    runtime = LocalRuntime(
+        args.state,
+        args.taskset,
+        {"fixture": FixtureBackend()},
+        environment=args.environment,
+    )
     server = RuntimeHTTPServer((args.host, args.port), runtime, token)
     try:
         server.serve_forever()

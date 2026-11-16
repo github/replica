@@ -7,15 +7,11 @@ runtime owns durable job state, immutable candidates, and the explicit promotion
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import math
 import os
 import shutil
-import subprocess
-import sys
-import tempfile
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -36,6 +32,7 @@ MIN_UPDATES = 1
 MAX_UPDATES = 100_000
 MIN_SECONDS = 1
 MAX_SECONDS = 86_400
+ENVIRONMENTS = ("development", "test", "production")
 
 
 class RuntimeFailure(ValueError):
@@ -62,6 +59,7 @@ class TrainingBackend(Protocol):
     """A provider-neutral trainer and inference adapter."""
 
     name: str
+    production_eligible: bool
 
     def train(
         self,
@@ -81,6 +79,7 @@ class FixtureBackend:
     """A deterministic readout for tests, demos, and operator practice without model downloads."""
 
     name = "fixture"
+    production_eligible = False
 
     def train(
         self,
@@ -141,150 +140,6 @@ class FixtureBackend:
         return _fixture_answers(request["questions"], probabilities)
 
 
-class D1OmniBackend:
-    """Run the existing d1-omni trainer and predictor as a bounded subprocess backend."""
-
-    name = "d1-omni"
-
-    def __init__(
-        self,
-        model_directory: str | os.PathLike[str],
-        *,
-        environment_url: str = "http://127.0.0.1:8000",
-        python: str = sys.executable,
-    ):
-        self.model_directory = Path(model_directory).resolve()
-        self.environment_url = environment_url
-        self.python = python
-        self.script = Path(__file__).parent / "examples" / "train_d1_omni.py"
-
-    def train(
-        self,
-        taskset: Taskset,
-        work_directory: Path,
-        *,
-        max_updates: int,
-        max_seconds: float,
-    ) -> TrainingResult:
-        if not self.model_directory.is_dir():
-            raise RuntimeFailure(
-                "model_missing",
-                f"The d1 model directory {self.model_directory} does not exist.",
-            )
-        output = work_directory / "d1"
-        output.mkdir()
-        deadline = _monotonic() + max_seconds
-        common = [
-            self.python,
-            str(self.script),
-            "--model",
-            str(self.model_directory),
-            "--taskset",
-            str(taskset.directory),
-            "--out",
-            str(output),
-            "--url",
-            self.environment_url,
-        ]
-        self._run(
-            [common[0], common[1], "train", *common[2:], "--updates", str(max_updates)],
-            deadline,
-        )
-        trained = output / "best.pt"
-        if not trained.is_file():
-            raise RuntimeFailure(
-                "training_failed", "The d1 trainer completed without writing best.pt.", 500
-            )
-        self._run(
-            [common[0], common[1], "evaluate", *common[2:], "--split", "test", "--name", "released"],
-            deadline,
-        )
-        self._run(
-            [
-                common[0],
-                common[1],
-                "evaluate",
-                *common[2:],
-                "--trained",
-                str(trained),
-                "--split",
-                "test",
-                "--name",
-                "trained",
-            ],
-            deadline,
-        )
-        return TrainingResult(
-            adapter_name="adapter.pt",
-            adapter=trained.read_bytes(),
-            baseline_report=_read_json(output / "released-test-report.json"),
-            candidate_report=_read_json(output / "trained-test-report.json"),
-            metadata={
-                "kind": "d1-omni-readout",
-                "baseModel": "LiquidAI/d1-omni-600M",
-                "updates": max_updates,
-            },
-        )
-
-    def predict(
-        self, adapter: Path, request: Mapping[str, Any], *, timeout_seconds: float
-    ) -> Mapping[str, Any]:
-        if not self.model_directory.is_dir():
-            raise RuntimeFailure(
-                "model_missing",
-                f"The d1 model directory {self.model_directory} does not exist.",
-                500,
-            )
-        with tempfile.TemporaryDirectory(prefix="replica-d1-request-") as holder:
-            directory = Path(holder)
-            document = dict(request)
-            document["images"] = _write_request_images(directory, request["images"])
-            request_file = directory / "request.json"
-            request_file.write_bytes(_json_bytes(document))
-            command = [
-                self.python,
-                str(self.script),
-                "predict",
-                "--model",
-                str(self.model_directory),
-                "--trained",
-                str(adapter),
-                "--request",
-                str(request_file),
-            ]
-            completed = self._run(command, _monotonic() + timeout_seconds)
-        try:
-            return json.loads(completed.stdout)["answers"]
-        except (json.JSONDecodeError, KeyError, TypeError):
-            raise RuntimeFailure(
-                "inference_failed", "The d1 predictor did not return probability answers.", 500
-            ) from None
-
-    @staticmethod
-    def _run(command: list[str], deadline: float) -> subprocess.CompletedProcess[str]:
-        remaining = deadline - _monotonic()
-        if remaining <= 0:
-            raise RuntimeFailure("job_timed_out", "The bounded training job reached maxSeconds.")
-        try:
-            return subprocess.run(
-                command,
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=remaining,
-                env=_backend_environment(),
-            )
-        except subprocess.TimeoutExpired:
-            raise RuntimeFailure(
-                "job_timed_out", "The bounded training job reached maxSeconds."
-            ) from None
-        except subprocess.CalledProcessError as error:
-            detail = (error.stderr or error.stdout or "no error output").strip()[-1000:]
-            raise RuntimeFailure(
-                "backend_failed", f"The d1 backend failed: {detail}", 500
-            ) from None
-
-
 class LocalRuntime:
     """Durable local jobs, immutable candidates, one promotion pointer, and inference."""
 
@@ -293,10 +148,18 @@ class LocalRuntime:
         state_directory: str | os.PathLike[str],
         taskset_directory: str | os.PathLike[str],
         backends: Mapping[str, TrainingBackend] | None = None,
+        *,
+        environment: str = "development",
     ):
+        if environment not in ENVIRONMENTS:
+            raise RuntimeFailure(
+                "environment_invalid",
+                f"Environment must be one of {', '.join(ENVIRONMENTS)}.",
+            )
         self.state_directory = Path(state_directory).resolve()
         self.taskset = load_taskset(taskset_directory)
         self.taskset_digest = _taskset_digest(self.taskset)
+        self.environment = environment
         self.backends = dict(backends or {"fixture": FixtureBackend()})
         if not self.backends:
             raise RuntimeFailure("backend_missing", "Configure at least one training backend.")
@@ -304,10 +167,11 @@ class LocalRuntime:
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="replica-training")
         self.state_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         os.chmod(self.state_directory, 0o700)
-        for name in ("jobs", "candidates", "work"):
+        for name in ("jobs", "candidates", "promotions", "work"):
             directory = self.state_directory / name
             directory.mkdir(parents=True, exist_ok=True, mode=0o700)
             os.chmod(directory, 0o700)
+        self._recover_promotion()
         self._recover_interrupted_jobs()
 
     def close(self) -> None:
@@ -362,6 +226,7 @@ class LocalRuntime:
             or manifest.get("schemaVersion") != CANDIDATE_SCHEMA
             or manifest.get("id") != candidate_id
             or manifest.get("tasksetDigest") != report.get("tasksetDigest")
+            or not isinstance(manifest.get("productionEligible"), bool)
         ):
             raise RuntimeFailure(
                 "candidate_damaged", f"Candidate {candidate_id} has an invalid adapter record.", 500
@@ -373,11 +238,9 @@ class LocalRuntime:
                 "candidate_damaged", f"Candidate {candidate_id} has no readable adapter.", 500
             ) from None
         adapter_digest = "sha256:" + hashlib.sha256(adapter_bytes).hexdigest()
-        identity = hashlib.sha256()
-        identity.update(str(manifest.get("backend", "")).encode())
-        identity.update(adapter_bytes)
-        identity.update(_json_bytes(report))
-        expected_id = f"candidate_{identity.hexdigest()[:32]}"
+        manifest_identity = dict(manifest)
+        manifest_identity.pop("id", None)
+        expected_id = _candidate_id(manifest_identity, adapter_bytes, report)
         if adapter_digest != adapter["digest"] or expected_id != candidate_id:
             raise RuntimeFailure(
                 "candidate_damaged",
@@ -388,7 +251,7 @@ class LocalRuntime:
 
     def promote(self, candidate_id: str, *, promoted_by: str) -> dict[str, Any]:
         """Explicitly make one candidate the version inference serves."""
-        candidate = self.candidate(candidate_id)["manifest"]
+        candidate = self._promotable_candidate(candidate_id)
         if not isinstance(promoted_by, str) or not promoted_by.strip():
             raise RuntimeFailure("invalid_input", "promotedBy must name the operator.")
         if candidate["tasksetDigest"] != self.taskset_digest:
@@ -397,15 +260,38 @@ class LocalRuntime:
             )
         with self._lock:
             current = self.promotion(required=False)
-            promotion = {
-                "schemaVersion": PROMOTION_SCHEMA,
-                "generation": (current["generation"] + 1) if current else 1,
-                "candidateId": candidate_id,
-                "previousCandidateId": current["candidateId"] if current else None,
-                "promotedBy": promoted_by.strip(),
-                "promotedAt": _now(),
-            }
-            _write_json_atomic(self.state_directory / "promotion.json", promotion)
+            promotion = self._promotion(
+                candidate_id,
+                previous_candidate_id=current["candidateId"] if current else None,
+                generation=(current["generation"] + 1) if current else 1,
+                promoted_by=promoted_by.strip(),
+                operation="promote",
+            )
+            self._write_promotion(promotion)
+            return promotion
+
+    def rollback(self, *, rolled_back_by: str) -> dict[str, Any]:
+        """Promote the immediately previous candidate as a new explicit generation."""
+        if not isinstance(rolled_back_by, str) or not rolled_back_by.strip():
+            raise RuntimeFailure("invalid_input", "rolledBackBy must name the operator.")
+        with self._lock:
+            current = self.promotion()
+            candidate_id = current.get("previousCandidateId")
+            if not isinstance(candidate_id, str):
+                raise RuntimeFailure(
+                    "rollback_unavailable",
+                    "The current promotion has no previous candidate to restore.",
+                    409,
+                )
+            self._promotable_candidate(candidate_id)
+            promotion = self._promotion(
+                candidate_id,
+                previous_candidate_id=current["candidateId"],
+                generation=current["generation"] + 1,
+                promoted_by=rolled_back_by.strip(),
+                operation="rollback",
+            )
+            self._write_promotion(promotion)
             return promotion
 
     def promotion(self, *, required: bool = True) -> dict[str, Any] | None:
@@ -419,18 +305,27 @@ class LocalRuntime:
                     409,
                 )
             return None
-        return self._record(path, "promotion", "current")
+        promotion = self._record(path, "promotion", "current")
+        generation = promotion.get("generation")
+        if not isinstance(generation, int) or generation < 1:
+            raise RuntimeFailure("state_damaged", "Stored promotion generation is invalid.", 500)
+        history = self._record(
+            self.state_directory / "promotions" / f"{generation:08d}.json",
+            "promotion generation",
+            str(generation),
+        )
+        if history != promotion:
+            raise RuntimeFailure(
+                "state_damaged",
+                "The current promotion does not match its immutable generation.",
+                500,
+            )
+        return promotion
 
     def ready(self) -> None:
         """Fail unless the promoted candidate is intact and its backend can serve requests."""
         promotion = self.promotion()
-        manifest = self.candidate(promotion["candidateId"])["manifest"]
-        if manifest["backend"] not in self.backends:
-            raise RuntimeFailure(
-                "backend_unavailable",
-                f"Promoted candidate backend {manifest['backend']} is not configured.",
-                503,
-            )
+        self._promotable_candidate(promotion["candidateId"])
 
     def evaluate(
         self, request: Mapping[str, Any], *, timeout_seconds: float = 120
@@ -439,7 +334,7 @@ class LocalRuntime:
         _check_request(request)
         promotion = self.promotion()
         candidate_id = promotion["candidateId"]
-        manifest = self.candidate(candidate_id)["manifest"]
+        manifest = self._promotable_candidate(candidate_id)
         backend = self.backends.get(manifest["backend"])
         if backend is None:
             raise RuntimeFailure(
@@ -523,26 +418,9 @@ class LocalRuntime:
         report = _candidate_evaluation(
             self.taskset_digest, result.baseline_report, result.candidate_report
         )
-        identity = hashlib.sha256()
-        identity.update(job["backend"].encode())
-        identity.update(result.adapter)
-        identity.update(_json_bytes(report))
-        candidate_id = f"candidate_{identity.hexdigest()[:32]}"
-        candidates = self.state_directory / "candidates"
-        target = candidates / candidate_id
-        if target.exists():
-            existing = self.candidate(candidate_id)
-            if existing["evaluation"] != report:
-                raise RuntimeFailure(
-                    "candidate_collision", f"Candidate id {candidate_id} already has other data.", 500
-                )
-            return candidate_id
-        staging = candidates / f".{candidate_id}.{uuid.uuid4().hex}"
-        staging.mkdir(mode=0o700)
         adapter_digest = "sha256:" + hashlib.sha256(result.adapter).hexdigest()
-        manifest = {
+        manifest_identity = {
             "schemaVersion": CANDIDATE_SCHEMA,
-            "id": candidate_id,
             "backend": job["backend"],
             "tasksetDigest": self.taskset_digest,
             "trainingJobId": job["id"],
@@ -552,8 +430,24 @@ class LocalRuntime:
                 "digest": adapter_digest,
                 "bytes": len(result.adapter),
             },
+            "productionEligible": bool(
+                self.backends[job["backend"]].production_eligible
+            ),
             "metadata": dict(result.metadata),
         }
+        candidate_id = _candidate_id(manifest_identity, result.adapter, report)
+        manifest = {"id": candidate_id, **manifest_identity}
+        candidates = self.state_directory / "candidates"
+        target = candidates / candidate_id
+        if target.exists():
+            existing = self.candidate(candidate_id)
+            if existing["manifest"] != manifest or existing["evaluation"] != report:
+                raise RuntimeFailure(
+                    "candidate_collision", f"Candidate id {candidate_id} already has other data.", 500
+                )
+            return candidate_id
+        staging = candidates / f".{candidate_id}.{uuid.uuid4().hex}"
+        staging.mkdir(mode=0o700)
         try:
             _write_immutable(staging / result.adapter_name, result.adapter)
             _write_immutable(staging / "evaluation.json", _json_bytes(report))
@@ -582,6 +476,41 @@ class LocalRuntime:
                 )
                 _write_json_atomic(path, job)
 
+    def _recover_promotion(self) -> None:
+        history = sorted((self.state_directory / "promotions").glob("*.json"))
+        if not history:
+            return
+        latest = self._record(history[-1], "promotion generation", history[-1].stem)
+        latest_generation = latest.get("generation")
+        if (
+            not isinstance(latest_generation, int)
+            or history[-1].name != f"{latest_generation:08d}.json"
+        ):
+            raise RuntimeFailure(
+                "state_damaged", "The latest promotion generation is invalid.", 500
+            )
+        current_path = self.state_directory / "promotion.json"
+        current = (
+            self._record(current_path, "promotion", "current")
+            if current_path.is_file()
+            else None
+        )
+        current_generation = current.get("generation", 0) if current else 0
+        if latest_generation == current_generation:
+            return
+        if (
+            latest_generation == current_generation + 1
+            and latest.get("previousCandidateId")
+            == (current.get("candidateId") if current else None)
+        ):
+            _write_json_atomic(current_path, latest)
+            return
+        raise RuntimeFailure(
+            "state_damaged",
+            "Promotion history is not one generation ahead of the current pointer.",
+            500,
+        )
+
     def _record(self, path: Path, kind: str, identifier: str) -> dict[str, Any]:
         try:
             value = _read_json(path)
@@ -603,6 +532,60 @@ class LocalRuntime:
 
     def _job_path(self, job_id: str) -> Path:
         return self.state_directory / "jobs" / f"{job_id}.json"
+
+    def _promotable_candidate(self, candidate_id: str) -> dict[str, Any]:
+        candidate = self.candidate(candidate_id)["manifest"]
+        backend = self.backends.get(candidate["backend"])
+        if backend is None:
+            raise RuntimeFailure(
+                "backend_unavailable",
+                f"Candidate backend {candidate['backend']} is not configured.",
+                503,
+            )
+        if self.environment == "production" and not candidate.get("productionEligible"):
+            raise RuntimeFailure(
+                "candidate_not_production_eligible",
+                f"Backend {candidate['backend']} produces development and test candidates only.",
+                409,
+            )
+        return candidate
+
+    def _write_promotion(self, promotion: Mapping[str, Any]) -> None:
+        history = (
+            self.state_directory
+            / "promotions"
+            / f"{promotion['generation']:08d}.json"
+        )
+        data = _json_bytes(promotion)
+        if history.exists():
+            if history.read_bytes() != data:
+                raise RuntimeFailure(
+                    "state_damaged",
+                    f"Promotion generation {promotion['generation']} already has other data.",
+                    500,
+                )
+        else:
+            _write_immutable(history, data)
+        _write_json_atomic(self.state_directory / "promotion.json", promotion)
+
+    @staticmethod
+    def _promotion(
+        candidate_id: str,
+        *,
+        previous_candidate_id: str | None,
+        generation: int,
+        promoted_by: str,
+        operation: str,
+    ) -> dict[str, Any]:
+        return {
+            "schemaVersion": PROMOTION_SCHEMA,
+            "generation": generation,
+            "candidateId": candidate_id,
+            "previousCandidateId": previous_candidate_id,
+            "operation": operation,
+            "promotedBy": promoted_by,
+            "promotedAt": _now(),
+        }
 
 
 def _candidate_evaluation(
@@ -638,6 +621,19 @@ def _candidate_evaluation(
     }
 
 
+def _candidate_id(
+    manifest: Mapping[str, Any],
+    adapter: bytes,
+    report: Mapping[str, Any],
+) -> str:
+    identity = hashlib.sha256()
+    identity.update(_json_bytes(manifest))
+    identity.update(b"\0")
+    identity.update(adapter)
+    identity.update(_json_bytes(report))
+    return f"candidate_{identity.hexdigest()[:32]}"
+
+
 def _evaluate_fixture(taskset: Taskset, probabilities: Mapping[str, float]) -> dict[str, Any]:
     split = "test"
     predictions = {
@@ -670,19 +666,42 @@ def _fixture_answers(
 
 def _taskset_digest(taskset: Taskset) -> str:
     identity = {
-        "manifest": dict(taskset.metadata),
+        "manifest": _json_data(taskset.metadata),
         "tasks": [
             {
                 "id": task.id,
                 "split": task.split,
-                "images": [image.digest for image in task.images],
-                "questions": sorted(task.questions),
-                "labels": dict(task.labels),
+                "state": _json_data(task.state),
+                "images": [
+                    {
+                        "role": image.role,
+                        "path": image.name,
+                        "mediaType": image.media_type,
+                        "digest": image.digest,
+                        "size": image.size,
+                        "theme": image.theme,
+                    }
+                    for image in task.images
+                ],
+                "questions": {
+                    key: _json_data(question.spec)
+                    for key, question in task.questions.items()
+                },
+                "labels": _json_data(task.labels),
+                "provenance": _json_data(task.provenance),
             }
             for task in taskset.tasks
         ],
     }
     return "sha256:" + hashlib.sha256(_json_bytes(identity)).hexdigest()
+
+
+def _json_data(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {key: _json_data(member) for key, member in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_data(member) for member in value]
+    return value
 
 
 def _check_limits(max_updates: int, max_seconds: float) -> None:
@@ -745,33 +764,6 @@ def _valid_yes_no(value: Any) -> bool:
     )
 
 
-def _write_request_images(directory: Path, images: list[str]) -> list[str]:
-    paths = []
-    for index, uri in enumerate(images):
-        try:
-            header, encoded = uri.split(",", 1)
-            media_type = header.removeprefix("data:").removesuffix(";base64")
-            if media_type not in ("image/png", "image/jpeg", "image/webp"):
-                raise ValueError
-            data = base64.b64decode(encoded, validate=True)
-        except (ValueError, TypeError):
-            raise RuntimeFailure("invalid_input", f"Image {index + 1} is not a valid data URI.")
-        suffix = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}[media_type]
-        path = directory / f"image-{index + 1}{suffix}"
-        path.write_bytes(data)
-        paths.append(path.name)
-    return paths
-
-
-def _backend_environment() -> dict[str, str]:
-    environment = dict(os.environ)
-    # The trainer needs REPLICA_ENV_TOKEN, but model code never needs credentials that authorize
-    # runtime administration or promoted inference.
-    environment.pop("REPLICA_RUNTIME_TOKEN", None)
-    environment.pop("REPLICA_DECISION_KEY", None)
-    return environment
-
-
 def _checked_id(value: str, prefix: str) -> str:
     if (
         not isinstance(value, str)
@@ -811,9 +803,3 @@ def _write_immutable(path: Path, data: bytes) -> None:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
-
-
-def _monotonic() -> float:
-    import time
-
-    return time.monotonic()

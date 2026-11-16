@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from urllib import error, request
 
-from replica_brand_check.runtime import FixtureBackend, LocalRuntime
+from replica_brand_check.runtime import FixtureBackend, LocalRuntime, RuntimeFailure
 from replica_brand_check.runtime_server import RuntimeHTTPServer
 from tests.support import PNG, RULE, make_task, write_taskset
 
@@ -51,6 +51,7 @@ class LocalRuntimeTest(unittest.TestCase):
         candidate = runtime.candidate(candidate_id)
         manifest, report = self._candidate_documents(candidate)
         self.assertEqual(manifest["id"], candidate_id)
+        self.assertFalse(manifest["productionEligible"])
         self.assertGreater(report["evidence"]["meanRewardDelta"], 0)
         self.assertIn("calibrationErrorDelta", report["evidence"])
         before = self._candidate_snapshot(candidate)
@@ -69,6 +70,12 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(response["evaluations"][0]["learningId"], RULE)
         self.assertEqual(self._candidate_snapshot(runtime.candidate(candidate_id)), before)
 
+        before_rollback = runtime.promotion()
+        with self.assertRaises(RuntimeFailure) as unavailable:
+            runtime.rollback(rolled_back_by="test-operator")
+        self.assertEqual(unavailable.exception.code, "rollback_unavailable")
+        self.assertEqual(runtime.promotion(), before_rollback)
+
     def test_refuses_inference_until_a_candidate_is_explicitly_promoted(self):
         runtime = self._runtime()
         finished = self._wait_for_job(
@@ -79,6 +86,25 @@ class LocalRuntimeTest(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             runtime.evaluate(self._request())
+
+    def test_detects_a_candidate_changed_to_claim_production_eligibility(self):
+        runtime = self._runtime()
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
+        )
+        manifest_path = (
+            self.state_dir / "candidates" / finished["candidateId"] / "manifest.json"
+        )
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["productionEligible"] = True
+        manifest_path.chmod(0o600)
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        with self.assertRaises(RuntimeFailure) as damaged:
+            runtime.candidate(finished["candidateId"])
+
+        self.assertEqual(damaged.exception.code, "candidate_damaged")
 
     def test_rejects_invalid_limits_without_persisting_a_job(self):
         runtime = self._runtime()
@@ -98,6 +124,22 @@ class LocalRuntimeTest(unittest.TestCase):
                     runtime.submit(backend="fixture", **limits)
 
         self.assertEqual(self._tree_snapshot(self.state_dir), before)
+
+    def test_taskset_digest_changes_when_question_content_changes(self):
+        runtime = self._runtime()
+        before = runtime.taskset_digest
+        runtime.close()
+        tasks_path = self.taskset_dir / "tasks.jsonl"
+        tasks = [json.loads(line) for line in tasks_path.read_text(encoding="utf-8").splitlines()]
+        tasks[0]["questions"][RULE]["instructions"] = "Changed question"
+        tasks_path.write_text(
+            "".join(json.dumps(task) + "\n" for task in tasks),
+            encoding="utf-8",
+        )
+
+        reopened = self._runtime()
+
+        self.assertNotEqual(reopened.taskset_digest, before)
 
     def test_persists_backend_failure_without_creating_a_candidate(self):
         runtime = LocalRuntime(
@@ -127,26 +169,170 @@ class LocalRuntimeTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             reopened.promote(submitted["id"], promoted_by="test-operator")
 
-    def test_reopening_state_preserves_job_candidate_and_promotion(self):
+    def test_restart_marks_an_interrupted_job_failed(self):
+        jobs = self.state_dir / "jobs"
+        jobs.mkdir(parents=True)
+        job_id = "job_0123456789abcdef0123456789abcdef"
+        (jobs / f"{job_id}.json").write_text(
+            json.dumps(
+                {
+                    "schemaVersion": "replica.decision-training-job/v1",
+                    "id": job_id,
+                    "state": "running",
+                    "backend": "fixture",
+                }
+            ),
+            encoding="utf-8",
+        )
+
         runtime = self._runtime()
-        finished = self._wait_for_job(
+        recovered = runtime.job(job_id)
+
+        self.assertEqual(recovered["state"], "failed")
+        self.assertEqual(recovered["error"]["code"], "runtime_restarted")
+        self.assertIn("completedAt", recovered)
+
+    def test_rollback_promotes_the_previous_candidate_as_a_new_generation(self):
+        runtime = self._runtime()
+        first = self._wait_for_job(
             runtime,
             runtime.submit(backend="fixture", max_updates=4, max_seconds=5)["id"],
         )
-        candidate_id = finished["candidateId"]
-        runtime.promote(candidate_id, promoted_by="test-operator")
-        candidate_before = self._candidate_snapshot(runtime.candidate(candidate_id))
+        second = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
+        )
+        first_candidate = first["candidateId"]
+        second_candidate = second["candidateId"]
+        self.assertNotEqual(first_candidate, second_candidate)
+
+        first_promotion = runtime.promote(first_candidate, promoted_by="first-operator")
+        second_promotion = runtime.promote(second_candidate, promoted_by="second-operator")
+        rollback = runtime.rollback(rolled_back_by="rollback-operator")
+
+        self.assertEqual(first_promotion["generation"], 1)
+        self.assertEqual(first_promotion["previousCandidateId"], None)
+        self.assertEqual(first_promotion["operation"], "promote")
+        self.assertEqual(second_promotion["generation"], 2)
+        self.assertEqual(second_promotion["previousCandidateId"], first_candidate)
+        self.assertEqual(rollback["generation"], 3)
+        self.assertEqual(rollback["candidateId"], first_candidate)
+        self.assertEqual(rollback["previousCandidateId"], second_candidate)
+        self.assertEqual(rollback["operation"], "rollback")
+        self.assertEqual(rollback["promotedBy"], "rollback-operator")
+        self.assertEqual(
+            [
+                json.loads(path.read_text(encoding="utf-8"))
+                for path in sorted((self.state_dir / "promotions").iterdir())
+            ],
+            [first_promotion, second_promotion, rollback],
+        )
+        candidate_before = self._candidate_snapshot(runtime.candidate(first_candidate))
         runtime.close()
 
         reopened = self._runtime()
 
-        self.assertEqual(reopened.job(finished["id"]), finished)
+        self.assertEqual(reopened.job(first["id"]), first)
+        self.assertEqual(reopened.job(second["id"]), second)
         self.assertEqual(
-            self._candidate_snapshot(reopened.candidate(candidate_id)),
+            self._candidate_snapshot(reopened.candidate(first_candidate)),
             candidate_before,
         )
-        self.assertEqual(reopened.promotion()["candidateId"], candidate_id)
-        self.assertEqual(reopened.evaluate(self._request())["candidateId"], candidate_id)
+        self.assertEqual(reopened.promotion(), rollback)
+        response = reopened.evaluate(self._request())
+        self.assertEqual(response["candidateId"], first_candidate)
+        self.assertEqual(response["promotionGeneration"], 3)
+
+    def test_restart_recovers_a_promotion_generation_written_before_the_pointer(self):
+        runtime = self._runtime()
+        first = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=4, max_seconds=5)["id"],
+        )
+        second = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
+        )
+        first_promotion = runtime.promote(
+            first["candidateId"], promoted_by="first-operator"
+        )
+        second_promotion = runtime.promote(
+            second["candidateId"], promoted_by="second-operator"
+        )
+        runtime.close()
+        (self.state_dir / "promotion.json").write_text(
+            json.dumps(first_promotion),
+            encoding="utf-8",
+        )
+
+        reopened = self._runtime()
+
+        self.assertEqual(reopened.promotion(), second_promotion)
+
+    def test_production_rejects_fixture_promotion_without_changing_the_current_generation(self):
+        runtime = self._runtime()
+        first = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=2, max_seconds=5)["id"],
+        )
+        second = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
+        )
+        runtime.promote(first["candidateId"], promoted_by="test-operator")
+        before = runtime.promotion()
+        runtime.close()
+
+        production = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"fixture": FixtureBackend()},
+            environment="production",
+        )
+        self.addCleanup(production.close)
+
+        with self.assertRaises(RuntimeFailure) as refused:
+            production.promote(second["candidateId"], promoted_by="production-operator")
+
+        self.assertEqual(refused.exception.code, "candidate_not_production_eligible")
+        self.assertEqual(refused.exception.status, 409)
+        self.assertEqual(production.promotion(), before)
+        with self.assertRaises(RuntimeFailure) as not_ready:
+            production.ready()
+        self.assertEqual(not_ready.exception.code, "candidate_not_production_eligible")
+        with self.assertRaises(RuntimeFailure) as not_served:
+            production.evaluate(self._request())
+        self.assertEqual(not_served.exception.code, "candidate_not_production_eligible")
+
+    def test_production_rejects_rollback_to_a_fixture_candidate(self):
+        runtime = self._runtime()
+        first = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=2, max_seconds=5)["id"],
+        )
+        second = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
+        )
+        runtime.promote(first["candidateId"], promoted_by="first-operator")
+        runtime.promote(second["candidateId"], promoted_by="second-operator")
+        before = runtime.promotion()
+        runtime.close()
+
+        production = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"fixture": FixtureBackend()},
+            environment="production",
+        )
+        self.addCleanup(production.close)
+
+        with self.assertRaises(RuntimeFailure) as refused:
+            production.rollback(rolled_back_by="production-operator")
+
+        self.assertEqual(refused.exception.code, "candidate_not_production_eligible")
+        self.assertEqual(refused.exception.status, 409)
+        self.assertEqual(production.promotion(), before)
 
     def test_http_routes_require_the_token_and_track_an_authorized_job(self):
         runtime = self._runtime()
@@ -201,6 +387,59 @@ class LocalRuntimeTest(unittest.TestCase):
                 },
             )
         )
+        second = self._http_json(
+            request.Request(
+                f"{base_url}/v1/jobs",
+                data=json.dumps(
+                    {"backend": "fixture", "maxUpdates": 8, "maxSeconds": 5}
+                ).encode(),
+                headers={
+                    "Authorization": f"Bearer {TOKEN}",
+                    "Content-Type": "application/json",
+                },
+            )
+        )
+        second = self._wait_for_http_job(base_url, second["id"])
+        self._http_json(
+            request.Request(
+                f"{base_url}/v1/promotions",
+                data=json.dumps(
+                    {
+                        "candidateId": second["candidateId"],
+                        "promotedBy": "test-operator",
+                    }
+                ).encode(),
+                headers={
+                    "Authorization": f"Bearer {TOKEN}",
+                    "Content-Type": "application/json",
+                },
+            )
+        )
+        rollback = self._http_json(
+            request.Request(
+                f"{base_url}/v1/rollbacks",
+                data=json.dumps({"rolledBackBy": "test-operator"}).encode(),
+                headers={
+                    "Authorization": f"Bearer {TOKEN}",
+                    "Content-Type": "application/json",
+                },
+            )
+        )
+        scored = self._http_json(
+            request.Request(
+                f"{base_url}/score",
+                data=json.dumps(self._request()).encode(),
+                headers={
+                    "Authorization": f"Bearer {TOKEN}",
+                    "Content-Type": "application/json",
+                },
+            )
+        )
+        self.assertEqual(rollback["generation"], 3)
+        self.assertEqual(rollback["candidateId"], finished["candidateId"])
+        self.assertEqual(rollback["previousCandidateId"], second["candidateId"])
+        self.assertEqual(scored["candidateId"], finished["candidateId"])
+        self.assertEqual(scored["promotionGeneration"], 3)
         self.assertEqual(self._http_json(f"{base_url}/ready"), {"status": "ready"})
 
     def _runtime(self):
@@ -208,6 +447,7 @@ class LocalRuntimeTest(unittest.TestCase):
             self.state_dir,
             self.taskset_dir,
             backends={"fixture": FixtureBackend()},
+            environment="test",
         )
         self.addCleanup(runtime.close)
         return runtime

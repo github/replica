@@ -5,11 +5,11 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import importlib.util
 import json
 import shutil
 import sys
 import time
-import importlib.util
 from pathlib import Path
 
 try:
@@ -114,16 +114,23 @@ def main() -> int:
     write_taskset(taskset)
     runtime = LocalRuntime(state, taskset)
     try:
-        submitted = runtime.submit(backend="fixture", max_updates=12, max_seconds=30)
-        while True:
-            job = runtime.job(submitted["id"])
-            if job["state"] in ("succeeded", "failed"):
-                break
-            time.sleep(0.01)
-        if job["state"] != "succeeded":
-            raise RuntimeError(job["error"]["message"])
-        candidate = runtime.candidate(job["candidateId"])
-        promotion = runtime.promote(job["candidateId"], promoted_by="demo-operator")
+        jobs = []
+        for updates in (4, 8):
+            submitted = runtime.submit(
+                backend="fixture", max_updates=updates, max_seconds=30
+            )
+            while True:
+                job = runtime.job(submitted["id"])
+                if job["state"] in ("succeeded", "failed"):
+                    break
+                time.sleep(0.01)
+            if job["state"] != "succeeded":
+                raise RuntimeError(job["error"]["message"])
+            jobs.append(job)
+        first = runtime.promote(jobs[0]["candidateId"], promoted_by="demo-operator")
+        second = runtime.promote(jobs[1]["candidateId"], promoted_by="demo-operator")
+        rollback = runtime.rollback(rolled_back_by="demo-operator")
+        candidate = runtime.candidate(rollback["candidateId"])
         encoded = base64.b64encode(PNG).decode()
         response = runtime.evaluate(
             {
@@ -135,9 +142,9 @@ def main() -> int:
         print(
             json.dumps(
                 {
-                    "job": job,
+                    "jobs": jobs,
                     "candidate": candidate,
-                    "promotion": promotion,
+                    "promotions": [first, second, rollback],
                     "evaluation": response,
                     "stateDirectory": str(state.resolve()),
                 },
