@@ -10,7 +10,9 @@ import type { ProductRouteDependencies } from "../../../../product/types"
 import { get } from "."
 
 type ProductMocks = {
-  [Key in keyof ProductRouteDependencies]: Mock<ProductRouteDependencies[Key]>
+  [Key in Exclude<keyof ProductRouteDependencies, "reviewComments">]: Mock<
+    ProductRouteDependencies[Key]
+  >
 }
 
 /** Keeps the real HTTP parsing and response while isolating database access. */
