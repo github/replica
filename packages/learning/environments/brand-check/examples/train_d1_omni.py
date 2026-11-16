@@ -46,6 +46,7 @@ import base64
 import importlib
 import io
 import json
+import os
 import random
 import time
 from dataclasses import dataclass
@@ -57,6 +58,8 @@ import torch.nn.functional as F
 from PIL import Image
 from torch.nn.utils.rnn import pad_sequence
 from transformers import AutoModel
+
+TRUSTED_MODEL_DIRS_VARIABLE = "REPLICA_TRUSTED_MODEL_DIRS"
 
 
 @dataclass
@@ -99,15 +102,27 @@ def learning_state(state: dict[str, Any], value: Any) -> dict[str, Any]:
     return prompt_state
 
 
+def trusted_model_path(model_dir: str) -> Path:
+    """Return an allowlisted local model directory, or fail before running its Python code."""
+    model_path = Path(model_dir).resolve()
+    trusted = set()
+    for entry in os.environ.get(TRUSTED_MODEL_DIRS_VARIABLE, "").split(os.pathsep):
+        candidate = Path(entry).expanduser()
+        if entry and candidate.is_absolute():
+            trusted.add(candidate.resolve())
+    if not model_path.is_dir() or model_path not in trusted:
+        raise ValueError(
+            f"Review the model code, then add its absolute directory to "
+            f"{TRUSTED_MODEL_DIRS_VARIABLE} before passing it with --model."
+        )
+    return model_path
+
+
 class Policy:
     """d1-omni-600M with one trainable part and a per-task cache of the frozen trunk."""
 
     def __init__(self, model_dir: str, part: str = "readout"):
-        model_path = Path(model_dir)
-        if not model_path.is_dir():
-            raise ValueError(
-                "Download and review d1-omni-600M first, then pass its local directory with --model."
-            )
+        model_path = trusted_model_path(model_dir)
         self.device = (
             "mps"
             if torch.backends.mps.is_available()

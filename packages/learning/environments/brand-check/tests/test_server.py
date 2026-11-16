@@ -61,7 +61,7 @@ def load_trainer(auto_model):
 
 
 class TrainerTest(unittest.TestCase):
-    def test_remote_code_is_enabled_only_for_an_explicit_local_model_directory(self):
+    def test_remote_code_requires_an_allowlisted_local_model_directory(self):
         calls = []
 
         class ModelLoadReached(Exception):
@@ -74,15 +74,21 @@ class TrainerTest(unittest.TestCase):
                 raise ModelLoadReached
 
         trainer = load_trainer(AutoModel)
+        model_directory = Path(__file__).parent.resolve()
+        trusted_directories = "REPLICA_TRUSTED_MODEL_DIRS"
 
-        with self.assertRaisesRegex(ValueError, "local directory"):
-            trainer.Policy("unreviewed/model-from-the-network")
-        with self.assertRaises(ModelLoadReached):
-            trainer.Policy(str(Path(__file__).parent))
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(trusted_directories, None)
+            with self.assertRaisesRegex(ValueError, trusted_directories):
+                trainer.Policy(str(model_directory))
+        allowlist = os.pathsep.join([str(model_directory.parent), str(model_directory)])
+        with mock.patch.dict(os.environ, {trusted_directories: allowlist}):
+            with self.assertRaises(ModelLoadReached):
+                trainer.Policy(str(model_directory / ".." / "tests"))
 
         (arguments, options), = calls
         (model_path,) = arguments
-        self.assertEqual(model_path, Path(__file__).parent)
+        self.assertEqual(model_path, model_directory)
         self.assertTrue(options["trust_remote_code"])
         self.assertTrue(options["local_files_only"])
 

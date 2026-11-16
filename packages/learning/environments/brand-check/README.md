@@ -164,11 +164,14 @@ Install the trainer's packages next to this one, download the model at the revis
 ```sh
 uv pip install torch torchvision "transformers>=5.14" pillow
 hf download LiquidAI/d1-omni-600M --revision 02b55d7076f15129e59ab3f94783f32c4b088674 --local-dir models/d1-omni-600M
+export REPLICA_TRUSTED_MODEL_DIRS="$(pwd)/models/d1-omni-600M"
 .venv/bin/python examples/train_d1_omni.py train --model models/d1-omni-600M --taskset /path/to/taskset --out runs/demo
 .venv/bin/python examples/train_d1_omni.py evaluate --model models/d1-omni-600M --taskset /path/to/taskset --trained runs/demo/best.pt --split test --out runs/demo
 ```
 
 Training reads `--taskset` only to list the tasks in each split; the server scores every answer. The `evaluate` command also reads that split's labels from the taskset to write its report. Both commands read each task's screenshots through the model once and keeps the result in memory, so the first pass over the tasks is the slow part. To train the readout, it first reads every practice page to scale the readout's inputs, which uses no labels. Choose the settings and the trained weights on the dev split, then score the test split once.
+
+`REPLICA_TRUSTED_MODEL_DIRS` is an independent approval gate for model-supplied Python code. It must list the reviewed model directory as an absolute path before the trainer loads it. Separate several approved paths with the operating system's path separator.
 
 ## Privacy
 

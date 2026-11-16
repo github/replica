@@ -58,6 +58,7 @@ uv pip install torch torchvision "transformers>=5.14" pillow
 hf download LiquidAI/d1-omni-600M \
   --revision 02b55d7076f15129e59ab3f94783f32c4b088674 \
   --local-dir models/d1-omni-600M
+export REPLICA_TRUSTED_MODEL_DIRS="$(pwd)/models/d1-omni-600M"
 .venv/bin/python examples/train_d1_omni.py train \
   --model models/d1-omni-600M --taskset /path/to/taskset --out runs/team
 .venv/bin/python examples/train_d1_omni.py evaluate \
@@ -68,7 +69,7 @@ hf download LiquidAI/d1-omni-600M \
   --trained runs/team/best.pt --split test --name trained --out runs/team
 ```
 
-The trainer accepts only a local model directory and loads only files already present there. It still runs the model's custom Python code, so review that directory before training.
+The trainer accepts only a local model directory named in `REPLICA_TRUSTED_MODEL_DIRS` and loads only files already present there. Separate several approved absolute paths with the operating system's path separator. The model still runs custom Python code, so review a directory before adding it to the allowlist.
 
 Choose settings against the development split. Score the test split only once after choosing the weights, so it remains an honest comparison. Compare `released-test-report.json` with `trained-test-report.json`: mean reward should improve, and expected calibration error should not get worse.
 
