@@ -7,6 +7,7 @@ import socket
 import sys
 import threading
 import time
+import types
 import unittest
 import urllib.error
 import urllib.request
@@ -19,6 +20,68 @@ from replica_brand_check.taskset import load_taskset
 from tests.support import RULE, make_task, write_taskset
 
 TOKEN = "end-to-end-test-token-0123456789abcdef"
+
+
+class TrainerModelAccessTest(unittest.TestCase):
+    def test_remote_code_is_enabled_only_for_an_explicit_local_model_directory(self):
+        calls = []
+
+        class ModelLoadReached(Exception):
+            pass
+
+        class AutoModel:
+            @staticmethod
+            def from_pretrained(*args, **kwargs):
+                calls.append((args, kwargs))
+                raise ModelLoadReached
+
+        torch = types.ModuleType("torch")
+        torch.__path__ = []
+        torch.Tensor = object
+        torch.float32 = object()
+        torch.no_grad = lambda: lambda function: function
+        torch.backends = types.SimpleNamespace(
+            mps=types.SimpleNamespace(is_available=lambda: False)
+        )
+        torch.cuda = types.SimpleNamespace(is_available=lambda: False)
+        torch_nn = types.ModuleType("torch.nn")
+        torch_nn.__path__ = []
+        torch_functional = types.ModuleType("torch.nn.functional")
+        torch_utils = types.ModuleType("torch.nn.utils")
+        torch_utils.__path__ = []
+        torch_rnn = types.ModuleType("torch.nn.utils.rnn")
+        torch_rnn.pad_sequence = object()
+        torch.nn = torch_nn
+        pillow = types.ModuleType("PIL")
+        pillow.Image = object()
+        transformers = types.ModuleType("transformers")
+        transformers.AutoModel = AutoModel
+        modules = {
+            "torch": torch,
+            "torch.nn": torch_nn,
+            "torch.nn.functional": torch_functional,
+            "torch.nn.utils": torch_utils,
+            "torch.nn.utils.rnn": torch_rnn,
+            "PIL": pillow,
+            "transformers": transformers,
+        }
+        source = Path(__file__).parent.parent / "examples" / "train_d1_omni.py"
+        spec = importlib.util.spec_from_file_location("test_train_d1_omni", source)
+        trainer = importlib.util.module_from_spec(spec)
+        modules[spec.name] = trainer
+        with mock.patch.dict(sys.modules, modules):
+            spec.loader.exec_module(trainer)
+
+        with self.assertRaisesRegex(ValueError, "local directory"):
+            trainer.Policy("unreviewed/model-from-the-network")
+        with self.assertRaises(ModelLoadReached):
+            trainer.Policy(str(Path(__file__).parent))
+
+        (arguments, options), = calls
+        (model_path,) = arguments
+        self.assertEqual(model_path, Path(__file__).parent)
+        self.assertTrue(options["trust_remote_code"])
+        self.assertTrue(options["local_files_only"])
 
 
 @unittest.skipUnless(importlib.util.find_spec("openenv"), "openenv-core is not installed")
@@ -36,11 +99,18 @@ class ServerTest(unittest.TestCase):
         with BrandCheckEnv(base_url=url, message_timeout_s=10).sync() as env:
             result = env.reset(seed=5)
             self.assertEqual(result.observation.task_id, seeded_task)
-            self.assertEqual(result.observation.labels, {})
+            self.assertFalse(hasattr(result.observation, "labels"))
             result = env.step(BrandCheckAction(answers=answers))
             self.assertTrue(result.done)
             self.assertAlmostEqual(result.reward, 0.96)
-            self.assertEqual(result.observation.metadata["labels"], {RULE: False})
+            self.assertEqual(result.observation.rewards, {RULE: 0.96})
+            self.assertEqual(result.observation.invalid, [])
+            self.assertEqual(
+                result.observation.metadata,
+                {"rewards": {RULE: 0.96}, "invalid": []},
+            )
+            self.assertFalse(hasattr(result.observation, "correct"))
+            self.assertFalse(hasattr(result.observation, "labels"))
             with self.assertRaisesRegex(RuntimeError, "already done"):
                 env.step(BrandCheckAction(answers=answers))
 
@@ -63,6 +133,30 @@ class ServerTest(unittest.TestCase):
             urllib.request.urlopen(request, timeout=10)
         self.assertEqual(refused.exception.code, 409)
         self.assertIn("WebSocket", json.load(refused.exception)["detail"])
+
+    def test_client_requires_encryption_away_from_loopback(self):
+        from replica_brand_check import BrandCheckEnv
+
+        accepted = [
+            "http://localhost:8000",
+            "http://127.0.0.1:8000",
+            "http://[::1]:8000",
+            "https://trainer.example.com",
+        ]
+        for url in accepted:
+            with self.subTest(url=url):
+                BrandCheckEnv(base_url=url, token=TOKEN)
+
+        refused = [
+            "http://trainer.example.com",
+            "http://10.0.0.8:8000",
+            "http://127.0.0.1.example.com:8000",
+        ]
+        for url in refused:
+            with self.subTest(url=url), self.assertRaisesRegex(
+                ValueError, "https|loopback|this computer"
+            ):
+                BrandCheckEnv(base_url=url, token=TOKEN)
 
     def serve(self, directory: Path) -> str:
         """Serve the real app, with TOKEN, on a free localhost port until the case ends."""

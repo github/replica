@@ -44,14 +44,7 @@ class BrandCheckObservation(Observation):
     rewards: dict[str, float] = Field(
         default_factory=dict, description="After the step: the reward of each labeled question."
     )
-    correct: dict[str, bool] = Field(
-        default_factory=dict,
-        description="After the step: whether the single most probable option matched each label.",
-    )
     invalid: list[str] = Field(
         default_factory=list,
         description="After the step: labeled questions whose answer was missing or invalid.",
-    )
-    labels: dict[str, Any] = Field(
-        default_factory=dict, description="After the step: the label of each labeled question."
     )

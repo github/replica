@@ -331,7 +331,8 @@ class LearningsIntegrationTest < ActionDispatch::IntegrationTest
     learning = data.fetch("learnings").sole
     questions = data.dig("decisionModel", "questions")
     assert_equal [ learning.fetch("id"), "most_clearly_broken", "severity" ], questions.pluck("key")
-    assert_includes questions.first.fetch("instructions"), learning.fetch("content")
+    assert_equal learning.fetch("content"), questions.first.fetch("learningText")
+    assert_not_includes questions.first.fetch("instructions"), learning.fetch("content")
     assert_equal [ "Yes or no", "One of 2 options", "4 levels" ], questions.pluck("answer")
   end
 

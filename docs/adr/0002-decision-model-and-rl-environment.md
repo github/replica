@@ -52,7 +52,7 @@ flowchart LR
 - One choice question asks which learning the page breaks most clearly, or none.
 - One score question asks how far the page is from the learnings, on four levels.
 
-A learning's text is quoted on one line, the way recall writes it, so a learning reads as data. One set of questions covers at most 64 learnings. The **Learnings** page shows the questions, so a person sees what the model will be asked before anyone trains it.
+A learning's text is normalized onto one line, the way recall writes it, and kept in a data field separate from the question's static instructions. One set of questions covers at most 64 learnings. The **Learnings** page shows the questions and learning text, so a person sees what the model will receive before anyone trains it.
 
 ### Labels come from review outcomes
 

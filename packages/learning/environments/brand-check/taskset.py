@@ -405,12 +405,25 @@ def _check_questions(value: Any) -> Mapping[str, Question]:
 def _check_question(key: str, spec: Any) -> Question:
     if not isinstance(spec, dict):
         raise _Problem(f"question {key} must be an object")
-    _check_fields(spec, ("type", "instructions"), f"question {key}", optional=("criteria",))
+    _check_fields(
+        spec,
+        ("type", "instructions"),
+        f"question {key}",
+        optional=("criteria", "learning_text"),
+    )
     kind, criteria = spec["type"], spec.get("criteria")
     if kind not in ("noul", "choice", "score"):
         raise _Problem(f"question {key} type {quote(kind)} must be noul, choice, or score")
     if not isinstance(spec["instructions"], str) or not spec["instructions"].strip():
         raise _Problem(f"question {key} needs instructions text")
+    if "learning_text" in spec and (
+        kind != "noul"
+        or not isinstance(spec["learning_text"], str)
+        or not spec["learning_text"].strip()
+    ):
+        raise _Problem(
+            f"question {key} learning_text must be non-empty text on a yes-or-no question"
+        )
     if (
         kind == "noul"
         and "criteria" in spec

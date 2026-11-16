@@ -938,7 +938,12 @@ export declare function readHubReviewCollection(
 
 /** A typed question a decision model answers with a probability for every option. */
 export type DecisionQuestion =
-  | { type: "noul"; instructions: string; criteria?: { true?: string; false?: string } }
+  | {
+      type: "noul"
+      instructions: string
+      learning_text?: string
+      criteria?: { true?: string; false?: string }
+    }
   | { type: "choice"; instructions: string; criteria: Record<string, string> }
   | { type: "score"; instructions: string; criteria: string[] }
 export interface DecisionModel {

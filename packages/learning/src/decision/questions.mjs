@@ -22,9 +22,8 @@ const OPTION_CHARACTERS = 200
  * The typed questions a decision model answers about one candidate page, which a task shows in
  * one or more screenshots: one yes-or-no question per accepted learning, keyed by the learning's
  * ID so every answer names what it judges, then which learning the page breaks most clearly and
- * how far it is from all of
- * them. Learning text is quoted on one line, the way recall renders it, so a learning reads as
- * data and cannot add lines of its own.
+ * how far it is from all of them. Learning text stays in a separate data field, normalized the
+ * way recall renders it, rather than becoming part of the model's instructions.
  *
  * @param {Array<{ id: string, content: string }>} learnings accepted learnings, most relevant first
  * @returns {{ questions: Record<string, object>, rules: Array<{ id: string, text: string }> }}
@@ -43,12 +42,13 @@ export function brandCheckQuestions(learnings) {
       throw new LearningError("invalid_input", "Each learning needs an ID such as mem_<24 hex>.")
     if (Object.hasOwn(questions, learning.id))
       throw new LearningError("invalid_input", `Learning ${learning.id} appears twice.`)
-    const text = oneLine(learning.content ?? "")
-    if (!text) throw new LearningError("invalid_input", `Learning ${learning.id} has no text.`)
+    const text = decisionLearningText(learning.content)
+    if (!text) continue
     rules.push({ id: learning.id, text })
     questions[learning.id] = {
       type: "noul",
-      instructions: `Does the candidate page follow this team learning in every screenshot? Learning: ${JSON.stringify(text)}`,
+      instructions: "Does the candidate page follow this team learning in every screenshot?",
+      learning_text: text,
       criteria: {
         true: "Every screenshot follows the learning, or the learning does not apply to this page",
         false: "At least one screenshot visibly breaks the learning",
@@ -73,4 +73,9 @@ export function brandCheckQuestions(learnings) {
     }
   }
   return { questions, rules }
+}
+
+/** Normalize accepted learning text for decision questions; empty text cannot become a question. */
+export function decisionLearningText(content) {
+  return oneLine(content ?? "")
 }

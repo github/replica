@@ -65,7 +65,12 @@ export interface DecisionModelData {
   status: string
   consent: string
   questionsSummary: string
-  questions: Array<{ key: string; instructions: string; answer: string }>
+  questions: Array<{
+    key: string
+    instructions: string
+    learningText: string | null
+    answer: string
+  }>
 }
 
 export interface LearningsPageData extends RepositoryWorkspaceData {

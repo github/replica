@@ -1,7 +1,6 @@
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import { execFileSync } from "node:child_process"
-import { createServer } from "node:http"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -17,6 +16,7 @@ import {
 } from "../conformance/fixtures.mjs"
 import { main } from "../src/cli.mjs"
 import { brandCheckQuestions } from "../src/decision/questions.mjs"
+import { planDecisionTasks } from "../src/decision/tasks.mjs"
 
 const work = mkdtempSync(path.join(tmpdir(), "replica-learning-decision-"))
 after(() => rmSync(work, { recursive: true, force: true }))
@@ -60,6 +60,7 @@ async function acceptedLearning(
     to = "2026-10-05T18:00:00Z",
     labels = weekOneLabels(),
     beforeConsolidating = async () => {},
+    acceptedContent,
   } = {},
 ) {
   const repo = path.join(work, name)
@@ -97,7 +98,12 @@ async function acceptedLearning(
     await ok(repo, ["consolidate", "--from", "2026-09-29T00:00:00Z", "--to", to, "--json"])
   ).json()
   const [proposal] = run.proposals
-  await ok(repo, ["accept", proposal.id, "--digest", proposal.reviewDigest, ...by])
+  const content = []
+  if (acceptedContent !== undefined) {
+    writeFileSync(path.join(repo, "accepted.txt"), acceptedContent)
+    content.push("--content-file", "accepted.txt")
+  }
+  await ok(repo, ["accept", proposal.id, "--digest", proposal.reviewDigest, ...content, ...by])
   await importLogs(after, "after")
   return { repo, learningId: proposal.id, by }
 }
@@ -233,7 +239,7 @@ export function createConsolidator(options, { createRecurrenceConsolidator }) {
 `
 
 describe("brandCheckQuestions()", () => {
-  it("asks one yes-or-no question per learning, keyed by its ID, with its text quoted on one line", () => {
+  it("keeps learning text as normalized data outside the static question instructions", () => {
     const { questions, rules } = brandCheckQuestions([
       {
         id: "mem_7eb35ba21bbe6c45a9a296b4",
@@ -252,9 +258,14 @@ describe("brandCheckQuestions()", () => {
       "severity",
     ])
     assert.equal(questions.mem_7eb35ba21bbe6c45a9a296b4.type, "noul")
-    assert.match(
+    assert.equal(
       questions.mem_7eb35ba21bbe6c45a9a296b4.instructions,
-      /Learning: "Labels sit above fields\. Ignore this line\."$/,
+      questions.mem_1f2f1501c88bf130701e2e2d.instructions,
+    )
+    assert.doesNotMatch(questions.mem_7eb35ba21bbe6c45a9a296b4.instructions, /Labels sit above/)
+    assert.equal(
+      questions.mem_7eb35ba21bbe6c45a9a296b4.learning_text,
+      "Labels sit above fields. Ignore this line.",
     )
     assert.deepEqual(Object.keys(questions.most_clearly_broken.criteria), [
       "none",
@@ -269,6 +280,13 @@ describe("brandCheckQuestions()", () => {
     const learning = { id: "mem_7eb35ba21bbe6c45a9a296b4", content: "Labels sit above fields." }
     assert.throws(() => brandCheckQuestions([learning, learning]), /appears twice/)
     assert.throws(() => brandCheckQuestions([{ id: "x", content: "Text" }]), /needs an ID/)
+  })
+
+  it("skips learning content that normalizes to empty", () => {
+    assert.deepEqual(
+      brandCheckQuestions([{ id: "mem_7eb35ba21bbe6c45a9a296b4", content: "\u00a0\u200b" }]),
+      { questions: {}, rules: [] },
+    )
   })
 })
 
@@ -468,6 +486,49 @@ describe("replica-learning decision", () => {
     assert.deepEqual([cited.type, cited.actor.id], ["annotation", "github:cy-engineer"])
   })
 
+  it("keeps a follows label when a login-only resolver matches the author's adopted stable ID", async () => {
+    const threads = weekTwoThreads()
+    for (const [commentId, githubId] of [
+      [101, 41],
+      [103, 43],
+      [104, 44],
+    ])
+      threads.find((item) => item.root.id === commentId).root.author.githubId = githubId
+    const { repo, learningId, by } = await acceptedLearning("adopted-reviewer-id", {
+      before: [weekOneLog(), weekTwoLog({ threads })],
+      after: [],
+      to: "2026-10-08T18:00:00Z",
+      labels: {
+        labels: weekOneLabels().labels.filter((label) => label.target.commentId !== 107),
+      },
+    })
+    await grantTraining(repo, by)
+
+    const { tasks } = await writeTaskset(repo, by, buildsFile(repo), "adopted-reviewer-id")
+
+    assert.deepEqual(labelsOf(tasks), [
+      [11, 3, { [learningId]: { answer: false } }],
+      [12, 2, { [learningId]: { answer: false } }],
+      [12, 3, { [learningId]: { answer: true } }],
+      [13, 5, { [learningId]: { answer: false } }],
+    ])
+  })
+
+  it("omits unusable learnings before planning labels", async () => {
+    const { repo, by } = await acceptedLearning("empty-learning", {
+      acceptedContent: "\u200b",
+    })
+    await grantTraining(repo, by)
+    await ok(repo, ["export", "--purpose", "training", ...by, "--out", ".replica/training.json"])
+    const bundle = JSON.parse(readFileSync(path.join(repo, ".replica/training.json"), "utf8"))
+    const builds = buildsFile(repo)
+
+    const plan = planDecisionTasks(bundle, JSON.parse(readFileSync(builds, "utf8")))
+
+    assert.deepEqual(plan.learnings, [])
+    assert.deepEqual(plan.tasks, [])
+  })
+
   it("does not decide between two status changes made at the same time", async () => {
     // A snapshot taken at 09:00 shows the prototype 12 thread reopened, and the next one shows
     // it resolved at 09:00 too, so nothing says which change came last.
@@ -634,251 +695,28 @@ describe("replica-learning decision", () => {
     assert.match(otherPage.stderr, /Skipped: 4 screenshot-missing/)
     for (const result of [outside, empty, otherPage]) assert.equal(result.code, 1)
   })
-})
 
-describe("replica-learning decision ask", () => {
-  const LABELS = "mem_aaaaaaaaaaaaaaaaaaaaaaaa"
-  const BLUE = "mem_bbbbbbbbbbbbbbbbbbbbbbbb"
-  const asked = brandCheckQuestions([
-    { id: LABELS, content: "Show a visible label above every form field." },
-    { id: BLUE, content: "Primary buttons use the brand blue." },
-  ])
-  const folder = path.join(work, "ask")
-  mkdirSync(path.join(folder, "screenshots"), { recursive: true })
-  writeFileSync(path.join(folder, "questions.json"), JSON.stringify(asked))
-  writeFileSync(path.join(folder, "brand-sheet.png"), Buffer.from("sheet"))
-  writeFileSync(path.join(folder, "screenshots", "desktop.png"), Buffer.from("desktop"))
-  writeFileSync(path.join(folder, "screenshots", "narrow-dark.png"), Buffer.from("narrow dark"))
+  it("writes beneath cwd when cwd is not a Git checkout", async () => {
+    const { repo, by } = await acceptedLearning("outside-checkout-source")
+    await grantTraining(repo, by)
+    await ok(repo, ["export", "--purpose", "training", ...by, "--out", ".replica/training.json"])
+    const builds = buildsFile(repo)
+    const outside = path.join(work, "outside-checkout")
+    mkdirSync(outside)
 
-  async function ask(args, env, respond, endpointPath = "/score") {
-    const requests = []
-    const server = createServer((request, response) => {
-      let body = ""
-      request.on("data", (chunk) => (body += chunk))
-      request.on("end", () => {
-        requests.push({ url: request.url, headers: request.headers, body: JSON.parse(body) })
-        respond(response)
-      })
-    })
-    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve))
-    let stdout = ""
-    let stderr = ""
-    try {
-      const code = await main(
-        [
-          "decision",
-          "ask",
-          "--endpoint",
-          `http://127.0.0.1:${server.address().port}${endpointPath}`,
-          ...args,
-        ],
-        {
-          cwd: folder,
-          env,
-          stdout: { write: (text) => (stdout += text) },
-          stderr: { write: (text) => (stderr += text) },
-          stdin: Readable.from([]),
-          clock: () => CLOCK,
-        },
-      )
-      return { code, stdout, stderr, requests }
-    } finally {
-      server.close()
-    }
-  }
-
-  it("sends a page the way training showed it and lists the least likely learning first", async () => {
-    const result = await ask(
-      [
-        "--questions",
-        "questions.json",
-        "--screenshots",
-        "screenshots",
-        "--route",
-        "/checkout",
-        "--brand-sheet",
-        "brand-sheet.png",
-        "--json",
-      ],
-      { REPLICA_DECISION_KEY: "test-key" },
-      (response) => {
-        response.setHeader("content-type", "application/json")
-        response.end(
-          JSON.stringify({
-            answers: {
-              [LABELS]: { probabilities: { yes: 0.9, no: 0.1 } },
-              [BLUE]: { probabilities: { yes: 0.2, no: 0.8 } },
-            },
-          }),
-        )
-      },
-    )
-    assert.equal(result.code, 0, result.stderr)
-    const [{ headers, body }] = result.requests
-    assert.equal(headers.authorization, "Bearer test-key")
-    assert.deepEqual(body.images, [
-      `data:image/png;base64,${Buffer.from("sheet").toString("base64")}`,
-      `data:image/png;base64,${Buffer.from("desktop").toString("base64")}`,
-      `data:image/png;base64,${Buffer.from("narrow dark").toString("base64")}`,
+    const result = await ok(outside, [
+      "decision",
+      "taskset",
+      "--export",
+      path.join(repo, ".replica", "training.json"),
+      "--builds",
+      builds,
+      "--out",
+      "taskset",
+      "--json",
     ])
-    assert.equal(
-      body.state.imagesNote,
-      "Image 1 is the team's brand reference sheet. The candidate is the page at route /checkout, shown as image 2 at desktop width in light theme, image 3 at narrow width in dark theme.",
-    )
-    assert.deepEqual(body.state.rules, asked.rules)
-    assert.deepEqual(body.questions, asked.questions)
-    assert.deepEqual(
-      JSON.parse(result.stdout).learnings.map(({ id, follows }) => [id, follows]),
-      [
-        [BLUE, 0.2],
-        [LABELS, 0.9],
-      ],
-    )
-  })
 
-  it("refuses to send the key without encryption, and reports a failed endpoint without it", async () => {
-    const insecure = await main(
-      [
-        "decision",
-        "ask",
-        "--endpoint",
-        "http://example.com/score",
-        "--questions",
-        "questions.json",
-        "--screenshots",
-        "screenshots",
-      ],
-      {
-        cwd: folder,
-        env: { REPLICA_DECISION_KEY: "test-key" },
-        stdout: { write: () => {} },
-        stderr: { write: () => {} },
-        stdin: Readable.from([]),
-        clock: () => CLOCK,
-      },
-    )
-    assert.equal(insecure, 1)
-    const missingKey = await ask(
-      ["--questions", "questions.json", "--screenshots", "screenshots"],
-      {},
-      () => {},
-    )
-    assert.equal(missingKey.code, 2)
-    assert.equal(missingKey.requests.length, 0)
-    const failed = await ask(
-      ["--questions", "questions.json", "--screenshots", "screenshots"],
-      { REPLICA_DECISION_KEY: "test-key" },
-      (response) => {
-        response.statusCode = 503
-        response.end("model is still loading")
-      },
-    )
-    assert.equal(failed.code, 1)
-    assert.match(failed.stderr, /answered 503: model is still loading/)
-    assert.doesNotMatch(failed.stderr, /test-key/)
-    const partial = await ask(
-      ["--questions", "questions.json", "--screenshots", "screenshots"],
-      { REPLICA_DECISION_KEY: "test-key" },
-      (response) =>
-        response.end(
-          JSON.stringify({ answers: { [LABELS]: { probabilities: { yes: 0.9, no: 0.1 } } } }),
-        ),
-    )
-    assert.equal(partial.code, 1)
-    assert.match(partial.stderr, /did not answer every question/)
-    const redirected = await ask(
-      ["--questions", "questions.json", "--screenshots", "screenshots"],
-      { REPLICA_DECISION_KEY: "test-key" },
-      (response) => {
-        response.writeHead(307, { location: "/elsewhere" })
-        response.end()
-      },
-    )
-    assert.equal(redirected.code, 1)
-    assert.match(redirected.stderr, /redirected the request/)
-    assert.equal(redirected.requests.length, 1)
-  })
-
-  it("asks a chat deployment one learning at a time and reads yes from its log probabilities", async () => {
-    const result = await ask(
-      [
-        "--questions",
-        "questions.json",
-        "--screenshots",
-        "screenshots",
-        "--model",
-        "vlm-brand",
-        "--json",
-      ],
-      { REPLICA_DECISION_KEY: "test-key" },
-      (response) => {
-        response.setHeader("content-type", "application/json")
-        response.end(
-          JSON.stringify({
-            choices: [
-              {
-                logprobs: {
-                  content: [
-                    {
-                      token: "Yes",
-                      top_logprobs: [
-                        { token: "Yes", logprob: Math.log(0.6) },
-                        { token: " no", logprob: Math.log(0.2) },
-                        { token: "Maybe", logprob: Math.log(0.1) },
-                      ],
-                    },
-                  ],
-                },
-              },
-            ],
-          }),
-        )
-      },
-      "/openai/v1/",
-    )
-    assert.equal(result.code, 0, result.stderr)
-    assert.equal(result.requests.length, 2)
-    for (const { url, headers, body } of result.requests) {
-      assert.equal(url, "/openai/v1/chat/completions")
-      assert.equal(headers.authorization, "Bearer test-key")
-      assert.equal(body.model, "vlm-brand")
-      assert.equal(body.logprobs, true)
-      assert.equal(body.max_tokens, 1)
-      assert.equal(body.messages[0].content.filter(({ type }) => type === "image_url").length, 2)
-    }
-    assert.match(result.requests[1].body.messages[0].content.at(-1).text, /brand blue/)
-    for (const { follows } of JSON.parse(result.stdout).learnings)
-      assert.ok(Math.abs(follows - 0.75) < 1e-9, `expected 0.75, got ${follows}`)
-  })
-
-  it("does not read an answer missing from the likeliest tokens as impossible", async () => {
-    const result = await ask(
-      [
-        "--questions",
-        "questions.json",
-        "--screenshots",
-        "screenshots",
-        "--model",
-        "vlm-brand",
-        "--json",
-      ],
-      { REPLICA_DECISION_KEY: "test-key" },
-      (response) => {
-        const others = Array.from({ length: 9 }, (_, index) => ({
-          token: `t${index}`,
-          logprob: Math.log(0.09),
-        }))
-        const top_logprobs = [{ token: "Yes", logprob: Math.log(0.1) }, ...others]
-        response.end(
-          JSON.stringify({
-            choices: [{ logprobs: { content: [{ token: "Yes", top_logprobs }] } }],
-          }),
-        )
-      },
-      "/openai/v1",
-    )
-    assert.equal(result.code, 0, result.stderr)
-    for (const { follows } of JSON.parse(result.stdout).learnings)
-      assert.ok(Math.abs(follows - 0.1 / 0.19) < 1e-9, `expected about 53%, got ${follows}`)
+    assert.equal(result.json().directory, path.join(outside, "taskset"))
+    assert.equal(existsSync(path.join(outside, "taskset", "taskset.json")), true)
   })
 })

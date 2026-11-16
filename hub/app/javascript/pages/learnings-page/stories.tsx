@@ -244,18 +244,20 @@ const data: LearningsPageData = {
     questions: [
       {
         key: "mem_1d9f0c2b7a4e5f6a8b9c0d1e",
-        instructions:
-          'Does the candidate page follow this team learning in every screenshot? Learning: "Use one primary button per form, labeled with the action it takes."',
+        instructions: "Does the candidate page follow this team learning in every screenshot?",
+        learningText: "Use one primary button per form, labeled with the action it takes.",
         answer: "Yes or no",
       },
       {
         key: "most_clearly_broken",
         instructions: "Which team learning does the candidate page break most clearly?",
+        learningText: null,
         answer: "One of 2 options",
       },
       {
         key: "severity",
         instructions: "How far is the candidate page from the team learnings?",
+        learningText: null,
         answer: "4 levels",
       },
     ],

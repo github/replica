@@ -80,7 +80,7 @@ export async function writeDecisionTaskset(
           split: task.split,
           state: {
             rules,
-            imagesNote: imagesNote(task.route, candidates, Boolean(reference)),
+            imagesNote: taskImagesNote(task.route, candidates, Boolean(reference)),
           },
           images: reference ? [reference, ...candidates] : candidates,
           questions,
@@ -146,7 +146,7 @@ export function skippedText(skipped) {
  * @param {Array<{ size: string, theme: string }>} views the page's screenshots, in task order
  * @param {boolean} reference whether the brand reference sheet comes first
  */
-export function imagesNote(route, views, reference) {
+function taskImagesNote(route, views, reference) {
   const first = reference ? 2 : 1
   const shown = views.map(
     ({ size, theme }, index) => `image ${first + index} at ${size} width in ${theme} theme`,
@@ -156,7 +156,7 @@ export function imagesNote(route, views, reference) {
 }
 
 /** Read a PNG, JPEG, or WebP image of at most 25 MiB. */
-export async function readImage(source) {
+async function readImage(source) {
   const extension = path.extname(source).toLowerCase()
   const mediaType = MEDIA_TYPES[extension]
   if (!mediaType)

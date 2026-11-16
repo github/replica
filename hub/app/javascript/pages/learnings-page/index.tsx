@@ -446,7 +446,12 @@ function DecisionModel({
           <ol className="learnings-page__questions">
             {data.questions.map((question) => (
               <li key={question.key}>
-                <Text as="p">{question.instructions}</Text>
+                <Text as="p">
+                  {question.instructions}
+                  {question.learningText
+                    ? ` Learning: ${JSON.stringify(question.learningText)}`
+                    : null}
+                </Text>
                 <Text as="p" size="200" variant="muted">
                   {question.answer}
                 </Text>

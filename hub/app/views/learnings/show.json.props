@@ -230,6 +230,7 @@ json.decisionModel do
     {
       key:,
       instructions: question.fetch("instructions"),
+      learningText: question["learning_text"],
       answer: t("learnings.decision_model.questions.#{question.fetch("type")}", count: Array(question["criteria"]).size)
     }
   end)

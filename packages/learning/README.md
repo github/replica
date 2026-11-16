@@ -53,7 +53,6 @@ node <replica-checkout>/packages/learning/bin/replica-learning.mjs doctor
 | `decision models` | Lists the base models suggested for a decision model, with their sizes and licenses |
 | `decision questions` | Prints the questions a decision model answers about a screenshot and whether training consent is recorded. `--preview --by github:<login>` shows a person the questions without recording a use |
 | `decision taskset --export <file> --builds <file> --out <dir>` | Writes labeled tasks from a training export and the Builds' screenshots, as [Decision model](#decision-model) describes |
-| `decision ask --endpoint <url> --questions <file> --screenshots <dir>` | Asks a deployed decision model how likely a Build's page follows each learning. `--model <deployment>` asks a chat-completions deployment instead. The key comes from `REPLICA_DECISION_KEY` |
 | `status`, `verify` | Reports counts and anything that needs attention, and re-checks every record |
 
 Add `--json` to any command for machine output.
@@ -182,7 +181,7 @@ The recurrence consolidator is deterministic. By default it proposes accessibili
 
 ## Decision model
 
-A decision model is a small vision-language model that looks at screenshots of a page and answers typed questions with probabilities. `decision questions` turns the accepted learnings into those questions: one yes-or-no question per learning, keyed by its ID, which learning the page breaks most clearly, and how far it is from all of them. By default it asks about the first 64 learnings recall ranks, the most a taskset asks about, and it reports training consent only when an active grant for training covers Hub review comments. [ADR 0002](../../docs/adr/0002-decision-model-and-rl-environment.md) explains the design, and [Learnings](../../hub/docs/learnings.md#decision-model) shows how Hub prepares training. [Train and serve a decision model](../../docs/decision-model.md) goes from there to an endpoint that a prototype's workflow asks about each Build.
+A decision model is a small vision-language model that looks at screenshots of a page and answers typed questions with probabilities. `decision questions` turns the accepted learnings into those questions: one yes-or-no question per learning, keyed by its ID, which learning the page breaks most clearly, and how far it is from all of them. By default it asks about the first 64 learnings recall ranks, the most a taskset asks about, and it reports training consent only when an active grant for training covers Hub review comments. [ADR 0002](../../docs/adr/0002-decision-model-and-rl-environment.md) explains the design, [Learnings](../../hub/docs/learnings.md#decision-model) shows how Hub prepares training, and [Train a decision model](../../docs/decision-model.md) runs the reference environment and trainer.
 
 `decision taskset` reads two files and writes tasks for the [brand-check environment](environments/brand-check/README.md):
 

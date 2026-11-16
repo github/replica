@@ -24,4 +24,6 @@ EXPOSE 8000
 # GET /health is the only route that answers without the token.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+# The container listens on its network interface so localhost-only port publishing and TLS
+# ingress can reach it. Never publish this plaintext port directly to a remote trainer.
 CMD ["uvicorn", "replica_brand_check.server.app:app", "--host", "0.0.0.0", "--port", "8000"]

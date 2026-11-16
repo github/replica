@@ -50,9 +50,8 @@ export async function resolveEnvironment({
       directory: directory ?? env.REPLICA_LEARNING_DIR,
       repository,
     })
-  const root = await realLocation(
-    (await git(cwd, ["rev-parse", "--show-toplevel"])) ?? path.resolve(cwd),
-  )
+  const checkout = await git(cwd, ["rev-parse", "--show-toplevel"])
+  const root = await realLocation(checkout ?? path.resolve(cwd))
   const chosen = directory ?? env.REPLICA_LEARNING_DIR
   const dataDirectory = await realLocation(
     chosen ? path.resolve(cwd, chosen) : path.join(root, ".replica", "learning"),
@@ -65,6 +64,7 @@ export async function resolveEnvironment({
   return {
     hosted: false,
     root,
+    checkout: checkout ? root : null,
     dataDirectory,
     configPath,
     configFound: config !== null,
@@ -202,7 +202,7 @@ export async function placementProblem(
   target,
   { what = "learning data", directory = true } = {},
 ) {
-  const checkout = environment.hosted ? await checkoutAround(target) : environment.root
+  const checkout = environment.hosted ? await checkoutAround(target) : environment.checkout
   if (!checkout) return null
   const placement = placeIn(checkout, target)
   if (!placement.inside) return null

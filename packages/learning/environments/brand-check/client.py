@@ -3,6 +3,7 @@
 import math
 import os
 from typing import Any
+from urllib.parse import urlsplit
 
 from openenv.core import EnvClient
 from openenv.core.client_types import StepResult
@@ -14,7 +15,8 @@ from .access import TOKEN_VARIABLE
 from .models import BrandCheckAction, BrandCheckObservation
 from .taskset import MAX_IMAGE_BYTES, MAX_IMAGES
 
-_RESULT_FIELDS = ("rewards", "correct", "invalid", "labels")
+_RESULT_FIELDS = ("rewards", "invalid")
+_LOOPBACK = {"localhost", "127.0.0.1", "::1"}
 
 # The largest message the server sends: a task with every image at the size limit, each base64
 # encoded in a data URL, plus room for the questions. OpenEnv's default of 100 is too small for it.
@@ -40,6 +42,13 @@ class BrandCheckEnv(EnvClient[BrandCheckAction, BrandCheckObservation, State]):
     _ws: ClientConnection | None
 
     def __init__(self, base_url: str, token: str | None = None, **kwargs: Any) -> None:
+        parsed = urlsplit(base_url)
+        if parsed.scheme != "https" and not (
+            parsed.scheme == "http" and parsed.hostname in _LOOPBACK
+        ):
+            raise ValueError(
+                "BrandCheckEnv requires https://, except for http:// on this computer."
+            )
         token = os.environ.get(TOKEN_VARIABLE) if token is None else token
         if not token:
             raise ValueError(
@@ -54,8 +63,7 @@ class BrandCheckEnv(EnvClient[BrandCheckAction, BrandCheckObservation, State]):
         if self._ws is not None:
             return self
 
-        ws_url_lower = self._ws_url.lower()
-        is_localhost = "localhost" in ws_url_lower or "127.0.0.1" in ws_url_lower
+        is_localhost = urlsplit(self._ws_url).hostname in _LOOPBACK
 
         old_no_proxy = os.environ.get("NO_PROXY")
         if is_localhost:

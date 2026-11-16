@@ -478,7 +478,7 @@ export function hubThreadEvents({ meta, thread, scope, episodeId, existing }) {
  * identity, which keeps its login only in its ID, matches the same login, so a reviewer whose
  * login gains a stable ID stays the same person.
  */
-function sameReviewer(recorded, current, scope, meta) {
+export function sameReviewer(recorded, current, scope, meta) {
   if (!recorded || !current) return recorded === current
   if (stableReviewer(recorded, scope, meta))
     return stableReviewer(current, scope, meta) && recorded.id === current.id

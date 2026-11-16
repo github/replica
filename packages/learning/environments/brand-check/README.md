@@ -55,13 +55,15 @@ docker run --rm -e REPLICA_ENV_TOKEN -v /path/to/taskset:/data/taskset:ro -p 127
 
 On Apple Silicon, add `--platform linux/amd64` to `docker build` when you push the image to an x86 host.
 
-The `docker run` command publishes the port on localhost only. When the trainer runs on another host, publish the port on a private network address instead.
+The `docker run` command publishes the port on localhost only. When the trainer runs on another host, put a TLS proxy or a managed service's HTTPS ingress in front of the container. Do not publish the environment's plaintext port directly.
 
 The server runs as user 10001, which must be able to read the taskset. If only your account can read it, add `--user "$(id -u):$(id -g)"` to `docker run`. Rootless Podman also needs `--userns=keep-id`.
 
 ## Connect a trainer
 
 A trainer uses the WebSocket client in [client.py](client.py). `BrandCheckEnv` sends the token from `REPLICA_ENV_TOKEN`, or from its `token` argument, in the `Authorization` header. Any other client must send the same header. Without it, the server answers an HTTP request with status 401 and refuses a WebSocket handshake with status 403.
+
+`BrandCheckEnv` accepts plaintext HTTP only for `localhost`, `127.0.0.1`, or `::1`. A trainer on another machine must use an `https://` address whose ingress terminates TLS before forwarding to the container.
 
 Each client connection gets its own session. The server accepts four sessions at once and refuses more connections until one closes.
 
@@ -93,7 +95,7 @@ Reset accepts these options and refuses others:
 - `task_id`: selects one task from any split.
 - `episode_id`: names the episode in the state.
 
-After the step, the observation fields `rewards`, `correct`, `invalid`, and `labels` hold the results for each labeled question, and `metadata` holds the same values. A step before reset, or a second step, makes the client raise `RuntimeError` with a message that says to call reset. The session stays open for the next reset.
+After the step, the observation fields `rewards` and `invalid` hold the per-question reward and any missing or invalid answer, and `metadata` holds the same values. The environment never sends the ground-truth labels or a separate correctness flag to the trainer. A step before reset, or a second step, makes the client raise `RuntimeError` with a message that says to call reset. The session stays open for the next reset.
 
 In OpenEnv 0.3.0, HTTP `/reset` and `/step` create a new environment for every request, so HTTP `/step` always answers 409. Train through the WebSocket client.
 
@@ -162,19 +164,14 @@ uv pip install torch torchvision "transformers>=5.14" pillow
 hf download LiquidAI/d1-omni-600M --revision 02b55d7076f15129e59ab3f94783f32c4b088674 --local-dir models/d1-omni-600M
 .venv/bin/python examples/train_d1_omni.py train --model models/d1-omni-600M --taskset /path/to/taskset --out runs/demo
 .venv/bin/python examples/train_d1_omni.py evaluate --model models/d1-omni-600M --taskset /path/to/taskset --trained runs/demo/best.pt --split test --out runs/demo
-.venv/bin/python examples/train_d1_omni.py predict --model models/d1-omni-600M --trained runs/demo/best.pt --request page.json
 ```
 
 Training reads `--taskset` only to list the tasks in each split; the server scores every answer. The `evaluate` command also reads that split's labels from the taskset to write its report. Both commands read each task's screenshots through the model once and keeps the result in memory, so the first pass over the tasks is the slow part. To train the readout, it first reads every practice page to scale the readout's inputs, which uses no labels. Choose the settings and the trained weights on the dev split, then score the test split once.
 
-The `predict` command runs the released model on one page, adding the trained readout or head from `--trained`, and prints its answers in the action format. It needs no server and no labels. The request file is shaped like a task in `tasks.jsonl`: `state`, `images`, and `questions`. Each image is a path relative to the request file, listed in the task's order: the brand reference sheet first, then the page's screenshots. Write the state's rules and image note the way the taskset does, because the model was trained on that form. Only yes-or-no questions get answers. On a copy of a task, `predict` gives the same probabilities as `evaluate`.
-
-[examples/score_d1_omni.py](examples/score_d1_omni.py) answers the same requests from an Azure Machine Learning managed online endpoint, with each image inlined as a data URI. [Train and serve a decision model](../../../../docs/decision-model.md) deploys it and asks it about each Build.
-
 ## Privacy
 
-The taskset holds private prototype screenshots and labels derived from review comments. Run the container where your team controls the data, and keep its port on a private network. The server does not encrypt its traffic, so the token and the screenshots cross that network as plain text.
+The taskset holds private prototype screenshots and labels derived from review comments. Run the container where your team controls the data. Keep local traffic on loopback; for a remote trainer, terminate TLS in front of the container so the token and screenshots stay encrypted in transit.
 
 The token keeps other accounts on the host, and web pages in your browser, from reading the taskset through the server. A web page can open a WebSocket to any port your browser can reach, but it cannot add the token to the request. Keep the token in a file that only your account can read.
 
-Never bake a taskset or the token into an image: mount the taskset and pass the token when the container starts. A managed OpenEnv-compatible service can run the same image only if your team's training consent covers sending the data there.
+Never bake a taskset or the token into an image: mount the taskset and pass the token when the container starts. A managed OpenEnv-compatible service can run the same image only if your team's training consent covers sending the data there and its connection uses HTTPS.

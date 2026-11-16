@@ -95,9 +95,7 @@ class Episodes:
             reward=episode_reward(results),
             metadata={
                 "rewards": {result.key: result.reward for result in results},
-                "correct": {result.key: result.correct for result in results},
                 "invalid": [result.key for result in results if result.distribution is None],
-                "labels": {result.key: result.label for result in results},
             },
         )
 

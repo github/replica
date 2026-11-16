@@ -59,9 +59,8 @@ class EpisodesTest(unittest.TestCase):
         self.assertAlmostEqual(outcome.reward, 0.96 / 2)
         self.assertAlmostEqual(outcome.metadata["rewards"][RULE], 0.96)
         self.assertEqual(outcome.metadata["rewards"]["most_clearly_broken"], 0.0)
-        self.assertEqual(outcome.metadata["correct"], {RULE: True, "most_clearly_broken": False})
         self.assertEqual(outcome.metadata["invalid"], ["most_clearly_broken"])
-        self.assertEqual(outcome.metadata["labels"], {RULE: False, "most_clearly_broken": RULE})
+        self.assertEqual(set(outcome.metadata), {"rewards", "invalid"})
 
     def test_step_before_reset_fails(self):
         episodes = Episodes(load_taskset(write_taskset(self, [make_task(1)])))

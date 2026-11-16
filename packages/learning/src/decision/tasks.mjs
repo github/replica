@@ -4,10 +4,10 @@ import { LearningError } from "../errors.mjs"
 import { derivedId } from "../ids.mjs"
 import { sameScope } from "../policy.mjs"
 import { rankForRecall } from "../recall.mjs"
-import { HUB_SOURCE } from "../sources/hub-review-comments.mjs"
+import { HUB_SOURCE, sameReviewer } from "../sources/hub-review-comments.mjs"
 import { normalizeTimestamp } from "../time.mjs"
 import { validateRecord } from "../validate.mjs"
-import { MAX_QUESTION_LEARNINGS } from "./questions.mjs"
+import { MAX_QUESTION_LEARNINGS, decisionLearningText } from "./questions.mjs"
 
 export const BUILDS_SCHEMA = "replica.decision-builds/v1"
 /** The screenshot widths and themes the build action captures, in its order. */
@@ -44,7 +44,13 @@ export function planDecisionTasks(bundle, builds) {
     skipped.set(reason, (skipped.get(reason) ?? 0) + count)
   }
 
-  const ranked = rankForRecall(memories).map(({ record }) => record)
+  const ranked = rankForRecall(memories)
+    .map(({ record }) => record)
+    .filter((record) => {
+      if (decisionLearningText(record.content)) return true
+      skip("learning-text-empty")
+      return false
+    })
   const learnings = ranked.slice(0, MAX_QUESTION_LEARNINGS)
   if (ranked.length > learnings.length)
     skip("learning-over-limit", ranked.length - learnings.length)
@@ -97,7 +103,9 @@ export function planDecisionTasks(bundle, builds) {
       }
       if (
         resolution?.payload.status !== "resolved" ||
-        !comments.some((comment) => comment.actor.id === resolution.payload.by?.id)
+        !comments.some((comment) =>
+          sameReviewer(resolution.payload.by, comment.actor, episode.scope, episode.source),
+        )
       )
         continue
       // Hub keeps a thread resolved when someone edits a comment in it, so a resolution confirms
