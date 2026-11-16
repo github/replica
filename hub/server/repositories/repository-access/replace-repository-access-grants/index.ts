@@ -3,6 +3,7 @@ import type { Prisma } from "../../../generated/prisma/client.ts"
 /**
  * Replaces a membership's repository grants with the latest GitHub evidence.
  * Grants are derived from GitHub, so removing a stale grant loses no Hub data.
+ * Uses a fixed number of queries regardless of how many repositories are granted.
  */
 export async function replaceRepositoryAccessGrants(
   database: Pick<Prisma.TransactionClient, "repositoryAccessGrant">,
@@ -13,21 +14,31 @@ export async function replaceRepositoryAccessGrants(
     repositoryIds: string[]
   },
 ): Promise<void> {
+  const { membershipId, observedAt } = input
+  const repositoryIds = [...new Set(input.repositoryIds)]
   await database.repositoryAccessGrant.deleteMany({
-    where: { membershipId: input.membershipId, repositoryId: { notIn: input.repositoryIds } },
+    where: { membershipId, repositoryId: { notIn: repositoryIds } },
   })
-  for (const repositoryId of new Set(input.repositoryIds)) {
-    await database.repositoryAccessGrant.upsert({
-      create: {
+  const kept = await database.repositoryAccessGrant.findMany({
+    select: { repositoryId: true },
+    where: { membershipId },
+  })
+  if (kept.length) {
+    await database.repositoryAccessGrant.updateMany({
+      data: { observedAt },
+      where: { membershipId },
+    })
+  }
+  const keptIds = new Set(kept.map((grant) => grant.repositoryId))
+  const missingIds = repositoryIds.filter((repositoryId) => !keptIds.has(repositoryId))
+  if (missingIds.length) {
+    await database.repositoryAccessGrant.createMany({
+      data: missingIds.map((repositoryId) => ({
         id: input.createId(),
-        membershipId: input.membershipId,
-        observedAt: input.observedAt,
+        membershipId,
+        observedAt,
         repositoryId,
-      },
-      update: { observedAt: input.observedAt },
-      where: {
-        membershipId_repositoryId: { membershipId: input.membershipId, repositoryId },
-      },
+      })),
     })
   }
 }

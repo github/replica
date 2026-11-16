@@ -1,44 +1,164 @@
 import type { Prisma } from "../../../generated/prisma/client.ts"
 import type { ConnectedRepositoryEvidence } from "../types.ts"
 
+interface StoredRepository {
+  defaultBranch: string
+  githubRepositoryId: bigint | null
+  id: string
+  nameWithOwner: string
+  removedAt: Date | null
+}
+
+interface PlannedRepository {
+  data: { defaultBranch: string; githubRepositoryId: bigint; nameWithOwner: string }
+  existing?: StoredRepository
+}
+
+const storedFields = {
+  defaultBranch: true,
+  githubRepositoryId: true,
+  id: true,
+  nameWithOwner: true,
+  removedAt: true,
+} as const
+
 /**
  * Records repositories the GitHub App can read. Rows are matched by GitHub ID,
  * then by name for rows created before IDs were stored. Returns Hub IDs in order.
+ * Reads, inserts and updates are each one query, so sign-in stays within its
+ * transaction budget at the supported installation size.
  */
 export async function upsertConnectedRepositories(
-  database: Pick<Prisma.TransactionClient, "repository">,
+  database: Pick<Prisma.TransactionClient, "$executeRaw" | "repository">,
   repositories: ConnectedRepositoryEvidence[],
   options: { allowReconnect: boolean },
 ): Promise<string[]> {
-  const ids: string[] = []
+  if (!repositories.length) return []
+  const byGitHubId = new Map<bigint, StoredRepository>()
+  const stored = await database.repository.findMany({
+    select: storedFields,
+    where: {
+      githubRepositoryId: { in: [...new Set(repositories.map(githubIdOf))] },
+    },
+  })
+  for (const row of stored)
+    if (row.githubRepositoryId !== null) byGitHubId.set(row.githubRepositoryId, row)
+  const legacyByName = await findLegacyRepositories(
+    database,
+    repositories.filter((repository) => !byGitHubId.has(githubIdOf(repository))),
+  )
+
+  const planned = new Map<bigint, PlannedRepository>()
   for (const repository of repositories) {
-    const githubRepositoryId = BigInt(repository.githubRepositoryId)
+    const githubRepositoryId = githubIdOf(repository)
     const data = {
       defaultBranch: repository.defaultBranch,
       githubRepositoryId,
       nameWithOwner: repository.nameWithOwner,
-      removedAt: null,
+    }
+    const previous = planned.get(githubRepositoryId)
+    if (previous) {
+      previous.data = data
+      continue
     }
     const existing =
-      (await database.repository.findUnique({
-        select: { id: true, removedAt: true },
-        where: { githubRepositoryId },
-      })) ??
-      (await database.repository.findFirst({
-        orderBy: { createdAt: "asc" },
-        select: { id: true, removedAt: true },
-        where: {
-          githubRepositoryId: null,
-          nameWithOwner: { equals: repository.nameWithOwner, mode: "insensitive" },
-        },
-      }))
+      byGitHubId.get(githubRepositoryId) ??
+      legacyByName.get(repository.nameWithOwner.toLowerCase())?.shift()
     if (existing?.removedAt && !options.allowReconnect) {
       throw new Error("User evidence cannot reconnect a disconnected GitHub repository.")
     }
-    const saved = existing
-      ? await database.repository.update({ data, select: { id: true }, where: { id: existing.id } })
-      : await database.repository.create({ data, select: { id: true } })
-    ids.push(saved.id)
+    planned.set(githubRepositoryId, { data, existing })
   }
-  return ids
+
+  const plans = [...planned.values()]
+  const createdIds = await createRepositories(
+    database,
+    plans.filter((plan) => !plan.existing).map((plan) => plan.data),
+  )
+  await updateRepositories(
+    database,
+    plans.flatMap(({ data, existing }) =>
+      existing && hasChanged(existing, data) ? [{ ...data, id: existing.id }] : [],
+    ),
+  )
+  return repositories.map((repository) => {
+    const githubRepositoryId = githubIdOf(repository)
+    const id = planned.get(githubRepositoryId)?.existing?.id ?? createdIds.get(githubRepositoryId)
+    if (!id) throw new Error("A connected repository was not saved.")
+    return id
+  })
+}
+
+function githubIdOf(repository: ConnectedRepositoryEvidence): bigint {
+  return BigInt(repository.githubRepositoryId)
+}
+
+/** Unclaimed rows without a GitHub ID, oldest first, grouped by lowercase name. */
+async function findLegacyRepositories(
+  database: Pick<Prisma.TransactionClient, "repository">,
+  repositories: ConnectedRepositoryEvidence[],
+): Promise<Map<string, StoredRepository[]>> {
+  const legacyByName = new Map<string, StoredRepository[]>()
+  if (!repositories.length) return legacyByName
+  const rows = await database.repository.findMany({
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: storedFields,
+    where: {
+      githubRepositoryId: null,
+      nameWithOwner: {
+        in: [...new Set(repositories.map((repository) => repository.nameWithOwner))],
+        mode: "insensitive",
+      },
+    },
+  })
+  for (const row of rows) {
+    const name = row.nameWithOwner.toLowerCase()
+    legacyByName.set(name, [...(legacyByName.get(name) ?? []), row])
+  }
+  return legacyByName
+}
+
+function hasChanged(existing: StoredRepository, data: PlannedRepository["data"]): boolean {
+  return (
+    existing.removedAt !== null ||
+    existing.githubRepositoryId !== data.githubRepositoryId ||
+    existing.nameWithOwner !== data.nameWithOwner ||
+    existing.defaultBranch !== data.defaultBranch
+  )
+}
+
+async function createRepositories(
+  database: Pick<Prisma.TransactionClient, "repository">,
+  data: PlannedRepository["data"][],
+): Promise<Map<bigint, string>> {
+  if (!data.length) return new Map()
+  const created = await database.repository.createManyAndReturn({
+    data,
+    select: { githubRepositoryId: true, id: true },
+  })
+  return new Map(created.map((row) => [row.githubRepositoryId as bigint, row.id]))
+}
+
+/** Prisma cannot apply different values to many rows in one statement. */
+async function updateRepositories(
+  database: Pick<Prisma.TransactionClient, "$executeRaw">,
+  changes: Array<PlannedRepository["data"] & { id: string }>,
+): Promise<void> {
+  if (!changes.length) return
+  await database.$executeRaw`
+    UPDATE "repositories" AS repository
+    SET
+      "name_with_owner" = change.name_with_owner,
+      "default_branch" = change.default_branch,
+      "github_repository_id" = change.github_repository_id::bigint,
+      "removed_at" = NULL,
+      "updated_at" = clock_timestamp()
+    FROM unnest(
+      ${changes.map((change) => change.id)}::uuid[],
+      ${changes.map((change) => change.nameWithOwner)}::text[],
+      ${changes.map((change) => change.defaultBranch)}::text[],
+      ${changes.map((change) => change.githubRepositoryId.toString())}::text[]
+    ) AS change(id, name_with_owner, default_branch, github_repository_id)
+    WHERE repository."id" = change.id
+  `
 }
