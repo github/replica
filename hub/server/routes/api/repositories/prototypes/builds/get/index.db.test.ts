@@ -17,6 +17,7 @@ interface BuildHistoryBody {
     name: string
     canEdit: boolean
     startPage: string
+    latestBuild: { number: number; state: string } | null
     builds: { number: number }[]
   }
   builds: {
@@ -85,7 +86,7 @@ describe("prototype Build history API", () => {
     const buildCount = 30
     await prisma.build.createMany({
       data: Array.from({ length: buildCount }, (_, index) => {
-        const createdAt = new Date(Date.UTC(2026, 9, 2, buildCount - index))
+        const createdAt = new Date(Date.UTC(2026, 9, 2, buildCount - (index === 1 ? 0 : index)))
         return {
           prototypeId,
           number: index + 1,
@@ -119,10 +120,14 @@ describe("prototype Build history API", () => {
       expect(firstResponse.status).toBe(200)
       const first = (await firstResponse.json()) as BuildHistoryBody
       const { pageSize } = first.pagination
+      expect(pageSize).toBe(25)
       const pageCount = Math.ceil(buildCount / pageSize)
       expect(pageCount).toBeGreaterThan(1)
       expect(first.pagination).toEqual({ page: 1, pageSize, totalCount: buildCount, pageCount })
       expect(first.builds).toHaveLength(pageSize)
+      expect(first.prototype.builds.map(({ number }) => number)).toEqual(
+        first.builds.map(({ number }) => number),
+      )
       expect(first.repository.id).toBe(repositoryId)
       expect(first.prototype).toMatchObject({
         id: prototypeId,
@@ -130,6 +135,7 @@ describe("prototype Build history API", () => {
         name: "Checkout",
         startPage: "/checkout",
         canEdit: true,
+        latestBuild: { number: 2, state: "failed" },
       })
       expect(await prisma.prototypeIntroduction.count()).toBe(0)
 
@@ -140,16 +146,18 @@ describe("prototype Build history API", () => {
         const next = (await response.json()) as BuildHistoryBody
         expect(next.pagination).toEqual({ page, pageSize, totalCount: buildCount, pageCount })
         expect(next.builds).toHaveLength(Math.min(pageSize, buildCount - (page - 1) * pageSize))
-        // The History view finds a pinned Build in the prototype record on any page.
-        expect(next.prototype.builds.map(({ number }) => number).sort((a, b) => a - b)).toEqual(
-          Array.from({ length: buildCount }, (_, index) => index + 1),
+        expect(next.prototype.builds.map(({ number }) => number)).toEqual(
+          next.builds.map(({ number }) => number),
         )
+        expect(next.prototype.latestBuild).toEqual({ number: 2, state: "failed" })
         builds.push(...next.builds)
       }
 
-      expect(builds.map(({ number }) => number)).toEqual(
-        Array.from({ length: buildCount }, (_, index) => index + 1),
-      )
+      expect(builds.map(({ number }) => number)).toEqual([
+        2,
+        1,
+        ...Array.from({ length: buildCount - 2 }, (_, index) => index + 3),
+      ])
       for (const build of builds) {
         expect(build).toMatchObject({
           repositoryId,
@@ -160,6 +168,78 @@ describe("prototype Build history API", () => {
           narrowScreenshotUrl: null,
         })
       }
+    })
+  })
+
+  it("adds only a successful off-page pin to the picker without changing the page", async () => {
+    const repositoryId = randomUUID()
+    const prototypeId = randomUUID()
+    const otherPrototypeId = randomUUID()
+    await prisma.repository.create({
+      data: { id: repositoryId, nameWithOwner: "team/design", defaultBranch: "main" },
+    })
+    await prisma.prototype.createMany({
+      data: [
+        { id: prototypeId, repositoryId, branchName: "prototype/checkout" },
+        { id: otherPrototypeId, repositoryId, branchName: "prototype/other" },
+      ],
+    })
+    const states = ["successful", "failed", "running", "queued", "superseded"] as const
+    await prisma.build.createMany({
+      data: Array.from({ length: 30 }, (_, index) => ({
+        prototypeId,
+        number: index + 1,
+        state: states[index] ?? "successful",
+        createdAt: new Date(Date.UTC(2026, 9, index + 1)),
+      })),
+    })
+    await prisma.build.create({
+      data: { prototypeId: otherPrototypeId, number: 99, state: "successful" },
+    })
+    const restore = vi.fn().mockResolvedValue({
+      membershipId: randomUUID(),
+      userId: randomUUID(),
+      provider: "github",
+      login: "mona",
+      name: "Mona",
+      role: "MEMBER",
+    })
+
+    await withServer(restore, async (baseUrl) => {
+      const historyUrl = `${baseUrl}/api/repositories/${repositoryId}/prototypes/${prototypeId}/builds`
+      const headers = { cookie: "hub_session=member-session" }
+      const pageNumbers = Array.from({ length: 25 }, (_, index) => 30 - index)
+      const pinnedResponse = await fetch(`${historyUrl}?build=1`, { headers })
+      expect(pinnedResponse.status).toBe(200)
+      const pinned = (await pinnedResponse.json()) as BuildHistoryBody
+      expect(pinned.builds.map(({ number }) => number)).toEqual(pageNumbers)
+      expect(pinned.prototype.builds.map(({ number }) => number)).toEqual([...pageNumbers, 1])
+      expect(pinned.pagination).toEqual({
+        page: 1,
+        pageSize: 25,
+        totalCount: 30,
+        pageCount: 2,
+      })
+
+      for (const pin of [30, 2, 3, 4, 5, 99, 100]) {
+        const response = await fetch(`${historyUrl}?build=${pin}`, { headers })
+        expect(response.status, `build=${pin}`).toBe(200)
+        const history = (await response.json()) as BuildHistoryBody
+        expect(
+          history.prototype.builds.map(({ number }) => number),
+          `build=${pin}`,
+        ).toEqual(pageNumbers)
+        expect(history.builds.map(({ number }) => number)).toEqual(pageNumbers)
+      }
+
+      const olderResponse = await fetch(`${historyUrl}?page=2&build=30`, { headers })
+      expect(olderResponse.status).toBe(200)
+      const older = (await olderResponse.json()) as BuildHistoryBody
+      expect(older.builds.map(({ number }) => number)).toEqual([5, 4, 3, 2, 1])
+      expect(older.prototype.builds.map(({ number }) => number).sort((a, b) => b - a)).toEqual([
+        30, 5, 4, 3, 2, 1,
+      ])
+      expect(await prisma.prototypeIntroduction.count()).toBe(0)
     })
   })
 
@@ -195,7 +275,16 @@ describe("prototype Build history API", () => {
       expect(response.status).toBe(200)
       const history = (await response.json()) as BuildHistoryBody
       expect(history.builds).toEqual([])
+      expect(history.prototype.builds).toEqual([])
       expect(history.pagination).toMatchObject({ page: 1, totalCount: 0, pageCount: 1 })
+      expect(
+        (
+          await fetch(
+            `${baseUrl}/api/repositories/${repositoryId}/prototypes/${prototypeId}/builds?page=2`,
+            { headers: { cookie: "hub_session=member-session" } },
+          )
+        ).status,
+      ).toBe(404)
     })
   })
 

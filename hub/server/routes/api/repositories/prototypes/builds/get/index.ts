@@ -14,6 +14,12 @@ const querySchema = z
       .string()
       .regex(/^[1-9]\d{0,8}$/)
       .optional(),
+    build: z
+      .string()
+      .regex(/^[1-9]\d{0,9}$/)
+      .transform(Number)
+      .pipe(z.int().max(2147483647))
+      .optional(),
   })
   .strict()
 
@@ -42,7 +48,13 @@ export function get(
         return
       }
 
-      const detail = await product.findPrototypeDetail(repositoryId.data, prototypeId.data)
+      const page = Number(query.data.page ?? "1")
+      const detail = await product.findPrototypeDetail(
+        repositoryId.data,
+        prototypeId.data,
+        query.data.build,
+        { page, pageSize },
+      )
       const current = await readProductSession(cookie, session)
       if (
         !current ||
@@ -57,9 +69,8 @@ export function get(
         return
       }
 
-      const page = Number(query.data.page ?? "1")
-      const builds = detail.prototype.builds
-      const totalCount = builds.length
+      if (!detail.buildPage) throw new Error("Build history was not loaded.")
+      const { builds, totalCount } = detail.buildPage
       const pageCount = Math.max(1, Math.ceil(totalCount / pageSize))
       if (page > pageCount) {
         response.status(404).json({ error: "Page not found." })
@@ -68,7 +79,7 @@ export function get(
       response.json({
         repository: detail.repository,
         prototype: { ...detail.prototype, canEdit: true },
-        builds: builds.slice((page - 1) * pageSize, page * pageSize),
+        builds,
         pagination: { page, pageSize, totalCount, pageCount },
       })
     } catch (error) {

@@ -40,11 +40,12 @@ async function withHistory(
         id: prototypeId,
         startPage: "/checkout",
         canEdit: false,
-        builds: Array.from({ length: 26 }, (_, index) => ({
-          number: 26 - index,
-          state: index % 2 ? "failed" : "successful",
-        })),
+        builds: [
+          { number: 26, state: "successful" },
+          { number: 1, state: "failed" },
+        ],
       },
+      buildPage: { builds: [{ number: 1, state: "failed" }], totalCount: 26 },
     }),
   }
   const app = express()
@@ -68,14 +69,19 @@ async function withHistory(
 describe("get()", () => {
   it("returns older Builds without consuming an introduction or changing metadata", async () => {
     await withHistory(async (url, product) => {
-      const response = await fetch(`${url}?page=2`, {
+      const response = await fetch(`${url}?page=2&build=26`, {
         headers: { cookie: "hub_session=member-session" },
       })
       expect(response.status).toBe(200)
       expect(await response.json()).toMatchObject({
-        prototype: { canEdit: true, startPage: "/checkout", builds: { length: 26 } },
+        prototype: { canEdit: true, startPage: "/checkout", builds: { length: 2 } },
         builds: [{ number: 1 }],
         pagination: { page: 2, pageSize: 25, totalCount: 26, pageCount: 2 },
+      })
+      const [repositoryId, prototypeId] = new URL(url).pathname.slice(1).split("/")
+      expect(product.findPrototypeDetail).toHaveBeenCalledWith(repositoryId, prototypeId, 26, {
+        page: 2,
+        pageSize: 25,
       })
       expect(product.readPrototypeWithIntroduction).not.toHaveBeenCalled()
       expect(product.editPrototypeMetadata).not.toHaveBeenCalled()

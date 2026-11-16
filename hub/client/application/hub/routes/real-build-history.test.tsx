@@ -167,12 +167,18 @@ describe("real Build history", () => {
         HttpResponse.json({ error: "Not found." }, { status: 404 }),
       ),
       http.get(`${window.location.origin}/api${prototypePath}/builds`, ({ request }) => {
-        const page = new URL(request.url).searchParams.get("page") ?? "1"
-        historyRequests.push(new URL(request.url).search)
+        const url = new URL(request.url)
+        const page = url.searchParams.get("page") ?? "1"
+        const pageBuilds = page === "1" ? builds : [build(1, "successful")]
+        const pinned = page === "2" && url.searchParams.get("build") === "3"
+        historyRequests.push(url.search)
         return HttpResponse.json({
           repository,
-          prototype,
-          builds: page === "1" ? builds : [build(1, "successful")],
+          prototype: {
+            ...prototype,
+            builds: pinned ? [build(3, "successful"), ...pageBuilds] : pageBuilds,
+          },
+          builds: pageBuilds,
           pagination: { page: Number(page), pageSize: 3, totalCount: 4, pageCount: 2 },
         })
       }),
@@ -191,7 +197,9 @@ describe("real Build history", () => {
 
     expect(await screen.findByRole("heading", { name: "History", level: 2 })).toBeVisible()
     expect(router.state.location.pathname).toBe(`${prototypePath}/builds`)
-    expect(historyRequests).toEqual([""])
+    expect(historyRequests.map((query) => Object.fromEntries(new URLSearchParams(query)))).toEqual([
+      { build: "3" },
+    ])
     expect(screen.queryByRole("link", { name: "Analytics" })).not.toBeInTheDocument()
     expect(screen.queryByRole("link", { name: "Learnings" })).not.toBeInTheDocument()
     expect(document.querySelector('form[action="/api/auth/session/sign-out"]')).not.toBeNull()
@@ -216,11 +224,31 @@ describe("real Build history", () => {
     )
     expect(close.pathname).toBe(prototypePath)
     expect(close.searchParams.get("build")).toBe("3")
+    fireEvent.click(screen.getByRole("button", { name: "Choose build, v3" }))
+    const firstPicker = screen.getByRole("menu")
+    expect(within(firstPicker).getByRole("menuitem", { name: /v2/ })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    )
+    expect(within(firstPicker).getByRole("menuitem", { name: /v4/ })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    )
+    fireEvent.keyDown(firstPicker, { key: "Escape" })
 
     fireEvent.click(screen.getByRole("link", { name: "Older Builds" }))
     expect(await screen.findByRole("link", { name: "Build 1" })).toBeVisible()
-    expect(historyRequests).toEqual(["", "?page=2"])
+    expect(historyRequests.map((query) => Object.fromEntries(new URLSearchParams(query)))).toEqual([
+      { build: "3" },
+      { page: "2", build: "3" },
+    ])
     expect(screen.queryByRole("link", { name: "Older Builds" })).not.toBeInTheDocument()
+    const olderClose = new URL(
+      screen.getByRole("link", { name: "Return to prototype" }).getAttribute("href") ?? "",
+      window.location.origin,
+    )
+    expect(olderClose.pathname).toBe(prototypePath)
+    expect(olderClose.searchParams.get("build")).toBe("3")
     fireEvent.click(screen.getByRole("button", { name: "Choose build, v3" }))
     const picker = screen.getByRole("menu")
     const selectedBuild = within(picker).getByRole("menuitem", { name: /v3/ })
@@ -228,17 +256,16 @@ describe("real Build history", () => {
       "href",
       `${prototypePath}?build=3`,
     )
-    expect(within(picker).getByRole("menuitem", { name: /v2/ })).toHaveAttribute(
-      "aria-disabled",
-      "true",
-    )
-    expect(within(picker).getByRole("menuitem", { name: /v4/ })).toHaveAttribute(
-      "aria-disabled",
-      "true",
-    )
+    expect(within(picker).getByRole("menuitem", { name: /v1/ })).toBeVisible()
+    expect(within(picker).queryByRole("menuitem", { name: /v2/ })).not.toBeInTheDocument()
+    expect(within(picker).queryByRole("menuitem", { name: /v4/ })).not.toBeInTheDocument()
     fireEvent.keyDown(picker, { key: "Escape" })
     fireEvent.click(screen.getByRole("link", { name: "Newest Builds" }))
     expect(await screen.findByRole("link", { name: "Build 3" })).toBeVisible()
-    expect(historyRequests).toEqual(["", "?page=2", ""])
+    expect(historyRequests.map((query) => Object.fromEntries(new URLSearchParams(query)))).toEqual([
+      { build: "3" },
+      { page: "2", build: "3" },
+      { build: "3" },
+    ])
   }, 15_000)
 })

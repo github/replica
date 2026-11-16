@@ -1,4 +1,4 @@
-import type { Prisma } from "../../../generated/prisma/client.ts"
+import { Prisma, type BuildState } from "../../../generated/prisma/client.ts"
 import { trimPrototypeMetadata } from "../../../utils/trim-prototype-metadata/index.ts"
 
 const hiddenBranches = ["replica/install-workflow"]
@@ -14,6 +14,7 @@ export async function findPrototypeDetail(
   repositoryId: string,
   prototypeId: string,
   buildNumber?: number,
+  buildPage?: { page: number; pageSize: number },
 ) {
   const detail = await database.$transaction(
     async (transaction) => {
@@ -43,8 +44,33 @@ export async function findPrototypeDetail(
       })
       if (!prototype) return null
 
+      // Prisma cannot page by workflow time with a stored-time fallback.
+      const page = buildPage
+        ? {
+            numbers: (
+              await transaction.$queryRaw<{ number: number }[]>(Prisma.sql`
+                SELECT number FROM builds
+                WHERE prototype_id = ${prototypeId}::uuid
+                ORDER BY COALESCE(workflow_created_at, created_at) DESC, number DESC
+                LIMIT ${buildPage.pageSize}
+                OFFSET ${(buildPage.page - 1) * buildPage.pageSize}
+              `)
+            ).map(({ number }) => number),
+            totalCount: await transaction.build.count({ where: { prototypeId } }),
+          }
+        : null
       const builds = await transaction.build.findMany({
-        where: { prototypeId },
+        where: {
+          prototypeId,
+          ...(page
+            ? {
+                OR: [
+                  { number: { in: page.numbers } },
+                  ...(buildNumber ? [{ number: buildNumber, state: "successful" as const }] : []),
+                ],
+              }
+            : {}),
+        },
         select: {
           id: true,
           number: true,
@@ -69,8 +95,24 @@ export async function findPrototypeDetail(
         return secondCreatedAt - firstCreatedAt || second.number - first.number
       })
 
-      const latestBuild =
+      let latestBuild: { number: number; state: BuildState } | null =
         builds.find(({ id }) => id === prototype.currentBuildId) ?? builds[0] ?? null
+      if (page) {
+        // The header describes the whole prototype, not only this page.
+        latestBuild =
+          (
+            await transaction.$queryRaw<{ number: number; state: BuildState }[]>(Prisma.sql`
+              SELECT number, state FROM builds
+              WHERE prototype_id = ${prototypeId}::uuid
+                AND (
+                  ${prototype.currentBuildId}::uuid IS NULL
+                  OR id = ${prototype.currentBuildId}::uuid
+                )
+              ORDER BY COALESCE(workflow_created_at, created_at) DESC, number DESC
+              LIMIT 1
+            `)
+          )[0] ?? null
+      }
       const successfulBuilds = builds.filter(({ state }) => state === "successful")
       const selectedBuild = buildNumber
         ? (successfulBuilds.find(({ number }) => number === buildNumber) ?? null)
@@ -118,6 +160,14 @@ export async function findPrototypeDetail(
           builds: buildRecords,
         },
         selectedBuild: selectedBuildRecord,
+        ...(page
+          ? {
+              buildPage: {
+                builds: buildRecords.filter(({ number }) => page.numbers.includes(number)),
+                totalCount: page.totalCount,
+              },
+            }
+          : {}),
       }
     },
     { isolationLevel: "RepeatableRead" },

@@ -10,6 +10,7 @@ export function getBuildHistory(request: Request, repositoryId: string, prototyp
     request.url,
   )
   if (query.page > 1) url.searchParams.set("page", String(query.page))
+  if (query.build) url.searchParams.set("build", String(query.build))
 
   return requestJson(url, buildHistoryResponseSchema, {
     signal: request.signal,
