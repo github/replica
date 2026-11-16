@@ -83,16 +83,15 @@ describe("prototype Build history API", () => {
     })
     const states = ["successful", "failed", "running", "queued", "superseded"] as const
     const buildCount = 30
-    // Number order and chronology agree, so the expected order needs no ordering decision.
     await prisma.build.createMany({
       data: Array.from({ length: buildCount }, (_, index) => {
-        const createdAt = new Date(Date.UTC(2026, 9, 2, index))
+        const createdAt = new Date(Date.UTC(2026, 9, 2, buildCount - index))
         return {
           prototypeId,
           number: index + 1,
           state: states[index % states.length],
-          workflowCreatedAt: createdAt,
-          createdAt,
+          workflowCreatedAt: index % 2 ? createdAt : null,
+          createdAt: index % 2 ? new Date("2026-11-01T00:00:00Z") : createdAt,
         }
       }),
     })
@@ -149,7 +148,7 @@ describe("prototype Build history API", () => {
       }
 
       expect(builds.map(({ number }) => number)).toEqual(
-        Array.from({ length: buildCount }, (_, index) => buildCount - index),
+        Array.from({ length: buildCount }, (_, index) => index + 1),
       )
       for (const build of builds) {
         expect(build).toMatchObject({

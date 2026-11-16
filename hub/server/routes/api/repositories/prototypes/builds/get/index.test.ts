@@ -41,7 +41,7 @@ async function withHistory(
         startPage: "/checkout",
         canEdit: false,
         builds: Array.from({ length: 26 }, (_, index) => ({
-          number: index + 1,
+          number: 26 - index,
           state: index % 2 ? "failed" : "successful",
         })),
       },

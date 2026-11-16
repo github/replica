@@ -58,9 +58,7 @@ export function get(
       }
 
       const page = Number(query.data.page ?? "1")
-      const builds = [...detail.prototype.builds].sort(
-        (first, second) => second.number - first.number,
-      )
+      const builds = detail.prototype.builds
       const totalCount = builds.length
       const pageCount = Math.max(1, Math.ceil(totalCount / pageSize))
       if (page > pageCount) {
