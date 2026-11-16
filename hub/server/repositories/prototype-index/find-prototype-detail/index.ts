@@ -1,9 +1,15 @@
-import type { PrismaClient } from "../../../generated/prisma/client.ts"
+import type { Prisma } from "../../../generated/prisma/client.ts"
 
 const hiddenBranches = ["replica/install-workflow"]
 
 export async function findPrototypeDetail(
-  database: Pick<PrismaClient, "$transaction" | "repository">,
+  database: {
+    $transaction<Result>(
+      operation: (transaction: Prisma.TransactionClient) => Promise<Result>,
+      options: { isolationLevel: Prisma.TransactionIsolationLevel },
+    ): Promise<Result>
+    repository: Pick<Prisma.TransactionClient["repository"], "findFirst">
+  },
   repositoryId: string,
   prototypeId: string,
   buildNumber?: number,

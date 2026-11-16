@@ -1,3 +1,4 @@
+import type { PrototypeMetadataChanges } from "../../../domains/prototypes/edit-prototype-metadata/index.ts"
 import type {
   findRepositoryAuthors,
   RepositoryAuthorsFilters,
@@ -24,4 +25,10 @@ export interface ProductRouteDependencies {
     repositoryId: string,
     filters: RepositoryAuthorsFilters,
   ): ReturnType<typeof findRepositoryAuthors>
+  editPrototypeMetadata(input: {
+    changes: PrototypeMetadataChanges
+    prototypeId: string
+    repositoryId: string
+    sessionDigest: string
+  }): Promise<NonNullable<Awaited<ReturnType<typeof findPrototypeDetail>>>>
 }
