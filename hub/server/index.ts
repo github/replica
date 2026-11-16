@@ -103,6 +103,8 @@ try {
               await import("./routes/api/product/create-product-route-dependencies/index.ts")
             product = createProductRouteDependencies({
               onReviewCommentDeleted: (input) => learningDependencies.redactComment(input),
+              withReviewCommentDeleteLock: (operation) =>
+                learningDependencies.serializeReviewCommentDeletion(operation),
             })
           } else {
             await disableAuthenticationProviders()

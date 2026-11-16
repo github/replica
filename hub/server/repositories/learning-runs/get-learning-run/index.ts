@@ -9,6 +9,7 @@ export function getLearningRun(
     include: {
       repository: true,
       requestedBy: { include: { profile: true } },
+      requestedByMembership: true,
     },
   })
 }

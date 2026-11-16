@@ -11,7 +11,7 @@ import { processReviewCommentRedaction } from "../process-review-comment-redacti
 import { readLearningConfiguration } from "../read-learning-configuration/index.ts"
 import { createJobProcessor } from "../../../integrations/bullmq/create-job-processor/index.ts"
 import { createJobQueue } from "../../../integrations/bullmq/create-job-queue/index.ts"
-import { enqueueJob } from "../../../integrations/bullmq/enqueue-job/index.ts"
+import { enqueueRecoverableJob } from "../../../integrations/bullmq/enqueue-recoverable-job/index.ts"
 import { runLearningCommand } from "../../../integrations/learning/run-learning-command/index.ts"
 import { withLearningExecutionLock } from "../../../integrations/postgres/with-learning-execution-lock/index.ts"
 import { getCopilotConnectionState } from "../../../repositories/copilot-connection-states/get-copilot-connection-state/index.ts"
@@ -58,6 +58,7 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
       finish: (id, input) => finishLearningRun(prisma, id, input),
       getRun: (id) => getLearningRun(prisma, id),
       now: () => new Date(),
+      isAdministrator: (membershipId) => isEffectiveAdministrator(prisma, membershipId),
       prepare: (repositoryId) =>
         prepareLearningStore({
           applicationRoot: process.cwd(),
@@ -148,17 +149,15 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
     const queue = createJobQueue({ name: "on-demand", databaseUrl, logger })
     try {
       for (const queued of await listQueuedLearningRuns(prisma)) {
-        await enqueueJob(
+        await enqueueRecoverableJob(
           queue,
           learningRunJob,
           { runId: queued.id },
-          {
-            jobId: `learning-run-${queued.id}`,
-          },
+          `learning-run-${queued.id}`,
         )
       }
       for (const comment of await listDeletedReviewComments(prisma)) {
-        await enqueueJob(
+        await enqueueRecoverableJob(
           queue,
           redactReviewCommentJob,
           {
@@ -166,9 +165,7 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
             commentId: comment.publicId,
             actor: comment.learningRedactionActor ?? `human:${comment.authorLogin}`,
           },
-          {
-            jobId: `learning-redact-${comment.thread.repositoryId}-${comment.publicId}`,
-          },
+          `learning-redact-${comment.thread.repositoryId}-${comment.publicId}`,
         )
       }
     } finally {

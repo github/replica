@@ -306,11 +306,16 @@ export function getSecurityAuditData(
     case "learning_decision":
       return {
         id: event.id,
-        action: `learning.${event.decision}`,
+        action:
+          event.outcome === "requested"
+            ? `learning.${event.decision}.requested`
+            : `learning.${event.decision}`,
         outcome:
-          event.outcome === "succeeded"
-            ? SecurityAuditOutcome.SUCCESS
-            : SecurityAuditOutcome.FAILURE,
+          event.outcome === "requested"
+            ? null
+            : event.outcome === "succeeded"
+              ? SecurityAuditOutcome.SUCCESS
+              : SecurityAuditOutcome.FAILURE,
         targetType: "learning",
         targetId: event.learningId,
         context: {

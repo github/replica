@@ -8,7 +8,6 @@ export function listDeletedReviewComments(
     where: {
       deletedAt: { not: null },
       learningRedactedAt: null,
-      thread: { repository: { removedAt: null } },
     },
     orderBy: [{ deletedAt: "asc" }, { id: "asc" }],
     take: limit,

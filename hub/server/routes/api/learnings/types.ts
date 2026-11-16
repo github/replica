@@ -98,4 +98,5 @@ export interface LearningsRouteDependencies {
     commentId: number
     actorLogin: string
   }): Promise<void>
+  serializeReviewCommentDeletion<T>(operation: () => Promise<T>): Promise<T>
 }

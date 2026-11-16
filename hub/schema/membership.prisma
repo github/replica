@@ -9,6 +9,7 @@ model Membership {
   sessions                HubSession[]
   sensitiveAuthorizations SensitiveAuthorization[]
   copilotConnections      CopilotConnection[]
+  learningRuns            LearningRun[]
 
   // Attribute columns
   lifecycle MembershipLifecycle @default(ACTIVE)

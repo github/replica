@@ -16,18 +16,18 @@ export async function processReviewCommentRedaction(
     withLock<T>(run: (signal: AbortSignal) => Promise<T>): Promise<T>
   },
 ) {
-  const directory = resolve(dependencies.root, "repositories", input.repositoryId)
-  try {
-    await access(resolve(directory, "config.json"))
-  } catch {
-    await dependencies.markComplete({
-      repositoryId: input.repositoryId,
-      commentId: input.commentId,
-      redactedAt: dependencies.now(),
-    })
-    return
-  }
   await dependencies.withLock(async (signal) => {
+    const directory = resolve(dependencies.root, "repositories", input.repositoryId)
+    try {
+      await access(resolve(directory, "config.json"))
+    } catch {
+      await dependencies.markComplete({
+        repositoryId: input.repositoryId,
+        commentId: input.commentId,
+        redactedAt: dependencies.now(),
+      })
+      return
+    }
     const store = await dependencies.prepare(input.repositoryId)
     await dependencies.runCommand(
       [

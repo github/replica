@@ -44,6 +44,7 @@ function dependencies(
     listRuns: vi.fn().mockResolvedValue({ runs: [], usageCredits: "0", active: false }),
     decide: vi.fn().mockResolvedValue({ notice: "Learning accepted." }),
     redactComment: vi.fn().mockResolvedValue(undefined),
+    serializeReviewCommentDeletion: (operation) => operation(),
     ...overrides,
   }
 }

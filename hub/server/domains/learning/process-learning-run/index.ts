@@ -84,9 +84,11 @@ export async function processLearningRun(
       startedAt: Date | null
       state: "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED"
       requestedBy: { profile: { login: string | null } | null } | null
+      requestedByMembershipId: string | null
     } | null>
     now(): Date
     prepare(repositoryId: string): Promise<{ directory: string; repositoryScope: string }>
+    isAdministrator(membershipId: string): Promise<boolean>
     refuseCredential?(): Promise<void>
     runCommand(
       arguments_: string[],
@@ -115,10 +117,14 @@ export async function processLearningRun(
       if (!current) throw new Error("The claimed learning run disappeared.")
       if (current.state !== "RUNNING") return
       const actor = current.requestedBy?.profile?.login
-      if (!actor) {
+      if (
+        !actor ||
+        !current.requestedByMembershipId ||
+        !(await dependencies.isAdministrator(current.requestedByMembershipId))
+      ) {
         throw new LearningCommandError(
-          "identity_unavailable",
-          "The person who requested this run no longer has a usable login.",
+          "not_authorized",
+          "The person who requested this run is no longer an administrator.",
         )
       }
       const snapshot = await dependencies.capture(current.repositoryId)
@@ -281,6 +287,12 @@ export async function processLearningRun(
       })
     })
   } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "Another learning operation is still running."
+    ) {
+      throw error
+    }
     const current = await dependencies.getRun(runId)
     if (current?.state === "QUEUED") throw error
     if (error instanceof LearningCommandError && error.code === "unauthorized") {

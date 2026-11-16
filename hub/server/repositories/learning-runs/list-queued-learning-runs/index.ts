@@ -5,7 +5,7 @@ export function listQueuedLearningRuns(
   limit = 100,
 ) {
   return database.learningRun.findMany({
-    where: { state: "QUEUED" },
+    where: { state: { in: ["QUEUED", "RUNNING"] } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     take: limit,
     select: { id: true },

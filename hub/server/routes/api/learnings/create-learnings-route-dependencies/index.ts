@@ -136,6 +136,7 @@ export async function createLearningsRouteDependencies(
         const result = await createLearningRun(transaction, {
           repositoryId,
           requestedById,
+          requestedByMembershipId: actorMembershipId,
           snapshotDigest: snapshot.digest,
         })
         if (result.created) {
@@ -213,16 +214,38 @@ export async function createLearningsRouteDependencies(
         await queue.close()
       }
     },
+    serializeReviewCommentDeletion: (operation) =>
+      withLearningExecutionLock({
+        databaseUrl,
+        run: () => operation(),
+      }),
     decide: async ({ actorMembershipId, ...input }) => {
+      await createSecurityAudit(prisma, {
+        id: randomUUID(),
+        type: "learning_decision",
+        actorMembershipId,
+        decision: input.decision.decision,
+        learningId: input.learningId,
+        outcome: "requested",
+        repositoryId: input.repositoryId,
+      })
       try {
         const result = await withLearningExecutionLock({
           databaseUrl,
-          run: (signal) =>
-            executeLearningDecision({
+          run: async (signal) => {
+            if (!(await isEffectiveAdministrator(prisma, actorMembershipId))) {
+              throw new LearningsError(
+                403,
+                "repository_administrator_required",
+                "Repository administrator access is required.",
+              )
+            }
+            return executeLearningDecision({
               ...configuration,
               ...input,
               signal,
-            }),
+            })
+          },
         })
         try {
           await createSecurityAudit(prisma, {

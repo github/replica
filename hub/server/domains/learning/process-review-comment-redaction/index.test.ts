@@ -38,7 +38,7 @@ describe("processReviewCommentRedaction()", () => {
       },
     )
 
-    expect(lockCalls).toBe(0)
+    expect(lockCalls).toBe(1)
     expect(prepare).not.toHaveBeenCalled()
     expect(runCommand).not.toHaveBeenCalled()
     expect(markComplete).toHaveBeenCalledWith({

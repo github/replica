@@ -5,6 +5,7 @@ export async function createLearningRun(
   input: {
     repositoryId: string
     requestedById: string
+    requestedByMembershipId: string
     snapshotDigest: string
   },
 ) {

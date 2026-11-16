@@ -63,8 +63,11 @@ function actorFor(record: SecurityAuditListRecord) {
       return parsed.success ? { membershipId: parsed.data.actorMembershipId } : null
     }
     case "learning.accept":
+    case "learning.accept.requested":
     case "learning.reject":
+    case "learning.reject.requested":
     case "learning.retire":
+    case "learning.retire.requested":
     case "learning.run.requested":
     case "learning.run.failed": {
       const parsed = actorContextSchema.safeParse(record.context)
@@ -325,8 +328,11 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
         : {}
     }
     case "learning.accept":
+    case "learning.accept.requested":
     case "learning.reject":
+    case "learning.reject.requested":
     case "learning.retire":
+    case "learning.retire.requested":
     case "learning.run.requested":
     case "learning.run.failed": {
       const parsed = z

@@ -12,6 +12,7 @@ CREATE TABLE "learning_runs" (
     "id" UUID NOT NULL,
     "repository_id" UUID NOT NULL,
     "requested_by_id" UUID,
+    "requested_by_membership_id" UUID,
     "number" SERIAL NOT NULL,
     "scheduled" BOOLEAN NOT NULL DEFAULT false,
     "state" "LearningRunState" NOT NULL DEFAULT 'QUEUED',
@@ -53,6 +54,7 @@ CREATE TABLE "learning_runs" (
 
 CREATE UNIQUE INDEX "learning_runs_number_key" ON "learning_runs"("number");
 CREATE INDEX "learning_runs_requested_by_id_idx" ON "learning_runs"("requested_by_id");
+CREATE INDEX "learning_runs_requested_by_membership_id_idx" ON "learning_runs"("requested_by_membership_id");
 CREATE INDEX "learning_runs_repository_id_created_at_idx" ON "learning_runs"("repository_id", "created_at");
 CREATE UNIQUE INDEX "learning_runs_active_repository_key"
 ON "learning_runs"("repository_id")
@@ -65,3 +67,7 @@ FOREIGN KEY ("repository_id") REFERENCES "repositories"("id") ON DELETE CASCADE 
 ALTER TABLE "learning_runs"
 ADD CONSTRAINT "learning_runs_requested_by_id_fkey"
 FOREIGN KEY ("requested_by_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+ALTER TABLE "learning_runs"
+ADD CONSTRAINT "learning_runs_requested_by_membership_id_fkey"
+FOREIGN KEY ("requested_by_membership_id") REFERENCES "memberships"("id") ON DELETE SET NULL ON UPDATE CASCADE;

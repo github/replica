@@ -17,6 +17,7 @@ function dependencies(overrides: Partial<Dependencies> = {}) {
     state: "QUEUED",
     startedAt: new Date("2026-11-13T09:59:00Z"),
     requestedBy: { profile: { login: "mona" } },
+    requestedByMembershipId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
   }
   async function withLock<T>(operation: (signal: AbortSignal) => Promise<T>) {
     return await operation(new AbortController().signal)
@@ -37,6 +38,7 @@ function dependencies(overrides: Partial<Dependencies> = {}) {
     }),
     getRun: vi.fn().mockImplementation(() => Promise.resolve(run)),
     now: vi.fn(() => new Date("2026-11-13T10:00:00Z")),
+    isAdministrator: vi.fn().mockResolvedValue(true),
     prepare: vi.fn().mockResolvedValue({
       directory: "/private/repository",
       repositoryScope: "github.com/repositories/repository",
@@ -140,6 +142,34 @@ describe("processLearningRun()", () => {
 
     expect(deps.claim).not.toHaveBeenCalled()
     expect(deps.finished[0]).toMatchObject({ input: { state: "SUCCEEDED" } })
+  })
+
+  it("retries a recovered running job when another learning mutation holds the lock", async () => {
+    const deps = dependencies({
+      withLock: () => Promise.reject(new Error("Another learning operation is still running.")),
+    })
+    deps.run.state = "RUNNING"
+
+    await expect(processLearningRun("11111111-2222-4333-8444-555555555555", deps)).rejects.toThrow(
+      "Another learning operation is still running.",
+    )
+    expect(deps.finished).toEqual([])
+  })
+
+  it("fails before store writes when the requester's authority was revoked", async () => {
+    const deps = dependencies({
+      isAdministrator: vi.fn().mockResolvedValue(false),
+    })
+
+    await processLearningRun("11111111-2222-4333-8444-555555555555", deps)
+
+    expect(deps.runCommand).not.toHaveBeenCalled()
+    expect(deps.finished[0]).toMatchObject({
+      input: {
+        state: "FAILED",
+        failureCode: "not_authorized",
+      },
+    })
   })
 
   it("preserves partial label usage when Copilot fails", async () => {

@@ -69,6 +69,7 @@ export function createReviewCommentService(
       commentId: number
       actorLogin: string
     }) => Promise<void>
+    withDeleteLock?: <T>(operation: () => Promise<T>) => Promise<T>
   } = {},
 ): ReviewCommentService {
   const repository = createReviewCommentRepository(database)
@@ -120,13 +121,18 @@ export function createReviewCommentService(
       return serializeReviewThread(result.value)
     },
     async deleteComment(input) {
-      const result = await runReviewMutation(() =>
-        repository.deleteComment({
-          ...input,
-          authorize: (transaction) =>
-            authorizeMutation(transaction, input.sessionDigest, input.actor.userId),
-        }),
-      )
+      function operation() {
+        return runReviewMutation(() =>
+          repository.deleteComment({
+            ...input,
+            authorize: (transaction) =>
+              authorizeMutation(transaction, input.sessionDigest, input.actor.userId),
+          }),
+        )
+      }
+      const result = options.withDeleteLock
+        ? await options.withDeleteLock(operation)
+        : await operation()
       if (!result.ok) throw persistenceError(result.reason)
       const thread = serializeReviewThread(result.value)
       await options.onDeleted?.({

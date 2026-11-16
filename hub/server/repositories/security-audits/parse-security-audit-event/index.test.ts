@@ -77,6 +77,10 @@ describe("parseSecurityAuditEvent()", () => {
     }
 
     expect(parseSecurityAuditEvent(event)).toEqual(event)
+    expect(parseSecurityAuditEvent({ ...event, outcome: "requested" })).toEqual({
+      ...event,
+      outcome: "requested",
+    })
   })
 
   it("accepts a bounded learning run request audit", () => {

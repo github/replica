@@ -416,6 +416,24 @@ describe("presentSecurityAudit()", () => {
       }),
     },
     {
+      label: "repository learning acceptance request",
+      event: {
+        actorMembershipId,
+        decision: "accept",
+        id: auditId,
+        learningId: "mem_1",
+        outcome: "requested",
+        repositoryId: providerId,
+        type: "learning_decision",
+      },
+      expected: expectedRecord({
+        action: "learning.accept.requested",
+        actor: { membershipId: actorMembershipId },
+        context: { repositoryId: providerId, learningId: "mem_1" },
+        outcome: null,
+      }),
+    },
+    {
       label: "repository learning run request",
       event: {
         actorMembershipId,

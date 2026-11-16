@@ -223,7 +223,7 @@ export interface LearningDecisionAudit extends SecurityAuditEvent {
   actorMembershipId: string
   decision: "accept" | "reject" | "retire"
   learningId: string
-  outcome: "succeeded" | "failed"
+  outcome: "requested" | "succeeded" | "failed"
   reason?: string
   repositoryId: string
 }
