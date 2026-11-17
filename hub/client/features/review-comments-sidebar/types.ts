@@ -25,6 +25,7 @@ export interface ReviewCommentsSidebarProps {
   selectionBlocked: boolean
   closeBlocked: boolean
   showPins: boolean
+  supportsReadState?: boolean
   loading: boolean
   loadFailed: boolean
   notice?: ReactNode

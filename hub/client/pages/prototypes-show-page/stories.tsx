@@ -501,6 +501,27 @@ export const Conversation: Story = {
   },
 }
 
+export const LocalConversation: Story = {
+  args: {
+    data: {
+      ...data,
+      reviewComments: {
+        ...data.reviewComments,
+        supportsReactions: false,
+        supportsReadState: false,
+      },
+    },
+    review: reviewState({
+      selectedThread: repliedReviewThread,
+      selectedThreadId: repliedReviewThread.root.id,
+      selectedThreadPoint: { x: 520, y: 220 },
+      sidebarOpen: true,
+      threads: [repliedReviewThread],
+      visibleThreads: [repliedReviewThread],
+    }),
+  },
+}
+
 const readThread = {
   ...singleReviewThread,
   root: {

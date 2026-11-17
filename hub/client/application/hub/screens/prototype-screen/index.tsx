@@ -71,7 +71,7 @@ export function PrototypeScreen({
     viewerLogin: workspace.viewer.login,
     selectedBuild: pageData.selectedBuild,
     transport,
-    filters: query.filters,
+    filters: mock ? query.filters : { ...query.filters, showRead: true },
     selectedThreadId: query.commentId,
     onSelectedThreadChange: selectThread,
     onFiltersChange: (filters) => {

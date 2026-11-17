@@ -3,6 +3,7 @@ import { restoreHubSession } from "../../../../domains/admission/restore-hub-ses
 import { runSessionRestoreTransaction } from "../../../../domains/admission/run-session-restore-transaction/index.ts"
 import { editPrototypeMetadata } from "../../../../domains/prototypes/edit-prototype-metadata/index.ts"
 import { readPrototypeWithIntroduction } from "../../../../domains/prototypes/read-prototype-with-introduction/index.ts"
+import { authorizeRepositoryReview } from "../../../../domains/review-comments/authorize-repository-review/index.ts"
 import { createReviewCommentService } from "../../../../domains/review-comments/create-review-comment-service/index.ts"
 import { prisma } from "../../../../integrations/prisma/index.ts"
 import { lockAuthenticationProvidersForPrototypeEdit } from "../../../../repositories/authentication-providers/lock-authentication-providers-for-prototype-edit/index.ts"
@@ -16,6 +17,7 @@ import { lockVisiblePrototype } from "../../../../repositories/prototypes/lock-v
 import { updatePrototypeMetadata } from "../../../../repositories/prototypes/update-prototype-metadata/index.ts"
 import { lockSessionRevocationState } from "../../../../repositories/session-revocation-states/lock-session-revocation-state/index.ts"
 import { findBuildPreviewTarget } from "../../../../repositories/build-artifacts/find-build-preview-target/index.ts"
+import { findRepositoryReviewAccess } from "../../../../repositories/review-comments/find-repository-review-access/index.ts"
 import { createBuildPreviewOrigin } from "../../../../domains/build-preview/create-build-preview-origin/index.ts"
 import type { ProductRouteDependencies } from "../types.ts"
 
@@ -84,6 +86,11 @@ export function createProductRouteDependencies({
       onDeleted: onReviewCommentDeleted,
       withDeleteLock: withReviewCommentDeleteLock,
     }),
+    authorizeReviewAccess: async (repositoryId, actor) =>
+      authorizeRepositoryReview(
+        actor,
+        await findRepositoryReviewAccess(prisma, repositoryId),
+      ),
     listRepositories: () => listRepositories(prisma),
     findRepositoryIndex: (repositoryId, filters) =>
       findRepositoryIndex(prisma, repositoryId, filters),

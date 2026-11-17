@@ -20,7 +20,7 @@ Package paths remain relative and may not contain empty, dot, dot-dot, control, 
 
 Content types come from the checked package path, with unknown extensions served as `application/octet-stream`. HTML is private and revalidated. Immutable assets use a private one-year cache. Desktop and narrow screenshots are served from their package paths through the same Build authorization.
 
-HTML responses inject the generated hosted preview bridge. The bridge installs the shared Controls engine and bindings, which load that Build's `/controls.replica.json`. The generated bridge is checked by `npm run controls:assets:check`.
+HTML responses inject the generated hosted preview bridge. The bridge installs the shared Controls engine and bindings, which load that Build's `/controls.replica.json`, and reports review element or area selections to the authenticated parent page. Review records store the anchor and Build identity separately; the bridge does not write artifacts or receive Hub session cookies. The generated bridge is checked by `npm run controls:assets:check`.
 
 ## Browser boundary
 

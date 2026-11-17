@@ -112,45 +112,49 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
         express.json({ limit: "32kb", strict: true }),
         handlePrototypePatch(authentication.currentSession, product),
       )
-      if (product.reviewComments) {
+      if (product.reviewComments && product.authorizeReviewAccess) {
+        const review = {
+          reviewComments: product.reviewComments,
+          authorizeReviewAccess: product.authorizeReviewAccess,
+        }
         const reviewCommentsPath =
           "/api/repositories/:repositoryId/prototypes/:prototypeId/review-comments"
         app.get(
           reviewCommentsPath,
-          handleReviewCommentsGet(authentication.currentSession, product.reviewComments),
+          handleReviewCommentsGet(authentication.currentSession, review),
         )
         app.post(
           reviewCommentsPath,
           requireOrigin(authentication.signOut.applicationOrigin),
           express.json({ limit: "32kb", strict: true }),
-          handleReviewCommentsPost(authentication.currentSession, product.reviewComments),
+          handleReviewCommentsPost(authentication.currentSession, review),
         )
         app.patch(
           `${reviewCommentsPath}/:commentId`,
           requireOrigin(authentication.signOut.applicationOrigin),
           express.json({ limit: "32kb", strict: true }),
-          handleReviewCommentPatch(authentication.currentSession, product.reviewComments),
+          handleReviewCommentPatch(authentication.currentSession, review),
         )
         app.delete(
           `${reviewCommentsPath}/:commentId`,
           requireOrigin(authentication.signOut.applicationOrigin),
-          handleReviewCommentDelete(authentication.currentSession, product.reviewComments),
+          handleReviewCommentDelete(authentication.currentSession, review),
         )
         app.post(
           `${reviewCommentsPath}/:threadId/replies`,
           requireOrigin(authentication.signOut.applicationOrigin),
           express.json({ limit: "32kb", strict: true }),
-          handleReviewCommentReplyPost(authentication.currentSession, product.reviewComments),
+          handleReviewCommentReplyPost(authentication.currentSession, review),
         )
         app.post(
           `${reviewCommentsPath}/:threadId/resolution`,
           requireOrigin(authentication.signOut.applicationOrigin),
-          handleReviewThreadResolutionPost(authentication.currentSession, product.reviewComments),
+          handleReviewThreadResolutionPost(authentication.currentSession, review),
         )
         app.delete(
           `${reviewCommentsPath}/:threadId/resolution`,
           requireOrigin(authentication.signOut.applicationOrigin),
-          handleReviewThreadResolutionDelete(authentication.currentSession, product.reviewComments),
+          handleReviewThreadResolutionDelete(authentication.currentSession, review),
         )
       }
       if (publicSharing) {

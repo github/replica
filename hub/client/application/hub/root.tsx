@@ -65,7 +65,7 @@ export async function clientLoader({
       },
       capabilities: {
         createPrototypes: false,
-        reviewPrototypes: false,
+        reviewPrototypes: session.provider === "local",
         manageSharing: false,
         administerHub: session.role === "ADMINISTRATOR",
       },

@@ -14,10 +14,30 @@ import type {
   BuildPreviewTarget,
   findBuildPreviewTarget,
 } from "../../../repositories/build-artifacts/find-build-preview-target/index.ts"
-import type { ReviewCommentService } from "../../../domains/review-comments/types.ts"
+import type {
+  ReviewCommentService,
+  ReviewRouteActor,
+} from "../../../domains/review-comments/types.ts"
+import type { RepositoryReviewAccess } from "../../../domains/review-comments/authorize-repository-review/index.ts"
+
+export interface ReviewAccessActor extends ReviewRouteActor {
+  provider: string
+}
+
+export interface ReviewRouteDependencies {
+  reviewComments: ReviewCommentService
+  authorizeReviewAccess(
+    repositoryId: string,
+    actor: ReviewAccessActor,
+  ): Promise<RepositoryReviewAccess>
+}
 
 export interface ProductRouteDependencies {
   reviewComments?: ReviewCommentService
+  authorizeReviewAccess?(
+    repositoryId: string,
+    actor: ReviewAccessActor,
+  ): Promise<RepositoryReviewAccess>
   listRepositories(): ReturnType<typeof listRepositories>
   findRepositoryIndex(
     repositoryId: string,

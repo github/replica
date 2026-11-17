@@ -74,7 +74,9 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
         onStartAreaSelection: review.startAreaSelection,
         onStartElementSelection: review.startElementSelection,
         commentCount: review.threads.length,
-        hasUnreadComments: review.threads.some((thread) => thread.unread),
+        hasUnreadComments:
+          Boolean(data.reviewComments.supportsReadState) &&
+          review.threads.some((thread) => thread.unread),
         sidebarToggleBlocked: bridge.selectedAnchor !== null || review.conversationDraftActive,
         sidebarOpen: review.sidebarOpen,
         onToggleSidebar: review.toggleSidebar,
@@ -229,22 +231,36 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
                         onReopen={async () =>
                           Boolean(await review.comments.reopenThread(selectedThread.root.id))
                         }
-                        onAddReaction={async (commentId, content) =>
-                          Boolean(await review.comments.addReaction(commentId, content))
+                        onAddReaction={
+                          data.reviewComments.supportsReactions
+                            ? async (commentId, content) =>
+                                Boolean(await review.comments.addReaction(commentId, content))
+                            : undefined
                         }
-                        onRemoveReaction={async (commentId, content) =>
-                          Boolean(await review.comments.removeReaction(commentId, content))
+                        onRemoveReaction={
+                          data.reviewComments.supportsReactions
+                            ? async (commentId, content) =>
+                                Boolean(await review.comments.removeReaction(commentId, content))
+                            : undefined
                         }
-                        onMarkRead={async (activityVersion) =>
-                          Boolean(
-                            await review.comments.markThreadRead(
-                              selectedThread.root.id,
-                              activityVersion,
-                            ),
-                          )
+                        onMarkRead={
+                          data.reviewComments.supportsReadState
+                            ? async (activityVersion) =>
+                                Boolean(
+                                  await review.comments.markThreadRead(
+                                    selectedThread.root.id,
+                                    activityVersion,
+                                  ),
+                                )
+                            : undefined
                         }
-                        onMarkUnread={async () =>
-                          Boolean(await review.comments.markThreadUnread(selectedThread.root.id))
+                        onMarkUnread={
+                          data.reviewComments.supportsReadState
+                            ? async () =>
+                                Boolean(
+                                  await review.comments.markThreadUnread(selectedThread.root.id),
+                                )
+                            : undefined
                         }
                       />
                     </div>
@@ -328,6 +344,7 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
                   }
                   closeBlocked={review.conversationDraftActive}
                   showPins={review.showPins}
+                  supportsReadState={data.reviewComments.supportsReadState}
                   loading={review.comments.loading}
                   loadFailed={review.comments.loadFailed}
                   copy={data.reviewComments.copy}

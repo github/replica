@@ -82,6 +82,8 @@ export function prototypeShowData(
     reviewComments: {
       bodyMaximumBytes: 10_000,
       copy: reviewCommentsCopy,
+      supportsReactions: !options.real,
+      supportsReadState: !options.real,
     },
     latestBuild: selectedBuild && !previewBuild ? undefined : workspaceData.latestBuild,
     buildSelectionLabel:
