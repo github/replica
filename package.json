@@ -1,7 +1,16 @@
 {
   "name": "@replica/commands",
   "private": true,
+  "engines": {
+    "node": "^24.15.0 || ^26.0.0"
+  },
+  "workspaces": [
+    "hub",
+    "infrastructure",
+    "packages/learning",
+    "scripts"
+  ],
   "scripts": {
-    "setup:server": "npm start --prefix infrastructure --"
+    "setup:server": "npm start --workspace @replica/installer --"
   }
 }

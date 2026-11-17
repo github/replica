@@ -2,10 +2,9 @@ version: 2
 updates:
   - package-ecosystem: npm
     directories:
-      - "/hub"
+      - "/"
       - "/actions/build"
       - "/starter"
-      - "/scripts"
     schedule:
       interval: weekly
     cooldown:

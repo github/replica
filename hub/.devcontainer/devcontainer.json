@@ -6,5 +6,5 @@
   "remoteUser": "node",
   "shutdownAction": "stopCompose",
   "forwardPorts": [3001, 5173, 6006],
-  "postCreateCommand": "npm ci --engine-strict"
+  "postCreateCommand": "npm ci --engine-strict --workspace replica-hub --workspace @github/replica-learning"
 }

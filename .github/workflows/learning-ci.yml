@@ -25,8 +25,9 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
-          cache-dependency-path: packages/learning/package-lock.json
-      - run: npm ci --ignore-scripts --engine-strict
+          cache-dependency-path: package-lock.json
+      - run: npm ci --workspace @github/replica-learning --ignore-scripts --engine-strict
+        working-directory: .
       - run: npm run schema:check
       - run: npm test
       - run: npm run demo

@@ -10,11 +10,11 @@ Follow [Routed frontend](frontend.md) for local startup, data modes, and route e
 
 Install a Docker-compatible runtime with Docker Compose and an editor with Dev Containers support. Open the repository's `hub/` directory in the editor and reopen it in the container using `.devcontainer/devcontainer.json`.
 
-Compose starts the app container after PostgreSQL is healthy. Both images use Debian slim bases. The app runs as the non-root `node` user. Container creation runs `npm ci --engine-strict`, which also generates Prisma Client. See the [Dockerfile](../.devcontainer/Dockerfile) and [Compose configuration](../.devcontainer/compose.yaml) for the pinned images.
+Compose starts the app container after PostgreSQL is healthy. Both images use Debian slim bases. The app runs as the non-root `node` user. Container creation installs Hub and the learning runtime from the repository's shared lockfile and generates Prisma Client. See the [Dockerfile](../.devcontainer/Dockerfile) and [Compose configuration](../.devcontainer/compose.yaml) for the pinned images.
 
 The repository is mounted at `/workspaces/replica`, with `hub/` as the working directory. Compose supplies `DATABASE_URL` with the `db` service hostname. Local database credentials in Compose are for development only. The database port is published only on host loopback.
 
-After the container opens and PostgreSQL is healthy, install the separate learning runtime with `npm ci --prefix ../packages/learning --engine-strict`, then run `npm run setup` before starting `npm run dev:api`. Run setup again after pulling new migrations.
+After the container opens and PostgreSQL is healthy, run `npm run setup` before starting `npm run dev:api`. Run setup again after pulling new migrations.
 
 ## Local Node.js
 
@@ -23,8 +23,7 @@ Use npm and a Node.js version supported by `engines.node` in `hub/package.json`.
 ```sh
 docker compose -f .devcontainer/compose.yaml up -d db
 cp .env.example .env
-npm ci --engine-strict
-npm ci --prefix ../packages/learning --engine-strict
+npm ci --engine-strict --workspace replica-hub --workspace @github/replica-learning
 npm run setup
 ```
 

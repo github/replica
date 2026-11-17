@@ -62,7 +62,7 @@ Scripts CI and dependency-age checks use the Node.js version specified in their 
 
 ## Update dependencies
 
-Hub, the shared build action, and repository tooling wait seven days before resolving newly published dependencies. npm enforces the delay through each project's committed `.npmrc`. Dependabot applies the same cooldown to npm and GitHub Actions updates across the repository. The starter manages its dependency resolution independently.
+Hub, the shared build action, and repository tooling wait seven days before resolving newly published dependencies. npm enforces the delay through the committed `.npmrc` at the repository root for the workspace projects and through the build action's own `.npmrc`. Dependabot applies the same cooldown to npm and GitHub Actions updates across the repository. The starter manages its dependency resolution independently.
 
 From the repository root, `node scripts/check-dependency-age/index.ts` verifies every npm lockfile except Starter and installed dependencies, including Hub, the build action, Learning, and repository tooling. The unconditional [Dependency age workflow](../.github/workflows/dependency-age.yml) runs the same checker. It also requires external GitHub Actions in workflows and action definitions to use full commit SHAs and verifies their commit times. These checks cover existing lockfiles that bypass the resolver delay and fail when publication metadata is unavailable. npm metadata comes from its registry; Action commit metadata comes from GitHub's API. Set `GH_TOKEN` locally if needed for API rate limits; CI supplies its read-only token.
 

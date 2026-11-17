@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
@@ -19,10 +19,14 @@ function fixture() {
   directories.push(directory)
   mkdirSync(join(directory, ".github"), { recursive: true })
   cpSync(join(root, ".github/workflows"), join(directory, ".github/workflows"), { recursive: true })
+  for (const name of ["package.json", "package-lock.json"]) {
+    cpSync(join(root, name), join(directory, name))
+  }
   for (const project of ["hub", "starter", "actions/build", "packages/learning", "scripts"]) {
     mkdirSync(join(directory, project), { recursive: true })
     for (const name of ["package.json", "package-lock.json"]) {
-      cpSync(join(root, project, name), join(directory, project, name))
+      const source = join(root, project, name)
+      if (existsSync(source)) cpSync(source, join(directory, project, name))
     }
   }
   return directory
@@ -62,6 +66,15 @@ describe("checkWorkflows()", () => {
     workflow.on[event] = { ...workflow.on[event], paths: ["starter/**"] }
     writeFileSync(path, stringify(workflow))
     expect(() => checkWorkflows(directory)).toThrow(/starter-ci/)
+  })
+
+  it("rejects workspace engines that differ from the root lockfile", () => {
+    const directory = fixture()
+    const path = join(directory, "package-lock.json")
+    const lock = JSON.parse(readFileSync(path, "utf8"))
+    lock.packages.hub.engines = { node: ">=24" }
+    writeFileSync(path, JSON.stringify(lock))
+    expect(() => checkWorkflows(directory)).toThrow(/hub: locked engines/)
   })
 
   it("rejects missing supported Node versions and required commands", () => {

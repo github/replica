@@ -26,10 +26,16 @@ describe("Hub image context", () => {
     expect(isIgnored(directory, "hub/storage/learning/repository.sqlite")).toBe(true)
     expect(isIgnored(directory, "packages/learning/.test-work/run/output.json")).toBe(true)
     expect(isIgnored(directory, "packages/learning/private-store/repository.sqlite")).toBe(true)
+    expect(isIgnored(directory, "infrastructure/.local/installation.json")).toBe(true)
+    expect(isIgnored(directory, "scripts/check-ci-workflows/index.ts")).toBe(true)
     expect(isIgnored(directory, "hub/package.json")).toBe(false)
     for (const path of [
+      "package.json",
+      "package-lock.json",
+      ".npmrc",
+      "infrastructure/package.json",
+      "scripts/package.json",
       "packages/learning/package.json",
-      "packages/learning/package-lock.json",
       "packages/learning/bin/replica-learning.mjs",
       "packages/learning/src/cli.mjs",
     ]) {

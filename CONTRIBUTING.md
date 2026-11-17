@@ -27,6 +27,8 @@ For improvements, explain the problem you want to solve and who would benefit. D
 
 Each Node.js project's `engines.node` declares its supported versions. Hub, Starter, build-action, and Learning CI checks run on both supported Node majors. The composite build action retains its pinned runtime default.
 
+Hub, Learning, the server installer in `infrastructure/`, and the repository checks in `scripts/` are [npm workspaces](https://docs.npmjs.com/cli/using-npm/workspaces) that share the root `package-lock.json` and `.npmrc`. Run `npm ci` at the repository root to install them all, or run `npm ci` inside one of their directories to install only that project. Each project keeps its own `node_modules`. Starter and the build action are copied or used outside this repository, so they keep their own lockfiles and are installed separately.
+
 ### Replica Hub
 
 Hub has a TypeScript Express API, React + Vite frontend, and PostgreSQL with Prisma. Hosting and review features are not built yet. Use the [Hub devcontainer](hub/docs/development.md#devcontainer), or npm and a Node.js version matching `engines.node` in [hub/package.json](hub/package.json):
@@ -123,9 +125,9 @@ From the repository root, run `hub/bin/review-prose` to include changed prose ac
 Repository workflow and dependency checks have their own small npm project:
 
 ```sh
-npm ci --prefix scripts --ignore-scripts --engine-strict
-npm run typecheck --prefix scripts
-npm test --prefix scripts
+npm ci --workspace @replica/repository-checks --ignore-scripts --engine-strict
+npm run typecheck --workspace @replica/repository-checks
+npm test --workspace @replica/repository-checks
 node scripts/check-ci-workflows/index.ts
 node scripts/check-dependency-age/index.ts
 ```

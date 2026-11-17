@@ -20,6 +20,11 @@ async function fixture() {
     "utf8",
   )
   const included = {
+    "package.json": '{"name":"synthetic-root","workspaces":["hub"]}\n',
+    "package-lock.json": '{"lockfileVersion":3}\n',
+    ".npmrc": "install-strategy=shallow\n",
+    "infrastructure/package.json": '{"name":"synthetic-installer"}\n',
+    "scripts/package.json": '{"name":"synthetic-checks"}\n',
     "hub/Dockerfile": "FROM scratch\nCOPY hub/ /app/\nCOPY packages/learning/ /learning/\n",
     "hub/Dockerfile.dockerignore": ignore,
     "hub/.env.example": "DOCUMENTED=value\n",
@@ -27,8 +32,6 @@ async function fixture() {
     "hub/server/feature.ts": "export const feature = true\n",
     "hub/bin/start": "#!/bin/sh\nexit 0\n",
     "packages/learning/package.json": '{"name":"synthetic-learning"}\n',
-    "packages/learning/package-lock.json": '{"lockfileVersion":3}\n',
-    "packages/learning/.npmrc": "engine-strict=true\n",
     "packages/learning/index.mjs": 'export * from "./src/feature.mjs"\n',
     "packages/learning/index.d.mts": "export declare const feature: boolean\n",
     "packages/learning/bin/replica-learning.mjs": "#!/usr/bin/env node\n",
@@ -39,6 +42,8 @@ async function fixture() {
     ".env",
     "node_modules/dependency.js",
     "infrastructure/.local/installation.json",
+    "infrastructure/node_modules/dependency.js",
+    "scripts/check-ci-workflows/index.ts",
     "starter/unrelated.ts",
     "packages/other/index.mjs",
     "packages/learning/.env",
@@ -76,7 +81,15 @@ it("copies private root-context inputs using Dockerfile-specific exclusions and 
       await expect(readFile(join(snapshot.directory, path), "utf8")).resolves.toBe(content)
     for (const path of excluded)
       await expect(readFile(join(snapshot.directory, path))).rejects.toMatchObject({ code: "ENOENT" })
-    expect(await readdir(snapshot.directory)).toEqual(["hub", "packages"])
+    expect((await readdir(snapshot.directory)).sort()).toEqual([
+      ".npmrc",
+      "hub",
+      "infrastructure",
+      "package-lock.json",
+      "package.json",
+      "packages",
+      "scripts",
+    ])
     expect((await stat(snapshot.directory)).mode & 0o077).toBe(0)
     expect((await stat(join(snapshot.directory, "hub/bin/start"))).mode & 0o777).toBe(0o755)
     expect((await stat(join(snapshot.directory, "hub/server"))).mode & 0o777).toBe(0o750)

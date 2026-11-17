@@ -152,7 +152,7 @@ export async function connectCopilot({ token } = {}) {
     if (error?.code === "ERR_MODULE_NOT_FOUND")
       throw new LearningError(
         "unsupported",
-        "Labeling with Copilot needs @github/copilot-sdk. Run npm ci in packages/learning.",
+        "Labeling with Copilot needs @github/copilot-sdk. Run npm ci at the repository root or in packages/learning.",
       )
     throw error
   }

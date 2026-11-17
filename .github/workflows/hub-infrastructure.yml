@@ -60,6 +60,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: infrastructure/package-lock.json
-      - run: npm ci --ignore-scripts --engine-strict
+          cache-dependency-path: package-lock.json
+      - run: npm ci --workspace @replica/installer --ignore-scripts --engine-strict
+        working-directory: .
       - run: npm run ${{ matrix.command }}

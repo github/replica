@@ -17,14 +17,14 @@ The wizard uses a separate terminal screen and restores your shell on completion
 From the repository root, install the wizard's dependencies and start it:
 
 ```sh
-npm ci --prefix infrastructure --ignore-scripts --engine-strict
+npm ci --workspace @replica/installer --ignore-scripts --engine-strict
 npm run setup:server
 ```
 
 If your organization requires an npm proxy, use it for this initial dependency installation before the wizard can load. For example:
 
 ```sh
-npm ci --prefix infrastructure --ignore-scripts --engine-strict \
+npm ci --workspace @replica/installer --ignore-scripts --engine-strict \
   --registry=https://packagefeedproxy.microsoft.io/npm/ --replace-registry-host=never
 npm run setup:server
 ```
@@ -258,8 +258,8 @@ Generated backend files remain usable with the existing manual release tooling. 
 ### Local checks
 
 ```sh
-npm run typecheck --prefix infrastructure
-npm test --prefix infrastructure
+npm run typecheck --workspace @replica/installer
+npm test --workspace @replica/installer
 ```
 
 The checks cover terminal cloud selection, searchable lists, tenant-scoped subscription selection, private configuration, command redaction/cancellation, Terraform plan guards, and mocked Azure installation ordering. CI also validates and tests each Terraform module. They do not prove an Azure deployment. An authorized tenant exercise must still establish RBAC/network propagation, identity-based pulls and secret resolution, database TLS, interruption recovery, maintenance behavior, and backup restoration.
@@ -441,4 +441,4 @@ Run the same Terraform initialization, formatting, validation, and test commands
 
 Terraform tests use AzureRM mocks, not an Azure subscription. Orchestration tests replace command execution and HTTPS requests, proving ordering and failure gates rather than Azure behavior. Readiness includes a bounded, non-writing container-properties request through Hub's managed identity; it detects unavailable storage but does not prove write or delete authorization. Worker readiness remains initialization-only. Before production, an authorized tenant exercise must verify provisioning, private PostgreSQL connectivity and TLS, separate database roles, Key Vault resolution, identity-based Blob/ACR access after RBAC propagation, failed setup blocking rollout, maintenance shutdown and revision behavior, HTTPS/readiness, persistence across replacement, custom TLS when configured, backup restoration, and owned-resource teardown. No real-cloud result is implied by these local checks.
 
-The release command and its tests are TypeScript running directly in Node.js. Terraform's own tests use `.tftest.hcl`; neither requires Python. From the repository root, `npm run typecheck --prefix scripts` checks the TypeScript operational scripts as well.
+The release command and its tests are TypeScript running directly in Node.js. Terraform's own tests use `.tftest.hcl`; neither requires Python. From the repository root, `npm run typecheck --workspace @replica/repository-checks` checks the TypeScript operational scripts as well.

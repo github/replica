@@ -35,11 +35,17 @@ export function checkWorkflows(root: string): void {
       assert(!job.uses && job.steps?.length, `${name}/${id}: run checks, not an aggregate gate`)
     }
   }
+  const rootManifest = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"))
+  const rootLock = JSON.parse(readFileSync(resolve(root, "package-lock.json"), "utf8"))
+  assert.equal(rootManifest.engines.node, "^24.15.0 || ^26.0.0", "root: supported Node majors")
+  assert.deepEqual(rootLock.packages[""].engines, rootManifest.engines, "root: locked engines")
   for (const project of ["hub", "starter", "actions/build", "packages/learning", "scripts"]) {
     const manifest = JSON.parse(readFileSync(resolve(root, project, "package.json"), "utf8"))
-    const lock = JSON.parse(readFileSync(resolve(root, project, "package-lock.json"), "utf8"))
+    const locked = rootManifest.workspaces.includes(project)
+      ? rootLock.packages[project]
+      : JSON.parse(readFileSync(resolve(root, project, "package-lock.json"), "utf8")).packages[""]
     assert.equal(manifest.engines.node, "^24.15.0 || ^26.0.0", `${project}: supported Node majors`)
-    assert.deepEqual(lock.packages[""].engines, manifest.engines, `${project}: locked engines`)
+    assert.deepEqual(locked?.engines, manifest.engines, `${project}: locked engines`)
   }
   for (const [name, ids] of [
     ["hub-ci", ["check", "integration"]],
@@ -99,12 +105,16 @@ export function checkWorkflows(root: string): void {
   assert.equal(scripts.strategy?.["fail-fast"], false)
   assert(
     scripts.steps?.some(
-      (step) => step.run === "npm ci --prefix scripts --ignore-scripts --engine-strict",
+      (step) =>
+        step.run ===
+        "npm ci --workspace @replica/repository-checks --ignore-scripts --engine-strict",
     ),
     "Scripts checks must install tooling",
   )
   assert(
-    scripts.steps?.some((step) => step.run === "npm run ${{ matrix.command }} --prefix scripts"),
+    scripts.steps?.some(
+      (step) => step.run === "npm run ${{ matrix.command }} --workspace @replica/repository-checks",
+    ),
     "Scripts checks must run each tooling command",
   )
   const ageSteps = workflow("dependency-age").jobs.audit.steps

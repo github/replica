@@ -22,6 +22,6 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: scripts/package-lock.json
-      - run: npm ci --prefix scripts --ignore-scripts --engine-strict
-      - run: npm run ${{ matrix.command }} --prefix scripts
+          cache-dependency-path: package-lock.json
+      - run: npm ci --workspace @replica/repository-checks --ignore-scripts --engine-strict
+      - run: npm run ${{ matrix.command }} --workspace @replica/repository-checks
