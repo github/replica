@@ -32,7 +32,12 @@ export async function listInstallationRepositories(
     timeoutMs = 10_000,
   }: { apiUrl?: string; fetch?: typeof fetch; now?: () => Date; timeoutMs?: number } = {},
 ): Promise<GitHubRepositoryEvidence[]> {
-  async function send(path: string, token: string, method = "GET") {
+  async function send<Schema extends z.ZodType>(
+    schema: Schema,
+    path: string,
+    token: string,
+    method = "GET",
+  ): Promise<z.infer<Schema>> {
     let response: Response
     try {
       response = await request(new URL(path, apiUrl), {
@@ -50,21 +55,25 @@ export async function listInstallationRepositories(
       throw new GitHubProviderRequestError({ cause: error })
     }
     if (!response.ok) throw new GitHubProviderRequestError()
-    return (await response.json()) as unknown
+    // A malformed response is a provider failure, not a Hub server error.
+    const body = schema.safeParse(await response.json().catch(() => undefined))
+    if (!body.success) throw new GitHubProviderRequestError({ cause: body.error })
+    return body.data
   }
 
-  const { token } = tokenSchema.parse(
-    await send(
-      `/app/installations/${encodeURIComponent(input.installationId)}/access_tokens`,
-      await createGitHubAppJwt(input, now()),
-      "POST",
-    ),
+  const { token } = await send(
+    tokenSchema,
+    `/app/installations/${encodeURIComponent(input.installationId)}/access_tokens`,
+    await createGitHubAppJwt(input, now()),
+    "POST",
   )
   const repositories: GitHubRepositoryEvidence[] = []
   let totalCount: number | undefined
   for (let page = 1; page <= maxPages; page += 1) {
-    const body = repositoriesSchema.parse(
-      await send(`/installation/repositories?per_page=${pageSize}&page=${page}`, token),
+    const body = await send(
+      repositoriesSchema,
+      `/installation/repositories?per_page=${pageSize}&page=${page}`,
+      token,
     )
     if (totalCount !== undefined && totalCount !== body.total_count) {
       throw new GitHubProviderRequestError()

@@ -1,6 +1,7 @@
 import { generateKeyPairSync } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
+import { GitHubProviderRequestError } from "../errors"
 import { listInstallationRepositories } from "."
 
 const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
@@ -61,6 +62,22 @@ describe("listInstallationRepositories", () => {
         new Response(JSON.stringify({ total_count: 2, repositories: [repository(1)] })),
       )
     await expect(listInstallationRepositories(input, { fetch })).rejects.toThrow()
+  })
+
+  it.each([
+    ["an invalid token", "{}"],
+    ["a malformed repository", JSON.stringify({ total_count: 1, repositories: [{ id: 1 }] })],
+    ["a non-JSON body", "<html>"],
+  ])("reports %s as a provider failure", async (_, body) => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(
+        new Response(body.startsWith("{}") ? body : JSON.stringify({ token: "t" })),
+      )
+      .mockResolvedValueOnce(new Response(body))
+    await expect(listInstallationRepositories(input, { fetch })).rejects.toBeInstanceOf(
+      GitHubProviderRequestError,
+    )
   })
 
   it.each(["later-page 404", "changing total", "duplicate ID"] as const)(
