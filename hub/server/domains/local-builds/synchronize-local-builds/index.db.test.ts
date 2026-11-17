@@ -11,6 +11,8 @@ import type { LocalRepositoryDiscovery } from "../../../integrations/git/discove
 import type { LocalReplicaBuildRunner } from "../../../integrations/local-replica-build/run-local-replica-build/types"
 import { findBuildArtifact } from "../../../repositories/build-artifacts/find-build-artifact"
 import { findBuildPreviewTarget } from "../../../repositories/build-artifacts/find-build-preview-target"
+import { completeLocalBuildFailure } from "../../../repositories/local-builds/complete-local-build-failure"
+import { completeLocalBuildSuccess } from "../../../repositories/local-builds/complete-local-build-success"
 import type { ArtifactStorage } from "../../artifacts/create-artifact-storage/types"
 import { synchronizeLocalBuilds } from "."
 
@@ -196,6 +198,7 @@ describe("synchronizeLocalBuilds()", () => {
       commitSha,
       authorProvider: "local",
       authorName: "Prototype Author",
+      workflowCreatedAt: null,
     })
     expect(repository.branchHeadObservations).toEqual([
       expect.objectContaining({
@@ -369,7 +372,9 @@ describe("synchronizeLocalBuilds()", () => {
         },
       },
     })
-    expect(failed.prototypes[0]).toMatchObject({ currentBuildId: null })
+    expect(failed.prototypes[0]).toMatchObject({
+      currentBuildId: failed.prototypes[0]!.builds[0]!.id,
+    })
     expect(failed.prototypes[0]!.builds).toHaveLength(1)
     expect(failed.prototypes[0]!.builds[0]).toMatchObject({
       state: "failed",
@@ -380,5 +385,103 @@ describe("synchronizeLocalBuilds()", () => {
     expect(failed.prototypes[0]!.builds[0]!.finishedAt).toBeInstanceOf(Date)
     expect(successful.prototypes[0]!.currentBuild).toMatchObject({ state: "successful" })
     expect(successful.prototypes[0]!.builds[0]!.artifacts).toHaveLength(4)
+  })
+
+  it("allows only one overlapping scan to execute and finalize a Build", async () => {
+    await createLocalDeveloper()
+    const root = createRoot()
+    const repositoryPath = `${root}/prototype`
+    const commitSha = "d".repeat(40)
+    const discovered = discovery([{ path: repositoryPath, name: "prototype", commitSha }])
+    const packageDirectory = await createPackage(root, "overlap-package")
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let started!: () => void
+    const executionStarted = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    const runBuild = vi.fn<LocalReplicaBuildRunner>(async () => {
+      started()
+      await blocked
+      return { packageDirectory, cleanup: vi.fn().mockResolvedValue(undefined) }
+    })
+    const { storage } = createMemoryStorage()
+
+    const first = synchronize(root, discovered, runBuild, storage)
+    await executionStarted
+    const second = await synchronize(root, discovered, runBuild, storage)
+    release()
+
+    await expect(first).resolves.toMatchObject({ queued: 1, successful: 1, failed: 0 })
+    expect(second).toMatchObject({ queued: 0, unchanged: 1, successful: 0, failed: 0 })
+    expect(runBuild).toHaveBeenCalledOnce()
+
+    const builds = await prisma.build.findMany({
+      include: { artifacts: true },
+    })
+    expect(builds).toHaveLength(1)
+    expect(builds[0]).toMatchObject({
+      state: "successful",
+      localLeaseId: null,
+      localLeaseExpiresAt: null,
+    })
+    expect(builds[0]!.artifacts).toHaveLength(4)
+  })
+
+  it("does not let an expired execution finalize or fail a newer lease", async () => {
+    const user = await createLocalDeveloper()
+    const repository = await prisma.repository.create({
+      data: {
+        defaultBranch: "main",
+        localPath: `/prototype-root/${randomUUID()}`,
+        nameWithOwner: "local/prototype",
+      },
+    })
+    const prototype = await prisma.prototype.create({
+      data: {
+        authorId: user.id,
+        branchName: "prototype/example",
+        repositoryId: repository.id,
+      },
+    })
+    const activeLease = randomUUID()
+    const build = await prisma.build.create({
+      data: {
+        localLeaseExpiresAt: new Date(Date.now() + 60_000),
+        localLeaseId: activeLease,
+        number: 1,
+        prototypeId: prototype.id,
+        startedAt: new Date(),
+        state: "running",
+      },
+    })
+    const expiredLease = randomUUID()
+
+    await expect(
+      completeLocalBuildSuccess(prisma, build.id, expiredLease, [
+        {
+          byteLength: 1,
+          kind: "dist",
+          path: "dist/index.html",
+          storageKey: "expired-lease-artifact",
+        },
+      ]),
+    ).resolves.toBe(false)
+    await expect(
+      completeLocalBuildFailure(prisma, build.id, expiredLease, "late failure"),
+    ).resolves.toBe(false)
+
+    await expect(
+      prisma.build.findUniqueOrThrow({
+        where: { id: build.id },
+        include: { artifacts: true },
+      }),
+    ).resolves.toMatchObject({
+      state: "running",
+      localLeaseId: activeLease,
+      artifacts: [],
+    })
   })
 })

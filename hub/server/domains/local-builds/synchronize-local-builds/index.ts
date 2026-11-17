@@ -11,9 +11,9 @@ import { markLocalBuildRunning } from "../../../repositories/local-builds/mark-l
 import { prepareLocalBuild } from "../../../repositories/local-builds/prepare-local-build/index.ts"
 import type { LocalBuildSynchronizationSummary, SynchronizeLocalBuildsInput } from "./types.ts"
 
-function artifactKey(buildId: string, artifactPath: string) {
+function artifactKey(buildId: string, leaseId: string, artifactPath: string) {
   const pathDigest = createHash("sha256").update(artifactPath).digest("hex").slice(0, 32)
-  return `build${buildId.replaceAll("-", "")}${pathDigest}`
+  return `build${buildId.replaceAll("-", "")}${leaseId.replaceAll("-", "")}${pathDigest}`
 }
 
 export async function synchronizeLocalBuilds({
@@ -81,11 +81,15 @@ export async function synchronizeLocalBuilds({
       }
       summary.queued += 1
       let result: Awaited<ReturnType<LocalReplicaBuildRunner>> | undefined
-      let started = false
+      let leaseId: string | null = null
       const newlyWrittenKeys: string[] = []
       try {
-        await markLocalBuildRunning(database, prepared.buildId)
-        started = true
+        leaseId = await markLocalBuildRunning(database, prepared.buildId)
+        if (!leaseId) {
+          summary.queued -= 1
+          summary.unchanged += 1
+          continue
+        }
         result = await runBuild({
           repositoryPath: repository.path,
           commitSha: branch.commitSha,
@@ -95,7 +99,7 @@ export async function synchronizeLocalBuilds({
         const files = await readLocalBuildPackage(result.packageDirectory)
         const artifacts = []
         for (const file of files) {
-          const storageKey = artifactKey(prepared.buildId, file.path)
+          const storageKey = artifactKey(prepared.buildId, leaseId, file.path)
           const write = await storage.write(storageKey, file.bytes)
           if (write.status === "ok") newlyWrittenKeys.push(storageKey)
           else if (write.status === "already-exists") {
@@ -116,15 +120,18 @@ export async function synchronizeLocalBuilds({
             byteLength: file.bytes.byteLength,
           })
         }
-        await completeLocalBuildSuccess(database, prepared.buildId, prepared.prototypeId, artifacts)
+        if (!(await completeLocalBuildSuccess(database, prepared.buildId, leaseId, artifacts))) {
+          throw new Error("The local Build lease expired before completion.")
+        }
         summary.successful += 1
       } catch (error) {
         for (const key of newlyWrittenKeys) await storage.delete(key)
         const message = error instanceof Error ? error.message : "The local Build failed."
-        if (started) {
+        if (leaseId) {
           await completeLocalBuildFailure(
             database,
             prepared.buildId,
+            leaseId,
             message || "The local Build failed.",
           ).catch((persistenceError) => {
             logger.error(

@@ -62,8 +62,8 @@ describe("local Build pipeline migration", () => {
             [prototypeId, repositoryId],
           )
           await database.query(
-            `INSERT INTO builds (id, prototype_id, number, state, commit_sha)
-             VALUES ($1, $2, 1, 'queued', $3)`,
+            `INSERT INTO builds (id, prototype_id, number, state, commit_sha, started_at)
+             VALUES ($1, $2, 1, 'running', $3, clock_timestamp())`,
             [buildId, prototypeId, "a".repeat(40)],
           )
 
@@ -102,6 +102,22 @@ describe("local Build pipeline migration", () => {
               )
             ).rows,
           ).toEqual([{ name_with_owner: "team/design", default_branch: "main", local_path: null }])
+          expect(
+            (
+              await database.query(
+                `SELECT state, started_at, local_lease_id, local_lease_expires_at
+                 FROM builds WHERE id = $1`,
+                [buildId],
+              )
+            ).rows,
+          ).toEqual([
+            {
+              state: "queued",
+              started_at: null,
+              local_lease_id: null,
+              local_lease_expires_at: null,
+            },
+          ])
 
           const observationId = randomUUID()
           await database.query(

@@ -9,7 +9,10 @@ import { readLocalDevelopmentConfiguration } from "../../domains/local-developme
 import { logger } from "../../integrations/pino/index.ts"
 import { isLocalDevelopmentDatabase } from "../../utils/is-local-development-database/index.ts"
 
-export async function runLocalBuilds(environment: NodeJS.ProcessEnv = process.env) {
+export async function runLocalBuilds(
+  environment: NodeJS.ProcessEnv = process.env,
+  options: { disconnect?: boolean } = {},
+) {
   if (!isLocalDevelopmentDatabase(environment)) {
     throw new Error("Local Builds require a local development database.")
   }
@@ -30,7 +33,7 @@ export async function runLocalBuilds(environment: NodeJS.ProcessEnv = process.en
     logger.info(summary, "Local Build synchronization completed")
     return summary
   } finally {
-    await prisma.$disconnect()
+    if (options.disconnect) await prisma.$disconnect()
   }
 }
 
@@ -38,7 +41,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   try {
     process.env.NODE_ENV ??= "development"
     process.env.HUB_LOCAL_MODE = "true"
-    await runLocalBuilds()
+    await runLocalBuilds(process.env, { disconnect: true })
   } catch (error) {
     logger.fatal(
       { errorType: error instanceof Error ? error.name : "UnknownError" },

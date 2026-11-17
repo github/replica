@@ -75,11 +75,17 @@ await cp(screenshots, output + "/screenshots", { recursive: true })
       fakeDocker,
       `#!/usr/bin/env node
 import { access, mkdir, readFile, writeFile } from "node:fs/promises"
+if (process.argv[2] === "rm") process.exit(0)
+if (process.env.HANG_BUILD === "true") {
+  setInterval(() => {}, 1_000)
+  await new Promise(() => {})
+}
 const mount = process.argv[process.argv.indexOf("--mount") + 1]
 const source = mount.slice("type=bind,source=".length, mount.indexOf(",target="))
 if (!process.argv.includes("npm_config_registry=https://packagefeedproxy.microsoft.io/npm/")) {
   process.exit(3)
 }
+if (!process.argv.includes("--memory=2g") || !process.argv.includes("--cpus=2")) process.exit(4)
 try {
   await access(source + "/untracked.txt")
   process.exit(2)
@@ -107,5 +113,17 @@ await writeFile(source + "/dist/index.html", content)
     await expect(
       access(path.join(result.packageDirectory, "screenshots/desktop.png")),
     ).resolves.toBe(undefined)
+    await result.cleanup()
+
+    vi.stubEnv("HANG_BUILD", "true")
+    await expect(
+      runLocalReplicaBuild({
+        repositoryPath: repository,
+        commitSha: stdout.trim(),
+        actionRoot,
+        temporaryRoot: root,
+        executionTimeoutMs: 50,
+      }),
+    ).rejects.toThrow("Prototype build exceeded 1 minutes.")
   })
 })

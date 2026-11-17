@@ -50,9 +50,35 @@ export async function prepareLocalBuild(
                 commitSha: input.commitSha,
               },
             },
-            select: { id: true, state: true, number: true, prototypeId: true },
+            select: {
+              id: true,
+              state: true,
+              number: true,
+              prototypeId: true,
+              localLeaseId: true,
+              localLeaseExpiresAt: true,
+            },
           })
           if (existingBuild) {
+            const staleRunning =
+              existingBuild.state === "running" &&
+              existingBuild.localLeaseExpiresAt &&
+              existingBuild.localLeaseExpiresAt < new Date()
+            if (staleRunning) {
+              await transaction.build.update({
+                where: {
+                  id: existingBuild.id,
+                  state: "running",
+                  localLeaseId: existingBuild.localLeaseId,
+                },
+                data: {
+                  state: "queued",
+                  startedAt: null,
+                  localLeaseId: null,
+                  localLeaseExpiresAt: null,
+                },
+              })
+            }
             await transaction.branchHeadObservation.upsert({
               where: {
                 repositoryId_branchName_commitSha: {
@@ -69,7 +95,11 @@ export async function prepareLocalBuild(
               },
               update: { lastObservedAt: new Date(), buildId: existingBuild.id },
             })
-            return existingBuild.state === "queued" || existingBuild.state === "running"
+            await transaction.prototype.update({
+              where: { id: prototype.id },
+              data: { currentBuildId: existingBuild.id },
+            })
+            return existingBuild.state === "queued" || staleRunning
               ? {
                   status: "queued" as const,
                   repositoryId: repository.id,
@@ -97,9 +127,12 @@ export async function prepareLocalBuild(
               authorProviderUserId: "local-developer",
               authorLogin: input.authorEmail,
               authorName: input.authorName,
-              workflowCreatedAt: input.authoredAt,
             },
             select: { id: true, number: true },
+          })
+          await transaction.prototype.update({
+            where: { id: prototype.id },
+            data: { currentBuildId: build.id },
           })
           await transaction.branchHeadObservation.create({
             data: {

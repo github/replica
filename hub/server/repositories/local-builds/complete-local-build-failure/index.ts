@@ -9,14 +9,18 @@ function boundedFailureSummary(summary: string) {
 export async function completeLocalBuildFailure(
   database: PrismaClient,
   buildId: string,
+  leaseId: string,
   failureSummary: string,
 ) {
-  return await database.build.update({
-    where: { id: buildId },
+  const result = await database.build.updateMany({
+    where: { id: buildId, state: "running", localLeaseId: leaseId },
     data: {
       state: "failed",
       finishedAt: new Date(),
       failureSummary: boundedFailureSummary(failureSummary),
+      localLeaseId: null,
+      localLeaseExpiresAt: null,
     },
   })
+  return result.count === 1
 }
