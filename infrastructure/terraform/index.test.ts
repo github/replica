@@ -1152,6 +1152,34 @@ describe("Terraform module", () => {
       ])
     })
 
+    it("requires state recovery when truncated details could hide a state-save failure", async () => {
+      const truncated = new CommandExecutionError(
+        "Terraform apply failed.",
+        false,
+        1,
+        "Error: creating Container App: InvalidTemplate\nError details truncated after 64 KiB.",
+      )
+      const test = await scenario({
+        failure: "apply",
+        error: truncated,
+        failureCount: 1,
+        preapproved: true,
+        planVariables: {},
+        retryApply: () => true,
+      })
+      test.ui.notice = vi.fn()
+      test.ui.select = vi.fn<Select>(async () => "exit")
+
+      await expect(test.module.apply("installation.tfvars")).rejects.toBe(truncated)
+
+      expect(test.events).toEqual(["plan", "show", "apply"])
+      const [, options] = vi.mocked(test.ui.select).mock.lastCall!
+      expect(options.map(({ value }) => value)).toEqual(["details", "exit"])
+      const message = vi.mocked(test.ui.notice).mock.lastCall![1]
+      expect(message).toContain("failure to save state cannot be ruled out")
+      expect(message).toContain("will not replan or retry")
+    })
+
     it("prints state recovery instructions when recovery choices are unavailable", async () => {
       const stateNotSaved = new CommandExecutionError(
         "Terraform apply failed.",

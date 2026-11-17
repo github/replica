@@ -17,6 +17,7 @@ const uncertainKinds = new Set<ApplyOutcome["kind"]>([
   "conflict",
   "state-not-saved",
 ])
+const stateUnsafeKinds = new Set<ApplyOutcome["kind"]>(["state-not-saved", "details-truncated"])
 
 const shellQuote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`
 
@@ -31,6 +32,8 @@ function describeOutcome({ address, kind }: ApplyOutcome) {
       return `${subject}: Azure reported a conflict. Check for resource locks and other operations in progress on it.`
     case "state-not-saved":
       return "Terraform could not save state. Completed changes may be missing from saved state."
+    case "details-truncated":
+      return "Terraform error details were truncated after 64 KiB, so a failure to save state cannot be ruled out."
     case "connectivity":
       return `${subject}: a network or name-resolution failure. This is not a permission denial.`
     case "permission":
@@ -294,7 +297,7 @@ export function terraformModule({
         const outcomes = failedOperation === "apply" ? applyOutcomes(failure.details()) : []
         const uncertain = outcomes.filter(({ kind }) => uncertainKinds.has(kind))
         for (const { address } of uncertain) if (address) uncertainAddresses.add(address)
-        if (outcomes.some(({ kind }) => kind === "state-not-saved")) {
+        if (outcomes.some(({ kind }) => stateUnsafeKinds.has(kind))) {
           // Replanning or importing against stale backend state can fork it from errored.tfstate.
           const message = [
             ...outcomes.map(describeOutcome),

@@ -7,6 +7,7 @@ export type ApplyOutcome = {
     | "conflict"
     | "ambiguous-write"
     | "state-not-saved"
+    | "details-truncated"
     | "unknown"
 }
 
@@ -23,10 +24,17 @@ const lostResponse =
 const write =
   /^\s*(?:creating|updating|deleting|waiting for)\b|\b(?:PUT|PATCH|POST|DELETE)\s+"?https:\/\//im
 
-// Classifies each Terraform apply error block; missing or truncated details are unknown.
+const truncationMarker = "Error details truncated after 64 KiB."
+
+// Classifies each Terraform apply error block. Truncated details can hide a state-save failure.
 export function applyOutcomes(details: string | undefined): ApplyOutcome[] {
-  if (!details || details.includes("Error details truncated after 64 KiB."))
-    return [{ kind: "unknown" }]
+  if (!details) return [{ kind: "unknown" }]
+  if (!details.includes(truncationMarker)) return classify(details)
+  const outcomes = classify(details.replace(truncationMarker, ""))
+  return [...outcomes.filter(({ kind }) => kind !== "unknown"), { kind: "details-truncated" }]
+}
+
+function classify(details: string): ApplyOutcome[] {
   const plain = details
     .split("\n")
     .map((line) => line.replace(/^[\s\u2502\u2575\u2577]+/, ""))

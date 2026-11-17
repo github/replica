@@ -39,10 +39,18 @@ describe("applyOutcomes", () => {
     ])
   })
 
-  it("treats missing or truncated details as unknown", () => {
+  it("treats missing details as unknown", () => {
     expect(applyOutcomes(undefined)).toEqual([{ kind: "unknown" }])
-    expect(
-      applyOutcomes(`${block("a.b", "connection reset")}\nError details truncated after 64 KiB.`),
-    ).toEqual([{ kind: "unknown" }])
+  })
+
+  it("keeps state-save failures and flags truncated details", () => {
+    const truncated = "\nError details truncated after 64 KiB."
+    expect(applyOutcomes(`${block("a.b", "Failed to save state: request canceled")}${truncated}`)).toEqual([
+      { address: "a.b", kind: "state-not-saved" },
+      { kind: "details-truncated" },
+    ])
+    expect(applyOutcomes(`${block("a.b", "Invalid value for variable")}${truncated}`)).toEqual([
+      { kind: "details-truncated" },
+    ])
   })
 })
