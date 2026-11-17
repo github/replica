@@ -31,7 +31,7 @@ Hub, Learning, the server installer in `infrastructure/`, and the repository che
 
 ### Workspace proposal and alternatives
 
-The proposed workspace boundary keeps the four repository-only projects on one lockfile without changing their runtime boundaries. Starter and the build action remain standalone. npm's shallow install strategy preserves project-local dependencies for existing scripts and image copies; it does not aim to minimize disk use.
+The proposed workspace boundary keeps the four repository-only projects on one lockfile without changing their runtime boundaries or locked dependency versions. Starter and the build action remain standalone. npm's shallow install strategy preserves project-local dependencies for existing scripts and image copies; it does not aim to minimize disk use.
 
 | Choice | Benefits | Tradeoffs |
 | --- | --- | --- |
