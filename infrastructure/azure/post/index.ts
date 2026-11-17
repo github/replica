@@ -197,9 +197,16 @@ export async function postSetupAzure(
       )
     const changedSecretKeys =
       action === "github"
-        ? ["GITHUB_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY_BASE64", "GITHUB_WEBHOOK_SECRET"]
+        ? [
+            "GITHUB_CLIENT_SECRET",
+            "GITHUB_APP_PRIVATE_KEY_BASE64",
+            "GITHUB_WEBHOOK_SECRET",
+            "HUB_AUTHENTICATION_ENCRYPTION_KEY",
+            "HUB_BOOTSTRAP_SECRET",
+            "HUB_APPLICATION_ORIGIN",
+          ]
         : action === "sign-in"
-          ? ["HUB_AUTHENTICATION_ENCRYPTION_KEY", "HUB_BOOTSTRAP_SECRET"]
+          ? ["HUB_AUTHENTICATION_ENCRYPTION_KEY", "HUB_BOOTSTRAP_SECRET", "HUB_APPLICATION_ORIGIN"]
           : []
     const activeReferences = liveReferences as Record<string, unknown>
     if (
@@ -395,6 +402,7 @@ export async function postSetupAzure(
         { exclusive: true },
       )
       expectedInputs = JSON.stringify(desired)
+      changesStarted = true
       await writePrivateFile(
         journalPath,
         JSON.stringify({
@@ -616,7 +624,7 @@ export async function postSetupAzure(
       const summary = `Post-setup stopped; secrets or runtime changes may be partial, and Hub may remain stopped. ${desiredSaved ? "Desired inputs and their private backup were saved; rerun the same post-setup action to replan." : "Previous inputs were retained; rerun after reviewing the failed step. Named shared secrets already created will be reused."} No rollback, database setup, image rebuild, or lock breaking was attempted. If Azure created a grant not recorded in state, reconcile that exact resource before retrying.${bootstrapFile ? ` Bootstrap secret retained privately at ${bootstrapFile}.` : ""}`
       if (ui.recoveryNotice) ui.recoveryNotice(summary)
       else ui.notice?.("error", summary)
-      if (error instanceof PostSetupExit) throw new PostSetupExit(summary)
+      if (error instanceof PostSetupExit) throw new PostSetupExit(summary, true)
     }
     throw error
   } finally {

@@ -251,6 +251,20 @@ async function configuredGithub(test: Awaited<ReturnType<typeof scenario>>) {
   return credentials
 }
 
+function returnSecretId(
+  test: Awaited<ReturnType<typeof scenario>>,
+  requestedId: string,
+  returnedId: string,
+) {
+  const execute = test.run.getMockImplementation()!
+  test.run.mockImplementation(async (executable, args, options) => {
+    const result = await execute(executable, args, options)
+    if (args[2] === "show" && args[args.indexOf("--id") + 1] === requestedId)
+      return JSON.stringify({ ...JSON.parse(result), id: returnedId })
+    return result
+  })
+}
+
 async function progressContents(directory: string) {
   return Promise.all(
     (await readdir(directory))
@@ -452,6 +466,54 @@ it("reuses shared secrets already created in the vault when an interrupted run h
   expect(test.uploads).toEqual([])
   expect(await otherFiles(test.context.directory)).toEqual([])
 })
+
+it("pins the exact version read from an existing unversioned shared secret", async () => {
+  const test = await scenario()
+  const key = "HUB_AUTHENTICATION_ENCRYPTION_KEY"
+  const pinned = test.reference("hub-authentication-encryption-key", "b".repeat(32))
+  const unversioned = {
+    ...pinned,
+    secret_id: pinned.secret_id.replace(/\/[a-f0-9]{32}$/, ""),
+  }
+  test.inputs.runtime_secret_references![key] = unversioned
+  const original = structuredClone(test.inputs)
+  returnSecretId(test, unversioned.secret_id, pinned.secret_id)
+  vi.mocked(test.ui.text).mockResolvedValueOnce(test.deployment.origin).mockResolvedValueOnce("2")
+
+  const desired = await configurePostSetup(test.context, "sign-in", test.inputs, test.deployment)
+
+  expect(desired.runtime_secret_references![key]).toEqual(pinned)
+  expect(test.inputs).toEqual(original)
+  expect(test.uploads).toEqual([])
+})
+
+it.each(["vault", "secret name", "pinned version"] as const)(
+  "rejects a shared secret response with a different %s",
+  async (mismatch) => {
+    const test = await scenario()
+    const key = "HUB_AUTHENTICATION_ENCRYPTION_KEY"
+    const name = "hub-authentication-encryption-key"
+    const requested = test.reference(name)
+    if (mismatch !== "pinned version")
+      requested.secret_id = requested.secret_id.replace(/\/[a-f0-9]{32}$/, "")
+    test.inputs.runtime_secret_references![key] = requested
+    const original = structuredClone(test.inputs)
+    const returned =
+      mismatch === "vault"
+        ? test.reference(name).secret_id.replace(/https:\/\/[^.]+/, "https://different-vault")
+        : test.reference(mismatch === "secret name" ? "another-secret" : name, "b".repeat(32))
+            .secret_id
+    returnSecretId(test, requested.secret_id, returned)
+    vi.mocked(test.ui.text).mockResolvedValueOnce(test.deployment.origin).mockResolvedValueOnce("2")
+
+    await expect(
+      configurePostSetup(test.context, "sign-in", test.inputs, test.deployment),
+    ).rejects.toThrow()
+
+    expect(test.inputs).toEqual(original)
+    expect(test.uploads).toEqual([])
+  },
+)
 
 it("resolves an uncertain bootstrap write before creating another shared secret", async () => {
   const test = await scenario()
@@ -1157,6 +1219,48 @@ it("keeps all existing GitHub references and the verified provider revision when
 
   expect(test.uploads).toEqual([])
   expect(await otherFiles(test.context.directory)).toEqual([])
+})
+
+it("pins the exact version read for a kept unversioned GitHub credential", async () => {
+  const test = await scenario()
+  await configuredGithub(test)
+  const key = "GITHUB_CLIENT_SECRET"
+  const pinned = test.reference("github-client-secret", "b".repeat(32))
+  const unversioned = {
+    ...pinned,
+    secret_id: pinned.secret_id.replace(/\/[a-f0-9]{32}$/, ""),
+  }
+  test.inputs.runtime_secret_references![key] = unversioned
+  const original = structuredClone(test.inputs)
+  const liveReferences = JSON.parse(test.deployment.environment.AZURE_KEY_VAULT_SECRET_REFERENCES!)
+  liveReferences[key] = unversioned.secret_id
+  test.deployment.environment.AZURE_KEY_VAULT_SECRET_REFERENCES = JSON.stringify(liveReferences)
+  returnSecretId(test, unversioned.secret_id, pinned.secret_id)
+  vi.mocked(test.ui.text).mockImplementation(async (_label, initial) => initial ?? "")
+
+  const desired = await configurePostSetup(test.context, "github", test.inputs, test.deployment)
+
+  expect(desired.runtime_secret_references![key]).toEqual(pinned)
+  expect(desired.github_provider_revision).toBe(5)
+  expect(test.inputs).toEqual(original)
+  expect(test.uploads).toEqual([])
+})
+
+it("rejects a kept GitHub credential when Key Vault returns a different secret", async () => {
+  const test = await scenario()
+  await configuredGithub(test)
+  const key = "GITHUB_CLIENT_SECRET"
+  const requested = test.inputs.runtime_secret_references![key]!
+  const original = structuredClone(test.inputs)
+  returnSecretId(test, requested.secret_id, test.reference("another-secret").secret_id)
+  vi.mocked(test.ui.text).mockImplementation(async (_label, initial) => initial ?? "")
+
+  await expect(
+    configurePostSetup(test.context, "github", test.inputs, test.deployment),
+  ).rejects.toThrow()
+
+  expect(test.inputs).toEqual(original)
+  expect(test.uploads).toEqual([])
 })
 
 it.each([

@@ -1,6 +1,6 @@
 import { createHash, generateKeyPairSync, randomUUID } from "node:crypto"
 import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { afterEach, expect, it, vi } from "vitest"
 
 import { CommandExecutionError } from "../../installer/command/index.ts"
@@ -1136,6 +1136,133 @@ it("prints the final partial-change recovery summary and generated bootstrap pat
     renderer.mockRestore()
     select.mockRestore()
     run.mockRestore()
+    errors.mockRestore()
+  }
+})
+
+it.each([
+  { stage: "before configuration changes", partial: false },
+  { stage: "after a secret write", partial: true },
+])("classifies an exit $stage in the CLI and telemetry", async ({ partial }) => {
+  vi.resetModules()
+  const test = await scenario()
+  const entry = await import("../../installer/entry/index.ts")
+  const terminal = await import("../../installer/terminal/index.tsx")
+  const command = await import("../../installer/command/index.ts")
+  if (partial) {
+    delete test.inputs.runtime_secret_references!.HUB_AUTHENTICATION_ENCRYPTION_KEY
+    delete test.inputs.runtime_secret_references!.HUB_BOOTSTRAP_SECRET
+    test.secretValues.clear()
+    const liveReferences = JSON.parse(test.state.environment.AZURE_KEY_VAULT_SECRET_REFERENCES!)
+    delete liveReferences.HUB_AUTHENTICATION_ENCRYPTION_KEY
+    delete liveReferences.HUB_BOOTSTRAP_SECRET
+    test.state.environment.AZURE_KEY_VAULT_SECRET_REFERENCES = JSON.stringify(liveReferences)
+    await writeFile(test.inputsPath, JSON.stringify(test.inputs), { mode: 0o600 })
+    const execute = test.run.getMockImplementation()!
+    test.run.mockImplementation(async (executable, args, options) => {
+      if (
+        executable === "az" &&
+        args.slice(0, 3).join(" ") === "keyvault secret set" &&
+        args[args.indexOf("--name") + 1] === "hub-bootstrap-secret"
+      ) {
+        expect(test.uploads.map(({ name }) => name)).toEqual([
+          "hub-authentication-encryption-key",
+        ])
+        throw new command.CommandExecutionError("Synthetic secret write failure", false, 1)
+      }
+      return execute(executable, args, options)
+    })
+  }
+  const originalInputs = await readFile(test.inputsPath, "utf8")
+  const createTerminal = terminal.createTerminalUI
+  let actualTerminal: ReturnType<typeof createTerminal> | undefined
+  const renderer = vi.spyOn(terminal, "createTerminalUI").mockImplementation((abort, options) => {
+    const ui = createTerminal(abort, options)
+    actualTerminal = ui
+    ui.confirm = vi.fn(async () => true)
+    ui.text = vi.fn(async (_label, initial) =>
+      partial ? (initial === test.origin ? test.origin : "2") : "not-an-origin",
+    )
+    ui.select = vi.fn<WizardUI["select"]>(async (_message, options) => {
+      const exit = options.find((option) => option.value === "exit")
+      expect(exit).toBeDefined()
+      return exit!.value
+    })
+    return ui
+  })
+  const select = vi.spyOn(entry, "selectInstallerEntry").mockResolvedValue({
+    action: "update",
+    path: test.target.path,
+    existing: test.target.config,
+    postAction: "sign-in",
+  })
+  const run = vi.spyOn(command, "runCommand").mockImplementation(test.run)
+  const output = vi.spyOn(console, "log").mockImplementation(() => undefined)
+  const errors = vi.spyOn(console, "error").mockImplementation(() => undefined)
+  const argv = process.argv
+  const exitCode = process.exitCode
+  const stdinTTY = Object.getOwnPropertyDescriptor(process.stdin, "isTTY")
+  const stdoutTTY = Object.getOwnPropertyDescriptor(process.stdout, "isTTY")
+  try {
+    process.argv = [
+      process.execPath,
+      resolve("installer/index.tsx"),
+      "--config",
+      test.target.path,
+      "--post",
+      "--no-fullscreen",
+    ]
+    process.exitCode = undefined
+    Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true })
+    Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: true })
+
+    await import("../../installer/index.tsx")
+
+    const logs = join(dirname(test.target.path), "logs")
+    const [diagnostics] = await readdir(logs)
+    const records = (await readFile(join(logs, diagnostics!), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { event: string; name: string; status: string })
+    const root = records.find(
+      (record) => record.event === "span.completed" && record.name === "installer.run",
+    )
+    const printedErrors = errors.mock.calls.flat().map(String).join("\n")
+    expect(await readFile(test.inputsPath, "utf8")).toBe(originalInputs)
+    expect(test.plans).toEqual([])
+    if (partial) {
+      const bootstrapFiles = (await readdir(test.directory)).filter((name) =>
+        /^post-bootstrap-.*\.txt$/.test(name),
+      )
+      expect(bootstrapFiles).toHaveLength(1)
+      const bootstrapPath = join(test.directory, bootstrapFiles[0]!)
+      expect(process.exitCode).toBe(1)
+      expect(root).toMatchObject({ status: "error", attributes: { outcome: "failed" } })
+      expect(test.uploads).toHaveLength(1)
+      expect(test.leases.size).toBe(2)
+      expect(actualTerminal?.summary()).toMatch(/secrets or runtime changes may be partial/i)
+      expect(printedErrors).toMatch(/previous inputs were retained/i)
+      expect(printedErrors).toContain(bootstrapPath)
+      expect(printedErrors).not.toContain(await readFile(bootstrapPath, "utf8"))
+    } else {
+      expect(process.exitCode ?? 0).toBe(0)
+      expect(root).toMatchObject({ status: "ok", attributes: { outcome: "completed" } })
+      expect(test.uploads).toEqual([])
+      expect(test.leases.size).toBe(0)
+      expect(output.mock.calls.flat().map(String).join("\n")).toMatch(/post-setup stopped/i)
+      expect(printedErrors).not.toMatch(/secrets or runtime changes may be partial/i)
+    }
+  } finally {
+    process.argv = argv
+    process.exitCode = exitCode
+    if (stdinTTY) Object.defineProperty(process.stdin, "isTTY", stdinTTY)
+    else Reflect.deleteProperty(process.stdin, "isTTY")
+    if (stdoutTTY) Object.defineProperty(process.stdout, "isTTY", stdoutTTY)
+    else Reflect.deleteProperty(process.stdout, "isTTY")
+    renderer.mockRestore()
+    select.mockRestore()
+    run.mockRestore()
+    output.mockRestore()
     errors.mockRestore()
   }
 })

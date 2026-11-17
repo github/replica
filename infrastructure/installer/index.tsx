@@ -146,7 +146,7 @@ if (values.help) {
       }
     }
   } catch (error) {
-    if (values.post && error instanceof PostSetupExit) {
+    if (values.post && error instanceof PostSetupExit && !error.partialChanges) {
       message = error.message
     } else {
       failure = error

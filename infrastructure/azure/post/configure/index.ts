@@ -228,6 +228,29 @@ export async function configurePostSetup(
       )
     return { value: value.value, id: value.id }
   }
+  function existingReference(input: Reference) {
+    if (
+      !/^https:\/\/[a-z0-9-]{1,24}\.vault\.azure\.net\/secrets\/[a-z0-9-]{1,127}(\/[a-f0-9]{32})?$/i.test(
+        input.secret_id,
+      ) ||
+      new URL(input.secret_id).hostname.toLowerCase() !==
+        `${input.key_vault_id.split("/").at(-1)?.toLowerCase()}.vault.azure.net`
+    )
+      throw new Error(
+        "The existing Key Vault reference does not identify its expected vault and secret.",
+      )
+    const [, , name, version] = new URL(input.secret_id).pathname.split("/")
+    if (!name) throw new Error("The existing Key Vault reference does not identify a secret.")
+    return { name, version }
+  }
+  async function readExisting(input: Reference) {
+    const expected = existingReference(input)
+    const stored = await read(input.secret_id)
+    const pinned = reference(stored.id, input.key_vault_id, expected.name)
+    if (expected.version && pinned.secret_id.toLowerCase() !== input.secret_id.toLowerCase())
+      throw new Error("Key Vault returned a different version than the requested pinned secret.")
+    return { value: stored.value, pinned }
+  }
   async function put(key: string, name: string, value: string) {
     if (progress.pending && progress.pending !== key)
       throw new Error(
@@ -358,9 +381,10 @@ export async function configurePostSetup(
       throw new Error(
         "The proxy hop count is secret-backed. Review that reference separately before configuring sign-in; it was preserved.",
       )
-    const referencedOrigin = references.HUB_APPLICATION_ORIGIN
-      ? (await read(references.HUB_APPLICATION_ORIGIN.secret_id)).value
+    const originSecret = references.HUB_APPLICATION_ORIGIN
+      ? await readExisting(references.HUB_APPLICATION_ORIGIN)
       : undefined
+    const referencedOrigin = originSecret?.value
     const currentOrigin =
       inputs.hub_application_origin ??
       inputs.runtime_environment_variables?.HUB_APPLICATION_ORIGIN ??
@@ -392,12 +416,12 @@ export async function configurePostSetup(
       throw new Error(
         "Changing the public origin also changes the Entra callback. Coordinate the Entra provider revision and callback separately before changing this origin; existing settings were preserved.",
       )
-    if (references.HUB_APPLICATION_ORIGIN) {
-      const existing = await read(references.HUB_APPLICATION_ORIGIN.secret_id)
-      if (existing.value !== origin)
+    if (originSecret) {
+      if (originSecret.value !== origin)
         throw new Error(
           "The existing secret-backed origin differs. Review its rotation separately; it was preserved.",
         )
+      references.HUB_APPLICATION_ORIGIN = originSecret.pinned
     } else {
       delete next.runtime_environment_variables.HUB_APPLICATION_ORIGIN
       next.hub_application_origin = origin
@@ -453,10 +477,12 @@ export async function configurePostSetup(
           throw new Error(
             "A shared secret write has an unknown outcome. Review its pinned reference and pending-write evidence before continuing.",
           )
-        if (!definition.valid((await read(references[key].secret_id)).value!))
+        const existing = await readExisting(references[key])
+        if (!definition.valid(existing.value))
           throw new Error(
             "An existing shared authentication secret is invalid. It was preserved; repair it separately.",
           )
+        references[key] = existing.pinned
       } else if (known.includes(definition.name)) {
         const existing = await read(
           `https://${names.vault}.vault.azure.net/secrets/${definition.name}`,
@@ -498,21 +524,26 @@ export async function configurePostSetup(
     throw new Error(
       "Configure sign-in and setup access first. GitHub App setup preserves, but does not silently generate, the shared authentication context.",
     )
-  for (const [key, definition] of Object.entries(shared))
-    if (!definition.valid((await read(references[key]!.secret_id)).value!))
+  for (const [key, definition] of Object.entries(shared)) {
+    const existing = await readExisting(references[key]!)
+    if (!definition.valid(existing.value))
       throw new Error(
         "The existing shared authentication context is invalid. Configure sign-in first; no shared secret was rotated.",
       )
+    references[key] = existing.pinned
+  }
+  const originSecret = references.HUB_APPLICATION_ORIGIN
+    ? await readExisting(references.HUB_APPLICATION_ORIGIN)
+    : undefined
   const githubOrigin =
     inputs.hub_application_origin ??
     inputs.runtime_environment_variables?.HUB_APPLICATION_ORIGIN ??
-    (references.HUB_APPLICATION_ORIGIN
-      ? (await read(references.HUB_APPLICATION_ORIGIN.secret_id)).value
-      : undefined)
+    originSecret?.value
   if (!isBoundPostOrigin(githubOrigin, deployment))
     throw new Error(
       "The configured origin is not bound to this Hub. Configure sign-in with the intended origin first.",
     )
+  if (originSecret) references.HUB_APPLICATION_ORIGIN = originSecret.pinned
   ui.status(
     `GitHub URLs: homepage ${githubOrigin}; callback ${githubOrigin}/api/auth/github/callback; setup ${githubOrigin}/settings/github/setup?step=install; webhook ${githubOrigin}/api/github/webhooks.`,
   )
@@ -606,18 +637,19 @@ export async function configurePostSetup(
       let replacement: Awaited<ReturnType<typeof readPostCredentialFile>> | undefined
       try {
         if (!path.trim() && references[credential.key]) {
-          const existing = (await read(references[credential.key]!.secret_id)).value!
+          const existing = await readExisting(references[credential.key]!)
           const decoded =
             credential.key === "GITHUB_APP_PRIVATE_KEY_BASE64"
-              ? Buffer.from(existing, "base64")
+              ? Buffer.from(existing.value, "base64")
               : undefined
           if (
-            (decoded && decoded.toString("base64") !== existing) ||
-            !credential.validate(decoded ? decoded.toString("utf8") : existing)
+            (decoded && decoded.toString("base64") !== existing.value) ||
+            !credential.validate(decoded ? decoded.toString("utf8") : existing.value)
           )
             throw new InputValidationError(
               "The pinned GitHub credential is invalid. Fix that version and recheck, or enter a valid replacement file. Its old version was preserved.",
             )
+          references[credential.key] = existing.pinned
         } else {
           replacement = await readPostCredentialFile(path, credential.key)
         }
@@ -645,7 +677,7 @@ export async function configurePostSetup(
           throw new Error(
             "The existing GitHub credential belongs to a different Key Vault. Review its rotation separately; it was preserved.",
           )
-        if (existing) reference(existing.secret_id)
+        if (existing) existingReference(existing)
         replacements.push({
           key: credential.key,
           name: existing ? new URL(existing.secret_id).pathname.split("/")[2]! : credential.name,
