@@ -1,0 +1,6 @@
+# Send only the files the image installs. A taskset must never enter the build context.
+*
+!pyproject.toml
+!README.md
+!*.py
+!server/*.py

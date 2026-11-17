@@ -138,3 +138,46 @@
 .learnings-page__run-state {
   font-weight: 600;
 }
+
+.learnings-page__notes {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.learnings-page__questions {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0.75rem 0 0;
+  padding-inline-start: 1.25rem;
+  overflow-wrap: anywhere;
+}
+
+.learnings-page__choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.learnings-page__choice {
+  align-content: start;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--hub-border-default);
+  border-radius: var(--hub-radius-large);
+  background: var(--hub-canvas-default);
+}
+
+.learnings-page__choice:has(input:checked) {
+  border-color: var(--hub-accent);
+  background: var(--hub-accent-subtle);
+}
+
+.learnings-page__choice:has(input:focus-visible) {
+  outline: 2px solid var(--hub-focus);
+  outline-offset: 2px;
+}
+
+.learnings-page__choice-hint {
+  display: grid;
+  gap: 0.125rem;
+}

@@ -108,6 +108,7 @@ Rails.application.routes.draw do
       end
       resource :learnings, only: :show do
         resources :runs, only: :create, controller: "learning_runs"
+        resource :decision_model, only: :update, controller: "learning_decision_models"
         post \
           ":memory_id/decision",
           to: "learning_decisions#create",

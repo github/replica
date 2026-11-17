@@ -1,0 +1,84 @@
+{
+  "schemaVersion": "replica.decision-models/v1",
+  "checkedAt": "2026-11-07",
+  "models": [
+    {
+      "id": "LiquidAI/d1-2B",
+      "name": "d1-2B",
+      "maker": "Liquid AI",
+      "parameters": "1.9B",
+      "readout": "decision",
+      "license": {
+        "name": "LFM Open License v1.0",
+        "url": "https://huggingface.co/LiquidAI/d1-2B/blob/main/LICENSE",
+        "commercialUse": "limited"
+      },
+      "url": "https://huggingface.co/LiquidAI/d1-2B"
+    },
+    {
+      "id": "LiquidAI/d1-omni-600M",
+      "name": "d1-omni-600M",
+      "maker": "Liquid AI",
+      "parameters": "0.6B",
+      "readout": "decision",
+      "license": {
+        "name": "LFM Open License v1.0",
+        "url": "https://huggingface.co/LiquidAI/d1-omni-600M/blob/main/LICENSE",
+        "commercialUse": "limited"
+      },
+      "url": "https://huggingface.co/LiquidAI/d1-omni-600M"
+    },
+    {
+      "id": "google/gemma-3-4b-it",
+      "name": "Gemma 3 4B",
+      "maker": "Google",
+      "parameters": "4.3B",
+      "readout": "generative",
+      "license": {
+        "name": "Gemma Terms of Use",
+        "url": "https://ai.google.dev/gemma/terms",
+        "commercialUse": "terms"
+      },
+      "url": "https://huggingface.co/google/gemma-3-4b-it"
+    },
+    {
+      "id": "google/gemma-4-E4B-it",
+      "name": "Gemma 4 E4B",
+      "maker": "Google",
+      "parameters": "8.0B",
+      "readout": "generative",
+      "license": {
+        "name": "Apache 2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0",
+        "commercialUse": "allowed"
+      },
+      "url": "https://huggingface.co/google/gemma-4-E4B-it"
+    },
+    {
+      "id": "ibm-granite/granite-vision-4.1-4b",
+      "name": "Granite Vision 4.1 4B",
+      "maker": "IBM",
+      "parameters": "4.0B",
+      "readout": "generative",
+      "license": {
+        "name": "Apache 2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0",
+        "commercialUse": "allowed"
+      },
+      "url": "https://huggingface.co/ibm-granite/granite-vision-4.1-4b"
+    },
+    {
+      "id": "microsoft/Phi-4-multimodal-instruct",
+      "name": "Phi-4 multimodal",
+      "maker": "Microsoft",
+      "parameters": "5.6B",
+      "readout": "generative",
+      "license": {
+        "name": "MIT",
+        "url": "https://huggingface.co/microsoft/Phi-4-multimodal-instruct/blob/main/LICENSE",
+        "commercialUse": "allowed"
+      },
+      "url": "https://huggingface.co/microsoft/Phi-4-multimodal-instruct"
+    }
+  ]
+}

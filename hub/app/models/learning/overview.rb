@@ -1,10 +1,13 @@
 # Reads what a repository's Learnings page shows from its store: suggestions with the comments
-# behind them, accepted learnings, and what an agent gets.
+# behind them, accepted learnings, what an agent gets, and the questions a decision model answers.
 #
 # Evidence is joined to this repository's review comments, so a person sees who said what, on
 # which prototype, before deciding. Evidence from another Hub or repository is counted, not shown.
 class Learning::Overview
-  EMPTY = { suggestions: [], learnings: [], identityReviewCount: 0, recall: { text: "", count: 0 } }.freeze
+  EMPTY = {
+    suggestions: [], learnings: [], identityReviewCount: 0, recall: { text: "", count: 0 },
+    decision: { questions: {}, trainingConsent: false }
+  }.freeze
   EVIDENCE_BATCH = 100
 
   # The viewer is the person the page is for. The store lets only a person preview recall, and
@@ -18,9 +21,10 @@ class Learning::Overview
   def load
     return EMPTY if !@store.exist?
 
-    memories, recall = parallel \
+    memories, recall, decision = parallel \
       [ "memories" ],
-      [ "recall", "--preview", "--by", @viewer ]
+      [ "recall", "--preview", "--by", @viewer ],
+      [ "decision", "questions", "--preview", "--by", @viewer ]
     proposals = memories.select do |item|
       item.dig("record", "state") == "proposed" && !item["withheld"] && !problems?(item) && !identity_review_pending?(item)
     end
@@ -37,7 +41,8 @@ class Learning::Overview
       identityReviewCount: memories.count do |item|
         %w[proposed accepted].include?(item.dig("record", "state")) && identity_review_pending?(item)
       end,
-      recall: { text: recall.fetch("text"), count: recall.fetch("memories").size }
+      recall: { text: recall.fetch("text"), count: recall.fetch("memories").size },
+      decision: { questions: decision.fetch("questions"), trainingConsent: decision.fetch("trainingConsent") == true }
     }
   rescue KeyError, TypeError, NoMethodError
     raise Learning::Error.new("replica-learning returned output Hub could not read.", code: "unreadable_output")

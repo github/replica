@@ -228,7 +228,8 @@ function weekOneThreads() {
   ]
 }
 
-function weekTwoThreads() {
+/** Week one's threads a week later: one resolved, one deleted, one edited, and one new. */
+export function weekTwoThreads() {
   const threads = weekOneThreads().map((item) => ({ ...item, visibleReplies: undefined }))
   const byId = new Map(threads.map((item) => [item.root.id, item]))
   byId.get(103).root = {
