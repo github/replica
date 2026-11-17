@@ -87,10 +87,7 @@ export function createProductRouteDependencies({
       withDeleteLock: withReviewCommentDeleteLock,
     }),
     authorizeReviewAccess: async (repositoryId, actor) =>
-      authorizeRepositoryReview(
-        actor,
-        await findRepositoryReviewAccess(prisma, repositoryId),
-      ),
+      authorizeRepositoryReview(actor, await findRepositoryReviewAccess(prisma, repositoryId)),
     listRepositories: () => listRepositories(prisma),
     findRepositoryIndex: (repositoryId, filters) =>
       findRepositoryIndex(prisma, repositoryId, filters),

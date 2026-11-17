@@ -33,13 +33,7 @@ export function post(
         return
       }
       if (
-        !(await requireReviewAccess(
-          response,
-          review,
-          identifiers.repositoryId,
-          current,
-          "change",
-        ))
+        !(await requireReviewAccess(response, review, identifiers.repositoryId, current, "change"))
       ) {
         return
       }

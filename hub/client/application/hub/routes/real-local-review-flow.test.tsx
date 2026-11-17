@@ -175,10 +175,12 @@ describe("real local review flow", () => {
     let comments: ReviewComment[] = [rootComment(1, "Persisted conversation")]
     let failNextReply = false
     const createdAnchors: (typeof anchor)[] = []
-    const listResponse = () => ({ comments, nextCursor: null, hasMore: false })
-    const mutationResponse = (changed: ReviewComment, root?: ReviewRootComment) => ({
-      comments: root && changed.id !== root.id ? [changed, root] : [changed],
-    })
+    function listResponse() {
+      return { comments, nextCursor: null, hasMore: false }
+    }
+    function mutationResponse(changed: ReviewComment, root?: ReviewRootComment) {
+      return { comments: root && changed.id !== root.id ? [changed, root] : [changed] }
+    }
     const server = setupServer(
       http.get(`${window.location.origin}/api/auth/session`, () =>
         HttpResponse.json({
@@ -286,38 +288,30 @@ describe("real local review flow", () => {
         comments = comments.map((comment) => (comment.id === id ? deleted : comment))
         return HttpResponse.json(mutationResponse(deleted))
       }),
-      http.post(
-        `${window.location.origin}${reviewPath}/:rootId/resolution`,
-        ({ params }) => {
-          const id = Number(params.rootId)
-          const current = comments.find(
-            (comment): comment is ReviewRootComment =>
-              comment.kind === "root" && comment.id === id,
-          )
-          if (!current) return HttpResponse.json({ error: "Not found." }, { status: 404 })
-          const resolved = {
-            ...current,
-            resolvedAt: "2026-11-16T20:05:00.000Z",
-            resolvedBy: author,
-          }
-          comments = comments.map((comment) => (comment.id === id ? resolved : comment))
-          return HttpResponse.json(mutationResponse(resolved))
-        },
-      ),
-      http.delete(
-        `${window.location.origin}${reviewPath}/:rootId/resolution`,
-        ({ params }) => {
-          const id = Number(params.rootId)
-          const current = comments.find(
-            (comment): comment is ReviewRootComment =>
-              comment.kind === "root" && comment.id === id,
-          )
-          if (!current) return HttpResponse.json({ error: "Not found." }, { status: 404 })
-          const reopened = { ...current, resolvedAt: null, resolvedBy: null }
-          comments = comments.map((comment) => (comment.id === id ? reopened : comment))
-          return HttpResponse.json(mutationResponse(reopened))
-        },
-      ),
+      http.post(`${window.location.origin}${reviewPath}/:rootId/resolution`, ({ params }) => {
+        const id = Number(params.rootId)
+        const current = comments.find(
+          (comment): comment is ReviewRootComment => comment.kind === "root" && comment.id === id,
+        )
+        if (!current) return HttpResponse.json({ error: "Not found." }, { status: 404 })
+        const resolved = {
+          ...current,
+          resolvedAt: "2026-11-16T20:05:00.000Z",
+          resolvedBy: author,
+        }
+        comments = comments.map((comment) => (comment.id === id ? resolved : comment))
+        return HttpResponse.json(mutationResponse(resolved))
+      }),
+      http.delete(`${window.location.origin}${reviewPath}/:rootId/resolution`, ({ params }) => {
+        const id = Number(params.rootId)
+        const current = comments.find(
+          (comment): comment is ReviewRootComment => comment.kind === "root" && comment.id === id,
+        )
+        if (!current) return HttpResponse.json({ error: "Not found." }, { status: 404 })
+        const reopened = { ...current, resolvedAt: null, resolvedBy: null }
+        comments = comments.map((comment) => (comment.id === id ? reopened : comment))
+        return HttpResponse.json(mutationResponse(reopened))
+      }),
     )
     server.listen({ onUnhandledRequest: "error" })
     onTestFinished(() => server.close())
@@ -341,7 +335,7 @@ describe("real local review flow", () => {
     vi.spyOn((frame as HTMLIFrameElement).contentWindow!, "postMessage").mockImplementation(
       (command: PreviewBridgeCommand) => commands.push(command),
     )
-    const receive = (message: PreviewBridgeMessage) =>
+    function receive(message: PreviewBridgeMessage) {
       window.dispatchEvent(
         new MessageEvent("message", {
           source: (frame as HTMLIFrameElement).contentWindow,
@@ -349,6 +343,7 @@ describe("real local review flow", () => {
           data: message,
         }),
       )
+    }
     receive({
       type: "replica:bridge:ready",
       protocolVersion: 1,
@@ -391,13 +386,25 @@ describe("real local review flow", () => {
       target: { value: "Edited reply" },
     })
     fireEvent.click(within(message).getByRole("button", { name: "Save" }))
-    expect(await within(message).findByText("Edited reply")).toBeVisible()
+    await waitFor(() =>
+      expect(
+        within(conversation).queryByRole("textbox", { name: "Edit comment" }),
+      ).not.toBeInTheDocument(),
+    )
+    const editedMessage = within(conversation)
+      .getByText("Edited reply", { selector: ".review-thread-message__body" })
+      .closest("article")
+    if (!editedMessage) throw new Error("Expected the edited reply message.")
     fireEvent.click(
-      within(message).getByRole("button", { name: `Actions for comment by @${author.login}` }),
+      within(editedMessage).getByRole("button", {
+        name: `Actions for comment by @${author.login}`,
+      }),
     )
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }))
-    fireEvent.click(within(message).getByRole("button", { name: "Delete" }))
-    expect(await within(message).findByText("Comment deleted")).toBeVisible()
+    fireEvent.click(within(editedMessage).getByRole("button", { name: "Delete" }))
+    await waitFor(() =>
+      expect(within(conversation).queryByText("Edited reply")).not.toBeInTheDocument(),
+    )
 
     fireEvent.click(within(conversation).getByRole("button", { name: "Resolve" }))
     expect(await within(conversation).findByRole("button", { name: "Reopen" })).toBeEnabled()

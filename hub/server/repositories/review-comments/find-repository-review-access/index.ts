@@ -1,4 +1,4 @@
-import type { Prisma } from "../../../../generated/prisma/client.ts"
+import type { Prisma } from "../../../generated/prisma/client.ts"
 
 export async function findRepositoryReviewAccess(
   database: Pick<Prisma.TransactionClient, "repository">,

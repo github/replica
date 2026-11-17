@@ -1,9 +1,6 @@
 import type { Response } from "express"
 
-import type {
-  ReviewAccessActor,
-  ReviewRouteDependencies,
-} from "../../product/types.ts"
+import type { ReviewAccessActor, ReviewRouteDependencies } from "../../product/types.ts"
 
 export async function requireReviewAccess(
   response: Response,

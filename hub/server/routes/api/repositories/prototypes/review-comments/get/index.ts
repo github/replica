@@ -25,13 +25,7 @@ export function get(
         return
       }
       if (
-        !(await requireReviewAccess(
-          response,
-          review,
-          identifiers.repositoryId,
-          current,
-          "view",
-        ))
+        !(await requireReviewAccess(response, review, identifiers.repositoryId, current, "view"))
       ) {
         return
       }
@@ -44,15 +38,7 @@ export function get(
         response.status(401).json({ error: "Sign in to continue." })
         return
       }
-      if (
-        !(await requireReviewAccess(
-          response,
-          review,
-          identifiers.repositoryId,
-          final,
-          "view",
-        ))
-      ) {
+      if (!(await requireReviewAccess(response, review, identifiers.repositoryId, final, "view"))) {
         return
       }
       const comments = threads

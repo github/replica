@@ -113,16 +113,14 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
         handlePrototypePatch(authentication.currentSession, product),
       )
       if (product.reviewComments && product.authorizeReviewAccess) {
+        const authorizeReviewAccess = product.authorizeReviewAccess.bind(product)
         const review = {
           reviewComments: product.reviewComments,
-          authorizeReviewAccess: product.authorizeReviewAccess,
+          authorizeReviewAccess,
         }
         const reviewCommentsPath =
           "/api/repositories/:repositoryId/prototypes/:prototypeId/review-comments"
-        app.get(
-          reviewCommentsPath,
-          handleReviewCommentsGet(authentication.currentSession, review),
-        )
+        app.get(reviewCommentsPath, handleReviewCommentsGet(authentication.currentSession, review))
         app.post(
           reviewCommentsPath,
           requireOrigin(authentication.signOut.applicationOrigin),
