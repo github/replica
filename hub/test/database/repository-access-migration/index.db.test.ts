@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest"
 const migrationTestTimeoutMs = 120_000
 
 async function withExactMigrationBase(
-  targetMigration: string,
+  pendingMigrations: readonly string[],
   operation: (database: pg.Client, deploy: () => Promise<void>) => Promise<void>,
 ) {
   const adminUrl = process.env.TEST_DATABASE_URL
@@ -30,7 +30,7 @@ async function withExactMigrationBase(
       const hubRoot = fileURLToPath(new URL("../../../", import.meta.url))
       const migrationDirectory = join(hubRoot, "schema/migrations")
       const baseMigrations = (await readdir(migrationDirectory, { withFileTypes: true }))
-        .filter((entry) => entry.isDirectory() && entry.name < targetMigration)
+        .filter((entry) => entry.isDirectory() && !pendingMigrations.includes(entry.name))
         .map((entry) => entry.name)
         .sort()
       for (const migrationName of baseMigrations) {
@@ -91,7 +91,11 @@ describe("repository access migration", () => {
     "preserves existing identity, session, repository, prototype, Build, and audit records",
     async () => {
       await withExactMigrationBase(
-        "20261201120000_repository_access_grants",
+        [
+          "20261201120000_repository_access_grants",
+          "20261201150000_github_webhook_deliveries",
+          "20261202120000_github_scoping_activation",
+        ],
         async (database, deploy) => {
           const providerId = randomUUID()
           const revisionId = randomUUID()
@@ -103,6 +107,7 @@ describe("repository access migration", () => {
           const disconnectedId = randomUUID()
           const prototypeId = randomUUID()
           const buildId = randomUUID()
+          const introductionId = randomUUID()
           const auditId = randomUUID()
           await database.query(
             `INSERT INTO authentication_providers (id, key, enabled) VALUES ($1, 'github', false)`,
@@ -163,6 +168,11 @@ describe("repository access migration", () => {
             prototypeId,
           ])
           await database.query(
+            `INSERT INTO prototype_introductions (id, user_id, prototype_id)
+             VALUES ($1, $2, $3)`,
+            [introductionId, userId, prototypeId],
+          )
+          await database.query(
             `INSERT INTO security_audits (id, action, outcome, target_type, target_id, context)
              VALUES ($1, 'migration_fixture', 'SUCCESS', 'membership', $2, '{"source":"fixture"}')`,
             [auditId, membershipId],
@@ -191,11 +201,21 @@ describe("repository access migration", () => {
               `SELECT id, name_with_owner, removed_at FROM repositories WHERE id = $1`,
               [disconnectedId],
             )
-            return { productAndIdentity: result.rows, disconnected: disconnected.rows }
+            const introductions = await database.query(
+              `SELECT id, user_id, prototype_id, created_at, updated_at
+               FROM prototype_introductions WHERE id = $1`,
+              [introductionId],
+            )
+            return {
+              productAndIdentity: result.rows,
+              disconnected: disconnected.rows,
+              introductions: introductions.rows,
+            }
           }
           const before = await records()
           expect(before.productAndIdentity).toHaveLength(1)
           expect(before.disconnected).toHaveLength(1)
+          expect(before.introductions).toHaveLength(1)
 
           await deploy()
 
@@ -281,7 +301,7 @@ describe("repository access migration", () => {
     "upgrades existing GitHub access without changing records and protects the activation marker",
     async () => {
       await withExactMigrationBase(
-        "20261202120000_github_scoping_activation",
+        ["20261202120000_github_scoping_activation"],
         async (database, deploy) => {
           const providerId = randomUUID()
           const revisionId = randomUUID()
