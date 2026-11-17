@@ -248,7 +248,7 @@ The image contains no taskset, candidate, model, or credential. It runs as user 
 
 ### Add another backend later
 
-`TrainingBackend` is the extension seam. A backend declares its name and whether its candidates may be promoted in production, implements one bounded `train` call that returns an adapter plus baseline and candidate reports, and implements `predict` for that adapter. The runtime owns job state, candidate integrity, promotion, rollback, and HTTP authentication. This first reference does not connect the existing d1 trainer to that interface.
+`TrainingBackend` is the extension seam. A backend can run in a separate terminable process, declares its name and whether its candidates may be promoted in production, implements one bounded `train` call that returns an adapter plus baseline and candidate reports, and implements `predict` for that adapter. Installed runtimes use a spawned worker process, so a backend and its configuration must be serializable. The runtime owns job state, candidate integrity, promotion, rollback, and HTTP authentication. This first reference does not connect the existing d1 trainer to that interface.
 
 ### Trust, data, and credential boundaries
 

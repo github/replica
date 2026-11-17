@@ -8,10 +8,11 @@ runtime owns durable job state, immutable candidates, and the explicit promotion
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import math
+import multiprocessing
 import os
-import queue
 import re
 import shutil
 import threading
@@ -222,6 +223,8 @@ class LocalRuntime:
     ) -> dict[str, Any]:
         """Persist and enqueue one bounded job, returning its initial state."""
         _check_limits(max_updates, max_seconds)
+        if not isinstance(backend, str):
+            raise RuntimeFailure("invalid_input", "backend must be a string.")
         if backend not in self.backends:
             raise RuntimeFailure(
                 "backend_unknown",
@@ -298,6 +301,7 @@ class LocalRuntime:
                 "candidate_mismatch", "The candidate belongs to another taskset.", 409
             )
         with self._lock:
+            self._recover_promotion()
             current = self.promotion(required=False)
             if current and current["candidateId"] == candidate_id:
                 return current
@@ -316,6 +320,7 @@ class LocalRuntime:
         if not isinstance(rolled_back_by, str) or not rolled_back_by.strip():
             raise RuntimeFailure("invalid_input", "rolledBackBy must name the operator.")
         with self._lock:
+            self._recover_promotion()
             current = self.promotion()
             candidate_id = current.get("previousCandidateId")
             if not isinstance(candidate_id, str):
@@ -668,7 +673,7 @@ def _candidate_evaluation(
             "meanRewardDelta": candidate_reward - base_reward,
             "improvesMeanReward": candidate_reward > base_reward,
             "calibrationErrorDelta": ece_delta,
-            "calibrationNotWorse": ece_delta is None or ece_delta <= 0,
+            "calibrationNotWorse": None if ece_delta is None else ece_delta <= 0,
         },
     }
 
@@ -956,29 +961,83 @@ def _run_backend(
     max_updates: int,
     max_seconds: float,
 ) -> TrainingResult:
-    """Run trusted backend code without letting it block the runtime past the job deadline."""
-    completed: queue.Queue[TrainingResult | Exception] = queue.Queue(maxsize=1)
+    """Run backend code in a child that the runtime can stop at the job deadline."""
     deadline = time.monotonic() + max_seconds
-
-    def run() -> None:
-        try:
-            result: TrainingResult | Exception = backend.train(
-                taskset,
-                work_directory,
-                max_updates=max_updates,
-                deadline=deadline,
-            )
-        except Exception as error:
-            result = error
-        completed.put(result)
-
-    thread = threading.Thread(target=run, name=f"replica-{backend.name}-job", daemon=True)
-    thread.start()
+    context = _process_context()
+    receive, send = context.Pipe(duplex=False)
+    process = context.Process(
+        target=_backend_process,
+        args=(
+            send,
+            backend,
+            str(taskset.directory),
+            str(work_directory),
+            max_updates,
+            deadline,
+        ),
+        name=f"replica-{backend.name}-job",
+    )
+    process.start()
+    send.close()
     try:
-        result = completed.get(timeout=max_seconds)
-    except queue.Empty:
-        raise RuntimeFailure("job_timed_out", "The bounded training job reached maxSeconds.") from None
-    if isinstance(result, Exception):
-        raise result
-    _check_deadline(deadline)
-    return result
+        if not receive.poll(max_seconds):
+            process.terminate()
+            process.join()
+            raise RuntimeFailure(
+                "job_timed_out", "The bounded training job reached maxSeconds."
+            )
+        kind, payload = receive.recv()
+        process.join()
+        if kind == "error":
+            code, message, status = payload
+            raise RuntimeFailure(code, message, status)
+        _check_deadline(deadline)
+        return payload
+    finally:
+        receive.close()
+        if process.is_alive():
+            process.terminate()
+            process.join()
+
+
+def _backend_process(
+    send: Any,
+    backend: TrainingBackend,
+    taskset_directory: str,
+    work_directory: str,
+    max_updates: int,
+    deadline: float,
+) -> None:
+    """Load task data afresh and run one serializable backend in a spawned child process."""
+    try:
+        result = backend.train(
+            load_taskset(taskset_directory),
+            Path(work_directory),
+            max_updates=max_updates,
+            deadline=deadline,
+        )
+        send.send(("ok", result))
+    except Exception as error:
+        send.send(
+            (
+                "error",
+                (
+                    error.code if isinstance(error, RuntimeFailure) else "backend_failed",
+                    str(error),
+                    error.status if isinstance(error, RuntimeFailure) else 500,
+                ),
+            )
+        )
+    finally:
+        send.close()
+
+
+def _process_context() -> Any:
+    """Use spawn when installed; source-only tests bootstrap an alias that spawn cannot import."""
+    spec = importlib.util.find_spec("replica_brand_check")
+    installed = (
+        spec is not None
+        and spec.origin is not None
+        and Path(spec.origin).parent.name == "replica_brand_check"
+    )
+    return multiprocessing.get_context("spawn" if installed else "fork")

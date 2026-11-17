@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import base64
 import json
+import multiprocessing
 import shutil
+import socket
 import threading
 import time
 import unittest
@@ -39,8 +41,9 @@ class BlockingBackend(FixtureBackend):
     """A backend whose first job waits so a second job stays queued during close."""
 
     def __init__(self):
-        self.started = threading.Event()
-        self.release = threading.Event()
+        context = multiprocessing.get_context("fork")
+        self.started = context.Event()
+        self.release = context.Event()
 
     def train(self, *args, **kwargs):
         self.started.set()
@@ -191,6 +194,15 @@ class LocalRuntimeTest(unittest.TestCase):
 
         self.assertEqual(missing.exception.code, "backend_missing")
 
+    def test_refuses_a_non_string_backend_as_invalid_input(self):
+        runtime = self._runtime()
+
+        with self.assertRaises(RuntimeFailure) as invalid:
+            runtime.submit(backend={"fixture": True}, max_updates=1, max_seconds=1)
+
+        self.assertEqual(invalid.exception.code, "invalid_input")
+        self.assertEqual(invalid.exception.status, 400)
+
     def test_refuses_a_second_runtime_without_changing_the_first_jobs(self):
         runtime = self._runtime()
         submitted = runtime.submit(backend="fixture", max_updates=8, max_seconds=5)
@@ -216,6 +228,7 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(failed["state"], "failed")
         self.assertEqual(failed["error"]["code"], "job_timed_out")
         self.assertEqual(list((self.state_dir / "candidates").iterdir()), [])
+        self.assertEqual(multiprocessing.active_children(), [])
 
     def test_close_cancels_queued_jobs_instead_of_starting_them(self):
         backend = BlockingBackend()
@@ -405,6 +418,31 @@ class LocalRuntimeTest(unittest.TestCase):
         reopened = self._runtime()
 
         self.assertEqual(reopened.promotion(), second_promotion)
+
+    def test_retry_reconciles_a_generation_written_before_the_pointer(self):
+        runtime = self._runtime()
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
+        )
+        original = runtime._write_promotion
+
+        def fail_pointer(promotion):
+            with mock.patch(
+                "replica_brand_check.runtime._write_json_atomic",
+                side_effect=OSError("pointer unavailable"),
+            ):
+                original(promotion)
+
+        with mock.patch.object(runtime, "_write_promotion", side_effect=fail_pointer):
+            with self.assertRaises(OSError):
+                runtime.promote(finished["candidateId"], promoted_by="test-operator")
+
+        recovered = runtime.promote(
+            finished["candidateId"], promoted_by="retrying-operator"
+        )
+        self.assertEqual(recovered["generation"], 1)
+        self.assertEqual(recovered["candidateId"], finished["candidateId"])
 
     def test_production_rejects_fixture_promotion_without_changing_the_current_generation(self):
         runtime = self._runtime()
@@ -611,6 +649,46 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(scored["candidateId"], finished["candidateId"])
         self.assertEqual(scored["promotionGeneration"], 3)
         self.assertEqual(self._http_json(f"{base_url}/ready"), {"status": "ready"})
+
+    def test_header_deadline_releases_a_connection_slot(self):
+        runtime = self._runtime()
+        server = RuntimeHTTPServer(("127.0.0.1", 0), runtime, TOKEN)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 1)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        with mock.patch(
+            "replica_brand_check.runtime_server.SOCKET_TIMEOUT_SECONDS", 0.05
+        ):
+            connection = socket.create_connection(server.server_address)
+            self.addCleanup(connection.close)
+            connection.sendall(b"GET /health HTTP/1.0\r\nX-Slow: ")
+            time.sleep(0.1)
+
+        connection.settimeout(1)
+        self.assertEqual(connection.recv(1), b"")
+        self.assertEqual(
+            self._http_json(f"http://127.0.0.1:{server.server_address[1]}/health"),
+            {"status": "healthy"},
+        )
+
+    def test_unknown_calibration_is_not_reported_as_not_worse(self):
+        runtime = self._runtime()
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
+        )
+        report = runtime.candidate(finished["candidateId"])["evaluation"]
+        report["baseline"]["noul"]["ece"] = None
+        report["candidate"]["noul"]["ece"] = None
+        from replica_brand_check.runtime import _candidate_evaluation
+
+        compared = _candidate_evaluation(
+            runtime.taskset_digest, report["baseline"], report["candidate"]
+        )
+        self.assertIsNone(compared["evidence"]["calibrationErrorDelta"])
+        self.assertIsNone(compared["evidence"]["calibrationNotWorse"])
 
     def test_refuses_malformed_questions_before_calling_the_backend(self):
         runtime = self._runtime()

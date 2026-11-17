@@ -44,7 +44,7 @@ def runtime_token(environ: dict[str, str]) -> str:
 class RuntimeHTTPServer(ThreadingHTTPServer):
     """HTTP server carrying one local runtime and its bearer token."""
 
-    daemon_threads = True
+    daemon_threads = False
 
     def __init__(self, address: tuple[str, int], runtime: LocalRuntime, token: str):
         if len(token) < MIN_TOKEN_LENGTH or not _SAFE_TOKEN.fullmatch(token):
@@ -81,6 +81,24 @@ class RuntimeHandler(BaseHTTPRequestHandler):
 
     server: RuntimeHTTPServer
     protocol_version = "HTTP/1.0"
+
+    def setup(self) -> None:
+        super().setup()
+        self._header_timer = threading.Timer(
+            SOCKET_TIMEOUT_SECONDS, self._close_slow_headers
+        )
+        self._header_timer.daemon = True
+        self._header_timer.start()
+
+    def parse_request(self) -> bool:
+        try:
+            return super().parse_request()
+        finally:
+            self._header_timer.cancel()
+
+    def finish(self) -> None:
+        self._header_timer.cancel()
+        super().finish()
 
     def do_GET(self) -> None:
         try:
@@ -160,6 +178,12 @@ class RuntimeHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         """Keep the default access log, which never includes Authorization header values."""
         super().log_message(format, *args)
+
+    def _close_slow_headers(self) -> None:
+        try:
+            self.connection.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
 
     def _authorize(self) -> None:
         value = self.headers.get("Authorization", "")
