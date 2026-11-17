@@ -12,7 +12,11 @@ it("delivers queued actions in order and matches each response ID", async () => 
   const following = commands.invoke("click")
   assert.equal(commands.next(), null)
   assert.throws(() => commands.complete({ id: "wrong", ok: true }), /No matching/)
-  commands.complete({ id: command.id, ok: true, value: { addressDraft: "/draft" } })
+  commands.complete({
+    id: command.id,
+    ok: true,
+    value: { addressDraft: "/draft" },
+  })
   assert.deepEqual(await result, { addressDraft: "/draft" })
   const click = commands.next()
   assert.equal(click.type, "click")
@@ -82,25 +86,22 @@ it("traces the owning renderer, rejects competing replies and reports the last s
       { stage: "handler started", elapsedMs: 0 },
     ],
   })
+})
 
-  it("bounds diagnostic history and excludes request inputs and reply values", async () => {
-    const commands = agentCommands()
-    for (let index = 0; index < 25; index++) {
-      const result = commands.invoke("inspect", { value: "PRIVATE_INPUT" })
-      const command = commands.next("renderer")
-      commands.complete({ id: command.id, ok: true, value: "PRIVATE_REPLY" }, "renderer")
-      await result
-    }
-    const diagnostics = commands.diagnostics()
-    assert.equal(diagnostics.requests.length, 20)
-    assert.ok(!JSON.stringify(diagnostics).includes("PRIVATE"))
-    commands.close()
-    const result = commands.invoke("controls-status")
-    const command = commands.next("reloaded-renderer")
-    commands.complete(
-      { id: command.id, ok: true, value: { status: "pending" } },
-      "reloaded-renderer",
-    )
-    assert.deepEqual(await result, { status: "pending" })
-  })
+it("bounds diagnostic history and excludes request inputs and reply values", async () => {
+  const commands = agentCommands()
+  for (let index = 0; index < 25; index++) {
+    const result = commands.invoke("inspect", { value: "PRIVATE_INPUT" })
+    const command = commands.next("renderer")
+    commands.complete({ id: command.id, ok: true, value: "PRIVATE_REPLY" }, "renderer")
+    await result
+  }
+  const diagnostics = commands.diagnostics()
+  assert.equal(diagnostics.requests.length, 20)
+  assert.ok(!JSON.stringify(diagnostics).includes("PRIVATE"))
+  commands.close()
+  const result = commands.invoke("controls-status")
+  const command = commands.next("reloaded-renderer")
+  commands.complete({ id: command.id, ok: true, value: { status: "pending" } }, "reloaded-renderer")
+  assert.deepEqual(await result, { status: "pending" })
 })
