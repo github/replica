@@ -24,6 +24,7 @@ interface OperatorInputs {
 export async function readInstallationInputs(
   directory: string,
   config: DeploymentConfig,
+  { allowMissingAuthenticationOrigin = false }: { allowMissingAuthenticationOrigin?: boolean } = {},
 ): Promise<OperatorInputs> {
   const content = await readPrivateFile(join(directory, "installation.tfvars.json"))
   if (content === undefined) return {}
@@ -312,6 +313,7 @@ export async function readInstallationInputs(
     "ENTRA_OIDC_PROVIDER_REVISION",
   ]
   if (
+    !allowMissingAuthenticationOrigin &&
     ((githubSettings.some(configured) && !copilotOnly) ||
       otherAuthenticationSettings.some(configured) ||
       environment.HUB_LOCAL_SIGN_IN?.trim() === "true" ||

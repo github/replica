@@ -8,7 +8,7 @@ import { withDefaultSignal } from "../../installer/command/default-signal/index.
 import { retryReadOnly } from "../../installer/command/retry-read-only/index.ts"
 import type { DeploymentConfig, RunCommand, WizardUI } from "../../installer/types.ts"
 import { installationWorkspace } from "../../installer/workspace/index.ts"
-import { readInstallationInputs } from "../install/inputs/index.ts"
+import * as installationInputs from "../install/inputs/index.ts"
 import { installationNames } from "../install/settings.ts"
 import type { PostInputs, PostSetupTarget } from "./types.ts"
 import { postSetupAzure } from "./index.ts"
@@ -77,6 +77,7 @@ async function scenario() {
     grant_deployment_storage_access: true,
     image: `registry.azurecr.io/hub@sha256:${"b".repeat(64)}`,
     deploy_hub: false,
+    hub_application_origin: origin,
     acr_id: `/subscriptions/${config.azure.subscriptionId}/resourceGroups/${names.foundationGroup}/providers/Microsoft.ContainerRegistry/registries/${names.registry}`,
     runtime_database_secret: reference("database-runtime"),
     setup_database_secret: reference("database-setup"),
@@ -470,6 +471,22 @@ async function configuredGithub(test: Awaited<ReturnType<typeof scenario>>) {
   await writeFile(test.inputsPath, JSON.stringify(test.inputs), { mode: 0o600 })
 }
 
+function expectNoDeploymentMutation(test: Awaited<ReturnType<typeof scenario>>) {
+  expect(test.plans).toEqual([])
+  expect(test.applies).toBe(0)
+  expect(test.uploads).toEqual([])
+  expect(
+    test.run.mock.calls.some(
+      ([executable, args]) =>
+        executable === "terraform" ||
+        (args[0] === "keyvault" && args[1] === "secret" && !["list", "show"].includes(args[2]!)) ||
+        (args[0] === "containerapp" &&
+          args[1] === "revision" &&
+          ["restart", "activate", "deactivate", "delete"].includes(args[2]!)),
+    ),
+  ).toBe(false)
+}
+
 it("announces the operation before awaiting a post-confirmation command without printing its arguments", async () => {
   const test = await scenario()
   const work = Promise.withResolvers<void>()
@@ -508,6 +525,7 @@ it("announces the operation before awaiting a post-confirmation command without 
 
 it("uses the deployed digest despite stale deploy_hub=false and preserves settings across verification and configuration reruns", async () => {
   const test = await scenario()
+  expect(test.state.environment.HUB_TRUSTED_PROXY_HOPS).toBe("1")
   test.state.verifyFailures = 1
   test.state.recovery = "verify"
 
@@ -531,6 +549,7 @@ it("uses the deployed digest despite stale deploy_hub=false and preserves settin
       HUB_TRUSTED_PROXY_HOPS: "2",
     },
   })
+  expect(test.plans[0]!.changed).toBe(true)
   expect(test.applies).toBe(1)
   expect(test.ui.text).toHaveBeenCalledTimes(2)
   expect(test.ui.select).toHaveBeenCalledTimes(1)
@@ -573,6 +592,146 @@ it("uses the deployed digest despite stale deploy_hub=false and preserves settin
   ).toBe(false)
   expect(test.leases.size).toBe(0)
 })
+
+it("repairs a stopped Hub with saved authentication secrets but no origin only after a valid answer", async () => {
+  const test = await scenario()
+  delete test.inputs.hub_application_origin
+  delete test.state.environment.HUB_APPLICATION_ORIGIN
+  test.state.active = false
+  const original = `${JSON.stringify(test.inputs, null, 2)}\n`
+  await writeFile(test.inputsPath, original, { mode: 0o600 })
+  const environment = structuredClone(test.state.environment)
+  const secrets = new Map(test.secretValues)
+  const references = structuredClone(test.inputs.runtime_secret_references!)
+
+  await expect(
+    installationInputs.readInstallationInputs(test.directory, test.target.config),
+  ).rejects.toThrow(/origin/i)
+  vi.mocked(test.ui.text).mockResolvedValueOnce(test.origin.replace("https:", "http:"))
+
+  await expect(
+    postSetupAzure(test.target, {
+      action: "sign-in",
+      run: test.run,
+      ui: test.ui,
+      request: test.request,
+    }),
+  ).rejects.toMatchObject({ name: "AbortError", partialChanges: false })
+
+  expect(vi.mocked(test.ui.text).mock.calls[0]![1]).toBe(test.origin)
+  expect(await readFile(test.inputsPath, "utf8")).toBe(original)
+  expect(test.state.environment).toEqual(environment)
+  expect(test.state.active).toBe(false)
+  expect(test.secretValues).toEqual(secrets)
+  expect(test.leases.size).toBe(0)
+  expect(
+    (await readdir(test.directory)).filter((name) => name.startsWith("post-inputs-backup-")),
+  ).toEqual([])
+  expectNoDeploymentMutation(test)
+
+  vi.mocked(test.ui.text).mockReset().mockResolvedValueOnce(test.origin).mockResolvedValueOnce("2")
+  const inputReads = vi.spyOn(installationInputs, "readInstallationInputs")
+  const execute = test.run.getMockImplementation()!
+  let validatedBeforeTerraform = false
+  test.run.mockImplementation(async (executable, args, options) => {
+    if (executable === "terraform" && !validatedBeforeTerraform) {
+      expect(inputReads.mock.calls.length).toBeGreaterThanOrEqual(2)
+      const [directory, config, validationOptions] = inputReads.mock.calls.at(-1)!
+      expect(directory).toBe(test.directory)
+      expect(config).toEqual(test.target.config)
+      expect(validationOptions?.allowMissingAuthenticationOrigin ?? false).toBe(false)
+      await expect(inputReads.mock.results.at(-1)!.value).resolves.toMatchObject({
+        hub_application_origin: test.origin,
+        runtime_secret_references: references,
+      })
+      validatedBeforeTerraform = true
+    }
+    return execute(executable, args, options)
+  })
+
+  await expect(
+    postSetupAzure(test.target, {
+      action: "sign-in",
+      run: test.run,
+      ui: test.ui,
+      request: test.request,
+    }),
+  ).resolves.toContain(`${test.origin}/settings/github/setup`)
+
+  expect(validatedBeforeTerraform).toBe(true)
+  const saved = JSON.parse(await readFile(test.inputsPath, "utf8")) as PostInputs
+  expect(saved).toEqual({
+    ...test.inputs,
+    image: test.image,
+    deploy_hub: true,
+    hub_application_origin: test.origin,
+    runtime_environment_variables: {
+      ...test.inputs.runtime_environment_variables,
+      HUB_TRUSTED_PROXY_HOPS: "2",
+    },
+  })
+  const backups = (await readdir(test.directory)).filter((name) =>
+    /^post-inputs-backup-.*\.json$/.test(name),
+  )
+  expect(backups).toHaveLength(1)
+  const backup = join(test.directory, backups[0]!)
+  expect(await readFile(backup, "utf8")).toBe(original)
+  expect((await stat(backup)).mode & 0o777).toBe(0o600)
+  expect(test.state.environment).toEqual({
+    ...environment,
+    HUB_APPLICATION_ORIGIN: test.origin,
+    HUB_TRUSTED_PROXY_HOPS: "2",
+  })
+  expect(test.state.active).toBe(true)
+  expect(test.secretValues).toEqual(secrets)
+  expect(test.uploads).toEqual([])
+  expect(test.plans).toHaveLength(1)
+  expect(test.plans[0]!.changed).toBe(true)
+  expect(test.applies).toBe(1)
+  expect(test.leases.size).toBe(0)
+})
+
+it.each([
+  { action: "github", problem: "missing origin", error: /origin/i },
+  { action: "restart", problem: "missing origin", error: /origin/i },
+  { action: "sign-in", problem: "invalid explicit origin", error: /origin/i },
+  { action: "sign-in", problem: "unrelated malformed setting", error: /invalid|unsupported/i },
+] as const)(
+  "blocks $action for $problem without changing the installation",
+  async ({ action, problem, error }) => {
+    const test = await scenario()
+    delete test.inputs.hub_application_origin
+    delete test.state.environment.HUB_APPLICATION_ORIGIN
+    if (problem === "invalid explicit origin") {
+      test.inputs.hub_application_origin = test.origin.replace("https:", "http:")
+      test.state.environment.HUB_APPLICATION_ORIGIN = test.inputs.hub_application_origin
+    } else if (problem === "unrelated malformed setting") {
+      test.inputs.postgres_version = "99"
+    }
+    const original = `${JSON.stringify(test.inputs, null, 2)}\n`
+    await writeFile(test.inputsPath, original, { mode: 0o600 })
+    const environment = structuredClone(test.state.environment)
+    const secrets = new Map(test.secretValues)
+    const files = (await readdir(test.directory)).sort()
+
+    await expect(
+      postSetupAzure(test.target, {
+        action,
+        run: test.run,
+        ui: test.ui,
+        request: test.request,
+      }),
+    ).rejects.toThrow(error)
+
+    expect(await readFile(test.inputsPath, "utf8")).toBe(original)
+    expect((await readdir(test.directory)).sort()).toEqual(files)
+    expect(test.state.environment).toEqual(environment)
+    expect(test.secretValues).toEqual(secrets)
+    expect(test.ui.confirm).not.toHaveBeenCalled()
+    expect(test.ui.text).not.toHaveBeenCalled()
+    expectNoDeploymentMutation(test)
+  },
+)
 
 it("restarts only the traffic-serving revision without Terraform or rewriting stale saved inputs", async () => {
   const test = await scenario()
@@ -741,6 +900,9 @@ it.each(["plain", "secret-backed"] as const)(
     test.state.verificationOrigin = customOrigin
     const originReference = test.reference("hub-application-origin")
     if (representation === "secret-backed") {
+      delete test.inputs.hub_application_origin
+      delete test.inputs.runtime_environment_variables!.HUB_APPLICATION_ORIGIN
+      delete test.state.environment.HUB_APPLICATION_ORIGIN
       test.inputs.runtime_secret_references!.HUB_APPLICATION_ORIGIN = originReference
       test.secretValues.set("hub-application-origin", customOrigin)
       test.state.environment.AZURE_KEY_VAULT_SECRET_REFERENCES = JSON.stringify({
@@ -868,7 +1030,9 @@ it("rejects a secret-backed proxy hop setting before saving or mutating", async 
   const saved = JSON.stringify(test.inputs)
   await writeFile(test.inputsPath, saved, { mode: 0o600 })
   const environment = structuredClone(test.state.environment)
-  await expect(readInstallationInputs(test.directory, test.target.config)).resolves.toMatchObject({
+  await expect(
+    installationInputs.readInstallationInputs(test.directory, test.target.config),
+  ).resolves.toMatchObject({
     runtime_secret_references: { HUB_TRUSTED_PROXY_HOPS: proxy },
   })
 
@@ -1015,6 +1179,7 @@ it("releases owned leases through the CLI command runner after the session is ca
 
 it("retains desired inputs and owned leases after a failed apply and resumes the stopped Hub only on an explicit rerun", async () => {
   const test = await scenario()
+  expect(test.state.environment.HUB_TRUSTED_PROXY_HOPS).toBe("1")
   test.state.failApply = true
 
   await expect(
@@ -1033,6 +1198,9 @@ it("retains desired inputs and owned leases after a failed apply and resumes the
     runtime_secret_references: test.inputs.runtime_secret_references,
   })
   expect(test.plans).toHaveLength(1)
+  expect(test.plans[0]!.desired.runtime_environment_variables?.HUB_TRUSTED_PROXY_HOPS).toBe("2")
+  expect(test.plans[0]!.changed).toBe(true)
+  expect(test.state.active).toBe(false)
   expect(test.applies).toBe(1)
   expect(test.leases.size).toBe(2)
   expect(test.request).not.toHaveBeenCalled()
@@ -1049,7 +1217,9 @@ it("retains desired inputs and owned leases after a failed apply and resumes the
 
   expect(test.plans).toHaveLength(2)
   expect(test.plans[0]!.path).not.toBe(test.plans[1]!.path)
+  expect(test.plans[1]!.changed).toBe(true)
   expect(test.applies).toBe(2)
+  expect(test.state.active).toBe(true)
   expect(test.leases.size).toBe(0)
   expect(test.ui.complete).toHaveBeenCalledOnce()
 })
@@ -1423,6 +1593,7 @@ it("retries pending GitHub secret versions only for the unchanged desired inputs
 
 it("regenerates and revalidates the plan on an explicit apply retry, blocking new foreign drift", async () => {
   const test = await scenario()
+  expect(test.state.environment.HUB_TRUSTED_PROXY_HOPS).toBe("1")
   test.state.failApply = true
   test.state.foreignRetryPlan = true
   test.state.recovery = "retry"
@@ -1437,6 +1608,7 @@ it("regenerates and revalidates the plan on an explicit apply retry, blocking ne
   ).rejects.toThrow(/plan blocked/i)
 
   expect(test.plans).toHaveLength(2)
+  expect(test.plans[0]!.changed).toBe(true)
   expect(test.plans[0]!.path).not.toBe(test.plans[1]!.path)
   expect(test.applies).toBe(1)
   expect(test.ui.text).toHaveBeenCalledTimes(2)

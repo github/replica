@@ -133,7 +133,10 @@ export async function postSetupAzure(
       throw new Error(
         "Post-setup needs this installation's saved generated inputs; it will not bootstrap or adopt resources.",
       )
-    await readInstallationInputs(workspace.directory, config)
+    // Sign-in setup can repair a missing origin; the saved result is validated before Terraform.
+    await readInstallationInputs(workspace.directory, config, {
+      allowMissingAuthenticationOrigin: action === "sign-in",
+    })
     const saved = JSON.parse(original) as PostInputs
     const runtimeDatabase = saved.runtime_database_secret as
       { key_vault_id?: string; secret_id?: string } | undefined
@@ -571,9 +574,7 @@ export async function postSetupAzure(
           "value",
         ),
       )
-      if (
-        !isBoundPostOrigin(value, deployment)
-      )
+      if (!isBoundPostOrigin(value, deployment))
         throw new Error("The existing secret-backed public origin is not bound to this Hub.")
       publicOrigin = value
     }
