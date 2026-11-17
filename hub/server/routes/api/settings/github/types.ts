@@ -17,13 +17,22 @@ export type GitHubSetupAccess =
   | { allowed: true; membershipId: string | null }
   | { allowed: false; requires: "administrator" | "bootstrap" }
 
+/** The authorized caller, carried into writes so they can recheck authority. */
+export interface GitHubSetupCaller {
+  membershipId: string | null
+  sessionDigest?: string
+}
+
 export interface GitHubSetupRouteDependencies {
   applicationOrigin: string
   authorize(input: { sessionDigest?: string; bootstrapSecret?: string }): Promise<GitHubSetupAccess>
   checkRateLimit(operation: "github_setup" | "github_test", subjectDigest: string): Promise<boolean>
   readStatus(): Promise<GitHubSetupStatus>
   testConnection(): Promise<GitHubConnectionCheck[] | null>
-  /** Records the installation's repositories and returns their names. */
-  syncRepositories(): Promise<string[]>
+  /**
+   * Records the installation's repositories and returns their names. With a caller, throws
+   * `AdmissionAuthorityChangedError` when that caller lost setup authority; webhooks omit it.
+   */
+  syncRepositories(caller?: GitHubSetupCaller): Promise<string[]>
   writeTestAudit(input: { actorMembershipId: string | null; failedChecks: string[] }): Promise<void>
 }

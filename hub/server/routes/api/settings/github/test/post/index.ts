@@ -1,20 +1,24 @@
 import { createHash } from "node:crypto"
 import type { RequestHandler } from "express"
 
+import { AdmissionAuthorityChangedError } from "../../../../../../domains/admission/errors.ts"
+import { GitHubProviderRequestError } from "../../../../../../integrations/github/errors.ts"
 import { authorizeGitHubSetup } from "../../authorize-github-setup/index.ts"
 import type { GitHubConnectionCheck } from "../../../../../../integrations/github/test-github-app-connection/types.ts"
-import type { GitHubSetupRouteDependencies } from "../../types.ts"
+import type { GitHubSetupCaller, GitHubSetupRouteDependencies } from "../../types.ts"
 
 const listedNames = 5
 
 /** Syncs the installation's repositories. A failed sync keeps the existing list. */
 async function syncRepositoriesCheck(
   dependencies: GitHubSetupRouteDependencies,
+  caller: GitHubSetupCaller,
 ): Promise<GitHubConnectionCheck> {
   let names: string[]
   try {
-    names = await dependencies.syncRepositories()
-  } catch {
+    names = await dependencies.syncRepositories(caller)
+  } catch (error) {
+    if (!(error instanceof GitHubProviderRequestError)) throw error
     return {
       name: "repositories",
       result: "unknown",
@@ -61,11 +65,23 @@ export function post(dependencies: GitHubSetupRouteDependencies): RequestHandler
         checks.some((check) => check.name === "installation" && check.result === "pass") &&
         !checks.some((check) => check.name === "app_identity" && check.result === "fail")
       ) {
-        checks.push(await syncRepositoriesCheck(dependencies))
+        try {
+          checks.push(await syncRepositoriesCheck(dependencies, access))
+        } catch (error) {
+          if (!(error instanceof AdmissionAuthorityChangedError)) throw error
+          response.status(403).json({
+            error: "Administrator access is required.",
+            requires: "administrator",
+          })
+          return
+        }
       }
+      // The callback URL check is always advisory; any other unverified check is not a success.
       await dependencies.writeTestAudit({
         actorMembershipId: access.membershipId,
-        failedChecks: checks.filter((check) => check.result === "fail").map((check) => check.name),
+        failedChecks: checks
+          .filter((check) => check.result !== "pass" && check.name !== "callback_url")
+          .map((check) => check.name),
       })
       response.json({ checks })
     } catch (error) {

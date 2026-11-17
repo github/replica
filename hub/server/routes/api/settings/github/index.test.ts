@@ -4,6 +4,8 @@ import type { AddressInfo } from "node:net"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createApp } from "../../../../create-app"
+import { AdmissionAuthorityChangedError } from "../../../../domains/admission/errors"
+import { GitHubProviderRequestError } from "../../../../integrations/github/errors"
 import { createLogger } from "../../../../integrations/pino/create-logger"
 import type { GitHubSetupRouteDependencies } from "./types.ts"
 
@@ -113,15 +115,69 @@ describe("GitHub setup routes", () => {
       detail: "Hub can read 1 repository: octo/one.",
     })
 
-    vi.mocked(githubSetup.syncRepositories).mockRejectedValueOnce(new Error("offline"))
+    expect(githubSetup.syncRepositories).toHaveBeenCalledWith({
+      membershipId: null,
+      sessionDigest: undefined,
+    })
+
+    vi.mocked(githubSetup.syncRepositories).mockRejectedValueOnce(new GitHubProviderRequestError())
     const failed = (await (await fetch(`${base}/test`, { method: "POST", headers })).json()) as {
       checks: { name: string; result: string }[]
     }
     expect(failed.checks[1]).toMatchObject({ name: "repositories", result: "unknown" })
+    expect(githubSetup.writeTestAudit).toHaveBeenLastCalledWith({
+      actorMembershipId: null,
+      failedChecks: ["repositories"],
+    })
+
+    vi.mocked(githubSetup.syncRepositories).mockRejectedValueOnce(new Error("database offline"))
+    const broken = await fetch(`${base}/test`, { method: "POST", headers })
+    expect(broken.status).toBe(500)
+    expect(githubSetup.writeTestAudit).toHaveBeenCalledTimes(2)
 
     const skipped = dependencies()
     await fetch(`${await start(skipped)}/test`, { method: "POST", headers })
     expect(skipped.syncRepositories).not.toHaveBeenCalled()
+  })
+
+  it("audits inconclusive checks as failures except the advisory callback URL", async () => {
+    const githubSetup = dependencies({
+      testConnection: vi.fn(() =>
+        Promise.resolve([
+          { name: "private_key" as const, result: "pass" as const, detail: "ok" },
+          { name: "callback_url" as const, result: "unknown" as const, detail: "advisory" },
+          { name: "installation" as const, result: "unknown" as const, detail: "offline" },
+        ]),
+      ),
+    })
+    const base = await start(githubSetup)
+    await fetch(`${base}/test`, {
+      method: "POST",
+      headers: { origin, "x-hub-bootstrap-secret": "secret" },
+    })
+    expect(githubSetup.writeTestAudit).toHaveBeenCalledWith({
+      actorMembershipId: null,
+      failedChecks: ["installation"],
+    })
+  })
+
+  it("refuses repository results when setup authority ends during synchronization", async () => {
+    const githubSetup = dependencies({
+      testConnection: vi.fn(() =>
+        Promise.resolve([{ name: "installation" as const, result: "pass" as const, detail: "ok" }]),
+      ),
+      syncRepositories: vi.fn(() => Promise.reject(new AdmissionAuthorityChangedError())),
+    })
+    const base = await start(githubSetup)
+    const response = await fetch(`${base}/test`, {
+      method: "POST",
+      headers: { origin, "x-hub-bootstrap-secret": "secret" },
+    })
+    expect(response.status).toBe(403)
+    const body = await response.text()
+    expect(JSON.parse(body)).toMatchObject({ requires: "administrator" })
+    expect(body).not.toContain("octo/")
+    expect(githubSetup.writeTestAudit).not.toHaveBeenCalled()
   })
 
   it("does not synchronize repositories when the App and client IDs do not match", async () => {

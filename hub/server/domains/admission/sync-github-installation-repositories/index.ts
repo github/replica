@@ -10,7 +10,7 @@ import { markRepositoriesDisconnected } from "../../../repositories/repository-a
 import { removeRepositoryAccessGrants } from "../../../repositories/repository-access/remove-repository-access-grants/index.ts"
 import { upsertConnectedRepositories } from "../../../repositories/repository-access/upsert-connected-repositories/index.ts"
 import { runWithBoundedRetries } from "../../identity/run-with-bounded-retries/index.ts"
-import { AdmissionTransactionConflictError } from "../errors.ts"
+import { AdmissionAuthorityChangedError, AdmissionTransactionConflictError } from "../errors.ts"
 import { requireCurrentGitHubInstallation } from "../require-current-github-installation/index.ts"
 import { revokeEmptyGitHubRepositoryAccess } from "../revoke-empty-github-repository-access/index.ts"
 import type { ConnectedRepositoryEvidence } from "../../../repositories/repository-access/types.ts"
@@ -20,6 +20,12 @@ export async function syncGitHubInstallationRepositories<T extends ConnectedRepo
   database: AdmissionDatabaseClient & Parameters<typeof readGitHubRepositoryAccessState>[0],
   fetchRepositories: () => Promise<T[]>,
   provider: { configurationDigest: string; revision: number },
+  {
+    authorize,
+  }: {
+    /** Rechecks the caller's authority under the transaction's locks before any write. */
+    authorize?: (transaction: Prisma.TransactionClient) => Promise<boolean>
+  } = {},
 ): Promise<T[]> {
   return runWithBoundedRetries(
     async () => {
@@ -33,6 +39,9 @@ export async function syncGitHubInstallationRepositories<T extends ConnectedRepo
       }
       await database.$transaction(
         async (transaction) => {
+          if (authorize && !(await authorize(transaction))) {
+            throw new AdmissionAuthorityChangedError()
+          }
           await requireCurrentGitHubInstallation(transaction, provider)
           const currentState = await lockGitHubRepositoryAccessState(transaction, "write")
           if (currentState.revision !== revision) throw new AdmissionTransactionConflictError()

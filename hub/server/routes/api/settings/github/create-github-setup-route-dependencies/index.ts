@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 
 import { checkAuthenticationRateLimit } from "../../../../../domains/admission/check-authentication-rate-limit/index.ts"
+import { lockGitHubSetupAuthority } from "../../../../../domains/admission/lock-github-setup-authority/index.ts"
 import { syncGitHubInstallationRepositories } from "../../../../../domains/admission/sync-github-installation-repositories/index.ts"
 import { verifyBootstrapSecret } from "../../../../../domains/admission/verify-bootstrap-secret/index.ts"
 import { createGitHubAuthenticationContext } from "../../../../../domains/authentication/create-github-authentication-context/index.ts"
@@ -88,7 +89,7 @@ export function createGitHubSetupRouteDependencies(
         clientId: configuration.signInCredentials?.clientId,
       })
     },
-    async syncRepositories() {
+    async syncRepositories(caller) {
       const credentials = configuration.appCredentials
       if (!credentials) {
         throw new Error("GitHub App installation credentials are not configured.")
@@ -98,6 +99,9 @@ export function createGitHubSetupRouteDependencies(
         prisma,
         () => listInstallationRepositories(credentials),
         { configurationDigest: context.configurationDigest, revision: context.providerRevision },
+        caller
+          ? { authorize: (transaction) => lockGitHubSetupAuthority(transaction, caller) }
+          : {},
       )
       return repositories.map((repository) => repository.nameWithOwner)
     },

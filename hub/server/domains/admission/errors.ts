@@ -28,6 +28,13 @@ export class AdmissionTransactionConflictError extends Error {
   }
 }
 
+export class AdmissionAuthorityChangedError extends Error {
+  constructor(options?: ErrorOptions) {
+    super("The caller's authority changed before the change was saved.", options)
+    this.name = "AdmissionAuthorityChangedError"
+  }
+}
+
 export class AdmissionPersistenceError extends Error {
   constructor(options?: ErrorOptions) {
     super("Hub admission could not be completed.", options)

@@ -25,10 +25,8 @@ export async function authorizeGitHubSetup(
       return null
     }
   }
-  const access = await dependencies.authorize({
-    sessionDigest: sessionValue ? hashAuthenticationValue(sessionValue) : undefined,
-    bootstrapSecret,
-  })
+  const sessionDigest = sessionValue ? hashAuthenticationValue(sessionValue) : undefined
+  const access = await dependencies.authorize({ sessionDigest, bootstrapSecret })
   if (!access.allowed) {
     response.status(403).json({
       error:
@@ -39,5 +37,5 @@ export async function authorizeGitHubSetup(
     })
     return null
   }
-  return access
+  return { membershipId: access.membershipId, sessionDigest }
 }
