@@ -38,8 +38,11 @@ describe("updateEnvironmentFile", () => {
   })
 
   it.each([
-    ["HUB_BOOTSTRAP_SECRET=\"\" # unset\n", "HUB_BOOTSTRAP_SECRET=new\n"],
-    ["HUB_BOOTSTRAP_SECRET=old\nexport HUB_BOOTSTRAP_SECRET = \n", "HUB_BOOTSTRAP_SECRET=old\nHUB_BOOTSTRAP_SECRET=new\n"],
+    ['HUB_BOOTSTRAP_SECRET="" # unset\n', "HUB_BOOTSTRAP_SECRET=new\n"],
+    [
+      "HUB_BOOTSTRAP_SECRET=old\nexport HUB_BOOTSTRAP_SECRET = \n",
+      "HUB_BOOTSTRAP_SECRET=old\nHUB_BOOTSTRAP_SECRET=new\n",
+    ],
   ])("fills the empty assignment dotenv reads last in %j", (original, expected) => {
     const result = updateEnvironmentFile(original, { HUB_BOOTSTRAP_SECRET: "new" })
 
