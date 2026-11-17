@@ -47,6 +47,7 @@ describe("reconcileGitHubInstallation()", () => {
       "GITHUB_CLIENT_ID",
       "GITHUB_CLIENT_SECRET",
       "GITHUB_PROVIDER_REVISION",
+      "REPLICA_COPILOT_AUTHENTICATION",
     ]) {
       vi.stubEnv(key, "")
     }
@@ -54,6 +55,15 @@ describe("reconcileGitHubInstallation()", () => {
   })
 
   it("does no work when an App is not configured", async () => {
+    await expect(reconcileGitHubInstallation()).resolves.toBeUndefined()
+    expect(syncGitHubInstallationRepositories).not.toHaveBeenCalled()
+  })
+
+  it("does no work for an App used only for Copilot authentication", async () => {
+    vi.stubEnv("GITHUB_APP_ID", "123")
+    vi.stubEnv("GITHUB_APP_PRIVATE_KEY_BASE64", privateKey)
+    vi.stubEnv("REPLICA_COPILOT_AUTHENTICATION", "github-app-installation")
+
     await expect(reconcileGitHubInstallation()).resolves.toBeUndefined()
     expect(syncGitHubInstallationRepositories).not.toHaveBeenCalled()
   })

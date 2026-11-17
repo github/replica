@@ -1,7 +1,10 @@
 import { readGitHubAppConfiguration } from "../../domains/authentication/read-github-app-configuration/index.ts"
 import { createGitHubAuthenticationContext } from "../../domains/authentication/create-github-authentication-context/index.ts"
+import { readAuthenticationConfigurationState } from "../../domains/authentication/read-authentication-configuration-state/index.ts"
 
 export async function reconcileGitHubInstallation(): Promise<void> {
+  // A Copilot-only App has App credentials but no installation to reconcile.
+  if (!readAuthenticationConfigurationState(process.env).githubSettingsPresent) return
   const configuration = readGitHubAppConfiguration(process.env)
   if (configuration.app === "not_configured") return
   const credentials = configuration.appCredentials
