@@ -1,9 +1,10 @@
 import { randomBytes } from "node:crypto"
-import { chmod, readFile, rename, writeFile } from "node:fs/promises"
+import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { parseArgs } from "node:util"
 
 import { updateEnvironmentFile } from "./update-environment-file/index.ts"
+import { writePrivateFile } from "./write-private-file/index.ts"
 
 const { values: options } = parseArgs({ options: { "private-key": { type: "string" } } })
 const environmentPath = resolve(".env")
@@ -39,10 +40,7 @@ const { content, changes } = updateEnvironmentFile(
   values,
 )
 
-const temporaryPath = `${environmentPath}.${process.pid}.tmp`
-await writeFile(temporaryPath, content, { mode: 0o600 })
-await rename(temporaryPath, environmentPath)
-await chmod(environmentPath, 0o600)
+await writePrivateFile(environmentPath, content)
 
 console.log(existing === null ? "Created .env from .env.example." : "Updated .env.")
 for (const { key, outcome } of changes) {
