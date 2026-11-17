@@ -66,10 +66,12 @@ class Episodes:
         if split not in SPLITS:
             raise ResetError(f"split {quote(split)} must be train, dev, or test.")
         task = self._select(seed, split, task_id)
+        state = copy.deepcopy(dict(task.state))
+        state.pop("rules", None)
         observation = {
             "task_id": task.id,
             "split": task.split,
-            "state": copy.deepcopy(dict(task.state)),
+            "state": state,
             "images": [_data_uri(image) for image in task.images],
             "questions": {key: copy.deepcopy(dict(q.spec)) for key, q in task.questions.items()},
         }

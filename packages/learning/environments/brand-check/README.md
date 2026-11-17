@@ -89,7 +89,7 @@ with BrandCheckEnv(
 
 The observation's `images` are data URIs: an optional reference image, then the page's screenshots in the order desktop light, desktop dark, narrow light, narrow dark. A task holds only the screenshots its Build has, and `state.imagesNote` says which image is which. A narrow screenshot is about as wide as a phone. A trainer for a model that accepts only one image can tile the images into one.
 
-The reference trainer removes the task's full rules list before it builds each model prompt. It sends only the current learning as a JSON-quoted value inside an explicit data envelope, so accepted learning text never becomes question instructions.
+Reset observations omit the task's full rules list. Each typed question carries only its own `learning_text` data, and the reference trainer sends that value as a JSON-quoted string inside an explicit data envelope. Accepted learning text therefore never becomes task state or question instructions.
 
 All of a task's images arrive in one message. Five images at the 25 MiB limit make a message of about 170 MiB, more than OpenEnv's default limit of 100 MiB, so `BrandCheckEnv` sets `max_message_size_mb` to 183 unless you pass another value. Any other client needs a limit that large.
 

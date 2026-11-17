@@ -19,17 +19,19 @@ class EpisodesTest(unittest.TestCase):
         task = make_task(1)
 
         observation = Episodes(load_taskset(write_taskset(self, [task]))).reset()
+        state = {key: value for key, value in task["state"].items() if key != "rules"}
 
         self.assertEqual(
             observation,
             {
                 "task_id": task_id(1),
                 "split": "train",
-                "state": task["state"],
+                "state": state,
                 "images": ["data:image/png;base64," + base64.b64encode(PNG).decode("ascii")],
                 "questions": task["questions"],
             },
         )
+        self.assertIn("rules", task["state"])
 
     def test_step_scores_each_labeled_question(self):
         task = make_task(1, answer=False)
