@@ -89,6 +89,8 @@ async function withServeRoute(
       delete: vi.fn(),
     },
     bridgeSource: "globalThis.ReplicaHostedPreviewBridge={installHostedBridge(origin){}}",
+    reviewBridgeSource:
+      'globalThis.reviewBridge={origin:"__REPLICA_HUB_ORIGIN__",enabled:"__REPLICA_REVIEW_ENABLED__" !== "false"};',
     findTargetById: vi.fn(),
     findArtifact,
     readAvailableShareLink,
@@ -240,10 +242,26 @@ describe("get()", () => {
       expect(response.headers["content-type"]).toMatch(/^text\/javascript/)
       expect(response.headers["cache-control"]).toBe("private, max-age=300")
       expect(response.body.toString()).toBe(
-        `${dependencies.bridgeSource};ReplicaHostedPreviewBridge.installHostedBridge("https://hub.example.com");`,
+        `globalThis.reviewBridge={origin:"https://hub.example.com",enabled:"true" !== "false"};\n${dependencies.bridgeSource};ReplicaHostedPreviewBridge.installHostedBridge("https://hub.example.com");`,
       )
       expect(findArtifact).not.toHaveBeenCalled()
       expect(read).not.toHaveBeenCalled()
+    })
+  })
+
+  it("disables review behavior in the public preview bridge", async () => {
+    await withServeRoute(async ({ origin, buildId, shareCookie, dependencies }) => {
+      const response = await request(
+        origin,
+        "/__replica/bridge/v1.js",
+        requestHeaders(buildId, origin, shareCookie),
+      )
+
+      expect(response.status).toBe(200)
+      expect(response.headers["cache-control"]).toBe("private, no-store")
+      expect(response.body.toString()).toBe(
+        `globalThis.reviewBridge={origin:"https://hub.example.com",enabled:"false" !== "false"};\n${dependencies.bridgeSource};ReplicaHostedPreviewBridge.installHostedBridge("https://hub.example.com");`,
+      )
     })
   })
 

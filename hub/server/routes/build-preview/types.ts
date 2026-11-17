@@ -7,6 +7,7 @@ export interface BuildPreviewRouteDependencies {
   encryptionKey: Buffer
   storage: ArtifactStorage
   bridgeSource: string
+  reviewBridgeSource?: string
   findTargetById(
     buildId: string,
     target: BuildPreviewTarget,

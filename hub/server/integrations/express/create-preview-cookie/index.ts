@@ -7,7 +7,7 @@ export function createPreviewCookie(input: {
     `replica_preview=${encodeURIComponent(input.value)}`,
     "Path=/",
     "HttpOnly",
-    "SameSite=Lax",
+    "SameSite=None",
     input.secure ? "Secure" : null,
     `Expires=${input.expiresAt.toUTCString()}`,
   ]

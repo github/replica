@@ -68,6 +68,14 @@ export async function runLocalReplicaBuild({
       "Repository validation",
     )
     const user = `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`
+    const npmEnvironment = [
+      "npm_config_registry",
+      "npm_config_replace_registry_host",
+      "npm_config_maxsockets",
+      "npm_config_fetch_retries",
+      "npm_config_fetch_retry_mintimeout",
+      "npm_config_fetch_retry_maxtimeout",
+    ].flatMap((name) => (process.env[name] ? ["--env", `${name}=${process.env[name]}`] : []))
     await run(
       "docker",
       [
@@ -80,6 +88,7 @@ export async function runLocalReplicaBuild({
         user,
         "--env",
         "HOME=/tmp",
+        ...npmEnvironment,
         "--mount",
         `type=bind,source=${checkout},target=/workspace`,
         "--workdir",

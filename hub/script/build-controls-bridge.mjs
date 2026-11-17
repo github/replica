@@ -85,3 +85,17 @@ if (check) {
 } else {
   await writeFile(generatedPath, generated)
 }
+
+const reviewSource = await readFile(
+  new URL("../client/features/install-replica-preview-bridge/index.js", import.meta.url),
+  "utf8",
+)
+const generatedReviewPath = new URL("../server/assets/hosted-review-bridge.ts", import.meta.url)
+const generatedReview = `// prettier-ignore\nexport const hostedReviewBridgeSource = ${JSON.stringify(reviewSource)}\n`
+if (check) {
+  if ((await readFile(generatedReviewPath, "utf8")) !== generatedReview) {
+    throw new Error("The hosted review bridge is stale. Run npm run controls:build.")
+  }
+} else {
+  await writeFile(generatedReviewPath, generatedReview)
+}

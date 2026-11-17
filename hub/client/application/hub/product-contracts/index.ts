@@ -65,7 +65,7 @@ export const productManagementResponseSchema = z.object({
 })
 
 export const productShareLinkSchema = z.object({
-  id: identifier,
+  id: z.union([identifier, recordIdentifierSchema]),
   shareId: productShareIdSchema,
   repositoryId: recordIdentifierSchema,
   prototypeId: recordIdentifierSchema,

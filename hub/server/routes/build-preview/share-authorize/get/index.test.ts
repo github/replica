@@ -123,7 +123,7 @@ describe("get()", () => {
       expect(response.status).toBe(303)
       expect(response.headers.location).toBe("/checkout?step=shipping#address")
       expect(response.headers["set-cookie"]?.[0]).toMatch(
-        /^replica_share_preview=.+; Path=\/; HttpOnly; SameSite=Lax; Expires=/,
+        /^replica_share_preview=.+; Path=\/; HttpOnly; SameSite=None; Secure; Expires=/,
       )
       expect(response.headers["set-cookie"]?.[0]).not.toContain("replica_preview=")
       expect(response.headers["set-cookie"]?.[0]).not.toContain("hub_session=")

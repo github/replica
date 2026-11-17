@@ -1,12 +1,12 @@
 import { redirect } from "react-router"
 
 import { HubApplication } from "@application/hub-application"
-import { isAuthenticationRoute } from "@application/hub/is-authentication-route"
+import { isPublicRoute } from "@application/hub/is-public-route"
 
 import type { Route } from "./+types/index"
 
 export function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "request">) {
-  if (!isAuthenticationRoute(request)) throw redirect("/settings/enroll")
+  if (!isPublicRoute(request)) throw redirect("/settings/enroll")
   return null
 }
 

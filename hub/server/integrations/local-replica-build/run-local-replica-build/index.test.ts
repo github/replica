@@ -77,6 +77,9 @@ await cp(screenshots, output + "/screenshots", { recursive: true })
 import { access, mkdir, readFile, writeFile } from "node:fs/promises"
 const mount = process.argv[process.argv.indexOf("--mount") + 1]
 const source = mount.slice("type=bind,source=".length, mount.indexOf(",target="))
+if (!process.argv.includes("npm_config_registry=https://packagefeedproxy.microsoft.io/npm/")) {
+  process.exit(3)
+}
 try {
   await access(source + "/untracked.txt")
   process.exit(2)
@@ -88,6 +91,7 @@ await writeFile(source + "/dist/index.html", content)
       { mode: 0o755 },
     )
     vi.stubEnv("PATH", `${bin}:${process.env.PATH}`)
+    vi.stubEnv("npm_config_registry", "https://packagefeedproxy.microsoft.io/npm/")
 
     const result = await runLocalReplicaBuild({
       repositoryPath: repository,

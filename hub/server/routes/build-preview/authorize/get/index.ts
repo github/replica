@@ -28,7 +28,9 @@ export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler
         createPreviewCookie({
           value: createPreviewSession(buildId, expiresAt, dependencies.encryptionKey),
           expiresAt,
-          secure: new URL(dependencies.previewBaseOrigin).protocol === "https:",
+          secure:
+            new URL(dependencies.previewBaseOrigin).protocol === "https:" ||
+            new URL(dependencies.previewBaseOrigin).hostname.endsWith(".localhost"),
         }),
       )
       response.setHeader("Cache-Control", "no-store")

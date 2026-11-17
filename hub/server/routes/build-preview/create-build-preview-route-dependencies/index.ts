@@ -2,6 +2,7 @@ import { z } from "zod"
 
 import type { ArtifactStorage } from "../../../domains/artifacts/create-artifact-storage/types.ts"
 import { hostedPreviewBridgeSource } from "../../../assets/hosted-preview-bridge.ts"
+import { hostedReviewBridgeSource } from "../../../assets/hosted-review-bridge.ts"
 import { prisma } from "../../../integrations/prisma/index.ts"
 import { findBuildArtifact } from "../../../repositories/build-artifacts/find-build-artifact/index.ts"
 import { findBuildPreviewTarget } from "../../../repositories/build-artifacts/find-build-preview-target/index.ts"
@@ -53,6 +54,7 @@ export function createBuildPreviewRouteDependencies(
     encryptionKey,
     storage,
     bridgeSource: hostedPreviewBridgeSource,
+    reviewBridgeSource: hostedReviewBridgeSource,
     findTargetById: (buildId, target) => findBuildPreviewTarget(prisma, { buildId, target }),
     findArtifact: (buildId, path) => findBuildArtifact(prisma, buildId, path),
   }

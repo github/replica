@@ -53,7 +53,10 @@ export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler
       setSecurityHeaders(response, dependencies.applicationOrigin)
 
       if (request.path === "/__replica/bridge/v1.js") {
-        const source = `${dependencies.bridgeSource};ReplicaHostedPreviewBridge.installHostedBridge(${JSON.stringify(dependencies.applicationOrigin)});`
+        const reviewSource = (dependencies.reviewBridgeSource ?? "")
+          .replace('"__REPLICA_HUB_ORIGIN__"', JSON.stringify(dependencies.applicationOrigin))
+          .replace('"__REPLICA_REVIEW_ENABLED__"', JSON.stringify(String(Boolean(authenticated))))
+        const source = `${reviewSource}\n${dependencies.bridgeSource};ReplicaHostedPreviewBridge.installHostedBridge(${JSON.stringify(dependencies.applicationOrigin)});`
         response.setHeader(
           "Cache-Control",
           publicLink ? "private, no-store" : "private, max-age=300",

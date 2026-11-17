@@ -96,6 +96,7 @@ export function HubNavigation({
         "/api/auth/github/admin-enrollment/start",
         "/api/auth/entra/start",
         "/api/auth/entra/admin-enrollment/start",
+        "/api/auth/local/start",
         "/api/auth/session/sign-out",
       ].includes(destination.pathname)
     )

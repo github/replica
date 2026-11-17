@@ -76,6 +76,16 @@ describe("Real authentication route integration", () => {
       action: "/api/auth/entra/start",
     },
     {
+      label: "signed-out local home in real development",
+      path: "/",
+      mode: "development",
+      dev: true,
+      authenticated: false,
+      providers: ["local"],
+      button: "Sign in as local developer",
+      action: "/api/auth/local/start",
+    },
+    {
       label: "restored empty workspace in a production build, even with mock mode selected",
       path: "/",
       mode: "mock",

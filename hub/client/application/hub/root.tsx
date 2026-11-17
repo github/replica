@@ -19,7 +19,7 @@ import { HubThemeProvider } from "@hooks/use-hub-theme"
 import type { Route } from "./+types/root"
 import type { SessionResponse } from "./session-contracts/types"
 import { DevelopmentTools } from "./development-tools"
-import { isAuthenticationRoute } from "./is-authentication-route"
+import { isPublicRoute } from "./is-public-route"
 import { HubNavigation } from "./hub-navigation"
 import { ApiContractError } from "./requests/api-contract-error"
 import { ApiRequestError } from "./requests/api-request-error"
@@ -33,7 +33,7 @@ import "./styles.css"
 export async function clientLoader({
   request,
 }: Pick<Route.ClientLoaderArgs, "request">): Promise<SessionResponse | Response> {
-  if (isAuthenticationRoute(request)) {
+  if (isPublicRoute(request)) {
     // The public auth shell restores its own session without claiming product permissions.
     return {
       viewer: null,

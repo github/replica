@@ -35,7 +35,9 @@ export function get(
             preview.encryptionKey,
           ),
           expiresAt,
-          secure: new URL(preview.previewBaseOrigin).protocol === "https:",
+          secure:
+            new URL(preview.previewBaseOrigin).protocol === "https:" ||
+            new URL(preview.previewBaseOrigin).hostname.endsWith(".localhost"),
         }),
       )
       response.setHeader("Cache-Control", "private, no-store")

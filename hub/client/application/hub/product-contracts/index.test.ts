@@ -1,6 +1,7 @@
+import { randomUUID } from "node:crypto"
 import { describe, expect, it } from "vitest"
 
-import { productShareIdSchema, productTemplateIdSchema } from "."
+import { productShareIdSchema, productShareLinkSchema, productTemplateIdSchema } from "."
 
 describe("product identifier schemas", () => {
   it("accepts opaque route identifiers without imposing the mock generator's format", () => {
@@ -19,5 +20,24 @@ describe("product identifier schemas", () => {
       expect(productTemplateIdSchema.safeParse(identifier).success).toBe(false)
       expect(productShareIdSchema.safeParse(identifier).success).toBe(false)
     }
+  })
+
+  it("accepts the UUID identity returned by the real sharing API", () => {
+    const id = randomUUID()
+
+    expect(
+      productShareLinkSchema.parse({
+        id,
+        shareId: randomUUID(),
+        repositoryId: randomUUID(),
+        prototypeId: randomUUID(),
+        buildNumber: 1,
+        label: "Partner review",
+        createdBy: "local-developer",
+        createdAt: "2026-11-17T18:00:00.000Z",
+        expiresAt: "2026-11-18T18:00:00.000Z",
+        revokedAt: null,
+      }).id,
+    ).toBe(id)
   })
 })

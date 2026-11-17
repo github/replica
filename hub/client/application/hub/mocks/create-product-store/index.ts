@@ -300,7 +300,11 @@ export function createProductStore(context: MockFlowContext) {
       if (build.state !== "successful" || !build.previewUrl) {
         throw new MockStoreError(422, "Choose a successful Build with a preview.")
       }
-      const id = Math.max(0, ...links.map((link) => link.id)) + 1
+      const id =
+        Math.max(
+          0,
+          ...links.flatMap((link) => (typeof link.id === "number" ? [link.id] : [])),
+        ) + 1
       const now = Date.now()
       const link: ProductShareLink = {
         id,

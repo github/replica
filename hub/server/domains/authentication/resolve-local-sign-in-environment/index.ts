@@ -31,7 +31,7 @@ export function resolveLocalSignInEnvironment(environment: NodeJS.ProcessEnv): N
       "HUB_LOCAL_SIGN_IN requires HOST to be 127.0.0.1, ::1, or localhost.",
     )
   }
-  const applicationOrigin = configuration.applicationOrigin ?? "http://127.0.0.1:5173"
+  const applicationOrigin = configuration.applicationOrigin ?? "http://localhost:5173"
   const hostname = URL.parse(applicationOrigin)?.hostname
   if (!hostname || !loopbackHosts.has(hostname)) {
     throw new LocalSignInConfigurationError(
