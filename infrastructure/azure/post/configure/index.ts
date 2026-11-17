@@ -1,9 +1,8 @@
-import { createPrivateKey, randomBytes, randomUUID } from "node:crypto"
+import { createHash, createPrivateKey, randomBytes, randomUUID } from "node:crypto"
 import { rm } from "node:fs/promises"
 import { join } from "node:path"
 
 import { InputValidationError } from "../../../installer/config/fields/index.ts"
-import { parseHttpsOrigin } from "../../../installer/config/https-origin/index.ts"
 import { CommandExecutionError } from "../../../installer/command/index.ts"
 import { writePrivateFile } from "../../../installer/private-files/index.ts"
 import type { WizardUI } from "../../../installer/types.ts"
@@ -14,6 +13,7 @@ import { postSetupProgress } from "../progress/index.ts"
 import { readPostCredentialFile } from "../credential-file/index.ts"
 import { promptForRecovery } from "../../../installer/prompt-for-recovery/index.ts"
 import { PostSetupExit } from "../errors.ts"
+import { isBoundPostOrigin } from "../bound-origin/index.ts"
 
 type Reference = NonNullable<PostInputs["runtime_secret_references"]>[string]
 
@@ -35,6 +35,16 @@ export async function configurePostSetup(
   next.runtime_environment_variables ??= {}
   next.runtime_secret_references ??= {}
   const references = next.runtime_secret_references
+  const liveSecretReferences: unknown = JSON.parse(
+    deployment.environment.AZURE_KEY_VAULT_SECRET_REFERENCES ?? "null",
+  )
+  if (
+    !liveSecretReferences ||
+    typeof liveSecretReferences !== "object" ||
+    Array.isArray(liveSecretReferences) ||
+    Object.values(liveSecretReferences).some((value) => typeof value !== "string")
+  )
+    throw new Error("The deployed startup secret references are missing or unsupported.")
   const recoveryUI: WizardUI = {
     ...ui,
     notice(level, message) {
@@ -114,6 +124,39 @@ export async function configurePostSetup(
       return checked
     }
   }
+  async function verifiedGitHubRevision() {
+    if (
+      !(await ui.confirm(
+        "Have you independently verified the last stored GitHub provider revision and enabled state in Hub's database? A deployed environment revision may not have reconciled; a disabled provider retains its last revision.",
+      ))
+    )
+      throw new PostSetupExit(
+        "Verify the GitHub provider's stored revision and enabled state before continuing. No provider changes were started.",
+      )
+    while (true) {
+      const value = await ui.text(
+        "Last stored GitHub provider revision (enter 0 only if no GitHub provider has ever been initialized)",
+        "",
+      )
+      if (
+        /^(?:0|[1-9]\d*)$/.test(value) &&
+        Number.isSafeInteger(Number(value)) &&
+        Number(value) <= 2_147_483_647
+      ) {
+        ui.recoveryNotice?.()
+        return Number(value)
+      }
+      await promptForRecovery(recoveryUI, {
+        error: new InputValidationError(
+          "Enter the verified stored revision as 0 or a positive integer.",
+        ),
+        question: "Correct the stored GitHub provider revision.",
+        message:
+          "Verify the database state before continuing. A disabled provider keeps its last revision.",
+        actions: [{ label: "Edit the stored revision", value: "edit" }],
+      })
+    }
+  }
   async function secret(...args: string[]) {
     while (true) {
       try {
@@ -139,15 +182,17 @@ export async function configurePostSetup(
       }
     }
   }
-  function reference(id: unknown, expectedVault = vaultId) {
+  function reference(id: unknown, expectedVault = vaultId, expectedName?: string) {
     if (
       typeof id !== "string" ||
       !/^https:\/\/[a-z0-9-]+\.vault\.azure\.net\/secrets\/[a-z0-9-]+\/[a-f0-9]{32}$/i.test(id) ||
       new URL(id).hostname.toLowerCase() !==
-        `${expectedVault.split("/").at(-1)?.toLowerCase()}.vault.azure.net`
+        `${expectedVault.split("/").at(-1)?.toLowerCase()}.vault.azure.net` ||
+      (expectedName !== undefined &&
+        new URL(id).pathname.split("/")[2]?.toLowerCase() !== expectedName.toLowerCase())
     )
       throw new Error(
-        "Key Vault did not return a versioned secret reference for the expected vault.",
+        "Key Vault did not return a versioned reference for the expected vault and secret.",
       )
     return { key_vault_id: expectedVault, secret_id: id }
   }
@@ -183,8 +228,11 @@ export async function configurePostSetup(
       )
     return { value: value.value, id: value.id }
   }
-  async function put(name: string, value: string) {
-    const key = keyForName(name)
+  async function put(key: string, name: string, value: string) {
+    if (progress.pending && progress.pending !== key)
+      throw new Error(
+        "A different secret write has an unknown outcome. Resolve it before storing another credential; its evidence was preserved.",
+      )
     const path = join(directory, `post-secret-${randomUUID()}`)
     try {
       await writePrivateFile(path, value, { exclusive: true })
@@ -206,7 +254,7 @@ export async function configurePostSetup(
             if (known.includes(name)) {
               const stored = await read(`https://${names.vault}.vault.azure.net/secrets/${name}`)
               if (stored.value === value) {
-                const recovered = reference(stored.id)
+                const recovered = reference(stored.id, vaultId, name)
                 await progress.saveReference(key, recovered)
                 ui.recoveryNotice?.()
                 return recovered
@@ -256,6 +304,8 @@ export async function configurePostSetup(
                 "id",
               ),
             ),
+            vaultId,
+            name,
           )
         } catch (error) {
           context.signal?.throwIfAborted()
@@ -275,17 +325,6 @@ export async function configurePostSetup(
       }
     } finally {
       await rm(path, { force: true })
-    }
-    function keyForName(name: string) {
-      const entry = {
-        "hub-authentication-encryption-key": "HUB_AUTHENTICATION_ENCRYPTION_KEY",
-        "hub-bootstrap-secret": "HUB_BOOTSTRAP_SECRET",
-        "github-client-secret": "GITHUB_CLIENT_SECRET",
-        "github-app-private-key": "GITHUB_APP_PRIVATE_KEY_BASE64",
-        "github-webhook-secret": "GITHUB_WEBHOOK_SECRET",
-      }[name]
-      if (!entry) throw new Error("Unsupported post-setup secret name.")
-      return entry
     }
   }
   const shared: Record<string, { name: string; valid(value: string): boolean; create(): string }> =
@@ -312,6 +351,13 @@ export async function configurePostSetup(
       "This configuration would exceed the runtime limit of 63 additional secret references. Review unused references separately before creating secrets.",
     )
   if (action === "sign-in") {
+    if (
+      references.HUB_TRUSTED_PROXY_HOPS ||
+      Object.hasOwn(liveSecretReferences, "HUB_TRUSTED_PROXY_HOPS")
+    )
+      throw new Error(
+        "The proxy hop count is secret-backed. Review that reference separately before configuring sign-in; it was preserved.",
+      )
     const referencedOrigin = references.HUB_APPLICATION_ORIGIN
       ? (await read(references.HUB_APPLICATION_ORIGIN.secret_id)).value
       : undefined
@@ -325,21 +371,27 @@ export async function configurePostSetup(
       "Public HTTPS origin (no trailing slash). A custom origin must already be bound to this Hub.",
       currentOrigin,
       (value) => {
-        const url = parseHttpsOrigin(value)
-        if (!url)
-          throw new InputValidationError("Enter an exact HTTPS origin without a trailing slash.")
-        if (
-          ![
-            new URL(deployment.origin).hostname,
-            ...deployment.customHosts.map((host) => host.toLowerCase()),
-          ].includes(url.hostname)
-        )
+        if (!isBoundPostOrigin(value, deployment))
           throw new InputValidationError(
-            "Use the deployed HTTPS origin or an already-bound custom domain, without a trailing slash.",
+            "Use the exact deployed HTTPS origin or an already-bound custom domain on the standard HTTPS port, without a trailing slash.",
           )
         return value
       },
     )
+    const originChanged =
+      origin !== (deployment.environment.HUB_APPLICATION_ORIGIN ?? referencedOrigin)
+    if (
+      originChanged &&
+      [
+        ...Object.keys(deployment.environment),
+        ...Object.keys(inputs.runtime_environment_variables ?? {}),
+        ...Object.keys(references),
+        ...Object.keys(liveSecretReferences),
+      ].some((key) => key.startsWith("ENTRA_OIDC_"))
+    )
+      throw new Error(
+        "Changing the public origin also changes the Entra callback. Coordinate the Entra provider revision and callback separately before changing this origin; existing settings were preserved.",
+      )
     if (references.HUB_APPLICATION_ORIGIN) {
       const existing = await read(references.HUB_APPLICATION_ORIGIN.secret_id)
       if (existing.value !== origin)
@@ -351,13 +403,15 @@ export async function configurePostSetup(
       next.hub_application_origin = origin
     }
     if (
-      deployment.environment.GITHUB_PROVIDER_REVISION &&
-      origin !== (deployment.environment.HUB_APPLICATION_ORIGIN ?? referencedOrigin)
+      originChanged &&
+      (deployment.environment.GITHUB_PROVIDER_REVISION ||
+        next.github_provider_revision ||
+        next.runtime_environment_variables.GITHUB_PROVIDER_REVISION)
     ) {
-      const current = Number(deployment.environment.GITHUB_PROVIDER_REVISION)
-      if (!Number.isSafeInteger(current) || current < 1)
+      const current = await verifiedGitHubRevision()
+      if (current >= 2_147_483_647)
         throw new Error(
-          "The deployed GitHub provider revision is invalid; review it before changing origin.",
+          "The stored GitHub provider revision cannot advance further. Review the provider separately before changing origin.",
         )
       next.github_provider_revision = current + 1
       delete next.runtime_environment_variables.GITHUB_PROVIDER_REVISION
@@ -383,7 +437,10 @@ export async function configurePostSetup(
     )
     if (!Array.isArray(known) || known.some((name) => typeof name !== "string"))
       throw new Error("Key Vault secret inventory is unverifiable; no shared secret was replaced.")
-    for (const [key, definition] of Object.entries(shared)) {
+    const sharedEntries = Object.entries(shared).sort(
+      ([left], [right]) => Number(right === progress.pending) - Number(left === progress.pending),
+    )
+    for (const [key, definition] of sharedEntries) {
       if (
         next.runtime_environment_variables[key] !== undefined ||
         deployment.environment[key] !== undefined
@@ -392,6 +449,10 @@ export async function configurePostSetup(
           "Shared authentication secrets must use Key Vault references. Review the existing direct environment configuration first.",
         )
       if (references[key]) {
+        if (progress.pending === key)
+          throw new Error(
+            "A shared secret write has an unknown outcome. Review its pinned reference and pending-write evidence before continuing.",
+          )
         if (!definition.valid((await read(references[key].secret_id)).value!))
           throw new Error(
             "An existing shared authentication secret is invalid. It was preserved; repair it separately.",
@@ -404,7 +465,7 @@ export async function configurePostSetup(
           throw new Error(
             "An existing shared authentication secret is invalid. It was not rotated.",
           )
-        references[key] = reference(existing.id)
+        references[key] = reference(existing.id, vaultId, definition.name)
         await progress.saveReference(key, references[key])
       } else {
         const value = definition.create()
@@ -417,9 +478,13 @@ export async function configurePostSetup(
             `The bootstrap secret is saved privately at ${path}. Keep it in your secret manager for administrator enrollment; it is not printed or stored in Terraform inputs.`,
           )
         }
-        references[key] = await put(definition.name, value)
+        references[key] = await put(key, definition.name, value)
       }
     }
+    if (progress.pending)
+      throw new Error(
+        "A shared secret write still has an unknown outcome; its evidence was preserved.",
+      )
     return next
   }
   if (
@@ -444,12 +509,7 @@ export async function configurePostSetup(
     (references.HUB_APPLICATION_ORIGIN
       ? (await read(references.HUB_APPLICATION_ORIGIN.secret_id)).value
       : undefined)
-  if (
-    !githubOrigin ||
-    ![deployment.origin, ...deployment.customHosts.map((host) => `https://${host}`)].includes(
-      githubOrigin,
-    )
-  )
+  if (!isBoundPostOrigin(githubOrigin, deployment))
     throw new Error(
       "The configured origin is not bound to this Hub. Configure sign-in with the intended origin first.",
     )
@@ -579,44 +639,78 @@ export async function configurePostSetup(
       }
       await progress.saveAnswer(fileKey, replacement?.path ?? "")
       ui.recoveryNotice?.()
-      if (replacement)
+      if (replacement) {
+        const existing = references[credential.key]
+        if (existing && existing.key_vault_id.toLowerCase() !== vaultId.toLowerCase())
+          throw new Error(
+            "The existing GitHub credential belongs to a different Key Vault. Review its rotation separately; it was preserved.",
+          )
+        if (existing) reference(existing.secret_id)
         replacements.push({
           key: credential.key,
-          name: credential.name,
+          name: existing ? new URL(existing.secret_id).pathname.split("/")[2]! : credential.name,
           value: replacement.value,
         })
+      }
       break
     }
   }
-  const liveRevision = Number(deployment.environment.GITHUB_PROVIDER_REVISION ?? 0)
+  if (progress.pending && !replacements.some((credential) => credential.key === progress.pending))
+    throw new Error(
+      `The earlier ${progress.pending} write has an unknown outcome. Supply its private credential file to resolve it before another upload; its evidence was preserved.`,
+    )
   const changed =
     replacements.length > 0 ||
     next.github_app_id !== deployment.environment.GITHUB_APP_ID ||
     next.github_client_id !== deployment.environment.GITHUB_CLIENT_ID ||
-    next.github_app_installation_id !== deployment.environment.GITHUB_APP_INSTALLATION_ID
+    next.github_app_installation_id !== deployment.environment.GITHUB_APP_INSTALLATION_ID ||
+    credentials.some(
+      ({ key }) =>
+        references[key]?.secret_id !==
+        (liveSecretReferences as Record<string, string>)[key],
+    )
+  const storedRevision = await verifiedGitHubRevision()
+  const savedRevision =
+    inputs.github_provider_revision ??
+    Number(inputs.runtime_environment_variables?.GITHUB_PROVIDER_REVISION ?? 0)
+  // Match the Hub GitHub adapter's canonical public-configuration serialization.
+  const expectedDigest = createHash("sha256")
+    .update(
+      JSON.stringify({
+        authorizationEndpoint: "https://github.com/login/oauth/authorize",
+        callbackUri: new URL("/api/auth/github/callback", githubOrigin).toString(),
+        clientId: next.github_client_id,
+        tokenEndpoint: "https://github.com/login/oauth/access_token",
+        userEndpoint: "https://api.github.com/user",
+        installationId: Number(next.github_app_installation_id),
+      }),
+    )
+    .digest("hex")
+  const canKeepRevision =
+    storedRevision > 0 &&
+    !changed &&
+    savedRevision <= storedRevision &&
+    (await ui.confirm(
+      `Does the stored GitHub provider show enabled=true and configuration_digest=${expectedDigest}? If not, the next revision is required.`,
+    ))
+  if (!canKeepRevision && storedRevision >= 2_147_483_647)
+    throw new Error("The stored GitHub provider revision cannot advance further.")
   next.github_provider_revision = Number(
     await field(
       "github_provider_revision",
-      "GitHub provider revision. Keep it for unchanged settings; use the next consecutive revision for changes or re-enabling sign-in.",
-      String(
-        Math.max(
-          inputs.github_provider_revision ??
-            Number(inputs.runtime_environment_variables?.GITHUB_PROVIDER_REVISION ?? 0),
-          liveRevision + (changed ? 1 : 0),
-          1,
-        ),
-      ),
+      "GitHub provider revision. Keep it only for an enabled, unchanged provider; otherwise use the next consecutive stored revision.",
+      String(storedRevision + (canKeepRevision ? 0 : 1)),
       (value) => {
         numeric(value)
         const revision = Number(value)
-        if (changed && revision !== liveRevision + 1)
+        if (
+          revision > 2_147_483_647 ||
+          (revision !== storedRevision + 1 && !(canKeepRevision && revision === storedRevision))
+        )
           throw new InputValidationError(
-            `Changed GitHub settings require the next consecutive provider revision, ${liveRevision + 1}.`,
-          )
-        // Hub rejects any revision other than the deployed one or its immediate successor.
-        if (revision !== liveRevision && revision !== liveRevision + 1)
-          throw new InputValidationError(
-            `Use the deployed provider revision ${liveRevision} or the next consecutive revision ${liveRevision + 1}.`,
+            canKeepRevision
+              ? `Use the stored provider revision ${storedRevision} or the next consecutive revision ${storedRevision + 1}.`
+              : `Use the next consecutive stored provider revision, ${storedRevision + 1}.`,
           )
         return value
       },
@@ -629,7 +723,11 @@ export async function configurePostSetup(
     "GITHUB_PROVIDER_REVISION",
   ])
     delete next.runtime_environment_variables[name]
+  replacements.sort(
+    (left, right) =>
+      Number(right.key === progress.pending) - Number(left.key === progress.pending),
+  )
   for (const credential of replacements)
-    references[credential.key] = await put(credential.name, credential.value)
+    references[credential.key] = await put(credential.key, credential.name, credential.value)
   return next
 }

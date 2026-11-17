@@ -8,9 +8,27 @@ import { withDefaultSignal } from "../../installer/command/default-signal/index.
 import { retryReadOnly } from "../../installer/command/retry-read-only/index.ts"
 import type { DeploymentConfig, RunCommand, WizardUI } from "../../installer/types.ts"
 import { installationWorkspace } from "../../installer/workspace/index.ts"
+import { readInstallationInputs } from "../install/inputs/index.ts"
 import { installationNames } from "../install/settings.ts"
 import type { PostInputs, PostSetupTarget } from "./types.ts"
 import { postSetupAzure } from "./index.ts"
+
+vi.mock("ink", async (importOriginal) => {
+  const ink = await importOriginal<typeof import("ink")>()
+  return {
+    ...ink,
+    render(): ReturnType<typeof ink.render> {
+      return {
+        rerender() {},
+        unmount() {},
+        waitUntilExit: async () => undefined,
+        waitUntilRenderFlush: async () => undefined,
+        cleanup() {},
+        clear() {},
+      }
+    },
+  }
+})
 
 const directories: string[] = []
 afterEach(async () => {
@@ -109,6 +127,8 @@ async function scenario() {
     revision: "sample-hub-hub--current",
     active: true,
     environment: environmentFor(inputs),
+    customHosts: [] as string[],
+    verificationOrigin: origin,
     failApply: false,
     foreignRetryPlan: false,
     locked: false,
@@ -265,7 +285,7 @@ async function scenario() {
         fqdn: new URL(origin).hostname,
         revisionMode: "Multiple",
         traffic: [{ weight: 100, latestRevision: true }],
-        customDomains: [],
+        customDomains: state.customHosts,
       })
     }
     if (operation === "containerapp revision list") {
@@ -309,6 +329,7 @@ async function scenario() {
       const id = flag(args, "--id")
       const value = secretValues.get(new URL(id).pathname.split("/")[2]!)
       if (value === undefined) throw new Error("Only existing shared secrets may be read")
+      if (flag(args, "--query") === "value") return JSON.stringify(value)
       return JSON.stringify({ value, id, enabled: true })
     }
     if (operation === "keyvault secret set") {
@@ -354,15 +375,36 @@ async function scenario() {
     wait: vi.fn(),
     complete: vi.fn(),
   }
+  const provider = { revision: 0, enabled: true, verifications: 0 }
+  const operatorUI = new Proxy(ui, {
+    get(target, key, receiver) {
+      if (key === "text")
+        return async (label: string, initial?: string) => {
+          if (/^Last stored GitHub provider revision/i.test(label)) {
+            provider.verifications++
+            return String(provider.revision)
+          }
+          return target.text(label, initial)
+        }
+      if (key === "confirm")
+        return async (message: string) => {
+          if (/last stored GitHub provider revision/i.test(message)) return true
+          if (/provider/i.test(message) && /enabled/i.test(message)) return provider.enabled
+          return target.confirm(message)
+        }
+      return Reflect.get(target, key, receiver)
+    },
+  })
   const request = vi.fn<typeof fetch>(async (input) => {
-    if (String(input) === `${origin}/api/ready`) return new Response(null, { status: 200 })
-    if (String(input) === `${origin}/api/settings/github/status`) {
+    if (String(input) === `${state.verificationOrigin}/api/ready`)
+      return new Response(null, { status: 200 })
+    if (String(input) === `${state.verificationOrigin}/api/settings/github/status`) {
       setupReads++
       return setupReads <= state.verifyFailures
         ? new Response(null, { status: 404 })
         : Response.json({ requires: "bootstrap" }, { status: 403 })
     }
-    if (state.github && String(input) === `${origin}/api/auth/providers`)
+    if (state.github && String(input) === `${state.verificationOrigin}/api/auth/providers`)
       return Response.json({ providers: ["github"] })
     throw new Error("Shared-only mode must not require authentication providers")
   })
@@ -377,6 +419,8 @@ async function scenario() {
     state,
     run,
     ui,
+    operatorUI,
+    provider,
     request,
     plans,
     leases,
@@ -387,6 +431,43 @@ async function scenario() {
       return applies
     },
   }
+}
+
+async function configuredGithub(test: Awaited<ReturnType<typeof scenario>>) {
+  test.provider.revision = 4
+  const pem = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    .privateKey.export({ type: "pkcs8", format: "pem" })
+    .toString()
+  Object.assign(test.inputs, {
+    hub_application_origin: test.origin,
+    github_app_id: "123",
+    github_client_id: "Iv23synthetic",
+    github_app_installation_id: "456",
+    github_provider_revision: 4,
+  })
+  Object.assign(test.inputs.runtime_secret_references!, {
+    GITHUB_CLIENT_SECRET: test.reference("github-client-secret"),
+    GITHUB_APP_PRIVATE_KEY_BASE64: test.reference("github-app-private-key"),
+    GITHUB_WEBHOOK_SECRET: test.reference("github-webhook-secret"),
+  })
+  test.secretValues.set("github-client-secret", "synthetic-client-secret")
+  test.secretValues.set("github-app-private-key", Buffer.from(pem).toString("base64"))
+  test.secretValues.set("github-webhook-secret", "synthetic-webhook-secret-for-tests-only")
+  Object.assign(test.state.environment, {
+    HUB_APPLICATION_ORIGIN: test.origin,
+    GITHUB_APP_ID: "123",
+    GITHUB_CLIENT_ID: "Iv23synthetic",
+    GITHUB_APP_INSTALLATION_ID: "456",
+    GITHUB_PROVIDER_REVISION: "4",
+    AZURE_KEY_VAULT_SECRET_REFERENCES: JSON.stringify({
+      ...JSON.parse(test.state.environment.AZURE_KEY_VAULT_SECRET_REFERENCES!),
+      GITHUB_CLIENT_SECRET: test.reference("github-client-secret").secret_id,
+      GITHUB_APP_PRIVATE_KEY_BASE64: test.reference("github-app-private-key").secret_id,
+      GITHUB_WEBHOOK_SECRET: test.reference("github-webhook-secret").secret_id,
+    }),
+  })
+  test.state.github = true
+  await writeFile(test.inputsPath, JSON.stringify(test.inputs), { mode: 0o600 })
 }
 
 it("announces the operation before awaiting a post-confirmation command without printing its arguments", async () => {
@@ -526,6 +607,285 @@ it("restarts only the traffic-serving revision without Terraform or rewriting st
   expect(await readFile(test.inputsPath, "utf8")).toBe(test.original)
   expect(test.ui.text).not.toHaveBeenCalled()
   expect(test.leases.size).toBe(0)
+})
+
+it.each(["DATABASE_URL", "SERVICE_API_KEY"] as const)(
+  "refuses to restart when the live %s Key Vault reference is not version-pinned",
+  async (key) => {
+    const test = await scenario()
+    const reference =
+      key === "DATABASE_URL"
+        ? (test.inputs.runtime_database_secret as { secret_id: string })
+        : test.inputs.runtime_secret_references!.SERVICE_API_KEY!
+    reference.secret_id = reference.secret_id.replace(/\/[^/]+$/, "")
+    const liveReferences = JSON.parse(test.state.environment.AZURE_KEY_VAULT_SECRET_REFERENCES!)
+    liveReferences[key] = reference.secret_id
+    test.state.environment.AZURE_KEY_VAULT_SECRET_REFERENCES = JSON.stringify(liveReferences)
+    const saved = JSON.stringify(test.inputs)
+    await writeFile(test.inputsPath, saved, { mode: 0o600 })
+    const environment = structuredClone(test.state.environment)
+
+    await expect(
+      postSetupAzure(test.target, {
+        action: "restart",
+        run: test.run,
+        ui: test.ui,
+        request: test.request,
+      }),
+    ).rejects.toThrow(/version|pinned/i)
+
+    expect(await readFile(test.inputsPath, "utf8")).toBe(saved)
+    expect(test.state.environment).toEqual(environment)
+    expect(test.applies).toBe(0)
+    expect(
+      test.run.mock.calls.some(([, args]) =>
+        ["restart", "activate", "deactivate", "set"].some((value) => args.includes(value)),
+      ),
+    ).toBe(false)
+  },
+)
+
+it.each(["sign-in", "github", "restart"] as const)(
+  "blocks %s when pending desired-input evidence no longer matches even a formatting-only edit",
+  async (action) => {
+    const test = await scenario()
+    const journalPath = join(test.directory, "post-desired.json")
+    const journal = JSON.stringify({
+      target: JSON.stringify(test.target.config),
+      hash: createHash("sha256").update(test.original).digest("hex"),
+      action: "sign-in",
+      phase: "pending",
+      previousReferences: JSON.parse(test.state.environment.AZURE_KEY_VAULT_SECRET_REFERENCES!),
+    })
+    await writeFile(journalPath, journal, { mode: 0o600 })
+    const editedInputs = `${test.original}\n`
+    await writeFile(test.inputsPath, editedInputs, { mode: 0o600 })
+    const environment = structuredClone(test.state.environment)
+
+    await expect(
+      postSetupAzure(test.target, {
+        action,
+        run: test.run,
+        ui: test.ui,
+        request: test.request,
+      }),
+    ).rejects.toThrow(/pending|evidence|recovery|inputs.*changed|inputs.*match/i)
+
+    expect(await readFile(journalPath, "utf8")).toBe(journal)
+    expect(await readFile(test.inputsPath, "utf8")).toBe(editedInputs)
+    expect(test.state.environment).toEqual(environment)
+    expect(test.plans).toEqual([])
+    expect(test.applies).toBe(0)
+    expect(test.uploads).toEqual([])
+    expect(
+      test.run.mock.calls.some(([, args]) =>
+        ["restart", "activate", "deactivate"].some((value) => args.includes(value)),
+      ),
+    ).toBe(false)
+  },
+)
+
+it("blocks an origin change with Entra configured before creating shared secrets or saving inputs", async () => {
+  const test = await scenario()
+  test.inputs.hub_application_origin = test.origin
+  Object.assign(test.inputs.runtime_environment_variables!, {
+    ENTRA_OIDC_ISSUER: "https://login.microsoftonline.com/tenant/v2.0",
+    ENTRA_OIDC_CLIENT_ID: "22222222-2222-4222-8222-222222222222",
+    ENTRA_OIDC_PROVIDER_REVISION: "4",
+    ENTRA_OIDC_CLIENT_AUTHENTICATION: "managed-identity",
+    ENTRA_OIDC_MANAGED_IDENTITY_CLIENT_ID: "33333333-3333-4333-8333-333333333333",
+  })
+  delete test.inputs.runtime_secret_references!.HUB_AUTHENTICATION_ENCRYPTION_KEY
+  delete test.inputs.runtime_secret_references!.HUB_BOOTSTRAP_SECRET
+  test.secretValues.clear()
+  Object.assign(test.state.environment, test.inputs.runtime_environment_variables, {
+    HUB_APPLICATION_ORIGIN: test.origin,
+    AZURE_KEY_VAULT_SECRET_REFERENCES: JSON.stringify({
+      DATABASE_URL: test.reference("database-runtime").secret_id,
+      SERVICE_API_KEY: test.reference("service-api-key").secret_id,
+    }),
+  })
+  test.state.customHosts = ["bound.example.com"]
+  const saved = JSON.stringify(test.inputs)
+  await writeFile(test.inputsPath, saved, { mode: 0o600 })
+  const environment = structuredClone(test.state.environment)
+  vi.mocked(test.ui.text)
+    .mockResolvedValueOnce("https://bound.example.com")
+    .mockResolvedValueOnce("2")
+
+  const failure: unknown = await postSetupAzure(test.target, {
+    action: "sign-in",
+    run: test.run,
+    ui: test.ui,
+    request: test.request,
+  }).catch((error: unknown) => error)
+
+  expect(failure).toBeInstanceOf(Error)
+  expect(JSON.stringify([String(failure), vi.mocked(test.ui.notice!).mock.calls])).toMatch(/entra/i)
+  expect(await readFile(test.inputsPath, "utf8")).toBe(saved)
+  expect(test.state.environment).toEqual(environment)
+  expect(test.uploads).toEqual([])
+  expect(test.plans).toEqual([])
+  expect(test.applies).toBe(0)
+  expect((await readdir(test.directory)).filter((name) => name.startsWith("post-bootstrap-"))).toEqual(
+    [],
+  )
+})
+
+it.each(["plain", "secret-backed"] as const)(
+  "uses a canonical lowercase %s custom origin through sign-in, GitHub setup and verification",
+  async (representation) => {
+    const test = await scenario()
+    const customOrigin = "https://bound.example.com"
+    test.state.customHosts = ["Bound.Example.COM"]
+    test.state.verificationOrigin = customOrigin
+    const originReference = test.reference("hub-application-origin")
+    if (representation === "secret-backed") {
+      test.inputs.runtime_secret_references!.HUB_APPLICATION_ORIGIN = originReference
+      test.secretValues.set("hub-application-origin", customOrigin)
+      test.state.environment.AZURE_KEY_VAULT_SECRET_REFERENCES = JSON.stringify({
+        ...JSON.parse(test.state.environment.AZURE_KEY_VAULT_SECRET_REFERENCES!),
+        HUB_APPLICATION_ORIGIN: originReference.secret_id,
+      })
+      await writeFile(test.inputsPath, JSON.stringify(test.inputs), { mode: 0o600 })
+    }
+    vi.mocked(test.ui.text).mockResolvedValueOnce(customOrigin).mockResolvedValueOnce("2")
+
+    const signIn = await postSetupAzure(test.target, {
+      action: "sign-in",
+      run: test.run,
+      ui: test.operatorUI,
+      request: test.request,
+    })
+
+    expect(signIn).toContain(`${customOrigin}/settings/github/setup`)
+    expect(test.state.environment.HUB_APPLICATION_ORIGIN).toBe(
+      representation === "plain" ? customOrigin : undefined,
+    )
+    const pem = generateKeyPairSync("rsa", { modulusLength: 2048 })
+      .privateKey.export({ type: "pkcs8", format: "pem" })
+      .toString()
+    const values = ["synthetic-client-secret", pem, "synthetic-webhook-secret-for-tests-only"]
+    const paths = values.map((_, index) => join(test.directory, `custom-origin-credential-${index}`))
+    await Promise.all(paths.map((path, index) => writeFile(path, values[index]!, { mode: 0o600 })))
+    vi.mocked(test.ui.text)
+      .mockReset()
+      .mockResolvedValueOnce("123")
+      .mockResolvedValueOnce("Iv23synthetic")
+      .mockResolvedValueOnce("456")
+      .mockResolvedValueOnce(paths[0]!)
+      .mockResolvedValueOnce(paths[1]!)
+      .mockResolvedValueOnce(paths[2]!)
+      .mockResolvedValueOnce("1")
+    test.state.github = true
+
+    const github = await postSetupAzure(test.target, {
+      action: "github",
+      run: test.run,
+      ui: test.operatorUI,
+      request: test.request,
+    })
+
+    expect(github).toContain(`${customOrigin}/settings/github/setup`)
+    expect(test.state.environment.HUB_APPLICATION_ORIGIN).toBe(
+      representation === "plain" ? customOrigin : undefined,
+    )
+    if (representation === "secret-backed") {
+      const saved = JSON.parse(await readFile(test.inputsPath, "utf8")) as PostInputs
+      expect(saved.hub_application_origin).toBeUndefined()
+      expect(saved.runtime_secret_references!.HUB_APPLICATION_ORIGIN).toEqual(originReference)
+    }
+    expect(test.state.environment.GITHUB_PROVIDER_REVISION).toBe("1")
+    const requestedURLs = test.request.mock.calls.map(([url]) => String(url))
+    expect(requestedURLs).toContain(`${customOrigin}/api/ready`)
+    expect(requestedURLs).toContain(`${customOrigin}/api/settings/github/status`)
+    expect(requestedURLs).toContain(`${customOrigin}/api/auth/providers`)
+    expect(requestedURLs.every((url) => url.startsWith(`${customOrigin}/`))).toBe(true)
+  },
+)
+
+it("advances a configured GitHub provider from the verified database revision on origin change", async () => {
+  const test = await scenario()
+  await configuredGithub(test)
+  test.provider.revision = 7
+  test.state.customHosts = ["BOUND.example.com"]
+  test.state.verificationOrigin = "https://bound.example.com"
+  vi.mocked(test.ui.text)
+    .mockResolvedValueOnce("https://bound.example.com")
+    .mockResolvedValueOnce("2")
+
+  await postSetupAzure(test.target, {
+    action: "sign-in",
+    run: test.run,
+    ui: test.operatorUI,
+    request: test.request,
+  })
+
+  const saved = JSON.parse(await readFile(test.inputsPath, "utf8")) as PostInputs
+  expect(saved.hub_application_origin).toBe("https://bound.example.com")
+  expect(saved.github_provider_revision).toBe(8)
+  expect(test.state.environment.GITHUB_PROVIDER_REVISION).toBe("8")
+  expect(test.provider.verifications).toBe(1)
+  expect(test.uploads).toEqual([])
+})
+
+it("does not apply an unrelated stale proxy setting during GitHub configuration", async () => {
+  const test = await scenario()
+  await configuredGithub(test)
+  test.state.environment.HUB_TRUSTED_PROXY_HOPS = "3"
+  const saved = await readFile(test.inputsPath, "utf8")
+  const environment = structuredClone(test.state.environment)
+  vi.mocked(test.ui.text).mockImplementation(async (_label, initial) => initial ?? "")
+
+  const failure: unknown = await postSetupAzure(test.target, {
+    action: "github",
+    run: test.run,
+    ui: test.ui,
+    request: test.request,
+  }).catch((error: unknown) => error)
+
+  expect(failure).toBeInstanceOf(Error)
+  expect(JSON.stringify([String(failure), vi.mocked(test.ui.notice!).mock.calls])).toMatch(
+    /drift|HUB_TRUSTED_PROXY_HOPS|different|differ|match/i,
+  )
+  expect(await readFile(test.inputsPath, "utf8")).toBe(saved)
+  expect(test.state.environment).toEqual(environment)
+  expect(test.plans).toEqual([])
+  expect(test.applies).toBe(0)
+  expect(test.uploads).toEqual([])
+})
+
+it("rejects a secret-backed proxy hop setting before saving or mutating", async () => {
+  const test = await scenario()
+  const proxy = test.reference("protected-proxy-hops")
+  test.inputs.runtime_secret_references!.HUB_TRUSTED_PROXY_HOPS = proxy
+  delete test.inputs.runtime_environment_variables!.HUB_TRUSTED_PROXY_HOPS
+  delete test.state.environment.HUB_TRUSTED_PROXY_HOPS
+  test.secretValues.set("protected-proxy-hops", "2")
+  const liveReferences = JSON.parse(test.state.environment.AZURE_KEY_VAULT_SECRET_REFERENCES!)
+  liveReferences.HUB_TRUSTED_PROXY_HOPS = proxy.secret_id
+  test.state.environment.AZURE_KEY_VAULT_SECRET_REFERENCES = JSON.stringify(liveReferences)
+  const saved = JSON.stringify(test.inputs)
+  await writeFile(test.inputsPath, saved, { mode: 0o600 })
+  const environment = structuredClone(test.state.environment)
+  await expect(readInstallationInputs(test.directory, test.target.config)).resolves.toMatchObject({
+    runtime_secret_references: { HUB_TRUSTED_PROXY_HOPS: proxy },
+  })
+
+  await expect(
+    postSetupAzure(test.target, {
+      action: "sign-in",
+      run: test.run,
+      ui: test.ui,
+      request: test.request,
+    }),
+  ).rejects.toThrow(/proxy.*secret|secret.*proxy/i)
+
+  expect(await readFile(test.inputsPath, "utf8")).toBe(saved)
+  expect(test.state.environment).toEqual(environment)
+  expect(test.plans).toEqual([])
+  expect(test.applies).toBe(0)
+  expect(test.uploads).toEqual([])
 })
 
 it("keeps desired inputs and runtime unchanged after prompt and signal cancellation, then resumes accepted IDs", async () => {
@@ -694,8 +1054,95 @@ it("retains desired inputs and owned leases after a failed apply and resumes the
   expect(test.ui.complete).toHaveBeenCalledOnce()
 })
 
+it("prints the final partial-change recovery summary and generated bootstrap path after a command failure", async () => {
+  const test = await scenario()
+  delete test.inputs.runtime_secret_references!.HUB_AUTHENTICATION_ENCRYPTION_KEY
+  delete test.inputs.runtime_secret_references!.HUB_BOOTSTRAP_SECRET
+  test.secretValues.clear()
+  const liveReferences = JSON.parse(test.state.environment.AZURE_KEY_VAULT_SECRET_REFERENCES!)
+  delete liveReferences.HUB_AUTHENTICATION_ENCRYPTION_KEY
+  delete liveReferences.HUB_BOOTSTRAP_SECRET
+  test.state.environment.AZURE_KEY_VAULT_SECRET_REFERENCES = JSON.stringify(liveReferences)
+  await writeFile(test.inputsPath, JSON.stringify(test.inputs), { mode: 0o600 })
+  test.state.failApply = true
+  const entry = await import("../../installer/entry/index.ts")
+  const terminal = await import("../../installer/terminal/index.tsx")
+  const command = await import("../../installer/command/index.ts")
+  const createTerminal = terminal.createTerminalUI
+  const recoveryNotices: (string | undefined)[] = []
+  let actualTerminal: ReturnType<typeof terminal.createTerminalUI> | undefined
+  const renderer = vi.spyOn(terminal, "createTerminalUI").mockImplementation((abort, options) => {
+    const ui = createTerminal(abort, options)
+    actualTerminal = ui
+    const recoveryNotice = ui.recoveryNotice!
+    ui.recoveryNotice = (message) => {
+      recoveryNotices.push(message)
+      recoveryNotice(message)
+    }
+    ui.confirm = vi.fn(async () => true)
+    ui.text = vi.fn(async (_label, initial) => (initial === test.origin ? test.origin : "2"))
+    ui.select = vi.fn(async () => "exit")
+    return ui
+  })
+  const select = vi.spyOn(entry, "selectInstallerEntry").mockResolvedValue({
+    action: "update",
+    path: test.target.path,
+    existing: test.target.config,
+    postAction: "sign-in",
+  })
+  const run = vi.spyOn(command, "runCommand").mockImplementation(test.run)
+  const errors = vi.spyOn(console, "error").mockImplementation(() => undefined)
+  const argv = process.argv
+  const exitCode = process.exitCode
+  const stdinTTY = Object.getOwnPropertyDescriptor(process.stdin, "isTTY")
+  const stdoutTTY = Object.getOwnPropertyDescriptor(process.stdout, "isTTY")
+  try {
+    process.argv = [
+      process.execPath,
+      resolve("installer/index.tsx"),
+      "--config",
+      test.target.path,
+      "--post",
+      "--no-fullscreen",
+    ]
+    process.exitCode = undefined
+    Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true })
+    Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: true })
+
+    await import("../../installer/index.tsx")
+
+    const bootstrapFiles = (await readdir(test.directory)).filter((name) =>
+      /^post-bootstrap-.*\.txt$/.test(name),
+    )
+    expect(bootstrapFiles).toHaveLength(1)
+    const bootstrapPath = join(test.directory, bootstrapFiles[0]!)
+    const output = errors.mock.calls.flat().map(String).join("\n")
+    expect(process.exitCode).toBe(1)
+    expect(test.applies).toBe(1)
+    expect(test.uploads).toHaveLength(2)
+    expect(recoveryNotices).toContain("Synthetic apply failure")
+    expect(actualTerminal?.summary()).toMatch(/secrets or runtime changes may be partial/i)
+    expect(output).toContain("Synthetic apply failure")
+    expect(output).toMatch(/secrets or runtime changes may be partial/i)
+    expect(output).toContain(bootstrapPath)
+    expect(output).not.toContain(await readFile(bootstrapPath, "utf8"))
+  } finally {
+    process.argv = argv
+    process.exitCode = exitCode
+    if (stdinTTY) Object.defineProperty(process.stdin, "isTTY", stdinTTY)
+    else Reflect.deleteProperty(process.stdin, "isTTY")
+    if (stdoutTTY) Object.defineProperty(process.stdout, "isTTY", stdoutTTY)
+    else Reflect.deleteProperty(process.stdout, "isTTY")
+    renderer.mockRestore()
+    select.mockRestore()
+    run.mockRestore()
+    errors.mockRestore()
+  }
+})
+
 it("retries pending GitHub secret versions only for the unchanged desired inputs and action without accepting unrelated live-reference drift", async () => {
   const test = await scenario()
+  test.provider.revision = 1
   const sharedReferences = structuredClone(test.inputs.runtime_secret_references!)
   const pem = generateKeyPairSync("rsa", { modulusLength: 2048 })
     .privateKey.export({ type: "pkcs8", format: "pem" })
@@ -752,7 +1199,7 @@ it("retries pending GitHub secret versions only for the unchanged desired inputs
     postSetupAzure(test.target, {
       action: "github",
       run: test.run,
-      ui: test.ui,
+      ui: test.operatorUI,
       request: test.request,
     }),
   ).rejects.toThrow("Synthetic apply failure")
@@ -790,7 +1237,7 @@ it("retries pending GitHub secret versions only for the unchanged desired inputs
     postSetupAzure(test.target, {
       action: "sign-in",
       run: test.run,
-      ui: test.ui,
+      ui: test.operatorUI,
       request: test.request,
     }),
   ).rejects.toThrow(/pending.*github/i)
@@ -799,10 +1246,10 @@ it("retries pending GitHub secret versions only for the unchanged desired inputs
     postSetupAzure(test.target, {
       action: "github",
       run: test.run,
-      ui: test.ui,
+      ui: test.operatorUI,
       request: test.request,
     }),
-  ).rejects.toThrow(/references.*differ/i)
+  ).rejects.toThrow(/pending|evidence|inputs.*match/i)
   await writeFile(test.inputsPath, saved, { mode: 0o600 })
   test.state.environment.AZURE_KEY_VAULT_SECRET_REFERENCES = JSON.stringify({
     ...liveReferences,
@@ -812,7 +1259,7 @@ it("retries pending GitHub secret versions only for the unchanged desired inputs
     postSetupAzure(test.target, {
       action: "github",
       run: test.run,
-      ui: test.ui,
+      ui: test.operatorUI,
       request: test.request,
     }),
   ).rejects.toThrow(/references.*differ/i)
@@ -825,7 +1272,7 @@ it("retries pending GitHub secret versions only for the unchanged desired inputs
   await postSetupAzure(test.target, {
     action: "github",
     run: test.run,
-    ui: test.ui,
+    ui: test.operatorUI,
     request: test.request,
   })
 

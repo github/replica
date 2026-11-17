@@ -19,6 +19,7 @@ import * as privateFiles from "../../../installer/private-files/index.ts"
 import type { RunCommand, WizardUI } from "../../../installer/types.ts"
 import { installationNames } from "../../install/settings.ts"
 import type { AzureInstallation } from "../../install/types.ts"
+import { postSetupProgress } from "../progress/index.ts"
 import type { PostDeployment, PostInputs } from "../types.ts"
 import { configurePostSetup } from "./index.ts"
 
@@ -46,9 +47,9 @@ async function scenario() {
   }
   const names = installationNames(config)
   const vaultId = `/subscriptions/${config.azure.subscriptionId}/resourceGroups/${names.foundationGroup}/providers/Microsoft.KeyVault/vaults/${names.vault}`
-  const reference = (name: string) => ({
+  const reference = (name: string, version = "a".repeat(32)) => ({
     key_vault_id: vaultId,
-    secret_id: `https://${names.vault}.vault.azure.net/secrets/${name}/${"a".repeat(32)}`,
+    secret_id: `https://${names.vault}.vault.azure.net/secrets/${name}/${version}`,
   })
   const inputs: PostInputs = {
     image: `registry.azurecr.io/hub@sha256:${"a".repeat(64)}`,
@@ -73,7 +74,16 @@ async function scenario() {
     origin: "https://sample-hub.eastus2.azurecontainerapps.io",
     customHosts: ["bound.example.com"],
     principalId: "00000000-0000-0000-0000-000000000003",
-    environment: {},
+    environment: {
+      AZURE_KEY_VAULT_SECRET_REFERENCES: JSON.stringify(
+        Object.fromEntries(
+          Object.entries(inputs.runtime_secret_references!).map(([key, value]) => [
+            key,
+            value.secret_id,
+          ]),
+        ),
+      ),
+    },
   }
   const secrets = new Map([
     ["hub-authentication-encryption-key", Buffer.alloc(32, 7).toString("base64")],
@@ -90,7 +100,7 @@ async function scenario() {
       expect(secrets.has(name)).toBe(true)
       return JSON.stringify({
         value: secrets.get(name),
-        id: reference(name).secret_id,
+        id: /\/[a-f0-9]{32}$/i.test(id) ? id : reference(name).secret_id,
         enabled: true,
       })
     }
@@ -122,6 +132,41 @@ async function scenario() {
     notice: vi.fn(),
     wait: vi.fn(),
   }
+  const provider = {
+    revision: 0,
+    enabled: true,
+    confirmed: true,
+    confirmations: 0,
+    verifications: 0,
+    enabledChecks: 0,
+    enabledPrompt: "",
+  }
+  const operatorUI = new Proxy(ui, {
+    get(target, key, receiver) {
+      if (key === "text")
+        return async (label: string, initial?: string) => {
+          if (/^Last stored GitHub provider revision/i.test(label)) {
+            provider.verifications++
+            return String(provider.revision)
+          }
+          return target.text(label, initial)
+        }
+      if (key === "confirm")
+        return async (message: string) => {
+          if (/last stored GitHub provider revision/i.test(message)) {
+            provider.confirmations++
+            return provider.confirmed
+          }
+          if (/provider/i.test(message) && /enabled/i.test(message)) {
+            provider.enabledChecks++
+            provider.enabledPrompt = message
+            return provider.enabled
+          }
+          return target.confirm(message)
+        }
+      return Reflect.get(target, key, receiver)
+    },
+  })
   let finishProgress: (() => Promise<void>) | undefined
   const context: AzureInstallation & {
     ui: WizardUI
@@ -131,7 +176,7 @@ async function scenario() {
     config,
     run,
     env: {},
-    ui,
+    ui: operatorUI,
     azure: (...args) => run("az", args),
     onPrepared: (finish) => {
       finishProgress = finish
@@ -146,6 +191,7 @@ async function scenario() {
     reference,
     run,
     ui,
+    provider,
     async finish() {
       expect(finishProgress).toBeDefined()
       await finishProgress!()
@@ -165,6 +211,44 @@ async function githubCredentials(test: Awaited<ReturnType<typeof scenario>>) {
   )
   await Promise.all(paths.map((path, index) => writeFile(path, values[index]!, { mode: 0o600 })))
   return { paths, values }
+}
+
+async function configuredGithub(test: Awaited<ReturnType<typeof scenario>>) {
+  const credentials = await githubCredentials(test)
+  test.provider.revision = 4
+  Object.assign(test.inputs, {
+    github_app_id: "123",
+    github_client_id: "Iv23synthetic",
+    github_app_installation_id: "456",
+    github_provider_revision: 4,
+  })
+  Object.assign(test.inputs.runtime_secret_references!, {
+    GITHUB_CLIENT_SECRET: test.reference("github-client-secret"),
+    GITHUB_APP_PRIVATE_KEY_BASE64: test.reference("github-app-private-key"),
+    GITHUB_WEBHOOK_SECRET: test.reference("github-webhook-secret"),
+  })
+  test.secrets.set("github-client-secret", credentials.values[0]!)
+  test.secrets.set(
+    "github-app-private-key",
+    Buffer.from(credentials.values[1]!).toString("base64"),
+  )
+  test.secrets.set("github-webhook-secret", credentials.values[2]!)
+  Object.assign(test.deployment.environment, {
+    HUB_APPLICATION_ORIGIN: test.deployment.origin,
+    GITHUB_APP_ID: "123",
+    GITHUB_CLIENT_ID: "Iv23synthetic",
+    GITHUB_APP_INSTALLATION_ID: "456",
+    GITHUB_PROVIDER_REVISION: "4",
+    AZURE_KEY_VAULT_SECRET_REFERENCES: JSON.stringify(
+      Object.fromEntries(
+        Object.entries(test.inputs.runtime_secret_references!).map(([key, value]) => [
+          key,
+          value.secret_id,
+        ]),
+      ),
+    ),
+  })
+  return credentials
 }
 
 async function progressContents(directory: string) {
@@ -223,6 +307,60 @@ it("validates the authoritative origin and explicit proxy hops while preserving 
   expect(await otherFiles(test.context.directory)).toEqual([])
 })
 
+it("rejects a bound hostname with an unbound port and accepts its canonical HTTPS origin", async () => {
+  const test = await scenario()
+  test.deployment.customHosts = ["BoUnD.ExAmPlE.CoM"]
+  const origins = ["https://bound.example.com:8443", "https://bound.example.com"]
+  vi.mocked(test.ui.text).mockImplementation(async (label) =>
+    label.startsWith("Public HTTPS origin") ? origins.shift()! : "2",
+  )
+
+  const desired = await configurePostSetup(test.context, "sign-in", test.inputs, test.deployment)
+
+  expect(desired.hub_application_origin).toBe("https://bound.example.com")
+  expect(test.ui.notice).toHaveBeenCalledWith("error", expect.any(String))
+  expect(test.uploads).toEqual([])
+})
+
+it("keeps an unchanged origin available when Entra is configured", async () => {
+  const test = await scenario()
+  test.inputs.hub_application_origin = test.deployment.origin
+  Object.assign(test.inputs.runtime_environment_variables!, {
+    ENTRA_OIDC_ISSUER: "https://login.microsoftonline.com/tenant/v2.0",
+    ENTRA_OIDC_CLIENT_ID: "22222222-2222-4222-8222-222222222222",
+    ENTRA_OIDC_PROVIDER_REVISION: "4",
+  })
+  Object.assign(test.deployment.environment, test.inputs.runtime_environment_variables, {
+    HUB_APPLICATION_ORIGIN: test.deployment.origin,
+  })
+  vi.mocked(test.ui.text).mockImplementation(async (label, initial) =>
+    label.startsWith("Public HTTPS origin") ? initial! : "2",
+  )
+
+  const desired = await configurePostSetup(test.context, "sign-in", test.inputs, test.deployment)
+
+  expect(desired.hub_application_origin).toBe(test.deployment.origin)
+  expect(desired.runtime_environment_variables).toMatchObject(
+    test.inputs.runtime_environment_variables!,
+  )
+  expect(test.uploads).toEqual([])
+})
+
+it("rechecks the stored GitHub revision when changing origin with only a saved revision", async () => {
+  const test = await scenario()
+  await configuredGithub(test)
+  delete test.deployment.environment.GITHUB_PROVIDER_REVISION
+  vi.mocked(test.ui.text).mockImplementation(async (label) =>
+    label.startsWith("Public HTTPS origin") ? "https://bound.example.com" : "2",
+  )
+
+  const desired = await configurePostSetup(test.context, "sign-in", test.inputs, test.deployment)
+
+  expect(desired.github_provider_revision).toBe(5)
+  expect(test.provider.verifications).toBe(1)
+  expect(test.uploads).toEqual([])
+})
+
 it("rejects an overlong bound origin before accepting a corrected origin", async () => {
   const test = await scenario()
   const host = "a".repeat(493)
@@ -235,7 +373,7 @@ it("rejects an overlong bound origin before accepting a corrected origin", async
   const desired = await configurePostSetup(test.context, "sign-in", test.inputs, test.deployment)
 
   expect(desired.hub_application_origin).toBe("https://bound.example.com")
-  expect(test.ui.notice).toHaveBeenCalledWith("error", expect.stringMatching(/exact HTTPS origin/i))
+  expect(test.ui.notice).toHaveBeenCalledWith("error", expect.stringMatching(/HTTPS origin/i))
   expect(test.uploads).toEqual([])
 })
 
@@ -313,6 +451,25 @@ it("reuses shared secrets already created in the vault when an interrupted run h
   expect(test.secrets).toEqual(before)
   expect(test.uploads).toEqual([])
   expect(await otherFiles(test.context.directory)).toEqual([])
+})
+
+it("resolves an uncertain bootstrap write before creating another shared secret", async () => {
+  const test = await scenario()
+  delete test.inputs.runtime_secret_references!.HUB_AUTHENTICATION_ENCRYPTION_KEY
+  delete test.inputs.runtime_secret_references!.HUB_BOOTSTRAP_SECRET
+  test.secrets.clear()
+  const progress = await postSetupProgress(test.context, "sign-in", test.inputs)
+  await progress.pendingUpload("HUB_BOOTSTRAP_SECRET")
+  vi.mocked(test.ui.text).mockResolvedValueOnce(test.deployment.origin).mockResolvedValueOnce("2")
+
+  await expect(
+    configurePostSetup(test.context, "sign-in", test.inputs, test.deployment),
+  ).rejects.toThrow(/saved answers.*preserved/i)
+
+  expect(test.uploads).toEqual([])
+  expect((await postSetupProgress(test.context, "sign-in", test.inputs)).pending).toBe(
+    "HUB_BOOTSTRAP_SECRET",
+  )
 })
 
 it("keeps the GitHub provider revision when the existing origin is supplied through Key Vault", async () => {
@@ -953,8 +1110,9 @@ it("does not display credential content from malformed Key Vault metadata during
   expect(test.uploads).toEqual([])
 })
 
-it("keeps all existing GitHub references and the deployed provider revision when credential files are blank", async () => {
+it("keeps all existing GitHub references and the verified provider revision when credential files are blank", async () => {
   const test = await scenario()
+  test.provider.revision = 4
   Object.assign(test.inputs, {
     hub_application_origin: test.deployment.origin,
     github_app_id: "123",
@@ -982,6 +1140,14 @@ it("keeps all existing GitHub references and the deployed provider revision when
     GITHUB_CLIENT_ID: "Iv23synthetic",
     GITHUB_APP_INSTALLATION_ID: "456",
     GITHUB_PROVIDER_REVISION: "4",
+    AZURE_KEY_VAULT_SECRET_REFERENCES: JSON.stringify(
+      Object.fromEntries(
+        Object.entries(test.inputs.runtime_secret_references!).map(([key, value]) => [
+          key,
+          value.secret_id,
+        ]),
+      ),
+    ),
   }
   vi.mocked(test.ui.text).mockImplementation(async (_label, initial) => initial ?? "")
 
@@ -1005,6 +1171,7 @@ it.each([
   "accepts provider revision $answer for deployed App $deployedAppId only when Hub would start: $accepted",
   async ({ deployedAppId, answer, accepted }) => {
     const test = await scenario()
+    test.provider.revision = 4
     Object.assign(test.inputs, {
       hub_application_origin: test.deployment.origin,
       github_app_id: "123",
@@ -1032,6 +1199,14 @@ it.each([
       GITHUB_CLIENT_ID: "Iv23synthetic",
       GITHUB_APP_INSTALLATION_ID: "456",
       GITHUB_PROVIDER_REVISION: "4",
+      AZURE_KEY_VAULT_SECRET_REFERENCES: JSON.stringify(
+        Object.fromEntries(
+          Object.entries(test.inputs.runtime_secret_references!).map(([key, value]) => [
+            key,
+            value.secret_id,
+          ]),
+        ),
+      ),
     }
     const correction = deployedAppId === "123" ? "4" : "5"
     const answers = [answer, correction]
@@ -1048,6 +1223,215 @@ it.each([
     expect(desired.github_provider_revision).toBe(Number(accepted ? answer : correction))
   },
 )
+
+it("advances a disabled database provider from revision 4 to revision 5", async () => {
+  const test = await scenario()
+  await configuredGithub(test)
+  test.provider.enabled = false
+  vi.mocked(test.ui.text).mockImplementation(async (_label, initial) => initial ?? "")
+
+  const desired = await configurePostSetup(test.context, "github", test.inputs, test.deployment)
+
+  expect(desired.github_provider_revision).toBe(5)
+  expect(test.provider.confirmations).toBe(1)
+  expect(test.provider.verifications).toBe(1)
+  expect(test.provider.enabledChecks).toBe(1)
+  // Hub's canonical public configuration for this synthetic installation.
+  expect(test.provider.enabledPrompt).toContain(
+    "d29ed252f783d0078daf7eafba693a86dfb9b8abd09f37d23e907a8226c375ea",
+  )
+  expect(test.uploads).toEqual([])
+})
+
+it("uses database revision 0 despite an unreconciled deployed revision 4, and verifies again on resume", async () => {
+  const test = await scenario()
+  await configuredGithub(test)
+  test.provider.revision = 0
+  let answer = "1"
+  vi.mocked(test.ui.text).mockImplementation(async (label, initial) =>
+    label.startsWith("GitHub provider revision") ? answer : (initial ?? ""),
+  )
+
+  const first = await configurePostSetup(test.context, "github", test.inputs, test.deployment)
+  expect(first.github_provider_revision).toBe(1)
+  expect(test.provider.enabledChecks).toBe(0)
+
+  test.provider.revision = 4
+  test.provider.enabled = false
+  answer = "5"
+  const resumed = await configurePostSetup(test.context, "github", test.inputs, test.deployment)
+
+  expect(resumed.github_provider_revision).toBe(5)
+  expect(test.provider.confirmations).toBe(2)
+  expect(test.provider.verifications).toBe(2)
+  expect(test.provider.enabledChecks).toBe(1)
+  expect(test.uploads).toEqual([])
+})
+
+it("does not write a replacement credential when the database revision was not independently verified", async () => {
+  const test = await scenario()
+  const { paths } = await configuredGithub(test)
+  test.provider.confirmed = false
+  await writeFile(paths[0]!, "synthetic-new-client-secret")
+  vi.mocked(test.ui.text).mockImplementation(async (label, initial) =>
+    label.startsWith("Client secret:") ? paths[0]! : (initial ?? ""),
+  )
+
+  await expect(
+    configurePostSetup(test.context, "github", test.inputs, test.deployment),
+  ).rejects.toThrow(/verif.*revision/i)
+
+  expect(test.provider.confirmations).toBe(1)
+  expect(test.provider.verifications).toBe(0)
+  expect(test.uploads).toEqual([])
+})
+
+it("retains a pending desired provider revision ahead of the database even when the deployed references now match", async () => {
+  const test = await scenario()
+  await configuredGithub(test)
+  test.inputs.github_provider_revision = 5
+  test.deployment.environment.GITHUB_PROVIDER_REVISION = "5"
+  vi.mocked(test.ui.text).mockImplementation(async (_label, initial) => initial ?? "")
+
+  const desired = await configurePostSetup(test.context, "github", test.inputs, test.deployment)
+
+  expect(desired.github_provider_revision).toBe(5)
+  expect(test.provider.verifications).toBe(1)
+  expect(test.uploads).toEqual([])
+})
+
+it.each(["saved desired inputs", "retained progress after starting over"] as const)(
+  "requires the next provider revision when %s contains a newer credential version than the live deployment",
+  async (source) => {
+    const test = await scenario()
+    await configuredGithub(test)
+    const replacement = test.reference("github-client-secret", "b".repeat(32))
+    if (source === "saved desired inputs") {
+      test.inputs.runtime_secret_references!.GITHUB_CLIENT_SECRET = replacement
+    } else {
+      const progress = await postSetupProgress(test.context, "github", test.inputs)
+      await progress.saveReference("GITHUB_CLIENT_SECRET", replacement)
+      vi.mocked(test.ui.confirm).mockResolvedValue(true)
+      vi.mocked(test.ui.select).mockImplementation(async (_message, options) =>
+        options.some((option) => /start over/i.test(option.label))
+          ? choose(options, /start over/i)
+          : choose(options, /edit/i),
+      )
+    }
+    const answers = ["4", "5"]
+    vi.mocked(test.ui.text).mockImplementation(async (label, initial) =>
+      label.startsWith("GitHub provider revision") ? answers.shift()! : (initial ?? ""),
+    )
+
+    const desired = await configurePostSetup(test.context, "github", test.inputs, test.deployment)
+
+    expect(desired.github_provider_revision).toBe(5)
+    expect(desired.runtime_secret_references!.GITHUB_CLIENT_SECRET).toEqual(replacement)
+    expect(test.uploads).toEqual([])
+  },
+)
+
+it("replaces a credential as a new version of its existing nondefault vault secret", async () => {
+  const test = await scenario()
+  const { paths } = await configuredGithub(test)
+  const previous = test.reference("existing-oauth-client")
+  test.inputs.runtime_secret_references!.GITHUB_CLIENT_SECRET = previous
+  const liveReferences = JSON.parse(test.deployment.environment.AZURE_KEY_VAULT_SECRET_REFERENCES!)
+  liveReferences.GITHUB_CLIENT_SECRET = previous.secret_id
+  test.deployment.environment.AZURE_KEY_VAULT_SECRET_REFERENCES = JSON.stringify(liveReferences)
+  test.secrets.set("existing-oauth-client", "synthetic-old-client-secret")
+  test.secrets.delete("github-client-secret")
+  await writeFile(paths[0]!, "synthetic-new-client-secret")
+  const execute = test.run.getMockImplementation()!
+  test.run.mockImplementation(async (executable, args, options) => {
+    const result = await execute(executable, args, options)
+    return args[2] === "set"
+      ? JSON.stringify(test.reference(args[args.indexOf("--name") + 1]!, "b".repeat(32)).secret_id)
+      : result
+  })
+  vi.mocked(test.ui.text).mockImplementation(async (label, initial) => {
+    if (label.startsWith("Client secret:")) return paths[0]!
+    if (label.startsWith("GitHub provider revision")) return "5"
+    return initial ?? ""
+  })
+
+  const desired = await configurePostSetup(test.context, "github", test.inputs, test.deployment)
+
+  expect(test.uploads.map(({ name }) => name)).toEqual(["existing-oauth-client"])
+  expect(desired.runtime_secret_references!.GITHUB_CLIENT_SECRET).toEqual(
+    test.reference("existing-oauth-client", "b".repeat(32)),
+  )
+  expect(test.secrets.has("github-client-secret")).toBe(false)
+  expect(desired.github_provider_revision).toBe(5)
+})
+
+it.each(["foreign vault", "unsupported URI"] as const)(
+  "refuses to replace a credential with a %s reference before writing any secret",
+  async (kind) => {
+    const test = await scenario()
+    const { paths } = await configuredGithub(test)
+    const existing = test.reference("github-client-secret")
+    if (kind === "foreign vault") {
+      existing.key_vault_id = existing.key_vault_id.replace(/vaults\/[^/]+$/, "vaults/other-vault")
+      existing.secret_id = existing.secret_id.replace(
+        new URL(existing.secret_id).hostname,
+        "other-vault.vault.azure.net",
+      )
+    } else {
+      existing.secret_id = existing.secret_id.replace(
+        new URL(existing.secret_id).hostname,
+        "unsupported.example.com",
+      )
+    }
+    test.inputs.runtime_secret_references!.GITHUB_CLIENT_SECRET = existing
+    const liveReferences = JSON.parse(test.deployment.environment.AZURE_KEY_VAULT_SECRET_REFERENCES!)
+    liveReferences.GITHUB_CLIENT_SECRET = existing.secret_id
+    test.deployment.environment.AZURE_KEY_VAULT_SECRET_REFERENCES = JSON.stringify(liveReferences)
+    const before = structuredClone(test.inputs)
+    vi.mocked(test.ui.text).mockImplementation(async (label, initial) => {
+      if (label.startsWith("Client secret:")) return paths[0]!
+      if (label.startsWith("GitHub provider revision")) return "5"
+      return initial ?? ""
+    })
+
+    await expect(
+      configurePostSetup(test.context, "github", test.inputs, test.deployment),
+    ).rejects.toThrow(/vault|secret|reference/i)
+
+    expect(test.inputs).toEqual(before)
+    expect(test.uploads).toEqual([])
+  },
+)
+
+it("does not replace another credential after starting over with an unresolved RSA upload", async () => {
+  const test = await scenario()
+  const { paths } = await configuredGithub(test)
+  await writeFile(paths[0]!, "synthetic-new-client-secret")
+  const progress = await postSetupProgress(test.context, "github", test.inputs)
+  await progress.pendingUpload("GITHUB_APP_PRIVATE_KEY_BASE64")
+  const originalSecrets = new Map(test.secrets)
+  vi.mocked(test.ui.confirm).mockResolvedValue(true)
+  vi.mocked(test.ui.select).mockImplementation(async (_message, options) =>
+    options.some((option) => /start over/i.test(option.label))
+      ? choose(options, /start over/i)
+      : choose(options, /exit/i),
+  )
+  vi.mocked(test.ui.text).mockImplementation(async (label, initial) => {
+    if (label.startsWith("Client secret:")) return paths[0]!
+    if (label.startsWith("GitHub provider revision")) return "5"
+    return initial ?? ""
+  })
+
+  await expect(
+    configurePostSetup(test.context, "github", test.inputs, test.deployment),
+  ).rejects.toThrow(/earlier.*GITHUB_APP_PRIVATE_KEY_BASE64.*unknown outcome/i)
+
+  expect(test.uploads).toEqual([])
+  expect(test.secrets).toEqual(originalSecrets)
+  expect((await postSetupProgress(test.context, "github", test.inputs)).pending).toBe(
+    "GITHUB_APP_PRIVATE_KEY_BASE64",
+  )
+})
 
 it("rejects a non-RSA credential before uploading any supplied GitHub secret", async () => {
   const test = await scenario()

@@ -23,6 +23,7 @@ import { validatePostPlan } from "./validate-plan/index.ts"
 import { verifyPostSetup } from "./verify/index.ts"
 import type { PostInputs, PostSetupTarget } from "./types.ts"
 import { PostSetupExit } from "./errors.ts"
+import { isBoundPostOrigin } from "./bound-origin/index.ts"
 
 export async function postSetupAzure(
   input: PostSetupTarget,
@@ -181,9 +182,14 @@ export async function postSetupAzure(
       throw new Error(
         "Post-setup recovery evidence is invalid or belongs to another installation. It was preserved.",
       )
-    const pending =
+    if (
       journal?.phase === "pending" &&
-      journal.hash === createHash("sha256").update(original).digest("hex")
+      journal.hash !== createHash("sha256").update(original).digest("hex")
+    )
+      throw new Error(
+        "The pending post-setup marker does not match the saved desired inputs. Preserve the marker, inputs, backups and progress files and review them together before resuming.",
+      )
+    const pending = journal?.phase === "pending"
     changesStarted = pending
     if (pending && journal?.action !== action)
       throw new Error(
@@ -192,20 +198,95 @@ export async function postSetupAzure(
     const changedSecretKeys =
       action === "github"
         ? ["GITHUB_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY_BASE64", "GITHUB_WEBHOOK_SECRET"]
-        : ["HUB_AUTHENTICATION_ENCRYPTION_KEY", "HUB_BOOTSTRAP_SECRET"]
+        : action === "sign-in"
+          ? ["HUB_AUTHENTICATION_ENCRYPTION_KEY", "HUB_BOOTSTRAP_SECRET"]
+          : []
+    const activeReferences = liveReferences as Record<string, unknown>
     if (
-      Object.entries(liveReferences).some(
-        ([key, value]) =>
-          typeof value !== "string" ||
-          !Object.hasOwn(savedReferences, key) ||
-          (savedReferences[key as keyof typeof savedReferences] !== value &&
-            (!pending ||
-              !changedSecretKeys.includes(key) ||
-              journal?.previousReferences?.[key] !== value)),
+      [...new Set([...Object.keys(activeReferences), ...Object.keys(savedReferences)])].some(
+        (key) => {
+          const live = activeReferences[key]
+          const desired = savedReferences[key as keyof typeof savedReferences]
+          if (live !== undefined && typeof live !== "string") return true
+          if (desired === live) return false
+          return !(
+            desired !== undefined &&
+            changedSecretKeys.includes(key) &&
+            (live === undefined || (pending && journal?.previousReferences?.[key] === live))
+          )
+        },
       )
     )
       throw new Error(
         "Deployed secret references differ from the saved inputs. Reconcile the desired configuration before post-setup; no live settings were overwritten.",
+      )
+    if (
+      action === "restart" &&
+      Object.values(activeReferences).some(
+        (value) =>
+          typeof value !== "string" ||
+          !/^https:\/\/[a-z0-9-]{1,24}\.vault\.azure\.net\/secrets\/[a-z0-9-]{1,127}\/[a-f0-9]{32}$/i.test(
+            value,
+          ),
+      )
+    )
+      throw new Error(
+        "Restart requires every live runtime Key Vault reference, including DATABASE_URL, to be version-pinned. Review unpinned references before restarting.",
+      )
+    const namedSettings = (inputs: PostInputs) =>
+      Object.fromEntries(
+        Object.entries({
+          HUB_APPLICATION_ORIGIN: inputs.hub_application_origin,
+          GITHUB_APP_ID: inputs.github_app_id,
+          GITHUB_CLIENT_ID: inputs.github_client_id,
+          GITHUB_APP_INSTALLATION_ID: inputs.github_app_installation_id,
+          GITHUB_PROVIDER_REVISION: inputs.github_provider_revision,
+        })
+          .filter(([, value]) => value !== undefined && value !== null)
+          .map(([key, value]) => [key, String(value)]),
+      )
+    const desiredSettings = { ...saved.runtime_environment_variables, ...namedSettings(saved) }
+    const editableSettings =
+      action === "sign-in"
+        ? ["HUB_APPLICATION_ORIGIN", "HUB_TRUSTED_PROXY_HOPS"]
+        : action === "github"
+          ? [
+              "GITHUB_APP_ID",
+              "GITHUB_CLIENT_ID",
+              "GITHUB_APP_INSTALLATION_ID",
+              "GITHUB_PROVIDER_REVISION",
+            ]
+          : []
+    const deploymentSettings = [
+      "NODE_ENV",
+      "RUNTIME_MODE",
+      "HOST",
+      "PORT",
+      "CLIENT_DIRECTORY",
+      "SHUTDOWN_TIMEOUT_MS",
+      "ARTIFACT_STORAGE_PROVIDER",
+      "AZURE_STORAGE_ACCOUNT",
+      "AZURE_STORAGE_CONTAINER",
+      "AZURE_CLIENT_ID",
+      "AZURE_KEY_VAULT_SECRET_REFERENCES",
+    ]
+    if (
+      action !== "restart" &&
+      [...new Set([...Object.keys(desiredSettings), ...Object.keys(deployment.environment)])].some(
+        (key) =>
+          !deploymentSettings.includes(key) &&
+          !editableSettings.includes(key) &&
+          !(
+            key === "GITHUB_PROVIDER_REVISION" &&
+            action === "sign-in" &&
+            pending &&
+            desiredSettings.HUB_APPLICATION_ORIGIN !== deployment.environment.HUB_APPLICATION_ORIGIN
+          ) &&
+          desiredSettings[key] !== deployment.environment[key],
+      )
+    )
+      throw new Error(
+        "Unrelated deployed runtime settings differ from the saved inputs. Reconcile them before post-setup; no live settings were overwritten.",
       )
     if (
       !(await ui.confirm(
@@ -347,24 +428,23 @@ export async function postSetupAzure(
       const moduleDirectory = resolve(import.meta.dirname, "..")
       const dataDirectory = join(workspace.directory, "terraform", "post")
       let appChanged = false
-      const environment = { ...deployment.environment, ...desired.runtime_environment_variables }
-      for (const [key, value] of Object.entries({
-        HUB_APPLICATION_ORIGIN: desired.hub_application_origin,
-        GITHUB_APP_ID: desired.github_app_id,
-        GITHUB_CLIENT_ID: desired.github_client_id,
-        GITHUB_APP_INSTALLATION_ID: desired.github_app_installation_id,
-        GITHUB_PROVIDER_REVISION: desired.github_provider_revision,
-      }))
-        if (value !== undefined) environment[key] = String(value)
-      environment.AZURE_KEY_VAULT_SECRET_REFERENCES = JSON.stringify({
-        DATABASE_URL: runtimeDatabase.secret_id,
-        ...Object.fromEntries(
-          Object.entries(desired.runtime_secret_references ?? {}).map(([key, reference]) => [
-            key,
-            reference.secret_id,
-          ]),
-        ),
-      })
+      const environment = { ...deployment.environment }
+      const configuredSettings = {
+        ...desired.runtime_environment_variables,
+        ...namedSettings(desired),
+      }
+      const allowedSettings =
+        action === "sign-in" ? [...editableSettings, "GITHUB_PROVIDER_REVISION"] : editableSettings
+      for (const key of allowedSettings)
+        if (configuredSettings[key] === undefined) delete environment[key]
+        else environment[key] = configuredSettings[key]
+      const configuredReferences = { ...activeReferences }
+      for (const key of changedSecretKeys) {
+        const reference = desired.runtime_secret_references?.[key]
+        if (reference) configuredReferences[key] = reference.secret_id
+        else delete configuredReferences[key]
+      }
+      environment.AZURE_KEY_VAULT_SECRET_REFERENCES = JSON.stringify(configuredReferences)
       const secretScopes = Object.values(desired.runtime_secret_references ?? {})
         .map(
           (reference) =>
@@ -484,10 +564,7 @@ export async function postSetupAzure(
         ),
       )
       if (
-        typeof value !== "string" ||
-        ![deployment.origin, ...deployment.customHosts.map((host) => `https://${host}`)].includes(
-          value,
-        )
+        !isBoundPostOrigin(value, deployment)
       )
         throw new Error("The existing secret-backed public origin is not bound to this Hub.")
       publicOrigin = value
@@ -537,7 +614,8 @@ export async function postSetupAzure(
   } catch (error) {
     if (changesStarted) {
       const summary = `Post-setup stopped; secrets or runtime changes may be partial, and Hub may remain stopped. ${desiredSaved ? "Desired inputs and their private backup were saved; rerun the same post-setup action to replan." : "Previous inputs were retained; rerun after reviewing the failed step. Named shared secrets already created will be reused."} No rollback, database setup, image rebuild, or lock breaking was attempted. If Azure created a grant not recorded in state, reconcile that exact resource before retrying.${bootstrapFile ? ` Bootstrap secret retained privately at ${bootstrapFile}.` : ""}`
-      ui.notice?.("error", summary)
+      if (ui.recoveryNotice) ui.recoveryNotice(summary)
+      else ui.notice?.("error", summary)
       if (error instanceof PostSetupExit) throw new PostSetupExit(summary)
     }
     throw error
