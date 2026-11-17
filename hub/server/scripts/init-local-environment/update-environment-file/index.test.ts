@@ -24,4 +24,33 @@ describe("updateEnvironmentFile", () => {
     expect(result.content).toBe(original)
     expect(result.changes).toEqual([{ key: "HUB_BOOTSTRAP_SECRET", outcome: "kept" }])
   })
+
+  it.each([
+    "HUB_BOOTSTRAP_SECRET = existing\n",
+    "export HUB_BOOTSTRAP_SECRET=existing\n",
+    "HUB_BOOTSTRAP_SECRET: existing\n",
+    'HUB_BOOTSTRAP_SECRET="existing" # kept\n',
+  ])("keeps a value dotenv reads from %j", (original) => {
+    const result = updateEnvironmentFile(original, { HUB_BOOTSTRAP_SECRET: "replacement" })
+
+    expect(result.content).toBe(original)
+    expect(result.changes).toEqual([{ key: "HUB_BOOTSTRAP_SECRET", outcome: "kept" }])
+  })
+
+  it.each([
+    ["HUB_BOOTSTRAP_SECRET=\"\" # unset\n", "HUB_BOOTSTRAP_SECRET=new\n"],
+    ["HUB_BOOTSTRAP_SECRET=old\nexport HUB_BOOTSTRAP_SECRET = \n", "HUB_BOOTSTRAP_SECRET=old\nHUB_BOOTSTRAP_SECRET=new\n"],
+  ])("fills the empty assignment dotenv reads last in %j", (original, expected) => {
+    const result = updateEnvironmentFile(original, { HUB_BOOTSTRAP_SECRET: "new" })
+
+    expect(result.content).toBe(expected)
+  })
+
+  it("does not treat a longer key as the configured key", () => {
+    const result = updateEnvironmentFile("HUB_BOOTSTRAP_SECRET_OLD=existing\n", {
+      HUB_BOOTSTRAP_SECRET: "new",
+    })
+
+    expect(result.content).toBe("HUB_BOOTSTRAP_SECRET_OLD=existing\nHUB_BOOTSTRAP_SECRET=new\n")
+  })
 })
