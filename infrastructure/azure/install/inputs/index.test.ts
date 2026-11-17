@@ -161,6 +161,68 @@ describe("readInstallationInputs()", () => {
   })
 
   it.each([
+    { source: "a named App ID", appId: { github_app_id: "123456" }, environment: {} },
+    { source: "a generic App ID", appId: {}, environment: { GITHUB_APP_ID: "123456" } },
+  ])("accepts a Copilot-only App private key with $source", async ({ appId, environment }) => {
+    const { config, inputs, reference } = boundaryInputs()
+    const settings = {
+      ...appId,
+      runtime_environment_variables: {
+        ...environment,
+        REPLICA_COPILOT_AUTHENTICATION: "github-app-installation",
+        REPLICA_COPILOT_GITHUB_INSTALLATION_ID: "7890123",
+      },
+      runtime_secret_references: {
+        GITHUB_APP_PRIVATE_KEY_BASE64: reference(6, 24, "private"),
+      },
+    }
+    vi.mocked(readPrivateFile).mockResolvedValue(JSON.stringify({ ...inputs, ...settings }))
+
+    await expect(readInstallationInputs("synthetic-installation", config)).resolves.toEqual(settings)
+  })
+
+  it.each([
+    { setting: "no App ID", environment: {}, secret: undefined },
+    {
+      setting: "a sign-in client ID",
+      environment: { GITHUB_APP_ID: "123456", GITHUB_CLIENT_ID: "Iv23liExampleClient" },
+      secret: undefined,
+    },
+    {
+      setting: "an installation ID",
+      environment: { GITHUB_APP_ID: "123456", GITHUB_APP_INSTALLATION_ID: "7890123" },
+      secret: undefined,
+    },
+    {
+      setting: "a webhook secret",
+      environment: { GITHUB_APP_ID: "123456" },
+      secret: "GITHUB_WEBHOOK_SECRET",
+    },
+  ])("rejects a Copilot private key with $setting and incomplete App identifiers", async ({
+    environment,
+    secret,
+  }) => {
+    const { config, inputs, reference } = boundaryInputs()
+    vi.mocked(readPrivateFile).mockResolvedValue(
+      JSON.stringify({
+        ...inputs,
+        runtime_environment_variables: {
+          ...environment,
+          REPLICA_COPILOT_AUTHENTICATION: "github-app-installation",
+        },
+        runtime_secret_references: {
+          GITHUB_APP_PRIVATE_KEY_BASE64: reference(6, 24, "private"),
+          ...(secret && { [secret]: reference(6, 24, "webhook") }),
+        },
+      }),
+    )
+
+    await expect(readInstallationInputs("synthetic-installation", config)).rejects.toBeInstanceOf(
+      Error,
+    )
+  })
+
+  it.each([
     {
       named: "hub_application_origin",
       environment: "HUB_APPLICATION_ORIGIN",

@@ -1138,3 +1138,44 @@ run "hub_application_origin_cannot_be_set_twice" {
 
   expect_failures = [var.hub_application_origin]
 }
+
+run "copilot_only_github_app_key_requires_only_the_app_id" {
+  command = plan
+
+  variables {
+    github_app_id = "123456"
+    runtime_environment_variables = {
+      REPLICA_COPILOT_AUTHENTICATION         = "github-app-installation"
+      REPLICA_COPILOT_GITHUB_INSTALLATION_ID = "7890123"
+    }
+    runtime_secret_references = {
+      GITHUB_APP_PRIVATE_KEY_BASE64 = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/github-app-private-key"
+      }
+    }
+  }
+}
+
+run "copilot_github_app_key_with_a_webhook_requires_all_identifiers" {
+  command = plan
+
+  variables {
+    github_app_id = "123456"
+    runtime_environment_variables = {
+      REPLICA_COPILOT_AUTHENTICATION = "github-app-installation"
+    }
+    runtime_secret_references = {
+      GITHUB_APP_PRIVATE_KEY_BASE64 = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/github-app-private-key"
+      }
+      GITHUB_WEBHOOK_SECRET = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/github-webhook-secret"
+      }
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
