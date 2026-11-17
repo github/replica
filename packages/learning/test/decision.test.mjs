@@ -321,9 +321,14 @@ describe("replica-learning decision", () => {
       return (await ok(repo, ["decision", "questions", "--preview", ...by, "--json"])).json()
     }
 
+    const anonymous = await cli(repo, ["decision", "questions", "--json"])
+    assert.equal(anonymous.code, 2)
+    assert.match(anonymous.stderr, /--by github:<login>/)
     const before = await consent()
     assert.equal(before.trainingConsent, false)
     assert.deepEqual(Object.keys(before.questions), [learningId, "most_clearly_broken", "severity"])
+    const attributed = (await ok(repo, ["decision", "questions", ...by, "--json"])).json()
+    assert.deepEqual(attributed.questions, before.questions)
     const refused = await cli(repo, ["export", "--purpose", "training", ...by])
     assert.equal(refused.code, 1)
     assert.match(refused.stderr, /purpose_not_granted/)

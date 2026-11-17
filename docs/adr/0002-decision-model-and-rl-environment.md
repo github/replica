@@ -46,7 +46,7 @@ flowchart LR
 
 ### The questions come from accepted learnings
 
-`replica-learning decision questions` turns the accepted learnings into the questions the model answers about each screenshot:
+`replica-learning decision questions --by github:<login>` turns the accepted learnings into the questions the model answers about each screenshot. The command requires the person reading this customer-specific text; `--preview` avoids recording a use.
 
 - For each learning, one yes-or-no question asks whether the page follows that learning in every screenshot. Each question is keyed by the learning's ID, so every answer names what it judges.
 - One choice question asks which learning the page breaks most clearly, or none.

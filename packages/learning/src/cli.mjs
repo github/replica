@@ -81,7 +81,7 @@ Use
 
 Decision model
   decision models                 Base models suggested for checking screenshots
-  decision questions [--limit <n>] [--preview --by <id>]
+  decision questions --by <id> [--limit <n>] [--preview]
                                   The typed questions a decision model answers about a
                                   page: one yes-or-no question per accepted learning
   decision taskset --export <file> --builds <file> --out <dir> [--brand-sheet <image>]
@@ -1133,13 +1133,13 @@ const QUESTION_BUDGET = 1_000_000
 
 async function decisionQuestions(session) {
   const preview = session.values.preview === true
-  if (preview && !session.values.by)
-    throw new UsageError("Name the person who previews the questions with --by github:<login>.")
+  if (!session.values.by)
+    throw new UsageError("Name the person who reads the questions with --by github:<login>.")
   // Tasksets ask about up to MAX_QUESTION_LEARNINGS learnings, so the default shows them all.
   const limit = positive(session.values.limit, "--limit", MAX_QUESTION_LEARNINGS)
   if (limit > MAX_QUESTION_LEARNINGS)
     throw new UsageError(`--limit must be at most ${MAX_QUESTION_LEARNINGS}.`)
-  const principal = preview ? person(session) : actor(session)
+  const principal = person(session)
   const { store } = await open(session)
   const { memories } = await store.recall(context(session, principal), {
     limit,
