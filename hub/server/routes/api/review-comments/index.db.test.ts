@@ -435,9 +435,17 @@ describe("review comments API", () => {
       expect(deleted.comments[0]).toMatchObject({
         id: root.id,
         body: null,
-        editedAt: null,
+        editedAt: edited.comments[0]?.editedAt,
       })
       expect(deleted.comments[0]?.deletedAt).not.toBeNull()
+      const stored = await prisma.reviewComment.findUniqueOrThrow({
+        where: { publicId: root.id },
+        select: { body: true, editedAt: true },
+      })
+      expect(stored).toEqual({
+        body: "Edited by the author",
+        editedAt: new Date(edited.comments[0]!.editedAt!),
+      })
     })
   })
 

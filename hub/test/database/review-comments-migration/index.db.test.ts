@@ -149,13 +149,13 @@ describe("review comments migration", () => {
           ).rejects.toMatchObject({ code: "23505" })
           await database.query(
             `UPDATE review_comments
-             SET body = NULL, edited_at = NULL, deleted_at = clock_timestamp()
+             SET deleted_at = clock_timestamp()
              WHERE id = $1`,
             [replyId],
           )
           const deleted = await database.query<{
             public_id: number
-            body: string | null
+            body: string
             deleted_at: Date | null
           }>(
             `SELECT public_id, body, deleted_at
@@ -164,7 +164,7 @@ describe("review comments migration", () => {
           )
           expect(deleted.rows).toHaveLength(1)
           expect(Number.isInteger(deleted.rows[0]?.public_id)).toBe(true)
-          expect(deleted.rows[0]?.body).toBeNull()
+          expect(deleted.rows[0]?.body).toBe("Reply text")
           expect(deleted.rows[0]?.deleted_at).toBeInstanceOf(Date)
         } finally {
           await database.end()

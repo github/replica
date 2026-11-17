@@ -84,7 +84,7 @@ Builds retain the author's provider, issuer, and provider user ID independently 
 
 Builds created before commit metadata was stored retain `NULL` for unknown values during the upgrade. A later detail API must represent missing values rather than inventing them. This migration does not import Rails records or map their integer IDs.
 
-Review threads bind one non-removed repository, one reviewable prototype, and one successful Build. The root and replies keep stable Hub user UUIDs plus presentation snapshots. Soft deletion clears only the body and retains identity and deletion time. Resolution events are immutable and uniquely ordered by their thread activity sequence, so resolve, reopen, and resolved-again transitions remain distinguishable for product reads and learning snapshots.
+Review threads bind one non-removed repository, one reviewable prototype, and one successful Build. The root and replies keep stable Hub user UUIDs plus presentation snapshots. Soft deletion records when the author deleted a message but retains its source body; product reads and learning snapshots replace that body with `null`. Resolution events are immutable and uniquely ordered by their thread activity sequence, so resolve, reopen, and resolved-again transitions remain distinguishable for product reads and learning snapshots.
 
 PostgreSQL `CHECK` expressions accept `NULL` unless the expression explicitly rejects it. Write nullable-branch checks so every invalid `NULL` combination evaluates to false. Design indexes from the real equality, range, ordering, and partial predicates used by lock, restore, and lookup queries.
 

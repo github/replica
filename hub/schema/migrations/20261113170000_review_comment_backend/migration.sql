@@ -26,7 +26,7 @@ CREATE TABLE "review_comments" (
     "public_id" SERIAL NOT NULL,
     "author_login" VARCHAR(200) NOT NULL,
     "author_name" VARCHAR(200),
-    "body" TEXT,
+    "body" TEXT NOT NULL,
     "edited_at" TIMESTAMPTZ(3),
     "deleted_at" TIMESTAMPTZ(3),
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -88,16 +88,11 @@ ALTER TABLE "review_comments" ADD CONSTRAINT "review_comments_root_not_self_chec
 CHECK ("root_id" IS NULL OR "root_id" <> "id");
 ALTER TABLE "review_comments" ADD CONSTRAINT "review_comments_body_check"
 CHECK (
-    CASE
-        WHEN "deleted_at" IS NULL THEN
-            "body" IS NOT NULL
-            AND octet_length(btrim("body")) > 0
-            AND octet_length("body") <= 10000
-        ELSE "body" IS NULL
-    END
+    octet_length(btrim("body")) > 0
+    AND octet_length("body") <= 10000
 );
 ALTER TABLE "review_comments" ADD CONSTRAINT "review_comments_edit_state_check"
-CHECK ("edited_at" IS NULL OR ("deleted_at" IS NULL AND "edited_at" >= "created_at"));
+CHECK ("edited_at" IS NULL OR "edited_at" >= "created_at");
 ALTER TABLE "review_comments" ADD CONSTRAINT "review_comments_deletion_time_check"
 CHECK ("deleted_at" IS NULL OR "deleted_at" >= "created_at");
 ALTER TABLE "review_thread_resolution_events"

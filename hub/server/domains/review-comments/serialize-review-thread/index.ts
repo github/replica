@@ -9,7 +9,7 @@ export function serializeReviewThread(thread: StoredReviewThread): ReviewThread 
     id: comment.publicId,
     storageId: comment.id,
     rootId: comment.rootId === null ? null : storedRoot.publicId,
-    body: comment.body,
+    body: comment.deletedAt ? null : comment.body,
     author: {
       userId: comment.authorId,
       login: comment.authorLogin,

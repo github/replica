@@ -15,7 +15,7 @@ model ReviewComment {
   publicId    Int       @unique @default(autoincrement()) @map("public_id")
   authorLogin String    @map("author_login") @db.VarChar(200)
   authorName  String?   @map("author_name") @db.VarChar(200)
-  body        String?
+  body        String
   editedAt    DateTime? @map("edited_at") @db.Timestamptz(3)
   deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
 

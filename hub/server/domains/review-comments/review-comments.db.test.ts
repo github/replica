@@ -303,7 +303,7 @@ describe("review comments", () => {
     })
   })
 
-  it("permanently clears deleted text while retaining comment identity and position", async () => {
+  it("hides soft-deleted text while retaining the source body and edit history", async () => {
     const repository = await createRepository()
     const { prototype, build } = await createReviewablePrototype(
       repository.id,
@@ -329,6 +329,16 @@ describe("review comments", () => {
     const reply = replied.replies[0]
     if (!reply) throw new Error("Expected a reply")
 
+    const edited = await service.editComment({
+      repositoryId: repository.id,
+      prototypeId: prototype.id,
+      commentId: reply.id,
+      body: "Edited source text.",
+      actor: author,
+    })
+    const editedAt = edited.replies[0]?.editedAt
+    expect(editedAt).toBeInstanceOf(Date)
+
     const deleted = await service.deleteComment({
       repositoryId: repository.id,
       prototypeId: prototype.id,
@@ -340,9 +350,18 @@ describe("review comments", () => {
       id: reply.id,
       rootId: thread.root.id,
       body: null,
-      editedAt: null,
+      editedAt,
     })
     expect(deletedReply?.deletedAt).toBeInstanceOf(Date)
+    const stored = await prisma.reviewComment.findUniqueOrThrow({
+      where: { publicId: reply.id },
+      select: { body: true, editedAt: true, deletedAt: true },
+    })
+    expect(stored).toEqual({
+      body: "Edited source text.",
+      editedAt,
+      deletedAt: deletedReply?.deletedAt,
+    })
     await expect(
       service.editComment({
         repositoryId: repository.id,
@@ -357,6 +376,7 @@ describe("review comments", () => {
     expect(snapshot.threads[0]?.replies[0]).toMatchObject({
       id: reply.id,
       body: null,
+      editedAt,
       deletedAt: deletedReply?.deletedAt,
     })
   })
