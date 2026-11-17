@@ -471,6 +471,7 @@ export async function postSetupAzure(
         ui: recoveryUI,
         signal,
         findUntracked: existingRoleAssignment(context.azure, config.azure.subscriptionId),
+        requireUntrackedCheck: true,
         validatePlan: (value) => {
           validatePostPlan(value, {
             appId: deployment.appId,

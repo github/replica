@@ -87,6 +87,7 @@ async function scenario({
   beforeApply,
   validatePlan,
   findUntracked,
+  requireUntrackedCheck,
   extraEnv,
   signal,
   rootSuffix = "",
@@ -104,6 +105,7 @@ async function scenario({
   beforeApply?(): Promise<void>
   validatePlan?(value: unknown): void
   findUntracked?: Parameters<typeof terraformModule>[0]["findUntracked"]
+  requireUntrackedCheck?: boolean
   extraEnv?: Record<string, string>
   signal?: AbortSignal
   rootSuffix?: string
@@ -179,6 +181,7 @@ async function scenario({
     beforeApply,
     validatePlan,
     findUntracked,
+    requireUntrackedCheck,
     signal,
   })
   return { module, run, calls, events, ui, directory, dataDirectory, secret }
@@ -1183,6 +1186,36 @@ describe("Terraform module", () => {
 
       expect(test.events).toEqual(["plan", "show", "apply", "state", "plan", "show"])
       expect(test.ui.status).toHaveBeenCalledWith(expect.stringContaining("Could not check"))
+    })
+
+    it.each([
+      { phase: "initial plan", retry: false },
+      { phase: "fresh retry plan", retry: true },
+    ])("requires a conclusive lookup before approving the $phase", async ({ retry }) => {
+      const findUntracked = vi.fn(async (): Promise<string | undefined> => {
+        throw new Error("Synthetic Azure lookup failure")
+      })
+      if (retry) findUntracked.mockResolvedValueOnce(undefined)
+      const beforeApply = vi.fn(async () => {})
+      const test = await scenario({
+        requireUntrackedCheck: true,
+        findUntracked,
+        beforeApply,
+        resourceChanges: [grantChange(["create"])],
+        ...(retry && {
+          failure: "apply" as const,
+          failureCount: 1,
+          error: new CommandExecutionError("Synthetic apply failure", false, 1),
+        }),
+      })
+      test.ui.select = vi.fn<Select>(async () => "retry")
+
+      await expect(test.module.apply("installation.tfvars")).rejects.toThrow(/plan blocked/i)
+
+      expect(findUntracked).toHaveBeenCalledTimes(retry ? 2 : 1)
+      expect(test.ui.confirm).toHaveBeenCalledTimes(retry ? 1 : 0)
+      expect(beforeApply).toHaveBeenCalledTimes(retry ? 1 : 0)
+      expect(test.calls.filter(({ args }) => args[1] === "apply")).toHaveLength(retry ? 1 : 0)
     })
 
     it("prints self-contained import commands that keep paths with spaces and apostrophes intact", async () => {
