@@ -1,6 +1,6 @@
 # Hub development
 
-Use the Hub devcontainer for Node.js and its pinned PostgreSQL version, or run Node.js locally with PostgreSQL 17 or newer. Hub can expose GitHub, Microsoft Entra, or both sign-in choices and reusable administrator enrollment when the shared settings and at least one provider profile are configured. See [Deployment](deployment.md) for the production runtime.
+Use the Hub devcontainer for API, frontend, database, and worker development, or run Node.js locally with PostgreSQL 17 or newer. Local Build execution requires a Linux host with Docker because the runner starts a nested, constrained Build container; the devcontainer does not expose a Docker daemon. Hub can expose GitHub, Microsoft Entra, or both sign-in choices and reusable administrator enrollment when the shared settings and at least one provider profile are configured. See [Deployment](deployment.md) for the production runtime.
 
 ## Frontend without a backend
 
@@ -89,7 +89,7 @@ When you sign in through GitHub or Entra instead, find your `userId` in the brow
 NODE_ENV=development npm run db:seed:index -- USER_UUID
 ```
 
-The command requires an active Hub member and a local development database. It accepts a loopback PostgreSQL URL or the exact devcontainer database URL, and rejects query parameters that override the host, address, port, or service. It creates a sample repository and six prototypes with fixed IDs. Five show each Build state, and one has no Build. Their commit and author values are synthetic. Running it again restores those samples, including metadata added after an upgrade. All active Hub members can currently read every non-removed repository. Hosted repository discovery and per-repository authorization are not connected. The local repository flow below is limited to one development machine and one local identity.
+The command requires an active Hub member and a local development database. It accepts a loopback PostgreSQL URL or the exact devcontainer database URL, and rejects query parameters that override the host, address, port, or service. It creates a sample repository and six prototypes with fixed IDs. Five show each Build state, and one has no Build. Their commit and author values are synthetic. When artifact storage is configured, the seed also writes its sample preview files; without storage it remains database-only and omits those artifact records. Running it again restores those samples, including metadata added after an upgrade. All active Hub members can currently read every non-removed repository. Hosted repository discovery and per-repository authorization are not connected. The local repository flow below is limited to one development machine and one local identity.
 
 ## Build local prototype repositories
 
@@ -100,7 +100,7 @@ ARTIFACT_STORAGE_PROVIDER=filesystem
 ARTIFACT_STORAGE_DIRECTORY=/absolute/service-owned/artifacts
 ```
 
-The filesystem provider requires the Linux protections described in [Artifact storage](artifact-storage.md), so use the devcontainer or another supported Linux environment. Docker must be available to the Hub process because the shared action builds each prototype in its pinned Node container. `npm run dev:api` and every `local:*` command run the same safe preparation first. Run one scan and Build synchronization directly:
+The filesystem provider requires the Linux protections described in [Artifact storage](artifact-storage.md). Run local Builds on a Linux host where Docker is available to the Hub process and the configured temporary Build root is visible to that Docker daemon. The standard devcontainer remains suitable for the API, frontend, database, and workers, but it does not expose a Docker daemon for nested Build execution. `npm run dev:api` and every `local:*` command run the same safe preparation first. Run one scan and Build synchronization directly:
 
 ```sh
 npm run local:builds

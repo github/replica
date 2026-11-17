@@ -4,7 +4,7 @@ import { resolve } from "node:path"
 import { z } from "zod"
 
 import { createConfiguredArtifactStorage } from "../../domains/artifacts/create-configured-artifact-storage/index.ts"
-import { localDeveloperIdentity } from "../../domains/authentication/create-local-user-authentication-adapter/constants.ts"
+import { localDeveloperIdentity } from "../../utils/local-developer-identity/index.ts"
 import { isLocalDevelopmentDatabase } from "../../utils/is-local-development-database/index.ts"
 import {
   seedPrototypeIndexData,
@@ -32,18 +32,22 @@ if (!userId) {
 }
 
 try {
-  process.env.ARTIFACT_STORAGE_PROVIDER ??= "filesystem"
-  process.env.ARTIFACT_STORAGE_DIRECTORY ??= resolve("storage/artifacts")
-  await mkdir(process.env.ARTIFACT_STORAGE_DIRECTORY, { recursive: true })
-  const storage = await createConfiguredArtifactStorage(process.env)
-  for (const artifact of seededBuildArtifacts) {
-    const bytes = seededBuildArtifactBytes.get(artifact.storageKey)!
-    const result = await storage.write(artifact.storageKey, bytes)
-    if (result.status !== "ok" && result.status !== "already-exists") {
-      throw new Error(`Could not seed artifact ${artifact.path}: ${result.status}.`)
+  const provider = process.env.ARTIFACT_STORAGE_PROVIDER
+  if (provider === "filesystem") {
+    process.env.ARTIFACT_STORAGE_DIRECTORY ??= resolve("storage/artifacts")
+    await mkdir(process.env.ARTIFACT_STORAGE_DIRECTORY, { recursive: true })
+  }
+  if (provider) {
+    const storage = await createConfiguredArtifactStorage(process.env)
+    for (const artifact of seededBuildArtifacts) {
+      const bytes = seededBuildArtifactBytes.get(artifact.storageKey)!
+      const result = await storage.write(artifact.storageKey, bytes)
+      if (result.status !== "ok" && result.status !== "already-exists") {
+        throw new Error(`Could not seed artifact ${artifact.path}: ${result.status}.`)
+      }
     }
   }
-  await seedPrototypeIndexData(prisma, userId)
+  await seedPrototypeIndexData(prisma, userId, Boolean(provider))
   console.log("The local prototype index seed is ready.")
 } finally {
   await prisma.$disconnect()

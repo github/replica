@@ -1,5 +1,5 @@
 import type { AuthenticationProviderAdapter } from "../types.ts"
-import { localDeveloperIdentity } from "./constants.ts"
+import { localDeveloperIdentity } from "../../../utils/local-developer-identity/index.ts"
 
 /**
  * Signs in one fixed local developer without contacting an outside provider. Sending the

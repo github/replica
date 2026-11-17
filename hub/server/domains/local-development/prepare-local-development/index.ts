@@ -31,7 +31,26 @@ export async function prepareLocalDevelopment(
   dependencies: PrepareLocalDevelopmentDependencies = {},
 ): Promise<PrepareLocalDevelopmentResult | undefined> {
   if (!configuration.enabled) return
-  const runCommand = dependencies.runCommand ?? runProcessCommand
+  const execute = dependencies.runCommand ?? runProcessCommand
+  async function runCommand(input: Parameters<typeof execute>[0]) {
+    try {
+      await execute(input)
+    } catch {
+      const stage =
+        input.command === "npm"
+          ? "install dependencies"
+          : input.arguments.includes("install") && input.arguments.includes("chromium")
+            ? "install Chromium"
+            : input.command === "bash"
+              ? "create the Starter repository"
+              : input.command === "git"
+                ? "create the Starter history"
+                : "prepare the Starter repository"
+      throw new LocalDevelopmentPreparationError(
+        `Could not ${stage}. Check the local preparation prerequisites and try again.`,
+      )
+    }
+  }
 
   await mkdir(configuration.root, { recursive: true })
   if ((await lstat(configuration.root)).isSymbolicLink()) {

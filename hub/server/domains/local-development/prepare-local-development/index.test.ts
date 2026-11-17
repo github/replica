@@ -121,6 +121,17 @@ describe("prepareLocalDevelopment()", () => {
     expect(fixture.browserDirectories).toEqual([fixture.configuration.buildActionDirectory])
   })
 
+  it("reports a safe preparation stage without subprocess output", async () => {
+    const fixture = testConfiguration()
+    const runCommand = vi
+      .fn()
+      .mockRejectedValue(new Error("npm failed: https://token@example.com/private-package"))
+
+    await expect(prepareLocalDevelopment(fixture.configuration, { runCommand })).rejects.toThrow(
+      "Could not install dependencies. Check the local preparation prerequisites and try again.",
+    )
+  })
+
   it("preserves edited files, commits, and branches on later starts", async () => {
     const fixture = testConfiguration()
     await prepareLocalDevelopment(fixture.configuration, { runCommand: fixture.runTestCommand })

@@ -114,6 +114,8 @@ const data: PrototypesShowPageData = {
   reviewComments: {
     bodyMaximumBytes: 10_000,
     copy: reviewCommentsCopy,
+    supportsReactions: true,
+    supportsReadState: true,
   },
   selectedBuild: {
     frameTitle: "prototype/welcome, build 1 preview",

@@ -7,9 +7,13 @@ import { resolve } from "node:path"
 process.env.NODE_ENV ??= "development"
 process.env.HUB_LOCAL_MODE = "true"
 process.env.HUB_LOCAL_SIGN_IN = "true"
-process.env.ARTIFACT_STORAGE_PROVIDER ??= "filesystem"
-process.env.ARTIFACT_STORAGE_DIRECTORY ??= resolve("storage/artifacts")
+if (!process.env.ARTIFACT_STORAGE_PROVIDER && process.platform === "linux") {
+  process.env.ARTIFACT_STORAGE_PROVIDER = "filesystem"
+}
+if (process.env.ARTIFACT_STORAGE_PROVIDER === "filesystem") {
+  process.env.ARTIFACT_STORAGE_DIRECTORY ??= resolve("storage/artifacts")
+  await mkdir(process.env.ARTIFACT_STORAGE_DIRECTORY, { recursive: true })
+}
 process.env.HUB_PREVIEW_ORIGIN ??= "http://preview.localhost:3001"
-await mkdir(process.env.ARTIFACT_STORAGE_DIRECTORY, { recursive: true })
 
 await import("../../index.ts")

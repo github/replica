@@ -94,7 +94,19 @@ export async function findPrototypeDetail(
           startedAt: true,
           finishedAt: true,
           failureSummary: true,
-          artifacts: { select: { path: true, storageKey: true } },
+          artifacts: {
+            where: {
+              path: {
+                in: [
+                  "dist/index.html",
+                  "dist/controls.replica.json",
+                  "screenshots/desktop.png",
+                  "screenshots/narrow.png",
+                ],
+              },
+            },
+            select: { path: true, storageKey: true },
+          },
         },
       })
       builds.sort((first, second) => {

@@ -186,7 +186,11 @@ export const seededBuildArtifacts = [
   },
 ] as const
 
-export async function seedPrototypeIndexData(prisma: PrismaClient, userId: string) {
+export async function seedPrototypeIndexData(
+  prisma: PrismaClient,
+  userId: string,
+  includeArtifacts = true,
+) {
   await prisma.$transaction(async (database) => {
     const membership = await database.membership.findUnique({ where: { userId } })
     if (membership?.lifecycle !== "ACTIVE") throw new Error("Choose an active Hub member.")
@@ -231,6 +235,8 @@ export async function seedPrototypeIndexData(prisma: PrismaClient, userId: strin
     await database.buildArtifact.deleteMany({
       where: { buildId: "00000000-0000-4000-8000-000000000302" },
     })
-    await database.buildArtifact.createMany({ data: [...seededBuildArtifacts] })
+    if (includeArtifacts) {
+      await database.buildArtifact.createMany({ data: [...seededBuildArtifacts] })
+    }
   })
 }
