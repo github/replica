@@ -1616,6 +1616,66 @@ it("regenerates and revalidates the plan on an explicit apply retry, blocking ne
   expect(test.ui.complete).not.toHaveBeenCalled()
 })
 
+it("blocks an untracked secret read grant before applying or stopping Hub", async () => {
+  const test = await scenario()
+  const reference = test.inputs.runtime_secret_references!.HUB_BOOTSTRAP_SECRET!
+  const scope = `${reference.key_vault_id}/secrets/hub-bootstrap-secret`
+  const principalId = "00000000-0000-0000-0000-000000000003"
+  const grantId = `${scope}/providers/Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000004`
+  const environment = structuredClone(test.state.environment)
+  const execute = test.run.getMockImplementation()!
+  test.run.mockImplementation(async (executable, args, options) => {
+    if (executable === "az" && args.slice(0, 3).join(" ") === "role assignment list") {
+      expect(args[args.indexOf("--scope") + 1]).toBe(scope)
+      return JSON.stringify([
+        { id: grantId, scope, principalId, roleDefinitionName: "Key Vault Secrets User" },
+      ])
+    }
+    const output = await execute(executable, args, options)
+    if (executable !== "terraform" || args[1] !== "show" || !args[3]) return output
+    const plan = JSON.parse(output)
+    plan.resource_changes.push({
+      address: `azurerm_role_assignment.runtime_secrets[${JSON.stringify(scope)}]`,
+      mode: "managed",
+      type: "azurerm_role_assignment",
+      change: {
+        actions: ["create"],
+        before: null,
+        after: {
+          scope,
+          principal_id: principalId,
+          role_definition_name: "Key Vault Secrets User",
+        },
+      },
+    })
+    return JSON.stringify(plan)
+  })
+
+  await expect(
+    postSetupAzure(test.target, {
+      action: "sign-in",
+      run: test.run,
+      ui: test.ui,
+      request: test.request,
+    }),
+  ).rejects.toThrow(/plan blocked.*already has resources/i)
+
+  expect(test.plans).toHaveLength(1)
+  expect(test.plans[0]!.changed).toBe(true)
+  expect(test.applies).toBe(0)
+  expect(test.state.active).toBe(true)
+  expect(test.state.environment).toEqual(environment)
+  expect(
+    test.run.mock.calls.some(
+      ([executable, args]) =>
+        (executable === "terraform" && ["import", "state"].includes(args[1]!)) ||
+        (executable === "az" &&
+          (args.slice(0, 3).join(" ") === "containerapp revision deactivate" ||
+            (args[0] === "role" && ["create", "delete"].includes(args[2]!)))),
+    ),
+  ).toBe(false)
+})
+
 it.each(["lease conflict", "active setup job", "cancellation during target lookup"] as const)(
   "stops before runtime or secret mutation for %s",
   async (blocker) => {

@@ -437,6 +437,14 @@ export async function configurePostSetup(
         throw new Error(
           "The stored GitHub provider revision cannot advance further. Review the provider separately before changing origin.",
         )
+      if (
+        !(await ui.confirm(
+          "Changing this origin advances the GitHub provider revision and will enable GitHub sign-in, even if it is currently disabled. Explicitly allow GitHub sign-in to be enabled?",
+        ))
+      )
+        throw new PostSetupExit(
+          "GitHub sign-in was not authorized to be enabled. Desired inputs and secret versions were preserved.",
+        )
       next.github_provider_revision = current + 1
       delete next.runtime_environment_variables.GITHUB_PROVIDER_REVISION
       ui.notice?.(

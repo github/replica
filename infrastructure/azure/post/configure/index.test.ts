@@ -19,6 +19,7 @@ import * as privateFiles from "../../../installer/private-files/index.ts"
 import type { RunCommand, WizardUI } from "../../../installer/types.ts"
 import { installationNames } from "../../install/settings.ts"
 import type { AzureInstallation } from "../../install/types.ts"
+import { PostSetupExit } from "../errors.ts"
 import { postSetupProgress } from "../progress/index.ts"
 import type { PostDeployment, PostInputs } from "../types.ts"
 import { configurePostSetup } from "./index.ts"
@@ -140,6 +141,7 @@ async function scenario() {
     verifications: 0,
     enabledChecks: 0,
     enabledPrompt: "",
+    allowReactivation: vi.fn(async (_message: string) => true),
   }
   const operatorUI = new Proxy(ui, {
     get(target, key, receiver) {
@@ -153,6 +155,8 @@ async function scenario() {
         }
       if (key === "confirm")
         return async (message: string) => {
+          if (/Explicitly allow GitHub sign-in to be enabled/i.test(message))
+            return provider.allowReactivation(message)
           if (/last stored GitHub provider revision/i.test(message)) {
             provider.confirmations++
             return provider.confirmed
@@ -375,6 +379,59 @@ it("rechecks the stored GitHub revision when changing origin with only a saved r
   expect(test.uploads).toEqual([])
 })
 
+it("preserves inputs and creates no secrets when enabling a disabled provider through an origin change is declined", async () => {
+  const test = await scenario()
+  await configuredGithub(test)
+  test.provider.enabled = false
+  test.provider.allowReactivation.mockResolvedValue(false)
+  delete test.inputs.runtime_secret_references!.HUB_BOOTSTRAP_SECRET
+  test.secrets.delete("hub-bootstrap-secret")
+  const original = structuredClone(test.inputs)
+  vi.mocked(test.ui.text).mockImplementation(async (label) =>
+    label.startsWith("Public HTTPS origin") ? "https://bound.example.com" : "2",
+  )
+
+  await expect(
+    configurePostSetup(test.context, "sign-in", test.inputs, test.deployment),
+  ).rejects.toBeInstanceOf(PostSetupExit)
+
+  expect(test.provider.allowReactivation).toHaveBeenCalledOnce()
+  expect(test.inputs).toEqual(original)
+  expect(test.uploads).toEqual([])
+  expect(test.secrets.has("hub-bootstrap-secret")).toBe(false)
+})
+
+it("advances a disabled provider only after fresh origin-change consent, including on resume", async () => {
+  const test = await scenario()
+  await configuredGithub(test)
+  test.provider.enabled = false
+  test.provider.allowReactivation.mockImplementation(async (message) => {
+    expect(test.provider.verifications).toBe(1)
+    expect(message).toMatch(/will enable GitHub sign-in.*even if.*disabled/i)
+    return true
+  })
+  const original = structuredClone(test.inputs)
+  vi.mocked(test.ui.text).mockImplementation(async (label) =>
+    label.startsWith("Public HTTPS origin") ? "https://bound.example.com" : "2",
+  )
+
+  const desired = await configurePostSetup(test.context, "sign-in", test.inputs, test.deployment)
+
+  expect(test.provider.allowReactivation).toHaveBeenCalledOnce()
+  expect(desired.hub_application_origin).toBe("https://bound.example.com")
+  expect(desired.github_provider_revision).toBe(5)
+  test.provider.allowReactivation.mockResolvedValue(false)
+
+  await expect(
+    configurePostSetup(test.context, "sign-in", test.inputs, test.deployment),
+  ).rejects.toBeInstanceOf(PostSetupExit)
+
+  expect(test.provider.allowReactivation).toHaveBeenCalledTimes(2)
+  expect(test.provider.verifications).toBe(2)
+  expect(test.inputs).toEqual(original)
+  expect(test.uploads).toEqual([])
+})
+
 it("rejects an overlong bound origin before accepting a corrected origin", async () => {
   const test = await scenario()
   const host = "a".repeat(493)
@@ -536,6 +593,7 @@ it("resolves an uncertain bootstrap write before creating another shared secret"
 
 it("keeps the GitHub provider revision when the existing origin is supplied through Key Vault", async () => {
   const test = await scenario()
+  test.provider.enabled = false
   test.inputs.runtime_secret_references!.HUB_APPLICATION_ORIGIN =
     test.reference("hub-application-origin")
   test.secrets.set("hub-application-origin", test.deployment.origin)
@@ -549,6 +607,7 @@ it("keeps the GitHub provider revision when the existing origin is supplied thro
   expect(desired.hub_application_origin).toBeUndefined()
   expect(desired.runtime_secret_references).toEqual(test.inputs.runtime_secret_references)
   expect(test.uploads).toEqual([])
+  expect(test.provider.allowReactivation).not.toHaveBeenCalled()
 })
 
 it("creates absent shared secrets through private files and reuses their pinned references and bootstrap recovery file on rerun", async () => {

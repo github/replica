@@ -9,6 +9,7 @@ import { promptForRecovery } from "../../installer/prompt-for-recovery/index.ts"
 import { describeCommand } from "../../installer/command/describe/index.ts"
 import type { PostSetupAction, RunCommand, WizardUI } from "../../installer/types.ts"
 import { terraformModule } from "../../terraform/index.ts"
+import { existingRoleAssignment } from "../install/existing-role-assignment/index.ts"
 import { acquireLease } from "../install/lease/index.ts"
 import { readInstallationInputs } from "../install/inputs/index.ts"
 import { installationNames } from "../install/settings.ts"
@@ -469,6 +470,7 @@ export async function postSetupAzure(
         run: execute,
         ui: recoveryUI,
         signal,
+        findUntracked: existingRoleAssignment(context.azure, config.azure.subscriptionId),
         validatePlan: (value) => {
           validatePostPlan(value, {
             appId: deployment.appId,
