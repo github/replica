@@ -12,6 +12,8 @@ export const githubAppRequirements = {
     { key: "installation_target", label: "Installation target" },
     { key: "repository", label: "Repository" },
     { key: "member", label: "Member" },
+    { key: "membership", label: "Membership" },
     { key: "organization", label: "Organization" },
+    { key: "team", label: "Team" },
   ],
 } as const

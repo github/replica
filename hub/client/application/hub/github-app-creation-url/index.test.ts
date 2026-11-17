@@ -24,7 +24,9 @@ describe("githubAppCreationUrl()", () => {
     expect(url.searchParams.has("workflows")).toBe(false)
     expect(url.searchParams.getAll("events[]")).toContain("installation_target")
     expect(url.searchParams.get("members")).toBe("read")
-    expect(url.searchParams.getAll("events[]")).toContain("organization")
+    expect(url.searchParams.getAll("events[]")).toEqual(
+      expect.arrayContaining(["organization", "membership", "team"]),
+    )
   })
 
   it.each(["http://localhost:3000", "http://127.0.0.1:3000", "http://[::1]:3000"])(

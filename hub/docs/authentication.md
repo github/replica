@@ -42,18 +42,27 @@ Administrators can sync the installation's repositories by testing the connectio
 
 With `GITHUB_WEBHOOK_SECRET` set, `POST /api/github/webhooks` accepts signed deliveries for Hub's installation only and ignores the rest:
 
-| Event                     | Action                     | Hub response                                                          |
-| ------------------------- | -------------------------- | --------------------------------------------------------------------- |
-| `installation`            | `deleted`, `suspend`       | Disconnects every repository and removes its grants.                 |
-| `installation`            | `unsuspend`                | Syncs repositories.                                                   |
-| `installation_repositories` | `added`                  | Syncs repositories.                                                   |
-| `installation_repositories` | `removed`                | Disconnects the removed repositories and removes their grants.       |
-| `member`                  | `removed`                  | Removes the user's grant for that repository.                         |
-| `organization`            | `member_removed`           | Removes all of the user's grants.                                     |
+| Event                       | Action                    | Hub response                                                    |
+| --------------------------- | ------------------------- | --------------------------------------------------------------- |
+| `installation`              | `deleted`, `suspend`      | Disconnects every repository and removes its grants.            |
+| `installation`              | `unsuspend`               | Syncs repositories.                                             |
+| `installation_repositories` | `added`                  | Syncs repositories.                                             |
+| `installation_repositories` | `removed`                | Disconnects the removed repositories and removes their grants. |
+| `member`                    | `removed`                 | Removes the user's grant for that repository.                    |
+| `organization`              | `member_removed`          | Removes all of the user's grants.                                |
+| `membership`                | `removed` from a team     | Invalidates all of the user's cached grants.                     |
+| `team`                      | `removed_from_repository` | Invalidates every cached grant for that repository.              |
+| `team`                      | `deleted`                 | Invalidates every cached GitHub grant.                            |
 
-The `organization` event requires the App's Organization Members read permission and, for an existing installation, the organization owner's approval of the permission update. The setup page lists every required permission and event.
+The `organization`, `membership`, and `team` events require the App's Organization Members read permission. Enable and subscribe the App webhook to those events; an existing installation also needs the organization owner's approval of any permission update. The setup page lists every required permission and event. GitHub delivers events available to the installed App and its selected repositories; personal installations do not have organization teams. Hub does not rely on team deletion producing separate events for every affected user or repository.
 
-When removing grants leaves a membership with none, Hub revokes its GitHub provider-owned assignment, ends its open sessions, and audits each termination in the same transaction. Independent Entra and administrator assignments are retained; users can sign in through their remaining authority. The hourly job reconciles installation membership, not individual user permissions. Changes GitHub does not announce, such as team access changes, take effect at the user's next sign-in or session expiry.
+Team events do not identify every affected access path, and Hub does not retain the user token or the team that supplied a grant. Removing one team path therefore invalidates cached grants rather than asserting that direct or other team access is gone. For a team membership removal, Hub invalidates all of that user's cached grants. For a team-to-repository removal, Hub invalidates that repository's grants for every GitHub user with a cached grant, including users with independent access. If a membership event has no member or a team-to-repository event has no repository or repository ID, Hub invalidates all cached GitHub grants, as it does for a team deletion. These events do not disconnect repositories or delete their prototypes, Builds, or reviews. The next GitHub sign-in refreshes effective access, including direct and other team paths. Events that add team access do not grant access in Hub; users must sign in with GitHub to load it.
+
+When removing grants leaves a membership with none, Hub revokes its GitHub provider-owned assignment, ends its open sessions from all providers, and audits each termination in the same transaction. Independent Entra and administrator assignments are retained; users can sign in through their remaining authority. This means a team deletion or an event missing its target can sign out many unaffected users. Affected users who still have another cached repository keep their sessions but must sign in again to restore invalidated grants.
+
+Hub retains the delivery ID, event name, and a digest of the body for each processed grant-removing event, not the webhook payload. The receipt and access changes commit together. Redelivery with the same ID, event, and body has no further effect, even after a later sign-in; reuse for a different grant-removing event or body fails. These receipts are retained with the database to prevent old redeliveries from invalidating refreshed access. GitHub signs the body, not the delivery ID or event headers, so protect webhook traffic and payloads; a copied signed body with a new ID is not detected as a duplicate, and an altered event header may change how Hub handles it.
+
+GitHub considers a delivery failed if Hub takes longer than 10 seconds to respond and does not automatically redeliver failed deliveries. Recognized removal actions with invalid required fields fail without recording a receipt. Monitor App webhook deliveries and [redeliver failures](https://docs.github.com/en/webhooks/testing-and-troubleshooting-webhooks/redelivering-webhooks) after resolving their cause. A timed-out transaction may still have committed; the delivery receipt makes a same-ID retry safe. Until a missed event is processed, a GitHub session can retain stale access. The hourly job reconciles the installation's repository list, not individual user permissions; changes GitHub does not deliver take effect at the user's next sign-in or session expiry.
 
 Repository access updates use a database fence and the selected provider revision to reject stale sign-ins, webhook events, and installation snapshots. Older Hub binaries do not enforce this fence. Stop all old API and worker processes before running the migration and starting this version; do not use a rolling upgrade.
 

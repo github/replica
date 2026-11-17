@@ -1,7 +1,10 @@
+import { createHash } from "node:crypto"
 import type { RequestHandler } from "express"
 
 import { verifyWebhookSignature } from "../../../../../integrations/github/verify-webhook-signature/index.ts"
 import type { GitHubWebhookRouteDependencies } from "../types.ts"
+
+const deliveryId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function readInstallationId(payload: unknown) {
   if (typeof payload !== "object" || payload === null) return undefined
@@ -37,7 +40,15 @@ export function post(dependencies: GitHubWebhookRouteDependencies): RequestHandl
         response.status(202).end()
         return
       }
-      const handled = await dependencies.handleEvent(event, payload)
+      const id = request.get("x-github-delivery")
+      if (!id || !deliveryId.test(id)) {
+        response.status(400).json({ error: "invalid_delivery" })
+        return
+      }
+      const handled = await dependencies.handleEvent(event, payload, {
+        id,
+        payloadDigest: createHash("sha256").update(body).digest("hex"),
+      })
       response.status(handled ? 204 : 202).end()
     } catch (error) {
       next(error)

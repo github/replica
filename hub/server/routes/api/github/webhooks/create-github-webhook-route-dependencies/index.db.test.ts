@@ -1,4 +1,4 @@
-import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto"
+import { createHash, generateKeyPairSync, randomBytes, randomUUID } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
 import { admitAuthenticationProof } from "../../../../../domains/admission/admit-authentication-proof"
@@ -172,6 +172,19 @@ function webhook() {
   })
 }
 
+function deliveryFor(payload: unknown) {
+  const body = JSON.stringify(payload)
+  if (body === undefined) throw new Error("Webhook payload must be JSON.")
+  return {
+    id: randomUUID(),
+    payloadDigest: createHash("sha256").update(body).digest("hex"),
+  }
+}
+
+function handleWebhook(name: string, payload: unknown) {
+  return webhook().handleEvent(name, payload, deliveryFor(payload))
+}
+
 async function repositoryGrants(membershipId: string) {
   const grants = await prisma.repositoryAccessGrant.findMany({
     orderBy: { repositoryId: "asc" },
@@ -187,7 +200,753 @@ function restore(digest: string) {
   })
 }
 
+async function signInWithGitHubAccess(input: {
+  member: Awaited<ReturnType<typeof createMember>>
+  repositories: Awaited<ReturnType<typeof createRepository>>[]
+  revisionId: string
+  subject: number
+}) {
+  const { changedAt } = await prisma.gitHubRepositoryAccessState.findUniqueOrThrow({
+    select: { changedAt: true },
+    where: { key: "global" },
+  })
+  if (!changedAt) throw new Error("Missing GitHub access change time.")
+  const observedAt = new Date(changedAt.getTime() + 1)
+  const callbackUri = "https://hub.example.test/api/auth/github/callback"
+  const request = vi
+    .fn<typeof globalThis.fetch>()
+    .mockResolvedValueOnce(Response.json({ access_token: "test-user-token", token_type: "bearer" }))
+    .mockResolvedValueOnce(Response.json({ id: input.subject }))
+    .mockResolvedValueOnce(
+      Response.json({
+        total_count: input.repositories.length,
+        repositories: input.repositories.map((repository) => ({
+          default_branch: repository.defaultBranch,
+          full_name: repository.nameWithOwner,
+          id: Number(repository.githubRepositoryId),
+        })),
+      }),
+    )
+  const adapter = createGitHubUserAuthenticationAdapter({
+    clientSecret: "test-client-secret",
+    fetch: request,
+    installationId: 700,
+    publicConfiguration: {
+      authorizationEndpoint: "https://github.com/login/oauth/authorize",
+      callbackUri,
+      clientId: "test-client-id",
+      tokenEndpoint: "https://github.com/login/oauth/access_token",
+      userEndpoint: "https://api.github.com/user",
+    },
+  })
+  const evidence = await adapter.completeAuthenticationProof({
+    callbackUri,
+    code: "test-code",
+    codeVerifier: "test-verifier",
+    nonce: "unused-by-github",
+  })
+  if (!evidence.providerAssignment || !evidence.repositoryAccess) {
+    throw new Error("Missing GitHub repository access evidence.")
+  }
+  const attempt = await prisma.authorizationAttempt.create({
+    data: {
+      browserBindingDigest: randomBytes(32).toString("hex"),
+      codeVerifierCiphertext: "encrypted-verifier",
+      consumedAt: observedAt,
+      createdAt: observedAt,
+      expiresAt: new Date("2099-01-01T00:00:00Z"),
+      nonceCiphertext: "encrypted-nonce",
+      providerRevisionId: input.revisionId,
+      purpose: "SIGN_IN",
+      sessionRevocationRevision: 0,
+      stateDigest: randomBytes(32).toString("hex"),
+      updatedAt: observedAt,
+    },
+  })
+  const sessionDigest = randomBytes(32).toString("hex")
+  const admitted = await admitAuthenticationProof(
+    {
+      proof: {
+        authorizationAttemptId: attempt.id,
+        externalIdentityId: input.member.externalIdentityId,
+      },
+      providerAssignment: {
+        ...evidence.providerAssignment,
+        providerRevisionId: input.revisionId,
+      },
+      providerKey: "github",
+      repositoryAccess: evidence.repositoryAccess,
+      requiresProviderAssignmentEvidence: true,
+      sessionDigest,
+      sessionId: randomUUID(),
+      sessionLifetimeSeconds: 3_600,
+    },
+    {
+      createId: randomUUID,
+      getBootstrapSecretDigest: () => "f".repeat(64),
+      runTransaction: (operation) => runAdmissionTransaction(prisma, operation),
+      writeAudit: (event) => createSecurityAudit(prisma, event),
+    },
+  )
+  return { admitted, request, sessionDigest }
+}
+
 describe("createGitHubWebhookRouteDependencies()", () => {
+  it("invalidates only the removed team member and retains independent authority", async () => {
+    const githubRevisionId = await createProvider("github")
+    const entraRevisionId = await createProvider("entra")
+    const first = await createRepository(1001, "first")
+    const second = await createRepository(1002, "second")
+    const affected = await createMember({
+      administrator: true,
+      provider: "github",
+      providerRevisionId: githubRevisionId,
+      repositoryIds: [first.id, second.id],
+      subject: "101",
+    })
+    const other = await createMember({
+      provider: "github",
+      providerRevisionId: githubRevisionId,
+      repositoryIds: [first.id, second.id],
+      subject: "102",
+    })
+    const entraIdentity = await prisma.externalIdentity.create({
+      data: {
+        issuer: "https://login.microsoftonline.com/11111111-1111-4111-8111-111111111111/v2.0",
+        provider: "entra",
+        subject: "entra-subject",
+        userId: affected.userId,
+      },
+    })
+    const entraAssignment = await prisma.membershipAssignment.create({
+      data: {
+        externalIdentityId: entraIdentity.id,
+        membershipId: affected.membershipId,
+        providerAssignmentSubject: randomUUID(),
+        providerRevisionId: entraRevisionId,
+        role: "MEMBER",
+        source: "AUTHENTICATION_PROVIDER",
+      },
+    })
+    const entraSession = await prisma.hubSession.create({
+      data: {
+        digest: randomBytes(32).toString("hex"),
+        expiresAt: new Date("2099-01-01T00:00:00Z"),
+        externalIdentityId: entraIdentity.id,
+        membershipId: affected.membershipId,
+        providerRevisionId: entraRevisionId,
+        revocationRevision: 0,
+      },
+    })
+    const payload = {
+      action: "removed",
+      installation: { id: 700 },
+      member: { id: 101 },
+      scope: "team",
+      team: { id: 77 },
+    }
+
+    await expect(handleWebhook("membership", payload)).resolves.toBe(true)
+
+    expect(await repositoryGrants(affected.membershipId)).toEqual([])
+    expect(await repositoryGrants(other.membershipId)).toEqual([first.id, second.id].sort())
+    await expect(
+      prisma.membershipAssignment.findUniqueOrThrow({
+        select: { lifecycle: true },
+        where: { id: affected.providerAssignmentId },
+      }),
+    ).resolves.toEqual({ lifecycle: "REVOKED" })
+    for (const id of [affected.administratorAssignmentId!, entraAssignment.id]) {
+      await expect(
+        prisma.membershipAssignment.findUniqueOrThrow({
+          select: { lifecycle: true },
+          where: { id },
+        }),
+      ).resolves.toEqual({ lifecycle: "ACTIVE" })
+    }
+    await expect(
+      prisma.membership.findUniqueOrThrow({
+        select: { lifecycle: true },
+        where: { id: affected.membershipId },
+      }),
+    ).resolves.toEqual({ lifecycle: "ACTIVE" })
+    for (const session of [...affected.sessions, entraSession]) {
+      await expect(
+        prisma.hubSession.findUniqueOrThrow({
+          select: { endedAt: true },
+          where: { id: session.id },
+        }),
+      ).resolves.toHaveProperty("endedAt", expect.any(Date))
+      await expect(restore(session.digest)).resolves.toBeNull()
+    }
+    await expect(restore(other.sessions[0]!.digest)).resolves.toMatchObject({
+      membershipId: other.membershipId,
+      role: "MEMBER",
+    })
+    const replacementSession = await prisma.hubSession.create({
+      data: {
+        digest: randomBytes(32).toString("hex"),
+        expiresAt: new Date("2099-01-01T00:00:00Z"),
+        externalIdentityId: entraIdentity.id,
+        membershipId: affected.membershipId,
+        providerRevisionId: entraRevisionId,
+        revocationRevision: 0,
+      },
+    })
+    await expect(restore(replacementSession.digest)).resolves.toMatchObject({
+      membershipId: affected.membershipId,
+      role: "ADMINISTRATOR",
+    })
+    const audits = await prisma.securityAudit.findMany({
+      select: { action: true, targetId: true },
+      where: { action: { in: ["provider.membership.assignment.revoked", "session.ended"] } },
+    })
+    expect(audits).toHaveLength(3)
+    expect(audits).toEqual(
+      expect.arrayContaining([
+        {
+          action: "provider.membership.assignment.revoked",
+          targetId: affected.providerAssignmentId,
+        },
+        ...[...affected.sessions, entraSession].map((session) => ({
+          action: "session.ended",
+          targetId: session.id,
+        })),
+      ]),
+    )
+
+    await expect(handleWebhook("membership", { ...payload, member: { id: 999 } })).resolves.toBe(
+      true,
+    )
+    expect(await repositoryGrants(other.membershipId)).toEqual([first.id, second.id].sort())
+    await expect(restore(other.sessions[0]!.digest)).resolves.not.toBeNull()
+  })
+
+  it("invalidates a team's repository without disconnecting it and admits refreshed effective access", async () => {
+    const revisionId = await createProvider("github")
+    const removed = await createRepository(1001, "team-repository")
+    const retained = await createRepository(1002, "other-repository")
+    const history = await createHistory(removed.id)
+    const affected = await createMember({
+      provider: "github",
+      providerRevisionId: revisionId,
+      repositoryIds: [removed.id],
+      subject: "101",
+    })
+    const partiallyAffected = await createMember({
+      provider: "github",
+      providerRevisionId: revisionId,
+      repositoryIds: [removed.id, retained.id],
+      subject: "102",
+    })
+    const unaffected = await createMember({
+      provider: "github",
+      providerRevisionId: revisionId,
+      repositoryIds: [retained.id],
+      subject: "103",
+    })
+
+    await expect(
+      handleWebhook("team", {
+        action: "removed_from_repository",
+        installation: { id: 700 },
+        repository: { id: 1001 },
+        team: { id: 77 },
+      }),
+    ).resolves.toBe(true)
+
+    await expect(
+      prisma.repository.findUniqueOrThrow({
+        include: { prototypes: { include: { builds: true } } },
+        where: { id: removed.id },
+      }),
+    ).resolves.toMatchObject({
+      removedAt: null,
+      prototypes: [
+        {
+          currentBuildId: history.buildId,
+          id: history.prototypeId,
+          builds: [{ id: history.buildId }],
+        },
+      ],
+    })
+    expect(await repositoryGrants(affected.membershipId)).toEqual([])
+    expect(await repositoryGrants(partiallyAffected.membershipId)).toEqual([retained.id])
+    expect(await repositoryGrants(unaffected.membershipId)).toEqual([retained.id])
+    await expect(restore(affected.sessions[0]!.digest)).resolves.toBeNull()
+    for (const member of [partiallyAffected, unaffected]) {
+      await expect(
+        prisma.membershipAssignment.findUniqueOrThrow({
+          select: { lifecycle: true },
+          where: { id: member.providerAssignmentId },
+        }),
+      ).resolves.toEqual({ lifecycle: "ACTIVE" })
+      await expect(restore(member.sessions[0]!.digest)).resolves.toMatchObject({
+        membershipId: member.membershipId,
+      })
+    }
+
+    const refreshed = await signInWithGitHubAccess({
+      member: affected,
+      repositories: [removed],
+      revisionId,
+      subject: 101,
+    })
+    expect(refreshed.request.mock.calls[2]?.[0]).toContain("/user/installations/700/repositories")
+    expect(refreshed.admitted).toMatchObject({ role: "MEMBER" })
+    expect(await repositoryGrants(affected.membershipId)).toEqual([removed.id])
+    await expect(restore(refreshed.sessionDigest)).resolves.toMatchObject({
+      membershipId: affected.membershipId,
+      role: "MEMBER",
+    })
+    await expect(restore(affected.sessions[0]!.digest)).resolves.toBeNull()
+    expect(await repositoryGrants(partiallyAffected.membershipId)).toEqual([retained.id])
+  })
+
+  it.each([
+    {
+      event: "membership",
+      name: "a null team member",
+      payload: {
+        action: "removed",
+        member: null,
+        scope: "team",
+        team: { id: 77 },
+      },
+    },
+    {
+      event: "team",
+      name: "an omitted repository",
+      payload: { action: "removed_from_repository", team: { id: 77 } },
+    },
+    {
+      event: "team",
+      name: "a null repository",
+      payload: { action: "removed_from_repository", repository: null, team: { id: 77 } },
+    },
+    {
+      event: "team",
+      name: "an omitted repository ID",
+      payload: { action: "removed_from_repository", repository: {}, team: { id: 77 } },
+    },
+    {
+      event: "team",
+      name: "a null repository ID",
+      payload: { action: "removed_from_repository", repository: { id: null }, team: { id: 77 } },
+    },
+    {
+      event: "team",
+      name: "a deleted team with no member or repository list",
+      payload: { action: "deleted", team: { id: 77 } },
+    },
+  ])(
+    "conservatively invalidates all cached GitHub grants for $name",
+    async ({ event, payload }) => {
+      const githubRevisionId = await createProvider("github")
+      const entraRevisionId = await createProvider("entra")
+      const first = await createRepository(1001, "first")
+      const second = await createRepository(1002, "second")
+      const members = await Promise.all(
+        [first, second].map((repository, index) =>
+          createMember({
+            provider: "github",
+            providerRevisionId: githubRevisionId,
+            repositoryIds: [repository.id],
+            subject: String(101 + index),
+          }),
+        ),
+      )
+      const entraMember = await createMember({
+        provider: "entra",
+        providerRevisionId: entraRevisionId,
+        repositoryIds: [],
+        subject: "entra-subject",
+      })
+
+      await expect(handleWebhook(event, { ...payload, installation: { id: 700 } })).resolves.toBe(
+        true,
+      )
+
+      for (const member of members) {
+        expect(await repositoryGrants(member.membershipId)).toEqual([])
+        await expect(
+          prisma.membershipAssignment.findUniqueOrThrow({
+            select: { lifecycle: true },
+            where: { id: member.providerAssignmentId },
+          }),
+        ).resolves.toEqual({ lifecycle: "REVOKED" })
+        await expect(restore(member.sessions[0]!.digest)).resolves.toBeNull()
+      }
+      for (const repository of [first, second]) {
+        await expect(
+          prisma.repository.findUniqueOrThrow({
+            select: { removedAt: true },
+            where: { id: repository.id },
+          }),
+        ).resolves.toEqual({ removedAt: null })
+      }
+      await expect(restore(entraMember.sessions[0]!.digest)).resolves.toMatchObject({
+        membershipId: entraMember.membershipId,
+        role: "MEMBER",
+      })
+    },
+  )
+
+  it("rejects malformed security actions without changing access or recording a receipt", async () => {
+    const revisionId = await createProvider("github")
+    const repository = await createRepository(1001, "retained")
+    const member = await createMember({
+      provider: "github",
+      providerRevisionId: revisionId,
+      repositoryIds: [repository.id],
+      subject: "101",
+    })
+    const fence = await prisma.gitHubRepositoryAccessState.findUniqueOrThrow({
+      select: { changedAt: true, revision: true },
+      where: { key: "global" },
+    })
+    const malformed = [
+      { event: "membership", payload: { action: "removed", member: { id: 101 }, scope: "team" } },
+      {
+        event: "membership",
+        payload: { action: "removed", member: { id: 101 }, scope: "team", team: { id: 0 } },
+      },
+      {
+        event: "membership",
+        payload: { action: "removed", scope: "team", team: { id: 77 } },
+      },
+      {
+        event: "membership",
+        payload: { action: "removed", member: { id: "101" }, scope: "team", team: { id: 77 } },
+      },
+      { event: "team", payload: { action: "removed_from_repository", repository: { id: 1001 } } },
+      {
+        event: "team",
+        payload: {
+          action: "removed_from_repository",
+          repository: { id: 1001 },
+          team: { id: "77" },
+        },
+      },
+      {
+        event: "team",
+        payload: {
+          action: "removed_from_repository",
+          repository: { id: "1001" },
+          team: { id: 77 },
+        },
+      },
+      { event: "team", payload: { action: "deleted" } },
+      { event: "team", payload: { action: "deleted", team: { id: null } } },
+      {
+        event: "member",
+        payload: { action: "removed", member: { id: 101 }, repository: { id: "1001" } },
+      },
+      {
+        event: "organization",
+        payload: { action: "member_removed", membership: { user: { id: "101" } } },
+      },
+      { event: "installation_repositories", payload: { action: "removed" } },
+    ]
+
+    for (const { event, payload } of malformed) {
+      await expect(handleWebhook(event, payload)).rejects.toThrow()
+    }
+    expect(await repositoryGrants(member.membershipId)).toEqual([repository.id])
+    await expect(restore(member.sessions[0]!.digest)).resolves.toMatchObject({
+      membershipId: member.membershipId,
+    })
+    await expect(
+      prisma.gitHubRepositoryAccessState.findUniqueOrThrow({
+        select: { changedAt: true, revision: true },
+        where: { key: "global" },
+      }),
+    ).resolves.toEqual(fence)
+    expect(await prisma.gitHubWebhookDelivery.count()).toBe(0)
+  })
+
+  it("ignores membership additions and unrelated team actions without recording a receipt", async () => {
+    const revisionId = await createProvider("github")
+    const repository = await createRepository(1001, "retained")
+    const member = await createMember({
+      provider: "github",
+      providerRevisionId: revisionId,
+      repositoryIds: [repository.id],
+      subject: "101",
+    })
+    const fence = await prisma.gitHubRepositoryAccessState.findUniqueOrThrow({
+      select: { changedAt: true, revision: true },
+      where: { key: "global" },
+    })
+    for (const [event, payload] of [
+      ["membership", { action: "added", member: { id: 101 }, scope: "team", team: { id: 77 } }],
+      [
+        "membership",
+        { action: "removed", member: { id: 101 }, scope: "organization", team: { id: 77 } },
+      ],
+      ["team", { action: "created", team: { id: 77 } }],
+    ] as const) {
+      await expect(handleWebhook(event, payload)).resolves.toBe(false)
+    }
+    expect(await repositoryGrants(member.membershipId)).toEqual([repository.id])
+    await expect(restore(member.sessions[0]!.digest)).resolves.not.toBeNull()
+    await expect(
+      prisma.gitHubRepositoryAccessState.findUniqueOrThrow({
+        select: { changedAt: true, revision: true },
+        where: { key: "global" },
+      }),
+    ).resolves.toEqual(fence)
+    expect(await prisma.gitHubWebhookDelivery.count()).toBe(0)
+  })
+
+  it.each([
+    {
+      disconnect: false,
+      event: "member",
+      name: "collaborator removal",
+      payload: {
+        action: "removed",
+        installation: { id: 700 },
+        member: { id: 101 },
+        repository: { id: 1001 },
+      },
+    },
+    {
+      disconnect: false,
+      event: "organization",
+      name: "organization removal",
+      payload: {
+        action: "member_removed",
+        installation: { id: 700 },
+        membership: { user: { id: 101 } },
+      },
+    },
+    {
+      disconnect: true,
+      event: "installation_repositories",
+      name: "installation repository removal",
+      payload: {
+        action: "removed",
+        installation: { id: 700 },
+        repositories_removed: [{ id: 1001 }],
+      },
+    },
+    {
+      disconnect: true,
+      event: "installation",
+      name: "installation suspension",
+      payload: { action: "suspend", installation: { id: 700 } },
+    },
+    {
+      disconnect: true,
+      event: "installation",
+      name: "installation deletion",
+      payload: { action: "deleted", installation: { id: 700 } },
+    },
+    {
+      disconnect: false,
+      event: "membership",
+      name: "team member removal",
+      payload: {
+        action: "removed",
+        installation: { id: 700 },
+        member: { id: 101 },
+        scope: "team",
+        team: { id: 77 },
+      },
+    },
+    {
+      disconnect: false,
+      event: "team",
+      name: "team repository removal",
+      payload: {
+        action: "removed_from_repository",
+        installation: { id: 700 },
+        repository: { id: 1001 },
+        team: { id: 77 },
+      },
+    },
+    {
+      disconnect: false,
+      event: "team",
+      name: "team deletion",
+      payload: { action: "deleted", installation: { id: 700 }, team: { id: 77 } },
+    },
+  ])(
+    "applies a replay of $name once but applies the same body under a new delivery ID",
+    async ({ disconnect, event, payload }) => {
+      const revisionId = await createProvider("github")
+      const repository = await createRepository(1001, "accessible")
+      const member = await createMember({
+        provider: "github",
+        providerRevisionId: revisionId,
+        repositoryIds: [repository.id],
+        subject: "101",
+      })
+      const dependencies = webhook()
+      const delivery = deliveryFor(payload)
+
+      await expect(dependencies.handleEvent(event, payload, delivery)).resolves.toBe(true)
+      expect(await repositoryGrants(member.membershipId)).toEqual([])
+      if (disconnect) {
+        await syncGitHubInstallationRepositories(prisma, () =>
+          Promise.resolve([installationRepository(repository)]),
+        )
+      }
+      const refreshed = await signInWithGitHubAccess({
+        member,
+        repositories: [repository],
+        revisionId,
+        subject: 101,
+      })
+      expect(await repositoryGrants(member.membershipId)).toEqual([repository.id])
+      const fence = await prisma.gitHubRepositoryAccessState.findUniqueOrThrow({
+        select: { changedAt: true, revision: true },
+        where: { key: "global" },
+      })
+      const auditCount = await prisma.securityAudit.count()
+
+      await expect(dependencies.handleEvent(event, payload, delivery)).resolves.toBe(true)
+      expect(await repositoryGrants(member.membershipId)).toEqual([repository.id])
+      await expect(restore(refreshed.sessionDigest)).resolves.toMatchObject({
+        membershipId: member.membershipId,
+      })
+      await expect(
+        prisma.gitHubRepositoryAccessState.findUniqueOrThrow({
+          select: { changedAt: true, revision: true },
+          where: { key: "global" },
+        }),
+      ).resolves.toEqual(fence)
+      expect(await prisma.securityAudit.count()).toBe(auditCount)
+
+      const nextDelivery = { ...delivery, id: randomUUID() }
+      await expect(dependencies.handleEvent(event, payload, nextDelivery)).resolves.toBe(true)
+      expect(await repositoryGrants(member.membershipId)).toEqual([])
+      await expect(restore(refreshed.sessionDigest)).resolves.toBeNull()
+      await expect(
+        prisma.gitHubRepositoryAccessState.findUniqueOrThrow({
+          select: { revision: true },
+          where: { key: "global" },
+        }),
+      ).resolves.toEqual({ revision: fence.revision + 1 })
+      await expect(
+        prisma.gitHubWebhookDelivery.findMany({
+          orderBy: { id: "asc" },
+          select: { event: true, id: true, payloadDigest: true },
+          where: { id: { in: [delivery.id, nextDelivery.id] } },
+        }),
+      ).resolves.toEqual(
+        [delivery.id, nextDelivery.id].sort().map((id) => ({
+          event,
+          id,
+          payloadDigest: delivery.payloadDigest,
+        })),
+      )
+    },
+  )
+
+  it("rejects a reused delivery ID with a different event or raw-body digest", async () => {
+    const revisionId = await createProvider("github")
+    const repository = await createRepository(1001, "accessible")
+    const member = await createMember({
+      provider: "github",
+      providerRevisionId: revisionId,
+      repositoryIds: [repository.id],
+      subject: "101",
+    })
+    const payload = {
+      action: "removed",
+      installation: { id: 700 },
+      member: { id: 101 },
+      repository: { id: 1001 },
+      scope: "team",
+      team: { id: 77 },
+    }
+    const delivery = deliveryFor(payload)
+    const dependencies = webhook()
+    await dependencies.handleEvent("membership", payload, delivery)
+    const refreshed = await signInWithGitHubAccess({
+      member,
+      repositories: [repository],
+      revisionId,
+      subject: 101,
+    })
+    const fence = await prisma.gitHubRepositoryAccessState.findUniqueOrThrow({
+      select: { changedAt: true, revision: true },
+      where: { key: "global" },
+    })
+    const changedPayload = { ...payload, member: { id: 102 } }
+    const conflictingBody = { ...deliveryFor(changedPayload), id: delivery.id }
+
+    await expect(
+      dependencies.handleEvent("membership", changedPayload, conflictingBody),
+    ).rejects.toThrow()
+    await expect(dependencies.handleEvent("member", payload, delivery)).rejects.toThrow()
+
+    expect(await repositoryGrants(member.membershipId)).toEqual([repository.id])
+    await expect(restore(refreshed.sessionDigest)).resolves.toMatchObject({
+      membershipId: member.membershipId,
+    })
+    await expect(
+      prisma.gitHubRepositoryAccessState.findUniqueOrThrow({
+        select: { changedAt: true, revision: true },
+        where: { key: "global" },
+      }),
+    ).resolves.toEqual(fence)
+    await expect(
+      prisma.gitHubWebhookDelivery.findUniqueOrThrow({
+        select: { event: true, payloadDigest: true },
+        where: { id: delivery.id },
+      }),
+    ).resolves.toEqual({ event: "membership", payloadDigest: delivery.payloadDigest })
+  })
+
+  it("applies simultaneous copies of one delivery only once", async () => {
+    const revisionId = await createProvider("github")
+    const repository = await createRepository(1001, "accessible")
+    const member = await createMember({
+      provider: "github",
+      providerRevisionId: revisionId,
+      repositoryIds: [repository.id],
+      subject: "101",
+    })
+    const payload = {
+      action: "removed",
+      installation: { id: 700 },
+      member: { id: 101 },
+      scope: "team",
+      team: { id: 77 },
+    }
+    const delivery = deliveryFor(payload)
+    const dependencies = webhook()
+    const fence = await prisma.gitHubRepositoryAccessState.findUniqueOrThrow({
+      select: { revision: true },
+      where: { key: "global" },
+    })
+
+    await expect(
+      Promise.all([
+        dependencies.handleEvent("membership", payload, delivery),
+        dependencies.handleEvent("membership", payload, delivery),
+      ]),
+    ).resolves.toEqual([true, true])
+
+    expect(await repositoryGrants(member.membershipId)).toEqual([])
+    await expect(restore(member.sessions[0]!.digest)).resolves.toBeNull()
+    await expect(
+      prisma.gitHubRepositoryAccessState.findUniqueOrThrow({
+        select: { revision: true },
+        where: { key: "global" },
+      }),
+    ).resolves.toEqual({ revision: fence.revision + 1 })
+    expect(await prisma.gitHubWebhookDelivery.count()).toBe(1)
+    expect(
+      await prisma.securityAudit.count({
+        where: { action: { in: ["provider.membership.assignment.revoked", "session.ended"] } },
+      }),
+    ).toBe(2)
+  })
+
   it("removes only the collaborator's grant while another connected grant keeps the session usable", async () => {
     const revisionId = await createProvider("github")
     const removed = await createRepository(1001, "removed-access")
@@ -206,7 +965,7 @@ describe("createGitHubWebhookRouteDependencies()", () => {
     })
 
     await expect(
-      webhook().handleEvent("member", {
+      handleWebhook("member", {
         action: "removed",
         installation: { id: 700 },
         member: { id: 101 },
@@ -274,7 +1033,7 @@ describe("createGitHubWebhookRouteDependencies()", () => {
               membership: { user: { id: 101 } },
             }
 
-      await expect(webhook().handleEvent(event, payload)).resolves.toBe(true)
+      await expect(handleWebhook(event, payload)).resolves.toBe(true)
 
       expect(await repositoryGrants(affected.membershipId)).toEqual([])
       expect(await repositoryGrants(other.membershipId)).toEqual([first.id, second.id].sort())
@@ -376,7 +1135,7 @@ describe("createGitHubWebhookRouteDependencies()", () => {
     })
 
     await expect(
-      webhook().handleEvent("installation_repositories", {
+      handleWebhook("installation_repositories", {
         action: "removed",
         installation: { id: 700 },
         repositories_removed: [{ id: 1001 }],
@@ -471,7 +1230,7 @@ describe("createGitHubWebhookRouteDependencies()", () => {
       })
 
       await expect(
-        webhook().handleEvent("installation", { action, installation: { id: 700 } }),
+        handleWebhook("installation", { action, installation: { id: 700 } }),
       ).resolves.toBe(true)
 
       const disconnected = await prisma.repository.findUniqueOrThrow({
@@ -564,71 +1323,147 @@ describe("createGitHubWebhookRouteDependencies()", () => {
       name: "installation suspension",
       payload: { action: "suspend", installation: { id: 700 } },
     },
-  ])("rolls back $name and its session changes when an audit fails", async ({ event, payload }) => {
-    const revisionId = await createProvider("github")
-    const first = await createRepository(1001, "first")
-    const second = await createRepository(1002, "second")
-    const affected = await createMember({
-      provider: "github",
-      providerRevisionId: revisionId,
-      repositoryIds: [first.id],
-      subject: "101",
-    })
-    const other = await createMember({
-      provider: "github",
-      providerRevisionId: revisionId,
-      repositoryIds: [second.id],
-      subject: "102",
-    })
-
-    await withFailingSecurityAudit("session.ended", () =>
-      expect(webhook().handleEvent(event, payload)).rejects.toThrow(),
-    )
-
-    for (const repository of [first, second]) {
-      await expect(
-        prisma.repository.findUniqueOrThrow({
-          select: { removedAt: true },
-          where: { id: repository.id },
-        }),
-      ).resolves.toEqual({ removedAt: null })
-    }
-    for (const [member, repository] of [
-      [affected, first],
-      [other, second],
-    ] as const) {
-      expect(await repositoryGrants(member.membershipId)).toEqual([repository.id])
-      await expect(
-        prisma.membershipAssignment.findUniqueOrThrow({
-          select: { lifecycle: true },
-          where: { id: member.providerAssignmentId },
-        }),
-      ).resolves.toEqual({ lifecycle: "ACTIVE" })
-      await expect(
-        prisma.hubSession.findUniqueOrThrow({
-          select: { endedAt: true },
-          where: { id: member.sessions[0]!.id },
-        }),
-      ).resolves.toEqual({ endedAt: null })
-      await expect(restore(member.sessions[0]!.digest)).resolves.toMatchObject({
-        membershipId: member.membershipId,
-        role: "MEMBER",
+    {
+      event: "membership",
+      name: "team membership removal",
+      payload: {
+        action: "removed",
+        installation: { id: 700 },
+        member: { id: 101 },
+        scope: "team",
+        team: { id: 77 },
+      },
+    },
+    {
+      event: "team",
+      name: "team repository removal",
+      payload: {
+        action: "removed_from_repository",
+        installation: { id: 700 },
+        repository: { id: 1001 },
+        team: { id: 77 },
+      },
+    },
+  ])(
+    "rolls back $name and retries the same delivery after an audit failure",
+    async ({ event, payload }) => {
+      const revisionId = await createProvider("github")
+      const first = await createRepository(1001, "first")
+      const second = await createRepository(1002, "second")
+      const affected = await createMember({
+        provider: "github",
+        providerRevisionId: revisionId,
+        repositoryIds: [first.id],
+        subject: "101",
       })
-    }
-    expect(
-      await prisma.securityAudit.count({
-        where: { action: { in: ["provider.membership.assignment.revoked", "session.ended"] } },
-      }),
-    ).toBe(0)
-  })
+      const other = await createMember({
+        provider: "github",
+        providerRevisionId: revisionId,
+        repositoryIds: [second.id],
+        subject: "102",
+      })
+      const delivery = deliveryFor(payload)
+      const dependencies = webhook()
+      const fence = await prisma.gitHubRepositoryAccessState.findUniqueOrThrow({
+        select: { changedAt: true, revision: true },
+        where: { key: "global" },
+      })
+
+      await withFailingSecurityAudit("session.ended", () =>
+        expect(dependencies.handleEvent(event, payload, delivery)).rejects.toThrow(),
+      )
+
+      for (const repository of [first, second]) {
+        await expect(
+          prisma.repository.findUniqueOrThrow({
+            select: { removedAt: true },
+            where: { id: repository.id },
+          }),
+        ).resolves.toEqual({ removedAt: null })
+      }
+      for (const [member, repository] of [
+        [affected, first],
+        [other, second],
+      ] as const) {
+        expect(await repositoryGrants(member.membershipId)).toEqual([repository.id])
+        await expect(
+          prisma.membershipAssignment.findUniqueOrThrow({
+            select: { lifecycle: true },
+            where: { id: member.providerAssignmentId },
+          }),
+        ).resolves.toEqual({ lifecycle: "ACTIVE" })
+        await expect(
+          prisma.hubSession.findUniqueOrThrow({
+            select: { endedAt: true },
+            where: { id: member.sessions[0]!.id },
+          }),
+        ).resolves.toEqual({ endedAt: null })
+        await expect(restore(member.sessions[0]!.digest)).resolves.toMatchObject({
+          membershipId: member.membershipId,
+          role: "MEMBER",
+        })
+      }
+      expect(
+        await prisma.securityAudit.count({
+          where: { action: { in: ["provider.membership.assignment.revoked", "session.ended"] } },
+        }),
+      ).toBe(0)
+      await expect(
+        prisma.gitHubRepositoryAccessState.findUniqueOrThrow({
+          select: { changedAt: true, revision: true },
+          where: { key: "global" },
+        }),
+      ).resolves.toEqual(fence)
+      await expect(
+        prisma.gitHubWebhookDelivery.findUnique({ where: { id: delivery.id } }),
+      ).resolves.toBeNull()
+
+      await expect(dependencies.handleEvent(event, payload, delivery)).resolves.toBe(true)
+      expect(await repositoryGrants(affected.membershipId)).toEqual([])
+      await expect(restore(affected.sessions[0]!.digest)).resolves.toBeNull()
+      await expect(
+        prisma.gitHubWebhookDelivery.findUniqueOrThrow({
+          select: { event: true, payloadDigest: true },
+          where: { id: delivery.id },
+        }),
+      ).resolves.toEqual({ event, payloadDigest: delivery.payloadDigest })
+    },
+  )
 
   it.each([
-    { disconnect: false, name: "the final collaborator grant", retainAnother: false },
-    { disconnect: false, name: "one of two collaborator grants", retainAnother: true },
-    { disconnect: true, name: "an installation repository", retainAnother: false },
-  ])(
+    {
+      disconnect: false,
+      kind: "collaborator",
+      name: "the final collaborator grant",
+      retainAnother: false,
+    },
+    {
+      disconnect: false,
+      kind: "collaborator",
+      name: "one of two collaborator grants",
+      retainAnother: true,
+    },
+    {
+      disconnect: true,
+      kind: "installation",
+      name: "an installation repository",
+      retainAnother: false,
+    },
+    {
+      disconnect: false,
+      kind: "membership",
+      name: "a removed team member's grants",
+      retainAnother: false,
+    },
+    {
+      disconnect: false,
+      kind: "team",
+      name: "a removed team's repository grant",
+      retainAnother: true,
+    },
+  ] as const)(
     "does not regrant $name from an older in-flight GitHub access snapshot",
-    async ({ disconnect, retainAnother }) => {
+    async ({ disconnect, kind, retainAnother }) => {
       const revisionId = await createProvider("github")
       const removed = await createRepository(1001, "removed")
       const retained = await createRepository(1002, "retained")
@@ -671,20 +1506,45 @@ describe("createGitHubWebhookRouteDependencies()", () => {
         }),
       )
 
-      await expect(
-        disconnect
-          ? webhook().handleEvent("installation_repositories", {
-              action: "removed",
-              installation: { id: 700 },
-              repositories_removed: [{ id: 1001 }],
-            })
-          : webhook().handleEvent("member", {
-              action: "removed",
-              installation: { id: 700 },
-              member: { id: 101 },
-              repository: { id: 1001 },
-            }),
-      ).resolves.toBe(true)
+      const event = {
+        collaborator: {
+          name: "member",
+          payload: {
+            action: "removed",
+            installation: { id: 700 },
+            member: { id: 101 },
+            repository: { id: 1001 },
+          },
+        },
+        installation: {
+          name: "installation_repositories",
+          payload: {
+            action: "removed",
+            installation: { id: 700 },
+            repositories_removed: [{ id: 1001 }],
+          },
+        },
+        membership: {
+          name: "membership",
+          payload: {
+            action: "removed",
+            installation: { id: 700 },
+            member: { id: 101 },
+            scope: "team",
+            team: { id: 77 },
+          },
+        },
+        team: {
+          name: "team",
+          payload: {
+            action: "removed_from_repository",
+            installation: { id: 700 },
+            repository: { id: 1001 },
+            team: { id: 77 },
+          },
+        },
+      }[kind]
+      await expect(handleWebhook(event.name, event.payload)).resolves.toBe(true)
       const newSessionId = randomUUID()
       await expect(
         admitAuthenticationProof(
@@ -869,7 +1729,7 @@ describe("GitHub repository access", () => {
 })
 
 describe("syncGitHubInstallationRepositories()", () => {
-  it("rejects old installation snapshots and webhooks after the selected provider changes", async () => {
+  it("rejects stale provider work without consuming a delivery that the current provider can retry", async () => {
     const revisionId = await createProvider("github")
     const repository = await createRepository(1001, "retained")
     const member = await createMember({
@@ -888,6 +1748,17 @@ describe("syncGitHubInstallationRepositories()", () => {
         revision: 2,
       },
     })
+    const payload = {
+      action: "removed_from_repository",
+      installation: { id: 700 },
+      repository: { id: 1001 },
+      team: { id: 77 },
+    }
+    const delivery = deliveryFor(payload)
+    const fence = await prisma.gitHubRepositoryAccessState.findUniqueOrThrow({
+      select: { changedAt: true, revision: true },
+      where: { key: "global" },
+    })
 
     await expect(
       syncGitHubInstallationRepositories(prisma, async () => {
@@ -899,11 +1770,14 @@ describe("syncGitHubInstallationRepositories()", () => {
       }),
     ).rejects.toThrow("not the selected authentication configuration")
     await expect(
-      webhook().handleEvent("installation", {
+      handleWebhook("installation", {
         action: "deleted",
         installation: { id: 700 },
       }),
     ).rejects.toThrow("not the selected authentication configuration")
+    await expect(webhook().handleEvent("team", payload, delivery)).rejects.toThrow(
+      "not the selected authentication configuration",
+    )
 
     await expect(
       prisma.repository.findUniqueOrThrow({
@@ -924,6 +1798,33 @@ describe("syncGitHubInstallationRepositories()", () => {
         where: { id: member.providerAssignmentId },
       }),
     ).resolves.toEqual({ lifecycle: "ACTIVE" })
+    await expect(
+      prisma.gitHubRepositoryAccessState.findUniqueOrThrow({
+        select: { changedAt: true, revision: true },
+        where: { key: "global" },
+      }),
+    ).resolves.toEqual(fence)
+    await expect(
+      prisma.gitHubWebhookDelivery.findUnique({ where: { id: delivery.id } }),
+    ).resolves.toBeNull()
+
+    const currentDependencies = createGitHubWebhookRouteDependencies({
+      installationId: "700",
+      provider: { configurationDigest: "b".repeat(64), revision: 2 },
+      syncRepositories: () => {
+        throw new Error("Removal events must not sync repositories.")
+      },
+      webhookSecret: "webhook-secret-for-tests",
+    })
+    await expect(currentDependencies.handleEvent("team", payload, delivery)).resolves.toBe(true)
+    expect(await repositoryGrants(member.membershipId)).toEqual([])
+    await expect(restore(member.sessions[0]!.digest)).resolves.toBeNull()
+    await expect(
+      prisma.gitHubWebhookDelivery.findUniqueOrThrow({
+        select: { event: true, payloadDigest: true },
+        where: { id: delivery.id },
+      }),
+    ).resolves.toEqual({ event: "team", payloadDigest: delivery.payloadDigest })
   })
 
   it("disconnects missing repositories without losing history or independent administrator authority", async () => {
@@ -1055,7 +1956,7 @@ describe("syncGitHubInstallationRepositories()", () => {
       .fn<() => Promise<typeof freshSnapshot>>()
       .mockImplementationOnce(async () => {
         await expect(
-          webhook().handleEvent("installation_repositories", {
+          handleWebhook("installation_repositories", {
             action: "removed",
             installation: { id: 700 },
             repositories_removed: [{ id: 1001 }],
@@ -1211,7 +2112,7 @@ describe("syncGitHubInstallationRepositories()", () => {
       repositoryIds: [repository.id],
       subject: "101",
     })
-    await webhook().handleEvent("installation_repositories", {
+    await handleWebhook("installation_repositories", {
       action: "removed",
       installation: { id: 700 },
       repositories_removed: [{ id: 1001 }],
@@ -1219,7 +2120,7 @@ describe("syncGitHubInstallationRepositories()", () => {
     const fetchRepositories = vi
       .fn<() => Promise<ReturnType<typeof installationRepository>[]>>()
       .mockRejectedValueOnce(new Error("listing failed"))
-      .mockResolvedValueOnce([installationRepository(repository)])
+      .mockResolvedValue([installationRepository(repository)])
     const dependencies = createGitHubWebhookRouteDependencies({
       installationId: "700",
       provider: githubProvider,
@@ -1231,10 +2132,11 @@ describe("syncGitHubInstallationRepositories()", () => {
       installation: { id: 700 },
       repositories_added: [{ id: 1001, full_name: repository.nameWithOwner }],
     }
+    const delivery = deliveryFor(added)
 
-    await expect(dependencies.handleEvent("installation_repositories", added)).rejects.toThrow(
-      "listing failed",
-    )
+    await expect(
+      dependencies.handleEvent("installation_repositories", added, delivery),
+    ).rejects.toThrow("listing failed")
     await expect(
       prisma.repository.findUniqueOrThrow({
         select: { removedAt: true },
@@ -1243,9 +2145,17 @@ describe("syncGitHubInstallationRepositories()", () => {
     ).resolves.toHaveProperty("removedAt", expect.any(Date))
     expect(await repositoryGrants(member.membershipId)).toEqual([])
 
-    await expect(dependencies.handleEvent("installation_repositories", added)).resolves.toBe(true)
+    await expect(
+      dependencies.handleEvent("installation_repositories", added, delivery),
+    ).resolves.toBe(true)
+    await expect(
+      dependencies.handleEvent("installation_repositories", added, delivery),
+    ).resolves.toBe(true)
 
-    expect(fetchRepositories).toHaveBeenCalledTimes(2)
+    expect(fetchRepositories).toHaveBeenCalledTimes(3)
+    await expect(
+      prisma.gitHubWebhookDelivery.findUnique({ where: { id: delivery.id } }),
+    ).resolves.toBeNull()
     await expect(
       prisma.repository.findUniqueOrThrow({
         include: { prototypes: { include: { builds: true } } },
@@ -1280,7 +2190,7 @@ describe("syncGitHubInstallationRepositories()", () => {
       repositoryIds: [repository.id],
       subject: "101",
     })
-    await webhook().handleEvent("installation_repositories", {
+    await handleWebhook("installation_repositories", {
       action: "removed",
       installation: { id: 700 },
       repositories_removed: [{ id: 1001 }],
