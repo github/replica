@@ -26,7 +26,9 @@ describe("applyOutcomes", () => {
 
   it.each([
     ["AuthorizationFailed: unexpected status 403", "permission"],
-    ["creating Role Assignment: RoleAssignmentExists: unexpected status 409", "conflict"],
+    ["creating Role Assignment: RoleAssignmentExists: unexpected status 409", "exists"],
+    ["updating Storage Account: ScopeLocked: unexpected status 409", "conflict"],
+    ["creating Container App: AnotherOperationInProgress: status code 409", "conflict"],
     ["creating Role Assignment: dial tcp 1.2.3.4:443: connection refused", "connectivity"],
     ["reading Container: read: connection reset by peer", "connectivity"],
     ["Failed to save state: connection reset by peer", "state-not-saved"],

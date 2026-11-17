@@ -175,14 +175,26 @@ An apply can fail after Azure accepted a write. For example, a role assignment `
 
 - network or name-resolution failures that stopped a request from being delivered;
 - permission denials;
-- conflicts with existing resources;
+- resources that Azure reports already exist but saved state does not record;
+- other Azure conflicts, such as resource locks or another operation in progress;
 - writes whose response was lost;
 - failures to save state;
 - unknown errors, including missing or truncated details.
 
 A storage DNS failure in the same apply is reported separately as a network failure, not as a permission problem or lost state.
 
-A conflict, a lost write response, or a state-save failure disables the automatic retry. The recovery message lists which affected addresses saved Terraform state records. It also gives the recorded resource count. An unreadable state listing is reported as unread, not as lost state.
+An existing resource, another conflict, a lost write response, or a state-save failure disables the automatic retry. The recovery message lists which affected addresses saved Terraform state records. It also gives the recorded resource count. An unreadable state listing is reported as unread, not as lost state.
+
+A state-save failure means Terraform may have changed Azure without updating the backend state. The wizard then offers no replan or retry, because a new plan or import against the old state could fork it from the state Terraform saved locally. Recover state first:
+
+1. Exit and keep the lease.
+2. Confirm that no other installer or release is running.
+3. Do not run a new plan or import. Do not delete, edit, or replace `errored.tfstate`, which Terraform writes in the module directory. It contains secrets, so keep it owner-only.
+4. Take an owner-only private `terraform state pull` backup.
+5. Run the printed `terraform state push` command. It pushes `errored.tfstate` to the same backend and workspace, using the same module and data directory.
+6. Rerun the wizard only after the push succeeds.
+
+If `errored.tfstate` is missing, do not rerun the wizard until saved state has been checked against Azure.
 
 Every infrastructure plan in guided installation and provisioning, including replans, runs a read-only check. For each planned role-assignment creation, it lists role assignments at the exact planned scope in the saved subscription. It then compares scope and principal ID exactly. When the plan supplies a role definition ID, it must equal the full returned ID, not only its final GUID. A role name is compared only when the plan supplies no ID. Inherited grants, other principals, other role definitions, and scopes outside the saved subscription do not match.
 
@@ -192,7 +204,7 @@ If Azure already has that grant, the wizard blocks the plan before approval or a
 2. Confirm that no other installer or release is running.
 3. Take an owner-only private `terraform state pull` backup.
 4. Confirm the ID.
-5. Run the printed `terraform import` command against the same module, data directory, variables file, and backend, with a lock timeout. Set any `TF_VAR_*` environment variables the message names, such as the PostgreSQL administrator password, to this installation's values; the message names them without showing values.
+5. Run the printed `terraform import` command. It sets the same module, data directory, variables file, and lock timeout, and quotes each path for the shell. Set any `TF_VAR_*` environment variables the message names, such as the PostgreSQL administrator password, to this installation's values; the message names them without showing values.
 6. Rerun the wizard and confirm the new plan has no deletions or replacements.
 
 Do not delete the existing grant to make the plan pass. Within the same wizard run, a replan is blocked if a resource with an uncertain result cannot be checked. A failed check in a later run, or for any other resource, is reported and the plan continues; Terraform then reports a conflict instead of creating a duplicate grant. Planned role assignments whose principal is unknown until apply are not checked. Other resource types are not checked either.

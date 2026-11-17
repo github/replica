@@ -13,17 +13,22 @@ export type PlannedCreate = { address: string; type?: string; after?: unknown }
 
 const uncertainKinds = new Set<ApplyOutcome["kind"]>([
   "ambiguous-write",
+  "exists",
   "conflict",
   "state-not-saved",
 ])
+
+const shellQuote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`
 
 function describeOutcome({ address, kind }: ApplyOutcome) {
   const subject = address ?? "Terraform"
   switch (kind) {
     case "ambiguous-write":
       return `${subject}: the request was sent but its response was lost. Azure may have completed it.`
-    case "conflict":
+    case "exists":
       return `${subject}: Azure reports that it already exists but Terraform state does not record it.`
+    case "conflict":
+      return `${subject}: Azure reported a conflict. Check for resource locks and other operations in progress on it.`
     case "state-not-saved":
       return "Terraform could not save state. Completed changes may be missing from saved state."
     case "connectivity":
@@ -66,6 +71,7 @@ export function terraformModule({
       ...(signal && { signal }),
     })
   }
+  const manualTerraform = `TF_DATA_DIR=${shellQuote(dataDirectory)} terraform ${shellQuote(`-chdir=${directory}`)}`
   const listState = async () => (await command(["state", "list"])).split("\n").filter(Boolean)
   const stateEvidence = async (addresses: string[]) => {
     try {
@@ -153,10 +159,10 @@ export function terraformModule({
           "Terraform plan blocked: Azure already has resources that saved Terraform state does not record.",
           ...found.map(({ address, id }) => `${address}: ${id}`),
           "A previous apply probably completed these writes after their responses were lost. Nothing from this plan was applied, nothing was imported, and saved progress and leases are kept.",
-          `To recover: exit the wizard and keep the lease; make sure no other installer or release is running; save an owner-only backup of state with terraform state pull, because state contains secrets; confirm each listed ID is the exact resource this installation intended. Then run these from ${directory} with TF_DATA_DIR=${dataDirectory}, which keeps the same backend and workspace${inputVariables.length ? `, and set ${inputVariables.join(", ")} to the values this installation uses` : ""}:`,
+          `To recover: exit the wizard and keep the lease; make sure no other installer or release is running; save an owner-only backup of state with terraform state pull, because state contains secrets; confirm each listed ID is the exact resource this installation intended. Then run these commands, which use the same module, data directory, backend, and workspace${inputVariables.length ? `, with ${inputVariables.join(", ")} set to the values this installation uses` : ""}:`,
           ...found.map(
             ({ address, id }) =>
-              `terraform import -input=false -var-file=${variables} -lock-timeout=60s '${address}' '${id}'`,
+              `${manualTerraform} import -input=false ${shellQuote(`-var-file=${variables}`)} -lock-timeout=60s ${shellQuote(address)} ${shellQuote(id)}`,
           ),
           "Run the wizard again and confirm the fresh plan has no deletions or replacements. Do not delete the existing resources to make the plan pass.",
         ].join("\n")
@@ -288,6 +294,24 @@ export function terraformModule({
         const outcomes = failedOperation === "apply" ? applyOutcomes(failure.details()) : []
         const uncertain = outcomes.filter(({ kind }) => uncertainKinds.has(kind))
         for (const { address } of uncertain) if (address) uncertainAddresses.add(address)
+        if (outcomes.some(({ kind }) => kind === "state-not-saved")) {
+          // Replanning or importing against stale backend state can fork it from errored.tfstate.
+          const message = [
+            ...outcomes.map(describeOutcome),
+            "Terraform may have applied some changes that saved state does not record. This step will not replan or retry, because a new plan or import against the old state could fork it. Nothing was rolled back; saved progress and leases are kept.",
+            `To recover: exit the wizard and keep the lease; make sure no other installer or release is running. If Terraform wrote errored.tfstate in ${directory}, do not delete, edit, or replace it. It contains secrets, so keep it owner-only (chmod 600). Save an owner-only backup of the current backend state with terraform state pull. Then push the errored state to the same backend and workspace:`,
+            `${manualTerraform} state push -lock-timeout=60s errored.tfstate`,
+            "Run the wizard again only after the push succeeds. If errored.tfstate is missing, do not rerun the wizard until saved state has been checked against Azure.",
+          ].join("\n")
+          if (!ui.select) ui.status(message)
+          await promptForRecovery(ui, {
+            error: failure,
+            question: "Terraform state must be recovered before this step can continue.",
+            message,
+            actions: [],
+          })
+          throw failure
+        }
         if (
           preapproved &&
           !requiresConfirmation &&

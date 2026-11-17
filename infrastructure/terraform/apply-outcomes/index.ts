@@ -3,6 +3,7 @@ export type ApplyOutcome = {
   kind:
     | "connectivity"
     | "permission"
+    | "exists"
     | "conflict"
     | "ambiguous-write"
     | "state-not-saved"
@@ -11,8 +12,9 @@ export type ApplyOutcome = {
 
 const permission =
   /AuthorizationFailed|LinkedAuthorizationFailed|AuthorizationPermissionMismatch|AuthenticationFailed|InvalidAuthentication|Forbidden|Unauthorized|does not have (?:authorization|permission)|status(?: code)?[ :=]+40[13]\b|unexpected status 40[13]\b/i
-const conflict =
-  /RoleAssignmentExists|already exists|needs to be imported|status(?: code)?[ :=]+409\b|unexpected status 409\b/i
+const exists = /RoleAssignmentExists|already exists|needs to be imported/i
+// A 409 without an existence diagnostic can be a lock or a concurrent operation.
+const conflict = /status(?: code)?[ :=]+409\b|unexpected status 409\b/i
 // Name resolution and connection setup fail before Azure receives the request.
 const undelivered =
   /no such host|server misbehaving|\bENOTFOUND\b|\bEAI_AGAIN\b|connection refused|\bECONNREFUSED\b|\bdial tcp\b/i
@@ -37,15 +39,17 @@ export function applyOutcomes(details: string | undefined): ApplyOutcome[] {
       ? "state-not-saved"
       : permission.test(error)
         ? "permission"
-        : conflict.test(error)
-          ? "conflict"
-          : undelivered.test(error)
-            ? "connectivity"
-            : lostResponse.test(error)
-              ? write.test(error)
-                ? "ambiguous-write"
-                : "connectivity"
-              : "unknown"
+        : exists.test(error)
+          ? "exists"
+          : conflict.test(error)
+            ? "conflict"
+            : undelivered.test(error)
+              ? "connectivity"
+              : lostResponse.test(error)
+                ? write.test(error)
+                  ? "ambiguous-write"
+                  : "connectivity"
+                : "unknown"
     return address ? { address, kind } : { kind }
   })
 }

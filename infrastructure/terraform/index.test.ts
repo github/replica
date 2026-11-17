@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { readdirSync } from "node:fs"
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises"
@@ -55,6 +56,16 @@ function fakeRetryTimers() {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
 }
 
+// Runs a printed recovery command in a shell with a stub Terraform that reports its arguments.
+function runPrinted(command: string) {
+  const output = execFileSync(
+    "bash",
+    ["-c", `terraform() { printf '%s\\0' "$TF_DATA_DIR" "$@"; }\n${command}`],
+    { encoding: "utf8" },
+  )
+  return output.split("\0").slice(0, -1)
+}
+
 afterEach(async () => {
   vi.useRealTimers()
   await Promise.all(
@@ -77,6 +88,7 @@ async function scenario({
   findUntracked,
   extraEnv,
   signal,
+  rootSuffix = "",
 }: {
   actions?: string[]
   approved?: boolean
@@ -92,8 +104,9 @@ async function scenario({
   findUntracked?: Parameters<typeof terraformModule>[0]["findUntracked"]
   extraEnv?: Record<string, string>
   signal?: AbortSignal
+  rootSuffix?: string
 } = {}) {
-  const root = path.resolve(`.installer-terraform-test-${randomUUID()}`)
+  const root = path.resolve(`.installer-terraform-test-${randomUUID()}${rootSuffix}`)
   directories.push(root)
   const directory = path.join(root, "module")
   const dataDirectory = path.join(root, "installation-data")
@@ -986,6 +999,7 @@ describe("Terraform module", () => {
         error: lostResponse,
         failureCount: 1,
         preapproved: true,
+        planVariables: {},
         retryApply: () => true,
         resourceChanges: [grantChange(["create"])],
       })
@@ -1030,9 +1044,9 @@ describe("Terraform module", () => {
       })
       const message = vi.mocked(test.ui.notice).mock.lastCall![1]
       expect(message).toContain(
-        `terraform import -input=false -var-file=installation.tfvars -lock-timeout=60s '${grant}' '${grantId}'`,
+        `TF_DATA_DIR='${test.dataDirectory}' terraform '-chdir=${test.directory}' import -input=false '-var-file=installation.tfvars' -lock-timeout=60s '${grant}' '${grantId}'`,
       )
-      expect(message).toContain("set TF_VAR_postgres_admin_password to the values")
+      expect(message).toContain("with TF_VAR_postgres_admin_password set to the values")
       expect(message).not.toContain("synthetic-password")
       expect(message).toContain("nothing was imported")
       expect(test.ui.confirm).not.toHaveBeenCalled()
@@ -1058,6 +1072,98 @@ describe("Terraform module", () => {
 
       expect(test.events).toEqual(["plan", "show", "apply", "state", "plan", "show"])
       expect(test.ui.status).toHaveBeenCalledWith(expect.stringContaining("Could not check"))
+    })
+
+    it("prints self-contained import commands that keep paths with spaces and apostrophes intact", async () => {
+      const findUntracked = vi.fn(async (): Promise<string | undefined> => grantId)
+      const variables = "installer's vars.tfvars"
+      const test = await scenario({
+        failure: "apply",
+        error: lostResponse,
+        failureCount: 1,
+        preapproved: true,
+        findUntracked,
+        rootSuffix: " owner's copy",
+        resourceChanges: [grantChange(["create"])],
+      })
+      findUntracked.mockResolvedValueOnce(undefined)
+      test.ui.notice = vi.fn()
+      test.ui.select = vi.fn<Select>(async () => "retry")
+
+      await expect(test.module.apply(variables)).rejects.toThrow(/does not record/)
+
+      const command = vi
+        .mocked(test.ui.notice)
+        .mock.lastCall![1].split("\n")
+        .find((line) => line.includes(" import "))!
+      expect(runPrinted(command)).toEqual([
+        test.dataDirectory,
+        `-chdir=${test.directory}`,
+        "import",
+        "-input=false",
+        `-var-file=${variables}`,
+        "-lock-timeout=60s",
+        grant,
+        grantId,
+      ])
+    })
+
+    it("requires state recovery instead of replanning when Terraform could not save state", async () => {
+      const stateNotSaved = new CommandExecutionError(
+        "Terraform apply failed.",
+        false,
+        1,
+        [
+          "Error: Failed to save state",
+          "Error writing state file: request canceled",
+          "Error: Failed to persist state to backend",
+          "The error shown above has prevented Terraform from writing the updated state to the configured backend. To allow for recovery, the state has been written to the file \"errored.tfstate\" in the current working directory.",
+        ].join("\n"),
+      )
+      const test = await scenario({
+        failure: "apply",
+        error: stateNotSaved,
+        failureCount: 1,
+        preapproved: true,
+        planVariables: {},
+        retryApply: () => true,
+        rootSuffix: " owner's copy",
+      })
+      test.ui.notice = vi.fn()
+      test.ui.select = vi.fn<Select>(async () => "exit")
+
+      await expect(test.module.apply("installation.tfvars")).rejects.toBe(stateNotSaved)
+
+      expect(test.events).toEqual(["plan", "show", "apply"])
+      const [, options] = vi.mocked(test.ui.select).mock.lastCall!
+      expect(options.map(({ value }) => value)).toEqual(["details", "exit"])
+      const message = vi.mocked(test.ui.notice).mock.lastCall![1]
+      expect(message).toContain("will not replan or retry")
+      expect(message).toContain(`errored.tfstate in ${test.directory}, do not delete`)
+      expect(message).toContain("terraform state pull")
+      const command = message.split("\n").find((line) => line.includes(" state push "))!
+      expect(runPrinted(command)).toEqual([
+        test.dataDirectory,
+        `-chdir=${test.directory}`,
+        "state",
+        "push",
+        "-lock-timeout=60s",
+        "errored.tfstate",
+      ])
+    })
+
+    it("prints state recovery instructions when recovery choices are unavailable", async () => {
+      const stateNotSaved = new CommandExecutionError(
+        "Terraform apply failed.",
+        false,
+        1,
+        "Error: Failed to save state\n",
+      )
+      const test = await scenario({ failure: "apply", error: stateNotSaved, failureCount: 1 })
+
+      await expect(test.module.apply("installation.tfvars")).rejects.toBe(stateNotSaved)
+
+      expect(test.ui.status).toHaveBeenCalledWith(expect.stringContaining(" state push "))
     })
 
     it("only looks up create-only changes", async () => {
