@@ -15,7 +15,7 @@ Each command starts one Node.js process consuming only its assigned queue. The A
 
 `ON_DEMAND_JOB_CONCURRENCY` and `SCHEDULED_JOB_CONCURRENCY` independently set the number of active jobs per worker process. Both default to one and accept integers from 1 through 100. CPU-heavy JavaScript still blocks that worker's event loop; move that work to a subprocess or an appropriate execution boundary when adding the domain.
 
-`server/workers/configuration.ts` is the composition point for processors and schedules. Its empty registrations are intentional until product domains exist. Worker startup logs readiness after connecting; unknown job names fail permanently rather than disappearing.
+`server/workers/configuration.ts` is the composition point for processors and schedules. Learnings registers explicit run and review-comment redaction work on `on-demand`. A one-minute scheduled recovery sweep re-enqueues queued runs and deleted-comment redactions with stable job IDs. Worker startup logs readiness after connecting; unknown job names fail permanently rather than disappearing.
 
 Worker readiness confirms initial connection only; it is not continuous consumer-health monitoring. A later connection error is logged but does not clear the combined runtime's worker-initialized signal.
 

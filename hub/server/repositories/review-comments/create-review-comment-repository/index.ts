@@ -366,7 +366,11 @@ export function createReviewCommentRepository(database: Database) {
             if (changed.count !== 1) return { ok: false, reason: "conflict" }
             await transaction.reviewComment.update({
               where: { id: comment.id },
-              data: { deletedAt: new Date() },
+              data: {
+                deletedAt: new Date(),
+                learningRedactionActor: `human:${input.actor.login}`,
+                learningRedactedAt: null,
+              },
             })
           }
           const stored = await findStoredThread(

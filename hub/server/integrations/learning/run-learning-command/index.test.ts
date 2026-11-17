@@ -59,6 +59,23 @@ describe("runLearningCommand()", () => {
     expect(result.environment.COPILOT_GITHUB_TOKEN).toBeUndefined()
   })
 
+  it("preserves valid JSON progress from a failed command", async () => {
+    await expect(
+      runLearningCommand(["label"], {
+        cliPath: resolve(fixtures, "fail-with-json.mjs"),
+        environment: { PATH: process.env.PATH },
+      }),
+    ).rejects.toMatchObject({
+      code: "unauthorized",
+      result: {
+        considered: 3,
+        labeled: 2,
+        remaining: 1,
+        usage: { requests: 2, nanoAiu: 1_250_000 },
+      },
+    })
+  })
+
   it.each([
     ["stdout", "outputLimit"],
     ["stderr", "errorLimit"],

@@ -1,7 +1,11 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import { REPOSITORY, collectionLog, weekOneLog } from "../conformance/fixtures.mjs"
-import { hubThreadEvents, readHubReviewCollection } from "../src/sources/hub-review-comments.mjs"
+import {
+  hubThreadEpisode,
+  hubThreadEvents,
+  readHubReviewCollection,
+} from "../src/sources/hub-review-comments.mjs"
 
 const expected = { repository: REPOSITORY }
 function read(log) {
@@ -34,13 +38,169 @@ describe("Hub review collections", () => {
     )
   })
 
+  it("accepts UUID repository and prototype identifiers in source evidence", () => {
+    const log = weekOneLog()
+    const repositoryId = "11111111-2222-4333-8444-555555555555"
+    const prototypeIds = new Map([
+      [11, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
+      [12, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"],
+      [13, "cccccccc-cccc-4ccc-8ccc-cccccccccccc"],
+    ])
+    for (const call of log.calls) {
+      if (call.result.target) call.result.target.repositoryId = repositoryId
+      for (const thread of call.result.threads ??
+        (call.result.thread ? [call.result.thread] : [])) {
+        thread.prototype = {
+          ...thread.prototype,
+          id: prototypeIds.get(thread.prototype.id),
+        }
+        for (const reply of thread.replies ?? [])
+          reply.prototype = { ...reply.prototype, id: thread.prototype.id }
+      }
+    }
+
+    const collection = read(log)
+    const thread = collection.threads[0]
+    assert.equal(collection.meta.repositoryId, repositoryId)
+    assert.match(thread.root.prototype.id, /^[0-9a-f-]{36}$/)
+    const episode = hubThreadEpisode({
+      meta: collection.meta,
+      thread,
+      scope: expected,
+      grantIds: [],
+      principal: { kind: "agent", id: "agent:test" },
+      importedAt: "2026-10-05T18:00:00.000000Z",
+    })
+    assert.equal(episode.source.repositoryId, repositoryId)
+    assert.equal(episode.source.prototypeId, thread.root.prototype.id)
+  })
+
+  it("uses Hub UUID identities for roots, replies, and resolution actors", () => {
+    const log = weekOneLog()
+    const root = log.calls[1].result.threads[0]
+    root.author.hubUserId = "11111111-2222-4333-8444-555555555555"
+    root.replies[0].author.hubUserId = "66666666-7777-4888-8999-000000000000"
+    root.resolvedAt = "2026-10-04T12:00:00.000000Z"
+    root.resolvedBy = {
+      login: "resolver",
+      hubUserId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    }
+    root.resolutionHistory = [
+      {
+        id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        sequence: 1,
+        state: "resolved",
+        at: root.resolvedAt,
+        actor: root.resolvedBy,
+      },
+    ]
+    const collection = read(log)
+    const thread = collection.threads.find((item) => item.root.id === root.id)
+    const events = hubThreadEvents({
+      meta: collection.meta,
+      thread,
+      scope: { ...expected, host: "local" },
+      episodeId: "ep_uuuuuuuuuuuuuuuu",
+      existing: [],
+    })
+
+    assert.deepEqual(
+      events.map((event) => event.actor.id),
+      [
+        "hub-user:https://replica.example.com/11111111-2222-4333-8444-555555555555",
+        "hub-user:https://replica.example.com/66666666-7777-4888-8999-000000000000",
+        "hub-user:https://replica.example.com/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      ],
+    )
+  })
+
+  it("imports ordered resolution and reopening history from one complete snapshot", () => {
+    const log = weekOneLog()
+    const root = log.calls[1].result.threads[0]
+    root.resolvedAt = null
+    root.resolvedBy = null
+    root.resolutionHistory = [
+      {
+        id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        sequence: 1,
+        state: "resolved",
+        at: "2026-10-04T12:00:00.000000Z",
+        actor: { login: "resolver", hubUserId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee" },
+      },
+      {
+        id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        sequence: 2,
+        state: "unresolved",
+        at: "2026-10-04T11:00:00.000000Z",
+        actor: { login: "reopener", hubUserId: "ffffffff-eeee-4ddd-8ccc-bbbbbbbbbbbb" },
+      },
+    ]
+    const collection = read(log)
+    const thread = collection.threads.find((item) => item.root.id === root.id)
+    const events = hubThreadEvents({
+      meta: collection.meta,
+      thread,
+      scope: expected,
+      episodeId: "ep_resolutionhistory",
+      existing: [],
+    })
+
+    assert.deepEqual(
+      events
+        .filter((event) => event.type === "status_change")
+        .map((event) => [event.payload.status, event.at]),
+      [
+        ["resolved", "2026-10-04T12:00:00.000000Z"],
+        ["unresolved", "2026-10-04T11:00:00.000000Z"],
+      ],
+    )
+    assert.deepEqual(
+      hubThreadEvents({
+        meta: collection.meta,
+        thread,
+        scope: expected,
+        episodeId: "ep_resolutionhistory",
+        existing: events,
+      }),
+      [],
+    )
+  })
+
+  it("accepts provider-neutral display logins when a Hub UUID identifies the reviewer", () => {
+    const log = weekOneLog()
+    const root = log.calls[1].result.threads[0]
+    root.author.login = "mona@example.com"
+    root.author.hubUserId = "11111111-2222-4333-8444-555555555555"
+
+    const collection = read(log)
+    const thread = collection.threads.find((item) => item.root.id === root.id)
+    const [event] = hubThreadEvents({
+      meta: collection.meta,
+      thread,
+      scope: expected,
+      episodeId: "ep_entrareviewer1",
+      existing: [],
+    })
+
+    assert.equal(event.actor.login, "mona@example.com")
+    assert.equal(
+      event.actor.id,
+      "hub-user:https://replica.example.com/11111111-2222-4333-8444-555555555555",
+    )
+  })
+
   it("reads a complete log and joins reply pages", () => {
     const result = read(weekOneLog())
     assert.equal(result.complete, true)
     assert.deepEqual(result.problems, [])
     assert.deepEqual(result.counts, { threads: 9, messages: 12 })
     assert.equal(result.meta.repository, REPOSITORY)
-    assert.deepEqual(result.filters, { resolution: "all", read: "all", from: null, to: null })
+    assert.deepEqual(result.filters, {
+      resolution: "all",
+      read: "all",
+      from: null,
+      to: null,
+    })
     const thread = result.threads.find((item) => item.root.id === 109)
     assert.deepEqual(
       thread.replies.map((item) => item.id),
@@ -145,7 +305,10 @@ describe("Hub review collections", () => {
       snapshotId: "11111111-2222-4333-8444-555555555555",
       capturedAt: "2026-10-05T18:00:00.000000Z",
       threads: [],
-      filters: { from: "2026-09-29T00:00:00Z", to: "2026-10-05T00:00:00+00:00" },
+      filters: {
+        from: "2026-09-29T00:00:00Z",
+        to: "2026-10-05T00:00:00+00:00",
+      },
     })
     assert.deepEqual(read(log).filters, {
       resolution: "all",
@@ -164,16 +327,26 @@ describe("Hub review collections", () => {
     })
     const prototypeScoped = weekOneLog()
     for (const call of prototypeScoped.calls) {
-      call.result.target = { ...call.result.target, scope: undefined, prototypeId: 11 }
+      call.result.target = {
+        ...call.result.target,
+        scope: undefined,
+        prototypeId: 11,
+      }
     }
     assert.throws(
       () => read(prototypeScoped),
       /Prototype-scoped list_comments logs are not supported/,
     )
     const foreign = weekOneLog()
-    foreign.calls[0].result.contentTrust = { source: "web", untrusted: true, treatAs: "data" }
+    foreign.calls[0].result.contentTrust = {
+      source: "web",
+      untrusted: true,
+      treatAs: "data",
+    }
     assert.throws(() => read(foreign), /not a Hub review comment result/)
-    assert.throws(() => read({ kind: "other", calls: [] }), { code: "invalid_input" })
+    assert.throws(() => read({ kind: "other", calls: [] }), {
+      code: "invalid_input",
+    })
   })
 
   it("adds an edit, a deletion, and a resolution as new events without touching old ones", () => {

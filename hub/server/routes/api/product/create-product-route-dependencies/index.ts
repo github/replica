@@ -23,10 +23,18 @@ interface CreateProductRouteDependenciesOptions {
     sessionDigest: string,
     userId: string,
   ) => Promise<boolean>
+  onReviewCommentDeleted?: (input: {
+    repositoryId: string
+    commentId: number
+    actorLogin: string
+  }) => Promise<void>
+  withReviewCommentDeleteLock?: <T>(operation: () => Promise<T>) => Promise<T>
 }
 
 export function createProductRouteDependencies({
   authorizeReviewMutation,
+  onReviewCommentDeleted,
+  withReviewCommentDeleteLock,
 }: CreateProductRouteDependenciesOptions = {}): ProductRouteDependencies {
   const authorizeReview =
     authorizeReviewMutation ??
@@ -45,7 +53,10 @@ export function createProductRouteDependencies({
       return restored?.userId === userId
     })
   return {
-    reviewComments: createReviewCommentService(prisma, authorizeReview),
+    reviewComments: createReviewCommentService(prisma, authorizeReview, {
+      onDeleted: onReviewCommentDeleted,
+      withDeleteLock: withReviewCommentDeleteLock,
+    }),
     listRepositories: () => listRepositories(prisma),
     findRepositoryIndex: (repositoryId, filters) =>
       findRepositoryIndex(prisma, repositoryId, filters),

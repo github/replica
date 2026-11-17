@@ -16,6 +16,7 @@ export function createApp({
   clientDirectory,
   copilotConnection,
   isReady,
+  learnings,
   logger,
   product,
   trustedProxyHops = 0,
@@ -37,11 +38,19 @@ export function createApp({
     authenticationSecurity(),
   )
   app.use(
-    /^(?!\/api\/copilot-connection(?:\/|$))(?!\/api\/(?:auth|administrators\/authorizations|session-revocation\/authorizations)(?:\/|$))(?!\/api\/repositories\/[^/]+\/prototypes\/[^/]+(?:\/review-comments(?:\/|$)|\/?$)).*/i,
+    /^(?!\/api\/copilot-connection(?:\/|$))(?!\/api\/repositories\/[^/]+\/learnings(?:\/|$))(?!\/api\/(?:auth|administrators\/authorizations|session-revocation\/authorizations)(?:\/|$))(?!\/api\/repositories\/[^/]+\/prototypes\/[^/]+(?:\/review-comments(?:\/|$)|\/?$)).*/i,
     express.json(),
   )
 
-  routes(app, { authentication, broadcast, copilotConnection, isReady, logger, product })
+  routes(app, {
+    authentication,
+    broadcast,
+    copilotConnection,
+    isReady,
+    learnings,
+    logger,
+    product,
+  })
   app.use("/api", respondNotFound)
   if (clientDirectory) {
     const directory = resolve(clientDirectory)

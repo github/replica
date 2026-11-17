@@ -140,6 +140,8 @@ describe("server runtime", () => {
       .mockResolvedValue(authentication)
     const copilotConnection = { applicationOrigin: "http://127.0.0.1:5173" }
     const createCopilotConnectionRouteDependencies = vi.fn().mockResolvedValue(copilotConnection)
+    const learnings = { applicationOrigin: "http://127.0.0.1:5173" }
+    const createLearningsRouteDependencies = vi.fn().mockResolvedValue(learnings)
     const disableAuthenticationProviders = vi.fn()
     const product = {}
     const createProductRouteDependencies = vi.fn().mockReturnValue(product)
@@ -165,6 +167,9 @@ describe("server runtime", () => {
       "./routes/api/copilot-connection/create-copilot-connection-route-dependencies/index.ts",
       () => ({ createCopilotConnectionRouteDependencies }),
     )
+    vi.doMock("./routes/api/learnings/create-learnings-route-dependencies/index.ts", () => ({
+      createLearningsRouteDependencies,
+    }))
 
     await expect(import("./index.ts")).resolves.toBeDefined()
 
@@ -182,8 +187,13 @@ describe("server runtime", () => {
       logger,
       administrators,
     )
+    expect(createLearningsRouteDependencies).toHaveBeenCalledWith(
+      environment,
+      authentication.currentSession,
+      logger,
+    )
     expect(runApi).toHaveBeenCalledWith(
-      expect.objectContaining({ authentication, copilotConnection, product }),
+      expect.objectContaining({ authentication, copilotConnection, learnings, product }),
     )
   })
 
@@ -257,6 +267,7 @@ describe("server runtime", () => {
   it("loads route-owned authentication composition when auth is configured", async () => {
     const createAuthenticationRouteDependencies = vi.fn()
     const createCopilotConnectionRouteDependencies = vi.fn()
+    const createLearningsRouteDependencies = vi.fn()
     const disableAuthenticationProviders = vi.fn()
     const product = { listRepositories: vi.fn(), findRepositoryIndex: vi.fn() }
     const createProductRouteDependencies = vi.fn().mockReturnValue(product)
@@ -274,6 +285,9 @@ describe("server runtime", () => {
     const copilotConnection = {
       applicationOrigin: "https://hub.example.test",
     }
+    const learnings = {
+      applicationOrigin: "https://hub.example.test",
+    }
     vi.stubEnv("HUB_APPLICATION_ORIGIN", "https://hub.example.test")
     vi.stubEnv("GITHUB_CLIENT_ID", "github-client")
     vi.mocked(parseRuntimeConfig).mockReturnValue({
@@ -282,6 +296,7 @@ describe("server runtime", () => {
     })
     createAuthenticationRouteDependencies.mockResolvedValue(authentication)
     createCopilotConnectionRouteDependencies.mockResolvedValue(copilotConnection)
+    createLearningsRouteDependencies.mockResolvedValue(learnings)
     vi.doMock("./routes/api/auth/create-authentication-route-dependencies/index.ts", () => ({
       createAuthenticationRouteDependencies,
       disableAuthenticationProviders,
@@ -293,6 +308,9 @@ describe("server runtime", () => {
       "./routes/api/copilot-connection/create-copilot-connection-route-dependencies/index.ts",
       () => ({ createCopilotConnectionRouteDependencies }),
     )
+    vi.doMock("./routes/api/learnings/create-learnings-route-dependencies/index.ts", () => ({
+      createLearningsRouteDependencies,
+    }))
 
     await expect(import("./index.ts")).resolves.toBeDefined()
 
@@ -303,9 +321,14 @@ describe("server runtime", () => {
       logger,
       administrators,
     )
+    expect(createLearningsRouteDependencies).toHaveBeenCalledWith(
+      process.env,
+      authentication.currentSession,
+      logger,
+    )
     expect(disableAuthenticationProviders).not.toHaveBeenCalled()
     expect(runApi).toHaveBeenCalledWith(
-      expect.objectContaining({ authentication, copilotConnection, product }),
+      expect.objectContaining({ authentication, copilotConnection, learnings, product }),
     )
   })
 })

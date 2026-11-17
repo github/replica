@@ -6,6 +6,7 @@ import type { Logger } from "pino"
 import { createApp } from "../create-app/index.ts"
 import type { AuthenticationRouteDependencies } from "../routes/api/auth/types.ts"
 import type { CopilotConnectionRouteDependencies } from "../routes/api/copilot-connection/types.ts"
+import type { LearningsRouteDependencies } from "../routes/api/learnings/types.ts"
 import type { ProductRouteDependencies } from "../routes/api/product/types.ts"
 import { attachRealtimeServer } from "../integrations/ws/attach-realtime-server/index.ts"
 import { shutdownServer } from "../shutdown-server/index.ts"
@@ -15,6 +16,7 @@ export async function runApi({
   logger,
   authentication,
   copilotConnection,
+  learnings,
   product,
   trustedProxyHops = 0,
   shutdownTimeoutMs = 30_000,
@@ -27,6 +29,7 @@ export async function runApi({
   logger: Logger
   authentication?: AuthenticationRouteDependencies
   copilotConnection?: CopilotConnectionRouteDependencies
+  learnings?: LearningsRouteDependencies
   product?: ProductRouteDependencies
   trustedProxyHops?: number
   shutdownTimeoutMs?: number
@@ -67,6 +70,7 @@ export async function runApi({
               : undefined,
           }
         : undefined,
+      learnings,
       product,
       trustedProxyHops,
     }),

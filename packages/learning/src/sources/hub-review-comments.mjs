@@ -21,7 +21,7 @@ const LIST = "list_repository_comments"
 const THREAD = "get_repository_comment_thread"
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i
 const ORIGIN = /^https?:\/\/[A-Za-z0-9.-]+(?::[0-9]{1,5})?$/
-const LOGIN = /^[A-Za-z0-9_-]{1,256}$/
+const LOGIN = /^[^\s\p{Cc}\p{Cf}\u{E0000}-\u{E007F}]{1,256}$/u
 
 /**
  * Read a log of Replica canvas comment calls and decide whether it is a complete collection.
@@ -197,11 +197,10 @@ export function readHubReviewCollection(log, { repository }) {
   )
   const identified = [...threads.values()].some(
     (thread) =>
-      [thread.root, ...thread.replies].some(
-        (message) => message.authorGithubId !== undefined || message.authorLocalId !== undefined,
-      ) ||
+      [thread.root, ...thread.replies].some((message) => stableIdentity(message)) ||
       thread.root.resolvedByGithubId !== undefined ||
-      thread.root.resolvedByLocalId !== undefined,
+      thread.root.resolvedByLocalId !== undefined ||
+      thread.root.resolvedByHubUserId !== undefined,
   )
   return {
     meta: {
@@ -243,7 +242,16 @@ export function hubThreadEpisode({ meta, thread, scope, grantIds, principal, imp
       buildNumber: root.buildNumber,
       threadId: root.id,
     },
-    actors: [reviewer(root.authorLogin, root.authorGithubId, root.authorLocalId, scope, meta)],
+    actors: [
+      reviewer(
+        root.authorLogin,
+        root.authorGithubId,
+        root.authorLocalId,
+        root.authorHubUserId,
+        scope,
+        meta,
+      ),
+    ],
     grants: [...grantIds],
     contentTrust: { untrusted: true, treatAs: "data", source: HUB_SOURCE },
     provenance: {
@@ -297,10 +305,11 @@ export function hubThreadEvents({ meta, thread, scope, episodeId, existing }) {
       message.authorLogin,
       message.authorGithubId,
       message.authorLocalId,
+      message.authorHubUserId,
       scope,
       meta,
     )
-    const stable = message.authorGithubId !== undefined || message.authorLocalId !== undefined
+    const stable = stableIdentity(message)
     const versionIds = new Set(versions.map((event) => event.id))
     const existingStable = [
       ...versions,
@@ -422,48 +431,73 @@ export function hubThreadEvents({ meta, thread, scope, episodeId, existing }) {
   }
 
   const statuses = known.filter((event) => event.type === "status_change")
-  const recorded = statuses.at(-1)?.payload?.status ?? "unresolved"
-  const current = thread.root.resolvedAt ? "resolved" : "unresolved"
-  if (current !== recorded) {
-    const at = thread.root.resolvedAt ?? meta.capturedAt
+  let recorded = statuses.at(-1)?.payload?.status ?? "unresolved"
+  const history =
+    thread.root.resolutionHistory.length > 0
+      ? thread.root.resolutionHistory
+      : [
+          {
+            state: thread.root.resolvedAt ? "resolved" : "unresolved",
+            at: thread.root.resolvedAt ?? meta.capturedAt,
+            actorLogin: thread.root.resolvedByLogin,
+            actorGithubId: thread.root.resolvedByGithubId,
+            actorLocalId: thread.root.resolvedByLocalId,
+            actorHubUserId: thread.root.resolvedByHubUserId,
+          },
+        ]
+  for (const change of history) {
+    if (change.state === recorded) continue
+    const at = change.at
+    const actor = change.actorLogin
+      ? reviewer(
+          change.actorLogin,
+          change.actorGithubId,
+          change.actorLocalId,
+          change.actorHubUserId,
+          scope,
+          meta,
+        )
+      : { kind: "system", id: `system:${HUB_SOURCE}` }
+    const id = derivedId("ev", {
+      episodeId,
+      status: change.state,
+      ...(change.id ? { resolutionEventId: change.id } : { at }),
+      ...(change.sequence ? { sequence: change.sequence } : {}),
+    })
+    if (ids.has(id)) {
+      recorded = change.state
+      continue
+    }
+    ids.add(id)
     add({
       schemaVersion: SCHEMA_VERSIONS.event,
-      id: derivedId("ev", { episodeId, status: current, at }),
+      id,
       episodeId,
       scope,
       type: "status_change",
       at,
-      actor: thread.root.resolvedByLogin
-        ? reviewer(
-            thread.root.resolvedByLogin,
-            thread.root.resolvedByGithubId,
-            thread.root.resolvedByLocalId,
-            scope,
-            meta,
-          )
-        : { kind: "system", id: `system:${HUB_SOURCE}` },
+      actor,
       payload: {
         subject: { kind: "thread", id: thread.root.id },
-        status: current,
+        status: change.state,
         at,
-        ...(thread.root.resolvedByLogin
-          ? {
-              by: reviewer(
-                thread.root.resolvedByLogin,
-                thread.root.resolvedByGithubId,
-                thread.root.resolvedByLocalId,
-                scope,
-                meta,
-              ),
-            }
-          : {}),
+        ...(change.actorLogin ? { by: actor } : {}),
       },
     })
+    recorded = change.state
   }
   return added
 }
 
-function reviewer(login, githubId, localId, scope, meta) {
+function stableIdentity(message) {
+  return (
+    message.authorGithubId !== undefined ||
+    message.authorLocalId !== undefined ||
+    message.authorHubUserId !== undefined
+  )
+}
+
+function reviewer(login, githubId, localId, hubUserId, scope, meta) {
   if (githubId !== undefined) {
     if (!scope.host || scope.host === "local")
       invalid("A GitHub reviewer ID needs an explicit GitHub host in the scope.")
@@ -478,21 +512,32 @@ function reviewer(login, githubId, localId, scope, meta) {
       role: "reviewer",
     }
   }
+  if (hubUserId !== undefined) {
+    return {
+      kind: "human",
+      id: `hub-user:${new URL(meta.hubOrigin).origin}/${hubUserId}`,
+      login,
+      role: "reviewer",
+    }
+  }
   return { kind: "human", id: `github:${login}`, role: "reviewer", asserted: true }
 }
 
 export function stableReviewer(actor, scope, source) {
-  const prefix =
+  const prefixes = [
+    source.hubOrigin ? `hub-user:${new URL(source.hubOrigin).origin}/` : null,
     scope.host === "local"
       ? source.hubOrigin
         ? `hub-user:${new URL(source.hubOrigin).origin}/`
         : null
       : scope.host
         ? `github-user:${scope.host}/`
-        : null
-  if (!prefix || !actor?.id?.startsWith(prefix)) return false
+        : null,
+  ].filter(Boolean)
+  const prefix = prefixes.find((candidate) => actor?.id?.startsWith(candidate))
+  if (!prefix) return false
   const id = actor.id.slice(prefix.length)
-  return /^[1-9]\d*$/.test(id) && Number.isSafeInteger(Number(id))
+  return (/^[1-9]\d*$/.test(id) && Number.isSafeInteger(Number(id))) || UUID.test(id)
 }
 
 /** Check the pagination fields of a list page; a missing or contradictory flag is malformed. */
@@ -550,7 +595,7 @@ function readTarget(value) {
     !ORIGIN.test(value.hubOrigin) ||
     typeof value.repository !== "string" ||
     !/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/.test(value.repository) ||
-    !positive(value.repositoryId)
+    !sourceIdentifier(value.repositoryId)
   )
     invalid(
       "Results need a repository target from list_repository_comments. Prototype-scoped list_comments logs are not supported.",
@@ -606,7 +651,7 @@ function readMessage(value, kind) {
       : readIdentity(value.resolvedBy, `Comment ${value.id} resolver`)
   if (
     !isObject(value.prototype) ||
-    !positive(value.prototype.id) ||
+    !sourceIdentifier(value.prototype.id) ||
     !text(value.prototype.branch, 1024)
   )
     invalid(`Comment ${value.id} needs its prototype ID and branch.`)
@@ -617,6 +662,9 @@ function readMessage(value, kind) {
     authorLogin: value.author.login,
     ...(authorIdentity.githubId !== undefined ? { authorGithubId: authorIdentity.githubId } : {}),
     ...(authorIdentity.localId !== undefined ? { authorLocalId: authorIdentity.localId } : {}),
+    ...(authorIdentity.hubUserId !== undefined
+      ? { authorHubUserId: authorIdentity.hubUserId }
+      : {}),
     createdAt: timestamp(value.createdAt, "createdAt"),
     editedAt:
       value.editedAt === null || value.editedAt === undefined
@@ -638,14 +686,22 @@ function readMessage(value, kind) {
   }
   if (!positive(value.buildNumber))
     invalid(`Thread ${value.id} needs the Build number the reviewer saw.`)
+  const resolvedAt =
+    value.resolvedAt === null || value.resolvedAt === undefined
+      ? null
+      : timestamp(value.resolvedAt, "resolvedAt")
+  const resolutionHistory = readResolutionHistory(value.resolutionHistory)
+  if (
+    resolutionHistory.length > 0 &&
+    resolutionHistory.at(-1).state !== (resolvedAt ? "resolved" : "unresolved")
+  ) {
+    invalid(`Thread ${value.id} resolution history does not match its current state.`)
+  }
   return {
     ...message,
     buildNumber: value.buildNumber,
     context: compactContext(value.anchor),
-    resolvedAt:
-      value.resolvedAt === null || value.resolvedAt === undefined
-        ? null
-        : timestamp(value.resolvedAt, "resolvedAt"),
+    resolvedAt,
     resolvedByLogin:
       isObject(value.resolvedBy) && LOGIN.test(value.resolvedBy.login ?? "")
         ? value.resolvedBy.login
@@ -656,13 +712,19 @@ function readMessage(value, kind) {
     ...(resolverIdentity.localId !== undefined
       ? { resolvedByLocalId: resolverIdentity.localId }
       : {}),
+    ...(resolverIdentity.hubUserId !== undefined
+      ? { resolvedByHubUserId: resolverIdentity.hubUserId }
+      : {}),
+    resolutionHistory,
   }
 
   function readIdentity(value, label) {
     if (!isObject(value)) invalid(`${label} must be an actor.`)
     if (Object.hasOwn(value, "local")) invalid(`${label} uses localId, not a local flag.`)
-    if (Object.hasOwn(value, "githubId") && Object.hasOwn(value, "localId"))
-      invalid(`${label} cannot name both githubId and localId.`)
+    const identityKeys = ["githubId", "localId", "hubUserId"].filter((key) =>
+      Object.hasOwn(value, key),
+    )
+    if (identityKeys.length > 1) invalid(`${label} cannot name more than one stable identity.`)
     const identity = {}
     for (const key of ["githubId", "localId"])
       if (Object.hasOwn(value, key)) {
@@ -670,8 +732,47 @@ function readMessage(value, kind) {
         if (!LOGIN.test(value.login ?? "")) invalid(`${label} needs a login for display.`)
         identity[key] = value[key]
       }
+    if (Object.hasOwn(value, "hubUserId")) {
+      if (typeof value.hubUserId !== "string" || !UUID.test(value.hubUserId))
+        invalid(`${label}.hubUserId must be a UUID.`)
+      if (!LOGIN.test(value.login ?? "")) invalid(`${label} needs a login for display.`)
+      identity.hubUserId = value.hubUserId.toLowerCase()
+    }
     return identity
   }
+
+  function readResolutionHistory(history) {
+    if (history === undefined) return []
+    if (!Array.isArray(history)) invalid(`Thread ${value.id} resolutionHistory must be an array.`)
+    let lastSequence = 0
+    return history.map((change, index) => {
+      if (!isObject(change) || !["resolved", "unresolved"].includes(change.state))
+        invalid(`Resolution change ${index + 1} is invalid.`)
+      const at = timestamp(change.at, "resolutionHistory.at")
+      if (typeof change.id !== "string" || !UUID.test(change.id))
+        invalid(`Resolution change ${index + 1} needs its durable event ID.`)
+      if (!positive(change.sequence) || change.sequence <= lastSequence)
+        invalid("Resolution history sequence must increase.")
+      lastSequence = change.sequence
+      if (!isObject(change.actor) || !LOGIN.test(change.actor.login ?? ""))
+        invalid(`Resolution change ${index + 1} needs an actor.`)
+      const identity = readIdentity(change.actor, `Resolution change ${index + 1} actor`)
+      return {
+        id: change.id.toLowerCase(),
+        sequence: change.sequence,
+        state: change.state,
+        at,
+        actorLogin: change.actor.login,
+        ...(identity.githubId !== undefined ? { actorGithubId: identity.githubId } : {}),
+        ...(identity.localId !== undefined ? { actorLocalId: identity.localId } : {}),
+        ...(identity.hubUserId !== undefined ? { actorHubUserId: identity.hubUserId } : {}),
+      }
+    })
+  }
+}
+
+function sourceIdentifier(value) {
+  return positive(value) || (typeof value === "string" && UUID.test(value))
 }
 
 /** Keep only the saved target fields Hub itself shows: route and accessible element details. */

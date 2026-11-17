@@ -24,6 +24,18 @@
       "minimum": 1,
       "maximum": 9007199254740991
     },
+    "sourceIdentifier": {
+      "description": "A stable source-system identifier, either a legacy positive integer or a UUID.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$"
+        }
+      ]
+    },
     "count": {
       "type": "integer",
       "minimum": 0,
@@ -108,7 +120,7 @@
         "login": {
           "description": "The login shown at import time, for display only. Stable actor IDs, not this mutable login, identify reviewers.",
           "type": "string",
-          "pattern": "^[A-Za-z0-9_-]{1,256}$"
+          "pattern": "^[^\\s\\p{Cc}\\p{Cf}\\u{E0000}-\\u{E007F}]{1,256}$"
         },
         "model": {
           "type": "string",
@@ -163,10 +175,10 @@
           "pattern": "^[a-z0-9_.-]{1,100}/[a-z0-9_.-]{1,100}$"
         },
         "repositoryId": {
-          "$ref": "#/$defs/positiveInteger"
+          "$ref": "#/$defs/sourceIdentifier"
         },
         "prototypeId": {
-          "$ref": "#/$defs/positiveInteger"
+          "$ref": "#/$defs/sourceIdentifier"
         },
         "prototypeName": {
           "type": "string",

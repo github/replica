@@ -1,0 +1,21 @@
+model LearningDecisionOperation {
+  // ID columns
+  id                String @id @default(uuid()) @db.Uuid
+  repositoryId      String @map("repository_id") @db.Uuid
+  actorMembershipId String @map("actor_membership_id") @db.Uuid
+
+  // Relations
+  repository      Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  actorMembership Membership @relation(fields: [actorMembershipId], references: [id], onDelete: Cascade)
+
+  // Attribute columns
+  learningId String @map("learning_id") @db.VarChar(255)
+  decision   String @db.VarChar(20)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([repositoryId, createdAt])
+  @@map("learning_decision_operations")
+}

@@ -63,6 +63,14 @@ export function createReviewCommentService(
     sessionDigest: string,
     userId: string,
   ) => Promise<boolean> = () => Promise.resolve(true),
+  options: {
+    onDeleted?: (input: {
+      repositoryId: string
+      commentId: number
+      actorLogin: string
+    }) => Promise<void>
+    withDeleteLock?: <T>(operation: () => Promise<T>) => Promise<T>
+  } = {},
 ): ReviewCommentService {
   const repository = createReviewCommentRepository(database)
   return {
@@ -113,15 +121,40 @@ export function createReviewCommentService(
       return serializeReviewThread(result.value)
     },
     async deleteComment(input) {
-      const result = await runReviewMutation(() =>
-        repository.deleteComment({
-          ...input,
-          authorize: (transaction) =>
-            authorizeMutation(transaction, input.sessionDigest, input.actor.userId),
-        }),
-      )
+      function operation() {
+        return runReviewMutation(() =>
+          repository.deleteComment({
+            ...input,
+            authorize: (transaction) =>
+              authorizeMutation(transaction, input.sessionDigest, input.actor.userId),
+          }),
+        )
+      }
+      let result
+      try {
+        result = options.withDeleteLock
+          ? await options.withDeleteLock(operation)
+          : await operation()
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message === "Another learning operation is still running."
+        ) {
+          throw new ReviewCommentError(
+            "conflict",
+            "A learning operation is using review comments. Try again.",
+          )
+        }
+        throw error
+      }
       if (!result.ok) throw persistenceError(result.reason)
-      return serializeReviewThread(result.value)
+      const thread = serializeReviewThread(result.value)
+      await options.onDeleted?.({
+        repositoryId: input.repositoryId,
+        commentId: input.commentId,
+        actorLogin: input.actor.login,
+      })
+      return thread
     },
     async setResolution(input) {
       const result = await runReviewMutation(() =>

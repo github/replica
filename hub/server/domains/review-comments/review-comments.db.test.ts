@@ -363,6 +363,15 @@ describe("review comments", () => {
       deletedAt: deletedReply?.deletedAt,
     })
     await expect(
+      prisma.reviewComment.findUniqueOrThrow({
+        where: { publicId: reply.id },
+        select: { learningRedactionActor: true, learningRedactedAt: true },
+      }),
+    ).resolves.toEqual({
+      learningRedactionActor: `human:${author.login}`,
+      learningRedactedAt: null,
+    })
+    await expect(
       service.editComment({
         repositoryId: repository.id,
         prototypeId: prototype.id,
@@ -566,9 +575,15 @@ describe("review comments", () => {
     expect(storedFirst).toMatchObject({ buildNumber: 4, anchor })
     expect(storedFirst?.root.author).toEqual(author)
     expect(storedFirst?.replies.map(({ author: replyAuthor }) => replyAuthor)).toEqual([reviewer])
-    expect(storedFirst?.resolutionHistory.map(({ state, actor }) => ({ state, actor }))).toEqual([
-      { state: "resolved", actor: reviewer },
-    ])
+    expect(storedFirst?.root.author.userId).toMatch(/^[0-9a-f-]{36}$/)
+    expect(storedFirst?.replies[0]?.author.userId).toMatch(/^[0-9a-f-]{36}$/)
+    expect(
+      storedFirst?.resolutionHistory.map(({ state, actor }) => ({
+        state,
+        actor,
+      })),
+    ).toEqual([{ state: "resolved", actor: reviewer }])
+    expect(storedFirst?.resolutionHistory[0]?.actor.userId).toMatch(/^[0-9a-f-]{36}$/)
     const storedSecond = snapshot.threads.find(({ buildNumber }) => buildNumber === 9)
     expect(storedSecond).toMatchObject({
       anchor: areaAnchor,

@@ -303,5 +303,43 @@ export function getSecurityAuditData(
           ...(event.reason ? { reason: event.reason } : {}),
         },
       }
+    case "learning_decision":
+      return {
+        id: event.id,
+        action:
+          event.outcome === "requested"
+            ? `learning.${event.decision}.requested`
+            : `learning.${event.decision}`,
+        outcome:
+          event.outcome === "requested"
+            ? null
+            : event.outcome === "succeeded"
+              ? SecurityAuditOutcome.SUCCESS
+              : SecurityAuditOutcome.FAILURE,
+        targetType: "learning",
+        targetId: event.learningId,
+        context: {
+          actorMembershipId: event.actorMembershipId,
+          operationId: event.operationId,
+          repositoryId: event.repositoryId,
+          ...(event.reason ? { reason: event.reason } : {}),
+        },
+      }
+    case "learning_run":
+      return {
+        id: event.id,
+        action: event.outcome === "requested" ? "learning.run.requested" : "learning.run.failed",
+        outcome:
+          event.outcome === "requested"
+            ? SecurityAuditOutcome.SUCCESS
+            : SecurityAuditOutcome.FAILURE,
+        targetType: "learning_run",
+        targetId: event.runId,
+        context: {
+          actorMembershipId: event.actorMembershipId,
+          repositoryId: event.repositoryId,
+          ...(event.reason ? { reason: event.reason } : {}),
+        },
+      }
   }
 }

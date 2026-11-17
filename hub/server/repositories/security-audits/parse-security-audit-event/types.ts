@@ -27,6 +27,8 @@ import type {
   AllHubSessionsEndedAudit,
   SessionCreatedAudit,
   SessionEndedAudit,
+  LearningDecisionAudit,
+  LearningRunAudit,
 } from "../create-security-audit/types.ts"
 
 export type ParsedSecurityAuditEvent =
@@ -65,3 +67,5 @@ export type ParsedSecurityAuditEvent =
       providerKeys: ProviderKey[]
     })
   | SessionRevocationAdvancedAudit
+  | LearningDecisionAudit
+  | LearningRunAudit

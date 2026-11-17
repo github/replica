@@ -62,6 +62,17 @@ function actorFor(record: SecurityAuditListRecord) {
       const parsed = actorContextSchema.safeParse(record.context)
       return parsed.success ? { membershipId: parsed.data.actorMembershipId } : null
     }
+    case "learning.accept":
+    case "learning.accept.requested":
+    case "learning.reject":
+    case "learning.reject.requested":
+    case "learning.retire":
+    case "learning.retire.requested":
+    case "learning.run.requested":
+    case "learning.run.failed": {
+      const parsed = actorContextSchema.safeParse(record.context)
+      return parsed.success ? { membershipId: parsed.data.actorMembershipId } : null
+    }
     default:
       return null
   }
@@ -313,6 +324,36 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
             phase: parsed.data.phase,
             ...(parsed.data.reason ? { reason: parsed.data.reason } : {}),
             ...(targetId ? { targetId } : {}),
+          }
+        : {}
+    }
+    case "learning.accept":
+    case "learning.accept.requested":
+    case "learning.reject":
+    case "learning.reject.requested":
+    case "learning.retire":
+    case "learning.retire.requested":
+    case "learning.run.requested":
+    case "learning.run.failed": {
+      const parsed = z
+        .object({
+          actorMembershipId: z.uuid(),
+          operationId: z.uuid().optional(),
+          repositoryId: z.uuid(),
+          reason: reasonSchema.optional(),
+        })
+        .strict()
+        .safeParse(record.context)
+      return parsed.success
+        ? {
+            repositoryId: parsed.data.repositoryId,
+            ...(parsed.data.operationId ? { operationId: parsed.data.operationId } : {}),
+            ...(record.targetId
+              ? record.action.startsWith("learning.run.")
+                ? { runId: record.targetId }
+                : { learningId: record.targetId }
+              : {}),
+            ...(parsed.data.reason ? { reason: parsed.data.reason } : {}),
           }
         : {}
     }

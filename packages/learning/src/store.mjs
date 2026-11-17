@@ -1807,6 +1807,20 @@ class LearningStore {
     }
   }
 
+  /** Find one host decision marker in intact history without returning learning content. */
+  async findMemoryOperation(context, id, operationId) {
+    assertContext(context)
+    const entry = (await this.#memories(context, [id])).get(id)
+    if (!entry) throw new LearningError("not_found", `No memory ${id} in this scope.`)
+    const version = entry.intact.find(
+      (record) =>
+        record.accepted?.operationId === operationId ||
+        record.rejected?.operationId === operationId ||
+        record.retired?.operationId === operationId,
+    )
+    return { state: version?.state ?? null }
+  }
+
   /** Memories in scope, newest version of each, with their recall status, read for a purpose. */
   async queryMemory(context, { states, kinds, purpose = "review" } = {}) {
     assertContext(context)
@@ -1839,7 +1853,7 @@ class LearningStore {
    * supersedes, and recall follows that; the replaced memories keep their state. Such a
    * proposal must apply now, so an expired one, or one not valid yet, is refused.
    */
-  async acceptMemory(context, id, { expectedDigest, content, note } = {}) {
+  async acceptMemory(context, id, { expectedDigest, content, note, operationId } = {}) {
     assertContext(context)
     requireHuman(context, "accept a learning")
     const { items, eligible, now } = await this.#statuses(context)
@@ -1879,6 +1893,7 @@ class LearningStore {
       contentDigest: memoryContentDigest(draft),
       reviewedDigest: expectedDigest,
       edited,
+      ...(operationId ? { operationId } : {}),
       ...(note ? { note } : {}),
     }
     const record = sealMemory(draft)
@@ -1901,7 +1916,7 @@ class LearningStore {
   }
 
   /** Reject a proposed memory, keeping the reason so later proposals can see the disagreement. */
-  async rejectMemory(context, id, { expectedDigest, reason } = {}) {
+  async rejectMemory(context, id, { expectedDigest, reason, operationId } = {}) {
     assertContext(context)
     requireHuman(context, "reject a learning")
     const now = this.#now()
@@ -1912,7 +1927,13 @@ class LearningStore {
       previousDigest: latest.digest,
       state: "rejected",
       updatedAt: now,
-      rejected: { by: context.principal, at: now, reviewedDigest: expectedDigest, reason },
+      rejected: {
+        by: context.principal,
+        at: now,
+        reviewedDigest: expectedDigest,
+        reason,
+        ...(operationId ? { operationId } : {}),
+      },
     })
     assertValid("memoryRecord", record)
     await this.#appendVersion(
@@ -1927,7 +1948,7 @@ class LearningStore {
   }
 
   /** Stop recalling an accepted memory. Its history stays inspectable. */
-  async retireMemory(context, id, { reason } = {}) {
+  async retireMemory(context, id, { reason, operationId } = {}) {
     assertContext(context)
     requireHuman(context, "retire a learning")
     const entry = (await this.#memories(context, [id])).get(id)
@@ -1939,7 +1960,7 @@ class LearningStore {
         "invalid_transition",
         `Only accepted memories can be retired; ${id} is ${entry.record.state}.`,
       )
-    return this.#retire(entry.record, context, reason, this.#now())
+    return this.#retire(entry.record, context, reason, this.#now(), operationId)
   }
 
   /**
@@ -2027,14 +2048,14 @@ class LearningStore {
     return entry.record
   }
 
-  async #retire(latest, context, reason, now) {
+  async #retire(latest, context, reason, now, operationId) {
     const record = sealMemory({
       ...without(latest, "digest", "contentDigest"),
       version: latest.version + 1,
       previousDigest: latest.digest,
       state: "retired",
       updatedAt: now,
-      retired: { by: context.principal, at: now, reason },
+      retired: { by: context.principal, at: now, reason, ...(operationId ? { operationId } : {}) },
     })
     assertValid("memoryRecord", record)
     await this.#appendVersion(

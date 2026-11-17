@@ -397,6 +397,61 @@ describe("presentSecurityAudit()", () => {
         outcome: "success",
       }),
     },
+    {
+      label: "repository learning acceptance",
+      event: {
+        actorMembershipId,
+        decision: "accept",
+        id: auditId,
+        learningId: "mem_1",
+        operationId: sessionId,
+        outcome: "succeeded",
+        repositoryId: providerId,
+        type: "learning_decision",
+      },
+      expected: expectedRecord({
+        action: "learning.accept",
+        actor: { membershipId: actorMembershipId },
+        context: { repositoryId: providerId, learningId: "mem_1", operationId: sessionId },
+        outcome: "success",
+      }),
+    },
+    {
+      label: "repository learning acceptance request",
+      event: {
+        actorMembershipId,
+        decision: "accept",
+        id: auditId,
+        learningId: "mem_1",
+        operationId: sessionId,
+        outcome: "requested",
+        repositoryId: providerId,
+        type: "learning_decision",
+      },
+      expected: expectedRecord({
+        action: "learning.accept.requested",
+        actor: { membershipId: actorMembershipId },
+        context: { repositoryId: providerId, learningId: "mem_1", operationId: sessionId },
+        outcome: null,
+      }),
+    },
+    {
+      label: "repository learning run request",
+      event: {
+        actorMembershipId,
+        id: auditId,
+        outcome: "requested",
+        repositoryId: providerId,
+        runId: sessionId,
+        type: "learning_run",
+      },
+      expected: expectedRecord({
+        action: "learning.run.requested",
+        actor: { membershipId: actorMembershipId },
+        context: { repositoryId: providerId, runId: sessionId },
+        outcome: "success",
+      }),
+    },
     ...(
       [
         ["connected", "success", true, undefined],

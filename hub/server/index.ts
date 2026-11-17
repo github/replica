@@ -17,6 +17,7 @@ import { jobProcessors } from "./workers/configuration.ts"
 import { runJobWorker } from "./workers/run-job-worker/index.ts"
 import type { AuthenticationRouteDependencies } from "./routes/api/auth/types.ts"
 import type { CopilotConnectionRouteDependencies } from "./routes/api/copilot-connection/types.ts"
+import type { LearningsRouteDependencies } from "./routes/api/learnings/types.ts"
 import type { ProductRouteDependencies } from "./routes/api/product/types.ts"
 
 class AuthenticationConfigurationError extends Error {}
@@ -44,6 +45,7 @@ try {
     const trustedProxyHops = runsApi ? configuredTrustedProxyHops : 0
     let authentication: AuthenticationRouteDependencies | undefined
     let copilotConnection: CopilotConnectionRouteDependencies | undefined
+    let learnings: LearningsRouteDependencies | undefined
     let product: ProductRouteDependencies | undefined
     if (runsApi) {
       const authenticationEnvironment = resolveLocalSignInEnvironment(process.env)
@@ -82,9 +84,6 @@ try {
         try {
           if (authenticationConfiguration.providerConfigured) {
             authentication = await createAuthenticationRouteDependencies(authenticationEnvironment)
-            const { createProductRouteDependencies } =
-              await import("./routes/api/product/create-product-route-dependencies/index.ts")
-            product = createProductRouteDependencies()
             const { createCopilotConnectionRouteDependencies } =
               await import("./routes/api/copilot-connection/create-copilot-connection-route-dependencies/index.ts")
             copilotConnection = await createCopilotConnectionRouteDependencies(
@@ -92,6 +91,21 @@ try {
               logger,
               authentication.administrators,
             )
+            const { createLearningsRouteDependencies } =
+              await import("./routes/api/learnings/create-learnings-route-dependencies/index.ts")
+            const learningDependencies = await createLearningsRouteDependencies(
+              authenticationEnvironment,
+              authentication.currentSession,
+              logger,
+            )
+            learnings = learningDependencies
+            const { createProductRouteDependencies } =
+              await import("./routes/api/product/create-product-route-dependencies/index.ts")
+            product = createProductRouteDependencies({
+              onReviewCommentDeleted: (input) => learningDependencies.redactComment(input),
+              withReviewCommentDeleteLock: (operation) =>
+                learningDependencies.serializeReviewCommentDeletion(operation),
+            })
           } else {
             await disableAuthenticationProviders()
           }
@@ -113,6 +127,7 @@ try {
         isReady: isStorageReady,
         authentication,
         copilotConnection,
+        learnings,
         product,
         trustedProxyHops,
       })
@@ -127,6 +142,7 @@ try {
           isStorageReady,
           authentication,
           copilotConnection,
+          learnings,
           product,
           trustedProxyHops,
         })

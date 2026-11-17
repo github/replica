@@ -161,6 +161,10 @@
         "edited": {
           "type": "boolean"
         },
+        "operationId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$"
+        },
         "note": {
           "type": "string",
           "minLength": 1,
@@ -186,6 +190,10 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 2000
+        },
+        "operationId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$"
         }
       }
     },
@@ -204,6 +212,10 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 2000
+        },
+        "operationId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$"
         }
       }
     },
