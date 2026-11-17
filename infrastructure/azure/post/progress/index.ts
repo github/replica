@@ -252,6 +252,10 @@ export async function postSetupProgress(
     },
     async pendingUpload(key: string) {
       if (!keys.includes(key)) invalid()
+      if (data.pending && data.pending !== key)
+        throw new Error(
+          "A different secret write has an unknown outcome. Resolve that pending write before storing another credential; its evidence was preserved.",
+        )
       await save({ ...data, complete: false, pending: key })
     },
     async startOver() {
@@ -259,6 +263,10 @@ export async function postSetupProgress(
       await save({ ...data, answers: {}, complete: false })
     },
     async finish() {
+      if (data.pending)
+        throw new Error(
+          "A secret write still has an unknown outcome. Resolve it before completing post-setup; its evidence was preserved.",
+        )
       await save({ ...data, complete: true, answers: {} })
     },
   }

@@ -224,6 +224,28 @@ it("retains confirmed uploads and unresolved writes when starting over, then com
   expect((await postSetupProgress(test.context, "github")).hasSaved).toBe(false)
 })
 
+it("preserves an unresolved upload when another credential is requested, but permits reconciling the same credential", async () => {
+  const test = await scenario()
+  const progress = await postSetupProgress(test.context, "github")
+  await progress.pendingUpload("GITHUB_APP_PRIVATE_KEY_BASE64")
+  await progress.startOver()
+  const saved = await readFile(progress.path, "utf8")
+
+  await expect(progress.pendingUpload("GITHUB_CLIENT_SECRET")).rejects.toThrow(/unknown outcome/i)
+  await expect(progress.finish()).rejects.toThrow(/unknown outcome/i)
+
+  expect(await readFile(progress.path, "utf8")).toBe(saved)
+  expect((await postSetupProgress(test.context, "github")).pending).toBe(
+    "GITHUB_APP_PRIVATE_KEY_BASE64",
+  )
+  await progress.pendingUpload("GITHUB_APP_PRIVATE_KEY_BASE64")
+  await progress.saveReference("GITHUB_APP_PRIVATE_KEY_BASE64", {
+    ...test.reference,
+    secret_id: test.reference.secret_id.replace("github-client-secret", "github-app-private-key"),
+  })
+  expect((await postSetupProgress(test.context, "github")).pending).toBeUndefined()
+})
+
 it.each(["shared file", "shared directory", "symbolic link", "hard link"] as const)(
   "rejects a progress location with a %s without changing it",
   async (unsafe) => {
