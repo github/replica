@@ -25,6 +25,35 @@ function parseRecord(line: string) {
 }
 
 describe("createApp()", () => {
+  it("omits public and preview bearer values from request logs", async () => {
+    const records: Record<string, unknown>[] = []
+    const logger = createLogger({
+      destination: { write: (line) => records.push(parseRecord(line)) },
+    })
+    const server = createServer(createApp({ logger }))
+
+    try {
+      server.listen(0, "127.0.0.1")
+      await once(server, "listening")
+      const { port } = server.address() as AddressInfo
+      const base = `http://127.0.0.1:${port}`
+
+      await fetch(`${base}/api/shared/secret-share-id?grant=secret-public-grant`)
+      await fetch(`${base}/__replica/authorize?grant=secret-preview-grant`)
+
+      expect(records).toHaveLength(2)
+      for (const record of records) {
+        expect(record).not.toHaveProperty("params")
+        expect(record).not.toHaveProperty("query")
+        expect(JSON.stringify(record)).not.toContain("secret")
+      }
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()))
+      })
+    }
+  })
+
   it("serves built assets and HTML navigation without masking missing API routes or assets", async () => {
     const clientDirectory = join(process.cwd(), `runtime-client-test-${randomUUID()}`)
     await mkdir(join(clientDirectory, "assets"), { recursive: true })

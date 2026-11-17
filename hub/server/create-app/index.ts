@@ -36,6 +36,9 @@ export function createApp({
       "/api/security-audits",
       "/api/workspace",
       "/api/repositories",
+      "/api/shared",
+      "/__replica/authorize",
+      "/__replica/share/authorize",
     ],
     authenticationSecurity(),
   )

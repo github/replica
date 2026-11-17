@@ -101,6 +101,9 @@ try {
               const { createBuildPreviewRouteDependencies } =
                 await import("./routes/build-preview/create-build-preview-route-dependencies/index.ts")
               preview = createBuildPreviewRouteDependencies(authenticationEnvironment, storage)
+              preview.restoreSession = authentication.currentSession.restore.bind(
+                authentication.currentSession,
+              )
               if (authentication.local) {
                 const { createPublicSharingRouteDependencies } =
                   await import("./routes/api/public-sharing/create-public-sharing-route-dependencies/index.ts")

@@ -98,14 +98,35 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
   }, [infoOpen, composerExpanded, submission, iframeRef])
 
   let address = data.selectedBuild?.previewUrl ?? ""
+  let externalAddress = address
+  let isolatedPreview = false
   if (address && bridge.route) {
-    const url = new URL(address)
-    url.pathname = bridge.route.pathname
-    url.search = bridge.route.search
-    url.hash = bridge.route.hash
-    address = url.toString()
+    const authorizationUrl = new URL(address)
+    const previewOrigin = authorizationUrl.searchParams.get("preview_origin")
+    if (previewOrigin) {
+      isolatedPreview = true
+      const viewerUrl = new URL(previewOrigin)
+      viewerUrl.pathname = bridge.route.pathname
+      viewerUrl.search = bridge.route.search
+      viewerUrl.hash = bridge.route.hash
+      address = viewerUrl.toString()
+      authorizationUrl.searchParams.set(
+        "route",
+        `${bridge.route.pathname}${bridge.route.search}${bridge.route.hash}`,
+      )
+      externalAddress = authorizationUrl.toString()
+    } else {
+      authorizationUrl.pathname = bridge.route.pathname
+      authorizationUrl.search = bridge.route.search
+      authorizationUrl.hash = bridge.route.hash
+      address = authorizationUrl.toString()
+      externalAddress = address
+    }
   }
-  address = viewerUrl ?? address
+  if (!isolatedPreview) {
+    address = viewerUrl ?? address
+    externalAddress = viewerUrl ?? externalAddress
+  }
 
   function branchFromHere() {
     setInfoMode(null)
@@ -178,6 +199,7 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
               {data.selectedBuild ? (
                 <PrototypePreview
                   address={address}
+                  externalAddress={externalAddress}
                   copy={data}
                   iframeRef={iframeRef}
                   previewUrl={data.selectedBuild.previewUrl}

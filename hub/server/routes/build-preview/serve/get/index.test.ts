@@ -59,6 +59,7 @@ async function withServeRoute(
     readAvailableShareLink: Mock<
       NonNullable<BuildPreviewRouteDependencies["readAvailableShareLink"]>
     >
+    restoreSession: Mock<NonNullable<BuildPreviewRouteDependencies["restoreSession"]>>
     shareCookie: string
   }) => Promise<void>,
 ) {
@@ -78,6 +79,9 @@ async function withServeRoute(
       expiresAt: new Date(Date.now() + 60 * 60_000),
       startPage: "/",
     })
+  const restoreSession = vi
+    .fn<NonNullable<BuildPreviewRouteDependencies["restoreSession"]>>()
+    .mockResolvedValue({ userId: randomUUID() })
   const dependencies: BuildPreviewRouteDependencies = {
     applicationOrigin: "https://hub.example.com",
     previewBaseOrigin: `http://preview.localhost:${port}`,
@@ -91,12 +95,22 @@ async function withServeRoute(
     bridgeSource: "globalThis.ReplicaHostedPreviewBridge={installHostedBridge(origin){}}",
     reviewBridgeSource:
       'globalThis.reviewBridge={origin:"__REPLICA_HUB_ORIGIN__",enabled:"__REPLICA_REVIEW_ENABLED__" !== "false"};',
-    findTargetById: vi.fn(),
+    findTargetById: vi.fn().mockResolvedValue({
+      buildId,
+      startPage: "/",
+      artifactPath: "dist/index.html",
+    }),
     findArtifact,
     readAvailableShareLink,
+    restoreSession,
   }
   app.get("/{*path}", get(dependencies))
-  const session = createPreviewSession(buildId, new Date(Date.now() + 15 * 60_000), key)
+  const session = createPreviewSession(
+    buildId,
+    "a".repeat(64),
+    new Date(Date.now() + 15 * 60_000),
+    key,
+  )
   const shareSession = createSharePreviewSession(
     {
       buildId,
@@ -114,6 +128,7 @@ async function withServeRoute(
       findArtifact,
       read,
       readAvailableShareLink,
+      restoreSession,
       shareCookie: `replica_share_preview=${encodeURIComponent(shareSession)}`,
     })
   } finally {
@@ -227,6 +242,9 @@ describe("get()", () => {
         expect(response.headers["cache-control"]).toBe("private, max-age=31536000, immutable")
         expect(response.body).toEqual(Buffer.from([7, 8]))
       }
+      expect(asset.headers["cross-origin-resource-policy"]).toBe("same-origin")
+      expect(desktop.headers["cross-origin-resource-policy"]).toBe("cross-origin")
+      expect(narrow.headers["cross-origin-resource-policy"]).toBe("cross-origin")
     })
   })
 
@@ -295,6 +313,7 @@ describe("get()", () => {
           storageKey: "asset-key",
           byteLength: 2,
         })
+
         read.mockResolvedValue({
           status: "ok",
           bytes: Uint8Array.of(7, 8),
@@ -316,6 +335,31 @@ describe("get()", () => {
         expect(response.body).toHaveLength(0)
         expect(read).toHaveBeenCalledOnce()
         expect(readAvailableShareLink).toHaveBeenCalledTimes(2)
+      },
+    )
+  })
+
+  it("rechecks private session and repository authority after reading artifact bytes", async () => {
+    await withServeRoute(
+      async ({ origin, buildId, cookie, restoreSession, findArtifact, read }) => {
+        findArtifact.mockResolvedValue({
+          storageKey: "asset-key",
+          byteLength: 2,
+        })
+        read.mockResolvedValue({
+          status: "ok",
+          bytes: Uint8Array.of(7, 8),
+        })
+        restoreSession.mockResolvedValueOnce({ userId: randomUUID() }).mockResolvedValueOnce(null)
+
+        const response = await request(
+          origin,
+          "/asset.bin",
+          requestHeaders(buildId, origin, cookie),
+        )
+
+        expect(response.status).toBe(404)
+        expect(read).toHaveBeenCalledOnce()
       },
     )
   })

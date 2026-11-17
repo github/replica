@@ -24,4 +24,5 @@ export interface BuildPreviewRouteDependencies {
     shareLinkId: string,
     buildId: string,
   ): Promise<{ expiresAt: Date; startPage: string } | null>
+  restoreSession?(sessionDigest: string): Promise<object | null>
 }

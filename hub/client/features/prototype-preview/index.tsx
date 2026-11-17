@@ -33,6 +33,7 @@ export function PrototypePreview({
         <CopyableTextInput
           compact
           value={address}
+          copyValue={externalAddress}
           label={copy.previewUrlLabel}
           copyLabel={copy.copyPreviewUrlLabel}
           copiedLabel={copy.copiedPreviewUrlLabel}

@@ -13,11 +13,25 @@ describe("readPreviewGrant()", () => {
 
     expect(
       readPreviewGrant(
-        createPreviewGrant({ buildId, target: "desktop", expiresAt }, key),
+        createPreviewGrant(
+          {
+            buildId,
+            target: "desktop",
+            expiresAt,
+            sessionDigest: "a".repeat(64),
+          },
+          key,
+        ),
         key,
         now,
       ),
-    ).toEqual({ buildId, target: "desktop", expiresAt })
+    ).toEqual({
+      buildId,
+      target: "desktop",
+      expiresAt,
+      route: undefined,
+      sessionDigest: "a".repeat(64),
+    })
   })
 
   it("rejects expired grants and grants whose lifetime exceeds one minute", () => {
@@ -26,7 +40,15 @@ describe("readPreviewGrant()", () => {
     const now = new Date("2026-11-16T22:00:00.000Z")
 
     for (const expiresAt of [new Date(now.getTime()), new Date(now.getTime() + 60_001)]) {
-      const grant = createPreviewGrant({ buildId, target: "preview", expiresAt }, key)
+      const grant = createPreviewGrant(
+        {
+          buildId,
+          target: "preview",
+          expiresAt,
+          sessionDigest: "a".repeat(64),
+        },
+        key,
+      )
       expect(readPreviewGrant(grant, key, now)).toBeNull()
     }
   })

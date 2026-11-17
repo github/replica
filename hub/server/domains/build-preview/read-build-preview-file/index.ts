@@ -11,15 +11,21 @@ export async function readBuildPreviewFile(
   input: ReadBuildPreviewFileInput,
   dependencies: ReadBuildPreviewFileDependencies,
 ): Promise<BuildPreviewFileResult> {
+  let requestPath: string
+  try {
+    requestPath = decodeURIComponent(input.requestPath)
+  } catch {
+    return { status: "not-found" }
+  }
   let path =
-    input.requestPath === "/__replica/screenshots/desktop.png"
+    requestPath === "/__replica/screenshots/desktop.png"
       ? "screenshots/desktop.png"
-      : input.requestPath === "/__replica/screenshots/narrow.png"
+      : requestPath === "/__replica/screenshots/narrow.png"
         ? "screenshots/narrow.png"
-        : `dist${input.requestPath === "/" ? "/index.html" : input.requestPath}`
+        : `dist${requestPath === "/" ? "/index.html" : requestPath}`
   path = normalizeBuildArtifactPath(path) ?? ""
   let artifact = path ? await dependencies.findArtifact(input.buildId, path) : null
-  if (!artifact && input.acceptsHtml && !input.requestPath.split("/").at(-1)?.includes(".")) {
+  if (!artifact && input.acceptsHtml && !requestPath.split("/").at(-1)?.includes(".")) {
     path = "dist/index.html"
     artifact = await dependencies.findArtifact(input.buildId, path)
   }

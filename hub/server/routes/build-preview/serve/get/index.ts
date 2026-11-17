@@ -7,7 +7,11 @@ import { readSharePreviewSession } from "../../../../domains/public-sharing/read
 import { readCookie } from "../../../../integrations/express/read-cookie/index.ts"
 import type { BuildPreviewRouteDependencies } from "../../types.ts"
 
-function setSecurityHeaders(response: Parameters<RequestHandler>[1], applicationOrigin: string) {
+function setSecurityHeaders(
+  response: Parameters<RequestHandler>[1],
+  applicationOrigin: string,
+  sharedScreenshot: boolean,
+) {
   response.setHeader(
     "Content-Security-Policy",
     [
@@ -22,7 +26,10 @@ function setSecurityHeaders(response: Parameters<RequestHandler>[1], application
       "form-action 'self'",
     ].join("; "),
   )
-  response.setHeader("Cross-Origin-Resource-Policy", "same-origin")
+  response.setHeader(
+    "Cross-Origin-Resource-Policy",
+    sharedScreenshot ? "cross-origin" : "same-origin",
+  )
   response.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
   response.setHeader("Referrer-Policy", "no-referrer")
   response.setHeader("X-Content-Type-Options", "nosniff")
@@ -46,16 +53,31 @@ export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler
         !authenticated && shareSession && dependencies.readAvailableShareLink
           ? await dependencies.readAvailableShareLink(shareSession.s, buildId)
           : null
-      if (!authenticated && !publicLink) {
+      const privateAuthorized =
+        authenticated &&
+        dependencies.restoreSession &&
+        (await dependencies.restoreSession(authenticated.s)) &&
+        (await dependencies.findTargetById(buildId, "preview"))
+      if (!privateAuthorized && !publicLink) {
         response.status(404).end()
         return
       }
-      setSecurityHeaders(response, dependencies.applicationOrigin)
+      const screenshot =
+        request.path === "/__replica/screenshots/desktop.png" ||
+        request.path === "/__replica/screenshots/narrow.png"
+      setSecurityHeaders(
+        response,
+        dependencies.applicationOrigin,
+        Boolean(privateAuthorized && screenshot),
+      )
 
       if (request.path === "/__replica/bridge/v1.js") {
         const reviewSource = (dependencies.reviewBridgeSource ?? "")
           .replace('"__REPLICA_HUB_ORIGIN__"', JSON.stringify(dependencies.applicationOrigin))
-          .replace('"__REPLICA_REVIEW_ENABLED__"', JSON.stringify(String(Boolean(authenticated))))
+          .replace(
+            '"__REPLICA_REVIEW_ENABLED__"',
+            JSON.stringify(String(Boolean(privateAuthorized))),
+          )
         const source = `${reviewSource}\n${dependencies.bridgeSource};ReplicaHostedPreviewBridge.installHostedBridge(${JSON.stringify(dependencies.applicationOrigin)});`
         response.setHeader(
           "Cache-Control",
@@ -78,10 +100,20 @@ export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler
         return
       }
       if (
-        !authenticated &&
+        !privateAuthorized &&
         shareSession &&
         (!dependencies.readAvailableShareLink ||
           !(await dependencies.readAvailableShareLink(shareSession.s, buildId)))
+      ) {
+        response.status(404).end()
+        return
+      }
+      if (
+        privateAuthorized &&
+        (!authenticated ||
+          !dependencies.restoreSession ||
+          !(await dependencies.restoreSession(authenticated.s)) ||
+          !(await dependencies.findTargetById(buildId, "preview")))
       ) {
         response.status(404).end()
         return

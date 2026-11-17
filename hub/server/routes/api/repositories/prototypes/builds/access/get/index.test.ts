@@ -5,6 +5,8 @@ import type { AddressInfo } from "node:net"
 import express from "express"
 import { describe, expect, it, vi, type Mock } from "vitest"
 
+import { hashAuthenticationValue } from "../../../../../../../domains/authentication/hash-authentication-value"
+import { readPreviewGrant } from "../../../../../../../domains/build-preview/read-preview-grant"
 import type { CurrentSessionDependencies } from "../../../../../auth/types"
 import type { ProductRouteDependencies } from "../../../../../product/types"
 import type { BuildPreviewRouteDependencies } from "../../../../../../build-preview/types"
@@ -15,7 +17,11 @@ type ProductMocks = Omit<ProductRouteDependencies, "findBuildPreviewTarget"> & {
 }
 
 async function withAccessRoute(
-  operation: (url: string, product: ProductMocks) => Promise<void>,
+  operation: (
+    url: string,
+    product: ProductMocks,
+    preview: BuildPreviewRouteDependencies,
+  ) => Promise<void>,
   restore?: CurrentSessionDependencies["restore"],
 ) {
   const repositoryId = randomUUID()
@@ -65,7 +71,11 @@ async function withAccessRoute(
   await once(server, "listening")
   try {
     const { port } = server.address() as AddressInfo
-    await operation(`http://127.0.0.1:${port}/${repositoryId}/${prototypeId}/42/access`, product)
+    await operation(
+      `http://127.0.0.1:${port}/${repositoryId}/${prototypeId}/42/access`,
+      product,
+      preview,
+    )
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()))
@@ -84,8 +94,11 @@ describe("get()", () => {
   })
 
   it("redirects authorized members to a short-lived Build-origin grant", async () => {
-    await withAccessRoute(async (url, product) => {
-      const response = await fetch(`${url}?target=narrow`, {
+    await withAccessRoute(async (url, product, preview) => {
+      const request = new URL(url)
+      request.searchParams.set("target", "preview")
+      request.searchParams.set("route", "/checkout?step=shipping#address")
+      const response = await fetch(request, {
         headers: { cookie: "hub_session=member-session" },
         redirect: "manual",
       })
@@ -94,7 +107,12 @@ describe("get()", () => {
       const destination = new URL(response.headers.get("location")!)
       expect(destination.origin).toMatch(/^https:\/\/[\da-f-]+\.preview\.example\.com$/)
       expect(destination.pathname).toBe("/__replica/authorize")
-      expect(destination.searchParams.get("grant")).toBeTruthy()
+      const grant = readPreviewGrant(destination.searchParams.get("grant")!, preview.encryptionKey)
+      expect(grant).toMatchObject({
+        target: "preview",
+        route: "/checkout?step=shipping#address",
+        sessionDigest: hashAuthenticationValue("member-session"),
+      })
       expect(response.headers.get("cache-control")).toBe("no-store")
       expect(response.headers.get("referrer-policy")).toBe("no-referrer")
       const [repositoryId, prototypeId] = new URL(url).pathname.slice(1).split("/")
@@ -102,7 +120,7 @@ describe("get()", () => {
         repositoryId,
         prototypeId,
         42,
-        "narrow",
+        "preview",
       )
     })
   })

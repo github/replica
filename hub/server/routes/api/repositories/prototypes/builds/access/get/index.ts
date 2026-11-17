@@ -3,10 +3,12 @@ import { z } from "zod"
 
 import { createBuildPreviewOrigin } from "../../../../../../../domains/build-preview/create-build-preview-origin/index.ts"
 import { createPreviewGrant } from "../../../../../../../domains/build-preview/create-preview-grant/index.ts"
+import { hashAuthenticationValue } from "../../../../../../../domains/authentication/hash-authentication-value/index.ts"
 import { hubSessionCookieName } from "../../../../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../../../../../../integrations/express/read-cookie/index.ts"
 import type { CurrentSessionDependencies } from "../../../../../auth/types.ts"
 import { readProductSession } from "../../../../../product/read-product-session/index.ts"
+import { normalizeStartPage } from "../../../../../../../utils/normalize-start-page/index.ts"
 import type { ProductRouteDependencies } from "../../../../../product/types.ts"
 import type { BuildPreviewRouteDependencies } from "../../../../../../build-preview/types.ts"
 
@@ -14,6 +16,7 @@ const querySchema = z
   .object({
     target: z.enum(["preview", "desktop", "narrow"]),
     preview_origin: z.url().optional(),
+    route: z.string().max(4096).optional(),
   })
   .strict()
 
@@ -67,6 +70,11 @@ export function get(
           buildId: target.buildId,
           target: query.data.target,
           expiresAt: new Date(Date.now() + 30_000),
+          sessionDigest: hashAuthenticationValue(cookie),
+          route:
+            query.data.target === "preview" && query.data.route
+              ? normalizeStartPage(query.data.route)
+              : undefined,
         },
         preview.encryptionKey,
       )

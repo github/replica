@@ -86,6 +86,7 @@ describe("get()", () => {
           buildId,
           target: "preview",
           expiresAt: new Date(Date.now() + 30_000),
+          sessionDigest: "a".repeat(64),
         },
         key,
       )
@@ -113,6 +114,7 @@ describe("get()", () => {
           buildId: randomUUID(),
           target: "desktop",
           expiresAt: new Date(Date.now() + 30_000),
+          sessionDigest: "a".repeat(64),
         },
         key,
       )

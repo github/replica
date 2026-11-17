@@ -26,7 +26,12 @@ export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler
       response.setHeader(
         "Set-Cookie",
         createPreviewCookie({
-          value: createPreviewSession(buildId, expiresAt, dependencies.encryptionKey),
+          value: createPreviewSession(
+            buildId,
+            grant.sessionDigest,
+            expiresAt,
+            dependencies.encryptionKey,
+          ),
           expiresAt,
           secure:
             new URL(dependencies.previewBaseOrigin).protocol === "https:" ||
@@ -37,7 +42,7 @@ export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler
       response.setHeader("Referrer-Policy", "no-referrer")
       const destination =
         grant.target === "preview"
-          ? (normalizeStartPage(target.startPage) ?? "/")
+          ? (normalizeStartPage(grant.route ?? target.startPage) ?? "/")
           : `/__replica/screenshots/${grant.target}.png`
       response.redirect(303, destination)
     } catch (error) {
