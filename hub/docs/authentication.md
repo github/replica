@@ -42,17 +42,17 @@ Administrators can sync the installation's repositories by testing the connectio
 
 With `GITHUB_WEBHOOK_SECRET` set, `POST /api/github/webhooks` accepts signed deliveries for Hub's installation only and ignores the rest:
 
-| Event                       | Action                    | Hub response                                                    |
-| --------------------------- | ------------------------- | --------------------------------------------------------------- |
-| `installation`              | `deleted`, `suspend`      | Disconnects every repository and removes its grants.            |
-| `installation`              | `unsuspend`               | Syncs repositories.                                             |
-| `installation_repositories` | `added`                  | Syncs repositories.                                             |
-| `installation_repositories` | `removed`                | Disconnects the removed repositories and removes their grants. |
-| `member`                    | `removed`                 | Removes the user's grant for that repository.                    |
-| `organization`              | `member_removed`          | Removes all of the user's grants.                                |
-| `membership`                | `removed` from a team     | Invalidates all of the user's cached grants.                     |
-| `team`                      | `removed_from_repository` | Invalidates every cached grant for that repository.              |
-| `team`                      | `deleted`                 | Invalidates every cached GitHub grant.                            |
+| Event                       | Action                    | Hub response                                                   |
+| --------------------------- | ------------------------- | -------------------------------------------------------------- |
+| `installation`              | `deleted`, `suspend`      | Disconnects every repository and removes its grants.           |
+| `installation`              | `unsuspend`               | Syncs repositories.                                            |
+| `installation_repositories` | `added`                   | Syncs repositories.                                            |
+| `installation_repositories` | `removed`                 | Disconnects the removed repositories and removes their grants. |
+| `member`                    | `removed`                 | Removes the user's grant for that repository.                  |
+| `organization`              | `member_removed`          | Removes all of the user's grants.                              |
+| `membership`                | `removed` from a team     | Invalidates all of the user's cached grants.                   |
+| `team`                      | `removed_from_repository` | Invalidates every cached grant for that repository.            |
+| `team`                      | `deleted`                 | Invalidates every cached GitHub grant.                         |
 
 The `organization`, `membership`, and `team` events require the App's Organization Members read permission. Enable and subscribe the App webhook to those events; an existing installation also needs the organization owner's approval of any permission update. The setup page lists every required permission and event. GitHub delivers events available to the installed App and its selected repositories; personal installations do not have organization teams. Hub does not rely on team deletion producing separate events for every affected user or repository.
 
