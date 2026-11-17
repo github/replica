@@ -6,7 +6,7 @@ import { assertDraftMatchesConfig, loadConfig } from "../config/index.ts"
 import { InputValidationError } from "../config/fields/index.ts"
 import { privateDirectory } from "../private-files/index.ts"
 import { readSession, type WizardDraft, type WizardSession } from "../session/index.ts"
-import type { DeploymentConfig, RemovalTarget, WizardUI } from "../types.ts"
+import type { DeploymentConfig, WizardUI } from "../types.ts"
 
 export interface SetupEntry {
   action: "create" | "update" | "resume"
@@ -15,13 +15,7 @@ export interface SetupEntry {
   draft?: WizardDraft
 }
 
-export type InstallerEntry =
-  | SetupEntry
-  | {
-      action: "remove"
-      path: string
-      target: RemovalTarget
-    }
+export type InstallerEntry = SetupEntry
 
 interface Candidate {
   path: string
@@ -97,7 +91,9 @@ async function discover(ui: WizardUI, directory: string, known: Set<string>): Pr
       for (const file of await readdir(directory)) {
         if (file.endsWith(".draft.json"))
           paths.add(join(directory, file.slice(0, -".draft.json".length)))
-        else if (file.endsWith(".json")) paths.add(join(directory, file))
+        // Older installers wrote removal evidence beside configs; leave it untouched.
+        else if (file.endsWith(".json") && !file.endsWith(".removal.json"))
+          paths.add(join(directory, file))
       }
     }
   } catch (error) {
@@ -118,6 +114,7 @@ async function unused(path: string): Promise<boolean> {
     `${path}.draft.json`,
     `${path}.draft.json.lock`,
     `${path}.draft.json.lock.recovery`,
+    `${path}.removal.json`,
   ]) {
     try {
       await lstat(target)
@@ -131,22 +128,13 @@ async function unused(path: string): Promise<boolean> {
 
 export async function selectInstallerEntry(
   ui: WizardUI,
-  {
-    directory,
-    configPath: explicitPath,
-    configureOnly = false,
-  }: {
-    directory: string
-    configPath?: string
-    configureOnly?: boolean
-  },
+  { directory, configPath: explicitPath }: { directory: string; configPath?: string },
 ): Promise<InstallerEntry | undefined> {
   directory = resolve(directory)
   const explicit = explicitPath === undefined ? undefined : configPath(explicitPath)
   const known = new Set(explicit ? [explicit] : [])
   ui.welcome?.(true)
   while (true) {
-    ui.removal?.(false)
     const candidates = await discover(ui, directory, known)
     const resumable = candidates.some(({ draft, problem }) => draft && !problem)
     const action = await ui.select(
@@ -154,68 +142,11 @@ export async function selectInstallerEntry(
       [
         { label: "Create a new installation", value: "create" },
         { label: "Update existing installation", value: "update" },
-        ...(!configureOnly
-          ? [{ label: "Remove an installation (destructive)", value: "remove" }]
-          : []),
         ...(resumable ? [{ label: "Resume in progress setup", value: "resume" }] : []),
         { label: "Exit and do nothing", value: "exit" },
       ],
     )
     if (action === "exit") return undefined
-    if (action === "remove") {
-      if (configureOnly) throw new Error("Configuration-only mode cannot remove deployments.")
-      ui.removal?.(true)
-      while (true) {
-        const discovered = await discover(ui, directory, known)
-        const available = discovered.filter((candidate) => candidate.existing && !candidate.problem)
-        const choice = await ui.select(
-          [
-            "Choose one installation to remove. Saved files do not prove cloud resources exist.",
-            ...discovered
-              .filter(({ problem }) => problem)
-              .map((candidate) => `Not selectable: ${label(candidate)}`),
-          ].join("\n"),
-          [
-            ...available.map((candidate) => ({ label: label(candidate), value: candidate.path })),
-            { label: "Enter another config-file path", value: "config-file" },
-            { label: "Back to main menu (no removal)", value: "back" },
-          ],
-        )
-        if (choice === "back") break
-        let previous: Candidate | undefined
-        let path: string
-        if (choice === "config-file") {
-          try {
-            path = configPath(await ui.text("Config-file path"))
-            known.add(path)
-            previous = await inspect(path)
-            if (!previous.existing || previous.problem) {
-              attention(ui, previous.problem ?? "A complete saved configuration is required.")
-              continue
-            }
-          } catch (error) {
-            if (!(error instanceof InputValidationError)) throw error
-            attention(ui, error.message)
-            continue
-          }
-        } else {
-          previous = available.find(({ path }) => path === choice)
-          if (!previous) throw new Error("Select only listed deployment configurations.")
-          path = choice
-        }
-        const current = await inspect(path)
-        if (
-          !current.existing ||
-          current.problem ||
-          JSON.stringify(current.existing) !== JSON.stringify(previous.existing)
-        )
-          throw new Error(
-            "Selected configuration changed or needs attention. Removal was not started.",
-          )
-        return { action: "remove", path, target: { path, config: current.existing } }
-      }
-      continue
-    }
     if (action === "create") {
       let path = explicit
       if (!path || !(await unused(path))) {
@@ -302,10 +233,6 @@ export async function validateInstallerEntry(
   entry: InstallerEntry,
   session: WizardSession,
 ): Promise<void> {
-  if (entry.action === "remove")
-    throw new Error(
-      "A removal target requires destructive-flow validation, not setup-session activation.",
-    )
   const current = await inspect(entry.path)
   if (
     current.problem ||

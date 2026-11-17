@@ -20,15 +20,14 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
       variables: { type: "string" },
       image: { type: "string" },
       "accept-maintenance": { type: "boolean" },
-      confirm: { type: "string" },
       help: { type: "boolean" },
     },
   })
   if (values.help) {
     console.log(
-      "Usage: node infrastructure/azure/deploy-hub/index.ts bootstrap|release|destroy " +
+      "Usage: node infrastructure/azure/deploy-hub/index.ts bootstrap|release " +
         "--subscription ID --backend FILE --variables FILE --image REGISTRY/IMAGE@sha256:DIGEST " +
-        "[--accept-maintenance] [--confirm INSTALLATION]",
+        "[--accept-maintenance]",
     )
     return
   }
@@ -36,9 +35,9 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
   if (
     positionals.length !== 1 ||
     !operation ||
-    !["bootstrap", "release", "destroy"].includes(operation)
+    !["bootstrap", "release"].includes(operation)
   ) {
-    throw new Error("Choose exactly one operation: bootstrap, release, or destroy.")
+    throw new Error("Choose exactly one operation: bootstrap or release.")
   }
   const { subscription, backend, variables, image } = values
   if (!subscription || !backend || !variables || !image) {
@@ -48,7 +47,7 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
     throw new Error("--image must name an immutable SHA-256 digest.")
   }
   if (operation !== "bootstrap" && !values["accept-maintenance"]) {
-    throw new Error("Releases and destruction stop Hub. Supply --accept-maintenance.")
+    throw new Error("Releases stop Hub. Supply --accept-maintenance.")
   }
 
   const subscriptionId = subscription
@@ -138,13 +137,13 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
   function jobArguments(installation: Installation): string[] {
     return ["--name", installation.setup_job_name, "--resource-group", installation.resource_group]
   }
-  function blobArguments(installation: Installation, deleting = false): string[] {
+  function blobArguments(installation: Installation): string[] {
     return [
       "--account-name",
       installation.storage_account,
       "--container-name",
       installation.release_container,
-      deleting ? "--name" : "--blob-name",
+      "--blob-name",
       installation.release_blob,
       "--auth-mode",
       "login",
@@ -154,7 +153,6 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
     deploy: boolean,
     installation?: Installation,
     target?: string,
-    destroy = false,
   ): void {
     const arguments_ = [
       "plan",
@@ -166,24 +164,21 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
       `-out=${planPath}`,
     ]
     if (target) arguments_.push(`-target=${target}`)
-    if (destroy) arguments_.push("-destroy")
     terraform(arguments_)
     const planned = parseOutput<DeploymentPlan>(
       terraform(["show", "-json", planPath], true),
       describeCommand("terraform", ["show", "-json", planPath]).label,
     )
-    if (!destroy) {
-      if (planned.resource_changes?.some(({ change }) => change.actions.includes("delete"))) {
-        throw new Error(
-          "Release plans cannot delete or replace resources. Review recovery separately.",
-        )
-      }
-      if (planned.variables.subscription_id?.value !== subscription) {
-        throw new Error("The variable file selects a different subscription.")
-      }
-      if (installation && planned.variables.name?.value !== installation.name) {
-        throw new Error("The variable file selects a different installation.")
-      }
+    if (planned.resource_changes?.some(({ change }) => change.actions.includes("delete"))) {
+      throw new Error(
+        "Release plans cannot delete or replace resources. Review recovery separately.",
+      )
+    }
+    if (planned.variables.subscription_id?.value !== subscription) {
+      throw new Error("The variable file selects a different subscription.")
+    }
+    if (installation && planned.variables.name?.value !== installation.name) {
+      throw new Error("The variable file selects a different installation.")
     }
   }
   function apply(): void {
@@ -290,9 +285,6 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
     }
     let installation = readInstallation()
     verifyOwnership(installation)
-    if (operation === "destroy" && values.confirm !== installation.name) {
-      throw new Error("Destroy requires --confirm with the exact installation name.")
-    }
     const acquired = azure<unknown>(
       "storage",
       "blob",
@@ -330,21 +322,6 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
         command: (...args) =>
           args[2] === "deactivate" ? azureCommand(...args) : azure<unknown>(...args),
       })
-    if (operation === "destroy") {
-      plan(installation.app_created, installation, undefined, true)
-      azureCommand(
-        "storage",
-        "blob",
-        "delete",
-        ...blobArguments(installation, true),
-        "--lease-id",
-        lease,
-      )
-      lease = undefined
-      apply()
-      console.log("Terraform-tracked installation resources were destroyed.")
-      return
-    }
     // Terraform must not update the app until the entire setup sequence succeeds.
     plan(installation.app_created, installation, "azurerm_container_app_job.setup")
     apply()

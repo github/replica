@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises"
 import { join } from "node:path"
 import { afterEach, expect, it, vi } from "vitest"
 
+import { CommandExecutionError } from "../../../installer/command/index.ts"
 import type { DeploymentConfig, InstallerUI, RunCommand } from "../../../installer/types.ts"
 import { installationNames } from "../settings.ts"
 import type { AzureInstallation } from "../types.ts"
@@ -27,9 +28,11 @@ afterEach(async () => {
 async function scenario({
   existing = false,
   afterUpdate,
+  blobRead = async () => JSON.stringify({ exists: false }),
 }: {
   existing?: boolean
   afterUpdate?: (storage: StateStorage) => void
+  blobRead?: () => Promise<string>
 } = {}) {
   const directory = await mkdtemp(join(process.cwd(), ".replica-backend-"))
   directories.push(directory)
@@ -99,6 +102,7 @@ async function scenario({
       operation === "storage container create"
     )
       return "{}"
+    if (operation === "storage blob exists") return blobRead()
     throw new Error(`Unexpected Azure command ${args.join(" ")}`)
   })
   const ui: InstallerUI = {
@@ -151,6 +155,80 @@ it("creates identity-only state storage without an IP rule and writes a private 
   expect(backend).not.toMatch(/access_key|sas_token/)
   expect((await stat(filename)).mode & 0o777).toBe(0o600)
   expect(s.ui.confirm).not.toHaveBeenCalled()
+})
+
+it("waits for a successful Blob data read after container creation without replaying successful mutations", async () => {
+  const blobRead = vi
+    .fn(async () => JSON.stringify({ exists: false }))
+    .mockRejectedValueOnce(new CommandExecutionError("Blob data access denied", false, 1))
+  const s = await scenario({ blobRead })
+  s.ui.wait = vi.fn(async () => {
+    expect(blobRead).toHaveBeenCalledOnce()
+  })
+
+  const prepared = await prepareBackend(s.context)
+
+  expect(prepared.account).toBe(s.names.stateAccount)
+  expect(s.ui.wait).toHaveBeenCalledOnce()
+  const reads = s.commands.filter((args) => args.slice(0, 3).join(" ") === "storage blob exists")
+  expect(reads).toHaveLength(2)
+  for (const read of reads)
+    for (const [flag, expected] of [
+      ["--account-name", s.names.stateAccount],
+      ["--container-name", "terraform"],
+      ["--name", `${s.config.name}/installer.lock`],
+      ["--auth-mode", "login"],
+    ])
+      expect(read[read.indexOf(flag!) + 1]).toBe(expected)
+  for (const operation of [
+    "group create",
+    "storage account create",
+    "role assignment create",
+    "storage account blob-service-properties",
+    "storage container create",
+  ])
+    expect(
+      s.commands.filter(
+        (args) => args.slice(0, operation.split(" ").length).join(" ") === operation,
+      ),
+    ).toHaveLength(1)
+  expect(
+    s.commands.some(
+      (args) =>
+        args.includes("lease") ||
+        args.includes("upload") ||
+        args.slice(0, 3).join(" ") === "storage blob show",
+    ),
+  ).toBe(false)
+})
+
+it.each([
+  new CommandExecutionError("Blob read cancelled", true),
+  new DOMException("Blob read aborted", "AbortError"),
+])("propagates Blob read cancellation without waiting or retrying: %s", async (cancelled) => {
+  const blobRead = vi.fn(async (): Promise<string> => {
+    throw cancelled
+  })
+  const s = await scenario({ blobRead })
+
+  await expect(prepareBackend(s.context)).rejects.toBe(cancelled)
+
+  expect(blobRead).toHaveBeenCalledOnce()
+  expect(s.ui.wait).not.toHaveBeenCalled()
+})
+
+it.each([
+  { reason: "malformed JSON", output: "{" },
+  { reason: "missing exists metadata", output: "{}" },
+  { reason: "nonboolean exists metadata", output: JSON.stringify({ exists: "false" }) },
+])("fails closed on $reason instead of prompting to retry", async ({ output }) => {
+  const blobRead = vi.fn(async () => output)
+  const s = await scenario({ blobRead })
+
+  await expect(prepareBackend(s.context)).rejects.toThrow()
+
+  expect(blobRead).toHaveBeenCalledOnce()
+  expect(s.ui.wait).not.toHaveBeenCalled()
 })
 
 it("reuses an already identity-only state account without changing its network settings", async () => {

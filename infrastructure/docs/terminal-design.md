@@ -16,11 +16,10 @@ This work does not add AWS deployment, arbitrary backward navigation, automatic 
 
 ## Accepted requirements
 
-| Feedback              | Required outcome                                                                                                             |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Startup welcome       | Show fun ASCII art on each interactive launch when space permits, without adding an unnecessary confirmation step.           |
-| Entry actions         | Choose Create, Update, Remove, Resume when available, or Exit before writable activity or cloud commands.                     |
-| Destructive removal   | Select one installation, review irreversible loss, and type its exact name before automated owned-resource removal.           |
+| Feedback              | Required outcome                                                                                                                 |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Startup welcome       | Show fun ASCII art on each interactive launch when space permits, without adding an unnecessary confirmation step.               |
+| Entry actions         | Choose Create, Update, Resume when available, or Exit before writable activity or cloud commands.                                |
 | Deployment approval   | Review resources, charges, source publication, downtime, and temporary cleanup once; keep exceptional recovery consent separate. |
 | Terminal ownership    | Use the available terminal space rather than appending an expanding conversation to the shell.                               |
 | Subway-style progress | Show a subtle indication of completed, current, and upcoming wizard stages.                                                  |
@@ -92,7 +91,7 @@ Keep severity separate from recovery behavior. A validation error allows editing
 
 When a recovery action is blocked, put the reason in the next active question and make clear that recovery did not complete. Do not keep offering the same success-sounding action. Offer a safety recheck or exit, retaining fresh confirmation before any mutation. Offer a corrective action only when verified inspection proves that it addresses the remaining blocker without bypassing another safety check. Distinguish a known refusal from an ambiguous command result that still needs verification.
 
-Outside confirmed destructive removal, Hub-only recovery shutdown is a separate, explicit downtime decision. Show the verified app, subscription, resource group, and consequences before asking permission. Changed inspection evidence requires fresh review and approval. Do not reuse shutdown permission to clear a lock: inspect again and request separate clearing consent. Explain that Hub can remain stopped after cancellation or a later failure. Never infer permission to cancel database jobs, delete resources, or stop unrelated workloads.
+Hub-only recovery shutdown is a separate, explicit downtime decision. Show the verified app, subscription, resource group, and consequences before asking permission. Changed inspection evidence requires fresh review and approval. Do not reuse shutdown permission to clear a lock: inspect again and request separate clearing consent. Explain that Hub can remain stopped after cancellation or a later failure. Never infer permission to cancel database jobs, delete resources, or stop unrelated workloads.
 
 ### A reusable field contract
 
@@ -131,22 +130,6 @@ Recheck the source revision and working-tree status before the first publication
 
 Keep deployment approval in memory, never in configuration, drafts, or diagnostic payloads. Resume warns about the interruption and revalidates the target without a separate acknowledgment prompt; its initial deployment review and any actual lock recovery still obtain fresh consent. Configuration-only and Exit paths do not request deployment approval.
 
-### A destructive removal review
-
-Use the existing searchable single-choice control for removal. Choose one saved installation, enter an explicit config-file path, or choose **Back to main menu (no removal)**. Keep files needing attention visible but out of selectable targets. Revalidate the chosen configuration before returning it; selection does not authorize removal.
-
-Show a removal header instead of the normal deployment stage map. Keep the full review in one scrollable confirmation: the exact installation, irreversible data and state-history loss, no backups, retained local files, dedicated-resource and stopped-process requirements, and partial-failure risks. Default to declining. Then request its displayed name as an exact text answer with no prefilled value, before cloud checks, local writers, or resource changes.
-
-Do not open or consume a setup draft for this action. Recheck trusted configurations and existing draft compatibility only after destructive consent. Run removal through the existing private command diagnostics and terminal cancellation/restoration boundary. Print the result after restoring the shell, distinguishing absent groups, completed removal, partial failure, and unknown deletion outcomes. Keep removal out of configuration-only and unattended deployment paths. The [guarded destruction guide](../README.md#guarded-destruction) owns cloud ordering, blockers, and recovery.
-
-Keep initial read-only command failures and lease blockers in the terminal with explicit recheck, error details, and exit choices. Name the exact installation, blob, and recognized lease fields rather than conflating active, retained, and unknown state. Retain the selected installation and typed consent, but reread the saved configuration before every recheck. Viewing details must not execute a command. Do not force-clear cancellation, unknown leases, changing Terraform state, or ownership refusals.
-
-Present consumer-inspection blockers the same way: selected installation/subscription, exact workload or grant identity, specific sharing relation or missing metadata field, and a concrete safe remedy. Allow read-only rechecking after repair instead of forcing exit on an initial consumer check. A failed read-only command during a later removal inspection offers the same inspection-only recheck. Do not print secret references, environment payloads, or raw CLI output. Incomplete subscription discovery gets one targeted workload lookup; it must not be silently treated as a shared consumer or as permission to delete it.
-
-The existing removal consent covers scoped recovery of verified Terraform-state locks, known installation/release locks, and stopping the verified selected Hub; do not ask another locking-policy or approval question. Complete read-only checks before recovery and deletion. Reuse ownership, state, job, evidence-change, and shutdown guards. Terraform-state recovery requires matching current lock metadata and stable safety evidence, uses the exact ID against a private canonical backend/default workspace, and never retries an unknown unlock result. Do not expose lock IDs or owner metadata in the terminal or diagnostics. Keep ordinary installation recovery's separate consent unchanged. Track recovery shutdown in partial-failure reporting. Other removal errors offer review and exit, not a destructive retry. Sanitize malformed JSON errors instead of displaying response snippets, and distinguish a pre-deletion failure from possible partial removal in the restored-shell summary.
-
-Show the successful removal result and wait for acknowledgement before returning to the entry menu. Restore the terminal, close diagnostics, and print the operation's result before opening a fresh terminal. Do not carry consent, selections, completion state, or held resources into another operation. Removing another installation requires its own selection, review, and exact name. A later Exit must not claim that earlier cloud removals did not happen. Failure and cancellation retain the existing cleanup and exit path.
-
 ### A separate draft-session contract
 
 Keep the reusable deployment configuration and the unfinished wizard session separate. Do not make the deployment schema accept arbitrary partial objects.
@@ -168,7 +151,7 @@ Save after each accepted answer and meaningful phase transition. Await the check
 
 If saving fails, show a distinct notice and allow the operator to repair the local problem and retry. Keep the previous good draft and in-memory answers. Do not silently claim that progress is saved or start the next cloud-changing operation.
 
-At startup, offer **Create a new installation**, **Update existing installation**, **Remove an installation (destructive)**, and **Exit and do nothing**. Hide removal in configuration-only mode. Add **Resume in progress setup** only when read-only discovery finds a compatible unfinished draft. Update, Resume, and removal use local configurations/drafts under `.local/` plus explicit config-file paths, not a separate catalog. Picker labels identify the installation, subscription, region, and path. Distinguish saved configuration, unfinished setup, and files needing attention; none proves deployment.
+At startup, offer **Create a new installation**, **Update existing installation**, and **Exit and do nothing**. Add **Resume in progress setup** only when read-only discovery finds a compatible unfinished draft. Update and Resume use local configurations/drafts under `.local/` plus explicit config-file paths, not a separate catalog. Picker labels identify the installation, subscription, region, and path. Distinguish saved configuration, unfinished setup, and files needing attention; none proves deployment.
 
 Resume shows the draft's target and last-save time. Reject a draft associated with another configuration path rather than rebinding it. Update must not discard or consume a draft: direct the operator back to Resume, or require manual review for invalid or conflicting files. Entering an external config-file path with a compatible draft makes Resume available at the entry menu. Preserve invalid or untrusted files without printing their contents. Starting a new installation uses another path rather than deleting an old draft.
 
@@ -218,7 +201,7 @@ Offer a correction only when the interface can validate the field and the workfl
 
 When setup exits after a failed command, print a bounded tail of its private error details below the error message: at most 20 lines and 4,000 characters. Keep full details in memory for the recovery menu, never in telemetry or drafts.
 
-Retry only commands on the explicit read-only allowlist, plus `az rest` GET requests, after recognized transient network or service errors. Allow two retries with 2- and 5-second delays, honor the abort signal, and never retry commands that can change resources, cancelled commands, truncated details, or other errors.
+The generic command runner retries only commands on the explicit read-only allowlist, plus `az rest` GET requests, after recognized transient network or service errors. Allow two retries with 2- and 5-second delays, honor the abort signal, and never use this runner to retry mutations, cancelled commands, truncated details, or other errors.
 
 ### Reviewing a new Terraform plan after failure
 
@@ -226,7 +209,7 @@ Use the shared `installer/prompt-for-recovery/` control for bounded error summar
 
 Initialization failures use the same controls with **Retry Terraform initialization only**. Keep the module, backend, environment, and leases fixed. Wait up to 60 seconds for a state lock with `-lock-timeout`. Never retry initialization automatically, add state-migration or force-unlock flags, replay earlier setup steps, or turn initialization recovery into a plan or apply. Cancellation and non-interactive failures stop. Keep raw error details in memory and show them only on request, not in telemetry or saved drafts.
 
-A failed Terraform apply can leave partial changes; a failed plan or plan inspection cannot, and the recovery message must say which case occurred. Name the recovery action **Replan and review this Terraform step**, not simply Retry. Remove the failed plan before offering recovery, then generate a fresh plan from current state and require approval for remaining resource changes. Keep the installation lease, module, variables, and environment; preserve deletion and replacement guards. Never reuse the failed plan, repeat earlier installation phases, replay SQL or release work, or infer approval from the failed attempt. Cancellation, declined approval, unsafe or unreadable plan data, and cleanup/destroy failures retain their existing stop behavior.
+A failed Terraform apply can leave partial changes; a failed plan or plan inspection cannot, and the recovery message must say which case occurred. Name the recovery action **Replan and review this Terraform step**, not simply Retry. Remove the failed plan before offering recovery, then generate a fresh plan from current state and require approval for remaining resource changes. Keep the installation lease, module, variables, and environment; preserve deletion and replacement guards. Never reuse the failed plan, repeat earlier installation phases, replay SQL or release work, or infer approval from the failed attempt. Cancellation, declined approval, unsafe or unreadable plan data, and temporary provisioning cleanup retain their stop behavior.
 
 Preapproved guided provisioning may retry one recognized apply failure automatically after 15 seconds. The Azure classifier accepts only the documented PostgreSQL SKU, lock-Blob authorization, or managed-identity job-image diagnostics, and every error must qualify. Retry requires the first plan's input/configuration signature and changed-resource scope; the fresh plan must keep identical inputs and configuration, and only remaining changes within that scope. Apply all ordinary guards again. Keep the signature in memory, never log input values, and pass the run's abort signal through the delay and subsequent commands.
 

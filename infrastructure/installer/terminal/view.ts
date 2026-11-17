@@ -22,5 +22,4 @@ export interface TerminalView {
   phase: WizardPhase
   complete: boolean
   welcome: boolean
-  removing?: boolean
 }

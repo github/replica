@@ -41,12 +41,7 @@ export function terraformModule({
       await privateDirectory(dataDirectory)
       while (true) {
         try {
-          await command([
-            "init",
-            "-input=false",
-            "-lock-timeout=60s",
-            `-backend-config=${backend}`,
-          ])
+          await command(["init", "-input=false", "-lock-timeout=60s", `-backend-config=${backend}`])
           return
         } catch (error) {
           if (!(error instanceof CommandExecutionError) || error.aborted) throw error
@@ -107,7 +102,10 @@ export function terraformModule({
             configuration?: Record<string, unknown>
             resource_changes?: {
               address: string
-              change: { actions: string[]; replace_paths?: (string | number)[][] }
+              change: {
+                actions: string[]
+                replace_paths?: (string | number)[][]
+              }
             }[]
           }
           validatePlan?.(plan)

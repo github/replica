@@ -2,6 +2,7 @@ import { join } from "node:path"
 
 import { installationNames } from "../settings.ts"
 import type { AzureInstallation } from "../types.ts"
+import { CommandExecutionError } from "../../../installer/command/index.ts"
 import { writePrivateFile } from "../../../installer/private-files/index.ts"
 
 type StateAccount = {
@@ -189,25 +190,56 @@ export async function prepareBackend(context: AzureInstallation) {
     "--container-delete-retention-days",
     "14",
   )
+  let containerReady = false
   while (true) {
+    context.signal?.throwIfAborted()
     try {
-      await azure(
-        "storage",
-        "container",
-        "create",
-        "--account-name",
-        names.stateAccount,
-        "--name",
-        "terraform",
-        "--auth-mode",
-        "login",
-        "--public-access",
-        "off",
+      if (!containerReady) {
+        await azure(
+          "storage",
+          "container",
+          "create",
+          "--account-name",
+          names.stateAccount,
+          "--name",
+          "terraform",
+          "--auth-mode",
+          "login",
+          "--public-access",
+          "off",
+        )
+        containerReady = true
+      }
+      context.signal?.throwIfAborted()
+      const lock: unknown = JSON.parse(
+        await azure(
+          "storage",
+          "blob",
+          "exists",
+          "--account-name",
+          names.stateAccount,
+          "--container-name",
+          "terraform",
+          "--name",
+          `${config.name}/installer.lock`,
+          "--auth-mode",
+          "login",
+        ),
       )
+      context.signal?.throwIfAborted()
+      if (
+        typeof lock !== "object" ||
+        lock === null ||
+        !("exists" in lock) ||
+        typeof lock.exists !== "boolean"
+      )
+        throw new Error("Azure did not return valid state Blob access metadata.")
       break
-    } catch {
+    } catch (error) {
+      context.signal?.throwIfAborted()
+      if (!(error instanceof CommandExecutionError) || error.aborted) throw error
       await ui.wait(
-        "State storage is not reachable yet. Allow RBAC propagation and verify Azure sign-in, Storage Blob Data Contributor permission, connectivity, and subscription policy, then continue to retry.",
+        `${error.message}\nState Blob data access is not ready for the signed-in Azure CLI identity.\nAccount scope: ${storage.id}\nSubscription administration and successful container creation do not prove Blob data access. A new Storage Blob Data Contributor grant can take time to propagate. Verify the signed-in identity, this account's Blob data permissions, network access, and subscription policy, then continue to recheck. No lease will be acquired until the Blob read succeeds; do not switch to account keys or clear locks.`,
       )
     }
   }

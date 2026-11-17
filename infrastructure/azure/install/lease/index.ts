@@ -1,8 +1,13 @@
 import { writeFile } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
 import { join } from "node:path"
 import type { AzureInstallation } from "../types.ts"
 import { CommandExecutionError } from "../../../installer/command/index.ts"
 import { recoverLease } from "./recover/index.ts"
+import { leaseOwnership } from "./ownership/index.ts"
+import { readBlobLease } from "./read/index.ts"
+import { confirmLeaseResume } from "./resume/index.ts"
+import { staleLeaseError } from "./stale/index.ts"
 
 export async function acquireLease(
   context: AzureInstallation,
@@ -62,11 +67,55 @@ export async function acquireLease(
       )
     }
   }
-  let result: string
-  while (true) {
+  const ownership = await leaseOwnership(context, account, container, blob)
+  let result: string | undefined
+  if (ownership.lease) {
+    const metadata = await readBlobLease(context, account, container, blob)
+    if (
+      metadata &&
+      typeof metadata === "object" &&
+      "status" in metadata &&
+      metadata.status === "locked"
+    ) {
+      if (
+        !("state" in metadata) ||
+        metadata.state !== "leased" ||
+        !("duration" in metadata) ||
+        metadata.duration !== "infinite"
+      )
+        throw new Error(
+          "The recorded deployment lease is finite, changing, or unknown. Recovery stopped.",
+        )
+      // Renewal with the exact secret identity proves ownership without breaking another lease.
+      try {
+        await azure("storage", "blob", "lease", "renew", ...args, "--lease-id", ownership.lease)
+        result = JSON.stringify(ownership.lease)
+      } catch (error) {
+        if (!staleLeaseError(error)) throw error
+        ui.notice?.(
+          "warning",
+          `Saved ownership of the lease at ${account}/${container}/${blob} is out of date; this installer no longer holds it. The lease was not changed. Continuing with guarded lock recovery.`,
+        )
+      }
+      if (result !== undefined) await confirmLeaseResume(context, account, container, blob)
+    }
+  }
+  const proposed = ownership.lease ?? randomUUID()
+  while (result === undefined) {
     await recoverLease(context, account, container, blob)
+    await ownership.save(proposed)
     try {
-      result = await azure("storage", "blob", "lease", "acquire", ...args, "--lease-duration", "-1")
+      result = await azure(
+        "storage",
+        "blob",
+        "lease",
+        "acquire",
+        ...args,
+        "--lease-duration",
+        "-1",
+        "--proposed-lease-id",
+        proposed,
+      )
       break
     } catch (error) {
       if (
@@ -90,6 +139,8 @@ export async function acquireLease(
   const lease: unknown = JSON.parse(result)
   if (typeof lease !== "string" || !lease)
     throw new Error("Azure did not return an installation lease.")
+  if (lease !== proposed)
+    throw new Error("Azure returned a different lease identity. Ownership was not verified.")
   let released = false
   return {
     get held() {
@@ -99,9 +150,9 @@ export async function acquireLease(
       if (released) throw new Error("The owned lease is no longer held.")
       await azure("storage", "blob", "lease", "renew", ...args, "--lease-id", lease)
     },
-    async deleteBlob() {
+    async deleteBlob(remove: (args: string[]) => Promise<unknown> = (args) => azure(...args)) {
       if (released) throw new Error("The owned lease is no longer held.")
-      await azure(
+      await remove([
         "storage",
         "blob",
         "delete",
@@ -115,7 +166,7 @@ export async function acquireLease(
         "login",
         "--lease-id",
         lease,
-      )
+      ])
       released = true
     },
     async release() {

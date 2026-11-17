@@ -721,28 +721,13 @@ describe("deployHub()", () => {
     assert.ok(!events.some((event) => event[0] === "terraform" && event[2] === "apply"))
   })
 
-  it("completes confirmed teardown after a successful blob deletion with empty output", async () => {
-    const { args, events } = installationScenario({
-      appCreated: false,
-      commandOutput: { args: ["storage", "blob", "delete"], stdout: "" },
-    })
+  it("rejects the removed destroy operation before running commands", async () => {
+    const { args, events } = installationScenario()
     args[0] = "destroy"
     args.push("--confirm", "test-hub")
-    mock.method(console, "log", () => events.push(["complete"]))
 
-    await deployHub(args)
+    await assert.rejects(deployHub(args))
 
-    const plan = events.findIndex((event) => event[0] === "terraform" && event[2] === "plan")
-    const deleted = events.findIndex(
-      (event) => event.slice(0, 4).join(" ") === "az storage blob delete",
-    )
-    const applied = events.findIndex((event) => event[0] === "terraform" && event[2] === "apply")
-    assert.ok(plan >= 0 && events[plan].includes("-destroy"))
-    assert.ok(deleted > plan)
-    assert.ok(applied > deleted)
-    assert.ok(events.findIndex((event) => event[0] === "complete") > applied)
-    assert.ok(!events.some((event) => event.includes("release") || event.includes("activate")))
-    assert.ok(!events.some((event) => event.slice(0, 4).join(" ") === "az containerapp job start"))
-    assert.ok(!events.some((event) => event[0] === "HTTPS"))
+    assert.deepEqual(events, [])
   })
 })

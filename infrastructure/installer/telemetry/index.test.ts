@@ -372,7 +372,6 @@ describe("private installer telemetry", () => {
       text: vi.fn(async () => secret.answer),
       field: vi.fn(async () => secret.answer),
       select: vi.fn(async () => secret.choice),
-      removal: vi.fn(),
       confirm: vi.fn(async () => {
         throw new Error(secret.error)
       }),
@@ -393,8 +392,6 @@ describe("private installer telemetry", () => {
     await observed.field?.(field, secret.answer)
     await observed.field?.({ ...field, id: secret.fieldId }, secret.answer)
     await observed.select(secret.message, [{ label: secret.message, value: secret.choice }])
-    observed.removal!(true)
-    expect(ui.removal).toHaveBeenCalledWith(true)
     await observed.wait(secret.message)
     await expect(observed.confirm(secret.message)).rejects.toThrow(secret.error)
     await expect(

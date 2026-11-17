@@ -1,5 +1,7 @@
 import timers from "node:timers/promises"
-import { expect, it, vi } from "vitest"
+import { mkdtempSync, rmSync } from "node:fs"
+import { join } from "node:path"
+import { afterEach, expect, it, vi } from "vitest"
 
 import { CommandExecutionError } from "../../../installer/command/index.ts"
 import type { DeploymentConfig, InstallerUI, RunCommand } from "../../../installer/types.ts"
@@ -13,6 +15,10 @@ interface LeaseMetadata {
   status?: unknown
   duration?: unknown
 }
+const directories: string[] = []
+afterEach(() => {
+  for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
+})
 
 function option(args: string[], name: string) {
   const index = args.indexOf(name)
@@ -52,9 +58,18 @@ function scenario({ existing = false, release = false, canonical = false } = {})
     accountTags: { ...ownedTags } as Record<string, unknown>,
     appExists: existing,
     stateBlobs: [
-      { name: `${config.name}/foundation.tfstate`, lease: unlocked() as LeaseMetadata },
-      { name: `${config.name}/app.tfstate`, lease: unlocked() as LeaseMetadata },
-      { name: `${config.name}/provision.tfstate`, lease: unlocked() as LeaseMetadata },
+      {
+        name: `${config.name}/foundation.tfstate`,
+        lease: unlocked() as LeaseMetadata,
+      },
+      {
+        name: `${config.name}/app.tfstate`,
+        lease: unlocked() as LeaseMetadata,
+      },
+      {
+        name: `${config.name}/provision.tfstate`,
+        lease: unlocked() as LeaseMetadata,
+      },
       {
         name: `${config.name}/installer.lock`,
         lease: { state: "leased", status: "locked", duration: "infinite" },
@@ -203,13 +218,18 @@ function scenario({ existing = false, release = false, canonical = false } = {})
         if (acquireFailures-- > 0) throw new CommandExecutionError("Lease acquisition conflicted")
         if (evidence.lease.status !== "unlocked")
           throw new CommandExecutionError("Lease is still owned by another installer")
-        evidence.lease = { state: "leased", status: "locked", duration: "infinite" }
-        return JSON.stringify("new-lease-id")
+        evidence.lease = {
+          state: "leased",
+          status: "locked",
+          duration: "infinite",
+        }
+        return JSON.stringify(option(args, "--proposed-lease-id"))
       }
       if (args[3] === "release") {
         evidence.lease = unlocked()
         return "{}"
       }
+      if (args[3] === "renew") return "{}"
     }
     throw new Error(`Unexpected Azure command ${args.join(" ")}`)
   })
@@ -238,9 +258,11 @@ function scenario({ existing = false, release = false, canonical = false } = {})
   const run = vi.fn<RunCommand>(async () => {
     throw new Error("Lease recovery may only use the fake Azure runner")
   })
+  const directory = mkdtempSync(join(process.cwd(), ".lease-test-"))
+  directories.push(directory)
   const context: AzureInstallation = {
     config,
-    directory: process.cwd(),
+    directory,
     env: {},
     azure,
     run,
@@ -333,7 +355,7 @@ it.each([
   const released = s.commands.find(
     (args) => args.slice(0, 4).join(" ") === "storage blob lease release",
   )!
-  expect(option(released, "--lease-id")).toBe("new-lease-id")
+  expect(option(released, "--lease-id")).toBe(option(s.acquisitions()[0]!, "--proposed-lease-id"))
   expect(s.messages.join("\n")).not.toMatch(/Lock retained/)
 })
 
@@ -349,6 +371,115 @@ it("rechecks and acquires normally when the other owner releases the lease", asy
   expect(s.ui.confirm).not.toHaveBeenCalled()
   expect(s.menus.flat()).not.toContain("stop-hub")
   expect(s.deactivations()).toHaveLength(0)
+})
+
+it("reacquires its recorded lease by exact-identity renewal after resume checks and confirmation", async () => {
+  const s = scenario()
+  s.unlock()
+  await s.acquire()
+  const acquired = s.acquisitions()[0]!
+  const expected = option(acquired, "--proposed-lease-id")
+  vi.mocked(s.ui.confirm).mockClear()
+  vi.mocked(s.ui.select!).mockClear()
+  await s.acquire()
+  expect(s.acquisitions()).toHaveLength(1)
+  expect(s.breaks()).toHaveLength(0)
+  expect(
+    s.commands.some((args) => args[3] === "renew" && option(args, "--lease-id") === expected),
+  ).toBe(true)
+  expect(s.ui.confirm).toHaveBeenCalledOnce()
+  expect(vi.mocked(s.ui.confirm).mock.calls[0]![0]).toMatch(
+    /previous installer, Terraform, and release processes.*Resume with the saved lease/s,
+  )
+  expect(s.ui.select).not.toHaveBeenCalled()
+})
+
+it("does not resume a recorded lease while a previous job execution is still running", async () => {
+  const s = scenario({ existing: true })
+  s.unlock()
+  await s.acquire()
+  vi.mocked(s.ui.confirm).mockClear()
+  s.evidence.executions.provision!.push({ name: "provision-interrupted", status: "Running" })
+  s.choices.push("recheck")
+  s.onSelect((choice) => {
+    if (choice === "recheck") s.evidence.executions.provision!.pop()
+  })
+
+  await s.acquire()
+
+  expect(s.notices).toContainEqual({
+    level: "warning",
+    message: expect.stringMatching(/provision-interrupted, is Running/),
+  })
+  expect(s.menus).toEqual([["recheck", "exit"]])
+  expect(vi.mocked(s.ui.confirm).mock.calls[0]![0]).toMatch(/old provisioning.*database sessions/s)
+  expect(s.breaks()).toHaveLength(0)
+  expect(s.acquisitions()).toHaveLength(1)
+})
+
+it("keeps a recorded lease without resuming when the operator exits or declines", async () => {
+  const s = scenario()
+  s.unlock()
+  await s.acquire()
+  s.evidence.stateBlobs[1]!.lease = { state: "leased", status: "locked", duration: "infinite" }
+
+  await expect(s.acquire()).rejects.toThrow(/Setup exited before resuming.*saved progress/)
+
+  s.evidence.stateBlobs[1]!.lease = { state: "available", status: "unlocked", duration: null }
+  s.onConfirm(() => false)
+  await expect(s.acquire()).rejects.toThrow(/not authorized.*saved progress is unchanged/)
+  expect(s.breaks()).toHaveLength(0)
+  expect(s.acquisitions()).toHaveLength(1)
+  expect(s.commands.some((args) => args[3] === "release")).toBe(false)
+})
+
+it("resumes a recorded lease while the verified Hub keeps serving", async () => {
+  const s = scenario({ canonical: true })
+  s.unlock()
+  await s.acquire()
+
+  await s.acquire()
+
+  expect(s.ui.select).not.toHaveBeenCalled()
+  expect(s.deactivations()).toHaveLength(0)
+  expect(s.acquisitions()).toHaveLength(1)
+})
+
+it("does not clear a recorded lease when Azure rejects its exact ownership identity", async () => {
+  const s = scenario()
+  s.unlock()
+  await s.acquire()
+  const azure = s.context.azure
+  s.context.azure = async (...args) => {
+    if (args[3] === "renew") throw new CommandExecutionError("Ownership verification failed")
+    return azure(...args)
+  }
+  await expect(s.acquire()).rejects.toThrow(/Ownership verification/)
+  expect(s.breaks()).toHaveLength(0)
+  expect(s.acquisitions()).toHaveLength(1)
+})
+
+it("routes a recorded lease that Azure reports another owner holds to guarded recovery", async () => {
+  const s = scenario()
+  s.unlock()
+  await s.acquire()
+  const azure = s.context.azure
+  s.context.azure = async (...args) => {
+    if (args[3] === "renew")
+      throw new CommandExecutionError("Failed", false, 1, "(LeaseIdMismatchWithLeaseOperation)")
+    return azure(...args)
+  }
+  s.choices.push("recover")
+
+  await s.acquire()
+
+  expect(s.notices).toContainEqual({
+    level: "warning",
+    message: expect.stringMatching(/out of date.*guarded lock recovery/s),
+  })
+  expect(s.ui.confirm).toHaveBeenCalled()
+  expect(s.breaks()).toHaveLength(1)
+  expect(s.acquisitions()).toHaveLength(2)
 })
 
 it("does not treat non-interactive deployment approval as permission to recover a lease", async () => {
@@ -532,7 +663,11 @@ it.each([
   "unknown app metadata",
 ])("requires matching app ownership and identity rather than group tags: %s", async (field) => {
   const s = scenario({ canonical: true })
-  const hub = s.evidence.hub as { id: string; name: string; tags: Record<string, string> }
+  const hub = s.evidence.hub as {
+    id: string
+    name: string
+    tags: Record<string, string>
+  }
   if (field in hub.tags) hub.tags[field] = "foreign"
   else if (field === "subscription")
     hub.id = hub.id.replace(s.config.azure.subscriptionId, "foreign")
@@ -1269,211 +1404,16 @@ it.each(
   },
 )
 
-it.each([false, true])(
-  "recovers an eligible operational lease using removal consent with no extra policy or confirmation (release=%s)",
-  async (release) => {
-    const s = scenario({ existing: release, release })
-    if (release) s.target.account = `${s.config.name.replaceAll("-", "")}hub`
-    const shutdown = vi.fn()
-
-    await recoverLease(s.context, s.target.account, s.target.container, s.target.blob, {
-      removalApproved: true, onShutdown: shutdown,
-    })
-
-    expect(s.ui.select).not.toHaveBeenCalled()
-    expect(s.ui.confirm).not.toHaveBeenCalled()
-    expect(shutdown).not.toHaveBeenCalled()
-    expect(s.deactivations()).toHaveLength(0)
-    expect(s.breaks()).toHaveLength(1)
-    expect(s.evidence.lease).toMatchObject({ status: "unlocked", state: "available" })
-    expect(s.acquisitions()).toHaveLength(0)
-    const broken = s.breaks()[0]!
-    for (const [flag, expected] of [
-      ["--account-name", s.target.account],
-      ["--container-name", s.target.container],
-      ["--blob-name", s.target.blob],
-      ["--auth-mode", "login"],
-      ["--lease-break-period", "0"],
-    ])
-      expect(option(broken, flag!)).toBe(expected)
-    expect(s.commands.filter((args) => args.slice(0, 3).join(" ") === "storage blob list"))
-      .toHaveLength(2)
-    expect(s.commands.some((args) => args.includes("delete") || args.includes("cancel"))).toBe(false)
-  },
-)
-
-it.each([false, true])(
-  "drains every old Hub replica before removal-approved clearing and marks shutdown before it starts (release=%s)",
-  async (release) => {
-    const s = scenario({ canonical: true, release })
-    if (release) s.target.account = `${s.config.name.replaceAll("-", "")}hub`
-    vi.spyOn(timers, "setTimeout").mockResolvedValue(undefined)
-    const events: string[] = []
-    const shutdown = vi.fn(() => {
-      expect(s.deactivations()).toHaveLength(0)
-      expect(s.breaks()).toHaveLength(0)
-      events.push("shutdown-started")
-    })
-    s.onCommand((args) => {
-      const operation = args.slice(0, args[0] === "storage" ? 4 : 3).join(" ")
-      events.push(operation)
-      if (operation === "storage blob lease break")
-        for (const replicas of Object.values(s.evidence.replicas)) expect(replicas).toEqual([])
-    })
-
-    await recoverLease(s.context, s.target.account, s.target.container, s.target.blob, {
-      removalApproved: true, onShutdown: shutdown,
-    })
-
-    expect(shutdown).toHaveBeenCalledOnce()
-    expect(events.indexOf("shutdown-started")).toBeLessThan(events.indexOf("containerapp revision deactivate"))
-    expect(events.indexOf("storage blob lease break")).toBeGreaterThan(events.indexOf("containerapp revision deactivate"))
-    expect(s.deactivations()).toHaveLength(1)
-    expect(option(s.deactivations()[0]!, "--name")).toBe(`${s.config.name}-hub`)
-    expect(option(s.deactivations()[0]!, "--revision")).toBe("canonical-current")
-    expect(s.breaks()).toHaveLength(1)
-    expect(s.ui.select).not.toHaveBeenCalled()
-    expect(s.ui.confirm).not.toHaveBeenCalled()
-    expect(s.acquisitions()).toHaveLength(0)
-  },
-)
-
-it.each(blockers.filter(({ description }) => [
-  "foreign foundation ownership", "foreign app ownership", "missing ownership metadata",
-  "a leased Terraform state", "unknown Terraform lease metadata", "a running job",
-  "an unknown job status", "an incomplete app inventory",
-].includes(description)))(
-  "removal consent never overrides $description or stops Hub first",
-  async ({ change }) => {
-    const s = scenario({ canonical: true })
-    change(s)
-    const shutdown = vi.fn()
-
-    await expect(recoverLease(s.context, s.target.account, s.target.container, s.target.blob, {
-      removalApproved: true, onShutdown: shutdown,
-    })).rejects.toThrow()
-
-    expect(shutdown).not.toHaveBeenCalled()
-    expect(s.deactivations()).toHaveLength(0)
-    expect(s.breaks()).toHaveLength(0)
-    expect(s.acquisitions()).toHaveLength(0)
-    expect(s.ui.select).not.toHaveBeenCalled()
-    expect(s.ui.confirm).not.toHaveBeenCalled()
-  },
-)
-
-it.each([
-  "Terraform state", "foreign state account", "foreign release account", "foreign release blob",
-])("does not interpret removal consent as authority over %s", async (scope) => {
-  const release = scope.includes("release")
-  const s = scenario({ existing: true, release })
-  if (release) s.target.account = `${s.config.name.replaceAll("-", "")}hub`
-  if (scope === "Terraform state") s.target.blob = `${s.config.name}/app.tfstate`
-  if (scope === "foreign state account" || scope === "foreign release account")
-    s.target.account = "foreignstorage"
-  if (scope === "foreign release blob") s.target.blob = "foreign.lock"
-
-  await expect(recoverLease(s.context, s.target.account, s.target.container, s.target.blob, {
-    removalApproved: true,
-  })).rejects.toThrow()
-
-  expect(s.breaks()).toHaveLength(0)
-  expect(s.deactivations()).toHaveLength(0)
-  expect(s.ui.select).not.toHaveBeenCalled()
-  expect(s.ui.confirm).not.toHaveBeenCalled()
-})
-
-it.each(["foreign account tags", "unknown account tags", "finite lease", "unknown lease"])(
-  "refuses removal-approved recovery with %s even at canonical release coordinates",
-  async (problem) => {
-    const s = scenario({ canonical: true, release: true })
-    s.target.account = `${s.config.name.replaceAll("-", "")}hub`
-    if (problem === "foreign account tags") s.evidence.accountTags.owner = "foreign"
-    if (problem === "unknown account tags") s.evidence.accountTags = {}
-    if (problem === "finite lease") s.evidence.lease.duration = "fixed"
-    if (problem === "unknown lease") s.evidence.lease = {}
-
-    await expect(recoverLease(s.context, s.target.account, s.target.container, s.target.blob, {
-      removalApproved: true,
-    })).rejects.toThrow()
-
-    expect(s.breaks()).toHaveLength(0)
-    expect(s.deactivations()).toHaveLength(0)
-    expect(s.ui.select).not.toHaveBeenCalled()
-    expect(s.ui.confirm).not.toHaveBeenCalled()
-  },
-)
-
-it.each(["before clearing", "before shutdown"])(
-  "does not silently approve changed recovery evidence %s on a second automatic pass",
-  async (stage) => {
-    const s = scenario({ existing: true, canonical: stage === "before shutdown" })
-    let inspections = 0
-    s.onCommand((args) => {
-      if (args.slice(0, 3).join(" ") !== "storage blob list") return
-      if (++inspections === (stage === "before shutdown" ? 3 : 2))
-        s.evidence.executions.setup![0]!.status = "Failed"
-    })
-    const shutdown = vi.fn()
-
-    await expect(recoverLease(s.context, s.target.account, s.target.container, s.target.blob, {
-      removalApproved: true, onShutdown: shutdown,
-    })).rejects.toThrow(/changed/i)
-
-    expect(shutdown).not.toHaveBeenCalled()
-    expect(s.deactivations()).toHaveLength(0)
-    expect(s.breaks()).toHaveLength(0)
-    expect(s.ui.select).not.toHaveBeenCalled()
-    expect(s.ui.confirm).not.toHaveBeenCalled()
-  },
-)
-
 it("does not coerce a non-string lease state into an unlocked operational lock", async () => {
   const s = scenario()
   s.evidence.lease = { status: "unlocked", state: ["available"], duration: null }
+  s.choices.push("exit")
 
-  await expect(recoverLease(s.context, s.target.account, s.target.container, s.target.blob, {
-    removalApproved: true,
-  })).rejects.toThrow(/unknown/i)
+  await expect(
+    recoverLease(s.context, s.target.account, s.target.container, s.target.blob),
+  ).rejects.toThrow(/stopped/i)
 
+  expect(s.menus.flat()).not.toContain("recover")
   expect(s.breaks()).toHaveLength(0)
-  expect(s.ui.select).not.toHaveBeenCalled()
   expect(s.ui.confirm).not.toHaveBeenCalled()
 })
-
-it("rechecks the selected lease immediately before removal-approved clearing", async () => {
-  const s = scenario()
-  let reads = 0
-  s.onCommand((args) => {
-    if (args.slice(0, 3).join(" ") === "storage blob show" && ++reads === 2)
-      s.evidence.lease.duration = "fixed"
-  })
-
-  await expect(recoverLease(s.context, s.target.account, s.target.container, s.target.blob, {
-    removalApproved: true,
-  })).rejects.toThrow(/finite|changed/i)
-
-  expect(s.breaks()).toHaveLength(0)
-  expect(s.ui.select).not.toHaveBeenCalled()
-  expect(s.ui.confirm).not.toHaveBeenCalled()
-})
-
-it.each(["lost break response", "unverified post-break lease"])(
-  "never replays removal-approved clearing after %s",
-  async (problem) => {
-    const s = scenario()
-    if (problem === "lost break response") s.failBreak(new CommandExecutionError("Break response lost"))
-    else s.afterBreak(() => {
-      s.evidence.lease = { status: "locked", state: "breaking", duration: "infinite" }
-    })
-
-    await expect(recoverLease(s.context, s.target.account, s.target.container, s.target.blob, {
-      removalApproved: true,
-    })).rejects.toThrow()
-
-    expect(s.breaks()).toHaveLength(1)
-    expect(s.acquisitions()).toHaveLength(0)
-    expect(s.ui.select).not.toHaveBeenCalled()
-    expect(s.ui.confirm).not.toHaveBeenCalled()
-  },
-)

@@ -13,7 +13,11 @@ vi.mock("node:timers/promises", async (importOriginal) => {
   return {
     ...timers,
     // Bridge promise timers to the fake clock so cooldown tests never wait in real time.
-    setTimeout: (milliseconds: number, value?: unknown, { signal }: { signal?: AbortSignal } = {}) =>
+    setTimeout: (
+      milliseconds: number,
+      value?: unknown,
+      { signal }: { signal?: AbortSignal } = {},
+    ) =>
       new Promise((resolve, reject) => {
         signal?.throwIfAborted()
         const abort = () => {
@@ -89,7 +93,11 @@ async function scenario({
   await mkdir(directory, { recursive: true })
   await mkdir(dataDirectory, { mode: 0o700 })
   const events: string[] = []
-  const calls: { executable: string; args: string[]; options?: CommandOptions }[] = []
+  const calls: {
+    executable: string
+    args: string[]
+    options?: CommandOptions
+  }[] = []
   const secret = "synthetic-sensitive-plan-value"
   const ui: InstallerUI = {
     status: vi.fn(),
@@ -118,10 +126,20 @@ async function scenario({
         resource_changes: resourceChanges ?? [
           {
             address: "azurerm_resource_group.hub",
-            change: { actions, before: { password: secret }, after: { password: secret } },
+            change: {
+              actions,
+              before: { password: secret },
+              after: { password: secret },
+            },
           },
-          { address: "azurerm_storage_account.unchanged", change: { actions: ["no-op"] } },
-          { address: "data.azurerm_client_config.current", change: { actions: ["read"] } },
+          {
+            address: "azurerm_storage_account.unchanged",
+            change: { actions: ["no-op"] },
+          },
+          {
+            address: "data.azurerm_client_config.current",
+            change: { actions: ["read"] },
+          },
         ],
         output_changes: { password: { after: secret, after_sensitive: true } },
       })
@@ -217,7 +235,10 @@ describe("Terraform module", () => {
   it("waits 15 seconds, discards the failed plan, and applies a fresh approved subset without new consent", async () => {
     fakeRetryTimers()
     const error = new CommandExecutionError(
-      "Synthetic apply failure", false, 1, "synthetic-raw-provider-error",
+      "Synthetic apply failure",
+      false,
+      1,
+      "synthetic-raw-provider-error",
     )
     const retryApply = vi.fn(() => true)
     const controller = new AbortController()
@@ -289,7 +310,9 @@ describe("Terraform module", () => {
       vi.mocked(test.ui.status).mock.calls,
     ])
     for (const privateValue of [
-      "synthetic-immutable-image", "synthetic-config-metadata", "synthetic-raw-provider-error",
+      "synthetic-immutable-image",
+      "synthetic-config-metadata",
+      "synthetic-raw-provider-error",
     ])
       expect(displayed).not.toContain(privateValue)
     expect(await readdir(test.dataDirectory)).toEqual([])
@@ -324,9 +347,16 @@ describe("Terraform module", () => {
     expect(await result).toBe(error)
     expect(attemptsAtRecovery).toEqual([2, 3])
     expect(test.events).toEqual([
-      "plan", "show", "apply",
-      "plan", "show", "apply",
-      "plan", "show", "confirm", "apply",
+      "plan",
+      "show",
+      "apply",
+      "plan",
+      "show",
+      "apply",
+      "plan",
+      "show",
+      "confirm",
+      "apply",
     ])
     expect(test.ui.confirm).toHaveBeenCalledOnce()
     expect(vi.getTimerCount()).toBe(0)
@@ -336,29 +366,45 @@ describe("Terraform module", () => {
   it.each([
     {
       reason: "changed variables",
-      mutate: (plan: RetryPlan) => { plan.variables!.image.value = "synthetic-other-image" },
+      mutate: (plan: RetryPlan) => {
+        plan.variables!.image.value = "synthetic-other-image"
+      },
     },
-    { reason: "missing variables", mutate: (plan: RetryPlan) => { delete plan.variables } },
+    {
+      reason: "missing variables",
+      mutate: (plan: RetryPlan) => {
+        delete plan.variables
+      },
+    },
     {
       reason: "changed configuration",
       mutate: (plan: RetryPlan) => {
         plan.configuration!.root_module.resources.push({
-          address: "azurerm_resource_group.hub", name: "synthetic-other-name",
+          address: "azurerm_resource_group.hub",
+          name: "synthetic-other-name",
         })
       },
     },
-    { reason: "missing configuration", mutate: (plan: RetryPlan) => { delete plan.configuration } },
+    {
+      reason: "missing configuration",
+      mutate: (plan: RetryPlan) => {
+        delete plan.configuration
+      },
+    },
     {
       reason: "wider resource scope",
       mutate: (plan: RetryPlan) => {
         plan.resource_changes.push({
-          address: "azurerm_key_vault.extra", change: { actions: ["create"] },
+          address: "azurerm_key_vault.extra",
+          change: { actions: ["create"] },
         })
       },
     },
     {
       reason: "deletion",
-      mutate: (plan: RetryPlan) => { plan.resource_changes[0]!.change.actions = ["delete"] },
+      mutate: (plan: RetryPlan) => {
+        plan.resource_changes[0]!.change.actions = ["delete"]
+      },
     },
     {
       reason: "replacement",
@@ -367,68 +413,82 @@ describe("Terraform module", () => {
       },
     },
     { reason: "unreadable JSON", mutate: () => "{" },
-  ])("blocks an automatic fresh plan with $reason before apply or manual recovery", async ({ mutate }) => {
-    fakeRetryTimers()
-    const test = await scenario({
-      preapproved: true,
-      failure: "apply",
-      failureCount: 1,
-      error: new CommandExecutionError("Synthetic apply failure", false, 1),
-      retryApply: () => true,
-      planVariables: { image: { value: "synthetic-original-image" } },
-    })
-    const waiting = Promise.withResolvers<void>()
-    test.ui.notice = vi.fn((level) => {
-      if (level === "info") waiting.resolve()
-    })
-    test.ui.select = vi.fn(async () => "exit")
-    const run = test.run.getMockImplementation()!
-    test.run.mockImplementation(async (executable, args, options) => {
-      const result = await run(executable, args, options)
-      if (args[1] !== "show" || test.events.filter((event) => event === "plan").length < 2)
-        return result
-      const plan = JSON.parse(result)
-      return mutate(plan) ?? JSON.stringify(plan)
-    })
-    const result = test.module.apply("installation.tfvars").catch((failure: unknown) => failure)
+  ])(
+    "blocks an automatic fresh plan with $reason before apply or manual recovery",
+    async ({ mutate }) => {
+      fakeRetryTimers()
+      const test = await scenario({
+        preapproved: true,
+        failure: "apply",
+        failureCount: 1,
+        error: new CommandExecutionError("Synthetic apply failure", false, 1),
+        retryApply: () => true,
+        planVariables: { image: { value: "synthetic-original-image" } },
+      })
+      const waiting = Promise.withResolvers<void>()
+      test.ui.notice = vi.fn((level) => {
+        if (level === "info") waiting.resolve()
+      })
+      test.ui.select = vi.fn(async () => "exit")
+      const run = test.run.getMockImplementation()!
+      test.run.mockImplementation(async (executable, args, options) => {
+        const result = await run(executable, args, options)
+        if (args[1] !== "show" || test.events.filter((event) => event === "plan").length < 2)
+          return result
+        const plan = JSON.parse(result)
+        return mutate(plan) ?? JSON.stringify(plan)
+      })
+      const result = test.module.apply("installation.tfvars").catch((failure: unknown) => failure)
 
-    await Promise.race([waiting.promise, result])
-    await vi.advanceTimersByTimeAsync(15_000)
+      await Promise.race([waiting.promise, result])
+      await vi.advanceTimersByTimeAsync(15_000)
 
-    expect(await result).toBeInstanceOf(Error)
-    expect(test.events).toEqual(["plan", "show", "apply", "plan", "show"])
-    expect(test.ui.confirm).not.toHaveBeenCalled()
-    expect(test.ui.select).not.toHaveBeenCalled()
-    expect(await readdir(test.dataDirectory)).toEqual([])
-  })
+      expect(await result).toBeInstanceOf(Error)
+      expect(test.events).toEqual(["plan", "show", "apply", "plan", "show"])
+      expect(test.ui.confirm).not.toHaveBeenCalled()
+      expect(test.ui.select).not.toHaveBeenCalled()
+      expect(await readdir(test.dataDirectory)).toEqual([])
+    },
+  )
 
   it.each([
     {
-      reason: "standalone consumer", preapproved: false, planVariables: {}, failure: "apply" as const,
+      reason: "standalone consumer",
+      preapproved: false,
+      planVariables: {},
+      failure: "apply" as const,
     },
     {
-      reason: "missing initial inputs", preapproved: true,
-      planVariables: undefined, failure: "apply" as const,
+      reason: "missing initial inputs",
+      preapproved: true,
+      planVariables: undefined,
+      failure: "apply" as const,
     },
     {
-      reason: "missing initial configuration", preapproved: true,
-      planVariables: {}, planConfiguration: null, failure: "apply" as const,
+      reason: "missing initial configuration",
+      preapproved: true,
+      planVariables: {},
+      planConfiguration: null,
+      failure: "apply" as const,
     },
     { reason: "plan failure", preapproved: true, planVariables: {}, failure: "plan" as const },
     { reason: "show failure", preapproved: true, planVariables: {}, failure: "show" as const },
-  ])("does not automatically retry a $reason even with a permissive classifier", async (options) => {
-    fakeRetryTimers()
-    const error = new CommandExecutionError("Synthetic command failure", false, 1)
-    const retryApply = vi.fn(() => true)
-    const test = await scenario({ ...options, error, retryApply })
+  ])(
+    "does not automatically retry a $reason even with a permissive classifier",
+    async (options) => {
+      fakeRetryTimers()
+      const error = new CommandExecutionError("Synthetic command failure", false, 1)
+      const retryApply = vi.fn(() => true)
+      const test = await scenario({ ...options, error, retryApply })
 
-    await expect(test.module.apply("installation.tfvars")).rejects.toBe(error)
+      await expect(test.module.apply("installation.tfvars")).rejects.toBe(error)
 
-    expect(test.events.filter((event) => event === "plan")).toHaveLength(1)
-    expect(retryApply).not.toHaveBeenCalled()
-    expect(vi.getTimerCount()).toBe(0)
-    expect(await readdir(test.dataDirectory)).toEqual([])
-  })
+      expect(test.events.filter((event) => event === "plan")).toHaveLength(1)
+      expect(retryApply).not.toHaveBeenCalled()
+      expect(vi.getTimerCount()).toBe(0)
+      expect(await readdir(test.dataDirectory)).toEqual([])
+    },
+  )
 
   it("cancels the delay without fresh commands or recovery and removes the failed private plan", async () => {
     fakeRetryTimers()
@@ -972,9 +1032,7 @@ describe("Terraform module", () => {
         preapproved: true,
         retryApply: () => true,
         planVariables: {},
-        resourceChanges: [
-          { address: allowedDeletions[0]!, change: { actions: ["delete"] } },
-        ],
+        resourceChanges: [{ address: allowedDeletions[0]!, change: { actions: ["delete"] } }],
       })
       test.ui.select = vi.fn(async () => "exit")
 

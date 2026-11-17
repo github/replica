@@ -110,10 +110,6 @@ export function createTerminalUI(
         options: options.map((option) => ({ ...option, label: plain(option.label) })),
         resolve,
       })),
-    removal(active) {
-      view.removing = active
-      draw()
-    },
     confirm: (message) =>
       ask<boolean>((resolve) => ({ kind: "confirm", message: plain(message), resolve })),
     wait: (message) => ask<void>((resolve) => ({ kind: "wait", message: plain(message), resolve })),

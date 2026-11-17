@@ -41,8 +41,40 @@ it("retries a GET Azure REST request", async () => {
   expect(run).toHaveBeenCalledTimes(2)
 })
 
+it("retries Terraform show without changing its state path or command options", async () => {
+  const run = vi
+    .fn<RunCommand>()
+    .mockRejectedValueOnce(failure("Service Unavailable"))
+    .mockResolvedValueOnce('{"values":{}}')
+  const args = ["-chdir=module", "show", "-json"]
+  const options = { env: { TF_DATA_DIR: "private-installation-data" } }
+
+  await expect(retryReadOnly(run, { delays: [0] })("terraform", args, options)).resolves.toBe(
+    '{"values":{}}',
+  )
+
+  expect(run).toHaveBeenCalledTimes(2)
+  expect(run).toHaveBeenLastCalledWith("terraform", args, options)
+})
+
 it.each([
-  ["a write command", ["group", "delete", "--name", "sample-rg", "--yes"], failure("ETIMEDOUT")],
+  ["plan"],
+  ["apply", "approved.tfplan"],
+  ["destroy"],
+  ["state", "rm", "azurerm_resource_group.hub"],
+])("never retries Terraform %s after a transient error", async (...operation) => {
+  const error = failure("ECONNRESET")
+  const run = vi.fn<RunCommand>().mockRejectedValueOnce(error).mockResolvedValueOnce("")
+
+  await expect(
+    retryReadOnly(run, { delays: [0] })("terraform", ["-chdir=module", ...operation]),
+  ).rejects.toBe(error)
+
+  expect(run).toHaveBeenCalledOnce()
+})
+
+it.each([
+  ["a write command", ["group", "create", "--name", "sample-rg", "--location", "eastus"], failure("ETIMEDOUT")],
   [
     "an Azure REST request without a method",
     ["rest", "--url", "https://example.test"],
@@ -69,6 +101,11 @@ it.each([
     "an error that did not come from a command",
     ["group", "show", "--name", "sample-rg"],
     new Error("ETIMEDOUT"),
+  ],
+  [
+    "mixed transient and permanent diagnostics",
+    ["group", "show", "--name", "sample-rg"],
+    failure("Error: Service Unavailable\nError: Invalid configuration."),
   ],
 ])("does not retry %s", async (_case, args, error) => {
   const run = vi.fn<RunCommand>().mockRejectedValueOnce(error).mockResolvedValueOnce("{}")
