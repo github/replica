@@ -3,6 +3,7 @@ import { restoreHubSession } from "../../../../domains/admission/restore-hub-ses
 import { runSessionRestoreTransaction } from "../../../../domains/admission/run-session-restore-transaction/index.ts"
 import { editPrototypeMetadata } from "../../../../domains/prototypes/edit-prototype-metadata/index.ts"
 import { readPrototypeWithIntroduction } from "../../../../domains/prototypes/read-prototype-with-introduction/index.ts"
+import { createReviewCommentService } from "../../../../domains/review-comments/create-review-comment-service/index.ts"
 import { prisma } from "../../../../integrations/prisma/index.ts"
 import { lockAuthenticationProvidersForPrototypeEdit } from "../../../../repositories/authentication-providers/lock-authentication-providers-for-prototype-edit/index.ts"
 import { findRepositoryAuthors } from "../../../../repositories/prototype-index/find-repository-authors/index.ts"
@@ -16,8 +17,35 @@ import { updatePrototypeMetadata } from "../../../../repositories/prototypes/upd
 import { lockSessionRevocationState } from "../../../../repositories/session-revocation-states/lock-session-revocation-state/index.ts"
 import type { ProductRouteDependencies } from "../types.ts"
 
-export function createProductRouteDependencies(): ProductRouteDependencies {
+interface CreateProductRouteDependenciesOptions {
+  authorizeReviewMutation?: (
+    transaction: Prisma.TransactionClient,
+    sessionDigest: string,
+    userId: string,
+  ) => Promise<boolean>
+}
+
+export function createProductRouteDependencies({
+  authorizeReviewMutation,
+}: CreateProductRouteDependenciesOptions = {}): ProductRouteDependencies {
+  const authorizeReview =
+    authorizeReviewMutation ??
+    (async (transaction: Prisma.TransactionClient, sessionDigest: string, userId: string) => {
+      await lockAuthenticationProvidersForPrototypeEdit(transaction)
+      await lockSessionRevocationState(transaction)
+      const restored = await restoreHubSession(sessionDigest, {
+        runTransaction: (operation) =>
+          runSessionRestoreTransaction(
+            {
+              $transaction: (read) => read(transaction),
+            },
+            operation,
+          ),
+      })
+      return restored?.userId === userId
+    })
   return {
+    reviewComments: createReviewCommentService(prisma, authorizeReview),
     listRepositories: () => listRepositories(prisma),
     findRepositoryIndex: (repositoryId, filters) =>
       findRepositoryIndex(prisma, repositoryId, filters),

@@ -8,6 +8,9 @@ model User {
   profile                UserProfile?
   prototypes             Prototype[]
   prototypeIntroductions PrototypeIntroduction[]
+  reviewComments         ReviewComment[]
+  resolvedReviewThreads  ReviewThread[]                @relation("ResolvedReviewThreads")
+  reviewResolutionEvents ReviewThreadResolutionEvent[]
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

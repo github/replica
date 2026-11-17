@@ -1,0 +1,25 @@
+model ReviewThreadResolutionEvent {
+  // ID columns
+  id       String @id @default(uuid()) @db.Uuid
+  threadId String @map("thread_id") @db.Uuid
+  actorId  String @map("actor_id") @db.Uuid
+
+  // Relations
+  thread ReviewThread @relation(fields: [threadId], references: [id], onDelete: Restrict)
+  actor  User         @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  // Attribute columns
+  sequence   Int
+  state      ReviewThreadResolutionState
+  actorLogin String                      @map("actor_login") @db.VarChar(200)
+  actorName  String?                     @map("actor_name") @db.VarChar(200)
+  occurredAt DateTime                    @map("occurred_at") @db.Timestamptz(3)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([threadId, sequence])
+  @@index([actorId])
+  @@map("review_thread_resolution_events")
+}

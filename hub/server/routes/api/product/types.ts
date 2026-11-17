@@ -10,8 +10,10 @@ import type {
 } from "../../../repositories/prototype-index/find-repository-index/index.ts"
 import type { findPrototypeDetail } from "../../../repositories/prototype-index/find-prototype-detail/index.ts"
 import type { listRepositories } from "../../../repositories/prototype-index/list-repositories/index.ts"
+import type { ReviewCommentService } from "../../../domains/review-comments/types.ts"
 
 export interface ProductRouteDependencies {
+  reviewComments?: ReviewCommentService
   listRepositories(): ReturnType<typeof listRepositories>
   findRepositoryIndex(
     repositoryId: string,

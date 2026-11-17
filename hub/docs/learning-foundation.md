@@ -1,6 +1,6 @@
 # Learning foundation
 
-Hub can persist one deployment-wide Copilot connection and run the host-neutral [`replica-learning`](../../packages/learning/README.md) command through a bounded process boundary. Repository review collection, learning runs, decisions, recalls, and product records are not connected yet.
+Hub can persist one deployment-wide Copilot connection and run the host-neutral [`replica-learning`](../../packages/learning/README.md) command through a bounded process boundary. The review backend can capture one complete repository snapshot, but learning imports, runs, decisions, redactions, and recalls are not connected yet.
 
 The package remains the authority for consent, purpose, evidence, approval, redaction, and learning lifecycle rules. Hub does not reimplement those rules.
 
@@ -22,9 +22,9 @@ Disconnecting removes the connection record and advances the generation. It does
 
 `REPLICA_LEARNING_ROOT` defaults to `storage/learning`. It must be a dedicated directory outside every configured static-file root. Hub rejects the filesystem root, the Hub application root, the shared `storage` root, the source public directory, the configured built-client directory and their descendants, files, and paths containing symbolic links. The check runs at startup and again when a repository store is prepared.
 
-A future repository integration supplies a stable repository UUID and package scope such as `github.com/repositories/123`. The store primitive creates `<root>/repositories/<repository-uuid>` with mode `0700` and writes the package's default `config.json` with mode `0600` only when it is absent. Existing configuration remains operator-owned.
+A future repository learning integration supplies the persisted repository UUID and package scope such as `github.com/repositories/123`. The store primitive creates `<root>/repositories/<repository-uuid>` with mode `0700` and writes the package's default `config.json` with mode `0600` only when it is absent. Existing configuration remains operator-owned.
 
-Hub has no repository product model on the current branch, so it does not create stores or invoke repository commands yet.
+Hub does not create stores or invoke repository learning commands yet.
 
 ## Command boundary
 
@@ -56,12 +56,12 @@ The environment-token mode may obtain its secret through a platform secret refer
 
 ## Remaining integration seam
 
-Repository learning runs remain blocked on real repository, Build, prototype, review-thread, and review-comment APIs. Once those product domains exist, they can:
+Repository learning runs can consume `captureRepositoryReviewSnapshot()` from the [review backend](review-collaboration.md#learning-snapshot-seam). A future orchestration layer can:
 
 1. Authorize the repository operation.
 2. Derive a stable package scope and prepare its store.
 3. Acquire the learning execution lock.
-4. Capture the complete review snapshot.
+4. Capture the complete repeatable-read review snapshot.
 5. Invoke package import, labeling, consolidation, decision, redaction, or recall commands.
 
-That integration must keep the package's consent and lifecycle rules intact.
+That integration must keep the package's consent and lifecycle rules intact. It must not create another Hub review store or omit deleted-message and resolution-history records from the imported snapshot.

@@ -4,6 +4,7 @@ model Repository {
 
   // Relations
   prototypes Prototype[]
+  reviewThreads ReviewThread[]
 
   // Attribute columns
   nameWithOwner String    @map("name_with_owner") @db.VarChar(255)
