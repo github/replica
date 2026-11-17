@@ -8,6 +8,10 @@ Build from the repository root with `docker build -f hub/Dockerfile -t replica-h
 
 Host npm configuration is not inherited by the image build. Without `NPM_REGISTRY`, the container needs public npm access. Where that access is not allowed, supply your approved proxy using the build argument above. Explicit scoped registry mappings in copied `.npmrc` files still apply.
 
+For npm install failures, check the registry from inside the container before rebuilding the full image. Test downloads of the exact locked versions through the approved feed; available metadata alone does not prove that the package archive can be downloaded. Select an older compatible version only after confirming that its archive is downloadable, and update any exact manifest pin together with the lockfile.
+
+A failed optional dependency can leave `npm ci` successful but the Copilot SDK absent. Isolate that install with `docker build -f hub/Dockerfile --target learning --build-arg NPM_REGISTRY=https://YOUR_PROXY/ --progress=plain -t replica-learning:check .`. For a disposable install reproduction, use `--loglevel=verbose --fetch-retries=0 --fetch-timeout=15000` to expose the failing request without long retries. Keep these diagnostic flags out of production build defaults.
+
 Publishing is an explicit operator step, not a side effect of CI. From the approved checkout, authenticate to an authorized registry, then run `docker buildx build --file hub/Dockerfile --platform linux/amd64 --tag YOUR_REGISTRY/replica-hub:YOUR_COMMIT --push .`. Resolve the published digest with `docker buildx imagetools inspect YOUR_REGISTRY/replica-hub:YOUR_COMMIT` and give deployment the `registry/repository@sha256:...` reference, never the mutable tag.
 
 | Setting                                                  | Contract                                                                                                                                       |
