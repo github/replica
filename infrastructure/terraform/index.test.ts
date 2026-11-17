@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { readdirSync } from "node:fs"
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises"
@@ -37,6 +38,7 @@ const directories: string[] = []
 type Select = NonNullable<InstallerUI["select"]>
 type ResourceChange = {
   address: string
+  type?: string
   change: {
     actions: string[]
     replace_paths?: (string | number)[][]
@@ -52,6 +54,16 @@ type RetryPlan = {
 
 function fakeRetryTimers() {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+}
+
+// Runs a printed recovery command in a shell with a stub Terraform that reports its arguments.
+function runPrinted(command: string) {
+  const output = execFileSync(
+    "bash",
+    ["-c", `terraform() { printf '%s\\0' "$TF_DATA_DIR" "$@"; }\n${command}`],
+    { encoding: "utf8" },
+  )
+  return output.split("\0").slice(0, -1)
 }
 
 afterEach(async () => {
@@ -72,7 +84,11 @@ async function scenario({
   planVariables,
   planConfiguration = { root_module: { resources: [] } },
   retryApply,
+  validatePlan,
+  findUntracked,
+  extraEnv,
   signal,
+  rootSuffix = "",
 }: {
   actions?: string[]
   approved?: boolean
@@ -84,9 +100,13 @@ async function scenario({
   planVariables?: Record<string, unknown>
   planConfiguration?: Record<string, unknown> | null
   retryApply?(error: CommandExecutionError): boolean
+  validatePlan?(value: unknown): void
+  findUntracked?: Parameters<typeof terraformModule>[0]["findUntracked"]
+  extraEnv?: Record<string, string>
   signal?: AbortSignal
+  rootSuffix?: string
 } = {}) {
-  const root = path.resolve(`.installer-terraform-test-${randomUUID()}`)
+  const root = path.resolve(`.installer-terraform-test-${randomUUID()}${rootSuffix}`)
   directories.push(root)
   const directory = path.join(root, "module")
   const dataDirectory = path.join(root, "installation-data")
@@ -149,11 +169,13 @@ async function scenario({
   const module = terraformModule({
     directory,
     dataDirectory,
-    env: { REPLICA_TEST_ENV: "installation-value", TF_DATA_DIR: "wrong-directory" },
+    env: { REPLICA_TEST_ENV: "installation-value", TF_DATA_DIR: "wrong-directory", ...extraEnv },
     run,
     ui,
     preapproved,
     retryApply,
+    validatePlan,
+    findUntracked,
     signal,
   })
   return { module, run, calls, events, ui, directory, dataDirectory, secret }
@@ -949,6 +971,243 @@ describe("Terraform module", () => {
       expect(message).not.toContain(unexpected)
     },
   )
+
+  describe("lost write responses", () => {
+    const grant = "azurerm_role_assignment.artifacts"
+    const grantId =
+      "/subscriptions/s/resourceGroups/g/providers/Microsoft.Storage/storageAccounts/a/blobServices/default/containers/artifacts/providers/Microsoft.Authorization/roleAssignments/r"
+    const grantChange = (actions: string[]) => ({
+      address: grant,
+      type: "azurerm_role_assignment",
+      change: { actions, after: { scope: "scope", principal_id: "principal" } },
+    })
+    const lostResponse = new CommandExecutionError(
+      "Terraform apply failed.",
+      false,
+      1,
+      [
+        `Error: creating Role Assignment: PUT "https://management.azure.com${grantId}": read: connection reset by peer`,
+        `  with ${grant},`,
+        "Error: retrieving Container: dial tcp: lookup a.blob.core.windows.net: no such host",
+        "  with azurerm_storage_container.artifacts,",
+      ].join("\n"),
+    )
+
+    it("does not retry automatically and reports saved state and DNS separately", async () => {
+      const test = await scenario({
+        failure: "apply",
+        error: lostResponse,
+        failureCount: 1,
+        preapproved: true,
+        planVariables: {},
+        retryApply: () => true,
+        resourceChanges: [grantChange(["create"])],
+      })
+      test.ui.notice = vi.fn()
+      test.ui.select = vi.fn<Select>(async () => "exit")
+
+      await expect(test.module.apply("installation.tfvars")).rejects.toBe(lostResponse)
+
+      expect(test.events).toEqual(["plan", "show", "apply", "state"])
+      const [, message] = vi.mocked(test.ui.notice).mock.calls.find(([level]) => level === "error")!
+      expect(message).toContain(`${grant}: the request was sent but its response was lost`)
+      expect(message).toContain("azurerm_storage_container.artifacts: a network or name-resolution")
+      expect(message).toContain("Saved Terraform state records 2 resources.")
+      expect(message).toContain(`${grant} is not recorded in saved state.`)
+      expect(message).toContain("Terraform may have applied some changes.")
+    })
+
+    it("blocks a fresh plan that would recreate an existing untracked grant", async () => {
+      const findUntracked = vi.fn(async (): Promise<string | undefined> => grantId)
+      const test = await scenario({
+        failure: "apply",
+        error: lostResponse,
+        failureCount: 1,
+        preapproved: true,
+        findUntracked,
+        extraEnv: { TF_VAR_postgres_admin_password: "synthetic-password" },
+        resourceChanges: [grantChange(["create"])],
+      })
+      findUntracked.mockResolvedValueOnce(undefined)
+      test.ui.notice = vi.fn()
+      test.ui.select = vi.fn<Select>(async () => "retry")
+
+      await expect(test.module.apply("installation.tfvars")).rejects.toThrow(
+        /already has resources that saved Terraform state does not record/,
+      )
+
+      expect(test.events).toEqual(["plan", "show", "apply", "state", "plan", "show"])
+      expect(findUntracked).toHaveBeenLastCalledWith({
+        address: grant,
+        type: "azurerm_role_assignment",
+        after: { scope: "scope", principal_id: "principal" },
+      })
+      const message = vi.mocked(test.ui.notice).mock.lastCall![1]
+      expect(message).toContain(
+        `TF_DATA_DIR='${test.dataDirectory}' terraform '-chdir=${test.directory}' import -input=false '-var-file=installation.tfvars' -lock-timeout=60s '${grant}' '${grantId}'`,
+      )
+      expect(message).toContain("with TF_VAR_postgres_admin_password set to the values")
+      expect(message).not.toContain("synthetic-password")
+      expect(message).toContain("nothing was imported")
+      expect(test.ui.confirm).not.toHaveBeenCalled()
+      expect(await readdir(test.dataDirectory)).toEqual([])
+    })
+
+    it("blocks when an uncertain grant cannot be checked, but not for other lookup failures", async () => {
+      const findUntracked = vi.fn(async () => {
+        throw new Error("lookup unavailable")
+      })
+      const test = await scenario({
+        failure: "apply",
+        error: lostResponse,
+        failureCount: 1,
+        preapproved: true,
+        findUntracked,
+        resourceChanges: [grantChange(["create"])],
+      })
+      test.ui.notice = vi.fn()
+      test.ui.select = vi.fn<Select>(async () => "retry")
+
+      await expect(test.module.apply("installation.tfvars")).rejects.toThrow(/could not be checked/)
+
+      expect(test.events).toEqual(["plan", "show", "apply", "state", "plan", "show"])
+      expect(test.ui.status).toHaveBeenCalledWith(expect.stringContaining("Could not check"))
+    })
+
+    it("prints self-contained import commands that keep paths with spaces and apostrophes intact", async () => {
+      const findUntracked = vi.fn(async (): Promise<string | undefined> => grantId)
+      const variables = "installer's vars.tfvars"
+      const test = await scenario({
+        failure: "apply",
+        error: lostResponse,
+        failureCount: 1,
+        preapproved: true,
+        findUntracked,
+        rootSuffix: " owner's copy",
+        resourceChanges: [grantChange(["create"])],
+      })
+      findUntracked.mockResolvedValueOnce(undefined)
+      test.ui.notice = vi.fn()
+      test.ui.select = vi.fn<Select>(async () => "retry")
+
+      await expect(test.module.apply(variables)).rejects.toThrow(/does not record/)
+
+      const command = vi
+        .mocked(test.ui.notice)
+        .mock.lastCall![1].split("\n")
+        .find((line) => line.includes(" import "))!
+      expect(runPrinted(command)).toEqual([
+        test.dataDirectory,
+        `-chdir=${test.directory}`,
+        "import",
+        "-input=false",
+        `-var-file=${variables}`,
+        "-lock-timeout=60s",
+        grant,
+        grantId,
+      ])
+    })
+
+    it("requires state recovery instead of replanning when Terraform could not save state", async () => {
+      const stateNotSaved = new CommandExecutionError(
+        "Terraform apply failed.",
+        false,
+        1,
+        [
+          "Error: Failed to save state",
+          "Error writing state file: request canceled",
+          "Error: Failed to persist state to backend",
+          "The error shown above has prevented Terraform from writing the updated state to the configured backend. To allow for recovery, the state has been written to the file \"errored.tfstate\" in the current working directory.",
+        ].join("\n"),
+      )
+      const test = await scenario({
+        failure: "apply",
+        error: stateNotSaved,
+        failureCount: 1,
+        preapproved: true,
+        planVariables: {},
+        retryApply: () => true,
+        rootSuffix: " owner's copy",
+      })
+      test.ui.notice = vi.fn()
+      test.ui.select = vi.fn<Select>(async () => "exit")
+
+      await expect(test.module.apply("installation.tfvars")).rejects.toBe(stateNotSaved)
+
+      expect(test.events).toEqual(["plan", "show", "apply"])
+      const [, options] = vi.mocked(test.ui.select).mock.lastCall!
+      expect(options.map(({ value }) => value)).toEqual(["details", "exit"])
+      const message = vi.mocked(test.ui.notice).mock.lastCall![1]
+      expect(message).toContain("will not replan or retry")
+      expect(message).toContain(`errored.tfstate in ${test.directory}, do not delete`)
+      expect(message).toContain("terraform state pull")
+      const command = message.split("\n").find((line) => line.includes(" state push "))!
+      expect(runPrinted(command)).toEqual([
+        test.dataDirectory,
+        `-chdir=${test.directory}`,
+        "state",
+        "push",
+        "-lock-timeout=60s",
+        "errored.tfstate",
+      ])
+    })
+
+    it("requires state recovery when truncated details could hide a state-save failure", async () => {
+      const truncated = new CommandExecutionError(
+        "Terraform apply failed.",
+        false,
+        1,
+        "Error: creating Container App: InvalidTemplate\nError details truncated after 64 KiB.",
+      )
+      const test = await scenario({
+        failure: "apply",
+        error: truncated,
+        failureCount: 1,
+        preapproved: true,
+        planVariables: {},
+        retryApply: () => true,
+      })
+      test.ui.notice = vi.fn()
+      test.ui.select = vi.fn<Select>(async () => "exit")
+
+      await expect(test.module.apply("installation.tfvars")).rejects.toBe(truncated)
+
+      expect(test.events).toEqual(["plan", "show", "apply"])
+      const [, options] = vi.mocked(test.ui.select).mock.lastCall!
+      expect(options.map(({ value }) => value)).toEqual(["details", "exit"])
+      const message = vi.mocked(test.ui.notice).mock.lastCall![1]
+      expect(message).toContain("failure to save state cannot be ruled out")
+      expect(message).toContain("will not replan or retry")
+    })
+
+    it("prints state recovery instructions when recovery choices are unavailable", async () => {
+      const stateNotSaved = new CommandExecutionError(
+        "Terraform apply failed.",
+        false,
+        1,
+        "Error: Failed to save state\n",
+      )
+      const test = await scenario({ failure: "apply", error: stateNotSaved, failureCount: 1 })
+
+      await expect(test.module.apply("installation.tfvars")).rejects.toBe(stateNotSaved)
+
+      expect(test.ui.status).toHaveBeenCalledWith(expect.stringContaining(" state push "))
+    })
+
+    it("only looks up create-only changes", async () => {
+      const findUntracked = vi.fn(async () => grantId)
+      const test = await scenario({
+        preapproved: true,
+        findUntracked,
+        resourceChanges: [grantChange(["update"]), grantChange(["no-op"])],
+      })
+
+      await test.module.apply("installation.tfvars")
+
+      expect(findUntracked).not.toHaveBeenCalled()
+      expect(test.events).toEqual(["plan", "show", "apply"])
+    })
+  })
 
   it("rejects replacements discovered by a fresh plan without another recovery or approval", async () => {
     const actions = ["create"]

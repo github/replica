@@ -4,6 +4,7 @@ import { parseConfig } from "../../installer/config/index.ts"
 import type { DeploymentConfig, InstallerUI, RunCommand } from "../../installer/types.ts"
 import { terraformModule } from "../../terraform/index.ts"
 import { prepareBackend } from "./backend/index.ts"
+import { existingRoleAssignment } from "./existing-role-assignment/index.ts"
 import { publishImage } from "./image/index.ts"
 import { acquireLease } from "./lease/index.ts"
 import { verifyAzureTarget } from "./preflight/index.ts"
@@ -193,6 +194,7 @@ async function install(
         preapproved: true,
         retryApply: retryableProvisioningFailure,
         signal,
+        findUntracked: existingRoleAssignment(azure, config.azure.subscriptionId),
       })
     await verifyInstallationGroup(context, names.foundationGroup)
     await verifyInstallationGroup(context, config.azure.resourceGroup)
