@@ -29,6 +29,19 @@ Each Node.js project's `engines.node` declares its supported versions. Hub, Star
 
 Hub, Learning, the server installer in `infrastructure/`, and the repository checks in `scripts/` are [npm workspaces](https://docs.npmjs.com/cli/using-npm/workspaces) that share the root `package-lock.json` and `.npmrc`. Run `npm ci` at the repository root to install them all, or run `npm ci` inside one of their directories to install only that project. Each project keeps its own `node_modules`. Starter and the build action are copied or used outside this repository, so they keep their own lockfiles and are installed separately.
 
+### Workspace proposal and alternatives
+
+The proposed workspace boundary keeps the four repository-only projects on one lockfile without changing their runtime boundaries. Starter and the build action remain standalone. npm's shallow install strategy preserves project-local dependencies for existing scripts and image copies; it does not aim to minimize disk use.
+
+| Choice | Benefits | Tradeoffs |
+| --- | --- | --- |
+| npm workspaces with shallow installs (this proposal) | One install and lockfile for repository-only projects; keeps npm and existing project commands | More shared lockfile conflicts; dependency updates can affect several projects; local dependency copies still consume space |
+| Independent lockfiles (current base) | Each project can install and update dependencies independently | Repeats dependency resolution, configuration, and update work across projects |
+| pnpm workspaces | Shared package storage and stricter dependency isolation | Requires a package-manager migration and changes to installation, CI, and image assumptions |
+| Turborepo or Nx | Can schedule dependent tasks and cache build results | Adds task configuration and cache maintenance; does not replace the package manager or decide the lockfile boundary |
+
+This proposal adds neither a task runner nor shared application dependencies. Contributors still run each project's checks. The root lockfile currently records Microsoft-hosted archive URLs. Anonymous downloads work in the local Linux validation environment, but access from GitHub-hosted CI and other contributors' networks remains unverified. A configured registry alone does not necessarily replace locked archive URLs; resolve this portability concern before adopting the proposal.
+
 ### Replica Hub
 
 Hub has a TypeScript Express API, React + Vite frontend, and PostgreSQL with Prisma. Hosting and review features are not built yet. Use the [Hub devcontainer](hub/docs/development.md#devcontainer), or npm and a Node.js version matching `engines.node` in [hub/package.json](hub/package.json):
