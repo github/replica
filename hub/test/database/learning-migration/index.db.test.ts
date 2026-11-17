@@ -81,7 +81,7 @@ describe("learning migration", () => {
           await database.query(
             `INSERT INTO review_comments
                (id, thread_id, author_id, author_login, body, deleted_at)
-             VALUES ($1, $2, $3, 'mona', NULL, clock_timestamp())`,
+             VALUES ($1, $2, $3, 'mona', 'Retained deleted text', clock_timestamp())`,
             [commentId, threadId, userId],
           )
 

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
+import type { RepositoryReviewSnapshot } from "../../review-comments/types"
 
 const { capture } = vi.hoisted(() => ({ capture: vi.fn() }))
 vi.mock("../../review-comments/capture-repository-review-snapshot/index.ts", () => ({
@@ -11,7 +12,7 @@ const repositoryId = "11111111-2222-4333-8444-555555555555"
 const prototypeId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 const capturedAt = new Date("2026-11-13T10:00:00Z")
 
-function snapshot() {
+function snapshot(): RepositoryReviewSnapshot {
   const author = {
     userId: "22222222-2222-4222-8222-222222222222",
     login: "mona",
@@ -24,10 +25,22 @@ function snapshot() {
     threads: [
       {
         id: 101,
+        storageId: "77777777-7777-4777-8777-777777777777",
         repositoryId,
         prototype: { id: prototypeId, name: "Design", branch: "design" },
         buildNumber: 7,
-        anchor: {},
+        anchor: {
+          schemaVersion: 1,
+          kind: "element",
+          route: { pathname: "/", search: "", hash: "" },
+          selector: "#section",
+          accessibleName: "Section",
+          tagName: "section",
+          selectedText: "",
+          rect: { x: 0, y: 0, width: 100, height: 100 },
+          viewport: { width: 1000, height: 800, scrollX: 0, scrollY: 0 },
+          elementOffset: { x: 0, y: 0 },
+        },
         activityVersion: 1,
         createdAt: capturedAt,
         updatedAt: capturedAt,
@@ -52,6 +65,29 @@ function snapshot() {
 }
 
 describe("createReviewCommentLearningSource()", () => {
+  it("keeps retained deleted bodies out of the package collection", async () => {
+    const value = snapshot()
+    value.threads[0]!.root = {
+      ...value.threads[0]!.root,
+      body: null,
+      deletedAt: capturedAt,
+    }
+    capture.mockResolvedValue(value)
+    const source = createReviewCommentLearningSource({} as never, "https://hub.example.com")
+
+    const result = await source.captureCompleteSnapshot({ repositoryId })
+    const collection = result.collection as {
+      calls: Array<{
+        result: { threads: Array<{ body: string | null; deletedAt: string | null }> }
+      }>
+    }
+
+    expect(collection.calls[0]?.result.threads[0]).toMatchObject({
+      body: null,
+      deletedAt: capturedAt.toISOString(),
+    })
+  })
+
   it("resolves only evidence whose source and observed comment version match", async () => {
     const value = snapshot()
     capture.mockResolvedValue(value)

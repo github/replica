@@ -188,18 +188,29 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
           `learning-run-${queued.id}`,
         )
       }
-      for (const comment of await listDeletedReviewComments(prisma)) {
-        await enqueueRecoverableJob(
-          queue,
-          redactReviewCommentJob,
-          {
-            repositoryId: comment.thread.repositoryId,
-            commentId: comment.publicId,
-            actor: comment.learningRedactionActor ?? `human:${comment.authorLogin}`,
-          },
-          `learning-redact-${comment.thread.repositoryId}-${comment.publicId}`,
-        )
-      }
+      let redactionCursor: { deletedAt: Date; id: string } | undefined
+      do {
+        const comments = await listDeletedReviewComments(prisma, {
+          ...(redactionCursor ? { after: redactionCursor } : {}),
+        })
+        for (const comment of comments) {
+          await enqueueRecoverableJob(
+            queue,
+            redactReviewCommentJob,
+            {
+              repositoryId: comment.thread.repositoryId,
+              commentId: comment.publicId,
+              actor: comment.learningRedactionActor ?? `human:${comment.authorLogin}`,
+            },
+            `learning-redact-${comment.thread.repositoryId}-${comment.publicId}`,
+          )
+        }
+        const last = comments.at(-1)
+        redactionCursor =
+          comments.length === 100 && last?.deletedAt
+            ? { deletedAt: last.deletedAt, id: last.id }
+            : undefined
+      } while (redactionCursor)
       for (const operation of await listLearningDecisionOperations(prisma)) {
         try {
           await reconcileLearningDecisionOperation(operation, {
