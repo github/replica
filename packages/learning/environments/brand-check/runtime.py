@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Mapping, Protocol
 
 from .evaluate import EvaluationError, evaluate
-from .taskset import Taskset, load_taskset, question_options
+from .taskset import Taskset, load_taskset
 
 try:
     import fcntl
@@ -384,7 +384,13 @@ class LocalRuntime:
                 503,
             )
         adapter = self.state_directory / "candidates" / candidate_id / manifest["adapter"]["file"]
-        answers = dict(backend.predict(adapter, request, timeout_seconds=timeout_seconds))
+        answers = dict(
+            backend.predict(
+                adapter,
+                _backend_request(request),
+                timeout_seconds=timeout_seconds,
+            )
+        )
         evaluations = []
         for key, question in request["questions"].items():
             if question.get("type") != "noul":
@@ -699,14 +705,18 @@ def _fixture_answers(
 ) -> dict[str, Any]:
     answers = {}
     for key, question in questions.items():
-        options = question_options(question)
         if question["type"] == "noul":
             yes = float(probabilities.get(key, 0.5))
             answers[key] = {"probabilities": {"yes": yes, "no": 1.0 - yes}}
         else:
-            answers[key] = {
-                "probabilities": {option: 1.0 / len(options) for option in options}
-            }
+            if question["type"] == "choice":
+                criteria = question["criteria"]
+                options = tuple(criteria if isinstance(criteria, list) else criteria.keys())
+            else:
+                criteria = question["criteria"]
+                levels = criteria if isinstance(criteria, int) else len(criteria)
+                options = tuple(str(level) for level in range(levels))
+            answers[key] = {"probabilities": {option: 1.0 / len(options) for option in options}}
     return answers
 
 
@@ -857,6 +867,32 @@ def _valid_yes_no(value: Any) -> bool:
         and abs(yes + no - 1) <= 0.001
         and yes + no > 0
     )
+
+
+def _backend_request(request: Mapping[str, Any]) -> dict[str, Any]:
+    """Project validated input to the data-only contract the local fixture backend needs.
+
+    Free-form state, instructions, learning text, and option descriptions remain outside backend
+    execution. A later model backend must define and secure its own text-bearing input contract.
+    """
+    return {
+        "images": list(request["images"]),
+        "questions": {
+            key: (
+                {"type": "noul"}
+                if question["type"] == "noul"
+                else {
+                    "type": question["type"],
+                    "criteria": (
+                        list(question["criteria"])
+                        if question["type"] == "choice"
+                        else len(question["criteria"])
+                    ),
+                }
+            )
+            for key, question in request["questions"].items()
+        },
+    }
 
 
 def _checked_id(value: str, prefix: str) -> str:

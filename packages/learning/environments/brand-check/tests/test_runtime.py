@@ -48,6 +48,17 @@ class BlockingBackend(FixtureBackend):
         return super().train(*args, **kwargs)
 
 
+class CapturingBackend(FixtureBackend):
+    """A fixture backend that records the projected inference request."""
+
+    def __init__(self):
+        self.request = None
+
+    def predict(self, adapter, request, *, timeout_seconds):
+        self.request = request
+        return super().predict(adapter, request, timeout_seconds=timeout_seconds)
+
+
 class LocalRuntimeTest(unittest.TestCase):
     def setUp(self):
         self.taskset_dir = write_taskset(
@@ -109,6 +120,32 @@ class LocalRuntimeTest(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             runtime.evaluate(self._request())
+
+    def test_backend_receives_no_free_form_task_or_question_text(self):
+        backend = CapturingBackend()
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"fixture": backend},
+            environment="test",
+        )
+        self.addCleanup(runtime.close)
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
+        )
+        runtime.promote(finished["candidateId"], promoted_by="test-operator")
+        runtime.evaluate(self._request())
+
+        self.assertEqual(
+            backend.request,
+            {
+                "images": [
+                    "data:image/png;base64," + base64.b64encode(PNG).decode("ascii")
+                ],
+                "questions": {RULE: {"type": "noul"}},
+            },
+        )
 
     def test_detects_a_candidate_changed_to_claim_production_eligibility(self):
         runtime = self._runtime()
