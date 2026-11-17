@@ -235,13 +235,23 @@ export async function readInstallationInputs(
   for (const [name, value] of Object.entries(githubEnvironment)) {
     if (value !== undefined) environment[name] = String(value)
   }
+  // Mirrors Hub: an App used only for Copilot needs no sign-in, installation, or webhook settings.
+  const copilotOnly =
+    environment.REPLICA_COPILOT_AUTHENTICATION?.trim() === "github-app-installation" &&
+    [
+      "GITHUB_CLIENT_ID",
+      "GITHUB_CLIENT_SECRET",
+      "GITHUB_PROVIDER_REVISION",
+      "GITHUB_APP_INSTALLATION_ID",
+      "GITHUB_WEBHOOK_SECRET",
+    ].every((name) => !environment[name]?.trim() && !secrets[name])
   if (
     (result.hub_application_origin && secrets.HUB_APPLICATION_ORIGIN) ||
     (secrets.GITHUB_CLIENT_SECRET && !environment.GITHUB_CLIENT_ID) ||
     (secrets.GITHUB_APP_PRIVATE_KEY_BASE64 &&
       (!environment.GITHUB_APP_ID ||
-        !environment.GITHUB_CLIENT_ID ||
-        !environment.GITHUB_APP_INSTALLATION_ID))
+        (!copilotOnly &&
+          (!environment.GITHUB_CLIENT_ID || !environment.GITHUB_APP_INSTALLATION_ID))))
   )
     throw invalid()
   return result

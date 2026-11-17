@@ -156,13 +156,25 @@ variable "runtime_environment_variables" {
     condition = (
       (!contains(keys(var.runtime_secret_references), "GITHUB_APP_PRIVATE_KEY_BASE64") || (
         (var.github_app_id != null || try(var.runtime_environment_variables["GITHUB_APP_ID"] != "", false)) &&
-        (var.github_client_id != null || try(var.runtime_environment_variables["GITHUB_CLIENT_ID"] != "", false)) &&
-        (var.github_app_installation_id != null || try(var.runtime_environment_variables["GITHUB_APP_INSTALLATION_ID"] != "", false))
+        (
+          # Mirrors Hub: an App used only for Copilot needs no sign-in, installation, or webhook settings.
+          (
+            try(trimspace(var.runtime_environment_variables["REPLICA_COPILOT_AUTHENTICATION"]), "") == "github-app-installation" &&
+            alltrue([
+              for name in ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "GITHUB_PROVIDER_REVISION", "GITHUB_APP_INSTALLATION_ID", "GITHUB_WEBHOOK_SECRET"] :
+              try(trimspace(merge(var.runtime_environment_variables, local.github_environment)[name]), "") == "" &&
+              !contains(keys(var.runtime_secret_references), name)
+            ])
+            ) || (
+            (var.github_client_id != null || try(var.runtime_environment_variables["GITHUB_CLIENT_ID"] != "", false)) &&
+            (var.github_app_installation_id != null || try(var.runtime_environment_variables["GITHUB_APP_INSTALLATION_ID"] != "", false))
+          )
+        )
       )) &&
       (!contains(keys(var.runtime_secret_references), "GITHUB_CLIENT_SECRET") ||
       var.github_client_id != null || try(var.runtime_environment_variables["GITHUB_CLIENT_ID"] != "", false))
     )
-    error_message = "Supply the client ID for a GitHub client secret, and the App, client, and installation IDs for a private key, through named variables or runtime_environment_variables."
+    error_message = "Supply the client ID for a GitHub client secret, and the App, client, and installation IDs for a private key (only the App ID for a Copilot-only App), through named variables or runtime_environment_variables."
   }
 }
 
