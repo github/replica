@@ -231,6 +231,25 @@ describe("Terraform module", () => {
     expect(test.ui.confirm).not.toHaveBeenCalled()
   })
 
+  it("keeps an initialization error through retry and clears it once initialization succeeds", async () => {
+    const error = new CommandExecutionError("Initialize Terraform failed.", false, 1)
+    const test = await scenario({ failure: "init", failureCount: 1, error, preapproved: true })
+    const recovery: { message?: string; events: string[] }[] = []
+    test.ui.notice = vi.fn()
+    test.ui.recoveryNotice = vi.fn((message?: string) => {
+      recovery.push({ message, events: [...test.events] })
+    })
+    test.ui.select = vi.fn(async () => "retry")
+
+    await test.module.init("backend.hcl")
+
+    expect(recovery).toEqual([
+      { message: expect.stringContaining("Initialize Terraform failed."), events: ["init"] },
+      { message: undefined, events: ["init", "init"] },
+    ])
+    expect(test.ui.notice).not.toHaveBeenCalledWith("error", expect.anything())
+  })
+
   it.each([
     {
       reason: "unattended failure",
