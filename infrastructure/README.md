@@ -51,7 +51,7 @@ Terraform still generates and displays plans and blocks deletion or replacement 
 
 The signed-in identity needs resource creation and role-assignment rights, permission to register the required providers, and access through applicable Azure network policies. An administrator may need to grant these rights. Resource Contributor alone is insufficient.
 
-The guided flow creates a tagged state resource group/account first, with shared-key authorization and anonymous blob access disabled, TLS, identity-based data access, versioning, and soft deletion. Its public network endpoint accepts requests from any network, but reading or changing state still requires Azure authentication and Blob data permissions. The wizard does not require an IP address, CIDR, or external IP lookup. These bootstrap resources remain outside application Terraform state and are never deleted by the normal application destroy command. Do not reuse this backend for unrelated installations.
+The guided flow creates a tagged state resource group/account first, with shared-key authorization and anonymous blob access disabled, TLS, identity-based data access, versioning, and soft deletion. Its public network endpoint accepts requests from any network, but reading or changing state still requires Azure authentication and Blob data permissions. The wizard does not require an IP address, CIDR, or external IP lookup. These bootstrap resources remain outside application Terraform state. Do not reuse this backend for unrelated installations.
 
 The wizard grants its signed-in deployment identity `Storage Blob Data Contributor` on the dedicated state account, then checks an actual Blob read before acquiring the installation lease. Subscription `Owner` and successful container creation do not prove Blob data access; a new account-scoped grant can take time to propagate even when earlier installations worked. A failed access check offers a recheck without replaying successful container creation or touching leases. Check the named account scope, current Azure CLI identity, Blob data role, and network policy if access stays denied. Do not add a subscription-wide data role, enable account keys, or clear a lease to bypass a read failure.
 
@@ -381,26 +381,9 @@ Reconcile the restored resources with a reviewed Terraform configuration and imp
 
 To move an existing installation, pause writes and workers, export PostgreSQL, copy artifacts with an object manifest, import both into the new installation, and verify counts/checksums and a representative operation before switching traffic. Keep source backups and a rollback window. No automatic migration between local and Azure installations is performed here.
 
-## Guarded destruction
+## Installation removal
 
-The setup wizard does not remove installations. Earlier installer versions could leave private `<config path>.removal.json` files beside configurations. The wizard ignores these files and leaves them unchanged; they may contain installation details, so keep them private or delete them yourself after review.
-
-### Manual application-module destruction
-
-The command below removes only the application Terraform module, not the guided foundation or state backend. Destruction removes database and artifact state. Take verified independent backups first. The default app lifecycle guard intentionally prevents a complete destroy: remove **only** the app's `prevent_destroy` block in a reviewed local change after the owner authorizes permanent deletion. Restore the guard afterward. For a bootstrap that never created the app, no guard edit is needed.
-
-```sh
-node infrastructure/azure/deploy-hub/index.ts destroy \
-  --subscription "$HUB_SUBSCRIPTION" \
-  --backend infrastructure/azure/backend.hcl \
-  --variables infrastructure/azure/installation.tfvars \
-  --image "$HUB_IMAGE" \
-  --accept-maintenance --confirm YOUR_EXACT_INSTALLATION_NAME
-```
-
-The script requires matching ownership tags and the exact installation name, acquires the release lock, stops Hub, checks setup executions, and applies a Terraform destroy plan. It deletes only Terraform-tracked resources; it does not issue a broad resource-group deletion command. AzureRM refuses to delete a resource group containing unmanaged resources. Review a read-only `terraform plan -destroy` with the same variables and `deploy_hub=true` before authorizing the command; the script itself does not pause for review. An existing registry, state backend, DNS, and externally supplied certificate are never independently targeted by this configuration. Azure may remove its own environment infrastructure group when the environment is deleted.
-
-Storage-account deletion does not preserve a usable Blob backup just because object soft deletion was enabled. Provider-retained PostgreSQL backups, soft-deleted logs, or other Azure retention may outlive resource deletion; verify the service-specific retention and billing in your tenant. The separate Terraform state backend and its historical sensitive versions remain until an administrator applies their own retention/deletion policy.
+Replica's setup wizard and deployment script do not remove installations. Earlier installer versions could leave private `<config path>.removal.json` files beside configurations. The wizard ignores these files and leaves them unchanged; they may contain installation details, so keep them private or delete them yourself after review.
 
 ## Credential-free checks and evidence limits
 
