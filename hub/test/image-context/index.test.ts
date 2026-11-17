@@ -53,6 +53,7 @@ describe("Hub image context", () => {
     expect(dockerfile).not.toMatch(/ARG NPM_REGISTRY=\S+/)
     expect(dockerfile.match(/if \[ -n "\$NPM_REGISTRY" \]; then/g)).toHaveLength(2)
     expect(dockerfile.match(/delete entry\.resolved/g)).toHaveLength(2)
+    expect(dockerfile.match(/Missing package integrity for \$\{path\}/g)).toHaveLength(2)
     expect(dockerfile.match(/export npm_config_registry="\$NPM_REGISTRY"/g)).toHaveLength(2)
     expect(dockerfile.match(/npm ci .*--include=optional/g)).toHaveLength(2)
     expect(dockerfile.match(/npm ci .*--fetch-retries=5 .*--prefer-offline/g)).toHaveLength(2)
@@ -61,6 +62,18 @@ describe("Hub image context", () => {
     expect(deploymentGuide).toContain(
       "Without `NPM_REGISTRY`, the container needs public npm access.",
     )
+  })
+
+  it("pins an integrity hash for every workspace package archive", async () => {
+    const lock: {
+      packages: Record<string, { integrity?: string; link?: boolean; workspaces?: string[] }>
+    } = JSON.parse(await readFile(resolve("../package-lock.json"), "utf8"))
+    const workspaces = new Set(lock.packages[""]?.workspaces ?? [])
+    const missingIntegrity = Object.entries(lock.packages)
+      .filter(([path, entry]) => path && !workspaces.has(path) && !entry.link && !entry.integrity)
+      .map(([path]) => path)
+
+    expect(missingIntegrity).toEqual([])
   })
 
   it("ignores both the source learning store and future hosted stores", async () => {

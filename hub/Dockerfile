@@ -13,7 +13,7 @@ COPY hub/prisma7.config.ts ./hub/
 ARG NPM_REGISTRY
 RUN --mount=type=cache,id=replica-hub-npm,target=/root/.npm \
     if [ -n "$NPM_REGISTRY" ]; then \
-      node -e 'const fs=require("node:fs"); const lock=JSON.parse(fs.readFileSync("package-lock.json","utf8")); for(const entry of Object.values(lock.packages)){if(!entry.link){delete entry.resolved}} fs.writeFileSync("package-lock.json",JSON.stringify(lock))'; \
+      node -e 'const fs=require("node:fs"); const lock=JSON.parse(fs.readFileSync("package-lock.json","utf8")); const workspaces=new Set(lock.packages[""].workspaces); for(const [path,entry] of Object.entries(lock.packages)){if(!path||workspaces.has(path)||entry.link){continue} if(!entry.integrity){throw new Error(`Missing package integrity for ${path}`)} delete entry.resolved} fs.writeFileSync("package-lock.json",JSON.stringify(lock))'; \
       export npm_config_registry="$NPM_REGISTRY"; \
     fi; \
     npm ci --workspace replica-hub --include=optional --engine-strict --fetch-retries=5 --prefer-offline --no-audit --no-fund
@@ -31,7 +31,7 @@ COPY scripts/package.json ./scripts/
 ARG NPM_REGISTRY
 RUN --mount=type=cache,id=replica-learning-npm,target=/root/.npm \
     if [ -n "$NPM_REGISTRY" ]; then \
-      node -e 'const fs=require("node:fs"); const lock=JSON.parse(fs.readFileSync("package-lock.json","utf8")); for(const entry of Object.values(lock.packages)){if(!entry.link){delete entry.resolved}} fs.writeFileSync("package-lock.json",JSON.stringify(lock))'; \
+      node -e 'const fs=require("node:fs"); const lock=JSON.parse(fs.readFileSync("package-lock.json","utf8")); const workspaces=new Set(lock.packages[""].workspaces); for(const [path,entry] of Object.entries(lock.packages)){if(!path||workspaces.has(path)||entry.link){continue} if(!entry.integrity){throw new Error(`Missing package integrity for ${path}`)} delete entry.resolved} fs.writeFileSync("package-lock.json",JSON.stringify(lock))'; \
       export npm_config_registry="$NPM_REGISTRY"; \
     fi; \
     npm ci --workspace @github/replica-learning --omit=dev --include=optional --engine-strict --fetch-retries=5 --prefer-offline --no-audit --no-fund \
