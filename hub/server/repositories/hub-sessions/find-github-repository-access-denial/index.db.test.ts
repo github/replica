@@ -131,6 +131,45 @@ describe("findGitHubRepositoryAccessDenial()", () => {
     await expect(findGitHubRepositoryAccessDenial(prisma, digest)).resolves.toBeNull()
   })
 
+  it.each([
+    ["an ID-less repository", { githubRepositoryId: null, removedAt: null }],
+    [
+      "a disconnected GitHub repository",
+      { githubRepositoryId: 123, removedAt: new Date("2026-01-01T00:00:00Z") },
+    ],
+  ])("reports access loss when the only grant is for %s", async (_label, repositoryState) => {
+    const { digest, membershipId } = await createSession()
+    const repository = await prisma.repository.create({
+      data: { ...repositoryState, nameWithOwner: "octo/stale", defaultBranch: "main" },
+    })
+    await prisma.repositoryAccessGrant.create({
+      data: { membershipId, repositoryId: repository.id, observedAt: new Date() },
+    })
+
+    await expect(findGitHubRepositoryAccessDenial(prisma, digest)).resolves.toEqual({
+      login: "octocat",
+    })
+  })
+
+  it("recognizes a connected GitHub grant alongside a stale grant", async () => {
+    const { digest, membershipId } = await createSession()
+    const stale = await prisma.repository.create({
+      data: { nameWithOwner: "octo/legacy", defaultBranch: "main" },
+    })
+    const connected = await prisma.repository.create({
+      data: { githubRepositoryId: 123, nameWithOwner: "octo/current", defaultBranch: "main" },
+    })
+    await prisma.repositoryAccessGrant.createMany({
+      data: [stale.id, connected.id].map((repositoryId) => ({
+        membershipId,
+        repositoryId,
+        observedAt: new Date(),
+      })),
+    })
+
+    await expect(findGitHubRepositoryAccessDenial(prisma, digest)).resolves.toBeNull()
+  })
+
   it("does not report access loss when independent administrator authority remains", async () => {
     const { digest, externalIdentityId, membershipId } = await createSession()
     await prisma.membershipAssignment.create({

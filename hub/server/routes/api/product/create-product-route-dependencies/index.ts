@@ -19,7 +19,10 @@ import { lockVisiblePrototype } from "../../../../repositories/prototypes/lock-v
 import { updatePrototypeMetadata } from "../../../../repositories/prototypes/update-prototype-metadata/index.ts"
 import { lockSessionRevocationState } from "../../../../repositories/session-revocation-states/lock-session-revocation-state/index.ts"
 import { findCurrentSessionProfile } from "../../../../repositories/user-profiles/find-current-session-profile/index.ts"
-import { resolveRepositoryScope } from "../resolve-repository-scope/index.ts"
+import { readWithPersistedRepositoryScope } from "../read-with-persisted-repository-scope/index.ts"
+import { resolvePersistedRepositoryScope } from "../resolve-persisted-repository-scope/index.ts"
+import type { resolveRepositoryScope } from "../resolve-repository-scope/index.ts"
+import type { RepositoryScope } from "../../../../repositories/prototype-index/visible-repository-where/index.ts"
 import type { ProductRouteDependencies } from "../types.ts"
 
 interface CreateProductRouteDependenciesOptions {
@@ -44,8 +47,18 @@ export function createProductRouteDependencies({
   onReviewCommentDeleted,
   withReviewCommentDeleteLock,
 }: CreateProductRouteDependenciesOptions = {}): ProductRouteDependencies {
-  function scope(viewer: Parameters<typeof resolveRepositoryScope>[0]) {
-    return resolveRepositoryScope(viewer, scopeGitHubMembers)
+  function scope(
+    viewer: Parameters<typeof resolveRepositoryScope>[0],
+    database: Pick<Prisma.TransactionClient, "gitHubRepositoryAccessState"> = prisma,
+  ) {
+    return resolvePersistedRepositoryScope(database, viewer, scopeGitHubMembers)
+  }
+  function readScoped<Result>(
+    viewer: Parameters<typeof resolveRepositoryScope>[0],
+    read: (scope: RepositoryScope) => Promise<Result>,
+    database: Pick<Prisma.TransactionClient, "gitHubRepositoryAccessState"> = prisma,
+  ) {
+    return readWithPersistedRepositoryScope(database, viewer, scopeGitHubMembers, read)
   }
   function joinTransaction(transaction: Prisma.TransactionClient) {
     return {
@@ -57,7 +70,7 @@ export function createProductRouteDependencies({
   async function lockAuthority(transaction: Prisma.TransactionClient) {
     await lockAuthenticationProvidersForPrototypeEdit(transaction)
     await lockSessionRevocationState(transaction)
-    if (scopeGitHubMembers) await lockGitHubRepositoryAccessState(transaction)
+    await lockGitHubRepositoryAccessState(transaction)
   }
   async function restoreSession(
     transaction: Prisma.TransactionClient,
@@ -72,15 +85,20 @@ export function createProductRouteDependencies({
     return profile ? { ...session, sessionProvider: profile.sessionProvider } : null
   }
   async function repositoryIsVisible(
-    database: Pick<Prisma.TransactionClient, "repository">,
+    database: Pick<Prisma.TransactionClient, "gitHubRepositoryAccessState" | "repository">,
     repositoryId: string,
     viewer: Parameters<typeof resolveRepositoryScope>[0],
   ) {
-    return Boolean(
-      await database.repository.findFirst({
-        where: { id: repositoryId, ...visibleRepositoryWhere(scope(viewer)) },
-        select: { id: true },
-      }),
+    return readScoped(
+      viewer,
+      async (repositoryScope) =>
+        Boolean(
+          await database.repository.findFirst({
+            where: { id: repositoryId, ...visibleRepositoryWhere(repositoryScope) },
+            select: { id: true },
+          }),
+        ),
+      database,
     )
   }
   const authorizeReview =
@@ -111,11 +129,23 @@ export function createProductRouteDependencies({
     }),
     isRepositoryVisible: (viewer, repositoryId) =>
       repositoryIsVisible(prisma, repositoryId, viewer),
-    listRepositories: (viewer) => listRepositories(prisma, scope(viewer)),
+    listRepositories: (viewer) =>
+      readScoped(viewer, (repositoryScope) => listRepositories(prisma, repositoryScope)),
     findRepositoryIndex: (viewer, repositoryId, filters) =>
-      findRepositoryIndex(prisma, repositoryId, filters, scope(viewer)),
+      readScoped(viewer, (repositoryScope) =>
+        findRepositoryIndex(prisma, repositoryId, filters, repositoryScope),
+      ),
     findPrototypeDetail: (viewer, repositoryId, prototypeId, buildNumber, buildPage) =>
-      findPrototypeDetail(prisma, repositoryId, prototypeId, buildNumber, buildPage, scope(viewer)),
+      readScoped(viewer, (repositoryScope) =>
+        findPrototypeDetail(
+          prisma,
+          repositoryId,
+          prototypeId,
+          buildNumber,
+          buildPage,
+          repositoryScope,
+        ),
+      ),
     readPrototypeWithIntroduction: (input, prepare) =>
       readPrototypeWithIntroduction(input, {
         prepare,
@@ -130,14 +160,14 @@ export function createProductRouteDependencies({
                   (await repositoryIsVisible(transaction, repositoryId, viewer))
                     ? lockVisiblePrototype(transaction, repositoryId, prototypeId)
                     : null,
-                findDetail: (repositoryId, prototypeId, viewer, buildNumber) =>
+                findDetail: async (repositoryId, prototypeId, viewer, buildNumber) =>
                   findPrototypeDetail(
                     joined,
                     repositoryId,
                     prototypeId,
                     buildNumber,
                     undefined,
-                    scope(viewer),
+                    await scope(viewer, transaction),
                   ),
                 recordIntroduction: (userId, prototypeId) =>
                   recordPrototypeIntroduction(transaction, userId, prototypeId),
@@ -147,7 +177,9 @@ export function createProductRouteDependencies({
           ),
       }),
     findRepositoryAuthors: (viewer, repositoryId, filters) =>
-      findRepositoryAuthors(prisma, repositoryId, filters, scope(viewer)),
+      readScoped(viewer, (repositoryScope) =>
+        findRepositoryAuthors(prisma, repositoryId, filters, repositoryScope),
+      ),
     editPrototypeMetadata: (input) =>
       editPrototypeMetadata(input, {
         runTransaction: (operation) =>
@@ -164,14 +196,14 @@ export function createProductRouteDependencies({
                     ? lockEditablePrototype(transaction, repositoryId, prototypeId)
                     : null,
                 updatePrototype: (id, data) => updatePrototypeMetadata(transaction, id, data),
-                findDetail: (repositoryId, prototypeId, viewer) =>
+                findDetail: async (repositoryId, prototypeId, viewer) =>
                   findPrototypeDetail(
                     joined,
                     repositoryId,
                     prototypeId,
                     undefined,
                     undefined,
-                    scope(viewer),
+                    await scope(viewer, transaction),
                   ),
               })
             },

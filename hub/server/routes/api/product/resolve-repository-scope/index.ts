@@ -1,9 +1,10 @@
 import type { RepositoryScope } from "../../../../repositories/prototype-index/visible-repository-where/index.ts"
 
 /**
- * GitHub members see only repositories they could read at sign-in once Hub is
- * connected to an App installation. Administrators and other providers see all.
- * An unknown session provider is scoped rather than treated as non-GitHub.
+ * Once GitHub repository scoping is active, only ID-backed repositories are visible.
+ * GitHub members see only repositories they could read at sign-in. Administrators
+ * and other providers see all identified repositories. An unknown session provider
+ * is scoped rather than treated as non-GitHub.
  */
 export function resolveRepositoryScope(
   viewer: {
@@ -13,12 +14,12 @@ export function resolveRepositoryScope(
   },
   scopeGitHubMembers: boolean,
 ): RepositoryScope {
+  if (!scopeGitHubMembers) return null
   if (
-    !scopeGitHubMembers ||
     viewer.role === "ADMINISTRATOR" ||
     (typeof viewer.sessionProvider === "string" && viewer.sessionProvider !== "github")
   ) {
-    return null
+    return {}
   }
   return { membershipId: viewer.membershipId }
 }

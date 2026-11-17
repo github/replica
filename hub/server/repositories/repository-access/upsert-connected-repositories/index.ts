@@ -23,10 +23,8 @@ const storedFields = {
 } as const
 
 /**
- * Records repositories the GitHub App can read. Rows are matched by GitHub ID,
- * then by name for rows created before IDs were stored. Returns Hub IDs in order.
- * Reads, inserts and updates are each one query, so sign-in stays within its
- * transaction budget at the supported installation size.
+ * Records repositories the GitHub App can read, matching only immutable GitHub IDs.
+ * Returns Hub IDs in order using bounded queries for the supported installation size.
  */
 export async function upsertConnectedRepositories(
   database: Pick<Prisma.TransactionClient, "$executeRaw" | "repository">,
@@ -43,11 +41,6 @@ export async function upsertConnectedRepositories(
   })
   for (const row of stored)
     if (row.githubRepositoryId !== null) byGitHubId.set(row.githubRepositoryId, row)
-  const legacyByName = await findLegacyRepositories(
-    database,
-    repositories.filter((repository) => !byGitHubId.has(githubIdOf(repository))),
-  )
-
   const planned = new Map<bigint, PlannedRepository>()
   for (const repository of repositories) {
     const githubRepositoryId = githubIdOf(repository)
@@ -61,9 +54,7 @@ export async function upsertConnectedRepositories(
       previous.data = data
       continue
     }
-    const existing =
-      byGitHubId.get(githubRepositoryId) ??
-      legacyByName.get(repository.nameWithOwner.toLowerCase())?.shift()
+    const existing = byGitHubId.get(githubRepositoryId)
     if (existing?.removedAt && !options.allowReconnect) {
       throw new Error("User evidence cannot reconnect a disconnected GitHub repository.")
     }
@@ -91,31 +82,6 @@ export async function upsertConnectedRepositories(
 
 function githubIdOf(repository: ConnectedRepositoryEvidence): bigint {
   return BigInt(repository.githubRepositoryId)
-}
-
-/** Unclaimed rows without a GitHub ID, oldest first, grouped by lowercase name. */
-async function findLegacyRepositories(
-  database: Pick<Prisma.TransactionClient, "repository">,
-  repositories: ConnectedRepositoryEvidence[],
-): Promise<Map<string, StoredRepository[]>> {
-  const legacyByName = new Map<string, StoredRepository[]>()
-  if (!repositories.length) return legacyByName
-  const rows = await database.repository.findMany({
-    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    select: storedFields,
-    where: {
-      githubRepositoryId: null,
-      nameWithOwner: {
-        in: [...new Set(repositories.map((repository) => repository.nameWithOwner))],
-        mode: "insensitive",
-      },
-    },
-  })
-  for (const row of rows) {
-    const name = row.nameWithOwner.toLowerCase()
-    legacyByName.set(name, [...(legacyByName.get(name) ?? []), row])
-  }
-  return legacyByName
 }
 
 function hasChanged(existing: StoredRepository, data: PlannedRepository["data"]): boolean {

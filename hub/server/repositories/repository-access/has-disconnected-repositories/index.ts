@@ -10,19 +10,9 @@ export async function hasDisconnectedRepositories(
     select: { id: true },
     where: {
       removedAt: { not: null },
-      OR: [
-        {
-          githubRepositoryId: {
-            in: repositories.map((repository) => BigInt(repository.githubRepositoryId)),
-          },
-        },
-        {
-          githubRepositoryId: null,
-          OR: repositories.map((repository) => ({
-            nameWithOwner: { equals: repository.nameWithOwner, mode: "insensitive" },
-          })),
-        },
-      ],
+      githubRepositoryId: {
+        in: repositories.map((repository) => BigInt(repository.githubRepositoryId)),
+      },
     },
   })
   return found !== null

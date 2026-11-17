@@ -141,10 +141,10 @@ describe("prototype Build history API", () => {
     })
     const entraMember = await createSession("entra", "github")
     const repository = await prisma.repository.create({
-      data: { nameWithOwner: "team/private", defaultBranch: "main" },
+      data: { githubRepositoryId: 1001, nameWithOwner: "team/private", defaultBranch: "main" },
     })
     const retained = await prisma.repository.create({
-      data: { nameWithOwner: "team/retained", defaultBranch: "main" },
+      data: { githubRepositoryId: 1002, nameWithOwner: "team/retained", defaultBranch: "main" },
     })
     await prisma.repositoryAccessGrant.create({
       data: {

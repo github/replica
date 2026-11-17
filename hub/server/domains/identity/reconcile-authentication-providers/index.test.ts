@@ -19,6 +19,7 @@ function repositories(
   >,
 ) {
   return {
+    activateGitHubRepositoryScoping: vi.fn().mockResolvedValue(undefined),
     createAuthenticationProvider: vi.fn(),
     createAuthenticationProviderRevision: vi.fn(),
     createSecurityAudit: vi.fn(),

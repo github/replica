@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
+import { activateGitHubRepositoryScoping } from "../identity/activate-github-repository-scoping"
 import { prisma } from "../../integrations/prisma"
 
 import { captureRepositoryReviewSnapshot } from "./capture-repository-review-snapshot"
@@ -604,5 +605,78 @@ describe("review comments", () => {
     await expect(captureRepositoryReviewSnapshot(prisma, randomUUID())).rejects.toMatchObject({
       code: "not_found",
     })
+  })
+
+  it("rejects legacy review snapshots after GitHub scoping is activated without changing history", async () => {
+    const legacy = await createRepository("team/legacy")
+    const identified = await prisma.repository.create({
+      data: { githubRepositoryId: 1001, nameWithOwner: "team/current", defaultBranch: "main" },
+    })
+    const legacyTarget = await createReviewablePrototype(legacy.id, "prototype/legacy")
+    const currentTarget = await createReviewablePrototype(identified.id, "prototype/current")
+    const author = await createUser("mona", "Mona")
+    const service = createTestReviewService()
+    const legacyThread = await service.createThread({
+      repositoryId: legacy.id,
+      prototypeId: legacyTarget.prototype.id,
+      buildNumber: legacyTarget.build.number,
+      body: "Retained legacy review",
+      anchor,
+      actor: author,
+    })
+    await service.createReply({
+      repositoryId: legacy.id,
+      prototypeId: legacyTarget.prototype.id,
+      threadId: legacyThread.id,
+      body: "Retained legacy reply",
+      actor: author,
+    })
+    await service.setResolution({
+      repositoryId: legacy.id,
+      prototypeId: legacyTarget.prototype.id,
+      threadId: legacyThread.id,
+      resolved: true,
+      actor: author,
+    })
+    await service.createThread({
+      repositoryId: identified.id,
+      prototypeId: currentTarget.prototype.id,
+      buildNumber: currentTarget.build.number,
+      body: "Current review",
+      anchor,
+      actor: author,
+    })
+    const history = {
+      prototypes: { include: { builds: true } },
+      reviewThreads: {
+        include: {
+          comments: { orderBy: { publicId: "asc" as const } },
+          resolutionEvents: { orderBy: { sequence: "asc" as const } },
+        },
+      },
+    }
+    const legacyBefore = await prisma.repository.findUniqueOrThrow({
+      where: { id: legacy.id },
+      include: history,
+    })
+
+    await expect(captureRepositoryReviewSnapshot(prisma, legacy.id)).resolves.toMatchObject({
+      repository: { id: legacy.id },
+      threads: [{ id: legacyThread.id, root: { body: "Retained legacy review" } }],
+    })
+    await prisma.$transaction(activateGitHubRepositoryScoping)
+
+    await expect(captureRepositoryReviewSnapshot(prisma, identified.id)).resolves.toMatchObject({
+      repository: { id: identified.id },
+      threads: [{ root: { body: "Current review" } }],
+    })
+    const legacyCapture = await captureRepositoryReviewSnapshot(prisma, legacy.id).then(
+      (snapshot) => ({ status: "fulfilled" as const, snapshot }),
+      (error: unknown) => ({ status: "rejected" as const, error }),
+    )
+    await expect(
+      prisma.repository.findUniqueOrThrow({ where: { id: legacy.id }, include: history }),
+    ).resolves.toEqual(legacyBefore)
+    expect(legacyCapture).toMatchObject({ status: "rejected", error: { code: "not_found" } })
   })
 })

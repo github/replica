@@ -7,9 +7,10 @@ model GitHubRepositoryAccessState {
   revision Int    @default(0)
 
   // Timestamp columns
-  changedAt DateTime? @map("changed_at") @db.Timestamptz(3)
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  changedAt          DateTime? @map("changed_at") @db.Timestamptz(3)
+  scopingActivatedAt DateTime? @map("scoping_activated_at") @db.Timestamptz(3)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("github_repository_access_states")
 }

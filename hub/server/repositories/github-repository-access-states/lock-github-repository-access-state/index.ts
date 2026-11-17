@@ -6,14 +6,18 @@ export async function lockGitHubRepositoryAccessState(
 ) {
   const rows =
     mode === "write"
-      ? await database.$queryRaw<Array<{ revision: number; changedAt: Date | null }>>`
-          SELECT "revision", "changed_at" AS "changedAt"
+      ? await database.$queryRaw<
+          Array<{ revision: number; changedAt: Date | null; scopingActivatedAt: Date | null }>
+        >`
+          SELECT "revision", "changed_at" AS "changedAt", "scoping_activated_at" AS "scopingActivatedAt"
           FROM "github_repository_access_states"
           WHERE "key" = 'global'
           FOR UPDATE
         `
-      : await database.$queryRaw<Array<{ revision: number; changedAt: Date | null }>>`
-          SELECT "revision", "changed_at" AS "changedAt"
+      : await database.$queryRaw<
+          Array<{ revision: number; changedAt: Date | null; scopingActivatedAt: Date | null }>
+        >`
+          SELECT "revision", "changed_at" AS "changedAt", "scoping_activated_at" AS "scopingActivatedAt"
           FROM "github_repository_access_states"
           WHERE "key" = 'global'
           FOR SHARE

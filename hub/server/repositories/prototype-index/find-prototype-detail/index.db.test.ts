@@ -78,8 +78,18 @@ describe("findPrototypeDetail()", () => {
     const commitSha = "a".repeat(40)
     await prisma.repository.createMany({
       data: [
-        { id: repositoryId, nameWithOwner: "team/private", defaultBranch: "main" },
-        { id: retainedRepositoryId, nameWithOwner: "team/retained", defaultBranch: "main" },
+        {
+          id: repositoryId,
+          githubRepositoryId: 1001,
+          nameWithOwner: "team/private",
+          defaultBranch: "main",
+        },
+        {
+          id: retainedRepositoryId,
+          githubRepositoryId: 1002,
+          nameWithOwner: "team/retained",
+          defaultBranch: "main",
+        },
       ],
     })
     await prisma.repositoryAccessGrant.createMany({

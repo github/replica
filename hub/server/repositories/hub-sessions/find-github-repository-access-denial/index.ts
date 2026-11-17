@@ -19,7 +19,11 @@ export async function findGitHubRepositoryAccessDenial(
             select: { id: true },
             take: 1,
           },
-          repositoryAccessGrants: { select: { id: true }, take: 1 },
+          repositoryAccessGrants: {
+            where: { repository: { githubRepositoryId: { not: null }, removedAt: null } },
+            select: { id: true },
+            take: 1,
+          },
           user: {
             select: {
               externalIdentities: {

@@ -39,7 +39,10 @@ export async function removeRepositoryAccessGrants(
   })
   const remaining = await database.repositoryAccessGrant.groupBy({
     by: ["membershipId"],
-    where: { membershipId: { in: membershipIds }, repository: { removedAt: null } },
+    where: {
+      membershipId: { in: membershipIds },
+      repository: { githubRepositoryId: { not: null }, removedAt: null },
+    },
   })
   const withGrants = new Set(remaining.map((grant) => grant.membershipId))
   return { emptiedMembershipIds: membershipIds.filter((id) => !withGrants.has(id)) }

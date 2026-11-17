@@ -4,7 +4,7 @@ export async function readGitHubRepositoryAccessState(
   database: Pick<Prisma.TransactionClient, "gitHubRepositoryAccessState">,
 ) {
   return database.gitHubRepositoryAccessState.findUniqueOrThrow({
-    select: { revision: true },
+    select: { revision: true, scopingActivatedAt: true },
     where: { key: "global" },
   })
 }

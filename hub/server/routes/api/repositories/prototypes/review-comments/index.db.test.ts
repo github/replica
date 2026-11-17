@@ -97,7 +97,11 @@ describe("prototype review comments with GitHub repository access", () => {
     const serverUrl = await openScopedServer()
     const member = await createGitHubMember()
     const repository = await prisma.repository.create({
-      data: { nameWithOwner: `team/review-${randomUUID()}`, defaultBranch: "main" },
+      data: {
+        githubRepositoryId: 1001,
+        nameWithOwner: `team/review-${randomUUID()}`,
+        defaultBranch: "main",
+      },
     })
     const prototype = await prisma.prototype.create({
       data: {

@@ -4,7 +4,7 @@ import { type RepositoryScope, visibleRepositoryWhere } from "../visible-reposit
 export function findActiveRepository(
   database: Pick<Prisma.TransactionClient, "repository">,
   repositoryId: string,
-  scope: RepositoryScope = null,
+  scope: RepositoryScope,
 ) {
   return database.repository.findFirst({
     where: { id: repositoryId, ...visibleRepositoryWhere(scope) },

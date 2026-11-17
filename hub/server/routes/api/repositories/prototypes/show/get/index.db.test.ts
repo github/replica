@@ -16,7 +16,7 @@ import type { AuthenticationRouteDependencies } from "../../../../auth/types"
 async function createViewer(
   token = "member-session",
   expiresAt = new Date("2099-01-01T00:00:00Z"),
-  options: { administrator?: boolean; profileProvider?: string } = {},
+  options: { administrator?: boolean; profileProvider?: string; repositoryIdToGrant?: string } = {},
 ) {
   const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
   const authentication = await createAuthenticationRouteDependencies({
@@ -74,6 +74,15 @@ async function createViewer(
       expiresAt,
     },
   })
+  if (options.repositoryIdToGrant) {
+    await prisma.repositoryAccessGrant.create({
+      data: {
+        membershipId: membership.id,
+        repositoryId: options.repositoryIdToGrant,
+        observedAt: new Date(),
+      },
+    })
+  }
   return {
     restore: authentication.currentSession.restore.bind(authentication.currentSession),
     user,
@@ -83,10 +92,28 @@ async function createViewer(
   }
 }
 
-async function createPrototype() {
+async function createPrototype(
+  options: { githubRepositoryId?: number; grantExistingMembers?: boolean } = {},
+) {
   const repository = await prisma.repository.create({
-    data: { nameWithOwner: "team/design", defaultBranch: "main" },
+    data: {
+      githubRepositoryId: options.githubRepositoryId ?? 1001,
+      nameWithOwner: "team/design",
+      defaultBranch: "main",
+    },
   })
+  if (options.grantExistingMembers !== false) {
+    const memberships = await prisma.membership.findMany({ select: { id: true } })
+    if (memberships.length) {
+      await prisma.repositoryAccessGrant.createMany({
+        data: memberships.map(({ id }) => ({
+          membershipId: id,
+          repositoryId: repository.id,
+          observedAt: new Date(),
+        })),
+      })
+    }
+  }
   return prisma.prototype.create({
     data: { branchName: "prototype/checkout", repositoryId: repository.id },
   })
@@ -140,13 +167,16 @@ describe("prototype detail API", () => {
     const administrator = await createViewer("administrator-session", undefined, {
       administrator: true,
     })
-    const prototype = await createPrototype()
+    const prototype = await createPrototype({
+      githubRepositoryId: 1001,
+      grantExistingMembers: false,
+    })
     const commitSha = "a".repeat(40)
     await prisma.build.create({
       data: { prototypeId: prototype.id, number: 1, state: "successful", commitSha },
     })
     const retained = await prisma.repository.create({
-      data: { nameWithOwner: "team/retained", defaultBranch: "main" },
+      data: { githubRepositoryId: 1002, nameWithOwner: "team/retained", defaultBranch: "main" },
     })
     await prisma.repositoryAccessGrant.create({
       data: {
@@ -376,10 +406,17 @@ describe("prototype detail API", () => {
   })
 
   it("leaves introductions untouched by invalid addresses or disconnected repositories", async () => {
-    const { restore } = await createViewer()
+    const { restore, membership } = await createViewer()
     const prototype = await createPrototype()
     const otherRepository = await prisma.repository.create({
-      data: { nameWithOwner: "team/other", defaultBranch: "main" },
+      data: { githubRepositoryId: 1002, nameWithOwner: "team/other", defaultBranch: "main" },
+    })
+    await prisma.repositoryAccessGrant.create({
+      data: {
+        membershipId: membership.id,
+        repositoryId: otherRepository.id,
+        observedAt: new Date(),
+      },
     })
     await withServer(restore, async (baseUrl) => {
       const url = `${baseUrl}/api/repositories/${prototype.repositoryId}/prototypes/${prototype.id}`
@@ -500,7 +537,12 @@ describe("prototype detail API", () => {
   it("returns stored non-GitHub author profiles", async () => {
     const repositoryId = randomUUID()
     await prisma.repository.create({
-      data: { id: repositoryId, nameWithOwner: "team/design", defaultBranch: "main" },
+      data: {
+        id: repositoryId,
+        githubRepositoryId: 1001,
+        nameWithOwner: "team/design",
+        defaultBranch: "main",
+      },
     })
     const authors = [
       { login: "sam@example.test", name: "Sam Rivera" },
@@ -525,7 +567,9 @@ describe("prototype detail API", () => {
       })
       prototypeIds.push(prototype.id)
     }
-    const { restore } = await createViewer()
+    const { restore } = await createViewer("member-session", undefined, {
+      repositoryIdToGrant: repositoryId,
+    })
 
     await withServer(restore, async (baseUrl) => {
       for (const [index, author] of authors.entries()) {
@@ -548,7 +592,12 @@ describe("prototype detail API", () => {
     const repositoryId = randomUUID()
     const prototypeId = randomUUID()
     await prisma.repository.create({
-      data: { id: repositoryId, nameWithOwner: "team/design", defaultBranch: "main" },
+      data: {
+        id: repositoryId,
+        githubRepositoryId: 1001,
+        nameWithOwner: "team/design",
+        defaultBranch: "main",
+      },
     })
     await prisma.prototype.create({
       data: {
@@ -564,7 +613,9 @@ describe("prototype detail API", () => {
     await createBuild(prototypeId, 5, "successful", "2026-10-09T00:00:00Z", "2026-10-01T00:00:00Z")
     await createBuild(prototypeId, 6, "successful", null, "2026-10-08T00:00:00Z")
     await createBuild(prototypeId, 20, "failed", "2026-10-10T00:00:00Z", "2026-10-10T00:00:00Z")
-    const { restore } = await createViewer()
+    const { restore } = await createViewer("member-session", undefined, {
+      repositoryIdToGrant: repositoryId,
+    })
 
     await withServer(restore, async (baseUrl) => {
       const headers = { cookie: "hub_session=member-session" }
@@ -608,7 +659,12 @@ describe("prototype detail API", () => {
     const internalId = randomUUID()
     const installWorkflowId = randomUUID()
     await prisma.repository.create({
-      data: { id: repositoryId, nameWithOwner: "team/design", defaultBranch: "main" },
+      data: {
+        id: repositoryId,
+        githubRepositoryId: 1001,
+        nameWithOwner: "team/design",
+        defaultBranch: "main",
+      },
     })
     await prisma.prototype.createMany({
       data: [
@@ -648,7 +704,9 @@ describe("prototype detail API", () => {
         },
       ],
     })
-    const { restore, user } = await createViewer()
+    const { restore, user } = await createViewer("member-session", undefined, {
+      repositoryIdToGrant: repositoryId,
+    })
 
     await withServer(restore, async (baseUrl) => {
       const headers = { cookie: "hub_session=member-session" }
@@ -693,7 +751,12 @@ describe("prototype detail API", () => {
     const repositoryId = randomUUID()
     const prototypeId = randomUUID()
     await prisma.repository.create({
-      data: { id: repositoryId, nameWithOwner: "team/design", defaultBranch: "main" },
+      data: {
+        id: repositoryId,
+        githubRepositoryId: 1001,
+        nameWithOwner: "team/design",
+        defaultBranch: "main",
+      },
     })
     await prisma.prototype.create({
       data: {
@@ -706,7 +769,9 @@ describe("prototype detail API", () => {
     })
     await createBuild(prototypeId, 1, "failed", "2026-10-02T00:00:00Z", "2026-10-02T00:00:00Z")
     await createBuild(prototypeId, 2, "queued", null, "2026-10-03T00:00:00Z")
-    const { restore } = await createViewer()
+    const { restore } = await createViewer("member-session", undefined, {
+      repositoryIdToGrant: repositoryId,
+    })
 
     await withServer(restore, async (baseUrl) => {
       const response = await fetch(
@@ -722,7 +787,12 @@ describe("prototype detail API", () => {
     const repositoryId = randomUUID()
     const prototypeId = randomUUID()
     await prisma.repository.create({
-      data: { id: repositoryId, nameWithOwner: "team/design", defaultBranch: "main" },
+      data: {
+        id: repositoryId,
+        githubRepositoryId: 1001,
+        nameWithOwner: "team/design",
+        defaultBranch: "main",
+      },
     })
     await prisma.prototype.create({
       data: {
@@ -735,7 +805,9 @@ describe("prototype detail API", () => {
     })
     await createBuild(prototypeId, 1, "successful", "2026-10-02T00:00:00Z", "2026-10-02T00:00:00Z")
     await createBuild(prototypeId, 2, "failed", "2026-10-03T00:00:00Z", "2026-10-03T00:00:00Z")
-    const { restore } = await createViewer()
+    const { restore } = await createViewer("member-session", undefined, {
+      repositoryIdToGrant: repositoryId,
+    })
 
     await withServer(restore, async (baseUrl) => {
       const headers = { cookie: "hub_session=member-session" }
@@ -754,7 +826,12 @@ describe("prototype detail API", () => {
     const repositoryId = randomUUID()
     const prototypeId = randomUUID()
     await prisma.repository.create({
-      data: { id: repositoryId, nameWithOwner: "team/private", defaultBranch: "main" },
+      data: {
+        id: repositoryId,
+        githubRepositoryId: 1001,
+        nameWithOwner: "team/private",
+        defaultBranch: "main",
+      },
     })
     await prisma.prototype.create({
       data: {
@@ -777,7 +854,9 @@ describe("prototype detail API", () => {
       }
     })
 
-    const viewer = await createViewer()
+    const viewer = await createViewer("member-session", undefined, {
+      repositoryIdToGrant: repositoryId,
+    })
     const member = await viewer.restore(viewer.session.digest)
     const restore = vi.fn().mockResolvedValueOnce({
       ...member,

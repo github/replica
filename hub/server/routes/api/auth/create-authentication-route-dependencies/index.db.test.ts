@@ -1,9 +1,19 @@
 import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
+import { restoreHubSession } from "../../../../domains/admission/restore-hub-session"
+import { runSessionRestoreTransaction } from "../../../../domains/admission/run-session-restore-transaction"
+import { syncGitHubInstallationRepositories } from "../../../../domains/admission/sync-github-installation-repositories"
+import { createEntraAuthenticationContext } from "../../../../domains/authentication/create-entra-authentication-context"
+import { createGitHubAuthenticationContext } from "../../../../domains/authentication/create-github-authentication-context"
+import { activateGitHubRepositoryScoping } from "../../../../domains/identity/activate-github-repository-scoping"
 import { getSelectedProviderRevision } from "../../../../domains/identity/get-selected-provider-revision"
+import { runProviderRevisionTransaction } from "../../../../domains/identity/run-provider-revision-transaction"
+import { Prisma } from "../../../../generated/prisma/client"
 import { prisma } from "../../../../integrations/prisma"
 import { findAuthenticationProvider } from "../../../../repositories/authentication-providers/find-authentication-provider"
+import { listOpenGitHubSessionMemberships } from "../../../../repositories/hub-sessions/list-open-github-session-memberships"
+import { withFailingSecurityAudit } from "../../../../../test/database/with-failing-security-audit"
 import { createAuthenticationRouteDependencies, disableAuthenticationProviders } from "."
 
 const tenantId = "11111111-1111-4111-8111-111111111111"
@@ -63,6 +73,34 @@ function discovery(overrides: Record<string, unknown> = {}) {
 
 const validDiscovery = vi.fn<typeof fetch>(() => Promise.resolve(discovery()))
 
+async function seedConfiguredProviders(configuration: NodeJS.ProcessEnv) {
+  const contexts = [
+    createEntraAuthenticationContext(configuration, validDiscovery),
+    createGitHubAuthenticationContext(configuration, validDiscovery),
+  ]
+  await runProviderRevisionTransaction(prisma, async (repositories) => {
+    const existing = new Set(
+      (await repositories.lockAuthenticationProviders()).map((provider) => provider.key),
+    )
+    for (const context of contexts) {
+      if (existing.has(context.adapter.providerKey)) continue
+      const providerId = randomUUID()
+      const revisionId = randomUUID()
+      await repositories.createAuthenticationProvider({
+        id: providerId,
+        key: context.adapter.providerKey,
+      })
+      await repositories.createAuthenticationProviderRevision({
+        configurationDigest: context.configurationDigest,
+        id: revisionId,
+        providerId,
+        revision: context.providerRevision,
+      })
+      await repositories.selectAuthenticationProviderRevision({ providerId, revisionId })
+    }
+  })
+}
+
 async function selectedRevisions() {
   const providers = await prisma.authenticationProvider.findMany({
     include: { selectedRevision: true },
@@ -75,7 +113,16 @@ async function selectedRevisions() {
   }))
 }
 
-async function createProviderSession(providerKey: "entra" | "github", digest: string) {
+async function createProviderSession(
+  providerKey: "entra" | "github",
+  digest: string,
+  options: {
+    administrator?: boolean
+    assignmentSubject?: string
+    includeProviderRevision?: boolean
+    subject?: string
+  } = {},
+) {
   const provider = await prisma.authenticationProvider.findUniqueOrThrow({
     include: { selectedRevision: true },
     where: { key: providerKey },
@@ -90,7 +137,7 @@ async function createProviderSession(providerKey: "entra" | "github", digest: st
         id: externalIdentityId,
         issuer: providerKey === "github" ? "https://github.com" : issuer,
         provider: providerKey,
-        subject: `${providerKey}-subject`,
+        subject: options.subject ?? `${providerKey}-subject`,
         userId,
       },
     })
@@ -100,12 +147,22 @@ async function createProviderSession(providerKey: "entra" | "github", digest: st
         externalIdentityId,
         id: randomUUID(),
         membershipId,
-        providerAssignmentSubject: randomUUID(),
+        providerAssignmentSubject: options.assignmentSubject ?? randomUUID(),
         providerRevisionId: provider.selectedRevision!.id,
         role: "MEMBER",
         source: "AUTHENTICATION_PROVIDER",
       },
     })
+    if (options.administrator) {
+      await transaction.membershipAssignment.create({
+        data: {
+          externalIdentityId,
+          membershipId,
+          role: "ADMINISTRATOR",
+          source: "BOOTSTRAP",
+        },
+      })
+    }
     await transaction.hubSession.create({
       data: {
         digest,
@@ -113,6 +170,9 @@ async function createProviderSession(providerKey: "entra" | "github", digest: st
         expiresAt: new Date("2099-01-01T00:00:00Z"),
         id: randomUUID(),
         membershipId,
+        ...(options.includeProviderRevision
+          ? { providerRevisionId: provider.selectedRevision!.id }
+          : {}),
         revocationRevision: 0,
       },
     })
@@ -121,6 +181,376 @@ async function createProviderSession(providerKey: "entra" | "github", digest: st
 }
 
 describe("createAuthenticationRouteDependencies()", () => {
+  it.each([
+    { installation: "is already configured", startWithoutGitHub: false },
+    { installation: "is configured after an earlier startup", startWithoutGitHub: true },
+  ])(
+    "requires GitHub members to reauthenticate once when the installation $installation",
+    async ({ startWithoutGitHub }) => {
+      const configured = environment({ entra: true, github: true })
+      const repository = {
+        defaultBranch: "main",
+        githubRepositoryId: 1001,
+        nameWithOwner: "team/accessible",
+      }
+      const request = vi.fn<typeof fetch>((input) => {
+        const url = input instanceof Request ? input.url : input.toString()
+        if (url.startsWith(`${issuer}/.well-known/`)) return Promise.resolve(discovery())
+        if (url === "https://github.com/login/oauth/access_token") {
+          return Promise.resolve(
+            Response.json({ access_token: "test-user-token", token_type: "bearer" }),
+          )
+        }
+        if (url === "https://api.github.com/user") {
+          return Promise.resolve(Response.json({ id: 101, login: "github-member" }))
+        }
+        if (url.startsWith("https://api.github.com/user/installations/456/repositories?")) {
+          return Promise.resolve(
+            Response.json({
+              total_count: 1,
+              repositories: [
+                {
+                  default_branch: repository.defaultBranch,
+                  full_name: repository.nameWithOwner,
+                  id: repository.githubRepositoryId,
+                },
+              ],
+            }),
+          )
+        }
+        throw new Error(`Unexpected provider request: ${url}`)
+      })
+      if (startWithoutGitHub) {
+        const initiallyConfigured = Object.fromEntries(
+          Object.entries(configured).filter(([key]) => !key.startsWith("GITHUB_")),
+        )
+        await createAuthenticationRouteDependencies(initiallyConfigured, request)
+      }
+      await seedConfiguredProviders(configured)
+
+      const memberDigest = "1".repeat(64)
+      const member = await createProviderSession("github", memberDigest, {
+        assignmentSubject: "github_repository_access",
+        includeProviderRevision: true,
+        subject: "101",
+      })
+      const olderMemberDigest = "2".repeat(64)
+      const olderMemberSession = await prisma.hubSession.create({
+        data: {
+          digest: olderMemberDigest,
+          expiresAt: new Date("2099-01-01T00:00:00Z"),
+          externalIdentityId: member.externalIdentityId,
+          membershipId: member.membershipId,
+          revocationRevision: 0,
+        },
+      })
+      await prisma.membershipAssignment.create({
+        data: {
+          externalIdentityId: member.externalIdentityId,
+          lifecycle: "REVOKED",
+          membershipId: member.membershipId,
+          role: "ADMINISTRATOR",
+          source: "HUB_ADMINISTRATOR",
+        },
+      })
+      const administratorDigest = "3".repeat(64)
+      const administrator = await createProviderSession("github", administratorDigest, {
+        administrator: true,
+        includeProviderRevision: true,
+        subject: "102",
+      })
+      const entraDigest = "4".repeat(64)
+      const entraMember = await createProviderSession("entra", entraDigest, {
+        includeProviderRevision: true,
+      })
+      const entraProvider = await prisma.authenticationProvider.findUniqueOrThrow({
+        include: { selectedRevision: true },
+        where: { key: "entra" },
+      })
+      const linkedEntraIdentity = await prisma.externalIdentity.create({
+        data: {
+          issuer,
+          provider: "entra",
+          subject: "linked-entra-member",
+          userId: member.userId,
+        },
+      })
+      await prisma.membershipAssignment.create({
+        data: {
+          externalIdentityId: linkedEntraIdentity.id,
+          membershipId: member.membershipId,
+          providerAssignmentSubject: randomUUID(),
+          providerRevisionId: entraProvider.selectedRevision!.id,
+          role: "MEMBER",
+          source: "AUTHENTICATION_PROVIDER",
+        },
+      })
+      const linkedEntraDigest = "5".repeat(64)
+      await prisma.hubSession.create({
+        data: {
+          digest: linkedEntraDigest,
+          expiresAt: new Date("2099-01-01T00:00:00Z"),
+          externalIdentityId: linkedEntraIdentity.id,
+          membershipId: member.membershipId,
+          providerRevisionId: entraProvider.selectedRevision!.id,
+          revocationRevision: 0,
+        },
+      })
+      await expect(
+        restoreHubSession(memberDigest, {
+          runTransaction: (operation) => runSessionRestoreTransaction(prisma, operation),
+        }),
+      ).resolves.toMatchObject({ membershipId: member.membershipId, role: "MEMBER" })
+      const memberSession = await prisma.hubSession.findUniqueOrThrow({
+        select: { id: true },
+        where: { digest: memberDigest },
+      })
+
+      const dependencies = await createAuthenticationRouteDependencies(configured, request)
+
+      for (const digest of [memberDigest, olderMemberDigest]) {
+        await expect(dependencies.currentSession.restore(digest)).resolves.toBeNull()
+        await expect(
+          prisma.hubSession.findUniqueOrThrow({
+            select: { endedAt: true },
+            where: { digest },
+          }),
+        ).resolves.toHaveProperty("endedAt", expect.any(Date))
+      }
+      await expect(dependencies.currentSession.restore(administratorDigest)).resolves.toMatchObject(
+        {
+          membershipId: administrator.membershipId,
+          role: "ADMINISTRATOR",
+          sessionProvider: "github",
+        },
+      )
+      await expect(dependencies.currentSession.restore(entraDigest)).resolves.toMatchObject({
+        membershipId: entraMember.membershipId,
+        role: "MEMBER",
+        sessionProvider: "entra",
+      })
+      await expect(dependencies.currentSession.restore(linkedEntraDigest)).resolves.toMatchObject({
+        membershipId: member.membershipId,
+        role: "MEMBER",
+        sessionProvider: "entra",
+      })
+
+      const context = createGitHubAuthenticationContext(configured, request)
+      const provider = {
+        configurationDigest: context.configurationDigest,
+        revision: context.providerRevision,
+      }
+      await syncGitHubInstallationRepositories(
+        prisma,
+        () => Promise.resolve([repository]),
+        provider,
+      )
+      expect(
+        await prisma.repositoryAccessGrant.count({ where: { membershipId: member.membershipId } }),
+      ).toBe(0)
+      const started = await dependencies.github!.signIn.start()
+      const state = new URL(started.authorizationUrl).searchParams.get("state")
+      if (!state) throw new Error("Missing GitHub sign-in state.")
+      const completed = await dependencies.github!.callback.complete({
+        browserBinding: started.browserBinding,
+        code: "test-code",
+        state,
+      })
+      const freshDigest = "6".repeat(64)
+      await dependencies.github!.callback.admit({
+        proof: completed.proof,
+        providerAssignment: completed.providerAssignment,
+        repositoryAccess: completed.repositoryAccess,
+        sessionDigest: freshDigest,
+        sessionId: randomUUID(),
+      })
+      const connected = await prisma.repository.findUniqueOrThrow({
+        where: { githubRepositoryId: 1001n },
+      })
+      await expect(
+        prisma.repositoryAccessGrant.findMany({
+          select: { repositoryId: true },
+          where: { membershipId: member.membershipId },
+        }),
+      ).resolves.toEqual([{ repositoryId: connected.id }])
+
+      await syncGitHubInstallationRepositories(
+        prisma,
+        () =>
+          Promise.resolve([
+            repository,
+            { defaultBranch: "main", githubRepositoryId: 1002, nameWithOwner: "team/other" },
+          ]),
+        provider,
+      )
+      const restarted = await createAuthenticationRouteDependencies(configured, request)
+
+      await expect(restarted.currentSession.restore(freshDigest)).resolves.toMatchObject({
+        membershipId: member.membershipId,
+        role: "MEMBER",
+        sessionProvider: "github",
+      })
+      await expect(restarted.currentSession.restore(administratorDigest)).resolves.toMatchObject({
+        membershipId: administrator.membershipId,
+        role: "ADMINISTRATOR",
+      })
+      await expect(restarted.currentSession.restore(entraDigest)).resolves.toMatchObject({
+        membershipId: entraMember.membershipId,
+        role: "MEMBER",
+      })
+      await expect(
+        prisma.repositoryAccessGrant.findMany({
+          select: { repositoryId: true },
+          where: { membershipId: member.membershipId },
+        }),
+      ).resolves.toEqual([{ repositoryId: connected.id }])
+      const endedAudits = await prisma.securityAudit.findMany({
+        select: { targetId: true },
+        where: { action: "session.ended" },
+      })
+      expect(endedAudits.map(({ targetId }) => targetId).sort()).toEqual(
+        [memberSession.id, olderMemberSession.id].sort(),
+      )
+    },
+  )
+
+  it("rolls back first scope activation when a session audit fails and retries on startup", async () => {
+    const configured = environment({ entra: true, github: true })
+    await seedConfiguredProviders(configured)
+    const digest = "7".repeat(64)
+    await createProviderSession("github", digest, { subject: "101" })
+    const before = await selectedRevisions()
+
+    await withFailingSecurityAudit("session.ended", () =>
+      expect(
+        createAuthenticationRouteDependencies(
+          { ...configured, ENTRA_OIDC_PROVIDER_REVISION: "2" },
+          validDiscovery,
+        ),
+      ).rejects.toThrow(),
+    )
+
+    expect(await selectedRevisions()).toEqual(before)
+    await expect(
+      prisma.hubSession.findUniqueOrThrow({ select: { endedAt: true }, where: { digest } }),
+    ).resolves.toEqual({ endedAt: null })
+    await expect(prisma.securityAudit.count({ where: { action: "session.ended" } })).resolves.toBe(
+      0,
+    )
+    const dependencies = await createAuthenticationRouteDependencies(configured, validDiscovery)
+    await expect(dependencies.currentSession.restore(digest)).resolves.toBeNull()
+    await expect(
+      prisma.hubSession.findUniqueOrThrow({ select: { endedAt: true }, where: { digest } }),
+    ).resolves.toHaveProperty("endedAt", expect.any(Date))
+    await expect(prisma.securityAudit.count({ where: { action: "session.ended" } })).resolves.toBe(
+      1,
+    )
+  })
+
+  it("does not end or audit GitHub sessions that expire after the activation transaction starts", async () => {
+    await seedConfiguredProviders(environment({ entra: true, github: true }))
+    const expiredDigest = "d".repeat(64)
+    const activeDigest = "e".repeat(64)
+    const expiredAlongsideActiveDigest = "f".repeat(64)
+    const activeMember = await createProviderSession("github", activeDigest, {
+      subject: "active-member",
+    })
+    const activeSession = await prisma.hubSession.findUniqueOrThrow({
+      where: { digest: activeDigest },
+      select: { id: true },
+    })
+    await createProviderSession("github", expiredDigest, {
+      subject: "expired-member",
+    })
+    // The active member also has an expired session, so both query cutoffs are exercised.
+    await prisma.hubSession.create({
+      data: {
+        digest: expiredAlongsideActiveDigest,
+        expiresAt: new Date("2099-01-01T00:00:00Z"),
+        externalIdentityId: activeMember.externalIdentityId,
+        membershipId: activeMember.membershipId,
+        revocationRevision: 0,
+      },
+    })
+    await prisma.$transaction(
+      async (transaction) => {
+        const [before] = await transaction.$queryRaw<
+          Array<{ unexpiredAtStart: boolean; unexpiredNow: boolean }>
+        >`
+          SELECT
+            bool_and("expires_at" > CURRENT_TIMESTAMP) AS "unexpiredAtStart",
+            bool_and("expires_at" > clock_timestamp()) AS "unexpiredNow"
+          FROM "hub_sessions"
+          WHERE "digest" IN (${expiredDigest}, ${expiredAlongsideActiveDigest})
+        `
+        expect(before).toEqual({ unexpiredAtStart: true, unexpiredNow: true })
+
+        // Session expiry is immutable in production; relax its guard only for this fixture.
+        await transaction.$executeRaw`
+          ALTER TABLE "hub_sessions" DISABLE TRIGGER "hub_sessions_protected"
+        `
+        await transaction.$executeRaw`
+          UPDATE "hub_sessions"
+          SET "expires_at" = clock_timestamp() + interval '100 milliseconds'
+          WHERE "digest" IN (${expiredDigest}, ${expiredAlongsideActiveDigest})
+        `
+        await transaction.$executeRaw`
+          ALTER TABLE "hub_sessions" ENABLE TRIGGER "hub_sessions_protected"
+        `
+        await transaction.$executeRaw`
+          SELECT pg_sleep(
+            GREATEST(
+              0,
+              EXTRACT(EPOCH FROM (
+                (SELECT max("expires_at") FROM "hub_sessions"
+                 WHERE "digest" IN (${expiredDigest}, ${expiredAlongsideActiveDigest}))
+                - clock_timestamp()
+              ))::float8
+            ) + 0.05
+          )
+        `
+        const [after] = await transaction.$queryRaw<
+          Array<{ unexpiredAtStart: boolean; expiredNow: boolean }>
+        >`
+          SELECT
+            bool_and("expires_at" > CURRENT_TIMESTAMP) AS "unexpiredAtStart",
+            bool_and("expires_at" <= clock_timestamp()) AS "expiredNow"
+          FROM "hub_sessions"
+          WHERE "digest" IN (${expiredDigest}, ${expiredAlongsideActiveDigest})
+        `
+        expect(after).toEqual({ unexpiredAtStart: true, expiredNow: true })
+        await expect(listOpenGitHubSessionMemberships(transaction)).resolves.toEqual([
+          { membershipId: activeMember.membershipId },
+        ])
+
+        await activateGitHubRepositoryScoping(transaction)
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10_000 },
+    )
+    await expect(
+      prisma.hubSession.findMany({
+        where: { digest: { in: [expiredDigest, expiredAlongsideActiveDigest] } },
+        select: { digest: true, endedAt: true },
+        orderBy: { digest: "asc" },
+      }),
+    ).resolves.toEqual([
+      { digest: expiredDigest, endedAt: null },
+      { digest: expiredAlongsideActiveDigest, endedAt: null },
+    ])
+    await expect(
+      prisma.hubSession.findUniqueOrThrow({
+        where: { digest: activeDigest },
+        select: { endedAt: true },
+      }),
+    ).resolves.toHaveProperty("endedAt", expect.any(Date))
+    await expect(
+      prisma.securityAudit.findMany({
+        where: { action: "session.ended" },
+        select: { targetId: true },
+      }),
+    ).resolves.toEqual([{ targetId: activeSession.id }])
+  }, 15_000)
+
   it("keeps Entra authority available when the GitHub App configuration becomes incomplete", async () => {
     const configured = environment({ entra: true, github: true })
     await createAuthenticationRouteDependencies(configured, validDiscovery)

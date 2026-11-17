@@ -41,7 +41,7 @@ export function get(
         return
       }
       const threads = read.result
-      if (!threads) {
+      if (!threads || !(await isRepositoryVisible(read.current, identifiers.repositoryId))) {
         response.status(404).json({ error: "Repository not found." })
         return
       }

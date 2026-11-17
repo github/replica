@@ -11,7 +11,7 @@ describe("findRepositoryAuthors()", () => {
       data: { profile: { create: { provider: "github", login: "mona", name: "Mona" } } },
     })
     const repository = await prisma.repository.create({
-      data: { nameWithOwner: "team/design", defaultBranch: "main" },
+      data: { githubRepositoryId: 1001, nameWithOwner: "team/design", defaultBranch: "main" },
     })
     const grant = await prisma.repositoryAccessGrant.create({
       data: { membershipId: membership.id, repositoryId: repository.id, observedAt: new Date() },

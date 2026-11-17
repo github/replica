@@ -98,11 +98,33 @@ async function createMember(
 async function createPrototype(
   serverUrl: string,
   branchName: string,
-  options: { authorId?: string; draft?: boolean; name?: string } = {},
+  options: {
+    authorId?: string
+    draft?: boolean
+    githubRepositoryId?: number
+    grantExistingMembers?: boolean
+    name?: string
+  } = {},
 ) {
   const repository = await prisma.repository.create({
-    data: { nameWithOwner: "team/design", defaultBranch: "main" },
+    data: {
+      githubRepositoryId: options.githubRepositoryId ?? 1001,
+      nameWithOwner: "team/design",
+      defaultBranch: "main",
+    },
   })
+  if (options.grantExistingMembers !== false) {
+    const memberships = await prisma.membership.findMany({ select: { id: true } })
+    if (memberships.length) {
+      await prisma.repositoryAccessGrant.createMany({
+        data: memberships.map(({ id }) => ({
+          membershipId: id,
+          repositoryId: repository.id,
+          observedAt: new Date(),
+        })),
+      })
+    }
+  }
   const prototype = await prisma.prototype.create({
     data: {
       repositoryId: repository.id,
@@ -138,10 +160,12 @@ describe("prototype PATCH API", () => {
     const member = await createMember({ profileProvider: "entra" })
     const administrator = await createMember({ administrator: true })
     const { prototype, url } = await createPrototype(server.url, "prototype/scoped", {
+      githubRepositoryId: 1001,
+      grantExistingMembers: false,
       name: "Original",
     })
     const retained = await prisma.repository.create({
-      data: { nameWithOwner: "team/retained", defaultBranch: "main" },
+      data: { githubRepositoryId: 1002, nameWithOwner: "team/retained", defaultBranch: "main" },
     })
     await prisma.repositoryAccessGrant.create({
       data: {
@@ -299,7 +323,14 @@ describe("prototype PATCH API", () => {
     const server = await openServer()
     const member = await createMember()
     const repository = await prisma.repository.create({
-      data: { nameWithOwner: "team/design", defaultBranch: "trunk" },
+      data: { githubRepositoryId: 1001, nameWithOwner: "team/design", defaultBranch: "trunk" },
+    })
+    await prisma.repositoryAccessGrant.create({
+      data: {
+        membershipId: member.membership.id,
+        repositoryId: repository.id,
+        observedAt: new Date(),
+      },
     })
     const registeredAt = new Date("2026-10-01T00:00:00Z")
     const registration = { repositoryId: repository.id, registeredAt }
@@ -336,7 +367,10 @@ describe("prototype PATCH API", () => {
       expect(await readPrototype(prototype.id)).toEqual(prototype)
     }
     const other = await prisma.repository.create({
-      data: { nameWithOwner: "team/other", defaultBranch: "main" },
+      data: { githubRepositoryId: 1002, nameWithOwner: "team/other", defaultBranch: "main" },
+    })
+    await prisma.repositoryAccessGrant.create({
+      data: { membershipId: member.membership.id, repositoryId: other.id, observedAt: new Date() },
     })
     const wrongRepository = await patch(
       `${server.url}/api/repositories/${other.id}/prototypes/${retired.id}`,
@@ -616,6 +650,13 @@ describe("prototype PATCH API", () => {
     expect(await readPrototype(prototype.id)).toEqual(prototype)
 
     const other = await createMember()
+    await prisma.repositoryAccessGrant.create({
+      data: {
+        membershipId: other.membership.id,
+        repositoryId: prototype.repositoryId,
+        observedAt: new Date(),
+      },
+    })
     restoreSpy.mockImplementationOnce(async (digest) => {
       const current = await restore(digest)
       await prisma.membershipAssignment.update({

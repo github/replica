@@ -61,7 +61,7 @@ describe("upsertConnectedRepositories", () => {
     expect(rows[1]!.updatedAt.getTime()).toBeGreaterThan(renamed.updatedAt.getTime())
   })
 
-  it("claims the oldest legacy rows by name before creating new ones", async () => {
+  it("preserves ambiguous legacy histories instead of attaching either to a GitHub ID", async () => {
     const older = await prisma.repository.create({
       data: {
         createdAt: new Date("2024-01-01"),
@@ -76,25 +76,41 @@ describe("upsertConnectedRepositories", () => {
         nameWithOwner: "octo/legacy",
       },
     })
+    const olderHistory = await prisma.prototype.create({
+      data: { branchName: "prototype/older", repositoryId: older.id },
+    })
+    const newerHistory = await prisma.prototype.create({
+      data: { branchName: "prototype/newer", repositoryId: newer.id },
+    })
 
     const ids = await upsertConnectedRepositories(
       prisma,
-      [
-        evidence(7, "octo/legacy"),
-        evidence(8, "OCTO/LEGACY"),
-        evidence(9, "octo/legacy"),
-        evidence(7, "octo/legacy"),
-      ],
+      [evidence(7, "octo/legacy"), evidence(7, "octo/legacy")],
       { allowReconnect: false },
     )
 
-    expect(ids.slice(0, 2)).toEqual([older.id, newer.id])
-    expect(ids[3]).toBe(older.id)
-    expect(await prisma.repository.count()).toBe(3)
-    expect(await prisma.repository.findUniqueOrThrow({ where: { id: newer.id } })).toMatchObject({
-      githubRepositoryId: 8n,
-      nameWithOwner: "OCTO/LEGACY",
+    expect(ids[0]).not.toBe(older.id)
+    expect(ids[0]).not.toBe(newer.id)
+    expect(ids[1]).toBe(ids[0])
+    await expect(
+      prisma.repository.findUniqueOrThrow({
+        include: { prototypes: { select: { id: true } } },
+        where: { id: ids[0]! },
+      }),
+    ).resolves.toMatchObject({
+      githubRepositoryId: 7n,
+      prototypes: [],
     })
+    await expect(
+      prisma.repository.findMany({
+        include: { prototypes: { select: { id: true } } },
+        orderBy: { createdAt: "asc" },
+        where: { id: { in: [older.id, newer.id] } },
+      }),
+    ).resolves.toMatchObject([
+      { githubRepositoryId: null, id: older.id, prototypes: [{ id: olderHistory.id }] },
+      { githubRepositoryId: null, id: newer.id, prototypes: [{ id: newerHistory.id }] },
+    ])
   })
 
   it("reconnects disconnected repositories only when allowed", async () => {

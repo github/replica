@@ -1,11 +1,14 @@
 import type { Prisma } from "../../../generated/prisma/client.ts"
 
-/** Limits a repository lookup to a membership's recorded GitHub read access. */
-export type RepositoryScope = { membershipId: string } | null
+/** Limits visibility to identified repositories and, optionally, a membership's GitHub grants. */
+export type RepositoryScope = { membershipId?: string } | null
 
 export function visibleRepositoryWhere(scope: RepositoryScope): Prisma.RepositoryWhereInput {
   return {
     removedAt: null,
-    ...(scope ? { accessGrants: { some: { membershipId: scope.membershipId } } } : {}),
+    ...(scope ? { githubRepositoryId: { not: null } } : {}),
+    ...(scope?.membershipId
+      ? { accessGrants: { some: { membershipId: scope.membershipId } } }
+      : {}),
   }
 }

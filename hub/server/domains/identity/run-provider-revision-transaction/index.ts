@@ -10,6 +10,7 @@ import { createSecurityAudit } from "../../../repositories/security-audits/creat
 import { disconnectCopilotConnectionWithoutEffectiveAdministrator } from "../../../repositories/copilot-connection-state/disconnect-copilot-connection-without-effective-administrator/index.ts"
 import { incrementSessionRevocationState } from "../../../repositories/session-revocation-states/increment-session-revocation-state/index.ts"
 import { classifyPrismaTransactionError } from "../../../integrations/prisma/classify-transaction-error/index.ts"
+import { activateGitHubRepositoryScoping } from "../activate-github-repository-scoping/index.ts"
 import { IdentityTransactionConflictError } from "../errors.ts"
 import type {
   AuthenticationProviderReconciliationRepositories,
@@ -26,6 +27,7 @@ export function runProviderRevisionTransaction<Result>(
     .$transaction(
       (transaction) =>
         operation({
+          activateGitHubRepositoryScoping: () => activateGitHubRepositoryScoping(transaction),
           createAuthenticationProvider: (input) => createAuthenticationProvider(transaction, input),
           createAuthenticationProviderRevision: (input) =>
             createAuthenticationProviderRevision(transaction, input),

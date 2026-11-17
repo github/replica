@@ -21,19 +21,24 @@ describe("resolveRepositoryScope", () => {
   })
 
   it.each([
-    ["no installation is connected", member, false],
-    ["the viewer is an administrator", { ...member, role: "ADMINISTRATOR" as const }, true],
+    ["an administrator", { ...member, role: "ADMINISTRATOR" as const }],
     [
-      "the viewer is an administrator with an unknown session provider",
+      "an administrator with an unknown session provider",
       { ...member, role: "ADMINISTRATOR" as const, sessionProvider: null },
-      true,
     ],
     [
-      "the viewer signed in with another provider",
+      "a member who signed in with another provider",
       { ...member, provider: "github", sessionProvider: "entra" },
-      true,
     ],
-  ])("shows every repository when %s", (_case, viewer, scoped) => {
-    expect(resolveRepositoryScope(viewer, scoped)).toBeNull()
+  ])("limits %s to identified repositories without requiring a grant", (_case, viewer) => {
+    expect(resolveRepositoryScope(viewer, true)).toEqual({})
+  })
+
+  it.each([
+    ["a GitHub member", member],
+    ["an administrator", { ...member, role: "ADMINISTRATOR" as const }],
+    ["another provider's member", { ...member, sessionProvider: "entra" }],
+  ])("does not restrict %s when repository scoping is disabled", (_case, viewer) => {
+    expect(resolveRepositoryScope(viewer, false)).toBeNull()
   })
 })

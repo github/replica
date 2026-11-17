@@ -1114,6 +1114,12 @@ describe("createGitHubWebhookRouteDependencies()", () => {
     const revisionId = await createProvider("github")
     const removed = await createRepository(1001, "removed")
     const retained = await createRepository(1002, "retained")
+    const legacy = await createRepository(null, "legacy")
+    const alreadyDisconnected = await createRepository(1003, "already-disconnected")
+    await prisma.repository.update({
+      data: { removedAt: new Date("2026-01-01T00:00:00Z") },
+      where: { id: alreadyDisconnected.id },
+    })
     const history = await createHistory(removed.id)
     const affected = await createMember({
       provider: "github",
@@ -1121,10 +1127,22 @@ describe("createGitHubWebhookRouteDependencies()", () => {
       repositoryIds: [removed.id],
       subject: "101",
     })
+    const legacyGrantOnly = await createMember({
+      provider: "github",
+      providerRevisionId: revisionId,
+      repositoryIds: [removed.id, legacy.id],
+      subject: "104",
+    })
+    const disconnectedGrantOnly = await createMember({
+      provider: "github",
+      providerRevisionId: revisionId,
+      repositoryIds: [removed.id, alreadyDisconnected.id],
+      subject: "105",
+    })
     const partiallyAffected = await createMember({
       provider: "github",
       providerRevisionId: revisionId,
-      repositoryIds: [removed.id, retained.id],
+      repositoryIds: [removed.id, retained.id, legacy.id],
       subject: "102",
     })
     const unaffected = await createMember({
@@ -1163,16 +1181,31 @@ describe("createGitHubWebhookRouteDependencies()", () => {
         where: { id: retained.id },
       }),
     ).resolves.toEqual({ removedAt: null })
-    expect(await repositoryGrants(affected.membershipId)).toEqual([])
-    expect(await repositoryGrants(partiallyAffected.membershipId)).toEqual([retained.id])
-    expect(await repositoryGrants(unaffected.membershipId)).toEqual([retained.id])
     await expect(
-      prisma.membershipAssignment.findUniqueOrThrow({
-        select: { lifecycle: true },
-        where: { id: affected.providerAssignmentId },
+      prisma.repository.findUniqueOrThrow({
+        select: { githubRepositoryId: true, nameWithOwner: true, removedAt: true },
+        where: { id: legacy.id },
       }),
-    ).resolves.toEqual({ lifecycle: "REVOKED" })
-    await expect(restore(affected.sessions[0]!.digest)).resolves.toBeNull()
+    ).resolves.toEqual({
+      githubRepositoryId: null,
+      nameWithOwner: legacy.nameWithOwner,
+      removedAt: null,
+    })
+    expect(await repositoryGrants(affected.membershipId)).toEqual([])
+    const remainingGrants = await repositoryGrants(partiallyAffected.membershipId)
+    expect(remainingGrants).toContain(retained.id)
+    expect(remainingGrants).not.toContain(removed.id)
+    expect(await repositoryGrants(unaffected.membershipId)).toEqual([retained.id])
+    for (const member of [affected, legacyGrantOnly, disconnectedGrantOnly]) {
+      expect(await repositoryGrants(member.membershipId)).not.toContain(removed.id)
+      await expect(
+        prisma.membershipAssignment.findUniqueOrThrow({
+          select: { lifecycle: true },
+          where: { id: member.providerAssignmentId },
+        }),
+      ).resolves.toEqual({ lifecycle: "REVOKED" })
+      await expect(restore(member.sessions[0]!.digest)).resolves.toBeNull()
+    }
     for (const member of [partiallyAffected, unaffected]) {
       await expect(
         prisma.membershipAssignment.findUniqueOrThrow({
@@ -1189,16 +1222,18 @@ describe("createGitHubWebhookRouteDependencies()", () => {
       select: { action: true, targetId: true },
       where: { action: { in: ["provider.membership.assignment.revoked", "session.ended"] } },
     })
-    expect(audits).toEqual(
-      expect.arrayContaining([
-        {
-          action: "provider.membership.assignment.revoked",
-          targetId: affected.providerAssignmentId,
-        },
-        { action: "session.ended", targetId: affected.sessions[0]!.id },
-      ]),
-    )
-    expect(audits).toHaveLength(2)
+    for (const member of [affected, legacyGrantOnly, disconnectedGrantOnly]) {
+      expect(audits).toEqual(
+        expect.arrayContaining([
+          {
+            action: "provider.membership.assignment.revoked",
+            targetId: member.providerAssignmentId,
+          },
+          { action: "session.ended", targetId: member.sessions[0]!.id },
+        ]),
+      )
+    }
+    expect(audits).toHaveLength(6)
   })
 
   it.each(["suspend", "deleted"] as const)(
@@ -1208,8 +1243,28 @@ describe("createGitHubWebhookRouteDependencies()", () => {
       const entraRevisionId = await createProvider("entra")
       const first = await createRepository(1001, "first")
       const second = await createRepository(1002, "second")
-      const unrelated = await createRepository(null, "unrelated")
+      const legacy = await createRepository(null, "legacy")
       const history = await createHistory(first.id)
+      const legacyHistory = await createHistory(legacy.id)
+      const reviewAuthor = await prisma.user.create({ data: {} })
+      await prisma.reviewThread.create({
+        data: {
+          repositoryId: legacy.id,
+          prototypeId: legacyHistory.prototypeId,
+          buildId: legacyHistory.buildId,
+          anchor: { schemaVersion: 1, kind: "element", selector: "#content" },
+          comments: {
+            create: { authorId: reviewAuthor.id, authorLogin: "mona", body: "Retained review" },
+          },
+        },
+      })
+      const legacyBefore = await prisma.repository.findUniqueOrThrow({
+        include: {
+          prototypes: { include: { builds: true } },
+          reviewThreads: { include: { comments: true } },
+        },
+        where: { id: legacy.id },
+      })
       const firstMember = await createMember({
         provider: "github",
         providerRevisionId: githubRevisionId,
@@ -1253,12 +1308,26 @@ describe("createGitHubWebhookRouteDependencies()", () => {
           where: { id: second.id },
         }),
       ).resolves.toHaveProperty("removedAt", expect.any(Date))
-      await expect(
-        prisma.repository.findUniqueOrThrow({
-          select: { removedAt: true },
-          where: { id: unrelated.id },
-        }),
-      ).resolves.toEqual({ removedAt: null })
+      const retainedLegacy = await prisma.repository.findUniqueOrThrow({
+        include: {
+          prototypes: { include: { builds: true } },
+          reviewThreads: { include: { comments: true } },
+        },
+        where: { id: legacy.id },
+      })
+      expect(retainedLegacy).toEqual(legacyBefore)
+      expect(retainedLegacy).toMatchObject({
+        githubRepositoryId: null,
+        id: legacy.id,
+        nameWithOwner: legacy.nameWithOwner,
+        prototypes: [
+          {
+            id: legacyHistory.prototypeId,
+            currentBuildId: legacyHistory.buildId,
+            builds: [{ id: legacyHistory.buildId, prototypeId: legacyHistory.prototypeId }],
+          },
+        ],
+      })
       for (const member of [firstMember, secondMember]) {
         expect(await repositoryGrants(member.membershipId)).toEqual([])
         await expect(
@@ -1729,6 +1798,222 @@ describe("GitHub repository access", () => {
 })
 
 describe("syncGitHubInstallationRepositories()", () => {
+  it.each(["empty installation", "unchanged GitHub ID"] as const)(
+    "preserves a missing legacy repository after a complete %s snapshot",
+    async (snapshotType) => {
+      await createProvider("github")
+      const legacy = await createRepository(null, "missing-legacy")
+      const history = await createHistory(legacy.id)
+      const legacyBefore = await prisma.repository.findUniqueOrThrow({
+        include: { prototypes: { include: { builds: true } } },
+        where: { id: legacy.id },
+      })
+      const retained =
+        snapshotType === "unchanged GitHub ID" ? await createRepository(1001, "retained") : null
+      const snapshot = retained ? [installationRepository(retained)] : []
+
+      await expect(
+        syncGitHubInstallationRepositories(prisma, () => Promise.resolve(snapshot)),
+      ).resolves.toEqual(snapshot)
+
+      const retainedLegacy = await prisma.repository.findUniqueOrThrow({
+        include: { prototypes: { include: { builds: true } } },
+        where: { id: legacy.id },
+      })
+      expect(retainedLegacy).toEqual(legacyBefore)
+      expect(retainedLegacy).toMatchObject({
+        defaultBranch: legacy.defaultBranch,
+        githubRepositoryId: null,
+        id: legacy.id,
+        nameWithOwner: legacy.nameWithOwner,
+        prototypes: [
+          {
+            id: history.prototypeId,
+            currentBuildId: history.buildId,
+            builds: [{ id: history.buildId, prototypeId: history.prototypeId }],
+          },
+        ],
+      })
+      if (retained) {
+        await expect(
+          prisma.repository.findUniqueOrThrow({
+            select: { removedAt: true },
+            where: { id: retained.id },
+          }),
+        ).resolves.toEqual({ removedAt: null })
+      }
+    },
+  )
+
+  it("retains history and user access when an ID-backed repository is renamed", async () => {
+    const revisionId = await createProvider("github")
+    const repository = await createRepository(1001, "old-name")
+    const history = await createHistory(repository.id)
+    const member = await createMember({
+      provider: "github",
+      providerRevisionId: revisionId,
+      repositoryIds: [repository.id],
+      subject: "101",
+    })
+    const renamed = {
+      defaultBranch: "trunk",
+      githubRepositoryId: 1001,
+      nameWithOwner: "team/new-name",
+    }
+
+    await syncGitHubInstallationRepositories(prisma, () => Promise.resolve([renamed]))
+
+    await expect(
+      prisma.repository.findUniqueOrThrow({
+        include: { prototypes: { include: { builds: true } } },
+        where: { id: repository.id },
+      }),
+    ).resolves.toMatchObject({
+      defaultBranch: "trunk",
+      githubRepositoryId: 1001n,
+      nameWithOwner: "team/new-name",
+      removedAt: null,
+      prototypes: [
+        {
+          id: history.prototypeId,
+          currentBuildId: history.buildId,
+          builds: [{ id: history.buildId, prototypeId: history.prototypeId }],
+        },
+      ],
+    })
+    expect(await prisma.repository.count()).toBe(1)
+    expect(await repositoryGrants(member.membershipId)).toEqual([repository.id])
+    await expect(restore(member.sessions[0]!.digest)).resolves.toMatchObject({
+      membershipId: member.membershipId,
+      role: "MEMBER",
+    })
+  })
+
+  it("quarantines legacy history when an installed repository reuses its name", async () => {
+    const revisionId = await createProvider("github")
+    const legacy = await createRepository(null, "reused-name")
+    const history = await createHistory(legacy.id)
+    const legacyBefore = await prisma.repository.findUniqueOrThrow({
+      include: { prototypes: { include: { builds: true } } },
+      where: { id: legacy.id },
+    })
+    const member = await createMember({
+      provider: "github",
+      providerRevisionId: revisionId,
+      repositoryIds: [],
+      subject: "101",
+    })
+    const snapshot = [
+      { defaultBranch: "main", githubRepositoryId: 1001, nameWithOwner: legacy.nameWithOwner },
+    ]
+
+    await syncGitHubInstallationRepositories(prisma, () => Promise.resolve(snapshot))
+
+    const retainedLegacy = await prisma.repository.findUniqueOrThrow({
+      include: { prototypes: { include: { builds: true } } },
+      where: { id: legacy.id },
+    })
+    expect(retainedLegacy).toEqual(legacyBefore)
+    expect(retainedLegacy).toMatchObject({
+      defaultBranch: legacy.defaultBranch,
+      githubRepositoryId: null,
+      id: legacy.id,
+      nameWithOwner: legacy.nameWithOwner,
+      prototypes: [
+        {
+          id: history.prototypeId,
+          currentBuildId: history.buildId,
+          builds: [{ id: history.buildId, prototypeId: history.prototypeId }],
+        },
+      ],
+    })
+    const current = await prisma.repository.findUniqueOrThrow({
+      include: { prototypes: true },
+      where: { githubRepositoryId: 1001n },
+    })
+    expect(current).toMatchObject({ nameWithOwner: legacy.nameWithOwner, prototypes: [] })
+    expect(current.id).not.toBe(legacy.id)
+    expect(await repositoryGrants(member.membershipId)).toEqual([])
+  })
+
+  it("admits user-specific access when a disconnected legacy repository has the same name", async () => {
+    const revisionId = await createProvider("github")
+    await syncGitHubInstallationRepositories(prisma, () =>
+      Promise.resolve([
+        { defaultBranch: "main", githubRepositoryId: 1001, nameWithOwner: "team/reused-name" },
+      ]),
+    )
+    const current = await prisma.repository.findUniqueOrThrow({
+      where: { githubRepositoryId: 1001n },
+    })
+    const legacy = await createRepository(null, "reused-name")
+    const history = await createHistory(legacy.id)
+    await prisma.repository.update({
+      data: { removedAt: new Date("2026-01-01T00:00:00Z") },
+      where: { id: legacy.id },
+    })
+    const member = await createMember({
+      provider: "github",
+      providerRevisionId: revisionId,
+      repositoryIds: [],
+      subject: "101",
+    })
+
+    const authenticated = await signInWithGitHubAccess({
+      member,
+      repositories: [current],
+      revisionId,
+      subject: 101,
+    })
+    expect(await repositoryGrants(member.membershipId)).toEqual([current.id])
+    await expect(restore(authenticated.sessionDigest)).resolves.toMatchObject({
+      membershipId: member.membershipId,
+      role: "MEMBER",
+    })
+    await expect(
+      prisma.repository.findUniqueOrThrow({
+        include: { prototypes: { select: { id: true } } },
+        where: { id: legacy.id },
+      }),
+    ).resolves.toMatchObject({
+      githubRepositoryId: null,
+      nameWithOwner: legacy.nameWithOwner,
+      prototypes: [{ id: history.prototypeId }],
+    })
+  })
+
+  it("denies user evidence for a disconnected GitHub ID even after a rename", async () => {
+    const revisionId = await createProvider("github")
+    const repository = await createRepository(1001, "old-name")
+    await handleWebhook("installation_repositories", {
+      action: "removed",
+      installation: { id: 700 },
+      repositories_removed: [{ id: 1001 }],
+    })
+    const member = await createMember({
+      provider: "github",
+      providerRevisionId: revisionId,
+      repositoryIds: [],
+      subject: "101",
+    })
+
+    await expect(
+      signInWithGitHubAccess({
+        member,
+        repositories: [{ ...repository, nameWithOwner: "team/new-name" }],
+        revisionId,
+        subject: 101,
+      }),
+    ).rejects.toBeInstanceOf(AdmissionDeniedError)
+    expect(await repositoryGrants(member.membershipId)).toEqual([])
+    await expect(
+      prisma.repository.findUniqueOrThrow({
+        select: { removedAt: true },
+        where: { id: repository.id },
+      }),
+    ).resolves.toHaveProperty("removedAt", expect.any(Date))
+  })
+
   it("rejects stale provider work without consuming a delivery that the current provider can retry", async () => {
     const revisionId = await createProvider("github")
     const repository = await createRepository(1001, "retained")
@@ -1998,6 +2283,15 @@ describe("syncGitHubInstallationRepositories()", () => {
     async (problem) => {
       const revisionId = await createProvider("github")
       const retained = await createRepository(1001, "retained")
+      const legacy = await createRepository(null, "incoming-0")
+      await createHistory(legacy.id)
+      const legacyBefore = await prisma.repository.findUniqueOrThrow({
+        include: { prototypes: { include: { builds: true } } },
+        where: { id: legacy.id },
+      })
+      const fenceBefore = await prisma.gitHubRepositoryAccessState.findUniqueOrThrow({
+        where: { key: "global" },
+      })
       const member = await createMember({
         provider: "github",
         providerRevisionId: revisionId,
@@ -2043,8 +2337,21 @@ describe("syncGitHubInstallationRepositories()", () => {
 
       expect(request).toHaveBeenCalledTimes(problem === "short page" ? 2 : 3)
       await expect(
-        prisma.repository.findMany({ select: { githubRepositoryId: true, removedAt: true } }),
-      ).resolves.toEqual([{ githubRepositoryId: 1001n, removedAt: null }])
+        prisma.repository.findUniqueOrThrow({
+          select: { githubRepositoryId: true, removedAt: true },
+          where: { id: retained.id },
+        }),
+      ).resolves.toEqual({ githubRepositoryId: 1001n, removedAt: null })
+      await expect(
+        prisma.repository.findUniqueOrThrow({
+          include: { prototypes: { include: { builds: true } } },
+          where: { id: legacy.id },
+        }),
+      ).resolves.toEqual(legacyBefore)
+      expect(await prisma.repository.count()).toBe(2)
+      await expect(
+        prisma.gitHubRepositoryAccessState.findUniqueOrThrow({ where: { key: "global" } }),
+      ).resolves.toEqual(fenceBefore)
       expect(await repositoryGrants(member.membershipId)).toEqual([retained.id])
       await expect(
         prisma.membershipAssignment.findUniqueOrThrow({
@@ -2063,6 +2370,11 @@ describe("syncGitHubInstallationRepositories()", () => {
   it("rolls back the entire snapshot and access changes when a security audit fails", async () => {
     const revisionId = await createProvider("github")
     const existing = await createRepository(1001, "existing")
+    const legacy = await createRepository(null, "incoming")
+    const history = await createHistory(legacy.id)
+    const fenceBefore = await prisma.gitHubRepositoryAccessState.findUniqueOrThrow({
+      where: { key: "global" },
+    })
     const member = await createMember({
       provider: "github",
       providerRevisionId: revisionId,
@@ -2080,8 +2392,31 @@ describe("syncGitHubInstallationRepositories()", () => {
     )
 
     await expect(
-      prisma.repository.findMany({ select: { githubRepositoryId: true, removedAt: true } }),
-    ).resolves.toEqual([{ githubRepositoryId: 1001n, removedAt: null }])
+      prisma.repository.findUniqueOrThrow({
+        select: { githubRepositoryId: true, removedAt: true },
+        where: { id: existing.id },
+      }),
+    ).resolves.toEqual({ githubRepositoryId: 1001n, removedAt: null })
+    await expect(
+      prisma.repository.findUniqueOrThrow({
+        include: { prototypes: { include: { builds: true } } },
+        where: { id: legacy.id },
+      }),
+    ).resolves.toMatchObject({
+      githubRepositoryId: null,
+      removedAt: null,
+      prototypes: [
+        {
+          id: history.prototypeId,
+          currentBuildId: history.buildId,
+          builds: [{ id: history.buildId, prototypeId: history.prototypeId }],
+        },
+      ],
+    })
+    expect(await prisma.repository.count()).toBe(2)
+    await expect(
+      prisma.gitHubRepositoryAccessState.findUniqueOrThrow({ where: { key: "global" } }),
+    ).resolves.toEqual(fenceBefore)
     expect(await repositoryGrants(member.membershipId)).toEqual([existing.id])
     await expect(
       prisma.membershipAssignment.findUniqueOrThrow({

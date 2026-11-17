@@ -2,6 +2,7 @@ import type { Prisma } from "../../../generated/prisma/client.ts"
 
 export async function advanceGitHubRepositoryAccessState(
   database: Pick<Prisma.TransactionClient, "$queryRaw">,
+  options: { activateScoping?: boolean } = {},
 ) {
   const rows = await database.$queryRaw<Array<{ revision: number; changedAt: Date }>>`
     UPDATE "github_repository_access_states"
@@ -17,6 +18,11 @@ export async function advanceGitHubRepositoryAccessState(
           WHERE identity."provider" = 'github'
         )
       ),
+      "scoping_activated_at" = CASE
+        WHEN ${options.activateScoping ?? false}
+        THEN COALESCE("scoping_activated_at", clock_timestamp())
+        ELSE "scoping_activated_at"
+      END,
       "updated_at" = GREATEST(clock_timestamp(), "updated_at" + interval '1 millisecond')
     WHERE "key" = 'global'
     RETURNING "revision", "changed_at" AS "changedAt"

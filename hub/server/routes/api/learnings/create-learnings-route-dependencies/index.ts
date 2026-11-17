@@ -25,7 +25,8 @@ import { deleteLearningDecisionOperation } from "../../../../repositories/learni
 import { isEffectiveAdministrator } from "../../../../repositories/memberships/is-effective-administrator/index.ts"
 import { findActiveRepository } from "../../../../repositories/prototype-index/find-active-repository/index.ts"
 import { createSecurityAudit } from "../../../../repositories/security-audits/create-security-audit/index.ts"
-import { resolveRepositoryScope } from "../../product/resolve-repository-scope/index.ts"
+import { readWithPersistedRepositoryScope } from "../../product/read-with-persisted-repository-scope/index.ts"
+import type { resolveRepositoryScope } from "../../product/resolve-repository-scope/index.ts"
 import { LearningsError } from "../errors.ts"
 import { isDefinitiveDecisionRejection } from "../is-definitive-decision-rejection/index.ts"
 import type { CurrentSessionDependencies } from "../../auth/types.ts"
@@ -44,6 +45,18 @@ export async function createLearningsRouteDependencies(
     throw new Error("HUB_APPLICATION_ORIGIN and DATABASE_URL are required for the Learnings API.")
   }
   const source = options.source ?? createReviewCommentLearningSource(prisma, applicationOrigin)
+
+  function findRepository(
+    viewer: Parameters<typeof resolveRepositoryScope>[0],
+    repositoryId: string,
+  ) {
+    return readWithPersistedRepositoryScope(
+      prisma,
+      viewer,
+      options.scopeGitHubMembers ?? false,
+      (scope) => findActiveRepository(prisma, repositoryId, scope),
+    )
+  }
 
   async function getCopilot() {
     const connection = await getCopilotConnection(prisma)
@@ -83,12 +96,7 @@ export async function createLearningsRouteDependencies(
   return {
     applicationOrigin,
     currentSession,
-    findRepository: (viewer, repositoryId) =>
-      findActiveRepository(
-        prisma,
-        repositoryId,
-        resolveRepositoryScope(viewer, options.scopeGitHubMembers ?? false),
-      ),
+    findRepository,
     getOverview: async ({ repositoryId, viewer }) => {
       try {
         return await getLearningOverview({
@@ -238,6 +246,14 @@ export async function createLearningsRouteDependencies(
                 "repository_administrator_required",
                 "Repository administrator access is required.",
               )
+            }
+            if (
+              !(await findRepository(
+                { membershipId: actorMembershipId, role: "ADMINISTRATOR", sessionProvider: null },
+                input.repositoryId,
+              ))
+            ) {
+              throw new LearningsError(404, "repository_not_found", "Repository not found.")
             }
             await prisma.$transaction(async (transaction) => {
               await createLearningDecisionOperation(transaction, {
