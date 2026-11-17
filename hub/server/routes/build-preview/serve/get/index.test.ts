@@ -6,6 +6,7 @@ import express from "express"
 import { describe, expect, it, vi, type Mock } from "vitest"
 
 import { createPreviewSession } from "../../../../domains/build-preview/create-preview-session"
+import { createSharePreviewSession } from "../../../../domains/public-sharing/create-share-preview-session"
 import type { BuildPreviewRouteDependencies } from "../../types"
 import { get } from "."
 
@@ -55,10 +56,15 @@ async function withServeRoute(
     dependencies: BuildPreviewRouteDependencies
     findArtifact: Mock<BuildPreviewRouteDependencies["findArtifact"]>
     read: Mock<BuildPreviewRouteDependencies["storage"]["read"]>
+    readAvailableShareLink: Mock<
+      NonNullable<BuildPreviewRouteDependencies["readAvailableShareLink"]>
+    >
+    shareCookie: string
   }) => Promise<void>,
 ) {
   const key = randomBytes(32)
   const buildId = randomUUID()
+  const shareLinkId = randomUUID()
   const app = express()
   const server = createServer(app)
   server.listen(0, "127.0.0.1")
@@ -66,6 +72,12 @@ async function withServeRoute(
   const { port } = server.address() as AddressInfo
   const read = vi.fn<BuildPreviewRouteDependencies["storage"]["read"]>()
   const findArtifact = vi.fn<BuildPreviewRouteDependencies["findArtifact"]>()
+  const readAvailableShareLink = vi
+    .fn<NonNullable<BuildPreviewRouteDependencies["readAvailableShareLink"]>>()
+    .mockResolvedValue({
+      expiresAt: new Date(Date.now() + 60 * 60_000),
+      startPage: "/",
+    })
   const dependencies: BuildPreviewRouteDependencies = {
     applicationOrigin: "https://hub.example.com",
     previewBaseOrigin: `http://preview.localhost:${port}`,
@@ -79,9 +91,18 @@ async function withServeRoute(
     bridgeSource: "globalThis.ReplicaHostedPreviewBridge={installHostedBridge(origin){}}",
     findTargetById: vi.fn(),
     findArtifact,
+    readAvailableShareLink,
   }
   app.get("/{*path}", get(dependencies))
   const session = createPreviewSession(buildId, new Date(Date.now() + 15 * 60_000), key)
+  const shareSession = createSharePreviewSession(
+    {
+      buildId,
+      shareLinkId,
+      expiresAt: new Date(Date.now() + 15 * 60_000),
+    },
+    key,
+  )
   try {
     await operation({
       origin: `http://127.0.0.1:${port}`,
@@ -90,6 +111,8 @@ async function withServeRoute(
       dependencies,
       findArtifact,
       read,
+      readAvailableShareLink,
+      shareCookie: `replica_share_preview=${encodeURIComponent(shareSession)}`,
     })
   } finally {
     await new Promise<void>((resolve, reject) => {
@@ -222,6 +245,61 @@ describe("get()", () => {
       expect(findArtifact).not.toHaveBeenCalled()
       expect(read).not.toHaveBeenCalled()
     })
+  })
+
+  it("keeps a valid public share separate from an invalid authenticated preview cookie", async () => {
+    await withServeRoute(
+      async ({ origin, buildId, shareCookie, findArtifact, read, readAvailableShareLink }) => {
+        findArtifact.mockResolvedValue({
+          storageKey: "asset-key",
+          byteLength: 2,
+        })
+        read.mockResolvedValue({
+          status: "ok",
+          bytes: Uint8Array.of(7, 8),
+        })
+
+        const response = await request(origin, "/asset.bin", {
+          ...requestHeaders(buildId, origin, `${shareCookie}; replica_preview=invalid`),
+        })
+
+        expect(response.status).toBe(200)
+        expect(response.headers["cache-control"]).toBe("private, no-store")
+        expect(readAvailableShareLink).toHaveBeenCalledTimes(2)
+      },
+    )
+  })
+
+  it("rechecks public availability after reading artifact bytes", async () => {
+    await withServeRoute(
+      async ({ origin, buildId, shareCookie, findArtifact, read, readAvailableShareLink }) => {
+        findArtifact.mockResolvedValue({
+          storageKey: "asset-key",
+          byteLength: 2,
+        })
+        read.mockResolvedValue({
+          status: "ok",
+          bytes: Uint8Array.of(7, 8),
+        })
+        readAvailableShareLink
+          .mockResolvedValueOnce({
+            expiresAt: new Date(Date.now() + 60 * 60_000),
+            startPage: "/",
+          })
+          .mockResolvedValueOnce(null)
+
+        const response = await request(
+          origin,
+          "/asset.bin",
+          requestHeaders(buildId, origin, shareCookie),
+        )
+
+        expect(response.status).toBe(404)
+        expect(response.body).toHaveLength(0)
+        expect(read).toHaveBeenCalledOnce()
+        expect(readAvailableShareLink).toHaveBeenCalledTimes(2)
+      },
+    )
   })
 
   it("distinguishes missing artifact bytes from unavailable storage", async () => {

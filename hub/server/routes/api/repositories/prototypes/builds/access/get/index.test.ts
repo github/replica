@@ -10,8 +10,8 @@ import type { ProductRouteDependencies } from "../../../../../product/types"
 import type { BuildPreviewRouteDependencies } from "../../../../../../build-preview/types"
 import { get } from "."
 
-type ProductMocks = {
-  [Key in keyof ProductRouteDependencies]: Mock<ProductRouteDependencies[Key]>
+type ProductMocks = Omit<ProductRouteDependencies, "findBuildPreviewTarget"> & {
+  findBuildPreviewTarget: Mock<NonNullable<ProductRouteDependencies["findBuildPreviewTarget"]>>
 }
 
 async function withAccessRoute(

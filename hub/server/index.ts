@@ -104,12 +104,13 @@ try {
               if (authentication.local) {
                 const { createPublicSharingRouteDependencies } =
                   await import("./routes/api/public-sharing/create-public-sharing-route-dependencies/index.ts")
-                publicSharing =
+                const sharing =
                   await createPublicSharingRouteDependencies(authenticationEnvironment)
+                publicSharing = sharing
                 preview = {
                   ...preview,
                   readAvailableShareLink: (shareLinkId, buildId) =>
-                    publicSharing!.readAvailableLink(shareLinkId, buildId),
+                    sharing.readAvailableLink(shareLinkId, buildId),
                 }
               }
             }

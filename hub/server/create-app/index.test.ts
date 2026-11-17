@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto"
+import { randomBytes, randomUUID } from "node:crypto"
 import { once } from "node:events"
 import { mkdir, rm, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
@@ -7,6 +7,10 @@ import { join } from "node:path"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createLogger } from "../integrations/pino/create-logger"
+import type { AuthenticationRouteDependencies } from "../routes/api/auth/types"
+import type { ProductRouteDependencies } from "../routes/api/product/types"
+import type { PublicSharingRouteDependencies } from "../routes/api/public-sharing/types"
+import type { BuildPreviewRouteDependencies } from "../routes/build-preview/types"
 
 import { createApp } from "."
 
@@ -118,6 +122,117 @@ describe("createApp()", () => {
       expect(await health.json()).toEqual({ status: "ok" })
       expect(missing.status).toBe(404)
       expect(broadcast).not.toHaveBeenCalled()
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()))
+      })
+    }
+  })
+
+  it("composes review and public sharing routes without crossing their authorities", async () => {
+    const repositoryId = randomUUID()
+    const prototypeId = randomUUID()
+    const shareId = randomUUID()
+    const buildId = randomUUID()
+    const restore = vi.fn().mockResolvedValue({
+      membershipId: randomUUID(),
+      userId: randomUUID(),
+      provider: "local",
+      login: "local-developer",
+      name: "Local developer",
+      role: "MEMBER",
+    })
+    const listPrototypeThreads = vi.fn().mockResolvedValue([])
+    const authorizeReviewAccess = vi.fn().mockResolvedValue({ canView: true, canChange: true })
+    const readPublicLink = vi.fn().mockResolvedValue({
+      state: "active" as const,
+      id: randomUUID(),
+      buildId,
+      buildNumber: 4,
+      expiresAt: new Date("2026-11-20T12:00:00Z"),
+      label: "Partner review",
+      prototypeName: "Checkout",
+      startPage: "/",
+    })
+    const readAvailableLink = vi.fn()
+    const authentication: AuthenticationRouteDependencies = {
+      currentSession: { restore },
+      signOut: { applicationOrigin: "https://hub.example.com", secureCookie: false, end: vi.fn() },
+    }
+    const product: ProductRouteDependencies = {
+      reviewComments: {
+        listPrototypeThreads,
+        createThread: vi.fn(),
+        createReply: vi.fn(),
+        editComment: vi.fn(),
+        deleteComment: vi.fn(),
+        setResolution: vi.fn(),
+      },
+      authorizeReviewAccess,
+      listRepositories: vi.fn(),
+      findRepositoryIndex: vi.fn(),
+      findPrototypeDetail: vi.fn(),
+      readPrototypeWithIntroduction: vi.fn(),
+      findRepositoryAuthors: vi.fn(),
+      editPrototypeMetadata: vi.fn(),
+      findBuildPreviewTarget: vi.fn(),
+    }
+    const publicSharing: PublicSharingRouteDependencies = {
+      applicationOrigin: "https://hub.example.com",
+      previewBaseOrigin: "https://preview.example.com",
+      maximumDays: 7,
+      getSettings: vi.fn(),
+      changeSettings: vi.fn(),
+      listLinks: vi.fn(),
+      createLink: vi.fn(),
+      revokeLink: vi.fn(),
+      readPublicLink,
+      readAvailableLink,
+    }
+    const preview: BuildPreviewRouteDependencies = {
+      applicationOrigin: "https://hub.example.com",
+      previewBaseOrigin: "https://preview.example.com",
+      encryptionKey: randomBytes(32),
+      storage: {
+        isReady: vi.fn(),
+        read: vi.fn(),
+        write: vi.fn(),
+        delete: vi.fn(),
+      },
+      bridgeSource: "",
+      findTargetById: vi.fn(),
+      findArtifact: vi.fn(),
+      readAvailableShareLink: readAvailableLink,
+    }
+    const server = createServer(
+      createApp({
+        authentication,
+        product,
+        publicSharing,
+        preview,
+        logger: createLogger({ level: "silent" }),
+      }),
+    )
+
+    try {
+      server.listen(0, "127.0.0.1")
+      await once(server, "listening")
+      const { port } = server.address() as AddressInfo
+      const base = `http://127.0.0.1:${port}`
+
+      const shared = await fetch(`${base}/api/shared/${shareId}`)
+      expect(shared.status).toBe(200)
+      expect(restore).not.toHaveBeenCalled()
+      expect(listPrototypeThreads).not.toHaveBeenCalled()
+
+      const review = await fetch(
+        `${base}/api/repositories/${repositoryId}/prototypes/${prototypeId}/review-comments`,
+        { headers: { cookie: "hub_session=local-session" } },
+      )
+      expect(review.status).toBe(200)
+      expect(await review.json()).toEqual({ comments: [], nextCursor: null, hasMore: false })
+      expect(listPrototypeThreads).toHaveBeenCalledWith(repositoryId, prototypeId)
+      expect(readPublicLink).toHaveBeenCalledOnce()
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()))

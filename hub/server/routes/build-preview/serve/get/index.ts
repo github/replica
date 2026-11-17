@@ -1,12 +1,10 @@
 import type { RequestHandler } from "express"
 
-import { injectPreviewBridge } from "../../../../domains/build-preview/inject-preview-bridge/index.ts"
+import { readBuildPreviewFile } from "../../../../domains/build-preview/read-build-preview-file/index.ts"
 import { readPreviewBuildId } from "../../../../domains/build-preview/read-preview-build-id/index.ts"
 import { readPreviewSession } from "../../../../domains/build-preview/read-preview-session/index.ts"
 import { readSharePreviewSession } from "../../../../domains/public-sharing/read-share-preview-session/index.ts"
 import { readCookie } from "../../../../integrations/express/read-cookie/index.ts"
-import { normalizeBuildArtifactPath } from "../../../../domains/build-artifacts/normalize-build-artifact-path/index.ts"
-import { contentTypeForBuildPath } from "../../../../domains/build-artifacts/content-type-for-build-path/index.ts"
 import type { BuildPreviewRouteDependencies } from "../../types.ts"
 
 function setSecurityHeaders(response: Parameters<RequestHandler>[1], applicationOrigin: string) {
@@ -64,26 +62,16 @@ export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler
         return
       }
 
-      let path =
-        request.path === "/__replica/screenshots/desktop.png"
-          ? "screenshots/desktop.png"
-          : request.path === "/__replica/screenshots/narrow.png"
-            ? "screenshots/narrow.png"
-            : `dist${request.path === "/" ? "/index.html" : request.path}`
-      path = normalizeBuildArtifactPath(path) ?? ""
-      let artifact = path ? await dependencies.findArtifact(buildId, path) : null
-      const acceptsHtml = request.accepts("html")
-      if (!artifact && acceptsHtml && !request.path.split("/").at(-1)?.includes(".")) {
-        path = "dist/index.html"
-        artifact = await dependencies.findArtifact(buildId, path)
-      }
-      if (!artifact) {
-        response.status(404).end()
-        return
-      }
-      const result = await dependencies.storage.read(artifact.storageKey)
-      if (result.status !== "ok") {
-        response.status(result.status === "not-found" ? 404 : 503).end()
+      const file = await readBuildPreviewFile(
+        {
+          acceptsHtml: Boolean(request.accepts("html")),
+          buildId,
+          requestPath: request.path,
+        },
+        dependencies,
+      )
+      if (file.status !== "ok") {
+        response.status(file.status === "not-found" ? 404 : 503).end()
         return
       }
       if (
@@ -95,20 +83,17 @@ export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler
         response.status(404).end()
         return
       }
-      const contentType = contentTypeForBuildPath(path)
-      const html = contentType.startsWith("text/html")
-      const bytes = html ? injectPreviewBridge(result.bytes) : result.bytes
       response.setHeader(
         "Cache-Control",
         publicLink
           ? "private, no-store"
-          : html
+          : file.html
             ? "private, no-cache"
             : "private, max-age=31536000, immutable",
       )
-      response.setHeader("Content-Type", contentType)
-      response.setHeader("Content-Length", bytes.byteLength)
-      response.end(bytes)
+      response.setHeader("Content-Type", file.contentType)
+      response.setHeader("Content-Length", file.bytes.byteLength)
+      response.end(file.bytes)
     } catch (error) {
       next(error)
     }

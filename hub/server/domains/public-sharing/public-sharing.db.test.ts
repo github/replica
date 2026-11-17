@@ -30,11 +30,13 @@ async function createFixture() {
       startPage: "/checkout",
     },
   })
+  const finishedAt = new Date()
   const build = await prisma.build.create({
     data: {
-      finishedAt: new Date(),
+      finishedAt,
       number: 1,
       prototypeId: prototype.id,
+      startedAt: new Date(finishedAt.getTime() - 1_000),
       state: "successful",
     },
   })
@@ -197,10 +199,6 @@ describe("public sharing persistence", () => {
     const mutator = new pg.Client({ connectionString: getDatabaseUrl() })
     const inspector = new pg.Client({ connectionString: getDatabaseUrl() })
     await Promise.all([blocker.connect(), mutator.connect(), inspector.connect()])
-    const suffix = randomUUID().replaceAll("-", "")
-    const trigger = `share_link_policy_${suffix}`
-    const functionName = `block_share_link_policy_${suffix}`
-    const lockKey = 7_341_109
     let blockerOpen = false
     let creation:
       | Promise<
@@ -209,24 +207,9 @@ describe("public sharing persistence", () => {
         >
       | undefined
     try {
-      await mutator.query(`
-        CREATE FUNCTION ${functionName}() RETURNS trigger AS $$
-        BEGIN
-          IF NEW.label = 'Policy overlap' THEN
-            PERFORM pg_advisory_xact_lock(${lockKey});
-          END IF;
-          RETURN NEW;
-        END;
-        $$ LANGUAGE plpgsql
-      `)
-      await mutator.query(`
-        CREATE TRIGGER ${trigger}
-        BEFORE INSERT ON share_links
-        FOR EACH ROW EXECUTE FUNCTION ${functionName}()
-      `)
       await blocker.query("BEGIN")
       blockerOpen = true
-      await blocker.query("SELECT pg_advisory_xact_lock($1)", [lockKey])
+      await blocker.query("LOCK TABLE builds IN ACCESS EXCLUSIVE MODE")
       const { pid: blockerPid } = (
         await blocker.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")
       ).rows[0]!
@@ -244,7 +227,7 @@ describe("public sharing persistence", () => {
           (value) => ({ status: "fulfilled" as const, value }),
           (reason: unknown) => ({ status: "rejected" as const, reason }),
         )
-      await waitForBlockedQuery(inspector, blockerPid, "share_links")
+      await waitForBlockedQuery(inspector, blockerPid, "builds")
 
       await mutator.query(
         `UPDATE sharing_settings
@@ -263,8 +246,6 @@ describe("public sharing persistence", () => {
     } finally {
       if (blockerOpen) await blocker.query("ROLLBACK")
       if (creation) await Promise.allSettled([creation])
-      await mutator.query(`DROP TRIGGER IF EXISTS ${trigger} ON share_links`)
-      await mutator.query(`DROP FUNCTION IF EXISTS ${functionName}()`)
       await Promise.all([blocker.end(), mutator.end(), inspector.end()])
     }
   })
