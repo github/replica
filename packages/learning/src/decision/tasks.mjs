@@ -33,12 +33,12 @@ export const HOLD_OUT = 0.15
  * prototype, so a Build and the later Build that fixed it always share a split. Nothing is
  * guessed: evidence that cannot become a label is counted in skipped with the reason.
  *
- * @param {any} bundle a training export: { manifest, grants, episodes, memories }
- * @param {any} builds { schemaVersion: "replica.decision-builds/v1", builds: [...] }
+ * @param {any} bundle a training export: { manifest, grants, collections, episodes, memories }
+ * @param {any} builds { schemaVersion: "replica.decision-builds/v1", source, builds: [...] }
  */
 export function planDecisionTasks(bundle, builds) {
   const { manifest, episodes, memories } = readTrainingExport(bundle)
-  const buildsByPrototype = readBuilds(builds)
+  const { source: buildSource, byPrototype: buildsByPrototype } = readBuilds(builds)
   const skipped = new Map()
   function skip(reason, count = 1) {
     skipped.set(reason, (skipped.get(reason) ?? 0) + count)
@@ -55,6 +55,12 @@ export function planDecisionTasks(bundle, builds) {
   if (ranked.length > learnings.length)
     skip("learning-over-limit", ranked.length - learnings.length)
   const episodesById = new Map(episodes.map((episode) => [episode.id, episode]))
+  const completeEpisodes = new Set(manifest.completeEpisodeIds)
+  for (const episode of episodes)
+    if (episode.source.kind === HUB_SOURCE && !sameHubSource(episode.source, buildSource))
+      invalid(
+        `The Builds file source is ${buildSource.hubOrigin}, repository ${buildSource.repositoryId}, but episode ${episode.id} is from ${episode.source.hubOrigin}, repository ${episode.source.repositoryId}.`,
+      )
   const flagged = flaggedThemes(episodes)
   const groups = new Map()
   function label(view, learningId, follows, evidence) {
@@ -108,6 +114,10 @@ export function planDecisionTasks(bundle, builds) {
         )
       )
         continue
+      if (!completeEpisodes.has(episode.id)) {
+        skip("follows-history-incomplete")
+        continue
+      }
       // Hub keeps a thread resolved when someone edits a comment in it, so a resolution confirms
       // only the problem as it was written before the resolution.
       if (comments.some((comment) => compare(comment.at, resolution.at) >= 0)) {
@@ -162,11 +172,12 @@ export function planDecisionTasks(bundle, builds) {
     tasks.push({
       id: derivedId("task", {
         scope: manifest.scope,
+        source: buildSource,
         prototypeId: group.prototypeId,
         buildNumber: group.buildNumber,
         route: group.route,
       }),
-      split: splitFor(manifest.scope, group.prototypeId),
+      split: splitFor({ scope: manifest.scope, source: buildSource }, group.prototypeId),
       prototypeId: group.prototypeId,
       buildNumber: group.buildNumber,
       route: group.route,
@@ -202,8 +213,8 @@ function readTrainingExport(bundle) {
     )
   if (manifest.contents === "learnings")
     invalid("This export holds learnings only. Export again without --learnings-only.")
-  if (![bundle.grants, bundle.episodes, bundle.memories].every(Array.isArray))
-    invalid("The export bundle needs its grants, episodes, and memories lists.")
+  if (![bundle.grants, bundle.collections, bundle.episodes, bundle.memories].every(Array.isArray))
+    invalid("The export bundle needs its grants, collections, episodes, and memories lists.")
   // The manifest names every record that left the store. A record it does not name was added
   // later, and a record it names but the bundle lacks was removed, either of which can change a
   // label, so the bundle must hold exactly the records the manifest lists.
@@ -220,6 +231,7 @@ function readTrainingExport(bundle) {
     held.add(key)
   }
   for (const grant of bundle.grants) hold("grant", "consentGrant", grant)
+  for (const collection of bundle.collections) hold("collection", "collection", collection)
   for (const episode of bundle.episodes) {
     hold("episode", "episode", episode)
     for (const event of episode.timeline ?? []) {
@@ -236,7 +248,12 @@ function readTrainingExport(bundle) {
     invalid(
       `The export is missing ${listed.size - held.size} of the records its manifest lists. Use the file export wrote, unchanged.`,
     )
-  return { manifest, episodes: bundle.episodes, memories: bundle.memories }
+  return {
+    manifest,
+    collections: bundle.collections,
+    episodes: bundle.episodes,
+    memories: bundle.memories,
+  }
 }
 
 function recordKey({ kind, id, digest }) {
@@ -254,8 +271,16 @@ function check(kind, record, label) {
  * the order they were made in.
  */
 function readBuilds(value) {
-  if (!isObject(value) || value.schemaVersion !== BUILDS_SCHEMA || !Array.isArray(value.builds))
-    invalid(`The Builds file must be { "schemaVersion": "${BUILDS_SCHEMA}", "builds": [...] }.`)
+  if (
+    !isObject(value) ||
+    value.schemaVersion !== BUILDS_SCHEMA ||
+    !isObject(value.source) ||
+    !Array.isArray(value.builds)
+  )
+    invalid(
+      `The Builds file must be { "schemaVersion": "${BUILDS_SCHEMA}", "source": {...}, "builds": [...] }.`,
+    )
+  const source = hubSource(value.source, "The Builds file source")
   const byPrototype = new Map()
   for (const [index, build] of value.builds.entries()) {
     const where = `Build ${index + 1}`
@@ -298,7 +323,7 @@ function readBuilds(value) {
     list.sort(
       (left, right) => compare(left.createdAt, right.createdAt) || left.number - right.number,
     )
-  return byPrototype
+  return { source, byPrototype }
 }
 
 function time(value, problem) {
@@ -371,15 +396,36 @@ function flaggedThemes(episodes) {
     const route = routeOf(rootComment(episode))
     if (episode.source.kind !== HUB_SOURCE || !route) continue
     const key = `${episode.source.prototypeId}/${episode.source.buildNumber}/${route}`
+    const superseded = new Set(
+      (episode.timeline ?? []).map((event) => event.supersedes).filter(Boolean),
+    )
     for (const event of episode.timeline ?? [])
       if (
         event.type === "annotation" &&
+        !superseded.has(event.id) &&
+        !superseded.has(event.payload?.target?.eventId) &&
         event.payload?.observation === "observed" &&
         event.payload.stance === "supports"
       )
         flagged.set(key, (flagged.get(key) ?? new Set()).add(event.payload.theme.key))
   }
   return flagged
+}
+
+function sameHubSource(left, right) {
+  return left?.hubOrigin === right?.hubOrigin && left?.repositoryId === right?.repositoryId
+}
+
+function hubSource(value, label) {
+  let origin
+  try {
+    origin = new URL(value.hubOrigin).origin
+  } catch {
+    origin = null
+  }
+  if (origin !== value.hubOrigin || !positive(value.repositoryId))
+    invalid(`${label} needs a canonical hubOrigin and a positive repositoryId.`)
+  return { hubOrigin: value.hubOrigin, repositoryId: value.repositoryId }
 }
 
 /**

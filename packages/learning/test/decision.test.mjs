@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -15,6 +16,7 @@ import path from "node:path"
 import { Readable } from "node:stream"
 import { after, describe, it } from "node:test"
 import {
+  HUB_ORIGIN,
   REMOTE,
   collectionLog,
   weekOneLabels,
@@ -113,7 +115,7 @@ async function acceptedLearning(
   }
   await ok(repo, ["accept", proposal.id, "--digest", proposal.reviewDigest, ...content, ...by])
   await importLogs(after, "after")
-  return { repo, learningId: proposal.id, by }
+  return { repo, learningId: proposal.id, by, reviewGrantId: grant.id }
 }
 
 async function grantTraining(repo, by) {
@@ -170,7 +172,11 @@ function buildsFile(
   const file = path.join(directory, name)
   writeFileSync(
     file,
-    JSON.stringify({ schemaVersion: "replica.decision-builds/v1", builds: entries }),
+    JSON.stringify({
+      schemaVersion: "replica.decision-builds/v1",
+      source: { hubOrigin: HUB_ORIGIN, repositoryId: 42 },
+      builds: entries,
+    }),
   )
   return file
 }
@@ -335,6 +341,7 @@ describe("replica-learning decision", () => {
     await grantTraining(repo, by)
     assert.equal((await consent()).trainingConsent, true)
     const { result, tasks } = await writeTaskset(repo, by, builds, "first")
+    const bundle = JSON.parse(readFileSync(path.join(repo, ".replica", "first.json"), "utf8"))
 
     // The three threads that raised placeholder labels break the learning on their Builds. Its
     // author resolved the prototype 12 thread after Build 3, so Build 3 follows it.
@@ -373,6 +380,14 @@ describe("replica-learning decision", () => {
       assert.equal(task.provenance.exportId, result.exportId)
     }
     assert.deepEqual([result.counts.follows, result.counts.breaks], [1, 3])
+    assert.ok(bundle.collections.length > 0)
+    assert.deepEqual(
+      bundle.manifest.records
+        .filter((record) => record.kind === "collection")
+        .map((record) => record.id)
+        .sort(),
+      bundle.collections.map((collection) => collection.id).sort(),
+    )
     assert.deepEqual(
       JSON.parse(readFileSync(path.join(directory, "taskset.json"), "utf8")).counts,
       result.counts,
@@ -618,6 +633,98 @@ describe("replica-learning decision", () => {
     assert.equal(result.skipped["follows-contradicted"], 1)
   })
 
+  it("withholds follows labels when the export lacks complete unfiltered current history", async () => {
+    const { repo, learningId, by } = await acceptedLearning("filtered-history", {
+      after: [weekTwoLog({ filters: { resolution: "resolved" } })],
+    })
+    await grantTraining(repo, by)
+
+    const { result, tasks } = await writeTaskset(repo, by, buildsFile(repo), "filtered-history")
+
+    assert.deepEqual(labelsOf(tasks), [
+      [11, 3, { [learningId]: { answer: false } }],
+      [12, 2, { [learningId]: { answer: false } }],
+      [13, 5, { [learningId]: { answer: false } }],
+    ])
+    assert.deepEqual([result.counts.follows, result.counts.breaks], [0, 3])
+  })
+
+  it("ignores superseded annotations when checking whether a fix is contradicted", async () => {
+    const { repo, learningId, by } = await acceptedLearning("superseded-annotation")
+    await grantTraining(repo, by)
+    const [label] = weekOneLabels().labels
+    for (const [name, theme] of [
+      ["old", label.theme],
+      ["replacement", { key: "button-color", statement: "Use the approved button color." }],
+    ]) {
+      writeFileSync(
+        path.join(repo, `${name}-label.json`),
+        JSON.stringify({ labels: [{ ...label, target: { commentId: 114 }, theme }] }),
+      )
+      await ok(repo, [
+        "label",
+        `${name}-label.json`,
+        "--actor",
+        "agent:copilot",
+        "--model",
+        "test-model",
+      ])
+    }
+
+    const { tasks } = await writeTaskset(repo, by, buildsFile(repo), "superseded-annotation")
+
+    assert.deepEqual(
+      labelsOf(tasks).find(([prototypeId, buildNumber]) => prototypeId === 12 && buildNumber === 3),
+      [12, 3, { [learningId]: { answer: true } }],
+    )
+  })
+
+  it("ignores annotations whose target comment version was superseded", async () => {
+    const { repo, learningId, by, reviewGrantId } = await acceptedLearning(
+      "superseded-annotation-target",
+    )
+    await grantTraining(repo, by)
+    const [label] = weekOneLabels().labels
+    writeFileSync(
+      path.join(repo, "old-version-label.json"),
+      JSON.stringify({ labels: [{ ...label, target: { commentId: 114 } }] }),
+    )
+    await ok(repo, [
+      "label",
+      "old-version-label.json",
+      "--actor",
+      "agent:copilot",
+      "--model",
+      "test-model",
+    ])
+    const threads = weekTwoThreads()
+    const thread = threads.find((item) => item.root.id === 114)
+    thread.root = {
+      ...thread.root,
+      body: "The updated page now uses visible labels.",
+      editedAt: "2026-10-09T09:00:00.000000Z",
+      updatedAt: "2026-10-09T09:00:00.000000Z",
+    }
+    writeFileSync(
+      path.join(repo, "edited-comment.json"),
+      JSON.stringify(
+        collectionLog({
+          snapshotId: "8b0e3d55-2f1c-4a9b-c4d6-3e7f0a1b2c33",
+          capturedAt: "2026-10-09T10:00:00.000000Z",
+          threads,
+        }),
+      ),
+    )
+    await ok(repo, ["import", "hub-comments", "edited-comment.json", "--grant", reviewGrantId])
+
+    const { tasks } = await writeTaskset(repo, by, buildsFile(repo), "superseded-target")
+
+    assert.deepEqual(
+      labelsOf(tasks).find(([prototypeId, buildNumber]) => prototypeId === 12 && buildNumber === 3),
+      [12, 3, { [learningId]: { answer: true } }],
+    )
+  })
+
   it("refuses exports that are not for training or changed after export", async () => {
     const { repo, by } = await acceptedLearning("refusals")
     await grantTraining(repo, by)
@@ -666,6 +773,31 @@ describe("replica-learning decision", () => {
     assert.match(repeated.stderr, /holds memory mem_[0-9a-f]+ twice/)
     for (const result of [review, altered, missing, moved, repeated]) assert.equal(result.code, 1)
     assert.equal(existsSync(path.join(repo, ".replica/tasksets")), false)
+  })
+
+  it("refuses Builds from another Hub source before matching prototype and Build numbers", async () => {
+    const { repo, by } = await acceptedLearning("build-source")
+    await grantTraining(repo, by)
+    await ok(repo, ["export", "--purpose", "training", ...by, "--out", ".replica/training.json"])
+    const builds = buildsFile(repo)
+    const manifest = JSON.parse(readFileSync(builds, "utf8"))
+    manifest.source.hubOrigin = "https://other-replica.example.com"
+    writeFileSync(builds, JSON.stringify(manifest))
+
+    const result = await cli(repo, [
+      "decision",
+      "taskset",
+      "--export",
+      ".replica/training.json",
+      "--builds",
+      builds,
+      "--out",
+      ".replica/tasksets/wrong-source",
+    ])
+
+    assert.equal(result.code, 1)
+    assert.match(result.stderr, /Builds.*source|source.*Builds/i)
+    assert.equal(existsSync(path.join(repo, ".replica/tasksets/wrong-source")), false)
   })
 
   it("refuses a taskset outside .replica or without screenshots of the commented page", async () => {
@@ -743,13 +875,50 @@ describe("replica-learning decision", () => {
     }
   })
 
-  it("writes beneath cwd when cwd is not a Git checkout", async () => {
+  it("uses the target's canonical checkout when cwd is outside it or the target uses a link", async () => {
     const { repo, by } = await acceptedLearning("outside-checkout-source")
     await grantTraining(repo, by)
     await ok(repo, ["export", "--purpose", "training", ...by, "--out", ".replica/training.json"])
     const builds = buildsFile(repo)
     const outside = path.join(work, "outside-checkout")
     mkdirSync(outside)
+    const linkedCheckout = path.join(outside, "linked-checkout")
+    symlinkSync(repo, linkedCheckout)
+
+    for (const out of [
+      path.join(repo, "tasksets", "public"),
+      path.join(linkedCheckout, "tasksets", "linked-public"),
+    ]) {
+      const refused = await cli(outside, [
+        "decision",
+        "taskset",
+        "--export",
+        path.join(repo, ".replica", "training.json"),
+        "--builds",
+        builds,
+        "--out",
+        out,
+      ])
+      assert.equal(refused.code, 1)
+      assert.match(refused.stderr, /not under \.replica/)
+      assert.equal(existsSync(out), false)
+    }
+
+    const privateResult = await ok(outside, [
+      "decision",
+      "taskset",
+      "--export",
+      path.join(repo, ".replica", "training.json"),
+      "--builds",
+      builds,
+      "--out",
+      path.join(linkedCheckout, ".replica", "tasksets", "private"),
+      "--json",
+    ])
+    assert.equal(
+      privateResult.json().directory,
+      realpathSync(path.join(repo, ".replica", "tasksets", "private")),
+    )
 
     const result = await ok(outside, [
       "decision",
@@ -763,7 +932,7 @@ describe("replica-learning decision", () => {
       "--json",
     ])
 
-    assert.equal(result.json().directory, path.join(outside, "taskset"))
+    assert.equal(result.json().directory, realpathSync(path.join(outside, "taskset")))
     assert.equal(existsSync(path.join(outside, "taskset", "taskset.json")), true)
   })
 })

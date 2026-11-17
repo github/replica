@@ -185,12 +185,16 @@ A decision model is a small vision-language model that looks at screenshots of a
 
 `decision taskset` reads two files and writes tasks for the [brand-check environment](environments/brand-check/README.md):
 
-- A training export from `export --purpose training`. The command refuses any other purpose and a learnings-only export. It also refuses an export whose records fail their checks, that holds a record its manifest does not list or lacks one it does, or that files an event under another episode, because any of these can change a label.
-- A Builds file that names each Build's screenshots by page, width, and theme. `createdAt` is when GitHub made the Build, or when Hub found it, and orders a prototype's Builds with their numbers. `publishedAt` is when Hub published it. Paths are relative to the Builds file, and Hub writes one with `bin/rails 'replica:learning:decision_builds[<Hub repository ID>,<directory>]'`:
+- A training export from `export --purpose training`. It includes the collection metadata needed to establish whether a thread's exported history is complete. The command refuses any other purpose and a learnings-only export. It also refuses an export whose records fail their checks, that holds a record its manifest does not list or lacks one it does, or that files an event under another episode, because any of these can change a label.
+- A Builds file that identifies its Hub origin and Hub repository ID, then names each Build's screenshots by page, width, and theme. `createdAt` is when GitHub made the Build, or when Hub found it, and orders a prototype's Builds with their numbers. `publishedAt` is when Hub published it. Paths are relative to the Builds file, and Hub writes one with `bin/rails 'replica:learning:decision_builds[<Hub repository ID>,<directory>]'`:
 
 ```json
 {
   "schemaVersion": "replica.decision-builds/v1",
+  "source": {
+    "hubOrigin": "https://replica.example.com",
+    "repositoryId": 42
+  },
   "builds": [
     {
       "prototypeId": 12,
@@ -206,7 +210,7 @@ A decision model is a small vision-language model that looks at screenshots of a
 }
 ```
 
-A thread that supports an accepted learning labels its Build as breaking the learning on the page the thread points to. When the reviewer who wrote the cited comment, or the comment a cited label is about, resolved the thread after writing it, the latest Build that came after the thread's Build and was published by then follows the learning, unless a thread on that Build and page reports the same theme. Someone who only labeled the comment did not raise the problem, so their resolution does not count. Neither does a resolution that shares its time with another status change, because nothing in the export says which came last. Builds come in the order of `createdAt`, then number, because Hub numbers Builds as it finds them. A screenshot belongs to a thread's page only when its route matches the page exactly, including the query and fragment. Tasks are split into training, development, and test sets by prototype.
+A thread that supports an accepted learning labels its Build as breaking the learning on the page the thread points to. When the reviewer who wrote the cited comment, or the comment a cited label is about, resolved the thread after writing it, the latest Build that came after the thread's Build and was published by then follows the learning, unless a current thread on that Build and page reports the same theme. A follows label also requires a complete, unfiltered collection from the same Hub source and no evidence omitted from the export; otherwise the taskset conservatively keeps only breaks labels. Someone who only labeled the comment did not raise the problem, so their resolution does not count. Neither does a resolution that shares its time with another status change, because nothing in the export says which came last. Builds come in the order of `createdAt`, then number, because Hub numbers Builds as it finds them. A screenshot belongs to a thread's page only when its route matches the page exactly, including the query and fragment. Tasks are split into training, development, and test sets by prototype.
 
 A task shows every screenshot of its page, desktop before narrow and light before dark, because review comments do not record the width or theme the reviewer saw. A page gets a "breaks" label only when the Builds file has all four of its screenshots, since the problem may show only in a missing one. Even then, a problem the reviewer found after scrolling, opening a menu, or resizing the window to another width may not show in any screenshot. A "follows" label rests on the reviewer's check of the fix, which may have covered only one width and theme.
 

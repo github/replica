@@ -37,6 +37,13 @@ class Learning::DecisionBuildsTest < ActiveSupport::TestCase
     manifest = JSON.parse(@directory.join("builds.json").read)
     assert_equal({ builds: 2, screenshots: 6 }, counts)
     assert_equal "replica.decision-builds/v1", manifest.fetch("schemaVersion")
+    assert_equal(
+      {
+        "hubOrigin" => Rails.configuration.x.hub_origin.delete_suffix("/"),
+        "repositoryId" => @repository.id
+      },
+      manifest.fetch("source")
+    )
     assert_equal [ [ comment.prototype.id, 1 ], [ comment.prototype.id, 2 ] ], manifest.fetch("builds").map { _1.values_at("prototypeId", "number") }
     assert_equal [ later.chronological_at, later.finished_at ].map { _1.utc.iso8601(6) }, manifest.dig("builds", 1).values_at("createdAt", "publishedAt")
     screenshots = manifest.dig("builds", 1, "screenshots")

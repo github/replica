@@ -2301,6 +2301,43 @@ class LearningStore {
         }))
     const exportedEpisodes = learningsOnly ? [] : eligible.episodes
     const exportedEvents = learningsOnly ? [] : eligible.events
+    const episodeSources = exportedEpisodes.map((episode) => episode.source)
+    const collections = learningsOnly
+      ? []
+      : (await this.#read("collections", context)).filter((collection) =>
+          episodeSources.some((source) => sameCollectionSource(collection.source, source)),
+        )
+    const exportedEventIds = new Set(exportedEvents.map((event) => event.id))
+    const safelyOmittedEventIds = new Set(
+      exportedEvents.map((event) => event.supersedes).filter(Boolean),
+    )
+    const completeEpisodeIds = exportedEpisodes
+      .filter((episode) => {
+        const sourceEvents = observations.events.filter(
+          (event) => event.episodeId === episode.id && event.type !== "annotation",
+        )
+        if (
+          sourceEvents.some(
+            (event) => !exportedEventIds.has(event.id) && !safelyOmittedEventIds.has(event.id),
+          )
+        )
+          return false
+        const latest = sourceEvents.reduce(
+          (found, event) => (!found || event.at > found ? event.at : found),
+          undefined,
+        )
+        return collections.some(
+          (collection) =>
+            sameCollectionSource(collection.source, episode.source) &&
+            collection.complete === true &&
+            collection.filters.resolution === "all" &&
+            collection.filters.read === "all" &&
+            collection.filters.from === null &&
+            collection.filters.to === null &&
+            (!latest || collection.capturedAt >= latest),
+        )
+      })
+      .map((episode) => episode.id)
     const memories = []
     for (const { record, status } of items) {
       if (record.state !== "accepted") exclude(`memory-${record.state}`)
@@ -2336,14 +2373,21 @@ class LearningStore {
       destination,
       contents,
       counts: {
+        collections: collections.length,
         episodes: exportedEpisodes.length,
         events: exportedEvents.length,
         memories: memories.length,
         grants: exportedGrants.length,
       },
+      completeEpisodeIds,
       excluded: [...excluded].map(([reason, count]) => ({ reason, count })),
       records: [
         ...exportedGrants.map((grant) => ({ kind: "grant", id: grant.id, digest: grant.digest })),
+        ...collections.map((collection) => ({
+          kind: "collection",
+          id: collection.id,
+          digest: collection.digest,
+        })),
         ...exportedEpisodes.map((episode) => ({
           kind: "episode",
           id: episode.id,
@@ -2366,7 +2410,10 @@ class LearningStore {
         ),
       ],
     )
-    return { manifest, bundle: { manifest, grants: exportedGrants, episodes, memories } }
+    return {
+      manifest,
+      bundle: { manifest, grants: exportedGrants, collections, episodes, memories },
+    }
   }
 
   /**
@@ -2537,6 +2584,14 @@ function replacementProblem({ expired, notYetValid, evidenceEligible = true }) {
   if (notYetValid) return "it does not apply yet"
   if (!evidenceEligible) return "its evidence no longer permits instruction"
   return null
+}
+
+function sameCollectionSource(collection, episode) {
+  return (
+    collection.kind === episode.kind &&
+    collection.hubOrigin === episode.hubOrigin &&
+    collection.repositoryId === episode.repositoryId
+  )
 }
 
 /** The audit operations that may record a change to each stream, and the subject kind. */

@@ -11,8 +11,10 @@ whole decision head instead, about 26 million of the model's 587 million paramet
 synthetic taskset of 518 practice pages, the head's dev score barely passed what answering 50%
 to every question earns, while the readout improved clearly on pages it never practiced on.
 
-    python examples/train_d1_omni.py train --model DIR --taskset DIR --out runs/demo
-    python examples/train_d1_omni.py evaluate --model DIR --taskset DIR \
+    python examples/train_d1_omni.py train --allow-insecure-loopback \
+        --model DIR --taskset DIR --out runs/demo
+    python examples/train_d1_omni.py evaluate --allow-insecure-loopback \
+        --model DIR --taskset DIR \
         --trained runs/demo/best.pt --split test --out runs/demo
 
 Both commands talk to a running server through `--url` and send the token from
@@ -116,6 +118,26 @@ def trusted_model_path(model_dir: str) -> Path:
             f"{TRUSTED_MODEL_DIRS_VARIABLE} before passing it with --model."
         )
     return model_path
+
+
+def private_output_directory(value: str) -> Path:
+    """Create or restrict a training-output directory so only this account can read it."""
+    directory = Path(value)
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    directory.chmod(0o700)
+    return directory
+
+
+def save_private(state: dict[str, Any], path: Path) -> None:
+    """Save model state and restrict the resulting file to this account."""
+    torch.save(state, path)
+    path.chmod(0o600)
+
+
+def write_private(path: Path, content: str) -> None:
+    """Write text and restrict the resulting file to this account."""
+    path.write_text(content, encoding="utf-8")
+    path.chmod(0o600)
 
 
 class Policy:
@@ -351,8 +373,7 @@ def train(args: argparse.Namespace) -> None:
     from replica_brand_check import BrandCheckAction, BrandCheckEnv
     from replica_brand_check.taskset import load_taskset
 
-    out = Path(args.out)
-    out.mkdir(parents=True, exist_ok=True)
+    out = private_output_directory(args.out)
     torch.manual_seed(args.seed)
     rng = random.Random(args.seed)
     policy = Policy(args.model, args.part)
@@ -365,12 +386,15 @@ def train(args: argparse.Namespace) -> None:
     taskset = load_taskset(args.taskset)
     dev_ids = [task.id for task in taskset.by_split["dev"]]
     log = (out / "train.jsonl").open("w", encoding="utf-8")
+    (out / "train.jsonl").chmod(0o600)
     started = time.time()
-    with BrandCheckEnv(base_url=args.url).sync() as env:
+    with BrandCheckEnv(
+        base_url=args.url, allow_insecure_loopback=args.allow_insecure_loopback
+    ).sync() as env:
         if args.part == "readout":
             policy.fit_scale(env, [task.id for task in taskset.by_split["train"]])
         best, _ = split_reward(policy, env, dev_ids)
-        torch.save(policy.state(), out / "best.pt")
+        save_private(policy.state(), out / "best.pt")
         log.write(json.dumps({"update": 0, "devReward": best}) + "\n")
         print(f"dev reward before training: {best:.4f}", flush=True)
         for update in range(1, args.updates + 1):
@@ -424,11 +448,12 @@ def train(args: argparse.Namespace) -> None:
                 entry["devReward"], _ = split_reward(policy, env, dev_ids)
                 if entry["devReward"] > best:
                     best = entry["devReward"]
-                    torch.save(policy.state(), out / "best.pt")
+                    save_private(policy.state(), out / "best.pt")
                 print(json.dumps(entry), flush=True)
             log.write(json.dumps(entry) + "\n")
             log.flush()
-    torch.save(policy.state(), out / "last.pt")
+    log.close()
+    save_private(policy.state(), out / "last.pt")
     print(f"best dev reward {best:.4f}; saved {out / 'best.pt'}")
 
 
@@ -437,23 +462,25 @@ def run_evaluate(args: argparse.Namespace) -> None:
     from replica_brand_check.evaluate import evaluate
     from replica_brand_check.taskset import load_taskset
 
-    out = Path(args.out)
-    out.mkdir(parents=True, exist_ok=True)
+    out = private_output_directory(args.out)
     taskset = load_taskset(args.taskset)
     state = torch.load(args.trained, map_location="cpu") if args.trained else None
     policy = Policy(args.model, state["part"] if state else "head")
     if state:
         policy.load(state)
-    with BrandCheckEnv(base_url=args.url).sync() as env:
+    with BrandCheckEnv(
+        base_url=args.url, allow_insecure_loopback=args.allow_insecure_loopback
+    ).sync() as env:
         reward, predictions = split_reward(
             policy, env, [task.id for task in taskset.by_split[args.split]]
         )
     name = f"{args.name}-{args.split}"
     with (out / f"{name}-predictions.jsonl").open("w", encoding="utf-8") as handle:
+        (out / f"{name}-predictions.jsonl").chmod(0o600)
         for task_id, answers in predictions.items():
             handle.write(json.dumps({"taskId": task_id, "answers": answers}) + "\n")
     report = evaluate(taskset, predictions, args.split)
-    (out / f"{name}-report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    write_private(out / f"{name}-report.json", json.dumps(report, indent=2))
     noul = report["noul"]
     print(
         json.dumps(
@@ -471,11 +498,17 @@ def run_evaluate(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
     commands = parser.add_subparsers(dest="command", required=True)
     for name in ("train", "evaluate"):
         command = commands.add_parser(name)
         command.add_argument("--url", default="http://127.0.0.1:8000")
+        command.add_argument(
+            "--allow-insecure-loopback",
+            action="store_true",
+            help="send the token over plaintext loopback on a single-user machine",
+        )
         command.add_argument("--model", required=True, help="folder holding LiquidAI/d1-omni-600M")
         command.add_argument(
             "--taskset", required=True, help="taskset folder, to list the dev or test tasks"

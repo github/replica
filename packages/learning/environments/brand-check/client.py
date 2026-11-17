@@ -32,7 +32,10 @@ class BrandCheckEnv(EnvClient[BrandCheckAction, BrandCheckObservation, State]):
     max_message_size_mb defaults to MAX_MESSAGE_MB so the largest task the loader accepts fits.
 
     Example:
-        >>> with BrandCheckEnv(base_url="http://127.0.0.1:8000").sync() as env:
+        >>> with BrandCheckEnv(
+        ...     base_url="http://127.0.0.1:8000",
+        ...     allow_insecure_loopback=True,
+        ... ).sync() as env:
         ...     result = env.reset(split="train", seed=7)
         ...     result = env.step(BrandCheckAction(answers=answers))
         ...     print(result.reward, result.observation.rewards)
@@ -41,13 +44,19 @@ class BrandCheckEnv(EnvClient[BrandCheckAction, BrandCheckObservation, State]):
     # OpenEnv 0.3.0 ships no type information, so this declares the connection that connect() sets.
     _ws: ClientConnection | None
 
-    def __init__(self, base_url: str, token: str | None = None, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        token: str | None = None,
+        allow_insecure_loopback: bool = False,
+        **kwargs: Any,
+    ) -> None:
         parsed = urlsplit(base_url)
-        if parsed.scheme != "https" and not (
-            parsed.scheme == "http" and parsed.hostname in _LOOPBACK
-        ):
+        insecure_loopback = parsed.scheme == "http" and parsed.hostname in _LOOPBACK
+        if parsed.scheme != "https" and not (insecure_loopback and allow_insecure_loopback):
             raise ValueError(
-                "BrandCheckEnv requires https://, except for http:// on this computer."
+                "BrandCheckEnv requires https://. On a single-user machine only, pass "
+                "allow_insecure_loopback=True to connect to an http:// loopback server."
             )
         token = os.environ.get(TOKEN_VARIABLE) if token is None else token
         if not token:
@@ -63,33 +72,16 @@ class BrandCheckEnv(EnvClient[BrandCheckAction, BrandCheckObservation, State]):
         if self._ws is not None:
             return self
 
-        is_localhost = urlsplit(self._ws_url).hostname in _LOOPBACK
-
-        old_no_proxy = os.environ.get("NO_PROXY")
-        if is_localhost:
-            current_no_proxy = old_no_proxy or ""
-            if "localhost" not in current_no_proxy.lower():
-                os.environ["NO_PROXY"] = (
-                    f"{current_no_proxy},localhost,127.0.0.1"
-                    if current_no_proxy
-                    else "localhost,127.0.0.1"
-                )
-
         try:
             self._ws = await ws_connect(
                 self._ws_url,
                 open_timeout=self._connect_timeout,
                 max_size=self._max_message_size,
                 additional_headers={"Authorization": f"Bearer {self._token}"},
+                **({"proxy": None} if urlsplit(self._ws_url).hostname in _LOOPBACK else {}),
             )
         except Exception as error:
             raise ConnectionError(f"Failed to connect to {self._ws_url}: {error}") from error
-        finally:
-            if is_localhost:
-                if old_no_proxy is None:
-                    os.environ.pop("NO_PROXY", None)
-                else:
-                    os.environ["NO_PROXY"] = old_no_proxy
 
         return self
 

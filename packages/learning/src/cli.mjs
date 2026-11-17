@@ -1058,9 +1058,10 @@ async function exportRecords(session) {
   if (!purpose) throw new UsageError("Name the purpose of the export with --purpose.")
   const principal = person(session)
   const stamp = new Date(session.clock()).toISOString().replace(/[:.]/g, "-")
-  const destination = session.values.out
+  const requestedDestination = session.values.out
     ? path.resolve(session.cwd, session.values.out)
     : path.join(session.environment.dataDirectory, "exports", `${stamp}-${purpose}.json`)
+  const destination = await realLocation(requestedDestination)
   if (existsSync(destination))
     throw new LearningError("invalid_input", `${destination} already exists. Choose another --out.`)
   const problem = await placementProblem(session.environment, await realLocation(destination), {
@@ -1084,7 +1085,7 @@ async function exportRecords(session) {
     manifest,
     [
       `Exported for ${purpose} to ${destination} (${manifest.id}).`,
-      `Included ${counts.episodes} episodes, ${counts.events} events, ${counts.memories} learnings, ${counts.grants} grants.`,
+      `Included ${counts.collections} collections, ${counts.episodes} episodes, ${counts.events} events, ${counts.memories} learnings, ${counts.grants} grants.`,
       ...(manifest.excluded.length
         ? [
             `Held back: ${manifest.excluded.map((item) => `${item.count} ${item.reason}`).join(", ")}.`,
@@ -1187,8 +1188,8 @@ async function decisionTaskset(session) {
     await readJsonFile(session, values.export),
     await readJsonFile(session, values.builds),
   )
-  const directory = path.resolve(session.cwd, values.out)
-  const problem = await placementProblem(session.environment, await realLocation(directory), {
+  const directory = await realLocation(path.resolve(session.cwd, values.out))
+  const problem = await placementProblem(session.environment, directory, {
     what: "tasksets",
   })
   if (problem) throw new LearningError("invalid_input", problem)

@@ -1,10 +1,12 @@
 import asyncio
+import contextlib
 import importlib
 import importlib.util
 import json
 import os
 import socket
 import sys
+import tempfile
 import threading
 import time
 import types
@@ -20,6 +22,58 @@ from replica_brand_check.taskset import load_taskset
 from tests.support import RULE, make_task, write_taskset
 
 TOKEN = "end-to-end-test-token-0123456789abcdef"
+
+
+def load_client():
+    class UnionMeta(type):
+        def __or__(cls, _other):
+            return cls
+
+    class ClientConnection(metaclass=UnionMeta):
+        pass
+
+    class Generic:
+        @classmethod
+        def __class_getitem__(cls, _item):
+            return cls
+
+    class EnvClient(Generic):
+        def __init__(self, base_url, **options):
+            self._ws = None
+            self._ws_url = base_url.replace("https://", "wss://").rstrip("/") + "/ws"
+            self._connect_timeout = options.get("connect_timeout_s", 10)
+            self._max_message_size = options["max_message_size_mb"] * 2**20
+
+    openenv = types.ModuleType("openenv")
+    core = types.ModuleType("openenv.core")
+    client_types = types.ModuleType("openenv.core.client_types")
+    env_server = types.ModuleType("openenv.core.env_server")
+    env_types = types.ModuleType("openenv.core.env_server.types")
+    websockets = types.ModuleType("websockets")
+    websockets_asyncio = types.ModuleType("websockets.asyncio")
+    websockets_client = types.ModuleType("websockets.asyncio.client")
+    models = types.ModuleType("replica_brand_check.models")
+    core.EnvClient = EnvClient
+    client_types.StepResult = Generic
+    env_types.State = Generic
+    websockets_client.ClientConnection = ClientConnection
+    websockets_client.connect = object()
+    models.BrandCheckAction = Generic
+    models.BrandCheckObservation = Generic
+    modules = {
+        "openenv": openenv,
+        "openenv.core": core,
+        "openenv.core.client_types": client_types,
+        "openenv.core.env_server": env_server,
+        "openenv.core.env_server.types": env_types,
+        "websockets": websockets,
+        "websockets.asyncio": websockets_asyncio,
+        "websockets.asyncio.client": websockets_client,
+        "replica_brand_check.models": models,
+    }
+    sys.modules.pop("replica_brand_check.client", None)
+    with mock.patch.dict(sys.modules, modules):
+        return importlib.import_module("replica_brand_check.client")
 
 
 def load_trainer(auto_model):
@@ -138,6 +192,155 @@ class TrainerTest(unittest.TestCase):
             "<END_TEAM_LEARNING_DATA>",
         )
 
+    def test_authored_training_outputs_are_private(self):
+        trainer = load_trainer(object())
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        output = Path(temporary.name) / "outputs"
+        taskset = types.SimpleNamespace(
+            by_split={
+                "train": [types.SimpleNamespace(id="train")],
+                "dev": [types.SimpleNamespace(id="dev")],
+                "test": [types.SimpleNamespace(id="test")],
+            }
+        )
+
+        class Policy:
+            def __init__(self, *_args):
+                pass
+
+            def parameters(self):
+                return []
+
+            def state(self):
+                return {}
+
+        class Optimizer:
+            def zero_grad(self):
+                pass
+
+            def step(self):
+                pass
+
+        class Environment:
+            def sync(self):
+                return contextlib.nullcontext(object())
+
+        trainer.Policy = Policy
+        trainer.torch.manual_seed = lambda _seed: None
+        trainer.torch.optim = types.SimpleNamespace(AdamW=lambda *_args, **_kwargs: Optimizer())
+        trainer.torch.nn.utils = types.SimpleNamespace(clip_grad_norm_=lambda *_args: None)
+        trainer.torch.save = lambda _state, file: Path(file).write_bytes(b"weights")
+        trainer.split_reward = lambda *_args: (0.5, {"test": {}})
+        arguments = types.SimpleNamespace(
+            out=str(output),
+            seed=7,
+            model="model",
+            part="head",
+            lr=None,
+            weight_decay=None,
+            taskset="taskset",
+            url="https://trainer.example.com",
+            allow_insecure_loopback=False,
+            updates=0,
+            sigma=1.0,
+            sigma_final=0.4,
+            tasks_per_update=1,
+            group=1,
+            eval_every=10,
+        )
+
+        import replica_brand_check
+        import replica_brand_check.evaluate
+        import replica_brand_check.taskset
+
+        replica_brand_check.__dict__["BrandCheckAction"] = object
+        replica_brand_check.__dict__["BrandCheckEnv"] = mock.Mock(return_value=Environment())
+        self.addCleanup(replica_brand_check.__dict__.pop, "BrandCheckAction", None)
+        self.addCleanup(replica_brand_check.__dict__.pop, "BrandCheckEnv", None)
+        with mock.patch.object(replica_brand_check.taskset, "load_taskset", return_value=taskset):
+            trainer.train(arguments)
+            with mock.patch.object(
+                replica_brand_check.evaluate,
+                "evaluate",
+                return_value={
+                    "tasks": 1,
+                    "meanReward": 0.5,
+                    "noul": {
+                        "accuracy": 1.0,
+                        "balancedAccuracy": 1.0,
+                        "ece": 0.0,
+                    },
+                },
+            ):
+                trainer.run_evaluate(
+                    types.SimpleNamespace(
+                        out=str(output),
+                        taskset="taskset",
+                        trained=None,
+                        model="model",
+                        url="https://trainer.example.com",
+                        allow_insecure_loopback=False,
+                        split="test",
+                        name="candidate",
+                    )
+                )
+
+        self.assertEqual(output.stat().st_mode & 0o777, 0o700)
+        for name in (
+            "train.jsonl",
+            "best.pt",
+            "last.pt",
+            "candidate-test-predictions.jsonl",
+            "candidate-test-report.json",
+        ):
+            with self.subTest(name=name):
+                self.assertEqual((output / name).stat().st_mode & 0o777, 0o600)
+
+
+class ClientPolicyTest(unittest.TestCase):
+    def test_client_requires_https_unless_plaintext_loopback_is_explicitly_allowed(self):
+        BrandCheckEnv = load_client().BrandCheckEnv
+
+        BrandCheckEnv(base_url="https://trainer.example.com", token=TOKEN)
+
+        for url in (
+            "http://localhost:8000",
+            "http://127.0.0.1:8000",
+            "http://[::1]:8000",
+        ):
+            with self.subTest(url=url), self.assertRaisesRegex(ValueError, "https"):
+                BrandCheckEnv(base_url=url, token=TOKEN)
+            BrandCheckEnv(base_url=url, token=TOKEN, allow_insecure_loopback=True)
+
+        for url in [
+            "http://trainer.example.com",
+            "http://10.0.0.8:8000",
+            "http://127.0.0.1.example.com:8000",
+        ]:
+            with self.subTest(url=url), self.assertRaisesRegex(ValueError, "https"):
+                BrandCheckEnv(base_url=url, token=TOKEN, allow_insecure_loopback=True)
+
+    def test_loopback_websocket_connections_explicitly_disable_proxy_discovery(self):
+        client_module = load_client()
+        for url, options in [
+            ("https://127.0.0.1:8000", {}),
+            ("http://127.0.0.1:8000", {"allow_insecure_loopback": True}),
+        ]:
+            with self.subTest(url=url):
+                client = client_module.BrandCheckEnv(base_url=url, token=TOKEN, **options)
+                connection = object()
+                with mock.patch.object(
+                    client_module,
+                    "ws_connect",
+                    new=mock.AsyncMock(return_value=connection),
+                ) as connect:
+                    asyncio.run(client.connect())
+
+                self.assertIs(client._ws, connection)
+                self.assertIn("proxy", connect.await_args.kwargs)
+                self.assertIsNone(connect.await_args.kwargs["proxy"])
+
 
 @unittest.skipUnless(importlib.util.find_spec("openenv"), "openenv-core is not installed")
 class ServerTest(unittest.TestCase):
@@ -151,7 +354,14 @@ class ServerTest(unittest.TestCase):
         answers = {RULE: {"probabilities": {"yes": 0.2, "no": 0.8}}}
 
         # serve() sets REPLICA_ENV_TOKEN, which the client sends by default.
-        with BrandCheckEnv(base_url=url, message_timeout_s=10).sync() as env:
+        client = BrandCheckEnv(
+            base_url=url.replace("http://", "https://"),
+            message_timeout_s=10,
+        )
+        # The test server has no certificate. Keep this protocol test local while the transport
+        # policy is covered separately below.
+        client._ws_url = client._ws_url.replace("wss://", "ws://")
+        with client.sync() as env:
             result = env.reset(seed=5)
             self.assertEqual(result.observation.task_id, seeded_task)
             self.assertFalse(hasattr(result.observation, "labels"))
@@ -174,7 +384,7 @@ class ServerTest(unittest.TestCase):
             asyncio.run(GenericEnvClient(base_url=url).connect())
         empty_token = mock.patch.dict(os.environ, {"REPLICA_ENV_TOKEN": ""})
         with empty_token, self.assertRaisesRegex(ValueError, "REPLICA_ENV_TOKEN"):
-            BrandCheckEnv(base_url=url)
+            BrandCheckEnv(base_url=url, allow_insecure_loopback=True)
         with urllib.request.urlopen(url + "/health", timeout=10) as response:
             self.assertEqual(json.load(response), {"status": "healthy"})
 
@@ -188,30 +398,6 @@ class ServerTest(unittest.TestCase):
             urllib.request.urlopen(request, timeout=10)
         self.assertEqual(refused.exception.code, 409)
         self.assertIn("WebSocket", json.load(refused.exception)["detail"])
-
-    def test_client_requires_encryption_away_from_loopback(self):
-        from replica_brand_check import BrandCheckEnv
-
-        accepted = [
-            "http://localhost:8000",
-            "http://127.0.0.1:8000",
-            "http://[::1]:8000",
-            "https://trainer.example.com",
-        ]
-        for url in accepted:
-            with self.subTest(url=url):
-                BrandCheckEnv(base_url=url, token=TOKEN)
-
-        refused = [
-            "http://trainer.example.com",
-            "http://10.0.0.8:8000",
-            "http://127.0.0.1.example.com:8000",
-        ]
-        for url in refused:
-            with self.subTest(url=url), self.assertRaisesRegex(
-                ValueError, "https|loopback|this computer"
-            ):
-                BrandCheckEnv(base_url=url, token=TOKEN)
 
     def serve(self, directory: Path) -> str:
         """Serve the real app, with TOKEN, on a free localhost port until the case ends."""

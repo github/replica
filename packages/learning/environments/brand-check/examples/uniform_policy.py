@@ -1,6 +1,7 @@
 """Measure the uniform baseline against a running brand check server.
 
-    python examples/uniform_policy.py http://127.0.0.1:8000 --episodes 20
+    python examples/uniform_policy.py http://127.0.0.1:8000 \
+        --allow-insecure-loopback --episodes 20
 
 The script sends the server's token from REPLICA_ENV_TOKEN. Every question gets equal
 probabilities over its options, and the script prints the mean reward.
@@ -25,11 +26,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Print the mean reward of uniform answers.")
     parser.add_argument("url", help="server URL, such as http://127.0.0.1:8000")
     parser.add_argument("--episodes", type=int, default=20, help="number of episodes to run")
+    parser.add_argument(
+        "--allow-insecure-loopback",
+        action="store_true",
+        help="send the token over plaintext loopback on a single-user machine",
+    )
     args = parser.parse_args()
     if args.episodes < 1:
         parser.error("--episodes must be at least 1")
     try:
-        client = BrandCheckEnv(base_url=args.url)
+        client = BrandCheckEnv(
+            base_url=args.url, allow_insecure_loopback=args.allow_insecure_loopback
+        )
     except ValueError as error:
         parser.error(str(error))
     rewards = []

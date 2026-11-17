@@ -202,7 +202,7 @@ export async function placementProblem(
   target,
   { what = "learning data", directory = true } = {},
 ) {
-  const checkout = environment.hosted ? await checkoutAround(target) : environment.checkout
+  const checkout = await checkoutAround(target)
   if (!checkout) return null
   const placement = placeIn(checkout, target)
   if (!placement.inside) return null

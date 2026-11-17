@@ -29,7 +29,14 @@ class Learning::DecisionBuilds
     Dir.mkdir(directory, 0o700)
     created = true
     builds = published_builds.map { entry(_1, directory) }
-    File.write directory.join("builds.json"), JSON.generate(schemaVersion: SCHEMA_VERSION, builds:), perm: 0o600
+    source = {
+      hubOrigin: Rails.configuration.x.hub_origin.delete_suffix("/"),
+      repositoryId: @repository.id
+    }
+    File.write \
+      directory.join("builds.json"),
+      JSON.generate(schemaVersion: SCHEMA_VERSION, source:, builds:),
+      perm: 0o600
     { builds: builds.size, screenshots: builds.sum { _1[:screenshots].size } }
   rescue StandardError
     FileUtils.rm_rf(directory) if created

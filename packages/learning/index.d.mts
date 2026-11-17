@@ -208,17 +208,19 @@ export interface ExportManifest {
   createdBy: Actor
   provider: { id: string; version: string }
   destination: string
-  /** all: grants, episodes with their events, and learnings. learnings: accepted learnings and the grants that permit their evidence. Absent means all. */
+  /** all: grants, collections, episodes with their events, and learnings. learnings: accepted learnings and the grants that permit their evidence. Absent means all. */
   contents?: "all" | "learnings"
   counts: {
+    collections: number
     episodes: number
     events: number
     memories: number
     grants: number
   }
+  completeEpisodeIds: string[]
   excluded: Array<{ reason: string; count: number }>
   records: Array<{
-    kind: "episode" | "event" | "memory" | "grant"
+    kind: "collection" | "episode" | "event" | "memory" | "grant"
     id: string
     digest: Digest
   }>
@@ -837,6 +839,7 @@ export interface LearningStore {
     bundle: {
       manifest: ExportManifest
       grants: ConsentGrant[]
+      collections: Collection[]
       episodes: Episode[]
       memories: MemoryRecord[]
     }

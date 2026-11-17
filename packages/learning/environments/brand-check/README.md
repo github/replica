@@ -63,14 +63,17 @@ The server runs as user 10001, which must be able to read the taskset. If only y
 
 A trainer uses the WebSocket client in [client.py](client.py). `BrandCheckEnv` sends the token from `REPLICA_ENV_TOKEN`, or from its `token` argument, in the `Authorization` header. Any other client must send the same header. Without it, the server answers an HTTP request with status 401 and refuses a WebSocket handshake with status 403.
 
-`BrandCheckEnv` accepts plaintext HTTP only for `localhost`, `127.0.0.1`, or `::1`. A trainer on another machine must use an `https://` address whose ingress terminates TLS before forwarding to the container.
+`BrandCheckEnv` requires HTTPS by default. On a single-user machine, `allow_insecure_loopback=True` explicitly permits plaintext HTTP to `localhost`, `127.0.0.1`, or `::1`; the client disables proxy discovery for that connection. Do not use this option on a shared host, where another account could impersonate a stopped loopback server and collect the reusable token. A shared-host or remote trainer must use an `https://` address whose ingress authenticates the server and terminates TLS before forwarding to the container.
 
 Each client connection gets its own session. The server accepts four sessions at once and refuses more connections until one closes.
 
 ```python
 from replica_brand_check import BrandCheckAction, BrandCheckEnv, question_options
 
-with BrandCheckEnv(base_url="http://127.0.0.1:8000").sync() as env:
+with BrandCheckEnv(
+    base_url="http://127.0.0.1:8000",
+    allow_insecure_loopback=True,
+).sync() as env:
     result = env.reset(split="train")
     observation = result.observation
     answers = {}
@@ -134,7 +137,8 @@ These are proper scoring rules, so the model earns the most expected reward by r
 Answering 0.5 to a noul question earns 0.75 whatever the label. A trained model must beat this baseline. [examples/uniform_policy.py](examples/uniform_policy.py) measures it against a running server, with the token from `REPLICA_ENV_TOKEN`:
 
 ```sh
-.venv/bin/python examples/uniform_policy.py http://127.0.0.1:8000 --episodes 20
+.venv/bin/python examples/uniform_policy.py http://127.0.0.1:8000 \
+  --allow-insecure-loopback --episodes 20
 ```
 
 ## Evaluate a candidate
@@ -165,11 +169,13 @@ Install the trainer's packages next to this one, download the model at the revis
 uv pip install torch torchvision "transformers>=5.14" pillow
 hf download LiquidAI/d1-omni-600M --revision 02b55d7076f15129e59ab3f94783f32c4b088674 --local-dir models/d1-omni-600M
 export REPLICA_TRUSTED_MODEL_DIRS="$(pwd)/models/d1-omni-600M"
-.venv/bin/python examples/train_d1_omni.py train --model models/d1-omni-600M --taskset /path/to/taskset --out runs/demo
-.venv/bin/python examples/train_d1_omni.py evaluate --model models/d1-omni-600M --taskset /path/to/taskset --trained runs/demo/best.pt --split test --out runs/demo
+.venv/bin/python examples/train_d1_omni.py train --allow-insecure-loopback --model models/d1-omni-600M --taskset /path/to/taskset --out runs/demo
+.venv/bin/python examples/train_d1_omni.py evaluate --allow-insecure-loopback --model models/d1-omni-600M --taskset /path/to/taskset --trained runs/demo/best.pt --split test --out runs/demo
 ```
 
 Training reads `--taskset` only to list the tasks in each split; the server scores every answer. The `evaluate` command also reads that split's labels from the taskset to write its report. Both commands read each task's screenshots through the model once and keeps the result in memory, so the first pass over the tasks is the slow part. To train the readout, it first reads every practice page to scale the readout's inputs, which uses no labels. Choose the settings and the trained weights on the dev split, then score the test split once.
+
+The trainer restricts the output directory to mode `0700` and its logs, weights, predictions, and reports to `0600`. Evaluation reports include review-derived label counts, so keep the output private even after deleting the taskset.
 
 `REPLICA_TRUSTED_MODEL_DIRS` is an independent approval gate for model-supplied Python code. It must list the reviewed model directory as an absolute path before the trainer loads it. Separate several approved paths with the operating system's path separator.
 

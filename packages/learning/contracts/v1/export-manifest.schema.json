@@ -15,6 +15,7 @@
     "provider",
     "destination",
     "counts",
+    "completeEpisodeIds",
     "excluded",
     "records",
     "digest"
@@ -60,14 +61,17 @@
       "maxLength": 2048
     },
     "contents": {
-      "description": "What the export copied. all: grants, episodes with their events, and learnings. learnings: accepted learnings and the grants that permit their evidence, with no episodes or events. Absent means all.",
+      "description": "What the export copied. all: grants, collections, episodes with their events, and learnings. learnings: accepted learnings and the grants that permit their evidence, with no collections, episodes, or events. Absent means all.",
       "enum": ["all", "learnings"]
     },
     "counts": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["episodes", "events", "memories", "grants"],
+      "required": ["collections", "episodes", "events", "memories", "grants"],
       "properties": {
+        "collections": {
+          "$ref": "common.schema.json#/$defs/count"
+        },
         "episodes": {
           "$ref": "common.schema.json#/$defs/count"
         },
@@ -80,6 +84,14 @@
         "grants": {
           "$ref": "common.schema.json#/$defs/count"
         }
+      }
+    },
+    "completeEpisodeIds": {
+      "description": "Episodes whose current source history was fully exported from a complete, unfiltered collection. Empty for a learnings-only export.",
+      "type": "array",
+      "maxItems": 1000000,
+      "items": {
+        "$ref": "common.schema.json#/$defs/id"
       }
     },
     "excluded": {
@@ -108,7 +120,7 @@
         "required": ["kind", "id", "digest"],
         "properties": {
           "kind": {
-            "enum": ["episode", "event", "memory", "grant"]
+            "enum": ["collection", "episode", "event", "memory", "grant"]
           },
           "id": {
             "$ref": "common.schema.json#/$defs/id"
