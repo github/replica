@@ -18,6 +18,8 @@ export interface CommandOptions {
   signal?: AbortSignal
   // Public step description only; never use arguments, output, or credentials.
   label?: string
+  // The caller presents recoverable failures separately from persistent notices.
+  recoverable?: boolean
 }
 
 export type RunCommand = (

@@ -6,6 +6,23 @@ import { expect, it, vi } from "vitest"
 
 import type { WizardUI } from "./types.ts"
 
+vi.mock("ink", async (importOriginal) => {
+  const ink = await importOriginal<typeof import("ink")>()
+  return {
+    ...ink,
+    render(): ReturnType<typeof ink.render> {
+      return {
+        rerender() {},
+        unmount() {},
+        waitUntilExit: async () => undefined,
+        waitUntilRenderFlush: async () => undefined,
+        cleanup() {},
+        clear() {},
+      }
+    },
+  }
+})
+
 it("keeps synthetic command diagnostics out of unattended CLI output and local telemetry", async () => {
   const directory = resolve(`.installer-cli-test-${randomUUID()}`)
   await mkdir(directory, { mode: 0o700 })
@@ -246,3 +263,97 @@ it.each(["exit", "create"] as const)(
     }
   },
 )
+
+it.each([
+  { preserved: "an unrelated warning", nonRecoverable: false },
+  { preserved: "a later non-recoverable command error", nonRecoverable: true },
+])("clears a recovered Terraform command error and retains $preserved", async ({
+  nonRecoverable,
+}) => {
+  vi.resetModules()
+  const directory = resolve(`.installer-cli-retry-test-${randomUUID()}`)
+  await mkdir(directory, { mode: 0o700 })
+  const path = join(directory, "new.json")
+  const argv = process.argv
+  const exitCode = process.exitCode
+  const stdinTTY = Object.getOwnPropertyDescriptor(process.stdin, "isTTY")
+  const stdoutTTY = Object.getOwnPropertyDescriptor(process.stdout, "isTTY")
+  const originalError = "Synthetic Terraform initialization failure"
+  const unrelatedWarning = "Synthetic unrelated warning"
+  const commandFailure = "Synthetic non-recoverable command failure"
+  let summaryAfterRetry: string | undefined
+  let summaryAfterCommand: string | undefined
+  let attempts = 0
+  try {
+    process.argv = [process.execPath, resolve("installer/index.tsx"), "--config", path]
+    process.exitCode = undefined
+    Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true })
+    Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: true })
+
+    const entry = await import("./entry/index.ts")
+    const terminal = await import("./terminal/index.tsx")
+    const command = await import("./command/index.ts")
+    const wizard = await import("./wizard/index.ts")
+    const { terraformModule } = await import("../terraform/index.ts")
+    const createTerminal = terminal.createTerminalUI
+    let activeTerminal: ReturnType<typeof createTerminal> | undefined
+    vi.spyOn(terminal, "createTerminalUI").mockImplementation((abort, options) => {
+      const ui = createTerminal(abort, options)
+      activeTerminal = ui
+      ui.select = vi.fn(async () => "retry")
+      return ui
+    })
+    vi.spyOn(entry, "selectInstallerEntry").mockResolvedValue({ action: "create", path })
+    vi.spyOn(command, "runCommand").mockImplementation(async (executable, args) => {
+      if (executable === "synthetic-tool")
+        throw new command.CommandExecutionError(commandFailure, false, 1)
+      expect(executable).toBe("terraform")
+      expect(args[1]).toBe("init")
+      if (++attempts === 1) throw new command.CommandExecutionError(originalError, false, 1)
+      return ""
+    })
+    vi.spyOn(wizard, "runWizard").mockImplementation(async ({ run, ui, signal }) => {
+      ui.notice?.("warning", unrelatedWarning)
+      await terraformModule({
+        directory: join(directory, "module"),
+        dataDirectory: join(directory, "terraform"),
+        env: {},
+        run,
+        ui,
+        signal,
+      }).init("backend.hcl")
+      summaryAfterRetry = activeTerminal?.summary()
+      if (nonRecoverable) {
+        await expect(run("synthetic-tool", ["fail"])).rejects.toThrow(commandFailure)
+        summaryAfterCommand = activeTerminal?.summary()
+      }
+      throw new Error("Synthetic later failure")
+    })
+    vi.spyOn(console, "log").mockImplementation(() => undefined)
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined)
+
+    await import("./index.tsx")
+
+    const output = errors.mock.calls.flat().map(String).join("\n")
+    expect(attempts).toBe(2)
+    expect(summaryAfterRetry).toBe(unrelatedWarning)
+    expect(process.exitCode).toBe(1)
+    expect(output).toContain("Synthetic later failure")
+    if (nonRecoverable) {
+      expect(summaryAfterCommand).toBe(commandFailure)
+      expect(output).toContain(commandFailure)
+    } else {
+      expect(output).toContain(unrelatedWarning)
+    }
+    expect(output).not.toContain(originalError)
+  } finally {
+    process.argv = argv
+    process.exitCode = exitCode
+    if (stdinTTY) Object.defineProperty(process.stdin, "isTTY", stdinTTY)
+    else Reflect.deleteProperty(process.stdin, "isTTY")
+    if (stdoutTTY) Object.defineProperty(process.stdout, "isTTY", stdoutTTY)
+    else Reflect.deleteProperty(process.stdout, "isTTY")
+    vi.restoreAllMocks()
+    await rm(directory, { recursive: true, force: true })
+  }
+})

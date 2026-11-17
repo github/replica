@@ -71,6 +71,7 @@ export function terraformModule({
     signal?.throwIfAborted()
     return run("terraform", [`-chdir=${directory}`, ...args], {
       env: { ...env, TF_DATA_DIR: dataDirectory },
+      recoverable: true,
       ...(signal && { signal }),
     })
   }
