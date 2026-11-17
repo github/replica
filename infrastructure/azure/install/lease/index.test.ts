@@ -405,6 +405,29 @@ it("does not clear a recorded lease when Azure rejects its exact ownership ident
   expect(s.acquisitions()).toHaveLength(1)
 })
 
+it("routes a recorded lease that Azure reports another owner holds to guarded recovery", async () => {
+  const s = scenario()
+  s.unlock()
+  await s.acquire()
+  const azure = s.context.azure
+  s.context.azure = async (...args) => {
+    if (args[3] === "renew")
+      throw new CommandExecutionError("Failed", false, 1, "(LeaseIdMismatchWithLeaseOperation)")
+    return azure(...args)
+  }
+  s.choices.push("recover")
+
+  await s.acquire()
+
+  expect(s.notices).toContainEqual({
+    level: "warning",
+    message: expect.stringMatching(/out of date.*guarded lock recovery/s),
+  })
+  expect(s.ui.confirm).toHaveBeenCalled()
+  expect(s.breaks()).toHaveLength(1)
+  expect(s.acquisitions()).toHaveLength(2)
+})
+
 it("does not treat non-interactive deployment approval as permission to recover a lease", async () => {
   const s = scenario()
   delete s.ui.select

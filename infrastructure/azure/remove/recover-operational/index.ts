@@ -1,5 +1,6 @@
 import { leaseOwnership } from "../../install/lease/ownership/index.ts"
 import { readBlobLease } from "../../install/lease/read/index.ts"
+import { staleLeaseError } from "../../install/lease/stale/index.ts"
 import type { RemovalLeaseError } from "../lease-error/index.ts"
 import type { RemovalContext } from "../types.ts"
 
@@ -10,7 +11,29 @@ export async function recoverRemovalOperational(
 ): Promise<void> {
   const { account, container, blob } = observed.target
   const proof = await leaseOwnership(context, account, container, blob)
-  if (proof.lease) return
+  if (proof.lease) {
+    try {
+      await context.azure(
+        "storage",
+        "blob",
+        "lease",
+        "renew",
+        "--account-name",
+        account,
+        "--container-name",
+        container,
+        "--blob-name",
+        blob,
+        "--auth-mode",
+        "login",
+        "--lease-id",
+        proof.lease,
+      )
+      return
+    } catch (error) {
+      if (!staleLeaseError(error)) throw error
+    }
+  }
   await verify()
   const value = await readBlobLease(context, account, container, blob)
   if (

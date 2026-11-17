@@ -6,6 +6,7 @@ import { CommandExecutionError } from "../../../installer/command/index.ts"
 import { recoverLease } from "./recover/index.ts"
 import { leaseOwnership } from "./ownership/index.ts"
 import { readBlobLease } from "./read/index.ts"
+import { staleLeaseError } from "./stale/index.ts"
 
 export async function acquireLease(
   context: AzureInstallation,
@@ -85,14 +86,22 @@ export async function acquireLease(
           "The recorded deployment lease is finite, changing, or unknown. Recovery stopped.",
         )
       // Renewal with the exact secret identity proves ownership without breaking another lease.
-      await azure("storage", "blob", "lease", "renew", ...args, "--lease-id", ownership.lease)
-      result = JSON.stringify(ownership.lease)
+      try {
+        await azure("storage", "blob", "lease", "renew", ...args, "--lease-id", ownership.lease)
+        result = JSON.stringify(ownership.lease)
+      } catch (error) {
+        if (!staleLeaseError(error)) throw error
+        ui.notice?.(
+          "warning",
+          `Saved ownership of the lease at ${account}/${container}/${blob} is out of date; this installer no longer holds it. The lease was not changed. Continuing with guarded lock recovery.`,
+        )
+      }
     }
   }
   const proposed = ownership.lease ?? randomUUID()
-  await ownership.save(proposed)
   while (result === undefined) {
     await recoverLease(context, account, container, blob)
+    await ownership.save(proposed)
     try {
       result = await azure(
         "storage",

@@ -1,4 +1,5 @@
 import { beforeEach, expect, it, vi } from "vitest"
+import { CommandExecutionError } from "../../../installer/command/index.ts"
 import { RemovalLeaseError } from "../lease-error/index.ts"
 import type { RemovalContext } from "../types.ts"
 import { recoverRemovalOperational } from "./index.ts"
@@ -46,13 +47,38 @@ beforeEach(() => {
   ownership.lease = undefined
 })
 
-it("leaves a lease with private ownership proof for renewal instead of breaking it", async () => {
+it("renews a lease with valid private ownership proof instead of breaking it", async () => {
   ownership.lease = "11111111-2222-3333-4444-555555555555"
   const { context, azure } = removal([held])
   const verify = vi.fn(async () => {})
   await recoverRemovalOperational(context, observed, verify)
   expect(verify).not.toHaveBeenCalled()
-  expect(azure).not.toHaveBeenCalled()
+  expect(azure).toHaveBeenCalledOnce()
+  expect(azure.mock.calls[0]).toEqual(
+    expect.arrayContaining(["renew", "--lease-id", "11111111-2222-3333-4444-555555555555"]),
+  )
+})
+
+it("checks and breaks a lease whose saved ownership proof Azure rejects as stale", async () => {
+  ownership.lease = "11111111-2222-3333-4444-555555555555"
+  const { context, azure } = removal([held, released])
+  azure.mockRejectedValueOnce(
+    new CommandExecutionError("Failed", false, 1, "(LeaseIdMismatchWithLeaseOperation)"),
+  )
+  const verify = vi.fn(async () => {})
+  await recoverRemovalOperational(context, observed, verify)
+  expect(verify).toHaveBeenCalledOnce()
+  expect(broke(azure)).toBe(true)
+})
+
+it("stops without breaking when saved ownership cannot be verified", async () => {
+  ownership.lease = "11111111-2222-3333-4444-555555555555"
+  const { context, azure } = removal([held, released])
+  azure.mockRejectedValueOnce(new CommandExecutionError("Failed", false, 1, "AuthorizationFailed"))
+  await expect(recoverRemovalOperational(context, observed, async () => {})).rejects.toThrow(
+    "Failed",
+  )
+  expect(broke(azure)).toBe(false)
 })
 
 it("checks activity and fresh metadata before breaking an unproven known infinite lease", async () => {
