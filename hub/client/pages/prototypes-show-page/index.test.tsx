@@ -231,6 +231,8 @@ const PROTOTYPES_SHOW_PAGE_DATA: PrototypesShowPageData = {
   shareLinksPath: "/repositories/2001/prototypes/1/share_links",
   reviewComments: {
     bodyMaximumBytes: 10_000,
+    supportsReactions: true,
+    supportsReadState: true,
     copy: {
       heading: "Comments",
       closeLabel: "Close comments",
