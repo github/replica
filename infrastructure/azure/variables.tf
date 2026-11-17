@@ -154,6 +154,51 @@ variable "runtime_environment_variables" {
 
   validation {
     condition = (
+      alltrue([
+        for name in ["GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID"] :
+        !contains(keys(var.runtime_environment_variables), name) || (
+          try(can(regex("^[1-9][0-9]*$", var.runtime_environment_variables[name])) && tonumber(var.runtime_environment_variables[name]) <= 9007199254740991, false)
+        )
+      ]) &&
+      (!contains(keys(var.runtime_environment_variables), "GITHUB_CLIENT_ID") || try(
+        can(regex("^[^\\x{9}-\\x{d}\\x{20}\\x{a0}\\x{1680}\\x{2000}-\\x{200a}\\x{2028}\\x{2029}\\x{202f}\\x{205f}\\x{3000}\\x{feff}]+$", var.runtime_environment_variables["GITHUB_CLIENT_ID"])) &&
+        length(regexall(".", var.runtime_environment_variables["GITHUB_CLIENT_ID"])) +
+        length(regexall("[\\x{10000}-\\x{10ffff}]", var.runtime_environment_variables["GITHUB_CLIENT_ID"])) <= 200,
+      false)) &&
+      (!contains(keys(var.runtime_environment_variables), "GITHUB_PROVIDER_REVISION") || (
+        try(can(regex("^[1-9][0-9]*$", var.runtime_environment_variables["GITHUB_PROVIDER_REVISION"])) && tonumber(var.runtime_environment_variables["GITHUB_PROVIDER_REVISION"]) <= 2147483647, false)
+      ))
+    )
+    error_message = "GitHub App and installation IDs must be positive safe integers, client IDs must contain 1–200 non-whitespace characters, and provider revisions must be positive integers at most 2147483647."
+  }
+
+  validation {
+    condition = !contains(keys(var.runtime_environment_variables), "HUB_APPLICATION_ORIGIN") ? true : try(
+      length(var.runtime_environment_variables["HUB_APPLICATION_ORIGIN"]) <= 500 && alltrue([
+        for parts in [try(regex("^https://(\\[[0-9a-f:]+\\]|[a-z0-9!\"$&'()*+,;=_`{}~.-]+)(?::(0|[1-9][0-9]{0,4}))?$", var.runtime_environment_variables["HUB_APPLICATION_ORIGIN"]), [])] :
+        length(parts) == 2 && alltrue([
+          for host in [try(parts[0], "")] :
+          (try(parts[1], null) == null ? true : (
+            parts[1] != "443" && tonumber(parts[1]) <= 65535
+            )) && (startswith(host, "[") ? alltrue([
+              for ip in [try(cidrhost("${trim(host, "[]")}/128", 0), "")] :
+              trim(host, "[]") == ip || trim(host, "[]") == try(format(
+                "::ffff:%x:%x",
+                256 * tonumber(split(".", ip)[0]) + tonumber(split(".", ip)[1]),
+                256 * tonumber(split(".", ip)[2]) + tonumber(split(".", ip)[3]),
+              ), "")
+            ]) : (
+            !can(regex("(?:^|\\.)(?:[0-9]+|0x[0-9a-f]*)(?:\\.)?$", host)) ||
+            try(cidrhost("${host}/32", 0) == host, false)
+          ))
+        ])
+      ]), false
+    )
+    error_message = "Supply HUB_APPLICATION_ORIGIN as an exact HTTPS origin with a lowercase host and no default port, path, query, fragment, credentials, or trailing slash."
+  }
+
+  validation {
+    condition = (
       (!contains(keys(var.runtime_secret_references), "GITHUB_APP_PRIVATE_KEY_BASE64") || (
         (var.github_app_id != null || try(var.runtime_environment_variables["GITHUB_APP_ID"] != "", false)) &&
         (
@@ -251,8 +296,8 @@ variable "github_app_id" {
   description = "Optional numeric GitHub App ID, passed to Hub as GITHUB_APP_ID. Required when GITHUB_APP_PRIVATE_KEY_BASE64 is referenced."
 
   validation {
-    condition     = var.github_app_id == null ? true : can(regex("^[1-9][0-9]*$", var.github_app_id))
-    error_message = "Supply the GitHub App ID as digits only."
+    condition     = var.github_app_id == null ? true : try(can(regex("^[1-9][0-9]*$", var.github_app_id)) && tonumber(var.github_app_id) <= 9007199254740991, false)
+    error_message = "Supply the GitHub App ID as a positive safe integer."
   }
 
 }
@@ -263,8 +308,13 @@ variable "github_client_id" {
   description = "Optional GitHub App client ID, passed to Hub as GITHUB_CLIENT_ID. Required when the client secret or private key is referenced."
 
   validation {
-    condition     = var.github_client_id == null ? true : can(regex("^[^[:space:]]+$", var.github_client_id))
-    error_message = "Supply a non-empty GitHub App client ID without whitespace."
+    # Hub checks JavaScript whitespace and counts UTF-16 code units.
+    condition = var.github_client_id == null ? true : (
+      can(regex("^[^\\x{9}-\\x{d}\\x{20}\\x{a0}\\x{1680}\\x{2000}-\\x{200a}\\x{2028}\\x{2029}\\x{202f}\\x{205f}\\x{3000}\\x{feff}]+$", var.github_client_id)) &&
+      length(regexall(".", var.github_client_id)) +
+      length(regexall("[\\x{10000}-\\x{10ffff}]", var.github_client_id)) <= 200
+    )
+    error_message = "Supply a GitHub App client ID with 1–200 non-whitespace characters."
   }
 
 }
@@ -275,8 +325,8 @@ variable "github_app_installation_id" {
   description = "Optional numeric GitHub App installation ID, passed to Hub as GITHUB_APP_INSTALLATION_ID. Required when GITHUB_APP_PRIVATE_KEY_BASE64 is referenced."
 
   validation {
-    condition     = var.github_app_installation_id == null ? true : can(regex("^[1-9][0-9]*$", var.github_app_installation_id))
-    error_message = "Supply the GitHub App installation ID as digits only."
+    condition     = var.github_app_installation_id == null ? true : try(can(regex("^[1-9][0-9]*$", var.github_app_installation_id)) && tonumber(var.github_app_installation_id) <= 9007199254740991, false)
+    error_message = "Supply the GitHub App installation ID as a positive safe integer."
   }
 
 }
@@ -287,8 +337,8 @@ variable "github_provider_revision" {
   description = "Optional positive integer passed to Hub as GITHUB_PROVIDER_REVISION. Increase it whenever GitHub App credentials or references change."
 
   validation {
-    condition     = var.github_provider_revision == null ? true : var.github_provider_revision >= 1 && floor(var.github_provider_revision) == var.github_provider_revision
-    error_message = "Supply a positive integer GitHub provider revision."
+    condition     = var.github_provider_revision == null ? true : var.github_provider_revision >= 1 && var.github_provider_revision <= 2147483647 && floor(var.github_provider_revision) == var.github_provider_revision
+    error_message = "Supply a GitHub provider revision from 1 to 2147483647."
   }
 }
 

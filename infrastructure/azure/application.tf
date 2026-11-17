@@ -9,6 +9,36 @@ locals {
     } : name => value if value != null
   }
 
+  authentication_environment = merge(var.runtime_environment_variables, local.github_environment)
+  copilot_only_github_app = (
+    try(trimspace(local.authentication_environment["REPLICA_COPILOT_AUTHENTICATION"]), "") == "github-app-installation" &&
+    alltrue([
+      for name in ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "GITHUB_PROVIDER_REVISION", "GITHUB_APP_INSTALLATION_ID", "GITHUB_WEBHOOK_SECRET"] :
+      try(trimspace(local.authentication_environment[name]), "") == "" &&
+      !contains(keys(var.runtime_secret_references), name)
+    ])
+  )
+  authentication_configured = (
+    (
+      !local.copilot_only_github_app && anytrue([
+        for name in ["GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY_BASE64", "GITHUB_APP_INSTALLATION_ID", "GITHUB_WEBHOOK_SECRET", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "GITHUB_PROVIDER_REVISION"] :
+        try(trimspace(local.authentication_environment[name]), "") != "" ||
+        contains(keys(var.runtime_secret_references), name)
+      ])
+    ) ||
+    anytrue([
+      for name in ["HUB_AUTHENTICATION_ENCRYPTION_KEY", "HUB_BOOTSTRAP_SECRET", "ENTRA_OIDC_CLIENT_AUTHENTICATION", "ENTRA_OIDC_CLIENT_ID", "ENTRA_OIDC_CLIENT_SECRET", "ENTRA_OIDC_ISSUER", "ENTRA_OIDC_MANAGED_IDENTITY_CLIENT_ID", "ENTRA_OIDC_PROVIDER_REVISION"] :
+      try(trimspace(local.authentication_environment[name]), "") != "" ||
+      contains(keys(var.runtime_secret_references), name)
+    ]) ||
+    try(trimspace(local.authentication_environment["HUB_LOCAL_SIGN_IN"]), "") == "true" ||
+    contains(keys(var.runtime_secret_references), "HUB_LOCAL_SIGN_IN")
+  )
+  authentication_origin_supplied = (
+    try(trimspace(local.authentication_environment["HUB_APPLICATION_ORIGIN"]), "") != "" ||
+    contains(keys(var.runtime_secret_references), "HUB_APPLICATION_ORIGIN")
+  )
+
   runtime_environment = merge({
     NODE_ENV                  = "production"
     RUNTIME_MODE              = "combined"
@@ -107,6 +137,11 @@ resource "azurerm_container_app" "hub" {
 
   lifecycle {
     prevent_destroy = true
+
+    precondition {
+      condition     = !local.authentication_configured || local.authentication_origin_supplied
+      error_message = "Supply an exact HTTPS HUB_APPLICATION_ORIGIN through hub_application_origin, runtime_environment_variables, or runtime_secret_references when authentication is configured."
+    }
   }
 
   depends_on = [

@@ -751,6 +751,95 @@ run "github_app_combines_named_settings_generic_values_and_startup_secret_refere
   }
 }
 
+run "named_github_authentication_requires_an_explicit_origin" {
+  command = plan
+
+  variables {
+    deploy_hub       = true
+    github_client_id = "synthetic-client"
+  }
+
+  expect_failures = [azurerm_container_app.hub]
+}
+
+run "generic_github_authentication_requires_an_explicit_origin" {
+  command = plan
+
+  variables {
+    deploy_hub = true
+    runtime_environment_variables = {
+      GITHUB_CLIENT_ID = "synthetic-client"
+    }
+  }
+
+  expect_failures = [azurerm_container_app.hub]
+}
+
+run "entra_authentication_requires_an_explicit_origin" {
+  command = plan
+
+  variables {
+    deploy_hub = true
+    runtime_environment_variables = {
+      ENTRA_OIDC_CLIENT_ID = "synthetic-client"
+    }
+  }
+
+  expect_failures = [azurerm_container_app.hub]
+}
+
+run "local_sign_in_requires_an_explicit_origin" {
+  command = plan
+
+  variables {
+    deploy_hub = true
+    runtime_environment_variables = {
+      HUB_LOCAL_SIGN_IN = "true"
+    }
+  }
+
+  expect_failures = [azurerm_container_app.hub]
+}
+
+run "shared_authentication_secret_requires_an_explicit_origin" {
+  command = plan
+
+  variables {
+    deploy_hub = true
+    runtime_secret_references = {
+      HUB_BOOTSTRAP_SECRET = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/bootstrap"
+      }
+    }
+  }
+
+  expect_failures = [azurerm_container_app.hub]
+}
+
+run "authentication_accepts_a_secret_referenced_origin" {
+  command = plan
+
+  variables {
+    deploy_hub       = true
+    github_client_id = "synthetic-client"
+    runtime_secret_references = {
+      HUB_APPLICATION_ORIGIN = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/hub-origin/11111111111111111111111111111111"
+      }
+    }
+  }
+
+  assert {
+    condition = jsondecode(one([
+      for env in azurerm_container_app.hub[0].template[0].container[0].env
+      : env.value if env.name == "AZURE_KEY_VAULT_SECRET_REFERENCES"
+    ])).HUB_APPLICATION_ORIGIN == var.runtime_secret_references.HUB_APPLICATION_ORIGIN.secret_id
+    error_message = "The explicitly referenced origin must reach Hub's startup secret loader."
+  }
+}
+
 run "github_settings_are_omitted_when_unset" {
   command = plan
 
@@ -931,6 +1020,361 @@ run "invalid_github_identifiers_are_rejected" {
     var.github_app_installation_id,
     var.github_provider_revision,
   ]
+}
+
+run "named_github_settings_accept_their_upper_limits" {
+  command = plan
+
+  variables {
+    deploy_hub                 = true
+    hub_application_origin     = "https://hub.example.com"
+    github_app_id              = "9007199254740991"
+    github_client_id           = join("", [for i in range(200) : "c"])
+    github_app_installation_id = "9007199254740991"
+    github_provider_revision   = 2147483647
+  }
+
+  assert {
+    condition = alltrue([for name, value in {
+      GITHUB_APP_ID              = var.github_app_id
+      GITHUB_CLIENT_ID           = var.github_client_id
+      GITHUB_APP_INSTALLATION_ID = var.github_app_installation_id
+      GITHUB_PROVIDER_REVISION   = tostring(var.github_provider_revision)
+      } : one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == name]) == value
+    ])
+    error_message = "Valid upper-bound named GitHub settings must reach Hub unchanged."
+  }
+}
+
+run "named_client_id_accepts_a_non_ecmascript_whitespace_character" {
+  command = plan
+
+  variables {
+    deploy_hub             = true
+    hub_application_origin = "https://hub.example.com"
+    github_client_id       = "client\u0085id"
+  }
+
+  assert {
+    condition     = one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == "GITHUB_CLIENT_ID"]) == var.github_client_id
+    error_message = "Client IDs must accept characters that JavaScript does not classify as whitespace."
+  }
+}
+
+run "generic_client_id_accepts_a_non_ecmascript_whitespace_character" {
+  command = plan
+
+  variables {
+    deploy_hub             = true
+    hub_application_origin = "https://hub.example.com"
+    runtime_environment_variables = {
+      GITHUB_CLIENT_ID = "client\u0085id"
+    }
+  }
+
+  assert {
+    condition     = one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == "GITHUB_CLIENT_ID"]) == var.runtime_environment_variables["GITHUB_CLIENT_ID"]
+    error_message = "Generic client IDs must accept characters that JavaScript does not classify as whitespace."
+  }
+}
+
+run "generic_github_settings_accept_their_upper_limits" {
+  command = plan
+
+  variables {
+    deploy_hub = true
+    runtime_environment_variables = {
+      HUB_APPLICATION_ORIGIN     = "https://hub.example.com"
+      GITHUB_APP_ID              = "9007199254740991"
+      GITHUB_CLIENT_ID           = join("", [for i in range(200) : "c"])
+      GITHUB_APP_INSTALLATION_ID = "9007199254740991"
+      GITHUB_PROVIDER_REVISION   = "2147483647"
+    }
+  }
+
+  assert {
+    condition = alltrue([for name, value in var.runtime_environment_variables :
+      one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == name]) == value
+    ])
+    error_message = "Valid upper-bound generic GitHub settings must reach Hub unchanged."
+  }
+}
+
+run "named_client_id_accepts_200_utf16_code_units" {
+  command = plan
+
+  variables {
+    deploy_hub             = true
+    hub_application_origin = "https://hub.example.com"
+    github_client_id       = join("", [for i in range(100) : "🔑"])
+  }
+
+  assert {
+    condition = one([
+      for env in azurerm_container_app.hub[0].template[0].container[0].env
+      : env.value if env.name == "GITHUB_CLIENT_ID"
+    ]) == var.github_client_id
+    error_message = "A non-whitespace client ID at Hub's UTF-16 length limit must be retained."
+  }
+}
+
+run "generic_client_id_accepts_200_utf16_code_units" {
+  command = plan
+
+  variables {
+    deploy_hub = true
+    runtime_environment_variables = {
+      HUB_APPLICATION_ORIGIN = "https://hub.example.com"
+      GITHUB_CLIENT_ID       = join("", [for i in range(100) : "🔑"])
+    }
+  }
+
+  assert {
+    condition = one([
+      for env in azurerm_container_app.hub[0].template[0].container[0].env
+      : env.value if env.name == "GITHUB_CLIENT_ID"
+    ]) == var.runtime_environment_variables.GITHUB_CLIENT_ID
+    error_message = "A generic client ID at Hub's UTF-16 length limit must be retained."
+  }
+}
+
+run "named_github_settings_reject_values_above_their_limits" {
+  command = plan
+
+  variables {
+    hub_application_origin     = "https://hub.example.com"
+    github_app_id              = "9007199254740992"
+    github_client_id           = join("", [for i in range(201) : "c"])
+    github_app_installation_id = "9007199254740992"
+    github_provider_revision   = 2147483648
+  }
+
+  expect_failures = [
+    var.github_app_id,
+    var.github_client_id,
+    var.github_app_installation_id,
+    var.github_provider_revision,
+  ]
+}
+
+run "named_github_settings_reject_empty_and_non_positive_values" {
+  command = plan
+
+  variables {
+    github_app_id              = "0"
+    github_client_id           = ""
+    github_app_installation_id = "0"
+    github_provider_revision   = 0
+  }
+
+  expect_failures = [
+    var.github_app_id,
+    var.github_client_id,
+    var.github_app_installation_id,
+    var.github_provider_revision,
+  ]
+}
+
+run "named_client_id_rejects_non_ascii_whitespace" {
+  command = plan
+
+  variables {
+    github_client_id = "client\u00a0id"
+  }
+
+  expect_failures = [var.github_client_id]
+}
+
+run "named_client_id_rejects_a_byte_order_mark" {
+  command = plan
+
+  variables {
+    github_client_id = "client\ufeffid"
+  }
+
+  expect_failures = [var.github_client_id]
+}
+
+run "generic_client_id_rejects_non_ascii_whitespace" {
+  command = plan
+
+  variables {
+    runtime_environment_variables = {
+      GITHUB_CLIENT_ID = "client\u00a0id"
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "generic_client_id_rejects_a_byte_order_mark" {
+  command = plan
+
+  variables {
+    runtime_environment_variables = {
+      GITHUB_CLIENT_ID = "client\ufeffid"
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "named_client_id_rejects_more_than_200_utf16_code_units" {
+  command = plan
+
+  variables {
+    github_client_id = join("", [for i in range(101) : "🔑"])
+  }
+
+  expect_failures = [var.github_client_id]
+}
+
+run "generic_client_id_rejects_more_than_200_utf16_code_units" {
+  command = plan
+
+  variables {
+    runtime_environment_variables = {
+      GITHUB_CLIENT_ID = join("", [for i in range(101) : "🔑"])
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "generic_app_id_rejects_an_unsafe_integer" {
+  command = plan
+
+  variables {
+    runtime_environment_variables = {
+      GITHUB_APP_ID = "9007199254740992"
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "generic_app_id_rejects_zero" {
+  command = plan
+
+  variables {
+    runtime_environment_variables = {
+      GITHUB_APP_ID = "0"
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "generic_installation_id_rejects_an_unsafe_integer" {
+  command = plan
+
+  variables {
+    runtime_environment_variables = {
+      GITHUB_APP_INSTALLATION_ID = "9007199254740992"
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "generic_installation_id_rejects_zero" {
+  command = plan
+
+  variables {
+    runtime_environment_variables = {
+      GITHUB_APP_INSTALLATION_ID = "0"
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "generic_client_id_rejects_more_than_200_characters" {
+  command = plan
+
+  variables {
+    runtime_environment_variables = {
+      GITHUB_CLIENT_ID = join("", [for i in range(201) : "c"])
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "generic_client_id_rejects_whitespace" {
+  command = plan
+
+  variables {
+    runtime_environment_variables = {
+      GITHUB_CLIENT_ID = "client id"
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "generic_provider_revision_rejects_postgresql_overflow" {
+  command = plan
+
+  variables {
+    runtime_environment_variables = {
+      GITHUB_PROVIDER_REVISION = "2147483648"
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "generic_provider_revision_rejects_zero" {
+  command = plan
+
+  variables {
+    runtime_environment_variables = {
+      GITHUB_PROVIDER_REVISION = "0"
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "generic_provider_revision_rejects_a_fraction" {
+  command = plan
+
+  variables {
+    runtime_environment_variables = {
+      GITHUB_PROVIDER_REVISION = "1.5"
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "generic_origin_must_be_an_exact_https_origin_for_authentication" {
+  command = plan
+
+  variables {
+    deploy_hub = true
+    runtime_environment_variables = {
+      GITHUB_CLIENT_ID       = "synthetic-client"
+      HUB_APPLICATION_ORIGIN = "https://hub.example.com/"
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "generic_origin_rejects_http" {
+  command = plan
+
+  variables {
+    deploy_hub = true
+    runtime_environment_variables = {
+      GITHUB_CLIENT_ID       = "synthetic-client"
+      HUB_APPLICATION_ORIGIN = "http://hub.example.com"
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
 }
 
 run "non_positive_github_provider_revision_is_rejected" {
@@ -1143,6 +1587,7 @@ run "copilot_only_github_app_key_requires_only_the_app_id" {
   command = plan
 
   variables {
+    deploy_hub    = true
     github_app_id = "123456"
     runtime_environment_variables = {
       REPLICA_COPILOT_AUTHENTICATION         = "github-app-installation"

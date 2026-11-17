@@ -77,7 +77,7 @@ An existing name-only workspace such as `.local/INSTALLATION_NAME/` blocks deplo
 
 Updates preserve validated optional inputs already stored in the workspace's `installation.tfvars.json`: Hub's public origin, GitHub App identifiers and provider revision, `runtime_environment_variables`, `runtime_secret_references`, PostgreSQL SKU and major version, backup retention, and the custom hostname/certificate pair. Runtime environment values must be strings with valid names and cannot override deployment-owned settings or share names with secret references or named GitHub settings. Runtime references must match the main module's environment-name and Key Vault rules and must not reference the migration credential. Other customizations or invalid inputs stop setup before cloud changes or input rewrites. Review changes to immutable infrastructure through the existing Terraform guards; retaining a setting is not approval to replace resources.
 
-Set `hub_application_origin` to an exact HTTPS origin such as `https://hub.example.com`, with a lowercase host and no default `:443` port, path, query, fragment, credentials, or trailing slash. A non-default port is allowed. Leaving it unset keeps the default Container Apps hostname.
+Set `hub_application_origin` to an exact HTTPS origin such as `https://hub.example.com`, with a lowercase host and no default `:443` port, path, query, fragment, credentials, or trailing slash. A non-default port is allowed. Hub authentication requires this origin, including when using the default Container Apps hostname. An unauthenticated or Copilot-only installation can leave it unset.
 
 ```sh
 # Collect and save configuration without creating cloud resources.

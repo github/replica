@@ -100,11 +100,16 @@ export async function readInstallationInputs(
   for (const key of ["github_app_id", "github_app_installation_id"] as const) {
     const value = inputs[key]
     if (value == null) continue
-    if (typeof value !== "string" || !/^[1-9][0-9]*$/.test(value)) throw invalid()
+    if (
+      typeof value !== "string" ||
+      !/^[1-9][0-9]*$/.test(value) ||
+      !Number.isSafeInteger(Number(value))
+    )
+      throw invalid()
     result[key] = value
   }
   if (inputs.github_client_id != null) {
-    if (typeof inputs.github_client_id !== "string" || !/^\S+$/.test(inputs.github_client_id))
+    if (typeof inputs.github_client_id !== "string" || !/^\S{1,200}$/.test(inputs.github_client_id))
       throw invalid()
     result.github_client_id = inputs.github_client_id
   }
@@ -118,7 +123,13 @@ export async function readInstallationInputs(
   }
   if (inputs.github_provider_revision != null) {
     const revision = inputs.github_provider_revision
-    if (typeof revision !== "number" || !Number.isInteger(revision) || revision < 1) throw invalid()
+    if (
+      typeof revision !== "number" ||
+      !Number.isSafeInteger(revision) ||
+      revision < 1 ||
+      revision > 2_147_483_647
+    )
+      throw invalid()
     result.github_provider_revision = revision
   }
   // Match the pinned provider's input contract before maintenance can stop Hub.
@@ -235,6 +246,32 @@ export async function readInstallationInputs(
   for (const [name, value] of Object.entries(githubEnvironment)) {
     if (value !== undefined) environment[name] = String(value)
   }
+  for (const name of ["GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID"] as const) {
+    const value = environment[name]
+    if (
+      value !== undefined &&
+      (!/^[1-9][0-9]*$/.test(value) || !Number.isSafeInteger(Number(value)))
+    )
+      throw invalid()
+  }
+  if (
+    environment.GITHUB_CLIENT_ID !== undefined &&
+    !/^\S{1,200}$/.test(environment.GITHUB_CLIENT_ID)
+  )
+    throw invalid()
+  const revision = environment.GITHUB_PROVIDER_REVISION
+  if (
+    revision !== undefined &&
+    (!/^[1-9][0-9]*$/.test(revision) ||
+      !Number.isSafeInteger(Number(revision)) ||
+      Number(revision) > 2_147_483_647)
+  )
+    throw invalid()
+  if (
+    environment.HUB_APPLICATION_ORIGIN !== undefined &&
+    !parseHttpsOrigin(environment.HUB_APPLICATION_ORIGIN)
+  )
+    throw invalid()
   // Mirrors Hub: an App used only for Copilot needs no sign-in, installation, or webhook settings.
   const copilotOnly =
     environment.REPLICA_COPILOT_AUTHENTICATION?.trim() === "github-app-installation" &&
@@ -254,5 +291,35 @@ export async function readInstallationInputs(
           (!environment.GITHUB_CLIENT_ID || !environment.GITHUB_APP_INSTALLATION_ID))))
   )
     throw invalid()
+  const configured = (name: string) => Boolean(environment[name]?.trim() || secrets[name])
+  const githubSettings = [
+    "GITHUB_APP_ID",
+    "GITHUB_APP_PRIVATE_KEY_BASE64",
+    "GITHUB_APP_INSTALLATION_ID",
+    "GITHUB_WEBHOOK_SECRET",
+    "GITHUB_CLIENT_ID",
+    "GITHUB_CLIENT_SECRET",
+    "GITHUB_PROVIDER_REVISION",
+  ]
+  const otherAuthenticationSettings = [
+    "HUB_AUTHENTICATION_ENCRYPTION_KEY",
+    "HUB_BOOTSTRAP_SECRET",
+    "ENTRA_OIDC_CLIENT_AUTHENTICATION",
+    "ENTRA_OIDC_CLIENT_ID",
+    "ENTRA_OIDC_CLIENT_SECRET",
+    "ENTRA_OIDC_ISSUER",
+    "ENTRA_OIDC_MANAGED_IDENTITY_CLIENT_ID",
+    "ENTRA_OIDC_PROVIDER_REVISION",
+  ]
+  if (
+    ((githubSettings.some(configured) && !copilotOnly) ||
+      otherAuthenticationSettings.some(configured) ||
+      environment.HUB_LOCAL_SIGN_IN?.trim() === "true" ||
+      secrets.HUB_LOCAL_SIGN_IN) &&
+    !configured("HUB_APPLICATION_ORIGIN")
+  )
+    throw new Error(
+      "Saved Terraform inputs require HUB_APPLICATION_ORIGIN when authentication is configured. Supply an exact HTTPS origin or a secret reference before retrying; no cloud changes or input rewrites were started.",
+    )
   return result
 }
