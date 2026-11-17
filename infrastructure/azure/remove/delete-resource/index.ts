@@ -12,6 +12,8 @@ export async function deleteRemovalResource(
 ): Promise<void> {
   for (let attempt = 0; ; attempt++) {
     context.signal?.throwIfAborted()
+    // A deletion can finish during the retry delay, after which the guard may no longer exist.
+    if (attempt > 0 && (await absent())) return
     await verify()
     try {
       await context.azure(...args)

@@ -55,6 +55,20 @@ it.each([
   expect(verify).toHaveBeenCalledOnce()
 })
 
+it("returns without rechecking the guard when deletion finishes during the retry delay", async () => {
+  const azure = vi.fn(async () => {
+    throw new CommandExecutionError("Failed", false, 1, "ServiceUnavailable")
+  })
+  const absent = vi.fn().mockResolvedValueOnce(false).mockResolvedValue(true)
+  const verify = vi.fn(async () => {})
+
+  await deleteRemovalResource({ azure, ui: { status: vi.fn() } }, ["group", "delete"], absent, verify)
+
+  expect(azure).toHaveBeenCalledOnce()
+  expect(verify).toHaveBeenCalledOnce()
+  expect(absent).toHaveBeenCalledTimes(2)
+})
+
 it("stops a retry when ownership changes after the first failed deletion", async () => {
   const error = new Error("Synthetic ownership changed")
   const azure = vi.fn(async () => {
@@ -68,6 +82,6 @@ it("stops a retry when ownership changes after the first failed deletion", async
   ).rejects.toBe(error)
 
   expect(azure).toHaveBeenCalledOnce()
-  expect(absent).toHaveBeenCalledOnce()
+  expect(absent).toHaveBeenCalledTimes(2)
   expect(verify).toHaveBeenCalledTimes(2)
 })
