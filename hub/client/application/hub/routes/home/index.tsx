@@ -2,7 +2,7 @@ import { redirect, useLocation } from "react-router"
 
 import { RepositoriesIndexPage } from "@pages/repositories-index-page"
 import { HubApplication } from "@application/hub-application"
-import { isAuthenticationRoute } from "@application/hub/is-authentication-route"
+import { isPublicRoute } from "@application/hub/is-public-route"
 import { noRepositoryAccessLocation } from "@application/hub/no-repository-access-location"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
 import { getCurrentHubSession } from "@application/hub/requests/get-current-hub-session"
@@ -17,7 +17,7 @@ export async function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "re
   if (mock) {
     const session = await getSession(request)
     if (!session.viewer) throw redirect("/sign-in")
-  } else if (isAuthenticationRoute(request)) {
+  } else if (isPublicRoute(request)) {
     try {
       await getCurrentHubSession(request)
     } catch (error) {

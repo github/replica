@@ -74,7 +74,9 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
         onStartAreaSelection: review.startAreaSelection,
         onStartElementSelection: review.startElementSelection,
         commentCount: review.threads.length,
-        hasUnreadComments: review.threads.some((thread) => thread.unread),
+        hasUnreadComments:
+          Boolean(data.reviewComments.supportsReadState) &&
+          review.threads.some((thread) => thread.unread),
         sidebarToggleBlocked: bridge.selectedAnchor !== null || review.conversationDraftActive,
         sidebarOpen: review.sidebarOpen,
         onToggleSidebar: review.toggleSidebar,
@@ -96,14 +98,35 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
   }, [infoOpen, composerExpanded, submission, iframeRef])
 
   let address = data.selectedBuild?.previewUrl ?? ""
+  let externalAddress = address
+  let isolatedPreview = false
   if (address && bridge.route) {
-    const url = new URL(address)
-    url.pathname = bridge.route.pathname
-    url.search = bridge.route.search
-    url.hash = bridge.route.hash
-    address = url.toString()
+    const authorizationUrl = new URL(address)
+    const previewOrigin = authorizationUrl.searchParams.get("preview_origin")
+    if (previewOrigin) {
+      isolatedPreview = true
+      const viewerUrl = new URL(previewOrigin)
+      viewerUrl.pathname = bridge.route.pathname
+      viewerUrl.search = bridge.route.search
+      viewerUrl.hash = bridge.route.hash
+      address = viewerUrl.toString()
+      authorizationUrl.searchParams.set(
+        "route",
+        `${bridge.route.pathname}${bridge.route.search}${bridge.route.hash}`,
+      )
+      externalAddress = authorizationUrl.toString()
+    } else {
+      authorizationUrl.pathname = bridge.route.pathname
+      authorizationUrl.search = bridge.route.search
+      authorizationUrl.hash = bridge.route.hash
+      address = authorizationUrl.toString()
+      externalAddress = address
+    }
   }
-  address = viewerUrl ?? address
+  if (!isolatedPreview) {
+    address = viewerUrl ?? address
+    externalAddress = viewerUrl ?? externalAddress
+  }
 
   function branchFromHere() {
     setInfoMode(null)
@@ -176,6 +199,7 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
               {data.selectedBuild ? (
                 <PrototypePreview
                   address={address}
+                  externalAddress={externalAddress}
                   copy={data}
                   iframeRef={iframeRef}
                   previewUrl={data.selectedBuild.previewUrl}
@@ -229,22 +253,36 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
                         onReopen={async () =>
                           Boolean(await review.comments.reopenThread(selectedThread.root.id))
                         }
-                        onAddReaction={async (commentId, content) =>
-                          Boolean(await review.comments.addReaction(commentId, content))
+                        onAddReaction={
+                          data.reviewComments.supportsReactions
+                            ? async (commentId, content) =>
+                                Boolean(await review.comments.addReaction(commentId, content))
+                            : undefined
                         }
-                        onRemoveReaction={async (commentId, content) =>
-                          Boolean(await review.comments.removeReaction(commentId, content))
+                        onRemoveReaction={
+                          data.reviewComments.supportsReactions
+                            ? async (commentId, content) =>
+                                Boolean(await review.comments.removeReaction(commentId, content))
+                            : undefined
                         }
-                        onMarkRead={async (activityVersion) =>
-                          Boolean(
-                            await review.comments.markThreadRead(
-                              selectedThread.root.id,
-                              activityVersion,
-                            ),
-                          )
+                        onMarkRead={
+                          data.reviewComments.supportsReadState
+                            ? async (activityVersion) =>
+                                Boolean(
+                                  await review.comments.markThreadRead(
+                                    selectedThread.root.id,
+                                    activityVersion,
+                                  ),
+                                )
+                            : undefined
                         }
-                        onMarkUnread={async () =>
-                          Boolean(await review.comments.markThreadUnread(selectedThread.root.id))
+                        onMarkUnread={
+                          data.reviewComments.supportsReadState
+                            ? async () =>
+                                Boolean(
+                                  await review.comments.markThreadUnread(selectedThread.root.id),
+                                )
+                            : undefined
                         }
                       />
                     </div>
@@ -328,6 +366,7 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
                   }
                   closeBlocked={review.conversationDraftActive}
                   showPins={review.showPins}
+                  supportsReadState={data.reviewComments.supportsReadState}
                   loading={review.comments.loading}
                   loadFailed={review.comments.loadFailed}
                   copy={data.reviewComments.copy}

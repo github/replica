@@ -7,6 +7,8 @@ import type { LearningsRouteDependencies } from "../routes/api/learnings/types.t
 import type { ProductRouteDependencies } from "../routes/api/product/types.ts"
 import type { GitHubWebhookRouteDependencies } from "../routes/api/github/webhooks/types.ts"
 import type { GitHubSetupRouteDependencies } from "../routes/api/settings/github/types.ts"
+import type { PublicSharingRouteDependencies } from "../routes/api/public-sharing/types.ts"
+import type { BuildPreviewRouteDependencies } from "../routes/build-preview/types.ts"
 import { runApi } from "../run-api/index.ts"
 import { jobProcessors } from "../workers/configuration.ts"
 import { runJobWorker } from "../workers/run-job-worker/index.ts"
@@ -27,6 +29,8 @@ export async function startServerProcesses(options: {
   product?: ProductRouteDependencies
   githubSetup?: GitHubSetupRouteDependencies
   githubWebhooks?: GitHubWebhookRouteDependencies
+  publicSharing?: PublicSharingRouteDependencies
+  preview?: BuildPreviewRouteDependencies
   trustedProxyHops?: number
 }) {
   const controller = new AbortController()

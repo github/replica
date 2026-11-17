@@ -52,26 +52,31 @@ async function withServer(
   }
 }
 
-async function createMember(login: string, name: string | null): Promise<NonNullable<Session>> {
+async function createMember(
+  login: string,
+  name: string | null,
+  provider = "local",
+): Promise<NonNullable<Session>> {
   const user = await prisma.user.create({
-    data: { profile: { create: { provider: "github", login, name } } },
+    data: { profile: { create: { provider, login, name } } },
   })
   return {
     membershipId: randomUUID(),
     userId: user.id,
-    provider: "github",
-    sessionProvider: "github",
+    provider,
+    sessionProvider: provider,
     login,
     name,
     role: "MEMBER",
   }
 }
 
-async function createReviewTarget() {
+async function createReviewTarget({ configured = true } = {}) {
   const repository = await prisma.repository.create({
     data: {
       nameWithOwner: `team/review-${randomUUID()}`,
       defaultBranch: "main",
+      localPath: configured ? `/workspace/review-${randomUUID()}` : null,
     },
   })
   const prototype = await prisma.prototype.create({
@@ -176,6 +181,33 @@ describe("review comments API", () => {
         thread: { resolvedAt: null },
       })
       expect(await prisma.reviewComment.count()).toBe(1)
+    })
+  })
+
+  it("allows configured local repositories without revealing denied repositories", async () => {
+    const configured = await createReviewTarget()
+    const unconfigured = await createReviewTarget({ configured: false })
+    const localMember = await createMember("local-developer", "Local developer")
+    const githubMember = await createMember("mona", "Mona", "github")
+    const restore = vi.fn().mockResolvedValue(localMember)
+
+    await withServer(restore, async (baseUrl) => {
+      const allowed = await fetch(`${baseUrl}${configured.path}`, { headers: sessionHeaders })
+      expect(allowed.status).toBe(200)
+
+      restore.mockResolvedValue(githubMember)
+      const githubDenied = await fetch(`${baseUrl}${configured.path}`, {
+        headers: sessionHeaders,
+      })
+      expect(githubDenied.status).toBe(404)
+
+      restore.mockResolvedValue(localMember)
+      const unconfiguredDenied = await fetch(`${baseUrl}${unconfigured.path}`, {
+        headers: sessionHeaders,
+      })
+      expect(unconfiguredDenied.status).toBe(404)
+
+      expect(await githubDenied.json()).toEqual(await unconfiguredDenied.json())
     })
   })
 

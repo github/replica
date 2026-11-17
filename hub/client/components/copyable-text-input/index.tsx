@@ -13,6 +13,7 @@ type CopyableTextInputProps = {
   copyLabel: string
   copiedLabel: string
   copyErrorLabel: string
+  copyValue?: string
   compact?: boolean
 }
 
@@ -22,21 +23,22 @@ export function CopyableTextInput({
   copyLabel,
   copiedLabel,
   copyErrorLabel,
+  copyValue = value,
   compact = false,
 }: CopyableTextInputProps) {
   const [copyResult, setCopyResult] = useState<{
     value: string
     status: "copied" | "failed"
   } | null>(null)
-  const status = copyResult?.value === value ? copyResult.status : null
+  const status = copyResult?.value === copyValue ? copyResult.status : null
   const buttonLabel = status === "copied" ? copiedLabel : copyLabel
 
   async function copy() {
     try {
-      await navigator.clipboard.writeText(value)
-      setCopyResult({ value, status: "copied" })
+      await navigator.clipboard.writeText(copyValue)
+      setCopyResult({ value: copyValue, status: "copied" })
     } catch {
-      setCopyResult({ value, status: "failed" })
+      setCopyResult({ value: copyValue, status: "failed" })
     }
   }
 

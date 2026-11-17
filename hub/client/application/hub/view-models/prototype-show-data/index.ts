@@ -27,7 +27,10 @@ export function prototypeShowData(
 
   return {
     ...workspaceData,
-    shareLinksPath: options.real ? undefined : workspaceData.shareLinksPath,
+    shareLinksPath:
+      options.real && !workspace.capabilities?.manageSharing
+        ? undefined
+        : workspaceData.shareLinksPath,
     buildPinned: search.has("build"),
     controlsIdentity: data.controlsIdentity,
     prototypeName: data.prototype.name,
@@ -82,6 +85,8 @@ export function prototypeShowData(
     reviewComments: {
       bodyMaximumBytes: 10_000,
       copy: reviewCommentsCopy,
+      supportsReactions: !options.real,
+      supportsReadState: !options.real,
     },
     latestBuild: selectedBuild && !previewBuild ? undefined : workspaceData.latestBuild,
     buildSelectionLabel:

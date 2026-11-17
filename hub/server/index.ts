@@ -4,6 +4,12 @@ import { createConfiguredArtifactStorage } from "./domains/artifacts/create-conf
 import { LocalSignInConfigurationError } from "./domains/authentication/errors.ts"
 import { readLearningConfiguration } from "./domains/learning/read-learning-configuration/index.ts"
 import { LearningConfigurationError } from "./domains/learning/errors.ts"
+import {
+  LocalDevelopmentConfigurationError,
+  LocalDevelopmentPreparationError,
+} from "./domains/local-development/errors.ts"
+import { prepareLocalDevelopment } from "./domains/local-development/prepare-local-development/index.ts"
+import { readLocalDevelopmentConfiguration } from "./domains/local-development/read-local-development-configuration/index.ts"
 import { readAuthenticationConfigurationState } from "./domains/authentication/read-authentication-configuration-state/index.ts"
 import { createGitHubAuthenticationContext } from "./domains/authentication/create-github-authentication-context/index.ts"
 import { createSharedAuthenticationContext } from "./domains/authentication/create-shared-authentication-context/index.ts"
@@ -24,11 +30,15 @@ import type { LearningsRouteDependencies } from "./routes/api/learnings/types.ts
 import type { ProductRouteDependencies } from "./routes/api/product/types.ts"
 import type { GitHubWebhookRouteDependencies } from "./routes/api/github/webhooks/types.ts"
 import type { GitHubSetupRouteDependencies } from "./routes/api/settings/github/types.ts"
+import type { PublicSharingRouteDependencies } from "./routes/api/public-sharing/types.ts"
+import type { BuildPreviewRouteDependencies } from "./routes/build-preview/types.ts"
 
 class AuthenticationConfigurationError extends Error {}
 
 try {
   const configuration = parseRuntimeConfig(process.env)
+  const localDevelopment = readLocalDevelopmentConfiguration(process.env)
+  await prepareLocalDevelopment(localDevelopment)
   if (configuration.mode !== "setup") await readLearningConfiguration(process.env)
   const storage =
     configuration.mode !== "setup" && configuration.hasArtifactStorage
@@ -54,6 +64,8 @@ try {
     let product: ProductRouteDependencies | undefined
     let githubSetup: GitHubSetupRouteDependencies | undefined
     let githubWebhooks: GitHubWebhookRouteDependencies | undefined
+    let preview: BuildPreviewRouteDependencies | undefined
+    let publicSharing: PublicSharingRouteDependencies | undefined
     if (runsApi) {
       const authenticationEnvironment = resolveLocalSignInEnvironment(process.env)
       const authenticationConfiguration =
@@ -106,6 +118,27 @@ try {
         try {
           if (authenticationConfiguration.providerConfigured) {
             authentication = await createAuthenticationRouteDependencies(authenticationEnvironment)
+            const previewConfigured = storage && authenticationEnvironment.HUB_PREVIEW_ORIGIN
+            if (previewConfigured) {
+              const { createBuildPreviewRouteDependencies } =
+                await import("./routes/build-preview/create-build-preview-route-dependencies/index.ts")
+              preview = createBuildPreviewRouteDependencies(authenticationEnvironment, storage)
+              preview.restoreSession = authentication.currentSession.restore.bind(
+                authentication.currentSession,
+              )
+              if (authentication.local) {
+                const { createPublicSharingRouteDependencies } =
+                  await import("./routes/api/public-sharing/create-public-sharing-route-dependencies/index.ts")
+                const sharing =
+                  await createPublicSharingRouteDependencies(authenticationEnvironment)
+                publicSharing = sharing
+                preview = {
+                  ...preview,
+                  readAvailableShareLink: (shareLinkId, buildId) =>
+                    sharing.readAvailableLink(shareLinkId, buildId),
+                }
+              }
+            }
             const { createCopilotConnectionRouteDependencies } =
               await import("./routes/api/copilot-connection/create-copilot-connection-route-dependencies/index.ts")
             copilotConnection = await createCopilotConnectionRouteDependencies(
@@ -126,7 +159,13 @@ try {
               await import("./routes/api/product/create-product-route-dependencies/index.ts")
             product = createProductRouteDependencies({
               scopeGitHubMembers: authenticationConfiguration.githubConfigured,
+              applicationOrigin: previewConfigured
+                ? authenticationEnvironment.HUB_APPLICATION_ORIGIN
+                : undefined,
               onReviewCommentDeleted: (input) => learningDependencies.redactComment(input),
+              previewBaseOrigin: previewConfigured
+                ? authenticationEnvironment.HUB_PREVIEW_ORIGIN
+                : undefined,
               withReviewCommentDeleteLock: (operation) =>
                 learningDependencies.serializeReviewCommentDeletion(operation),
             })
@@ -180,6 +219,8 @@ try {
         copilotConnection,
         learnings,
         product,
+        preview,
+        publicSharing,
         trustedProxyHops,
       })
     else {
@@ -197,6 +238,8 @@ try {
           copilotConnection,
           learnings,
           product,
+          preview,
+          publicSharing,
           trustedProxyHops,
         })
       } else {
@@ -220,7 +263,9 @@ try {
 } catch (error) {
   logger.fatal(
     error instanceof AuthenticationConfigurationError ||
-      error instanceof LocalSignInConfigurationError
+      error instanceof LocalSignInConfigurationError ||
+      error instanceof LocalDevelopmentConfigurationError ||
+      error instanceof LocalDevelopmentPreparationError
       ? error.message
       : error instanceof LearningConfigurationError
         ? error.message

@@ -13,6 +13,8 @@ export function productPublicData(response: ProductPublicResponse): SharedBuilds
       ...common,
       frameTitle: `${response.prototypeName} · Build ${response.buildNumber}`,
       previewUrl: response.previewUrl,
+      controlsIdentity: response.controlsIdentity,
+      controlsOrigin: response.controlsOrigin,
     }
   }
   const feedback = {

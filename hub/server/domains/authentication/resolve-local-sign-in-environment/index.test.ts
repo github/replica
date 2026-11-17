@@ -54,7 +54,7 @@ describe("resolveLocalSignInEnvironment()", () => {
         ...key,
       })
 
-      expect(resolved.HUB_APPLICATION_ORIGIN).toBe("http://127.0.0.1:5173")
+      expect(resolved.HUB_APPLICATION_ORIGIN).toBe("http://localhost:5173")
       expect(resolved.GITHUB_APP_ID).toBe("123")
     }
   })
@@ -98,7 +98,7 @@ describe("resolveLocalSignInEnvironment()", () => {
       HUB_BOOTSTRAP_SECRET: "bootstrap-secret-that-is-at-least-32-characters",
     })
 
-    expect(resolved.HUB_APPLICATION_ORIGIN).toBe("http://127.0.0.1:5173")
+    expect(resolved.HUB_APPLICATION_ORIGIN).toBe("http://localhost:5173")
     expect(Buffer.from(resolved.HUB_AUTHENTICATION_ENCRYPTION_KEY!, "base64")).toHaveLength(32)
     expect(resolved.HUB_BOOTSTRAP_SECRET).toBe("bootstrap-secret-that-is-at-least-32-characters")
   })

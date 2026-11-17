@@ -23,6 +23,7 @@ export function ReviewCommentFilterControls({
   filters,
   participants,
   showPins,
+  supportsReadState = true,
   copy,
   onFiltersChange,
   onShowPinsChange,
@@ -32,7 +33,7 @@ export function ReviewCommentFilterControls({
     filters.currentBuildOnly ||
     filters.currentPageOnly ||
     filters.showResolved ||
-    !filters.showRead ||
+    (supportsReadState && !filters.showRead) ||
     filters.onlyMine ||
     filters.participant !== null ||
     !showPins
@@ -163,16 +164,18 @@ export function ReviewCommentFilterControls({
             />
           </div>
 
-          <div className="review-comment-filter-controls__toggle">
-            <span id="review-comments-unread-only">{copy.unreadOnlyLabel}</span>
+          {supportsReadState ? (
+            <div className="review-comment-filter-controls__toggle">
+              <span id="review-comments-unread-only">{copy.unreadOnlyLabel}</span>
 
-            <HubSwitch
-              aria-labelledby="review-comments-unread-only"
-              checked={!filters.showRead}
-              size="small"
-              onChange={(checked) => onFiltersChange({ ...filters, showRead: !checked })}
-            />
-          </div>
+              <HubSwitch
+                aria-labelledby="review-comments-unread-only"
+                checked={!filters.showRead}
+                size="small"
+                onChange={(checked) => onFiltersChange({ ...filters, showRead: !checked })}
+              />
+            </div>
+          ) : null}
 
           <div className="review-comment-filter-controls__toggle">
             <span id="review-comments-only-mine">{copy.onlyMineLabel}</span>

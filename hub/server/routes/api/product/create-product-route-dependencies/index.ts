@@ -3,6 +3,7 @@ import { restoreHubSession } from "../../../../domains/admission/restore-hub-ses
 import { runSessionRestoreTransaction } from "../../../../domains/admission/run-session-restore-transaction/index.ts"
 import { editPrototypeMetadata } from "../../../../domains/prototypes/edit-prototype-metadata/index.ts"
 import { readPrototypeWithIntroduction } from "../../../../domains/prototypes/read-prototype-with-introduction/index.ts"
+import { authorizeRepositoryReview } from "../../../../domains/review-comments/authorize-repository-review/index.ts"
 import { createReviewCommentService } from "../../../../domains/review-comments/create-review-comment-service/index.ts"
 import { ReviewCommentError } from "../../../../domains/review-comments/errors.ts"
 import { prisma } from "../../../../integrations/prisma/index.ts"
@@ -19,11 +20,15 @@ import { lockVisiblePrototype } from "../../../../repositories/prototypes/lock-v
 import { updatePrototypeMetadata } from "../../../../repositories/prototypes/update-prototype-metadata/index.ts"
 import { lockSessionRevocationState } from "../../../../repositories/session-revocation-states/lock-session-revocation-state/index.ts"
 import { findCurrentSessionProfile } from "../../../../repositories/user-profiles/find-current-session-profile/index.ts"
+import { findBuildPreviewTarget } from "../../../../repositories/build-artifacts/find-build-preview-target/index.ts"
+import { findRepositoryReviewAccess } from "../../../../repositories/review-comments/find-repository-review-access/index.ts"
+import { createBuildPreviewOrigin } from "../../../../domains/build-preview/create-build-preview-origin/index.ts"
 import { resolveRepositoryScope } from "../resolve-repository-scope/index.ts"
 import type { ProductRouteDependencies } from "../types.ts"
 
 interface CreateProductRouteDependenciesOptions {
   scopeGitHubMembers?: boolean
+  applicationOrigin?: string
   authorizeReviewMutation?: (
     transaction: Prisma.TransactionClient,
     sessionDigest: string,
@@ -35,13 +40,16 @@ interface CreateProductRouteDependenciesOptions {
     commentId: number
     actorLogin: string
   }) => Promise<void>
+  previewBaseOrigin?: string
   withReviewCommentDeleteLock?: <T>(operation: () => Promise<T>) => Promise<T>
 }
 
 export function createProductRouteDependencies({
   scopeGitHubMembers = false,
+  applicationOrigin,
   authorizeReviewMutation,
   onReviewCommentDeleted,
+  previewBaseOrigin,
   withReviewCommentDeleteLock,
 }: CreateProductRouteDependenciesOptions = {}): ProductRouteDependencies {
   function scope(viewer: Parameters<typeof resolveRepositoryScope>[0]) {
@@ -104,6 +112,27 @@ export function createProductRouteDependencies({
       }
       return true
     })
+  const buildArtifactUrl =
+    applicationOrigin && previewBaseOrigin
+      ? (
+          buildId: string,
+          repositoryId: string,
+          prototypeId: string,
+          buildNumber: number,
+          target: "preview" | "desktop" | "narrow",
+        ) => {
+          const url = new URL(
+            `/api/repositories/${repositoryId}/prototypes/${prototypeId}/builds/${buildNumber}/access`,
+            applicationOrigin,
+          )
+          url.searchParams.set("target", target)
+          url.searchParams.set(
+            "preview_origin",
+            createBuildPreviewOrigin(buildId, previewBaseOrigin),
+          )
+          return url.toString()
+        }
+      : undefined
   return {
     reviewComments: createReviewCommentService(prisma, authorizeReview, {
       onDeleted: onReviewCommentDeleted,
@@ -111,11 +140,21 @@ export function createProductRouteDependencies({
     }),
     isRepositoryVisible: (viewer, repositoryId) =>
       repositoryIsVisible(prisma, repositoryId, viewer),
+    authorizeReviewAccess: async (repositoryId, actor) =>
+      authorizeRepositoryReview(actor, await findRepositoryReviewAccess(prisma, repositoryId)),
     listRepositories: (viewer) => listRepositories(prisma, scope(viewer)),
     findRepositoryIndex: (viewer, repositoryId, filters) =>
       findRepositoryIndex(prisma, repositoryId, filters, scope(viewer)),
     findPrototypeDetail: (viewer, repositoryId, prototypeId, buildNumber, buildPage) =>
-      findPrototypeDetail(prisma, repositoryId, prototypeId, buildNumber, buildPage, scope(viewer)),
+      findPrototypeDetail(
+        prisma,
+        repositoryId,
+        prototypeId,
+        buildNumber,
+        buildPage,
+        scope(viewer),
+        buildArtifactUrl,
+      ),
     readPrototypeWithIntroduction: (input, prepare) =>
       readPrototypeWithIntroduction(input, {
         prepare,
@@ -138,6 +177,7 @@ export function createProductRouteDependencies({
                     buildNumber,
                     undefined,
                     scope(viewer),
+                    buildArtifactUrl,
                   ),
                 recordIntroduction: (userId, prototypeId) =>
                   recordPrototypeIntroduction(transaction, userId, prototypeId),
@@ -172,11 +212,14 @@ export function createProductRouteDependencies({
                     undefined,
                     undefined,
                     scope(viewer),
+                    buildArtifactUrl,
                   ),
               })
             },
             { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
           ),
       }),
+    findBuildPreviewTarget: (repositoryId, prototypeId, buildNumber, target) =>
+      findBuildPreviewTarget(prisma, { repositoryId, prototypeId, buildNumber, target }),
   }
 }

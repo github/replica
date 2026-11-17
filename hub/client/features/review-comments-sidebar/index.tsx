@@ -26,6 +26,7 @@ export function ReviewCommentsSidebar({
   selectionBlocked,
   closeBlocked,
   showPins,
+  supportsReadState,
   loading,
   loadFailed,
   notice,
@@ -47,6 +48,7 @@ export function ReviewCommentsSidebar({
         filters={filters}
         participants={participants}
         showPins={showPins}
+        supportsReadState={supportsReadState}
         copy={copy}
         onFiltersChange={onFiltersChange}
         onShowPinsChange={onShowPinsChange}

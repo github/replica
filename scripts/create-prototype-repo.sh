@@ -18,7 +18,17 @@ fi
 
 parent="$(cd "$parent" && pwd -P)"
 destination="$parent/$name"
-if [[ "$parent" == "$source_root" || "$parent" == "$source_root/"* ]]; then
+internal_root="${REPLICA_INTERNAL_STARTER_ROOT:-}"
+if [[ -n "$internal_root" ]]; then
+  if [[ ! -d "$internal_root" ]]; then
+    printf 'Internal starter root must be an existing directory.\n' >&2
+    exit 1
+  fi
+  internal_root="$(cd "$internal_root" && pwd -P)"
+fi
+if [[ ( "$parent" == "$source_root" || "$parent" == "$source_root/"* ) &&
+      ( -z "$internal_root" ||
+        ( "$parent" != "$internal_root" && "$parent" != "$internal_root/"* ) ) ]]; then
   printf 'Create the new repository outside the Replica checkout.\n' >&2
   exit 1
 fi

@@ -1,6 +1,6 @@
 # Artifact storage
 
-The artifact storage foundation saves immutable bytes behind a provider-neutral domain API. It does not import Builds, extract archives, host previews, authorize access, or add product routes or database models.
+The artifact storage foundation saves immutable bytes behind a provider-neutral domain API. Development-only local Builds use it to save checked package files and record their `BuildArtifact` keys, paths, kinds, and byte lengths. Storage does not import Builds or extract archives; the separate [preview layer](build-previews.md) owns authorization and serving.
 
 ## Composition
 
@@ -49,7 +49,7 @@ Keys are case-sensitive opaque strings of 1–128 ASCII letters, digits, undersc
 
 Writes accept a `Uint8Array` of at most 32 MiB, including empty bytes, and never overwrite an existing key. Reads return a bounded `Uint8Array`. A successful operation returns `{ status: "ok" }`; a successful read also includes `bytes`. Each operation has its own result type: reads may fail with `invalid-key`, `too-large`, `not-found`, or `unavailable`; writes with `invalid-key`, `too-large`, `already-exists`, or `unavailable`; deletes with `invalid-key`, `not-found`, or `unavailable`. Missing reads and deletes are explicit `not-found` results, not empty bytes or silent success. Provider messages and credentials are not included in results.
 
-Immutability prevents overwriting bytes while a key exists. Deleting a key permits later reuse. Callers own authorization, key allocation, retention, and coordination between deletion and other work.
+Immutability prevents overwriting bytes while a key exists. Deleting a key permits later reuse. Callers own authorization, key allocation, retention, and coordination between deletion and other work. Build integrations use opaque deterministic keys and persist `BuildArtifact.kind`, package-relative `path`, `storageKey`, and `byteLength`; preview serving derives the response content type from the checked package path.
 
 ## Local filesystem
 

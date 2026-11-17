@@ -160,7 +160,11 @@ export function ReviewThreadConversation({
 
   useEffect(() => {
     const openedActivityVersion = openedActivityVersionRef.current
-    if (!thread.unread || attemptedReadVersionRef.current === openedActivityVersion) {
+    if (
+      !onMarkRead ||
+      !thread.unread ||
+      attemptedReadVersionRef.current === openedActivityVersion
+    ) {
       return
     }
 
@@ -177,7 +181,9 @@ export function ReviewThreadConversation({
   }, [onMarkRead, thread.unread])
 
   async function markUnread() {
-    if (readPendingRef.current || unreadPendingRef.current || mutation !== null) return
+    if (!onMarkUnread || readPendingRef.current || unreadPendingRef.current || mutation !== null) {
+      return
+    }
 
     attemptedReadVersionRef.current = openedActivityVersionRef.current
     unreadPendingRef.current = true
@@ -409,11 +415,15 @@ export function ReviewThreadConversation({
               onDelete={() => {
                 void actions.deleteComment(comment.id)
               }}
-              onAddReaction={(content) => onAddReaction(comment.id, content)}
-              onRemoveReaction={(content) => onRemoveReaction(comment.id, content)}
+              onAddReaction={
+                onAddReaction ? (content) => onAddReaction(comment.id, content) : undefined
+              }
+              onRemoveReaction={
+                onRemoveReaction ? (content) => onRemoveReaction(comment.id, content) : undefined
+              }
               onBurstReaction={burst}
               onMarkUnread={
-                comment.kind === "root" && thread.root.buildNumber !== null
+                onMarkUnread && comment.kind === "root" && thread.root.buildNumber !== null
                   ? () => void markUnread()
                   : undefined
               }

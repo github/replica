@@ -9,10 +9,11 @@ vi.mock("./reconcile-github-installation", () => ({
 }))
 
 describe("learning worker configuration", () => {
-  it("keeps explicit runs and redactions on demand and recovery on the scheduled queue", () => {
+  it("keeps learning and local Build work on their intended queues", () => {
     expect(jobProcessors["on-demand"].map(({ name }) => name)).toEqual([
       "learning.run",
       "learning.redact-review-comment",
+      "synchronize-local-builds",
     ])
     expect(jobProcessors.scheduled.map(({ name }) => name)).toContain("learning.recover-runs")
     expect(jobSchedules).toContainEqual(

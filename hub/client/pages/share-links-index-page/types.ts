@@ -28,7 +28,7 @@ export interface ShareLinksIndexPageData extends PrototypeWorkspaceData {
   readOnlyLabel?: string
   openInNewTab?: boolean
   inactiveShareLinks?: Array<{
-    id: number
+    id: number | string
     label: string
     stateLabel: string
     url: string

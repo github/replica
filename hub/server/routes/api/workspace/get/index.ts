@@ -38,8 +38,8 @@ export function get(
         repositories,
         capabilities: {
           createPrototypes: false,
-          reviewPrototypes: false,
-          manageSharing: false,
+          reviewPrototypes: current.provider === "local",
+          manageSharing: current.provider === "local",
           administerHub: current.role === "ADMINISTRATOR",
         },
       })

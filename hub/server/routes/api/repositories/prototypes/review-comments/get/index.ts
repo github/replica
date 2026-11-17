@@ -4,15 +4,19 @@ import { hubSessionCookieName } from "../../../../../../integrations/express/hub
 import { readCookie } from "../../../../../../integrations/express/read-cookie/index.ts"
 import type { CurrentSessionDependencies } from "../../../../auth/types.ts"
 import { readProductWithCurrentAuthority } from "../../../../product/read-product-with-current-authority/index.ts"
-import type { ProductRouteDependencies } from "../../../../product/types.ts"
+import type {
+  ProductRouteDependencies,
+  ReviewRouteDependencies,
+} from "../../../../product/types.ts"
 import { readReviewIdentifiers } from "../../../../review-comments/read-review-identifiers/index.ts"
 import { readReviewSession } from "../../../../review-comments/read-review-session/index.ts"
 import { presentReviewThreadComments } from "../../../../review-comments/present-review-thread-comments/index.ts"
+import { requireReviewAccess } from "../../../../review-comments/require-review-access/index.ts"
 import { respondReviewError } from "../../../../review-comments/respond-review-error/index.ts"
 
 export function get(
   session: CurrentSessionDependencies,
-  reviewComments: NonNullable<ProductRouteDependencies["reviewComments"]>,
+  review: ReviewRouteDependencies,
   isRepositoryVisible: ProductRouteDependencies["isRepositoryVisible"],
 ): RequestHandler {
   return async (request, response, next) => {
@@ -27,13 +31,21 @@ export function get(
         response.status(400).json({ error: "Enter a valid review address." })
         return
       }
+      if (
+        !(await requireReviewAccess(response, review, identifiers.repositoryId, current, "view"))
+      ) {
+        return
+      }
       const read = await readProductWithCurrentAuthority(
         current,
         readCookie(request, hubSessionCookieName),
         session,
         async (viewer) =>
           (await isRepositoryVisible(viewer, identifiers.repositoryId))
-            ? reviewComments.listPrototypeThreads(identifiers.repositoryId, identifiers.prototypeId)
+            ? review.reviewComments.listPrototypeThreads(
+                identifiers.repositoryId,
+                identifiers.prototypeId,
+              )
             : null,
       )
       if (!read) {
@@ -43,6 +55,17 @@ export function get(
       const threads = read.result
       if (!threads) {
         response.status(404).json({ error: "Repository not found." })
+        return
+      }
+      if (
+        !(await requireReviewAccess(
+          response,
+          review,
+          identifiers.repositoryId,
+          read.current,
+          "view",
+        ))
+      ) {
         return
       }
       const comments = threads

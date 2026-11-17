@@ -44,6 +44,7 @@ async function withDetailRoute(
     findRepositoryIndex: vi.fn(),
     findRepositoryAuthors: vi.fn(),
     editPrototypeMetadata: vi.fn(),
+    findBuildPreviewTarget: vi.fn(),
     findPrototypeDetail: vi.fn().mockResolvedValue(detail),
     readPrototypeWithIntroduction: readIntroduction,
   }

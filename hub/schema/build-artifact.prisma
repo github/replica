@@ -1,0 +1,21 @@
+model BuildArtifact {
+  // ID columns
+  id      String @id @default(uuid()) @db.Uuid
+  buildId String @map("build_id") @db.Uuid
+
+  // Relations
+  build Build @relation(fields: [buildId], references: [id], onDelete: Restrict)
+
+  // Attribute columns
+  kind       BuildArtifactKind
+  path       String            @db.VarChar(2048)
+  storageKey String            @unique @map("storage_key") @db.VarChar(128)
+  byteLength Int               @map("byte_length")
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([buildId, path])
+  @@map("build_artifacts")
+}

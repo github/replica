@@ -1,4 +1,4 @@
-# Review collaboration backend
+# Review collaboration
 
 Hub stores repository review conversations independently of the learning store. A thread belongs to one non-removed repository and one reviewable prototype branch. Its immutable anchor records the page and selected element or area from the successful Build where the conversation began.
 
@@ -6,9 +6,11 @@ Threads and messages have separate UUID storage identities. Each message also ha
 
 Resolution is thread state, not message state. Each real resolve or reopen transition appends an immutable event with a monotonically increasing thread sequence, stable actor UUID, presentation snapshot, and occurrence time. Repeating an already-applied transition is idempotent and adds no event. A resolved thread must be reopened before it accepts another reply.
 
-## Authorization
+## Local authorization
 
-The current product baseline authorizes review access with the same rule as the repository index: the request needs a live Hub member session and the repository must not be removed. Repository discovery and per-repository membership are still separate work. Every query binds prototype, Build, thread, and comment identifiers back to the requested repository, so an identifier from another repository or prototype is not usable through the route.
+The current product rule grants review view and change access only to the fixed local identity for an active repository with a configured local path. The route calls a separate review-authorization dependency before reading or changing conversations, so GitHub repository access can become another authority source without weakening the local rule. Other identities and repositories without a local path receive the same not-found response.
+
+Every query also binds prototype, Build, thread, and comment identifiers back to the requested repository, so an identifier from another repository or prototype is not usable through the route. The workspace advertises review capability only for local sign-in.
 
 ## Product API
 
@@ -25,6 +27,10 @@ The product review surface uses these authenticated JSON routes:
 | `DELETE /api/repositories/:repositoryId/prototypes/:prototypeId/review-comments/:threadId/resolution` | Reopens a thread |
 
 Reads and mutations retain the existing flat `comments` response contract used by the review client. Root records also carry ordered resolution history for backend consumers; the retained client ignores fields it does not present. Expected failures use `401` for no live session, `403` for another user's message, `404` for inaccessible or cross-scope records, `409` for concurrent changes, and `422` for invalid content or a thread state that rejects the requested change.
+
+The retained prototype screen loads this API directly. A conversation starts from an element or area anchor supplied by the preview bridge and records the selected successful Build number. Replies, edits, deletion, resolution, and reopening update the saved thread without changing Build artifacts. Ordinary failed writes keep the loaded conversation and draft available for retry. A refreshed `401`, `403`, `404`, or `503` clears comments that are no longer authorized.
+
+Reactions, mentions, inbox notifications, read or unread state, public sharing, Canvas pairing, live updates, and GitHub authorization are not part of this flow. Real mode does not present their controls.
 
 ## Learning snapshot seam
 

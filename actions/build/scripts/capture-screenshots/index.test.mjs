@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { createServer } from "node:net"
 import path from "node:path"
 import { describe, it } from "node:test"
 
@@ -13,6 +14,34 @@ import { MAX_SCREENSHOT_HEIGHT } from "../constants.mjs"
 import { captureScreenshots } from "./index.mjs"
 
 describe("captureScreenshots()", () => {
+  it("blocks prototype WebSocket connections during capture", async () => {
+    let connected = false
+    const socketServer = createServer(() => {
+      connected = true
+    })
+    socketServer.listen(0, "127.0.0.1")
+    await new Promise((resolve) => socketServer.once("listening", resolve))
+    const address = socketServer.address()
+    if (!address || typeof address === "string") throw new Error("Expected a TCP listener.")
+    try {
+      const root = await temporaryDirectory()
+      const screenshots = await temporaryDirectory()
+      await mkdir(path.join(root, "dist"))
+      await writeFile(
+        path.join(root, "dist/index.html"),
+        `<!doctype html><body><script>try { new WebSocket("ws://127.0.0.1:${address.port}") } catch { document.body.textContent = "blocked" }</script></body>`,
+      )
+
+      await captureScreenshots(root, screenshots)
+
+      assert.equal(connected, false)
+    } finally {
+      await new Promise((resolve, reject) =>
+        socketServer.close((error) => (error ? reject(error) : resolve())),
+      )
+    }
+  })
+
   it("captures and packages both color schemes at both widths for the root and templates", async () => {
     const root = await temporaryDirectory()
     const screenshots = await temporaryDirectory()

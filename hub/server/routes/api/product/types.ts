@@ -10,7 +10,27 @@ import type {
 } from "../../../repositories/prototype-index/find-repository-index/index.ts"
 import type { findPrototypeDetail } from "../../../repositories/prototype-index/find-prototype-detail/index.ts"
 import type { listRepositories } from "../../../repositories/prototype-index/list-repositories/index.ts"
-import type { ReviewCommentService } from "../../../domains/review-comments/types.ts"
+import type {
+  BuildPreviewTarget,
+  findBuildPreviewTarget,
+} from "../../../repositories/build-artifacts/find-build-preview-target/index.ts"
+import type {
+  ReviewCommentService,
+  ReviewRouteActor,
+} from "../../../domains/review-comments/types.ts"
+import type { RepositoryReviewAccess } from "../../../domains/review-comments/authorize-repository-review/index.ts"
+
+export interface ReviewAccessActor extends ReviewRouteActor {
+  provider: string
+}
+
+export interface ReviewRouteDependencies {
+  reviewComments: ReviewCommentService
+  authorizeReviewAccess(
+    repositoryId: string,
+    actor: ReviewAccessActor,
+  ): Promise<RepositoryReviewAccess>
+}
 
 /** The signed-in viewer whose repository access limits product reads. */
 export interface ProductViewer {
@@ -22,6 +42,10 @@ export interface ProductViewer {
 export interface ProductRouteDependencies {
   reviewComments?: ReviewCommentService
   isRepositoryVisible(viewer: ProductViewer, repositoryId: string): Promise<boolean>
+  authorizeReviewAccess?(
+    repositoryId: string,
+    actor: ReviewAccessActor,
+  ): Promise<RepositoryReviewAccess>
   listRepositories(viewer: ProductViewer): ReturnType<typeof listRepositories>
   findRepositoryIndex(
     viewer: ProductViewer,
@@ -50,4 +74,10 @@ export interface ProductRouteDependencies {
     repositoryId: string
     sessionDigest: string
   }): Promise<NonNullable<Awaited<ReturnType<typeof findPrototypeDetail>>>>
+  findBuildPreviewTarget(
+    repositoryId: string,
+    prototypeId: string,
+    buildNumber: number,
+    target: BuildPreviewTarget,
+  ): ReturnType<typeof findBuildPreviewTarget>
 }

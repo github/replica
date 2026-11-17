@@ -114,6 +114,8 @@ const data: PrototypesShowPageData = {
   reviewComments: {
     bodyMaximumBytes: 10_000,
     copy: reviewCommentsCopy,
+    supportsReactions: true,
+    supportsReadState: true,
   },
   selectedBuild: {
     frameTitle: "prototype/welcome, build 1 preview",
@@ -490,6 +492,27 @@ export const Multiple: Story = {
 
 export const Conversation: Story = {
   args: {
+    review: reviewState({
+      selectedThread: repliedReviewThread,
+      selectedThreadId: repliedReviewThread.root.id,
+      selectedThreadPoint: { x: 520, y: 220 },
+      sidebarOpen: true,
+      threads: [repliedReviewThread],
+      visibleThreads: [repliedReviewThread],
+    }),
+  },
+}
+
+export const LocalConversation: Story = {
+  args: {
+    data: {
+      ...data,
+      reviewComments: {
+        ...data.reviewComments,
+        supportsReactions: false,
+        supportsReadState: false,
+      },
+    },
     review: reviewState({
       selectedThread: repliedReviewThread,
       selectedThreadId: repliedReviewThread.root.id,

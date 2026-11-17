@@ -62,6 +62,8 @@ export interface PrototypesShowPageData extends PrototypeWorkspaceData {
   reviewComments: {
     bodyMaximumBytes: number
     copy: ReviewCommentsCopy
+    supportsReactions?: boolean
+    supportsReadState?: boolean
   }
   selectedBuild?: NonNullable<PrototypeWorkspaceData["selectedBuild"]> & {
     frameTitle: string

@@ -10,6 +10,8 @@ import type { LearningsRouteDependencies } from "../routes/api/learnings/types.t
 import type { ProductRouteDependencies } from "../routes/api/product/types.ts"
 import type { GitHubWebhookRouteDependencies } from "../routes/api/github/webhooks/types.ts"
 import type { GitHubSetupRouteDependencies } from "../routes/api/settings/github/types.ts"
+import type { PublicSharingRouteDependencies } from "../routes/api/public-sharing/types.ts"
+import type { BuildPreviewRouteDependencies } from "../routes/build-preview/types.ts"
 import { attachRealtimeServer } from "../integrations/ws/attach-realtime-server/index.ts"
 import { shutdownServer } from "../shutdown-server/index.ts"
 
@@ -21,7 +23,9 @@ export async function runApi({
   githubWebhooks,
   copilotConnection,
   learnings,
+  preview,
   product,
+  publicSharing,
   trustedProxyHops = 0,
   shutdownTimeoutMs = 30_000,
   host = "127.0.0.1",
@@ -34,9 +38,11 @@ export async function runApi({
   authentication?: AuthenticationRouteDependencies
   copilotConnection?: CopilotConnectionRouteDependencies
   learnings?: LearningsRouteDependencies
+  preview?: BuildPreviewRouteDependencies
   product?: ProductRouteDependencies
   githubSetup?: GitHubSetupRouteDependencies
   githubWebhooks?: GitHubWebhookRouteDependencies
+  publicSharing?: PublicSharingRouteDependencies
   trustedProxyHops?: number
   shutdownTimeoutMs?: number
   host?: string
@@ -80,6 +86,8 @@ export async function runApi({
         : undefined,
       learnings,
       product,
+      publicSharing,
+      preview,
       trustedProxyHops,
     }),
   )

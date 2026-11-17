@@ -51,6 +51,13 @@ export async function captureScreenshots(root, screenshots, configRoot = root) {
         for (const colorScheme of ["light", "dark"]) {
           const context = await browser.newContext({ viewport, colorScheme })
           const page = await context.newPage()
+          await page.addInitScript(() => {
+            globalThis.WebSocket = class {
+              constructor() {
+                throw new Error("WebSocket connections are disabled during screenshot capture.")
+              }
+            }
+          })
           await context.route("**/*", async (route) => {
             const requestUrl = new URL(route.request().url())
 
