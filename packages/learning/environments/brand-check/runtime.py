@@ -8,6 +8,7 @@ runtime owns durable job state, immutable candidates, and the explicit promotion
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import importlib.util
 import json
 import math
@@ -320,8 +321,10 @@ class LocalRuntime:
         if not isinstance(rolled_back_by, str) or not rolled_back_by.strip():
             raise RuntimeFailure("invalid_input", "rolledBackBy must name the operator.")
         with self._lock:
-            self._recover_promotion()
+            recovered = self._recover_promotion()
             current = self.promotion()
+            if recovered:
+                return current
             candidate_id = current.get("previousCandidateId")
             if not isinstance(candidate_id, str):
                 raise RuntimeFailure(
@@ -529,10 +532,10 @@ class LocalRuntime:
                 )
                 _write_json_atomic(path, job)
 
-    def _recover_promotion(self) -> None:
+    def _recover_promotion(self) -> bool:
         history = sorted((self.state_directory / "promotions").glob("*.json"))
         if not history:
-            return
+            return False
         latest = self._record(history[-1], "promotion generation", history[-1].stem)
         latest_generation = latest.get("generation")
         if (
@@ -550,14 +553,14 @@ class LocalRuntime:
         )
         current_generation = current.get("generation", 0) if current else 0
         if latest_generation == current_generation:
-            return
+            return False
         if (
             latest_generation == current_generation + 1
             and latest.get("previousCandidateId")
             == (current.get("candidateId") if current else None)
         ):
             _write_json_atomic(current_path, latest)
-            return
+            return True
         raise RuntimeFailure(
             "state_damaged",
             "Promotion history is not one generation ahead of the current pointer.",
@@ -1034,10 +1037,18 @@ def _backend_process(
 
 def _process_context() -> Any:
     """Use spawn when installed; source-only tests bootstrap an alias that spawn cannot import."""
+    try:
+        importlib.metadata.distribution("replica-brand-check")
+        installed_distribution = True
+    except importlib.metadata.PackageNotFoundError:
+        installed_distribution = False
     spec = importlib.util.find_spec("replica_brand_check")
     installed = (
-        spec is not None
-        and spec.origin is not None
-        and Path(spec.origin).parent.name == "replica_brand_check"
+        installed_distribution
+        or (
+            spec is not None
+            and spec.origin is not None
+            and Path(spec.origin).parent.name == "replica_brand_check"
+        )
     )
     return multiprocessing.get_context("spawn" if installed else "fork")

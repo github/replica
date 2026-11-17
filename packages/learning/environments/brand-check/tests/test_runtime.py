@@ -444,6 +444,36 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(recovered["generation"], 1)
         self.assertEqual(recovered["candidateId"], finished["candidateId"])
 
+    def test_rollback_retry_returns_the_recovered_generation(self):
+        runtime = self._runtime()
+        first = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=4, max_seconds=5)["id"],
+        )
+        second = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
+        )
+        runtime.promote(first["candidateId"], promoted_by="test-operator")
+        runtime.promote(second["candidateId"], promoted_by="test-operator")
+        original = runtime._write_promotion
+
+        def fail_pointer(promotion):
+            with mock.patch(
+                "replica_brand_check.runtime._write_json_atomic",
+                side_effect=OSError("pointer unavailable"),
+            ):
+                original(promotion)
+
+        with mock.patch.object(runtime, "_write_promotion", side_effect=fail_pointer):
+            with self.assertRaises(OSError):
+                runtime.rollback(rolled_back_by="test-operator")
+
+        recovered = runtime.rollback(rolled_back_by="retrying-operator")
+        self.assertEqual(recovered["generation"], 3)
+        self.assertEqual(recovered["candidateId"], first["candidateId"])
+        self.assertEqual(recovered["operation"], "rollback")
+
     def test_production_rejects_fixture_promotion_without_changing_the_current_generation(self):
         runtime = self._runtime()
         first = self._wait_for_job(
