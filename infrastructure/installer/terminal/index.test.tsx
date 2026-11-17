@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, readdir, rm } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { setImmediate } from "node:timers/promises"
 import type { ReactNode } from "react"
@@ -8,9 +8,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
 import { approveDeployment } from "../../azure/install/approval/index.ts"
 import { installationNames } from "../../azure/install/settings.ts"
-import { removeAzureDeployments } from "../../azure/remove/index.ts"
 import { configurationFields } from "../config/fields/index.ts"
-import { CommandExecutionError } from "../command/index.ts"
 import { selectInstallerEntry } from "../entry/index.ts"
 import type { DeploymentConfig, RunCommand } from "../types.ts"
 import { createTerminalUI } from "./index.tsx"
@@ -139,25 +137,19 @@ it.each(["full-screen", "inline"])(
   },
 )
 
-it.each(["text", "multiSelect"] as const)(
-  "rejects the pending %s question when Ctrl+C cancels the owned terminal",
-  async (kind) => {
-    const abort = new AbortController()
-    const ui = open(abort, { fullscreen: false })
-    const pending =
-      kind === "text"
-        ? ui.text("Synthetic question")
-        : ui.multiSelect!("Synthetic question", [{ label: "Synthetic target", value: "target" }])
-    const terminal = show()
-    await setImmediate()
-    const rejected = expect(pending).rejects.toThrow(/cancel/i)
+it("rejects the pending question when Ctrl+C cancels the owned terminal", async () => {
+  const abort = new AbortController()
+  const ui = open(abort, { fullscreen: false })
+  const pending = ui.text("Synthetic question")
+  const terminal = show()
+  await setImmediate()
+  const rejected = expect(pending).rejects.toThrow(/cancel/i)
 
-    terminal.stdin.write("\u0003")
+  terminal.stdin.write("\u0003")
 
-    await rejected
-    expect(abort.signal.aborted).toBe(true)
-  },
-)
+  await rejected
+  expect(abort.signal.aborted).toBe(true)
+})
 
 it("keeps the deployment inventory and consent reachable with page keys before declining in a 24-row viewport", async () => {
   vi.stubEnv("TERM", "xterm")
@@ -419,283 +411,4 @@ it("keeps the first question and its input usable while the welcome banner resiz
   terminal.stdin.write("\r")
   await expect(pending).resolves.toBeUndefined()
   expect(await readdir(directory)).toEqual([])
-})
-
-it("toggles a removal installation with Space and submits the selection with Enter", async () => {
-  const directory = await entryDirectory()
-  const path = join(directory, "selected.json")
-  const config: DeploymentConfig = {
-    version: 1,
-    cloud: "azure",
-    name: "sample-selection",
-    owner: "sample-team",
-    azure: {
-      subscriptionId: "00000000-0000-0000-0000-000000000001",
-      tenantId: "00000000-0000-0000-0000-000000000002",
-      location: "eastus2",
-      resourceGroup: "sample-selection-rg",
-    },
-  }
-  await writeFile(path, JSON.stringify(config), { mode: 0o600 })
-  const ui = open(new AbortController(), { fullscreen: false })
-  const pending = selectInstallerEntry(ui, { directory })
-  const terminal = show()
-
-  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("What would you like to do?"))
-  terminal.stdin.write("Remove")
-  await vi.waitFor(() => expect(terminal.lastFrame()).toMatch(/Search:\s*Remove/))
-  terminal.stdin.write("\r")
-  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("sample-selection"))
-  expect(terminal.lastFrame()).toContain("Replica Hub removal")
-  expect(terminal.lastFrame()).not.toContain("Choose cloud")
-  terminal.stdin.write(" ")
-  await setImmediate()
-  terminal.stdin.write("\r")
-  await expect(pending).resolves.toMatchObject({
-    action: "remove",
-    path,
-    targets: [{ path, config }],
-  })
-  expect(await readdir(directory)).toEqual(["selected.json"])
-})
-
-it("keeps initial selections while Space toggles individual targets until Enter submits", async () => {
-  const ui = open(new AbortController(), { fullscreen: false })
-  const pending = ui.multiSelect!(
-    "Select synthetic targets",
-    [
-      { label: "First synthetic target", value: "first" },
-      { label: "Second synthetic target", value: "second" },
-      { label: "Third synthetic target", value: "third" },
-    ],
-    ["second"],
-  )
-  const settled = vi.fn()
-  void pending.then(settled, settled)
-  const terminal = show()
-  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("Third synthetic target"))
-
-  terminal.stdin.write(" ")
-  await setImmediate()
-  terminal.stdin.write(" ")
-  await setImmediate()
-  terminal.stdin.write("\u001b[B")
-  await setImmediate()
-  terminal.stdin.write("\u001b[B")
-  await setImmediate()
-  terminal.stdin.write(" ")
-  await setImmediate()
-  expect(settled).not.toHaveBeenCalled()
-  terminal.stdin.write("\r")
-
-  await expect(pending).resolves.toEqual(["second", "third"])
-})
-
-it("returns an empty removal selection to the main menu without writing local files", async () => {
-  const directory = await entryDirectory()
-  const ui = open(new AbortController(), { fullscreen: false })
-  const pending = selectInstallerEntry(ui, { directory })
-  const terminal = show()
-  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("What would you like to do?"))
-  terminal.stdin.write("Remove")
-  await vi.waitFor(() => expect(terminal.lastFrame()).toMatch(/Search:\s*Remove/))
-  terminal.stdin.write("\r")
-  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("Enter another config-file path"))
-  terminal.stdin.write("\r")
-  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("What would you like to do?"))
-  terminal.stdin.write("Exit")
-  await vi.waitFor(() => expect(terminal.lastFrame()).toMatch(/Search:\s*Exit/))
-  terminal.stdin.write("\r")
-
-  await expect(pending).resolves.toBeUndefined()
-  expect(await readdir(directory)).toEqual([])
-})
-
-it.each(["decline", "confirm"] as const)(
-  "keeps single-choice removal read-only through its scrollable review and exact name step on %s",
-  async (decision) => {
-    vi.stubEnv("TERM", "xterm")
-    vi.stubEnv("INK_SCREEN_READER", "false")
-    const directory = await entryDirectory()
-    const targets = await Promise.all(
-      ["sample-first", "sample-second"].map(async (name) => {
-        const config: DeploymentConfig = {
-          version: 1,
-          cloud: "azure",
-          name,
-          owner: "sample-team",
-          azure: {
-            subscriptionId: "00000000-0000-0000-0000-000000000001",
-            tenantId: "00000000-0000-0000-0000-000000000002",
-            location: "eastus2",
-            resourceGroup: `${name}-rg`,
-          },
-        }
-        const path = join(directory, `${name}.json`)
-        await writeFile(path, JSON.stringify(config), { mode: 0o600 })
-        return { path, config }
-      }),
-    )
-    const run = vi.fn<RunCommand>(async (executable, args) => {
-      expect(executable).toBe("az")
-      if (args[0] === "account")
-        return JSON.stringify({
-          id: targets[1]!.config.azure.subscriptionId,
-          tenantId: targets[1]!.config.azure.tenantId,
-        })
-      if (args[0] === "group" && args[1] === "exists") return "false"
-      throw new Error("Terminal removal test must not mutate Azure")
-    })
-    const ui = open(new AbortController(), { fullscreen: true })
-    ui.removal!(true)
-    const pending = (async () => {
-      const choice = await ui.select(
-        "Select an installation",
-        targets.map(({ path, config }) => ({
-          label: config.name,
-          value: path,
-        })),
-      )
-      return removeAzureDeployments([targets.find(({ path }) => path === choice)!], { run, ui })
-    })()
-    void pending.catch(() => undefined)
-    const terminal = show()
-    vi.spyOn(terminal.stdout, "columns", "get").mockReturnValue(80)
-    Object.defineProperty(terminal.stdout, "rows", { get: () => 24 })
-    terminal.stdout.emit("resize")
-    await vi.waitFor(() => expect(terminal.lastFrame()).toContain("sample-second"), {
-      timeout: 10_000,
-    })
-    terminal.stdin.write("sample-second")
-    await vi.waitFor(() => expect(terminal.lastFrame()).toMatch(/Search:\s*sample-second/))
-    terminal.stdin.write("\r")
-    await vi.waitFor(() => expect(terminal.lastFrame()).toContain("Permanently remove"))
-    expect(run).not.toHaveBeenCalled()
-    const visited: string[] = []
-    for (let page = 0; page < 12 && !/\by\/n\b/i.test(terminal.lastFrame()!); page++) {
-      visited.push(terminal.lastFrame()!)
-      const before = terminal.lastFrame()
-      terminal.stdin.write("\u001b[6~")
-      await vi.waitFor(() => expect(terminal.lastFrame()).not.toBe(before))
-      expect(terminal.lastFrame()!.split("\n").length).toBeLessThanOrEqual(24)
-    }
-    visited.push(terminal.lastFrame()!)
-    expect(terminal.lastFrame()).toMatch(/\by\/n\b/i)
-    expect(visited.join("\n")).toContain(targets[1]!.config.name)
-    expect(visited.join("\n")).not.toContain(targets[0]!.config.name)
-    expect(visited.join("\n")).toMatch(/No backups|No\s+backups/)
-    expect(visited.join("\n")).toMatch(/retention/)
-    if (decision === "decline") {
-      terminal.stdin.write("\r")
-      await expect(pending).rejects.toMatchObject({ name: "AbortError" })
-      expect(run).not.toHaveBeenCalled()
-      expect(terminal.lastFrame()).not.toContain("exactly")
-    } else {
-      terminal.stdin.write("y")
-      await vi.waitFor(() => expect(terminal.lastFrame()).toContain("exactly"))
-      expect(run).not.toHaveBeenCalled()
-      terminal.stdin.write(targets[1]!.config.name)
-      await setImmediate()
-      terminal.stdin.write("\r")
-      await expect(pending).resolves.toMatch(/Removal finished/)
-      await vi.waitFor(() => expect(terminal.lastFrame()).toContain("Removal complete"))
-    }
-    for (const { path, config } of targets)
-      expect(JSON.parse(await readFile(path, "utf8"))).toEqual(config)
-    expect((await readdir(directory)).some((name) => name.endsWith(".lock"))).toBe(false)
-  },
-)
-
-it("keeps removal mounted through a read-only failure, full details, and an operator-selected recheck", async () => {
-  const directory = await entryDirectory()
-  const config: DeploymentConfig = {
-    version: 1,
-    cloud: "azure",
-    name: "sample-recovery",
-    owner: "sample-team",
-    azure: {
-      subscriptionId: "00000000-0000-0000-0000-000000000001",
-      tenantId: "00000000-0000-0000-0000-000000000002",
-      location: "eastus2",
-      resourceGroup: "sample-recovery-rg",
-    },
-  }
-  const path = join(directory, "selected.json")
-  const saved = JSON.stringify(config)
-  await writeFile(path, saved, { mode: 0o600 })
-  const failure = new CommandExecutionError(
-    "Inspect resource group failed (exit code 2).",
-    false,
-    2,
-    "Synthetic read-only failure details",
-  )
-  let failed = false
-  const run = vi.fn<RunCommand>(async (executable, args) => {
-    expect(executable).toBe("az")
-    if (args[0] === "account")
-      return JSON.stringify({
-        id: config.azure.subscriptionId,
-        tenantId: config.azure.tenantId,
-      })
-    if (args[0] === "group" && args[1] === "exists") {
-      if (!failed) {
-        failed = true
-        throw failure
-      }
-      return "false"
-    }
-    throw new Error("Terminal recovery test must not mutate Azure")
-  })
-  const abort = new AbortController()
-  const ui = open(abort, { fullscreen: false })
-  const pending = removeAzureDeployments([{ path, config }], { run, ui, signal: abort.signal })
-  const settled = vi.fn()
-  void pending.then(settled, settled)
-  const terminal = show()
-
-  await vi.waitFor(() => expect(terminal.lastFrame()).toMatch(/\by\/n\b/i))
-  terminal.stdin.write("y")
-  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("exactly"))
-  expect(run).not.toHaveBeenCalled()
-  terminal.stdin.write(config.name)
-  await setImmediate()
-  terminal.stdin.write("\r")
-
-  await vi.waitFor(() => {
-    expect(terminal.lastFrame()).toContain("Recheck read-only preflight")
-    expect(terminal.lastFrame()).toContain("Show full error details")
-    expect(terminal.lastFrame()).toContain("Exit and keep saved progress")
-  })
-  const readsAtFailure = run.mock.calls.length
-  expect(settled).not.toHaveBeenCalled()
-  expect(abort.signal.aborted).toBe(false)
-  expect(boundary.unmount).not.toHaveBeenCalled()
-  terminal.stdin.write("Show full")
-  await vi.waitFor(() => expect(terminal.lastFrame()).toMatch(/Search:\s*Show full/))
-  terminal.stdin.write("\r")
-
-  await vi.waitFor(() =>
-    expect(terminal.lastFrame()).toContain("Synthetic read-only failure details"),
-  )
-  expect(run).toHaveBeenCalledTimes(readsAtFailure)
-  expect(settled).not.toHaveBeenCalled()
-  expect(boundary.unmount).not.toHaveBeenCalled()
-  terminal.stdin.write("\r")
-  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("Recheck read-only preflight"))
-  expect(run).toHaveBeenCalledTimes(readsAtFailure)
-  expect(settled).not.toHaveBeenCalled()
-  terminal.stdin.write("Recheck")
-  await vi.waitFor(() => expect(terminal.lastFrame()).toMatch(/Search:\s*Recheck/))
-  terminal.stdin.write("\r")
-
-  await expect(pending).resolves.toContain("Removal finished")
-  await vi.waitFor(() => {
-    expect(terminal.lastFrame()).toContain("Removal complete")
-    expect(terminal.lastFrame()).not.toContain("Inspect resource group failed")
-  })
-  expect(abort.signal.aborted).toBe(false)
-  expect(boundary.unmount).not.toHaveBeenCalled()
-  expect(run.mock.calls.filter(([, args]) => args[0] === "account")).toHaveLength(2)
-  expect(await readFile(path, "utf8")).toBe(saved)
-  expect(await readdir(directory)).toEqual(["selected.json"])
 })

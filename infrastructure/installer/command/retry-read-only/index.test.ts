@@ -74,7 +74,7 @@ it.each([
 })
 
 it.each([
-  ["a write command", ["group", "delete", "--name", "sample-rg", "--yes"], failure("ETIMEDOUT")],
+  ["a write command", ["group", "create", "--name", "sample-rg", "--location", "eastus"], failure("ETIMEDOUT")],
   [
     "an Azure REST request without a method",
     ["rest", "--url", "https://example.test"],

@@ -72,9 +72,6 @@ async function scenario({
   planVariables,
   planConfiguration = { root_module: { resources: [] } },
   retryApply,
-  retryDestroy,
-  beforeApply,
-  validatePlan,
   signal,
 }: {
   actions?: string[]
@@ -87,9 +84,6 @@ async function scenario({
   planVariables?: Record<string, unknown>
   planConfiguration?: Record<string, unknown> | null
   retryApply?(error: CommandExecutionError): boolean
-  retryDestroy?(error: CommandExecutionError): boolean
-  beforeApply?(): Promise<void>
-  validatePlan?(value: unknown): void
   signal?: AbortSignal
 } = {}) {
   const root = path.resolve(`.installer-terraform-test-${randomUUID()}`)
@@ -160,9 +154,6 @@ async function scenario({
     ui,
     preapproved,
     retryApply,
-    retryDestroy,
-    beforeApply,
-    validatePlan,
     signal,
   })
   return { module, run, calls, events, ui, directory, dataDirectory, secret }
@@ -251,20 +242,12 @@ describe("Terraform module", () => {
     )
     const retryApply = vi.fn(() => true)
     const controller = new AbortController()
-    const validatedPlans: unknown[] = []
-    const guardedPlans: unknown[] = []
     const test = await scenario({
       preapproved: true,
       failure: "apply",
       failureCount: 1,
       error,
       retryApply,
-      validatePlan: (plan) => {
-        validatedPlans.push(plan)
-      },
-      beforeApply: async () => {
-        guardedPlans.push(validatedPlans.at(-1))
-      },
       signal: controller.signal,
       planVariables: { image: { value: "synthetic-immutable-image" } },
       planConfiguration: {
@@ -304,8 +287,6 @@ describe("Terraform module", () => {
     await applying
 
     expect(test.events).toEqual(["plan", "show", "apply", "plan", "show", "apply"])
-    expect(guardedPlans).toHaveLength(2)
-    expect(guardedPlans).toEqual(validatedPlans)
     expect(test.ui.confirm).not.toHaveBeenCalled()
     expect(test.ui.select).not.toHaveBeenCalled()
     const plans = test.calls.filter(({ args }) => args[1] === "plan")
@@ -604,81 +585,6 @@ describe("Terraform module", () => {
     expect(await readdir(test.dataDirectory)).toEqual([])
   })
 
-  it("awaits the guard after plan validation and consent before applying the saved plan", async () => {
-    const events: string[] = []
-    const release = Promise.withResolvers<void>()
-    const validatePlan = vi.fn(() => {
-      events.push("validate")
-    })
-    const beforeApply = vi.fn(async () => {
-      events.push("guard")
-      await release.promise
-    })
-    const test = await scenario({ beforeApply, validatePlan })
-    const run = test.run.getMockImplementation()!
-    test.run.mockImplementation(async (executable, args, options) => {
-      events.push(args[1]!)
-      return run(executable, args, options)
-    })
-    test.ui.confirm = vi.fn(async () => {
-      events.push("confirm")
-      return true
-    })
-    const applying = test.module.apply("installation.tfvars")
-    await vi.waitFor(() => expect(beforeApply).toHaveBeenCalledOnce())
-
-    expect(events).toEqual(["plan", "show", "validate", "confirm", "guard"])
-    expect(test.events).not.toContain("apply")
-    release.resolve()
-    await applying
-
-    expect(events).toEqual(["plan", "show", "validate", "confirm", "guard", "apply"])
-    expect(await readdir(test.dataDirectory)).toEqual([])
-  })
-
-  it("propagates a transient command error from the guard without applying or offering retry", async () => {
-    fakeRetryTimers()
-    const error = new CommandExecutionError("Guard read failed.", false, 1, "ECONNRESET")
-    const beforeApply = vi.fn(async () => {
-      throw error
-    })
-    const retryApply = vi.fn(() => true)
-    const test = await scenario({
-      preapproved: true,
-      planVariables: {},
-      beforeApply,
-      retryApply,
-    })
-    test.ui.select = vi.fn(async () => "exit")
-
-    await expect(test.module.apply("installation.tfvars")).rejects.toBe(error)
-
-    expect(beforeApply).toHaveBeenCalledOnce()
-    expect(test.events).toEqual(["plan", "show"])
-    expect(test.ui.select).not.toHaveBeenCalled()
-    expect(retryApply).not.toHaveBeenCalled()
-    expect(vi.getTimerCount()).toBe(0)
-    expect(await readdir(test.dataDirectory)).toEqual([])
-  })
-
-  it("stops a rejected custom plan before running the guard or applying", async () => {
-    const error = new Error("The fresh plan is outside the approved identity.")
-    const beforeApply = vi.fn(async () => {})
-    const test = await scenario({
-      beforeApply,
-      validatePlan: () => {
-        throw error
-      },
-    })
-
-    await expect(test.module.apply("installation.tfvars")).rejects.toBe(error)
-
-    expect(beforeApply).not.toHaveBeenCalled()
-    expect(test.events).toEqual(["plan", "show"])
-    expect(test.ui.confirm).not.toHaveBeenCalled()
-    expect(await readdir(test.dataDirectory)).toEqual([])
-  })
-
   it.each([
     { actions: ["delete"] },
     { actions: ["delete", "create"] },
@@ -686,15 +592,13 @@ describe("Terraform module", () => {
   ])(
     "rejects destructive normal-plan actions $actions even after deployment approval",
     async ({ actions }) => {
-      const beforeApply = vi.fn(async () => {})
-      const test = await scenario({ actions, preapproved: true, beforeApply })
+      const test = await scenario({ actions, preapproved: true })
       test.ui.select = vi.fn(async () => "exit")
 
       await expect(test.module.apply("installation.tfvars")).rejects.toThrow()
 
       expect(test.ui.confirm).not.toHaveBeenCalled()
       expect(test.ui.select).not.toHaveBeenCalled()
-      expect(beforeApply).not.toHaveBeenCalled()
       expect(test.events).not.toContain("apply")
       expect(await readdir(test.dataDirectory)).toEqual([])
     },
@@ -776,15 +680,13 @@ describe("Terraform module", () => {
   })
 
   it("does not apply when the operator refuses, and removes the sensitive plan", async () => {
-    const beforeApply = vi.fn(async () => {})
-    const test = await scenario({ approved: false, beforeApply })
+    const test = await scenario({ approved: false })
     test.ui.select = vi.fn(async () => "exit")
 
     await expect(test.module.apply("installation.tfvars")).rejects.toThrow()
 
     expect(test.ui.confirm).toHaveBeenCalledOnce()
     expect(test.ui.select).not.toHaveBeenCalled()
-    expect(beforeApply).not.toHaveBeenCalled()
     expect(test.events).not.toContain("apply")
     expect(await readdir(test.dataDirectory)).toEqual([])
   })
@@ -1143,78 +1045,6 @@ describe("Terraform module", () => {
       expect(await readdir(test.dataDirectory)).toEqual([])
     },
   )
-
-  it("bounds destroy retries to fresh validated and guarded plans without offering command recovery", async () => {
-    fakeRetryTimers()
-    const error = new CommandExecutionError(
-      "Synthetic deletion failure",
-      false,
-      1,
-      "ServiceUnavailable",
-    )
-    const validated: unknown[] = []
-    const guarded: unknown[] = []
-    const test = await scenario({
-      preapproved: true,
-      failure: "apply",
-      error,
-      retryDestroy: () => true,
-      resourceChanges: [
-        {
-          address: "azurerm_container_app_job.provision",
-          change: { actions: ["delete"] },
-        },
-      ],
-      validatePlan: (plan) => {
-        validated.push(plan)
-      },
-      beforeApply: async () => {
-        guarded.push(validated.at(-1))
-      },
-    })
-    const waiting = [Promise.withResolvers<void>(), Promise.withResolvers<void>()]
-    let retries = 0
-    test.ui.status = vi.fn((message) => {
-      if (message.includes("Transient removal failure")) waiting[retries++]!.resolve()
-    })
-    test.ui.select = vi.fn(async () => "exit")
-    const result = test.module
-      .apply("installation.tfvars", {
-        destroy: true,
-        allowedDeletions: ["azurerm_container_app_job.provision"],
-      })
-      .catch((failure: unknown) => failure)
-
-    await waiting[0]!.promise
-    await vi.advanceTimersByTimeAsync(2_000)
-    await waiting[1]!.promise
-    await vi.advanceTimersByTimeAsync(5_000)
-
-    expect(await result).toBe(error)
-    expect(test.events).toEqual([
-      "plan",
-      "show",
-      "apply",
-      "plan",
-      "show",
-      "apply",
-      "plan",
-      "show",
-      "apply",
-    ])
-    expect(validated).toHaveLength(3)
-    expect(guarded).toEqual(validated)
-    const plans = test.calls
-      .filter(({ args }) => args[1] === "plan")
-      .map(({ args }) => args.find((argument) => argument.startsWith("-out="))!.slice(5))
-    expect(new Set(plans).size).toBe(3)
-    expect(
-      test.calls.filter(({ args }) => args[1] === "apply").map(({ args }) => args.at(-1)),
-    ).toEqual(plans)
-    expect(test.ui.select).not.toHaveBeenCalled()
-    expect(test.ui.confirm).not.toHaveBeenCalled()
-    expect(await readdir(test.dataDirectory)).toEqual([])
-  })
 
   it.each([true, false])(
     "requires separate explicit confirmation for destroy; approval is %s",

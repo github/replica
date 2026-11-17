@@ -258,7 +258,6 @@ describe("private installer telemetry", () => {
       }),
       field: vi.fn(async () => "field answer"),
       select: vi.fn(async () => "selected value"),
-      multiSelect: vi.fn(async () => ["selected value"]),
       confirm: vi.fn(async () => {
         throw failure
       }),
@@ -296,9 +295,6 @@ describe("private installer telemetry", () => {
     await expect(observed.field?.(field, "original")).resolves.toBe("field answer")
     const choices = [{ label: "Choice", value: "selected value" }]
     await expect(observed.select("Select", choices)).resolves.toBe("selected value")
-    await expect(
-      observed.multiSelect!("Select several", choices, ["selected value"]),
-    ).resolves.toEqual(["selected value"])
     await expect(observed.wait("Wait")).resolves.toBeUndefined()
     await expect(observed.confirm("Confirm")).rejects.toBe(failure)
     await telemetry.close(failure)
@@ -310,15 +306,13 @@ describe("private installer telemetry", () => {
     expect(ui.complete).toHaveBeenCalledOnce()
     expect(ui.field).toHaveBeenCalledWith(field, "original")
     expect(ui.select).toHaveBeenCalledWith("Select", choices)
-    expect(ui.multiSelect).toHaveBeenCalledWith("Select several", choices, ["selected value"])
     expect(ui.wait).toHaveBeenCalledWith("Wait")
     expect(ui.confirm).toHaveBeenCalledWith("Confirm")
     const entries = await records(telemetry.path)
     const prompts = entries.filter(
       (entry) => entry.event === "span.completed" && entry.name !== "installer.run",
     )
-    expect(prompts).toHaveLength(7)
-    expect(completed(entries, "installer.prompt.multi_select").status).toBe("ok")
+    expect(prompts).toHaveLength(6)
     expect(prompts.filter((entry) => entry.status === "error")).toHaveLength(1)
     expect(completed(entries, prompt!.name)).toMatchObject({
       span_id: prompt!.span_id,
@@ -340,9 +334,6 @@ describe("private installer telemetry", () => {
       message: "synthetic-ui-message-secret",
       answer: "synthetic-answer-secret",
       choice: "synthetic-choice-secret",
-      multiLabel: "synthetic-multi-label-secret",
-      multiPath: "/synthetic-private/selected-config.json",
-      multiInitial: "/synthetic-private/initial-config.json",
       fieldId: "synthetic-field-id-secret",
       endpoint: "synthetic-otel-endpoint-secret",
       headers: "synthetic-otel-header-secret",
@@ -381,8 +372,6 @@ describe("private installer telemetry", () => {
       text: vi.fn(async () => secret.answer),
       field: vi.fn(async () => secret.answer),
       select: vi.fn(async () => secret.choice),
-      multiSelect: vi.fn(async () => [secret.multiPath]),
-      removal: vi.fn(),
       confirm: vi.fn(async () => {
         throw new Error(secret.error)
       }),
@@ -403,15 +392,6 @@ describe("private installer telemetry", () => {
     await observed.field?.(field, secret.answer)
     await observed.field?.({ ...field, id: secret.fieldId }, secret.answer)
     await observed.select(secret.message, [{ label: secret.message, value: secret.choice }])
-    await expect(
-      observed.multiSelect!(
-        secret.message,
-        [{ label: secret.multiLabel, value: secret.multiPath }],
-        [secret.multiInitial],
-      ),
-    ).resolves.toEqual([secret.multiPath])
-    observed.removal!(true)
-    expect(ui.removal).toHaveBeenCalledWith(true)
     await observed.wait(secret.message)
     await expect(observed.confirm(secret.message)).rejects.toThrow(secret.error)
     await expect(
@@ -431,7 +411,6 @@ describe("private installer telemetry", () => {
     for (const value of Object.values(secret)) expect(saved).not.toContain(value)
     const entries = await records(telemetry.path)
     expect(completed(entries, "installer.command.az.storage.account.create").status).toBe("ok")
-    expect(completed(entries, "installer.prompt.multi_select").status).toBe("ok")
     const cancelled = completed(entries, "installer.command.other")
     expect(cancelled.status).toBe("error")
     expect(JSON.stringify(cancelled.attributes)).toMatch(/cancel|abort/i)
