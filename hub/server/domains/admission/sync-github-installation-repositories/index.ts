@@ -1,4 +1,4 @@
-import { Prisma } from "../../../generated/prisma/client.ts"
+import type { Prisma } from "../../../generated/prisma/client.ts"
 
 import { classifyPrismaTransactionError } from "../../../integrations/prisma/classify-transaction-error/index.ts"
 import { advanceGitHubRepositoryAccessState } from "../../../repositories/github-repository-access-states/advance-github-repository-access-state/index.ts"
@@ -10,6 +10,7 @@ import { markRepositoriesDisconnected } from "../../../repositories/repository-a
 import { removeRepositoryAccessGrants } from "../../../repositories/repository-access/remove-repository-access-grants/index.ts"
 import { upsertConnectedRepositories } from "../../../repositories/repository-access/upsert-connected-repositories/index.ts"
 import { runWithBoundedRetries } from "../../identity/run-with-bounded-retries/index.ts"
+import { githubAccessTransactionOptions } from "../github-access-transaction-options/index.ts"
 import { AdmissionAuthorityChangedError, AdmissionTransactionConflictError } from "../errors.ts"
 import { requireCurrentGitHubInstallation } from "../require-current-github-installation/index.ts"
 import { revokeEmptyGitHubRepositoryAccess } from "../revoke-empty-github-repository-access/index.ts"
@@ -37,55 +38,52 @@ export async function syncGitHubInstallationRepositories<T extends ConnectedRepo
       if (incomingIds.size !== repositories.length) {
         throw new Error("The GitHub installation repository list contains duplicate IDs.")
       }
-      await database.$transaction(
-        async (transaction) => {
-          if (authorize && !(await authorize(transaction))) {
-            throw new AdmissionAuthorityChangedError()
-          }
-          await requireCurrentGitHubInstallation(transaction, provider)
-          const currentState = await lockGitHubRepositoryAccessState(transaction, "write")
-          if (currentState.revision !== revision) throw new AdmissionTransactionConflictError()
-          const connected = await listConnectedGitHubRepositories(transaction)
-          const disconnectedWithGrants =
-            await listDisconnectedGitHubRepositoriesWithGrants(transaction)
-          const currentById = new Map(
-            connected.map((repository) => [repository.githubRepositoryId, repository]),
-          )
-          const changed =
-            connected.length !== repositories.length ||
-            disconnectedWithGrants.length > 0 ||
-            repositories.some((repository) => {
-              const current = currentById.get(BigInt(repository.githubRepositoryId))
-              return (
-                !current ||
-                current.nameWithOwner !== repository.nameWithOwner ||
-                current.defaultBranch !== repository.defaultBranch
-              )
-            })
-          if (!changed) return
-          const { changedAt } = await advanceGitHubRepositoryAccessState(transaction)
-          await upsertConnectedRepositories(transaction, repositories, { allowReconnect: true })
-          const removedIds = connected
-            .map((repository) => repository.githubRepositoryId)
-            .filter((id): id is bigint => id !== null && !incomingIds.has(id))
-          const staleGrantIds = disconnectedWithGrants
-            .map((repository) => repository.githubRepositoryId)
-            .filter((id): id is bigint => id !== null)
-          const grantIdsToRemove = [...new Set([...removedIds, ...staleGrantIds])]
-          if (!grantIdsToRemove.length) return
-          if (removedIds.length) {
-            await markRepositoriesDisconnected(transaction, { githubRepositoryIds: removedIds })
-          }
-          const { emptiedMembershipIds } = await removeRepositoryAccessGrants(transaction, {
-            githubRepositoryIds: grantIdsToRemove,
+      await database.$transaction(async (transaction) => {
+        if (authorize && !(await authorize(transaction))) {
+          throw new AdmissionAuthorityChangedError()
+        }
+        await requireCurrentGitHubInstallation(transaction, provider)
+        const currentState = await lockGitHubRepositoryAccessState(transaction, "write")
+        if (currentState.revision !== revision) throw new AdmissionTransactionConflictError()
+        const connected = await listConnectedGitHubRepositories(transaction)
+        const disconnectedWithGrants =
+          await listDisconnectedGitHubRepositoriesWithGrants(transaction)
+        const currentById = new Map(
+          connected.map((repository) => [repository.githubRepositoryId, repository]),
+        )
+        const changed =
+          connected.length !== repositories.length ||
+          disconnectedWithGrants.length > 0 ||
+          repositories.some((repository) => {
+            const current = currentById.get(BigInt(repository.githubRepositoryId))
+            return (
+              !current ||
+              current.nameWithOwner !== repository.nameWithOwner ||
+              current.defaultBranch !== repository.defaultBranch
+            )
           })
-          await revokeEmptyGitHubRepositoryAccess(transaction, {
-            changedAt,
-            membershipIds: emptiedMembershipIds,
-          })
-        },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-      )
+        if (!changed) return
+        const { changedAt } = await advanceGitHubRepositoryAccessState(transaction)
+        await upsertConnectedRepositories(transaction, repositories, { allowReconnect: true })
+        const removedIds = connected
+          .map((repository) => repository.githubRepositoryId)
+          .filter((id): id is bigint => id !== null && !incomingIds.has(id))
+        const staleGrantIds = disconnectedWithGrants
+          .map((repository) => repository.githubRepositoryId)
+          .filter((id): id is bigint => id !== null)
+        const grantIdsToRemove = [...new Set([...removedIds, ...staleGrantIds])]
+        if (!grantIdsToRemove.length) return
+        if (removedIds.length) {
+          await markRepositoriesDisconnected(transaction, { githubRepositoryIds: removedIds })
+        }
+        const { emptiedMembershipIds } = await removeRepositoryAccessGrants(transaction, {
+          githubRepositoryIds: grantIdsToRemove,
+        })
+        await revokeEmptyGitHubRepositoryAccess(transaction, {
+          changedAt,
+          membershipIds: emptiedMembershipIds,
+        })
+      }, githubAccessTransactionOptions)
       return repositories
     },
     (error) =>
