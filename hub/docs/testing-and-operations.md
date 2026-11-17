@@ -22,7 +22,7 @@ Follow the [shared testing and review guide](../../docs/testing-and-review.md). 
 
 To rerun Hub Rails tests after a missing test-table error, run `bin/devcontainer exec env RAILS_ENV=test bin/rails db:prepare` before retrying.
 
-To rerun focused Rails integration tests after Vite reports a missing test manifest, run `bin/devcontainer exec env RAILS_ENV=test bundle exec vite build` before retrying.
+To rerun focused Rails integration tests after Vite reports a missing test manifest, run `bin/devcontainer exec env RAILS_ENV=test bundle exec vite build --force` before retrying.
 
 `bin/ci` runs the Hub test suites, style checks, dependency security and age checks, browser builds, seeds, queue checks, and annotations. The repository-level build-action workflow validates the shared action separately.
 
