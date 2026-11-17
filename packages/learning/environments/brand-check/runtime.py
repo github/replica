@@ -11,8 +11,11 @@ import hashlib
 import json
 import math
 import os
+import queue
+import re
 import shutil
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -22,6 +25,11 @@ from typing import Any, Mapping, Protocol
 
 from .evaluate import EvaluationError, evaluate
 from .taskset import Taskset, load_taskset, question_options
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - the reference runtime supports Unix hosts and containers.
+    fcntl = None
 
 JOB_SCHEMA = "replica.decision-training-job/v1"
 CANDIDATE_SCHEMA = "replica.decision-candidate/v1"
@@ -33,6 +41,7 @@ MAX_UPDATES = 100_000
 MIN_SECONDS = 1
 MAX_SECONDS = 86_400
 ENVIRONMENTS = ("development", "test", "production")
+_QUESTION_KEY = re.compile(r"^[A-Za-z0-9_]{1,64}$")
 
 
 class RuntimeFailure(ValueError):
@@ -67,7 +76,7 @@ class TrainingBackend(Protocol):
         work_directory: Path,
         *,
         max_updates: int,
-        max_seconds: float,
+        deadline: float,
     ) -> TrainingResult: ...
 
     def predict(
@@ -87,11 +96,12 @@ class FixtureBackend:
         work_directory: Path,
         *,
         max_updates: int,
-        max_seconds: float,
+        deadline: float,
     ) -> TrainingResult:
-        del work_directory, max_seconds
+        del work_directory
         counts: dict[str, list[int]] = {}
         for task in taskset.by_split["train"]:
+            _check_deadline(deadline)
             for key, label in task.labels.items():
                 if task.questions[key].type != "noul":
                     continue
@@ -116,8 +126,11 @@ class FixtureBackend:
             "updates": max_updates,
             "probabilities": probabilities,
         }
+        _check_deadline(deadline)
         baseline = _evaluate_fixture(taskset, {})
+        _check_deadline(deadline)
         candidate = _evaluate_fixture(taskset, probabilities)
+        _check_deadline(deadline)
         return TrainingResult(
             adapter_name="adapter.json",
             adapter=_json_bytes(adapter),
@@ -160,23 +173,49 @@ class LocalRuntime:
         self.taskset = load_taskset(taskset_directory)
         self.taskset_digest = _taskset_digest(self.taskset)
         self.environment = environment
-        self.backends = dict(backends or {"fixture": FixtureBackend()})
+        self.backends = dict({"fixture": FixtureBackend()} if backends is None else backends)
         if not self.backends:
             raise RuntimeFailure("backend_missing", "Configure at least one training backend.")
+        if fcntl is None:
+            raise RuntimeFailure(
+                "runtime_unsupported", "The local runtime needs Unix file locking.", 500
+            )
         self._lock = threading.RLock()
-        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="replica-training")
         self.state_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         os.chmod(self.state_directory, 0o700)
-        for name in ("jobs", "candidates", "promotions", "work"):
-            directory = self.state_directory / name
-            directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-            os.chmod(directory, 0o700)
-        self._recover_promotion()
-        self._recover_interrupted_jobs()
+        self._owner = (self.state_directory / ".runtime.lock").open("a+b")
+        try:
+            fcntl.flock(self._owner.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            self._owner.close()
+            raise RuntimeFailure(
+                "runtime_in_use",
+                f"Another runtime owns {self.state_directory}.",
+                409,
+            ) from None
+        try:
+            self._executor = ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="replica-training"
+            )
+            for name in ("jobs", "candidates", "promotions", "work"):
+                directory = self.state_directory / name
+                directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+                os.chmod(directory, 0o700)
+            self._recover_promotion()
+            self._recover_interrupted_jobs()
+        except Exception:
+            if hasattr(self, "_executor"):
+                self._executor.shutdown(wait=False, cancel_futures=True)
+            fcntl.flock(self._owner.fileno(), fcntl.LOCK_UN)
+            self._owner.close()
+            raise
 
     def close(self) -> None:
         """Wait for the current job and stop the worker."""
-        self._executor.shutdown(wait=True)
+        self._executor.shutdown(wait=True, cancel_futures=True)
+        if not self._owner.closed:
+            fcntl.flock(self._owner.fileno(), fcntl.LOCK_UN)
+            self._owner.close()
 
     def submit(
         self, *, backend: str = "fixture", max_updates: int, max_seconds: float
@@ -260,6 +299,8 @@ class LocalRuntime:
             )
         with self._lock:
             current = self.promotion(required=False)
+            if current and current["candidateId"] == candidate_id:
+                return current
             promotion = self._promotion(
                 candidate_id,
                 previous_candidate_id=current["candidateId"] if current else None,
@@ -375,14 +416,15 @@ class LocalRuntime:
 
     def _run_job(self, job_id: str) -> None:
         job = self.job(job_id)
-        job.update(state="running", startedAt=_now(), updatedAt=_now())
-        _write_json_atomic(self._job_path(job_id), job)
         work = self.state_directory / "work" / job_id
-        shutil.rmtree(work, ignore_errors=True)
-        work.mkdir(mode=0o700)
         try:
+            job.update(state="running", startedAt=_now(), updatedAt=_now())
+            _write_json_atomic(self._job_path(job_id), job)
+            shutil.rmtree(work, ignore_errors=True)
+            work.mkdir(mode=0o700)
             backend = self.backends[job["backend"]]
-            result = backend.train(
+            result = _run_backend(
+                backend,
                 self.taskset,
                 work,
                 max_updates=job["limits"]["maxUpdates"],
@@ -535,6 +577,10 @@ class LocalRuntime:
 
     def _promotable_candidate(self, candidate_id: str) -> dict[str, Any]:
         candidate = self.candidate(candidate_id)["manifest"]
+        if candidate["tasksetDigest"] != self.taskset_digest:
+            raise RuntimeFailure(
+                "candidate_mismatch", "The candidate belongs to another taskset.", 409
+            )
         backend = self.backends.get(candidate["backend"])
         if backend is None:
             raise RuntimeFailure(
@@ -737,10 +783,59 @@ def _check_request(request: Mapping[str, Any]) -> None:
             "invalid_input", "The evaluation request images must be image data URIs."
         )
     questions = request.get("questions")
-    if not isinstance(questions, Mapping) or not any(
-        isinstance(question, Mapping) and question.get("type") == "noul"
-        for question in questions.values()
-    ):
+    if not isinstance(questions, Mapping) or not questions:
+        raise RuntimeFailure(
+            "invalid_input", "The evaluation request questions must be a non-empty object."
+        )
+    has_noul = False
+    for key, question in questions.items():
+        if not isinstance(key, str) or not _QUESTION_KEY.fullmatch(key):
+            raise RuntimeFailure("invalid_input", "Each question needs a valid key.")
+        if not isinstance(question, Mapping):
+            raise RuntimeFailure("invalid_input", f"Question {key} must be an object.")
+        unknown = set(question) - {"type", "instructions", "criteria", "learning_text"}
+        if unknown:
+            raise RuntimeFailure("invalid_input", f"Question {key} has unknown fields.")
+        kind = question.get("type")
+        instructions = question.get("instructions")
+        criteria = question.get("criteria")
+        if (
+            kind not in ("noul", "choice", "score")
+            or not isinstance(instructions, str)
+            or not instructions.strip()
+        ):
+            raise RuntimeFailure("invalid_input", f"Question {key} is not valid.")
+        if "learning_text" in question and (
+            kind != "noul"
+            or not isinstance(question["learning_text"], str)
+            or not question["learning_text"].strip()
+        ):
+            raise RuntimeFailure("invalid_input", f"Question {key} has invalid learning text.")
+        if kind == "noul":
+            has_noul = True
+            if "criteria" in question and not (
+                isinstance(criteria, Mapping)
+                and set(criteria) <= {"true", "false"}
+                and all(isinstance(text, str) for text in criteria.values())
+            ):
+                raise RuntimeFailure("invalid_input", f"Question {key} has invalid criteria.")
+        elif kind == "choice":
+            if not isinstance(criteria, Mapping) or not 2 <= len(criteria) <= 255:
+                raise RuntimeFailure("invalid_input", f"Question {key} needs 2 to 255 options.")
+            if any(
+                not isinstance(option, str)
+                or not _QUESTION_KEY.fullmatch(option)
+                or not isinstance(text, str)
+                for option, text in criteria.items()
+            ):
+                raise RuntimeFailure("invalid_input", f"Question {key} has invalid options.")
+        elif not (
+            isinstance(criteria, list)
+            and 2 <= len(criteria) <= 10
+            and all(isinstance(level, str) for level in criteria)
+        ):
+            raise RuntimeFailure("invalid_input", f"Question {key} needs 2 to 10 score levels.")
+    if not has_noul:
         raise RuntimeFailure(
             "invalid_input", "The evaluation request needs at least one yes-or-no question."
         )
@@ -796,10 +891,58 @@ def _write_json_atomic(path: Path, value: Any) -> None:
 
 
 def _write_immutable(path: Path, data: bytes) -> None:
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
-    with os.fdopen(descriptor, "wb") as handle:
-        handle.write(data)
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}")
+    try:
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.link(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+def _check_deadline(deadline: float) -> None:
+    if time.monotonic() > deadline:
+        raise RuntimeFailure("job_timed_out", "The bounded training job reached maxSeconds.")
+
+
+def _run_backend(
+    backend: TrainingBackend,
+    taskset: Taskset,
+    work_directory: Path,
+    *,
+    max_updates: int,
+    max_seconds: float,
+) -> TrainingResult:
+    """Run trusted backend code without letting it block the runtime past the job deadline."""
+    completed: queue.Queue[TrainingResult | Exception] = queue.Queue(maxsize=1)
+    deadline = time.monotonic() + max_seconds
+
+    def run() -> None:
+        try:
+            result: TrainingResult | Exception = backend.train(
+                taskset,
+                work_directory,
+                max_updates=max_updates,
+                deadline=deadline,
+            )
+        except Exception as error:
+            result = error
+        completed.put(result)
+
+    thread = threading.Thread(target=run, name=f"replica-{backend.name}-job", daemon=True)
+    thread.start()
+    try:
+        result = completed.get(timeout=max_seconds)
+    except queue.Empty:
+        raise RuntimeFailure("job_timed_out", "The bounded training job reached maxSeconds.") from None
+    if isinstance(result, Exception):
+        raise result
+    _check_deadline(deadline)
+    return result

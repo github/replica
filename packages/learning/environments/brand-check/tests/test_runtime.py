@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import base64
 import json
+import shutil
 import threading
 import time
 import unittest
 from collections.abc import Mapping
 from pathlib import Path
+from unittest import mock
 from urllib import error, request
 
 from replica_brand_check.runtime import FixtureBackend, LocalRuntime, RuntimeFailure
-from replica_brand_check.runtime_server import RuntimeHTTPServer
+from replica_brand_check.runtime_server import RuntimeHTTPServer, runtime_token
 from tests.support import PNG, RULE, make_task, write_taskset
 
 TOKEN = "runtime-test-token-with-32-characters"
@@ -23,6 +25,27 @@ class FailingBackend(FixtureBackend):
 
     def train(self, *args, **kwargs):
         raise RuntimeError("deliberate backend failure")
+
+
+class SlowBackend(FixtureBackend):
+    """A backend that ignores its deadline, to prove the runtime still bounds the job."""
+
+    def train(self, *args, **kwargs):
+        time.sleep(2)
+        return super().train(*args, **kwargs)
+
+
+class BlockingBackend(FixtureBackend):
+    """A backend whose first job waits so a second job stays queued during close."""
+
+    def __init__(self):
+        self.started = threading.Event()
+        self.release = threading.Event()
+
+    def train(self, *args, **kwargs):
+        self.started.set()
+        self.release.wait(5)
+        return super().train(*args, **kwargs)
 
 
 class LocalRuntimeTest(unittest.TestCase):
@@ -125,6 +148,67 @@ class LocalRuntimeTest(unittest.TestCase):
 
         self.assertEqual(self._tree_snapshot(self.state_dir), before)
 
+    def test_refuses_an_empty_backend_configuration(self):
+        with self.assertRaises(RuntimeFailure) as missing:
+            LocalRuntime(self.state_dir, self.taskset_dir, backends={})
+
+        self.assertEqual(missing.exception.code, "backend_missing")
+
+    def test_refuses_a_second_runtime_without_changing_the_first_jobs(self):
+        runtime = self._runtime()
+        submitted = runtime.submit(backend="fixture", max_updates=8, max_seconds=5)
+
+        with self.assertRaises(RuntimeFailure) as in_use:
+            LocalRuntime(self.state_dir, self.taskset_dir)
+
+        self.assertEqual(in_use.exception.code, "runtime_in_use")
+        self.assertNotEqual(runtime.job(submitted["id"])["state"], "failed")
+
+    def test_marks_a_backend_that_exceeds_the_wall_time_failed(self):
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"slow": SlowBackend()},
+            environment="test",
+        )
+        self.addCleanup(runtime.close)
+
+        submitted = runtime.submit(backend="slow", max_updates=1, max_seconds=1)
+        failed = self._wait_for_job(runtime, submitted["id"])
+
+        self.assertEqual(failed["state"], "failed")
+        self.assertEqual(failed["error"]["code"], "job_timed_out")
+        self.assertEqual(list((self.state_dir / "candidates").iterdir()), [])
+
+    def test_close_cancels_queued_jobs_instead_of_starting_them(self):
+        backend = BlockingBackend()
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"blocking": backend},
+            environment="test",
+        )
+        first = runtime.submit(backend="blocking", max_updates=1, max_seconds=5)
+        self.assertTrue(backend.started.wait(1))
+        second = runtime.submit(backend="blocking", max_updates=1, max_seconds=5)
+        closing = threading.Thread(target=runtime.close)
+        closing.start()
+        time.sleep(0.05)
+        backend.release.set()
+        closing.join(2)
+        self.assertFalse(closing.is_alive())
+        self.assertEqual(runtime.job(first["id"])["state"], "succeeded")
+        self.assertEqual(runtime.job(second["id"])["state"], "queued")
+
+        reopened = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"blocking": backend},
+            environment="test",
+        )
+        self.addCleanup(reopened.close)
+        self.assertEqual(reopened.job(second["id"])["error"]["code"], "runtime_restarted")
+
     def test_taskset_digest_changes_when_question_content_changes(self):
         runtime = self._runtime()
         before = runtime.taskset_digest
@@ -164,10 +248,24 @@ class LocalRuntimeTest(unittest.TestCase):
         )
         self.addCleanup(reopened.close)
         self.assertEqual(reopened.job(submitted["id"])["state"], "failed")
-        with self.assertRaises(ValueError):
-            reopened.candidate(submitted["id"])
-        with self.assertRaises(ValueError):
-            reopened.promote(submitted["id"], promoted_by="test-operator")
+        self.assertEqual(list((self.state_dir / "candidates").iterdir()), [])
+        self.assertIsNone(reopened.promotion(required=False))
+
+    def test_persists_work_directory_setup_failure(self):
+        runtime = self._runtime()
+        original = shutil.rmtree
+
+        def fail_work(path, *args, **kwargs):
+            if Path(path).parent.name == "work" and Path(path).name.startswith("job_"):
+                raise OSError("work directory unavailable")
+            return original(path, *args, **kwargs)
+
+        with mock.patch("replica_brand_check.runtime.shutil.rmtree", side_effect=fail_work):
+            submitted = runtime.submit(backend="fixture", max_updates=1, max_seconds=5)
+            failed = self._wait_for_job(runtime, submitted["id"])
+
+        self.assertEqual(failed["state"], "failed")
+        self.assertEqual(failed["error"]["code"], "backend_failed")
 
     def test_restart_marks_an_interrupted_job_failed(self):
         jobs = self.state_dir / "jobs"
@@ -208,6 +306,7 @@ class LocalRuntimeTest(unittest.TestCase):
 
         first_promotion = runtime.promote(first_candidate, promoted_by="first-operator")
         second_promotion = runtime.promote(second_candidate, promoted_by="second-operator")
+        repeated = runtime.promote(second_candidate, promoted_by="retrying-operator")
         rollback = runtime.rollback(rolled_back_by="rollback-operator")
 
         self.assertEqual(first_promotion["generation"], 1)
@@ -215,6 +314,7 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(first_promotion["operation"], "promote")
         self.assertEqual(second_promotion["generation"], 2)
         self.assertEqual(second_promotion["previousCandidateId"], first_candidate)
+        self.assertEqual(repeated, second_promotion)
         self.assertEqual(rollback["generation"], 3)
         self.assertEqual(rollback["candidateId"], first_candidate)
         self.assertEqual(rollback["previousCandidateId"], second_candidate)
@@ -334,6 +434,39 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(refused.exception.status, 409)
         self.assertEqual(production.promotion(), before)
 
+    def test_reopened_runtime_refuses_a_promoted_candidate_from_another_taskset(self):
+        runtime = self._runtime()
+        first = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=4, max_seconds=5)["id"],
+        )
+        second = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
+        )
+        runtime.promote(first["candidateId"], promoted_by="test-operator")
+        runtime.promote(second["candidateId"], promoted_by="test-operator")
+        runtime.close()
+        tasks_path = self.taskset_dir / "tasks.jsonl"
+        tasks = [json.loads(line) for line in tasks_path.read_text(encoding="utf-8").splitlines()]
+        tasks[0]["questions"][RULE]["instructions"] = "A different taskset"
+        tasks_path.write_text(
+            "".join(json.dumps(task) + "\n" for task in tasks),
+            encoding="utf-8",
+        )
+        reopened = self._runtime()
+
+        with self.assertRaises(RuntimeFailure) as not_ready:
+            reopened.ready()
+        with self.assertRaises(RuntimeFailure) as not_served:
+            reopened.evaluate(self._request())
+        with self.assertRaises(RuntimeFailure) as not_rolled_back:
+            reopened.rollback(rolled_back_by="test-operator")
+
+        self.assertEqual(not_ready.exception.code, "candidate_mismatch")
+        self.assertEqual(not_served.exception.code, "candidate_mismatch")
+        self.assertEqual(not_rolled_back.exception.code, "candidate_mismatch")
+
     def test_http_routes_require_the_token_and_track_an_authorized_job(self):
         runtime = self._runtime()
         server = RuntimeHTTPServer(("127.0.0.1", 0), runtime, TOKEN)
@@ -442,6 +575,38 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(scored["promotionGeneration"], 3)
         self.assertEqual(self._http_json(f"{base_url}/ready"), {"status": "ready"})
 
+    def test_refuses_malformed_questions_before_calling_the_backend(self):
+        runtime = self._runtime()
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
+        )
+        runtime.promote(finished["candidateId"], promoted_by="test-operator")
+        malformed = self._request()
+        malformed["questions"]["severity"] = {
+            "type": "score",
+            "instructions": "How severe is it?",
+            "criteria": "x" * 10_000,
+        }
+
+        with self.assertRaises(RuntimeFailure) as invalid:
+            runtime.evaluate(malformed)
+
+        self.assertEqual(invalid.exception.code, "invalid_input")
+
+    def test_immutable_write_failure_does_not_publish_a_partial_generation(self):
+        runtime = self._runtime()
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
+        )
+        with mock.patch("replica_brand_check.runtime.os.link", side_effect=OSError("stopped")):
+            with self.assertRaises(OSError):
+                runtime.promote(finished["candidateId"], promoted_by="test-operator")
+
+        self.assertEqual(list((self.state_dir / "promotions").iterdir()), [])
+        self.assertIsNone(runtime.promotion(required=False))
+
     def _runtime(self):
         runtime = LocalRuntime(
             self.state_dir,
@@ -533,6 +698,19 @@ class LocalRuntimeTest(unittest.TestCase):
             else:
                 path.rmdir()
         self.state_dir.rmdir()
+
+
+class RuntimeTokenTest(unittest.TestCase):
+    def test_requires_a_strong_printable_token_without_revealing_it(self):
+        for token in ("", "short", "x" * 31, "x" * 31 + " "):
+            with self.subTest(token=token):
+                with self.assertRaises(RuntimeFailure) as refused:
+                    runtime_token({"REPLICA_RUNTIME_TOKEN": token})
+                if token:
+                    self.assertNotIn(token, str(refused.exception))
+
+        token = "runtime-token-with-at-least-32-characters"
+        self.assertEqual(runtime_token({"REPLICA_RUNTIME_TOKEN": token}), token)
 
 
 if __name__ == "__main__":

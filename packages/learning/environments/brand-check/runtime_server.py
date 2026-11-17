@@ -7,6 +7,9 @@ import hmac
 import json
 import os
 import re
+import signal
+import socket
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -17,7 +20,13 @@ from .runtime import ENVIRONMENTS, FixtureBackend, LocalRuntime, RuntimeFailure
 TOKEN_VARIABLE = "REPLICA_RUNTIME_TOKEN"
 MIN_TOKEN_LENGTH = 32
 MAX_REQUEST_BYTES = 180 * 1024 * 1024
+MAX_CONNECTIONS = 16
+SOCKET_TIMEOUT_SECONDS = 10
 _SAFE_TOKEN = re.compile(r"^[\x21-\x7e]+$")
+
+
+def _stop(_signum: int, _frame: Any) -> None:
+    raise KeyboardInterrupt
 
 
 def runtime_token(environ: dict[str, str]) -> str:
@@ -38,16 +47,40 @@ class RuntimeHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
 
     def __init__(self, address: tuple[str, int], runtime: LocalRuntime, token: str):
+        if len(token) < MIN_TOKEN_LENGTH or not _SAFE_TOKEN.fullmatch(token):
+            raise RuntimeFailure("token_missing", "The runtime token is not valid.")
         super().__init__(address, RuntimeHandler)
         self.runtime = runtime
         self.token = token.encode()
+        self._connections = threading.BoundedSemaphore(MAX_CONNECTIONS)
+
+    def get_request(self) -> tuple[socket.socket, Any]:
+        connection, address = super().get_request()
+        connection.settimeout(SOCKET_TIMEOUT_SECONDS)
+        return connection, address
+
+    def process_request(self, request: socket.socket, client_address: Any) -> None:
+        if not self._connections.acquire(blocking=False):
+            request.close()
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._connections.release()
+            raise
+
+    def process_request_thread(self, request: socket.socket, client_address: Any) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._connections.release()
 
 
 class RuntimeHandler(BaseHTTPRequestHandler):
     """Route runtime requests and return JSON errors with stable codes."""
 
     server: RuntimeHTTPServer
-    protocol_version = "HTTP/1.1"
+    protocol_version = "HTTP/1.0"
 
     def do_GET(self) -> None:
         try:
@@ -158,6 +191,7 @@ class RuntimeHandler(BaseHTTPRequestHandler):
         return value
 
     def _failure(self, error: RuntimeFailure) -> None:
+        self.close_connection = True
         headers = {"WWW-Authenticate": "Bearer"} if error.status == 401 else None
         self._send(error.status, {"error": {"code": error.code, "message": str(error)}}, headers)
 
@@ -197,6 +231,8 @@ def main() -> None:
         environment=args.environment,
     )
     server = RuntimeHTTPServer((args.host, args.port), runtime, token)
+    previous = signal.getsignal(signal.SIGTERM)
+    signal.signal(signal.SIGTERM, _stop)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -204,6 +240,7 @@ def main() -> None:
     finally:
         server.server_close()
         runtime.close()
+        signal.signal(signal.SIGTERM, previous)
 
 
 if __name__ == "__main__":

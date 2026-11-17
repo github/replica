@@ -206,7 +206,14 @@ curl -sS -H "Authorization: Bearer $REPLICA_RUNTIME_TOKEN" \
   http://127.0.0.1:8010/v1/rollbacks
 ```
 
-`POST /score` and `POST /v1/evaluations` accept the request that `replica-learning decision ask` already sends. Set `REPLICA_DECISION_ENDPOINT=http://127.0.0.1:8010/score` and set `REPLICA_DECISION_KEY` to the runtime token to exercise that endpoint contract. The fixture ignores the screenshots, so do not use its answers to judge a Build or guide authoring. The response keeps its `answers` object and adds the promoted candidate ID, promotion generation, and one `followsProbability` and `breaksProbability` pair per learning. Inference returns `409 candidate_not_promoted` until an operator promotes a candidate.
+`POST /score` and `POST /v1/evaluations` accept a task-shaped request with `state`, image data URIs, and `questions`. Send the runtime token as a bearer token. The fixture ignores the screenshots, so do not use its answers to judge a Build or guide authoring. The response includes probability `answers`, the promoted candidate ID, promotion generation, and one `followsProbability` and `breaksProbability` pair per learning. Inference returns `409 candidate_not_promoted` until an operator promotes a candidate.
+
+```sh
+curl -sS -H "Authorization: Bearer $REPLICA_RUNTIME_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data-binary @request.json \
+  http://127.0.0.1:8010/score
+```
 
 The HTTP contract stays independent of the local store and trainer implementation:
 
