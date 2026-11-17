@@ -55,7 +55,9 @@ export function planDecisionTasks(bundle, builds) {
   if (ranked.length > learnings.length)
     skip("learning-over-limit", ranked.length - learnings.length)
   const episodesById = new Map(episodes.map((episode) => [episode.id, episode]))
-  const completeEpisodes = new Set(manifest.completeEpisodeIds)
+  const completeEpisodes = new Set(manifest.completeEpisodeIds ?? [])
+  const completeViews = new Set(manifest.completeViews ?? [])
+  const completePrototypes = new Set(manifest.completePrototypes ?? [])
   for (const episode of episodes)
     if (episode.source.kind === HUB_SOURCE && !sameHubSource(episode.source, buildSource))
       invalid(
@@ -136,6 +138,13 @@ export function planDecisionTasks(bundle, builds) {
         .at(-1)
       if (!fixed) {
         skip("resolved-without-later-build")
+        continue
+      }
+      if (
+        !completeViews.has(viewKey(buildSource, prototypeId, fixed.number, route)) &&
+        !completePrototypes.has(prototypeKey(buildSource, prototypeId))
+      ) {
+        skip("follows-history-incomplete")
         continue
       }
       // An agent's label can remove a label but never add one: a thread started on the later
@@ -414,6 +423,24 @@ function flaggedThemes(episodes) {
 
 function sameHubSource(left, right) {
   return left?.hubOrigin === right?.hubOrigin && left?.repositoryId === right?.repositoryId
+}
+
+function viewKey(source, prototypeId, buildNumber, route) {
+  return canonicalJson({
+    hubOrigin: source.hubOrigin,
+    repositoryId: source.repositoryId,
+    prototypeId,
+    buildNumber,
+    route,
+  })
+}
+
+function prototypeKey(source, prototypeId) {
+  return canonicalJson({
+    hubOrigin: source.hubOrigin,
+    repositoryId: source.repositoryId,
+    prototypeId,
+  })
 }
 
 function hubSource(value, label) {

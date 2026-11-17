@@ -25,8 +25,10 @@ import {
   weekTwoThreads,
 } from "../conformance/fixtures.mjs"
 import { main } from "../src/cli.mjs"
+import { openLearningStore, resolveEnvironment } from "../src/config.mjs"
 import { brandCheckQuestions } from "../src/decision/questions.mjs"
 import { planDecisionTasks } from "../src/decision/tasks.mjs"
+import { sealRecord } from "../src/records.mjs"
 
 const work = mkdtempSync(path.join(tmpdir(), "replica-learning-decision-"))
 after(() => rmSync(work, { recursive: true, force: true }))
@@ -515,6 +517,7 @@ describe("replica-learning decision", () => {
       [101, 41],
       [103, 43],
       [104, 44],
+      [114, 46],
     ])
       threads.find((item) => item.root.id === commentId).root.author.githubId = githubId
     const { repo, learningId, by } = await acceptedLearning("adopted-reviewer-id", {
@@ -633,6 +636,49 @@ describe("replica-learning decision", () => {
     assert.equal(result.skipped["follows-contradicted"], 1)
   })
 
+  it("withholds follows when a time-bounded grant omits a later same-theme contradiction", async () => {
+    const { repo, learningId, by } = await acceptedLearning("grant-omits-contradiction")
+    const [label] = weekOneLabels().labels
+    writeFileSync(
+      path.join(repo, "later-label.json"),
+      JSON.stringify({ labels: [{ ...label, target: { commentId: 114 } }] }),
+    )
+    await ok(repo, [
+      "label",
+      "later-label.json",
+      "--actor",
+      "agent:copilot",
+      "--model",
+      "test-model",
+    ])
+    await ok(repo, [
+      "grants",
+      "add",
+      "--purpose",
+      "training",
+      "--evidence-until",
+      "2026-10-07T13:00:00Z",
+      "--basis",
+      "The team agreed to train only on evidence recorded before the later review.",
+      ...by,
+    ])
+
+    const { result, tasks } = await writeTaskset(
+      repo,
+      by,
+      buildsFile(repo),
+      "grant-omits-contradiction",
+    )
+
+    assert.deepEqual(labelsOf(tasks), [
+      [11, 3, { [learningId]: { answer: false } }],
+      [12, 2, { [learningId]: { answer: false } }],
+      [13, 5, { [learningId]: { answer: false } }],
+    ])
+    assert.deepEqual([result.counts.follows, result.counts.breaks], [0, 3])
+    assert.equal(result.skipped["follows-history-incomplete"], 1)
+  })
+
   it("withholds follows labels when the export lacks complete unfiltered current history", async () => {
     const { repo, learningId, by } = await acceptedLearning("filtered-history", {
       after: [weekTwoLog({ filters: { resolution: "resolved" } })],
@@ -647,6 +693,62 @@ describe("replica-learning decision", () => {
       [13, 5, { [learningId]: { answer: false } }],
     ])
     assert.deepEqual([result.counts.follows, result.counts.breaks], [0, 3])
+  })
+
+  it("keeps follows available after recording that a captured comment needs no annotation", async () => {
+    const { repo, learningId, by } = await acceptedLearning("no-annotation-history")
+    const environment = await resolveEnvironment({ cwd: repo, env: {} })
+    const { store } = await openLearningStore(environment, { clock: () => CLOCK })
+    try {
+      const context = {
+        scope: environment.scope,
+        principal: { kind: "agent", id: "agent:copilot" },
+      }
+      const observations = await store.queryObservations(context, { purpose: "review" })
+      const laterComment = observations.events.find(
+        (event) => event.type === "human_comment" && event.payload?.commentId === 114,
+      )
+      assert.ok(laterComment)
+      const recorded = await store.recordNoAnnotation(context, [laterComment.id])
+      assert.equal(recorded.length, 1)
+    } finally {
+      await store.close()
+    }
+    await grantTraining(repo, by)
+
+    const { result, tasks } = await writeTaskset(
+      repo,
+      by,
+      buildsFile(repo),
+      "no-annotation-history",
+    )
+
+    assert.deepEqual(
+      labelsOf(tasks).find(([prototypeId, buildNumber]) => prototypeId === 12 && buildNumber === 3),
+      [12, 3, { [learningId]: { answer: true } }],
+    )
+    assert.equal(result.counts.follows, 1)
+  })
+
+  it("treats a historical manifest without completeness fields as having no complete episodes", async () => {
+    const { repo, learningId, by } = await acceptedLearning("historical-manifest")
+    await grantTraining(repo, by)
+    await ok(repo, ["export", "--purpose", "training", ...by, "--out", ".replica/historical.json"])
+    const bundle = JSON.parse(readFileSync(path.join(repo, ".replica/historical.json"), "utf8"))
+    delete bundle.manifest.counts.collections
+    delete bundle.manifest.completeEpisodeIds
+    delete bundle.manifest.completeViews
+    delete bundle.manifest.completePrototypes
+    bundle.manifest = sealRecord(bundle.manifest)
+
+    const plan = planDecisionTasks(bundle, JSON.parse(readFileSync(buildsFile(repo), "utf8")))
+
+    assert.equal(plan.tasks.length, 3)
+    assert.equal(plan.skipped["follows-history-incomplete"], 1)
+    assert.ok(
+      plan.tasks.every((task) => task.labels[learningId]?.answer !== true),
+      "a legacy export must not imply complete history",
+    )
   })
 
   it("ignores superseded annotations when checking whether a fix is contradicted", async () => {

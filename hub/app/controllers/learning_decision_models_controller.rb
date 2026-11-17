@@ -11,6 +11,7 @@ class LearningDecisionModelsController < SuperglueController
     load_learning_workspace
     return if performed?
 
+    Learning::DecisionModel.catalog
     Learning::DecisionModel.transaction do
       Learning::DecisionModel.choose! \
         repository: @repository,

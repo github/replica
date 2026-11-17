@@ -305,6 +305,31 @@ class LearningsIntegrationTest < ActionDispatch::IntegrationTest
       SecurityAuditEvent.where(repository: @repository, action: "learning.decision_model").order(:id).pluck(:outcome)
   end
 
+  test "loads the decision model catalog before starting the save transaction" do
+    path = repository_learnings_decision_model_path(@repository.route_id)
+    transaction_depth = Learning::DecisionModel.connection.open_transactions
+    command = Learning::Command.new
+    observed_depths = []
+    observer = Object.new
+    observer.define_singleton_method(:call) do |*arguments, **options|
+      observed_depths << Learning::DecisionModel.connection.open_transactions
+      command.call(*arguments, **options)
+    end
+    Learning::DecisionModel::CATALOGS.delete(Learning.cli_path.to_s)
+    singleton = Learning::Command.singleton_class
+    original = singleton.instance_method(:new)
+    singleton.define_method(:new) { observer }
+    begin
+      patch path, params: { base_model: "LiquidAI/d1-2B", training_environment: "container" }
+    ensure
+      singleton.define_method(:new, original)
+    end
+
+    assert_redirected_to @path
+    assert_equal [ transaction_depth ], observed_depths
+    assert_equal "LiquidAI/d1-2B", Learning::DecisionModel.sole.base_model
+  end
+
   test "a replica-learning that cannot list base models leaves the page readable and the choice unchanged" do
     ENV["REPLICA_LEARNING_CLI"] = Rails.root.join("test/fixtures/files/fake-replica-learning.mjs").to_s
 

@@ -211,13 +211,15 @@ export interface ExportManifest {
   /** all: grants, collections, episodes with their events, and learnings. learnings: accepted learnings and the grants that permit their evidence. Absent means all. */
   contents?: "all" | "learnings"
   counts: {
-    collections: number
+    collections?: number
     episodes: number
     events: number
     memories: number
     grants: number
   }
-  completeEpisodeIds: string[]
+  completeEpisodeIds?: string[]
+  completeViews?: string[]
+  completePrototypes?: string[]
   excluded: Array<{ reason: string; count: number }>
   records: Array<{
     kind: "collection" | "episode" | "event" | "memory" | "grant"

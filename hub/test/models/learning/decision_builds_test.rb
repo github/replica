@@ -13,12 +13,14 @@ class Learning::DecisionBuildsTest < ActiveSupport::TestCase
     @repository = repositories.create
     @mona = users.create(github_id: 1_002, login: "mona")
     @directory = @root.join("training/checkout-builds")
+    @asset_directory = Rails.root.join("app/assets/decision-builds-#{SecureRandom.hex(4)}")
   end
 
   teardown do
     Rails.configuration.x.artifact_store = @previous_store
     Rails.configuration.x.artifact_root = @previous_root
     FileUtils.rm_rf(@root)
+    FileUtils.rm_rf(@asset_directory)
   end
 
   test "copies each reviewed prototype's published Builds with every rendering of each page captured" do
@@ -62,8 +64,13 @@ class Learning::DecisionBuildsTest < ActiveSupport::TestCase
 
     linked = @root.join("linked")
     FileUtils.ln_s(@root.join("training"), linked)
-    [ Rails.public_path.join("decision-builds-#{SecureRandom.hex(4)}"), Rails.configuration.x.learning_root.join("builds"),
-      @root.join("artifacts/builds"), linked.join("builds") ].each do |directory|
+    [
+      Rails.public_path.join("decision-builds-#{SecureRandom.hex(4)}"),
+      @asset_directory,
+      Rails.configuration.x.learning_root.join("builds"),
+      @root.join("artifacts/builds"),
+      linked.join("builds")
+    ].each do |directory|
       assert_raises(PrivateStorageRoot::Invalid) { Learning::DecisionBuilds.new(@repository).write(directory) }
       assert_not directory.exist?
     end

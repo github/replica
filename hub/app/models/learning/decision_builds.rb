@@ -53,12 +53,13 @@ class Learning::DecisionBuilds
       name: "The Builds directory",
       application_root: Rails.root,
       public_root: Rails.public_path
-    roots = [ Rails.configuration.x.learning_root ]
+    roots = [ Rails.configuration.x.learning_root, Rails.root.join("app/assets") ]
     roots << Rails.configuration.x.artifact_root if Rails.configuration.x.artifact_store == "local"
+    roots.concat(Rails.application.config.assets.paths)
     roots.compact.map { Pathname(_1).expand_path }.each do |root|
       next if directory != root && !directory.to_s.start_with?("#{root}#{File::SEPARATOR}")
 
-      raise PrivateStorageRoot::Invalid, "The Builds directory must be outside Hub's learning and artifact storage: #{directory}"
+      raise PrivateStorageRoot::Invalid, "The Builds directory must be outside Hub's private storage and asset paths: #{directory}"
     end
   end
 

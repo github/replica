@@ -15,7 +15,6 @@
     "provider",
     "destination",
     "counts",
-    "completeEpisodeIds",
     "excluded",
     "records",
     "digest"
@@ -67,7 +66,7 @@
     "counts": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["collections", "episodes", "events", "memories", "grants"],
+      "required": ["episodes", "events", "memories", "grants"],
       "properties": {
         "collections": {
           "$ref": "common.schema.json#/$defs/count"
@@ -92,6 +91,26 @@
       "maxItems": 1000000,
       "items": {
         "$ref": "common.schema.json#/$defs/id"
+      }
+    },
+    "completeViews": {
+      "description": "Hub Build pages whose potentially contradictory current thread history was fully exported from a complete, unfiltered collection.",
+      "type": "array",
+      "maxItems": 1000000,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096
+      }
+    },
+    "completePrototypes": {
+      "description": "Hub prototypes whose potentially contradictory current thread history was fully exported from a complete, unfiltered collection.",
+      "type": "array",
+      "maxItems": 1000000,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096
       }
     },
     "excluded": {

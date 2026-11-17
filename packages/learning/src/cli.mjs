@@ -1085,7 +1085,7 @@ async function exportRecords(session) {
     manifest,
     [
       `Exported for ${purpose} to ${destination} (${manifest.id}).`,
-      `Included ${counts.collections} collections, ${counts.episodes} episodes, ${counts.events} events, ${counts.memories} learnings, ${counts.grants} grants.`,
+      `Included ${counts.collections ?? 0} collections, ${counts.episodes} episodes, ${counts.events} events, ${counts.memories} learnings, ${counts.grants} grants.`,
       ...(manifest.excluded.length
         ? [
             `Held back: ${manifest.excluded.map((item) => `${item.count} ${item.reason}`).join(", ")}.`,
