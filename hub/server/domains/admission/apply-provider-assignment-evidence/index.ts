@@ -131,7 +131,7 @@ export async function applyProviderAssignmentEvidence(
     sessionsMustEnd = Boolean(existingMembership)
   }
   const assignments = await dependencies.repositories.lockActiveAssignments(membershipId)
-  if (sessionsMustEnd && !dependencies.deferSessionEnd) {
+  if (sessionsMustEnd) {
     await endMembershipSessions(
       membershipId,
       dependencies,

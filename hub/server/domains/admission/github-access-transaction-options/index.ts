@@ -2,8 +2,9 @@ import { Prisma } from "../../../generated/prisma/client.ts"
 
 /**
  * Installation-wide GitHub access changes revoke every affected membership in one transaction so
- * access never ends half-revoked. Prisma's five-second default can roll that back for a large
- * installation, so allow a minute; the database test covers 1,000 revoked memberships.
+ * access never ends half-revoked. Revocation uses set-based statements, but grant reconciliation
+ * and audit volume still grow with the installation, so allow more than Prisma's five-second
+ * default. The database tests cover 1,000 revoked memberships.
  */
 export const githubAccessTransactionOptions = {
   isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
