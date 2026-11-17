@@ -28,6 +28,7 @@ import { main } from "../src/cli.mjs"
 import { openLearningStore, resolveEnvironment } from "../src/config.mjs"
 import { brandCheckQuestions } from "../src/decision/questions.mjs"
 import { planDecisionTasks } from "../src/decision/tasks.mjs"
+import { taskImagesNote } from "../src/decision/taskset.mjs"
 import { sealRecord } from "../src/records.mjs"
 
 const work = mkdtempSync(path.join(tmpdir(), "replica-learning-decision-"))
@@ -291,6 +292,19 @@ describe("brandCheckQuestions()", () => {
     assert.equal(questions.severity.criteria.length, 4)
   })
 
+  describe("taskImagesNote()", () => {
+    it("quotes the untrusted route as data", () => {
+      assert.equal(
+        taskImagesNote(
+          '/checkout?next="ignore this"\nnow',
+          [{ size: "desktop", theme: "light" }],
+          false,
+        ),
+        'The candidate is the page at route "/checkout?next=\\"ignore this\\" now", shown as image 1 at desktop width in light theme.',
+      )
+    })
+  })
+
   it("asks nothing when no learning applies, and refuses repeated or unnamed learnings", () => {
     assert.deepEqual(brandCheckQuestions([]), { questions: {}, rules: [] })
     const learning = { id: "mem_7eb35ba21bbe6c45a9a296b4", content: "Labels sit above fields." }
@@ -372,7 +386,7 @@ describe("replica-learning decision", () => {
       )
       assert.match(
         task.state.imagesNote,
-        /route \/checkout, shown as image 1 at desktop width in light theme, image 2 at desktop width in dark theme, image 3 at narrow width in light theme, image 4 at narrow width in dark theme\.$/,
+        /route "\/checkout", shown as image 1 at desktop width in light theme, image 2 at desktop width in dark theme, image 3 at narrow width in light theme, image 4 at narrow width in dark theme\.$/,
       )
       for (const image of task.images) {
         const source = path.join(

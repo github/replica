@@ -146,12 +146,12 @@ export function skippedText(skipped) {
  * @param {Array<{ size: string, theme: string }>} views the page's screenshots, in task order
  * @param {boolean} reference whether the brand reference sheet comes first
  */
-function taskImagesNote(route, views, reference) {
+export function taskImagesNote(route, views, reference) {
   const first = reference ? 2 : 1
   const shown = views.map(
     ({ size, theme }, index) => `image ${first + index} at ${size} width in ${theme} theme`,
   )
-  const page = `the page at route ${oneLine(route).slice(0, 200)}`
+  const page = `the page at route ${JSON.stringify(oneLine(route).slice(0, 200))}`
   return `${reference ? "Image 1 is the team's brand reference sheet. " : ""}The candidate is ${page}, shown as ${shown.join(", ")}.`
 }
 
