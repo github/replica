@@ -373,7 +373,7 @@ it("rechecks and acquires normally when the other owner releases the lease", asy
   expect(s.deactivations()).toHaveLength(0)
 })
 
-it("reacquires its recorded lease by exact-identity renewal without clearing it or asking for recovery consent", async () => {
+it("reacquires its recorded lease by exact-identity renewal after resume checks and confirmation", async () => {
   const s = scenario()
   s.unlock()
   await s.acquire()
@@ -387,8 +387,62 @@ it("reacquires its recorded lease by exact-identity renewal without clearing it 
   expect(
     s.commands.some((args) => args[3] === "renew" && option(args, "--lease-id") === expected),
   ).toBe(true)
-  expect(s.ui.confirm).not.toHaveBeenCalled()
+  expect(s.ui.confirm).toHaveBeenCalledOnce()
+  expect(vi.mocked(s.ui.confirm).mock.calls[0]![0]).toMatch(
+    /previous installer, Terraform, and release processes.*Resume with the saved lease/s,
+  )
   expect(s.ui.select).not.toHaveBeenCalled()
+})
+
+it("does not resume a recorded lease while a previous job execution is still running", async () => {
+  const s = scenario({ existing: true })
+  s.unlock()
+  await s.acquire()
+  vi.mocked(s.ui.confirm).mockClear()
+  s.evidence.executions.provision!.push({ name: "provision-interrupted", status: "Running" })
+  s.choices.push("recheck")
+  s.onSelect((choice) => {
+    if (choice === "recheck") s.evidence.executions.provision!.pop()
+  })
+
+  await s.acquire()
+
+  expect(s.notices).toContainEqual({
+    level: "warning",
+    message: expect.stringMatching(/provision-interrupted, is Running/),
+  })
+  expect(s.menus).toEqual([["recheck", "exit"]])
+  expect(vi.mocked(s.ui.confirm).mock.calls[0]![0]).toMatch(/old provisioning.*database sessions/s)
+  expect(s.breaks()).toHaveLength(0)
+  expect(s.acquisitions()).toHaveLength(1)
+})
+
+it("keeps a recorded lease without resuming when the operator exits or declines", async () => {
+  const s = scenario()
+  s.unlock()
+  await s.acquire()
+  s.evidence.stateBlobs[1]!.lease = { state: "leased", status: "locked", duration: "infinite" }
+
+  await expect(s.acquire()).rejects.toThrow(/Setup exited before resuming.*saved progress/)
+
+  s.evidence.stateBlobs[1]!.lease = { state: "available", status: "unlocked", duration: null }
+  s.onConfirm(() => false)
+  await expect(s.acquire()).rejects.toThrow(/not authorized.*saved progress is unchanged/)
+  expect(s.breaks()).toHaveLength(0)
+  expect(s.acquisitions()).toHaveLength(1)
+  expect(s.commands.some((args) => args[3] === "release")).toBe(false)
+})
+
+it("resumes a recorded lease while the verified Hub keeps serving", async () => {
+  const s = scenario({ canonical: true })
+  s.unlock()
+  await s.acquire()
+
+  await s.acquire()
+
+  expect(s.ui.select).not.toHaveBeenCalled()
+  expect(s.deactivations()).toHaveLength(0)
+  expect(s.acquisitions()).toHaveLength(1)
 })
 
 it("does not clear a recorded lease when Azure rejects its exact ownership identity", async () => {

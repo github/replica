@@ -6,6 +6,7 @@ import { CommandExecutionError } from "../../../installer/command/index.ts"
 import { recoverLease } from "./recover/index.ts"
 import { leaseOwnership } from "./ownership/index.ts"
 import { readBlobLease } from "./read/index.ts"
+import { confirmLeaseResume } from "./resume/index.ts"
 import { staleLeaseError } from "./stale/index.ts"
 
 export async function acquireLease(
@@ -96,6 +97,7 @@ export async function acquireLease(
           `Saved ownership of the lease at ${account}/${container}/${blob} is out of date; this installer no longer holds it. The lease was not changed. Continuing with guarded lock recovery.`,
         )
       }
+      if (result !== undefined) await confirmLeaseResume(context, account, container, blob)
     }
   }
   const proposed = ownership.lease ?? randomUUID()
