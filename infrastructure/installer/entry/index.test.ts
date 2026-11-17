@@ -131,6 +131,23 @@ it("keeps interrupted removal inside Removal instead of offering setup Resume or
   )
 })
 
+it("explains instead of selecting a manually entered configuration with nothing to resume", async () => {
+  const root = await directory()
+  const path = join(root, "first-hub.json")
+  const other = join(await directory(), "other-hub.json")
+  await fixture(path, config())
+  await fixture(other, config("other-hub"))
+  await (await removalSession({ path, config: await loadConfig(path) })).save("removing")
+  const ui = uiFor("remove", "resume-removal", ["config-file"], [path])
+  vi.mocked(ui.text).mockResolvedValue(other)
+
+  const entry = await selectInstallerEntry(ui, { directory: root })
+
+  expect(vi.mocked(ui.multiSelect!).mock.calls[1]![2]).toEqual([])
+  expect(ui.notice).toHaveBeenCalledWith("error", expect.stringMatching(/no interrupted removal/))
+  expect(entry).toMatchObject({ action: "remove", targets: [{ path }] })
+})
+
 it("creates a fresh sibling rather than reusing an occupied config hint or its draft", async () => {
   const local = await directory()
   const occupied = join(local, "installation.json")

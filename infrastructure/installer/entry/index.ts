@@ -235,9 +235,18 @@ export async function selectInstallerEntry(
             const path = configPath(await ui.text("Config-file path"))
             known.add(path)
             const candidate = await inspect(path)
-            if (candidate.existing && !candidate.problem)
-              selected = [...new Set([...selected, path])]
-            else attention(ui, candidate.problem ?? "A complete saved configuration is required.")
+            if (!candidate.existing || candidate.problem)
+              attention(ui, candidate.problem ?? "A complete saved configuration is required.")
+            else if (
+              resumeOnly &&
+              candidate.removal !== "removing" &&
+              candidate.removal !== "retained"
+            )
+              attention(
+                ui,
+                "This configuration has no interrupted removal to resume. Return to Removal and choose Select deployments to remove instead.",
+              )
+            else selected = [...new Set([...selected, path])]
           } catch (error) {
             if (!(error instanceof InputValidationError)) throw error
             attention(ui, error.message)
