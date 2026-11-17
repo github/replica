@@ -116,6 +116,7 @@ export async function acquireLease(
         "--proposed-lease-id",
         proposed,
       )
+      ui.recoveryNotice?.()
       break
     } catch (error) {
       if (
@@ -123,10 +124,9 @@ export async function acquireLease(
         (error instanceof DOMException && error.name === "AbortError")
       )
         throw error
-      ui.notice?.(
-        "error",
-        `Could not acquire the lease at ${account}/${container}/${blob}. No lease was broken by this acquisition attempt. Check access and whether another deployment or retained lease owns it; follow the installation recovery guide before retrying.\n${error instanceof Error ? error.message : "Lease acquisition failed."}`,
-      )
+      const notice = `Could not acquire the lease at ${account}/${container}/${blob}. No lease was broken by this acquisition attempt. Check access and whether another deployment or retained lease owns it; follow the installation recovery guide before retrying.\n${error instanceof Error ? error.message : "Lease acquisition failed."}`
+      if (ui.recoveryNotice) ui.recoveryNotice(notice)
+      else ui.notice?.("error", notice)
       if (!ui.select) throw error
       const choice = await ui.select("The deployment lock could not be acquired.", [
         { label: "Recheck and retry lock acquisition", value: "retry" },

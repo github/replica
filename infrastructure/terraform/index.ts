@@ -96,6 +96,7 @@ export function terraformModule({
       while (true) {
         try {
           await command(["init", "-input=false", "-lock-timeout=60s", `-backend-config=${backend}`])
+          ui.recoveryNotice?.()
           return
         } catch (error) {
           if (!(error instanceof CommandExecutionError) || error.aborted) throw error
@@ -281,6 +282,7 @@ export function terraformModule({
           if (!approvedPlan && signature)
             approvedPlan = { signature, addresses: new Set(changes.map(({ address }) => address)) }
           await execute(["apply", "-input=false", "-lock-timeout=60s", path])
+          ui.recoveryNotice?.()
           return
         } catch (error) {
           if (

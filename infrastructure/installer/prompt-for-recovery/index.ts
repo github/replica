@@ -21,7 +21,8 @@ export async function promptForRecovery(
   while (true) {
     const headline = error.message.split("\n", 1)[0]?.slice(0, 180) || "The step failed."
     const summary = `${headline}\n${message}`
-    if (ui.notice) ui.notice("error", summary)
+    if (ui.recoveryNotice) ui.recoveryNotice(summary)
+    else if (ui.notice) ui.notice("error", summary)
     else ui.status(summary)
     const choice = await ui.select(question, [
       ...actions,

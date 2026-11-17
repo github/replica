@@ -1375,6 +1375,25 @@ it("retries a failed normal acquisition only on an explicit retry choice", async
   expect(s.menus[0]).not.toContain("recover")
 })
 
+it("keeps a failed acquisition error through retry and clears it once the lease is acquired", async () => {
+  const s = scenario()
+  s.unlock()
+  s.failAcquisition()
+  s.choices.push("retry")
+  const recovery: (string | undefined)[] = []
+  s.ui.recoveryNotice = vi.fn((message?: string) => {
+    recovery.push(message === undefined ? undefined : `${s.acquisitions().length}`)
+  })
+
+  await s.acquire()
+
+  expect(recovery).toEqual(["1", undefined])
+  expect(vi.mocked(s.ui.recoveryNotice).mock.calls[0]?.[0]).toMatch(
+    /Could not acquire the lease/,
+  )
+  expect(s.notices.filter(({ level }) => level === "error")).toEqual([])
+})
+
 it.each(
   blockers.filter(({ description }) =>
     [
