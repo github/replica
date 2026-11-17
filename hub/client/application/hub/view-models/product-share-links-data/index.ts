@@ -56,8 +56,14 @@ export function productShareLinksData(
       createPath: resourcePath(`${base}/share-links`, search),
       expirationLabel: "Expires after",
       expirationOptions: [
-        { label: "1 day", value: "one_day" },
-        { label: "7 days", value: "seven_days" },
+        ...response.expirationOptions.map((value) => ({
+          value,
+          label: {
+            one_day: "1 day",
+            seven_days: "7 days",
+            thirty_days: "30 days",
+          }[value],
+        })),
       ],
       labelLabel: "Label",
       labelMaximumBytes: 100,
@@ -92,13 +98,15 @@ export function productShareLinksData(
       deletePath: resourcePath(`${base}/share-links/${link.shareId}`, search),
       deletePrompt: `Delete “${link.label}”?`,
     })),
-    inactiveShareLinks: response.links
-      .filter((link) => !active.some((entry) => entry.id === link.id))
-      .map((link) => ({
-        id: link.id,
-        label: link.label,
-        stateLabel: link.revokedAt ? "Revoked" : !response.enabled ? "Sharing disabled" : "Expired",
-        url: new URL(`/shared/${link.shareId}`, origin).href,
-      })),
+    inactiveShareLinks: response.enabled
+      ? response.links
+          .filter((link) => !active.some((entry) => entry.id === link.id))
+          .map((link) => ({
+            id: link.id,
+            label: link.label,
+            stateLabel: link.revokedAt ? "Revoked" : "Expired",
+            url: new URL(`/shared/${link.shareId}`, origin).href,
+          }))
+      : [],
   }
 }

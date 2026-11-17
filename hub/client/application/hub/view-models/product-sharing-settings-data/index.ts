@@ -83,6 +83,6 @@ export function productSharingSettingsData(
       : "Anyone with a new share link can view its fixed Build without signing in. Previously revoked links stay revoked.",
     confirmLabel: "I understand and confirm this deployment-wide change.",
     verification:
-      "This change requires GitHub verification within the last five minutes on this browser. If verification is required, Hub continues your confirmed change after it succeeds.",
+      "Hub checks your current administrator session again before applying this deployment-wide change.",
   }
 }

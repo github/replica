@@ -12,6 +12,7 @@ model User {
   reviewComments         ReviewComment[]
   resolvedReviewThreads  ReviewThread[]                @relation("ResolvedReviewThreads")
   reviewResolutionEvents ReviewThreadResolutionEvent[]
+  shareLinks             ShareLink[]
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

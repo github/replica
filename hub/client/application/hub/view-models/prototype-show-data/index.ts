@@ -27,7 +27,7 @@ export function prototypeShowData(
 
   return {
     ...workspaceData,
-    shareLinksPath: options.real ? undefined : workspaceData.shareLinksPath,
+    shareLinksPath: workspaceData.shareLinksPath,
     buildPinned: search.has("build"),
     controlsIdentity: data.controlsIdentity,
     prototypeName: data.prototype.name,

@@ -79,8 +79,15 @@ export const productShareLinkSchema = z.object({
 
 export const productShareInputSchema = z
   .object({
-    label: z.string().trim().min(1, "Enter a link label.").max(100),
-    expiration: z.enum(["one_day", "seven_days"]),
+    label: z
+      .string()
+      .trim()
+      .min(1, "Enter a link label.")
+      .refine(
+        (value) => new TextEncoder().encode(value).byteLength <= 100,
+        "Use at most 100 bytes for the link label.",
+      ),
+    expiration: z.enum(["one_day", "seven_days", "thirty_days"]),
     buildNumber: identifier,
   })
   .strict()
@@ -90,6 +97,7 @@ export const productSharingResponseSchema = z.object({
   links: z.array(productShareLinkSchema),
   enabled: z.boolean(),
   canManage: z.boolean(),
+  expirationOptions: z.array(z.enum(["one_day", "seven_days", "thirty_days"])),
 })
 
 export const productSharingSettingsSchema = z.object({
@@ -110,6 +118,8 @@ export const productPublicResponseSchema = z.discriminatedUnion("state", [
     buildNumber: identifier,
     previewUrl: httpUrl,
     expiresAt: timestamp,
+    controlsIdentity: z.string().min(1).max(128),
+    controlsOrigin: httpUrl,
   }),
   z.object({
     state: z.enum(["expired", "revoked", "disabled"]),

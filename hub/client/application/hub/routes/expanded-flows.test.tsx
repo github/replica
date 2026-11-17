@@ -408,12 +408,43 @@ describe("Hub expanded frontend flows", () => {
     expect(screen.queryByRole("button", { name: /Account menu/ })).not.toBeInTheDocument()
   })
 
+  it("removes creation controls and retained URLs when deployment sharing is disabled", async () => {
+    const store = createMockStore({ origin: window.location.origin })
+    store.product.createShareLink("2001", "1", {
+      buildNumber: 3,
+      expiration: "seven_days",
+      label: "Partner review",
+    })
+    const response = store.product.getShareLinks("2001", "1", 3)
+    expect(response.links.length).toBeGreaterThan(0)
+    const server = setupServer(...createMockHandlers(store))
+    server.use(
+      http.get(`${store.origin}/api/repositories/2001/prototypes/1/share-links`, () =>
+        HttpResponse.json({
+          ...response,
+          enabled: false,
+          links: response.links.map((link) => ({ ...link, revokedAt: null })),
+        }),
+      ),
+    )
+
+    await renderHubFlow(server, "/repositories/2001/prototypes/1/share-links?build=3", {
+      workspaceRoutes,
+    })
+
+    expect(screen.getByText(/public sharing is disabled for this Hub/i)).toBeVisible()
+    expect(screen.queryByRole("textbox", { name: "Label" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Create share link" })).not.toBeInTheDocument()
+    expect(screen.queryByText("Partner review")).not.toBeInTheDocument()
+  })
+
   it.each([
-    { shareId: "demo-expired", heading: /link has expired/i },
-    { shareId: "demo-revoked", heading: /link was revoked/i },
+    { shareId: "demo-expired", heading: /link has expired/i, state: null },
+    { shareId: "demo-revoked", heading: /link was revoked/i, state: null },
+    { shareId: "demo-disabled", heading: /sharing is disabled/i, state: "disabled" as const },
   ])(
     "shows an unavailable public preview for $shareId while signed out",
-    async ({ shareId, heading }) => {
+    async ({ shareId, heading, state }) => {
       const store = createMockStore({ origin: window.location.origin })
       store.session.select("signed-out")
       const server = setupServer(...createMockHandlers(store))
@@ -421,6 +452,13 @@ describe("Hub expanded frontend flows", () => {
         HttpResponse.json({ error: "Private workspace must not be loaded." }, { status: 503 }),
       )
       server.use(http.get(`${store.origin}/api/workspace`, privateReads))
+      if (state) {
+        server.use(
+          http.get(`${store.origin}/api/shared/${shareId}`, () =>
+            HttpResponse.json({ state, label: "Shared preview" }),
+          ),
+        )
+      }
 
       await renderHubFlow(server, `/shared/${shareId}`, { publicRoutes })
 

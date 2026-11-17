@@ -2,11 +2,13 @@ import { fireEvent, screen, within } from "@testing-library/react"
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import { useLoaderData, type RouteObject } from "react-router"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { createMockHandlers } from "../mocks/create-mock-handlers"
 import { createMockStore } from "../mocks/create-mock-store"
+import { productSharingSettingsInputSchema } from "../product-contracts"
 import ProductSharingSettingsRoute, {
+  clientAction as saveSharingSettings,
   clientLoader as loadSharingSettings,
 } from "./product-sharing-settings"
 import SettingsCopilotRoute, { clientLoader as loadCopilot } from "./settings-copilot"
@@ -35,6 +37,7 @@ const workspaceRoutes: RouteObject[] = [
   {
     path: "/settings/sharing",
     loader: loadSharingSettings,
+    action: saveSharingSettings,
     Component: SharingSettingsComponent,
   },
   {
@@ -241,6 +244,49 @@ describe("Public sharing navigation", () => {
       expect(screen.queryByRole("link", { name })).not.toBeInTheDocument()
     }
     expect(screen.getByRole("button", { name: /(?:enable|disable) public sharing/i })).toBeEnabled()
+  })
+
+  it("prevents overlapping deployment changes and renders the disabled state after the first request completes", async () => {
+    const store = createMockStore({ origin: window.location.origin })
+    store.session.select("admin")
+    if (!store.product.getSharingSettings().enabled) {
+      store.product.updateSharingSettings({ operation: "enable", confirmed: true })
+    }
+    let release: (() => void) | undefined
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const changes: unknown[] = []
+    const server = setupServer(...createMockHandlers(store))
+    server.use(
+      http.patch(`${store.origin}/api/product/sharing-settings`, async ({ request }) => {
+        const input = productSharingSettingsInputSchema.parse(await request.json())
+        changes.push(input)
+        await blocked
+        const result = store.product.updateSharingSettings(input)
+        return HttpResponse.json(result)
+      }),
+    )
+    const router = await renderHubFlow(server, "/settings/sharing", { workspaceRoutes })
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: "I understand and confirm this deployment-wide change.",
+      }),
+    )
+    const submit = screen.getByRole("button", { name: "Disable public sharing" })
+
+    fireEvent.click(submit)
+    await vi.waitFor(() => expect(changes).toHaveLength(1))
+    expect(submit).toBeDisabled()
+    fireEvent.click(submit)
+    expect(changes).toHaveLength(1)
+
+    release?.()
+    await router.settle()
+
+    expect(screen.getByRole("heading", { name: "Public sharing is disabled" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Enable public sharing" })).toBeEnabled()
+    expect(store.product.getSharingSettings().enabled).toBe(false)
   })
 
   it.each([

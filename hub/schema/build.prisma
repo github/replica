@@ -9,6 +9,7 @@ model Build {
   artifacts              BuildArtifact[]
   branchHeadObservations BranchHeadObservation[]
   reviewThreads          ReviewThread[]
+  shareLinks             ShareLink[]
 
   // Attribute columns
   number               Int

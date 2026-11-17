@@ -26,4 +26,6 @@ HTML responses inject the generated hosted preview bridge. The bridge installs t
 
 Each Build has a separate origin. Responses deny MIME sniffing and referrers, restrict framing to the configured Hub origin, keep resources same-origin, disable camera, microphone, and geolocation, and apply a same-origin content security policy. The iframe remains sandboxed by the Hub frontend. Preview routes return 404 on the Hub host, an unknown Build host, an invalid or expired grant, a mismatched Build cookie, and unsafe paths.
 
-The first version does not add public links, Canvas pairing, review persistence, standalone Build pages, repository discovery, Build execution, or GitHub App setup.
+The first version does not add Canvas pairing, standalone Build pages, hosted repository discovery, hosted Build execution, or GitHub App setup.
+
+Local mode also supports [Build-pinned public share links](share-links.md). They reuse this file-serving path and Build-specific origin, but exchange a separate public grant for a separate `replica_share_preview` cookie. Public requests recheck the saved link and deployment setting before and after artifact reads. They never accept a Hub session as public authorization or expose repository and review data.

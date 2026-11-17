@@ -19,4 +19,8 @@ export interface BuildPreviewRouteDependencies {
     buildId: string,
     path: string,
   ): Promise<{ storageKey: string; byteLength: number } | null>
+  readAvailableShareLink?(
+    shareLinkId: string,
+    buildId: string,
+  ): Promise<{ expiresAt: Date; startPage: string } | null>
 }

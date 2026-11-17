@@ -5,6 +5,7 @@ import type { AuthenticationRouteDependencies } from "../routes/api/auth/types.t
 import type { CopilotConnectionRouteDependencies } from "../routes/api/copilot-connection/types.ts"
 import type { LearningsRouteDependencies } from "../routes/api/learnings/types.ts"
 import type { ProductRouteDependencies } from "../routes/api/product/types.ts"
+import type { PublicSharingRouteDependencies } from "../routes/api/public-sharing/types.ts"
 import type { BuildPreviewRouteDependencies } from "../routes/build-preview/types.ts"
 import { runApi } from "../run-api/index.ts"
 import { jobProcessors } from "../workers/configuration.ts"
@@ -24,6 +25,7 @@ export async function startServerProcesses(options: {
   copilotConnection?: CopilotConnectionRouteDependencies
   learnings?: LearningsRouteDependencies
   product?: ProductRouteDependencies
+  publicSharing?: PublicSharingRouteDependencies
   preview?: BuildPreviewRouteDependencies
   trustedProxyHops?: number
 }) {

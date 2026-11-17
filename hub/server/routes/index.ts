@@ -27,6 +27,14 @@ import { delete_ as handleReviewThreadResolutionDelete } from "./api/repositorie
 import { get as handleBuildPreviewAccessGet } from "./api/repositories/prototypes/builds/access/get/index.ts"
 import { get as handleBuildPreviewAuthorizeGet } from "./build-preview/authorize/get/index.ts"
 import { get as handleBuildPreviewServeGet } from "./build-preview/serve/get/index.ts"
+import { get as handleSharePreviewAuthorizeGet } from "./build-preview/share-authorize/get/index.ts"
+import { get as handleSharingSettingsGet } from "./api/public-sharing/settings/get/index.ts"
+import { patch as handleSharingSettingsPatch } from "./api/public-sharing/settings/patch/index.ts"
+import { get as handleShareLinksGet } from "./api/public-sharing/links/get/index.ts"
+import { post as handleShareLinksPost } from "./api/public-sharing/links/post/index.ts"
+import { del as handleShareLinksDelete } from "./api/public-sharing/links/delete/index.ts"
+import { get as handlePublicShareGet } from "./api/public-sharing/public/get/index.ts"
+import { get as handlePublicSharePreviewGet } from "./api/public-sharing/public-preview/get/index.ts"
 import { get as handleAdministratorsGet } from "./api/administrators/get/index.ts"
 import { get as handleAdministratorCandidatesGet } from "./api/administrators/candidates/get/index.ts"
 import { post as handleAdministratorAuthorizationStartPost } from "./api/administrators/authorizations/start/post/index.ts"
@@ -52,10 +60,21 @@ import type { RouteDependencies } from "./types.ts"
 
 /** Keep endpoint registration separate from the app's shared middleware. */
 export function routes(app: Express, dependencies: RouteDependencies = {}): void {
-  const { authentication, copilotConnection, isReady, learnings, logger, preview, product } =
-    dependencies
+  const {
+    authentication,
+    copilotConnection,
+    isReady,
+    learnings,
+    logger,
+    preview,
+    product,
+    publicSharing,
+  } = dependencies
   if (preview) {
     app.get("/__replica/authorize", handleBuildPreviewAuthorizeGet(preview))
+    if (publicSharing) {
+      app.get("/__replica/share/authorize", handleSharePreviewAuthorizeGet(preview, publicSharing))
+    }
     app.get("/{*path}", handleBuildPreviewServeGet(preview))
   }
   app.get("/api/health", handleApiHealthGet)
@@ -132,6 +151,33 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
           `${reviewCommentsPath}/:threadId/resolution`,
           requireOrigin(authentication.signOut.applicationOrigin),
           handleReviewThreadResolutionDelete(authentication.currentSession, product.reviewComments),
+        )
+      }
+      if (publicSharing) {
+        app.get(
+          "/api/product/sharing-settings",
+          handleSharingSettingsGet(authentication.currentSession, publicSharing),
+        )
+        app.patch(
+          "/api/product/sharing-settings",
+          requireOrigin(authentication.signOut.applicationOrigin),
+          express.json({ limit: "4kb", strict: true }),
+          handleSharingSettingsPatch(authentication.currentSession, publicSharing),
+        )
+        app.get(
+          "/api/repositories/:repositoryId/prototypes/:prototypeId/share-links",
+          handleShareLinksGet(authentication.currentSession, product, publicSharing),
+        )
+        app.post(
+          "/api/repositories/:repositoryId/prototypes/:prototypeId/share-links",
+          requireOrigin(authentication.signOut.applicationOrigin),
+          express.json({ limit: "4kb", strict: true }),
+          handleShareLinksPost(authentication.currentSession, publicSharing),
+        )
+        app.delete(
+          "/api/repositories/:repositoryId/prototypes/:prototypeId/share-links/:shareId",
+          requireOrigin(authentication.signOut.applicationOrigin),
+          handleShareLinksDelete(authentication.currentSession, publicSharing),
         )
       }
     }
@@ -279,6 +325,12 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
       requireOrigin(authentication.signOut.applicationOrigin),
       handleSignOutPost(authentication.signOut),
     )
+  }
+  if (publicSharing) {
+    app.get("/api/shared/:shareId", handlePublicShareGet(publicSharing))
+    if (preview) {
+      app.get("/api/shared/:shareId/preview", handlePublicSharePreviewGet(publicSharing, preview))
+    }
   }
   if (copilotConnection) {
     app.get("/api/copilot-connection", handleCopilotConnectionGet(copilotConnection))

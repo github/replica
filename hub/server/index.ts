@@ -25,6 +25,7 @@ import type { AuthenticationRouteDependencies } from "./routes/api/auth/types.ts
 import type { CopilotConnectionRouteDependencies } from "./routes/api/copilot-connection/types.ts"
 import type { LearningsRouteDependencies } from "./routes/api/learnings/types.ts"
 import type { ProductRouteDependencies } from "./routes/api/product/types.ts"
+import type { PublicSharingRouteDependencies } from "./routes/api/public-sharing/types.ts"
 import type { BuildPreviewRouteDependencies } from "./routes/build-preview/types.ts"
 
 class AuthenticationConfigurationError extends Error {}
@@ -57,6 +58,7 @@ try {
     let learnings: LearningsRouteDependencies | undefined
     let product: ProductRouteDependencies | undefined
     let preview: BuildPreviewRouteDependencies | undefined
+    let publicSharing: PublicSharingRouteDependencies | undefined
     if (runsApi) {
       const authenticationEnvironment = resolveLocalSignInEnvironment(process.env)
       const authenticationConfiguration =
@@ -99,6 +101,17 @@ try {
               const { createBuildPreviewRouteDependencies } =
                 await import("./routes/build-preview/create-build-preview-route-dependencies/index.ts")
               preview = createBuildPreviewRouteDependencies(authenticationEnvironment, storage)
+              if (authentication.local) {
+                const { createPublicSharingRouteDependencies } =
+                  await import("./routes/api/public-sharing/create-public-sharing-route-dependencies/index.ts")
+                publicSharing =
+                  await createPublicSharingRouteDependencies(authenticationEnvironment)
+                preview = {
+                  ...preview,
+                  readAvailableShareLink: (shareLinkId, buildId) =>
+                    publicSharing!.readAvailableLink(shareLinkId, buildId),
+                }
+              }
             }
             const { createCopilotConnectionRouteDependencies } =
               await import("./routes/api/copilot-connection/create-copilot-connection-route-dependencies/index.ts")
@@ -152,6 +165,7 @@ try {
         learnings,
         product,
         preview,
+        publicSharing,
         trustedProxyHops,
       })
     else {
@@ -168,6 +182,7 @@ try {
           learnings,
           product,
           preview,
+          publicSharing,
           trustedProxyHops,
         })
       } else {
