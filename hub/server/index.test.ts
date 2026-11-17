@@ -176,7 +176,7 @@ describe("server runtime", () => {
     expect(createAuthenticationRouteDependencies).toHaveBeenCalledOnce()
     const environment = createAuthenticationRouteDependencies.mock.calls[0]![0]
     expect(environment).toMatchObject({
-      HUB_APPLICATION_ORIGIN: "http://127.0.0.1:5173",
+      HUB_APPLICATION_ORIGIN: "http://localhost:5173",
       HUB_LOCAL_SIGN_IN: "true",
       NODE_ENV: "development",
     })

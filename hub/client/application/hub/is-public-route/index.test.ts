@@ -11,8 +11,8 @@ describe("isPublicRoute()", () => {
   )
 
   it("keeps repository routes private", () => {
-    expect(
-      isPublicRoute(new Request("https://hub.example.com/repositories/repository-id")),
-    ).toBe(false)
+    expect(isPublicRoute(new Request("https://hub.example.com/repositories/repository-id"))).toBe(
+      false,
+    )
   })
 })

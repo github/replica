@@ -301,10 +301,7 @@ export function createProductStore(context: MockFlowContext) {
         throw new MockStoreError(422, "Choose a successful Build with a preview.")
       }
       const id =
-        Math.max(
-          0,
-          ...links.flatMap((link) => (typeof link.id === "number" ? [link.id] : [])),
-        ) + 1
+        Math.max(0, ...links.flatMap((link) => (typeof link.id === "number" ? [link.id] : []))) + 1
       const now = Date.now()
       const link: ProductShareLink = {
         id,
