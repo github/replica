@@ -65,16 +65,18 @@ export function get(
         response.status(400).json({ error: "The Build preview origin is invalid." })
         return
       }
+      const requestedRoute = query.data.route ? normalizeStartPage(query.data.route) : undefined
+      if (query.data.route && !requestedRoute) {
+        response.status(400).json({ error: "The Build preview route is invalid." })
+        return
+      }
       const grant = createPreviewGrant(
         {
           buildId: target.buildId,
           target: query.data.target,
           expiresAt: new Date(Date.now() + 30_000),
           sessionDigest: hashAuthenticationValue(cookie),
-          route:
-            query.data.target === "preview" && query.data.route
-              ? normalizeStartPage(query.data.route)
-              : undefined,
+          route: query.data.target === "preview" ? requestedRoute : undefined,
         },
         preview.encryptionKey,
       )

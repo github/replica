@@ -165,4 +165,19 @@ describe("get()", () => {
       expect(response.headers.get("location")).toBeNull()
     })
   })
+
+  it("rejects an unsafe deep-link route", async () => {
+    await withAccessRoute(async (url) => {
+      const request = new URL(url)
+      request.searchParams.set("target", "preview")
+      request.searchParams.set("route", "https://untrusted.example.com")
+      const response = await fetch(request, {
+        headers: { cookie: "hub_session=member-session" },
+        redirect: "manual",
+      })
+
+      expect(response.status).toBe(400)
+      expect(response.headers.get("location")).toBeNull()
+    })
+  })
 })

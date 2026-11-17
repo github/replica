@@ -32,8 +32,12 @@ async function run(
     if (options.timeoutMs) {
       timer = setTimeout(() => {
         timedOut = true
-        if (process.platform === "win32") child.kill("SIGKILL")
-        else process.kill(-child.pid!, "SIGKILL")
+        try {
+          if (process.platform === "win32") child.kill("SIGKILL")
+          else process.kill(-child.pid!, "SIGKILL")
+        } catch {
+          // The process may finish while its timeout callback is being delivered.
+        }
         timeoutCleanup = options.onTimeout?.()
       }, options.timeoutMs)
     }
