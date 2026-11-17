@@ -4,6 +4,7 @@ import type { RequestHandler } from "express"
 import { AdmissionAuthorityChangedError } from "../../../../../../domains/admission/errors.ts"
 import { GitHubProviderRequestError } from "../../../../../../integrations/github/errors.ts"
 import { authorizeGitHubSetup } from "../../authorize-github-setup/index.ts"
+import { recheckGitHubSetupAuthority } from "../../recheck-github-setup-authority/index.ts"
 import type { GitHubConnectionCheck } from "../../../../../../integrations/github/test-github-app-connection/types.ts"
 import type { GitHubSetupCaller, GitHubSetupRouteDependencies } from "../../types.ts"
 
@@ -83,6 +84,7 @@ export function post(dependencies: GitHubSetupRouteDependencies): RequestHandler
           .filter((check) => check.result !== "pass" && check.name !== "callback_url")
           .map((check) => check.name),
       })
+      if (!(await recheckGitHubSetupAuthority(request, response, dependencies, access))) return
       response.json({ checks })
     } catch (error) {
       next(error)

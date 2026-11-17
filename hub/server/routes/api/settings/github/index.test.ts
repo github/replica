@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { once } from "node:events"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
@@ -78,8 +79,16 @@ describe("GitHub setup routes", () => {
   })
 
   it("returns connected repository names to an authorized administrator", async () => {
+    const session = "admin-session"
+    const sessionDigest = createHash("sha256").update(session).digest("hex")
     const githubSetup = dependencies({
-      authorize: vi.fn(() => Promise.resolve({ allowed: true as const, membershipId: "admin" })),
+      authorize: vi.fn(({ sessionDigest: current }: { sessionDigest?: string }) =>
+        Promise.resolve(
+          current === sessionDigest
+            ? { allowed: true as const, membershipId: "admin" }
+            : { allowed: false as const, requires: "administrator" as const },
+        ),
+      ),
       readStatus: () =>
         Promise.resolve({
           status: "configured",
@@ -91,12 +100,48 @@ describe("GitHub setup routes", () => {
     })
     const base = await start(githubSetup)
 
-    const response = await fetch(`${base}/status`)
+    const response = await fetch(`${base}/status`, {
+      headers: { cookie: `hub_session=${session}` },
+    })
 
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({
       connectedRepositories: ["octo/one", "octo/two"],
     })
+  })
+
+  it("refuses repository names when administrator access ends while reading status", async () => {
+    const session = "admin-session"
+    const sessionDigest = createHash("sha256").update(session).digest("hex")
+    let administratorActive = true
+    const githubSetup = dependencies({
+      authorize: vi.fn(({ sessionDigest: current }: { sessionDigest?: string }) =>
+        Promise.resolve(
+          administratorActive && current === sessionDigest
+            ? { allowed: true as const, membershipId: "admin" }
+            : { allowed: false as const, requires: "administrator" as const },
+        ),
+      ),
+      readStatus: async () => {
+        await Promise.resolve()
+        administratorActive = false
+        return {
+          status: "configured" as const,
+          signInEnabled: true,
+          settings: [],
+          urls: { homepage: origin, callback: "c", setup: "s", webhook: "w" },
+          connectedRepositories: ["octo/private"],
+        }
+      },
+    })
+    const base = await start(githubSetup)
+    const response = await fetch(`${base}/status`, {
+      headers: { cookie: `hub_session=${session}` },
+    })
+
+    expect.soft(administratorActive).toBe(false)
+    expect.soft(response.status).toBe(403)
+    expect(await response.text()).not.toContain("octo/private")
   })
 
   it("syncs repositories only after the installation check passes", async () => {
@@ -179,6 +224,78 @@ describe("GitHub setup routes", () => {
     expect(body).not.toContain("octo/")
     expect(githubSetup.writeTestAudit).not.toHaveBeenCalled()
   })
+
+  it.each([
+    {
+      change: "administrator access changes to bootstrap",
+      before: "administrator",
+      after: "bootstrap",
+    },
+    { change: "bootstrap closes", before: "bootstrap", after: "closed" },
+    {
+      change: "bootstrap changes to administrator access",
+      before: "bootstrap",
+      after: "administrator",
+    },
+  ] as const)(
+    "refuses repository names when $change during the audit",
+    async ({ before, after }) => {
+      const session = "admin-session"
+      const sessionDigest = createHash("sha256").update(session).digest("hex")
+      let authority: "administrator" | "bootstrap" | "closed" = before
+      let changeDuringAudit = false
+      let setupAttempts = 3
+      const githubSetup = dependencies({
+        authorize: vi.fn(
+          ({
+            sessionDigest: current,
+            bootstrapSecret,
+          }: {
+            sessionDigest?: string
+            bootstrapSecret?: string
+          }) => {
+            if (authority === "administrator" && current === sessionDigest) {
+              return Promise.resolve({ allowed: true as const, membershipId: "admin" })
+            }
+            if (authority === "bootstrap" && bootstrapSecret === "secret") {
+              return Promise.resolve({ allowed: true as const, membershipId: null })
+            }
+            return Promise.resolve({ allowed: false as const, requires: "administrator" as const })
+          },
+        ),
+        checkRateLimit: vi.fn((operation: "github_setup" | "github_test") =>
+          Promise.resolve(operation !== "github_setup" || setupAttempts-- > 0),
+        ),
+        testConnection: vi.fn(() =>
+          Promise.resolve([
+            { name: "installation" as const, result: "pass" as const, detail: "ok" },
+          ]),
+        ),
+        writeTestAudit: vi.fn(async () => {
+          await Promise.resolve()
+          if (changeDuringAudit) authority = after
+        }),
+      })
+      const base = await start(githubSetup)
+      const headers = {
+        origin,
+        cookie: `hub_session=${session}`,
+        "x-hub-bootstrap-secret": "secret",
+      }
+      const allowed = await fetch(`${base}/test`, { method: "POST", headers })
+      expect(allowed.status).toBe(200)
+      expect(await allowed.text()).toContain("octo/one")
+
+      changeDuringAudit = true
+      const denied = await fetch(`${base}/test`, { method: "POST", headers })
+      expect.soft(authority).toBe(after)
+      expect.soft(denied.status).toBe(403)
+      expect.soft(await denied.text()).not.toContain("octo/one")
+
+      const next = await fetch(`${base}/status`, { headers })
+      expect(next.status).toBe(after === "closed" ? 403 : 200)
+    },
+  )
 
   it("does not synchronize repositories when the App and client IDs do not match", async () => {
     const githubSetup = dependencies({

@@ -99,9 +99,7 @@ export function createGitHubSetupRouteDependencies(
         prisma,
         () => listInstallationRepositories(credentials),
         { configurationDigest: context.configurationDigest, revision: context.providerRevision },
-        caller
-          ? { authorize: (transaction) => lockGitHubSetupAuthority(transaction, caller) }
-          : {},
+        caller ? { authorize: (transaction) => lockGitHubSetupAuthority(transaction, caller) } : {},
       )
       return repositories.map((repository) => repository.nameWithOwner)
     },
