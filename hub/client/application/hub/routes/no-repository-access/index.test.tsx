@@ -44,6 +44,28 @@ describe("NoRepositoryAccess", () => {
     expect(screen.queryByText(/you signed in as @/i)).not.toBeInTheDocument()
   })
 
+  it("returns to sign in with an empty native sign-out submission", () => {
+    render(
+      <ThemeProvider>
+        <MemoryRouter initialEntries={["/signed-in/no-access"]}>
+          <NoRepositoryAccess />
+        </MemoryRouter>
+      </ThemeProvider>,
+    )
+
+    const button = screen.getByRole<HTMLButtonElement>("button", { name: "Return to sign in" })
+    const form = button.form
+    expect(form).not.toBeNull()
+    expect(button.type).toBe("submit")
+    expect(button.getAttribute("formaction") ?? form!.getAttribute("action")).toBe(
+      "/api/auth/session/sign-out",
+    )
+    expect((button.getAttribute("formmethod") ?? form!.getAttribute("method"))?.toLowerCase()).toBe(
+      "post",
+    )
+    expect([...new FormData(form!, button)]).toEqual([])
+  })
+
   it("does not claim an arbitrary URL-fragment login as a verified account", () => {
     render(
       <ThemeProvider>

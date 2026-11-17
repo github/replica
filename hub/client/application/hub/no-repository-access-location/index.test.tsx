@@ -124,6 +124,24 @@ describe("repository access recovery redirects", () => {
     expect(form.dispatchEvent(submit)).toBe(true)
   })
 
+  it("allows native sign-out after a revoked session", async () => {
+    stubApi(() => noAccess("octocat"))
+    const router = renderHub("/repositories")
+
+    const button = await screen.findByRole<HTMLButtonElement>("button", {
+      name: "Return to sign in",
+    })
+    expect(router.state.location.pathname).toBe("/signed-in/no-access")
+    const form = button.form!
+    expect(form.method).toBe("post")
+    const submit = new SubmitEvent("submit", {
+      bubbles: true,
+      cancelable: true,
+      submitter: button,
+    })
+    expect(form.dispatchEvent(submit)).toBe(true)
+  })
+
   it.each(["/", "/repositories"])(
     "keeps an ordinary signed-out session at %s on the normal sign-in path",
     async (path) => {

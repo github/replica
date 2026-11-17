@@ -37,11 +37,13 @@ base64 < private-key.pem | tr -d '\\n' > private-key.pem.base64
 az keyvault secret set --vault-name "$VAULT" --name github-app-private-key --file private-key.pem.base64 --query id --output tsv
 az keyvault secret set --vault-name "$VAULT" --name github-webhook-secret --file webhook-secret.txt --query id --output tsv`
 
-const terraformValues = `hub_application_origin    = "https://YOUR-HUB-HOST"
-github_app_id              = "YOUR_APP_ID"
-github_client_id           = "YOUR_CLIENT_ID"
-github_app_installation_id = "YOUR_INSTALLATION_ID"
-github_provider_revision   = 1
+const terraformValues = `runtime_environment_variables = {
+  GITHUB_APP_ID              = "YOUR_APP_ID"
+  GITHUB_CLIENT_ID           = "YOUR_CLIENT_ID"
+  GITHUB_APP_INSTALLATION_ID = "YOUR_INSTALLATION_ID"
+  GITHUB_PROVIDER_REVISION   = "1"
+}
+
 runtime_secret_references = {
   GITHUB_CLIENT_SECRET          = { key_vault_id = "...", secret_id = "https://YOUR-VAULT.vault.azure.net/secrets/github-client-secret/VERSION" }
   GITHUB_APP_PRIVATE_KEY_BASE64 = { key_vault_id = "...", secret_id = "https://YOUR-VAULT.vault.azure.net/secrets/github-app-private-key/VERSION" }
@@ -76,7 +78,7 @@ export function GithubAppSecretGuide({ target, onTargetChange }: Props) {
           <thead>
             <tr>
               <th scope="col">GitHub value</th>
-              <th scope="col">{target === "key-vault" ? "Key Vault secret" : "Storage"}</th>
+              <th scope="col">Storage</th>
               <th scope="col">Environment variable</th>
             </tr>
           </thead>
@@ -90,7 +92,7 @@ export function GithubAppSecretGuide({ target, onTargetChange }: Props) {
                   ) : value.vault ? (
                     <code>{value.vault}</code>
                   ) : (
-                    "Terraform variable"
+                    <code>runtime_environment_variables</code>
                   )}
                 </td>
                 <td>
@@ -117,10 +119,13 @@ export function GithubAppSecretGuide({ target, onTargetChange }: Props) {
             label="Store GitHub App secrets in Key Vault"
           />
           <Text as="p" size="100">
-            Add the identifiers and versioned secret references to your Terraform variables, then
-            run the serialized Hub release. Merge these references with the existing shared
-            authentication secrets in <code>runtime_secret_references</code>. Use revision 1 for a
-            new App; increase the existing revision for changes.
+            Merge the identifiers into <code>runtime_environment_variables</code> and the versioned
+            secret references into <code>runtime_secret_references</code>. Keep the existing Hub
+            origin and shared authentication settings. If a value already uses another Terraform
+            input, update that input instead of duplicating it here. Use revision 1 for the first
+            GitHub configuration; increase <code>GITHUB_PROVIDER_REVISION</code> by 1 for each
+            configuration or secret change, or before re-enabling GitHub. Then run the serialized
+            Hub release.
           </Text>
           <CopyableCodeBlock code={terraformValues} label="Terraform variables" />
         </>
@@ -143,9 +148,19 @@ export function GithubAppSecretGuide({ target, onTargetChange }: Props) {
       <ol className="github-app-rotation">
         <li>Generate a new client secret or private key on GitHub. Keep the old one for now.</li>
         <li>
-          {target === "key-vault"
-            ? "Store it as a new Key Vault version, update its versioned reference, increase github_provider_revision, and run the serialized Hub release."
-            : "Replace the value in .env, increase GITHUB_PROVIDER_REVISION, and restart."}
+          {target === "key-vault" ? (
+            <>
+              Store it as a new Key Vault version, update its reference in{" "}
+              <code>runtime_secret_references</code>, increase <code>GITHUB_PROVIDER_REVISION</code>{" "}
+              by 1 in <code>runtime_environment_variables</code> (or the existing Terraform input
+              that sets it), and run the serialized Hub release.
+            </>
+          ) : (
+            <>
+              Replace the value in <code>.env</code>, increase <code>GITHUB_PROVIDER_REVISION</code>{" "}
+              by 1, and restart.
+            </>
+          )}
         </li>
         <li>
           Run Test connection below and sign in with GitHub, then delete the old secret or key on

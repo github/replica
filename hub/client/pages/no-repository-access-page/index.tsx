@@ -27,9 +27,11 @@ export function NoRepositoryAccessPage({ login }: { login: string | null }) {
           Sign in as a different GitHub account
         </Button>
       </form>
-      <Text as="p">
-        <a href="/">Return to sign in</a>
-      </Text>
+      <form action="/api/auth/session/sign-out" method="post">
+        <Button type="submit" variant="subtle" block>
+          Return to sign in
+        </Button>
+      </form>
     </GithubAppSetupPage>
   )
 }
