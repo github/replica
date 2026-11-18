@@ -19,6 +19,7 @@ import { scheduleLearningRuns } from "../schedule-learning-runs/index.ts"
 import { createJobProcessor } from "../../../integrations/bullmq/create-job-processor/index.ts"
 import { createJobQueue } from "../../../integrations/bullmq/create-job-queue/index.ts"
 import { enqueueRecoverableJob } from "../../../integrations/bullmq/enqueue-recoverable-job/index.ts"
+import type { PrismaClient } from "../../../generated/prisma/client.ts"
 import { runLearningCommand } from "../../../integrations/learning/run-learning-command/index.ts"
 import { LearningCommandError } from "../../../integrations/learning/run-learning-command/errors.ts"
 import { CopilotCredentialError } from "../../../integrations/github/create-installation-access-token/errors.ts"
@@ -51,7 +52,7 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
   let databaseDependenciesPromise:
     | Promise<{
         databaseUrl: string
-        prisma: Awaited<typeof import("../../../integrations/prisma/index.ts")>["prisma"]
+        prisma: PrismaClient
       }>
     | undefined
   function databaseDependencies() {
