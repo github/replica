@@ -198,7 +198,7 @@ describe("createApp()", () => {
         setResolution: vi.fn(),
       },
       authorizeReviewAccess,
-      listRepositories: vi.fn(),
+      listRepositories: vi.fn().mockResolvedValue([]),
       findRepositoryIndex: vi.fn(),
       findPrototypeDetail: vi.fn(),
       readPrototypeWithIntroduction: vi.fn(),
@@ -262,6 +262,14 @@ describe("createApp()", () => {
       expect(await review.json()).toEqual({ comments: [], nextCursor: null, hasMore: false })
       expect(listPrototypeThreads).toHaveBeenCalledWith(repositoryId, prototypeId)
       expect(readPublicLink).toHaveBeenCalledOnce()
+
+      const workspace = await fetch(`${base}/api/workspace`, {
+        headers: { cookie: "hub_session=local-session" },
+      })
+      expect(workspace.status).toBe(200)
+      expect(await workspace.json()).toMatchObject({
+        capabilities: { manageSharing: true, reviewPrototypes: true },
+      })
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()))
