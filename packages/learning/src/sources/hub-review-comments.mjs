@@ -432,59 +432,92 @@ export function hubThreadEvents({ meta, thread, scope, episodeId, existing }) {
 
   const statuses = known.filter((event) => event.type === "status_change")
   let recorded = statuses.at(-1)?.payload?.status ?? "unresolved"
-  const history =
-    thread.root.resolutionHistory.length > 0
-      ? thread.root.resolutionHistory
-      : [
-          {
-            state: thread.root.resolvedAt ? "resolved" : "unresolved",
-            at: thread.root.resolvedAt ?? meta.capturedAt,
-            actorLogin: thread.root.resolvedByLogin,
-            actorGithubId: thread.root.resolvedByGithubId,
-            actorLocalId: thread.root.resolvedByLocalId,
-            actorHubUserId: thread.root.resolvedByHubUserId,
-          },
-        ]
-  for (const change of history) {
-    if (change.state === recorded) continue
-    const at = change.at
-    const actor = change.actorLogin
+  if (thread.root.resolutionHistory.length > 0) {
+    for (const change of thread.root.resolutionHistory) {
+      if (change.state === recorded) continue
+      const at = change.at
+      const actor = change.actorLogin
+        ? reviewer(
+            change.actorLogin,
+            change.actorGithubId,
+            change.actorLocalId,
+            change.actorHubUserId,
+            scope,
+            meta,
+          )
+        : { kind: "system", id: `system:${HUB_SOURCE}` }
+      const id = derivedId("ev", {
+        episodeId,
+        status: change.state,
+        resolutionEventId: change.id,
+        sequence: change.sequence,
+      })
+      if (ids.has(id)) {
+        recorded = change.state
+        continue
+      }
+      ids.add(id)
+      add({
+        schemaVersion: SCHEMA_VERSIONS.event,
+        id,
+        episodeId,
+        scope,
+        type: "status_change",
+        at,
+        actor,
+        payload: {
+          subject: { kind: "thread", id: thread.root.id },
+          status: change.state,
+          at,
+          ...(change.actorLogin ? { by: actor } : {}),
+        },
+      })
+      recorded = change.state
+    }
+  } else {
+    const last = statuses.at(-1)
+    const current = thread.root.resolvedAt ? "resolved" : "unresolved"
+    const by = thread.root.resolvedByLogin
       ? reviewer(
-          change.actorLogin,
-          change.actorGithubId,
-          change.actorLocalId,
-          change.actorHubUserId,
+          thread.root.resolvedByLogin,
+          thread.root.resolvedByGithubId,
+          thread.root.resolvedByLocalId,
+          thread.root.resolvedByHubUserId,
           scope,
           meta,
         )
-      : { kind: "system", id: `system:${HUB_SOURCE}` }
-    const id = derivedId("ev", {
-      episodeId,
-      status: change.state,
-      ...(change.id ? { resolutionEventId: change.id } : { at }),
-      ...(change.sequence ? { sequence: change.sequence } : {}),
-    })
-    if (ids.has(id)) {
-      recorded = change.state
-      continue
-    }
-    ids.add(id)
-    add({
-      schemaVersion: SCHEMA_VERSIONS.event,
-      id,
-      episodeId,
-      scope,
-      type: "status_change",
-      at,
-      actor,
-      payload: {
-        subject: { kind: "thread", id: thread.root.id },
-        status: change.state,
+      : undefined
+    // Without durable history, a changed resolution time or resolver is the only evidence that a
+    // thread was reopened and resolved again between snapshots.
+    const resolvedAgain =
+      current === "resolved" &&
+      recorded === "resolved" &&
+      (last.at !== thread.root.resolvedAt || !sameReviewer(last.payload.by, by, scope, meta))
+    if (current !== recorded || resolvedAgain) {
+      const at = thread.root.resolvedAt ?? meta.capturedAt
+      const id = derivedId("ev", {
+        episodeId,
+        status: current,
         at,
-        ...(change.actorLogin ? { by: actor } : {}),
-      },
-    })
-    recorded = change.state
+        ...(resolvedAgain && last.at === at ? { by: by?.id ?? null } : {}),
+      })
+      if (!ids.has(id))
+        add({
+          schemaVersion: SCHEMA_VERSIONS.event,
+          id,
+          episodeId,
+          scope,
+          type: "status_change",
+          at,
+          actor: by ? { ...by } : { kind: "system", id: `system:${HUB_SOURCE}` },
+          payload: {
+            subject: { kind: "thread", id: thread.root.id },
+            status: current,
+            at,
+            ...(by ? { by } : {}),
+          },
+        })
+    }
   }
   return added
 }
@@ -495,6 +528,22 @@ function stableIdentity(message) {
     message.authorLocalId !== undefined ||
     message.authorHubUserId !== undefined
   )
+}
+
+/**
+ * Whether a resolver names the same person as the recorded one. Stable identities match only the
+ * same stable identity. A login-only identity can adopt a stable ID without looking like another
+ * resolution, but a later login-only identity cannot replace an already stable identity.
+ */
+export function sameReviewer(recorded, current, scope, source) {
+  if (!recorded || !current) return recorded === current
+  if (stableReviewer(recorded, scope, source))
+    return stableReviewer(current, scope, source) && recorded.id === current.id
+  return loginOf(recorded) === loginOf(current)
+}
+
+function loginOf(actor) {
+  return actor.login ?? actor.id.replace(/^github:/, "")
 }
 
 function reviewer(login, githubId, localId, hubUserId, scope, meta) {

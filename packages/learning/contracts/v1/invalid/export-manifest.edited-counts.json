@@ -23,11 +23,17 @@
     "destination": "/path/to/prototype/.replica/learning/exports/instruction.json",
     "contents": "all",
     "counts": {
+      "collections": 0,
       "episodes": 10,
       "events": 25,
       "memories": 99,
       "grants": 1
     },
+    "completeEpisodeIds": [
+      "ep_de190b9a6dc64fbad2f7d662",
+      "ep_1f2f1501c88bf130701e2e2d",
+      "ep_0674c585aa647cf9cbf49835"
+    ],
     "excluded": [
       {
         "reason": "event-retracted",
@@ -60,6 +66,6 @@
         "digest": "sha256:7ff70c11cab2a82298f91e58bac002dc2ec48688d1b1aa97c95976a4b8beb44e"
       }
     ],
-    "digest": "sha256:d8420b3bd2b1c9b3b018271efaabaff523757b53bff78cceb041dcf5296d06a2"
+    "digest": "sha256:d5be880cbcea6490ceb77b055e784338acf77a7544aaa04dbf7fc039a9fca91c"
   }
 }
