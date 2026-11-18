@@ -15,6 +15,7 @@
     "installer/**/*.ts",
     "installer/**/*.tsx",
     "azure/install/**/*.ts",
+    "azure/post/**/*.ts",
     "terraform/**/*.ts"
   ]
 }

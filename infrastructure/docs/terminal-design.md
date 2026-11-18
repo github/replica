@@ -14,6 +14,12 @@ Keep the first implementation in `infrastructure/installer/`, above the cloud-sp
 
 This work does not add AWS deployment, arbitrary backward navigation, automatic cloud rollback, or a general workflow engine. It does not authorize an Azure deployment.
 
+`npm run setup:post` reuses this shell, saved-configuration picker, confirmation controls, diagnostics and error recovery for existing-installation sign-in configuration, GitHub App configuration, and restart. It has a post-setup heading instead of the installation stage map and never offers Create or setup Resume. Exit still has no writes or Azure calls. [Post-setup configuration](../README.md#post-setup-configuration) owns its operation and recovery contract.
+
+Post-setup secret prompts collect private file paths, never credential text. Only public identifiers, origins and proxy counts use ordinary text fields. Do not copy secret file contents into field feedback, history, notices, saved drafts or telemetry. A generated bootstrap secret is retained in a private operator file and referenced by its path, not printed.
+
+Recoverable post-setup validation stays inside the selected step. Preserve accepted public answers immediately through the existing private-file writing boundary; save validated file paths and confirmed secret-version references, never contents or rejected raw text. Resume offers revalidation of completed answers or a confirmed prompt reset. A file error keeps the submitted path prefilled and offers read-only recheck, path correction, or exit with prior progress retained. Failed cloud writes require outcome inspection or explicit retry, not automatic mutation replay.
+
 ## Accepted requirements
 
 | Feedback              | Required outcome                                                                                                                 |
@@ -48,7 +54,7 @@ Keep the shell mounted while questions change. Reset only the input component th
 
 Submitting a question disables its input but keeps that content rendered until the next question replaces it or an explicit work status begins. Do not render an empty or previous-activity spinner between consecutive prompts. Reset a new step's scroll position before its first frame, not in an effect after painting content at the old step's offset. Measure viewport overflow in the layout phase so stale scroll geometry cannot flash through.
 
-While a submitted question remains visible, show that its answer was received and work is continuing; do not leave a disabled `y/N` control looking unanswered. Keep this feedback in the footer so long approval text cannot scroll it out of view. Ctrl+C must remain usable during this handoff.
+While a submitted question remains visible, show that its answer was received and work is continuing; do not leave a disabled `y/N` control looking unanswered. Keep this feedback in the footer so long approval text cannot scroll it out of view. Ctrl+C must remain usable during this handoff. Post-setup commands announce their safe operation label before execution, never their arguments or results, so Azure reads and lease checks do not look like a frozen confirmation.
 
 Give each area a clear responsibility:
 
@@ -90,6 +96,8 @@ Separate three kinds of information:
 - Logs record ordinary activity and may leave the bounded recent-activity area.
 
 A field error must never disappear because six newer log lines arrived. A failed operation must not become an ordinary log line just because the next status message was emitted.
+
+Post-setup recovery errors have a separate lifetime from outcome notices. Keep the error while the user edits or chooses recheck; clear it only after that input is validated and saved, or the failed operation succeeds. Clearing a resolved recovery error must reveal, not delete, any pending warning about stored secret versions, retained progress, or partial cloud changes. Post-setup phase changes and prompt submission do not automatically discard those outcome notices.
 
 Keep severity separate from recovery behavior. A validation error allows editing; a read-only discovery failure may allow retry; an ambiguous migration or ownership failure requires review. Red text must not imply that the application always exits, and a generic retry button must not repeat unsafe operations.
 

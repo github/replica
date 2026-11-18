@@ -2,6 +2,7 @@
   "name": "@replica/commands",
   "private": true,
   "scripts": {
-    "setup:server": "npm start --prefix infrastructure --"
+    "setup:server": "npm start --prefix infrastructure --",
+    "setup:post": "npm start --prefix infrastructure -- --post"
   }
 }

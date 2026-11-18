@@ -89,6 +89,69 @@ it("offers Exit without creating even a missing local directory", async () => {
   expect(ui.confirm).not.toHaveBeenCalled()
 })
 
+it("exits post-setup without creating a local directory or requesting installation answers", async () => {
+  const parent = await directory()
+  const ui = uiFor("exit")
+
+  expect(
+    await selectInstallerEntry(ui, { directory: join(parent, "missing"), postSetup: true }),
+  ).toBeUndefined()
+
+  expect(vi.mocked(ui.select).mock.calls[0]![1].map(({ value }) => value)).toEqual([
+    "sign-in",
+    "github",
+    "restart",
+    "exit",
+  ])
+  expect(await readdir(parent)).toEqual([])
+  expect(ui.cloud).not.toHaveBeenCalled()
+  expect(ui.text).not.toHaveBeenCalled()
+  expect(ui.confirm).not.toHaveBeenCalled()
+})
+
+it.each(["sign-in", "github", "restart"] as const)(
+  "selects a complete saved installation for post-setup %s without changing its files",
+  async (postAction) => {
+    const root = await directory()
+    const path = join(root, "installation.json")
+    const existing = config()
+    await fixture(path, existing)
+    const before = await readFile(path, "utf8")
+    const ui = uiFor(postAction, path)
+
+    expect(await selectInstallerEntry(ui, { directory: root, postSetup: true })).toMatchObject({
+      action: "update",
+      postAction,
+      path,
+      existing,
+    })
+
+    expect(await readFile(path, "utf8")).toBe(before)
+    expect(await readdir(root)).toEqual(["installation.json"])
+    expect(ui.cloud).not.toHaveBeenCalled()
+    expect(ui.confirm).not.toHaveBeenCalled()
+  },
+)
+
+it("does not enter post-setup for an installation with unfinished setup", async () => {
+  const root = await directory()
+  const path = join(root, "installation.json")
+  await fixture(path, config())
+  await fixture(`${path}.draft.json`, draft(path))
+  const files = await readdir(root)
+  const contents = await Promise.all(files.map((file) => readFile(join(root, file), "utf8")))
+  const ui = uiFor("restart", path, "exit")
+
+  expect(await selectInstallerEntry(ui, { directory: root, postSetup: true })).toBeUndefined()
+
+  expect(ui.notice).toHaveBeenCalledWith("error", expect.any(String))
+  expect(await readdir(root)).toEqual(files)
+  expect(await Promise.all(files.map((file) => readFile(join(root, file), "utf8")))).toEqual(
+    contents,
+  )
+  expect(ui.confirm).not.toHaveBeenCalled()
+})
+
 it("creates a fresh sibling rather than reusing an occupied config hint or its draft", async () => {
   const local = await directory()
   const occupied = join(local, "installation.json")
