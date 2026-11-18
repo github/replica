@@ -365,6 +365,14 @@ run "runtime_environment_rejects_reserved_names" {
   expect_failures = [var.runtime_environment_variables]
 }
 
+run "runtime_environment_rejects_reserved_credential_names" {
+  command = plan
+  variables {
+    runtime_environment_variables = { AZURE_KEY_VAULT_SECRET_REFERENCES = "synthetic-value" }
+  }
+  expect_failures = [var.runtime_environment_variables]
+}
+
 run "runtime_environment_rejects_invalid_names" {
   command = plan
   variables {
@@ -391,14 +399,29 @@ run "runtime_environment_rejects_null_values" {
   expect_failures = [var.runtime_environment_variables]
 }
 
+run "runtime_environment_rejects_credential_names" {
+  command = plan
+  variables {
+    runtime_environment_variables = { REPLICA_COPILOT_TOKEN = "synthetic-value" }
+  }
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "runtime_environment_accepts_credential_words_inside_other_words" {
+  command = plan
+  variables {
+    runtime_environment_variables = { MONKEY_MODE = "on", TOKENIZER = "basic" }
+  }
+}
+
 run "runtime_environment_cannot_duplicate_a_secret_reference" {
   command = plan
   variables {
     runtime_environment_variables = {
-      SERVICE_API_KEY = "https://service.vault.azure.net/secrets/api-key"
+      SERVICE_ENDPOINT = "https://service.vault.azure.net/secrets/api-key"
     }
     runtime_secret_references = {
-      SERVICE_API_KEY = {
+      SERVICE_ENDPOINT = {
         key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service"
         secret_id    = "https://service.vault.azure.net/secrets/api-key"
       }

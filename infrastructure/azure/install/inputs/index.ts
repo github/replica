@@ -239,6 +239,10 @@ export async function readInstallationInputs(
         typeof value !== "string"
       )
         throw invalid()
+      if (/(^|_)(SECRET|TOKEN|PASSWORD|PASSWD|PASSPHRASE|CREDENTIAL|APIKEY|KEY)S?(_|$)/.test(name))
+        throw new Error(
+          `Saved Terraform inputs are invalid. Move ${name} from runtime_environment_variables to runtime_secret_references as a Key Vault secret reference; credential-named settings cannot be stored in Terraform state. No cloud changes or input rewrites were started.`,
+        )
       result.runtime_environment_variables[name] = value
     }
   }

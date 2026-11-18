@@ -25,6 +25,46 @@ describe("readInstallationInputs()", () => {
     await expect(readInstallationInputs("synthetic-installation", config)).resolves.toEqual(expected)
   })
 
+  it.each([
+    "HUB_BOOTSTRAP_SECRET",
+    "SECRETS_PATH",
+    "REPLICA_COPILOT_TOKEN",
+    "HUB_RUNTIME_PASSWORD",
+    "SMTP_PASSWD",
+    "SIGNING_PASSPHRASE",
+    "SERVICE_CREDENTIALS",
+    "SERVICE_APIKEY",
+    "SERVICE_API_KEY",
+    "GITHUB_APP_PRIVATE_KEY_BASE64",
+  ])("rejects credential-named runtime environment setting %s", async (name) => {
+    const { config, inputs } = boundaryInputs()
+    vi.mocked(readPrivateFile).mockResolvedValue(
+      JSON.stringify({ ...inputs, runtime_environment_variables: { [name]: "synthetic-value" } }),
+    )
+
+    const failure = await readInstallationInputs("synthetic-installation", config).catch(
+      (error: unknown) => error,
+    )
+
+    expect(failure).toBeInstanceOf(Error)
+    expect(String(failure)).toContain(
+      `Move ${name} from runtime_environment_variables to runtime_secret_references`,
+    )
+    expect(String(failure)).not.toContain("synthetic-value")
+  })
+
+  it("accepts public settings whose names only contain credential words inside other words", async () => {
+    const { config, inputs } = boundaryInputs()
+    const environment = { MONKEY_MODE: "on", TOKENIZER: "basic", KEYBOARD_LAYOUT: "us" }
+    vi.mocked(readPrivateFile).mockResolvedValue(
+      JSON.stringify({ ...inputs, runtime_environment_variables: environment }),
+    )
+
+    await expect(readInstallationInputs("synthetic-installation", config)).resolves.toMatchObject({
+      runtime_environment_variables: environment,
+    })
+  })
+
   it("retains public runtime values, empty strings, and boundary names without a secret-reference count limit", async () => {
     const { config, inputs } = boundaryInputs()
     const environment = {
@@ -505,8 +545,8 @@ describe("readInstallationInputs()", () => {
     vi.mocked(readPrivateFile).mockResolvedValue(
       JSON.stringify({
         ...inputs,
-        runtime_environment_variables: { SERVICE_API_KEY: secret.secret_id },
-        runtime_secret_references: { SERVICE_API_KEY: secret },
+        runtime_environment_variables: { SERVICE_ENDPOINT: secret.secret_id },
+        runtime_secret_references: { SERVICE_ENDPOINT: secret },
       }),
     )
 
@@ -516,6 +556,24 @@ describe("readInstallationInputs()", () => {
 
     expect(failure).toBeInstanceOf(Error)
     expect(String(failure)).not.toContain(secret.secret_id)
+  })
+
+  it("does not suggest moving deployment-owned metadata to secret references", async () => {
+    const { config, inputs } = boundaryInputs()
+    vi.mocked(readPrivateFile).mockResolvedValue(
+      JSON.stringify({
+        ...inputs,
+        runtime_environment_variables: { AZURE_KEY_VAULT_SECRET_REFERENCES: "synthetic-value" },
+      }),
+    )
+
+    const failure = await readInstallationInputs("synthetic-installation", config).catch(
+      (error: unknown) => error,
+    )
+
+    expect(failure).toBeInstanceOf(Error)
+    expect(String(failure)).not.toContain("Move AZURE_KEY_VAULT_SECRET_REFERENCES")
+    expect(String(failure)).not.toContain("synthetic-value")
   })
 
   it("rejects an operator secret reference that would replace Azure startup metadata", async () => {
