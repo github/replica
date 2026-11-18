@@ -91,6 +91,16 @@ it("allows only the selected app's intended environment update and its intended 
   expect(validatePostPlan(test.plan, test.scope)).toBe(true)
 })
 
+it("allows the built-in Key Vault Secrets User ID with its matching role name", () => {
+  const test = scenario()
+  const subscription = test.grant.change.after.scope.split("/")[2]!
+  Object.assign(test.grant.change.after, {
+    role_definition_id: `/subscriptions/${subscription}/providers/Microsoft.Authorization/roleDefinitions/4633458b-17de-408a-b874-0445c86b69e6`,
+  })
+
+  expect(validatePostPlan(test.plan, test.scope)).toBe(true)
+})
+
 it.each([
   {
     reason: "a different app resource ID",
@@ -148,6 +158,21 @@ it.each([
     reason: "a more powerful role on the intended secret",
     change: (test: ReturnType<typeof scenario>) => {
       test.grant.change.after.role_definition_name = "Key Vault Administrator"
+    },
+  },
+  {
+    reason: "a malformed role ID despite the allowed role name",
+    change: (test: ReturnType<typeof scenario>) => {
+      Object.assign(test.grant.change.after, { role_definition_id: "not-a-role-resource-id" })
+    },
+  },
+  {
+    reason: "a different role ID despite the allowed role name",
+    change: (test: ReturnType<typeof scenario>) => {
+      Object.assign(test.grant.change.after, {
+        role_definition_id:
+          "/providers/Microsoft.Authorization/roleDefinitions/00482a5a-887f-4fb3-b363-3b7fe8e74483",
+      })
     },
   },
 ])("blocks $reason before apply", ({ change }) => {

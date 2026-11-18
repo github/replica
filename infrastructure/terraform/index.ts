@@ -158,7 +158,7 @@ export function terraformModule({
             const reason = uncertainAddresses.has(address)
               ? `${address} had an uncertain apply result and Azure could not be checked for it.`
               : `Azure could not be checked for ${address}.`
-            const message = `Terraform plan blocked: ${reason} Nothing from this plan was applied; saved progress and leases are kept. Retry when Azure is reachable.`
+            const message = `Terraform plan blocked: ${reason} Nothing from this plan was applied; saved progress and leases are kept. Review Azure access and the lookup response before retrying.`
             ui.notice?.("error", message)
             throw new Error(message)
           }

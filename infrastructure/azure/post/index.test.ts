@@ -1616,7 +1616,7 @@ it("regenerates and revalidates the plan on an explicit apply retry, blocking ne
   expect(test.ui.complete).not.toHaveBeenCalled()
 })
 
-it.each(["duplicate", "lookup failure", "absent"] as const)(
+it.each(["duplicate", "lookup failure", "malformed", "malformed retry", "absent"] as const)(
   "applies a secret read grant only after a conclusive clean Azure lookup: %s",
   async (lookup) => {
     const test = await scenario()
@@ -1626,18 +1626,32 @@ it.each(["duplicate", "lookup failure", "absent"] as const)(
     const grantId = `${scope}/providers/Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000004`
     const environment = structuredClone(test.state.environment)
     const execute = test.run.getMockImplementation()!
+    const retry = lookup === "malformed retry"
+    if (retry) {
+      test.state.failApply = true
+      test.state.recovery = "retry"
+    }
     const checkGrant = vi.fn(async () => {
       if (lookup === "lookup failure") throw new Error("Synthetic Azure lookup failure")
+      if (lookup === "malformed" || retry) return JSON.stringify([{}])
       return JSON.stringify(
         lookup === "absent"
           ? []
           : [{ id: grantId, scope, principalId, roleDefinitionName: "Key Vault Secrets User" }],
       )
     })
+    if (retry) checkGrant.mockResolvedValueOnce("[]")
     test.run.mockImplementation(async (executable, args, options) => {
       if (executable === "az" && args.slice(0, 3).join(" ") === "role assignment list") {
         expect(args[args.indexOf("--scope") + 1]).toBe(scope)
         return checkGrant()
+      }
+      if (retry && executable === "terraform" && args[1] === "apply") {
+        try {
+          return await execute(executable, args, options)
+        } finally {
+          test.state.failApply = false
+        }
       }
       const output = await execute(executable, args, options)
       if (executable !== "terraform" || args[1] !== "show" || !args[3]) return output
@@ -1677,20 +1691,28 @@ it.each(["duplicate", "lookup failure", "absent"] as const)(
       lookup === "duplicate" ? /plan blocked.*already has resources/i : /plan blocked/i,
     )
 
-    expect(checkGrant).toHaveBeenCalledOnce()
-    expect(test.plans).toHaveLength(1)
+    expect(checkGrant).toHaveBeenCalledTimes(retry ? 2 : 1)
+    expect(test.plans).toHaveLength(retry ? 2 : 1)
     expect(test.plans[0]!.changed).toBe(true)
-    expect(test.applies).toBe(0)
-    expect(test.ui.confirm).toHaveBeenCalledTimes(1)
-    expect(test.state.active).toBe(true)
+    expect(test.applies).toBe(retry ? 1 : 0)
+    expect(test.ui.confirm).toHaveBeenCalledTimes(retry ? 2 : 1)
+    expect(test.state.active).toBe(!retry)
     expect(test.state.environment).toEqual(environment)
+    const saved = JSON.parse(await readFile(test.inputsPath, "utf8")) as PostInputs
+    expect(saved.runtime_environment_variables!.HUB_TRUSTED_PROXY_HOPS).toBe("2")
+    expect(saved.runtime_secret_references).toEqual(test.inputs.runtime_secret_references)
+    expect(
+      test.run.mock.calls.filter(
+        ([, args]) => args.slice(0, 3).join(" ") === "containerapp revision deactivate",
+      ),
+    ).toHaveLength(retry ? 1 : 0)
     expect(
       test.run.mock.calls.some(
         ([executable, args]) =>
           (executable === "terraform" && ["import", "state"].includes(args[1]!)) ||
           (executable === "az" &&
-            (args.slice(0, 3).join(" ") === "containerapp revision deactivate" ||
-              (args[0] === "role" && ["create", "delete"].includes(args[2]!)))),
+            args[0] === "role" &&
+            ["create", "delete"].includes(args[2]!)),
       ),
     ).toBe(false)
   },

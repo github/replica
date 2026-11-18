@@ -1,3 +1,5 @@
+const keyVaultSecretsUserRoleId = "4633458b-17de-408a-b874-0445c86b69e6"
+
 export function validatePostPlan(
   value: unknown,
   scope: {
@@ -129,6 +131,13 @@ export function validatePostPlan(
       after.role_definition_name !== "Key Vault Secrets User"
     )
       invalid()
+    if (after.role_definition_id !== undefined && after.role_definition_id !== null) {
+      if (typeof after.role_definition_id !== "string") invalid()
+      const role = `/providers/microsoft.authorization/roledefinitions/${keyVaultSecretsUserRoleId}`
+      const subscription = after.scope.split("/")[2]?.toLowerCase()
+      const id = after.role_definition_id.replace(/\/+$/, "").toLowerCase()
+      if (id !== role && id !== `/subscriptions/${subscription}${role}`) invalid()
+    }
   }
   return changed
 }
