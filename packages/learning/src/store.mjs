@@ -2332,14 +2332,15 @@ class LearningStore {
     const safelyOmittedEventIds = new Set(
       exportedEvents.map((event) => event.supersedes).filter(Boolean),
     )
-    const currentSourceEvents = (episodeIds) =>
-      observations.events.filter(
+    function currentSourceEvents(episodeIds) {
+      return observations.events.filter(
         (event) =>
           episodeIds.has(event.episodeId) &&
           !JUDGMENTS.has(event.type) &&
           !eligible.retracted.has(event.id) &&
           !safelyOmittedEventIds.has(event.id),
       )
+    }
     const completeEpisodeIds = exportedEpisodes
       .filter((episode) => {
         const sourceEvents = currentSourceEvents(new Set([episode.id]))
