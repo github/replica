@@ -4,6 +4,7 @@ export async function endOpenHubSessionsForMembership(
   database: Pick<Prisma.TransactionClient, "$queryRaw">,
   membershipId: string,
   reason?: "GITHUB_REPOSITORY_ACCESS_REVOKED",
+  preservedSessionDigest?: string,
 ) {
   return database.$queryRaw<Array<{ id: string }>>`
     WITH session_clock AS (
@@ -23,6 +24,7 @@ export async function endOpenHubSessionsForMembership(
       "updated_at" = (SELECT value FROM session_clock)
     WHERE "membership_id" = ${membershipId}::uuid
       AND "ended_at" IS NULL
+      AND (${preservedSessionDigest ?? null}::text IS NULL OR "digest" <> ${preservedSessionDigest ?? null})
     RETURNING "id"
   `
 }

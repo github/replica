@@ -50,6 +50,7 @@ export interface AdmissionRepositories {
   endOpenHubSessionsForMembership(
     membershipId: string,
     reason?: "GITHUB_REPOSITORY_ACCESS_REVOKED",
+    preservedSessionDigest?: string,
   ): Promise<Array<{ id: string }>>
   lockActiveAssignments(membershipId: string): Promise<
     Array<{

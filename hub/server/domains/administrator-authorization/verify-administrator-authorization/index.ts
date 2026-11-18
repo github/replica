@@ -113,7 +113,11 @@ export async function verifyAdministratorAuthorization(
                 role: input.providerAssignment.role,
                 userId: identity.userId,
               },
-              { createId: () => dependencies.createId(), repositories },
+              {
+                createId: () => dependencies.createId(),
+                preserveAdministratorSessionDigest: input.sessionDigest,
+                repositories,
+              },
             )
             if (applied.denied) {
               const authorization = await repositories.getSensitiveAuthorizationAuditData(
