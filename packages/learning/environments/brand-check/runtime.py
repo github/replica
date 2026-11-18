@@ -1207,7 +1207,7 @@ def _runtime_connector_failure(error: ConnectorError) -> RuntimeFailure:
         "unavailable": 503,
         "internal": 500,
     }[error.category]
-    return RuntimeFailure(error.code, str(error), status)
+    return RuntimeFailure(error.code, "Connector operation failed.", status)
 
 
 def _run_backend(

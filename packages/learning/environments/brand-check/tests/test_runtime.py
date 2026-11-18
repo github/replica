@@ -173,7 +173,7 @@ class InferenceFailingCredentials(CapturingCredentials):
         if audience == "inference":
             raise ConnectorError(
                 "credential_unavailable",
-                "The runtime credential is unavailable.",
+                "provider secret: test-token",
                 category="unauthorized",
             )
         return super().acquire(audience, context)
@@ -388,6 +388,8 @@ class LocalRuntimeTest(unittest.TestCase):
 
         self.assertEqual(unavailable.exception.code, "credential_unavailable")
         self.assertEqual(unavailable.exception.status, 503)
+        self.assertEqual(str(unavailable.exception), "Connector operation failed.")
+        self.assertNotIn("test-token", str(unavailable.exception))
 
     def test_detects_a_candidate_changed_to_claim_production_eligibility(self):
         runtime = self._runtime()
