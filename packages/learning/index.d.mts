@@ -976,7 +976,7 @@ export interface DecisionTaskPlan {
   tasks: Array<{
     id: string
     split: "train" | "dev" | "test"
-    prototypeId: number
+    prototypeId: number | string
     buildNumber: number
     route: string
     /** The page's screenshots from the Builds file: desktop before narrow, light before dark. */

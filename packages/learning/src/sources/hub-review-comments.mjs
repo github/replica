@@ -469,6 +469,7 @@ export function hubThreadEvents({ meta, thread, scope, episodeId, existing }) {
           subject: { kind: "thread", id: thread.root.id },
           status: change.state,
           at,
+          sequence: change.sequence,
           ...(change.actorLogin ? { by: actor } : {}),
         },
       })

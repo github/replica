@@ -62,6 +62,8 @@ from torch.nn.utils.rnn import pad_sequence
 from transformers import AutoModel
 
 TRUSTED_MODEL_DIRS_VARIABLE = "REPLICA_TRUSTED_MODEL_DIRS"
+MAX_IMAGE_PIXELS = 25_000_000
+MAX_TASK_PIXELS = 50_000_000
 
 
 @dataclass
@@ -80,11 +82,49 @@ class Features:
     pooled: torch.Tensor | None = None
 
 
-def decode_image(uri: str) -> Image.Image:
+def _open_image(uri: str) -> tuple[Image.Image, int]:
     header, data = uri.split(",", 1)
     if not header.startswith("data:image/") or not header.endswith(";base64"):
         raise ValueError("expected a base64 image data URI")
-    return Image.open(io.BytesIO(base64.b64decode(data))).convert("RGB")
+    image = Image.open(io.BytesIO(base64.b64decode(data)))
+    pixels = image.width * image.height
+    if pixels > MAX_IMAGE_PIXELS:
+        getattr(image, "close", lambda: None)()
+        raise ValueError(f"image has {pixels} pixels, over the {MAX_IMAGE_PIXELS} limit")
+    return image, pixels
+
+
+def decode_image(uri: str) -> Image.Image:
+    """Decode one image after checking its dimensions."""
+    image, _pixels = _open_image(uri)
+    try:
+        return image.convert("RGB")
+    finally:
+        image.close()
+
+
+def decode_images(uris: list[str]) -> list[Image.Image]:
+    """Decode bounded images after checking every image and the task's total pixel count."""
+    opened = []
+    total_pixels = 0
+    for uri in uris:
+        image, pixels = _open_image(uri)
+        total_pixels += pixels
+        if total_pixels > MAX_TASK_PIXELS:
+            getattr(image, "close", lambda: None)()
+            for earlier in opened:
+                getattr(earlier, "close", lambda: None)()
+            raise ValueError(
+                f"task images have {total_pixels} pixels, over the {MAX_TASK_PIXELS} limit"
+            )
+        opened.append(image)
+    decoded = []
+    for image in opened:
+        try:
+            decoded.append(image.convert("RGB"))
+        finally:
+            getattr(image, "close", lambda: None)()
+    return decoded
 
 
 def rotate_half(x: torch.Tensor) -> torch.Tensor:
@@ -204,7 +244,9 @@ class Policy:
             if count % 50 == 0 or count == len(task_ids):
                 print(f"read {count} of {len(task_ids)} practice pages", flush=True)
         pooled = torch.cat(rows)
-        self.mean, self.std = pooled.mean(0), pooled.std(0) + 1e-6
+        spread = pooled.std(0, unbiased=False)
+        self.mean = pooled.mean(0)
+        self.std = torch.where(spread > 1e-6, spread, torch.ones_like(spread))
 
     @torch.no_grad()
     def features(
@@ -219,7 +261,7 @@ class Policy:
         if task_id in self.cache:
             return self.cache[task_id]
         model, trunk = self.model, self.model.encoder
-        prefix = model.vision([decode_image(uri) for uri in images])
+        prefix = model.vision(decode_images(images))
         m = prefix.shape[1]
         max_len = min(model.config.image_text_length, model.config.max_length - m)
         keys = [key for key, question in questions.items() if question.get("type") == "noul"]

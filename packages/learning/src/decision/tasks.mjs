@@ -15,6 +15,7 @@ export const SIZES = Object.freeze(["desktop", "narrow"])
 export const THEMES = Object.freeze(["light", "dark"])
 /** The share of prototypes held out for each of the dev and test splits. */
 export const HOLD_OUT = 0.15
+const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/
 
 /**
  * Plan labeled decision tasks from a training export and the Builds whose screenshots show what
@@ -141,7 +142,9 @@ export function planDecisionTasks(bundle, builds) {
         continue
       }
       if (
-        !completeViews.has(viewKey(buildSource, prototypeId, fixed.number, route)) &&
+        !viewKeys(buildSource, prototypeId, fixed.number, route).some((key) =>
+          completeViews.has(key),
+        ) &&
         !completePrototypes.has(prototypeKey(buildSource, prototypeId))
       ) {
         skip("follows-history-incomplete")
@@ -293,8 +296,8 @@ function readBuilds(value) {
   const byPrototype = new Map()
   for (const [index, build] of value.builds.entries()) {
     const where = `Build ${index + 1}`
-    if (!isObject(build) || !positive(build.prototypeId) || !positive(build.number))
-      invalid(`${where} needs a positive prototypeId and number.`)
+    if (!isObject(build) || !sourceIdentifier(build.prototypeId) || !positive(build.number))
+      invalid(`${where} needs a positive integer or UUID prototypeId and a positive number.`)
     const createdAt = time(build.createdAt, `${where} needs createdAt as an RFC 3339 time.`)
     const publishedAt = time(build.publishedAt, `${where} needs publishedAt as an RFC 3339 time.`)
     if (!Array.isArray(build.screenshots))
@@ -316,7 +319,7 @@ function readBuilds(value) {
       const view = `${screenshot.route}\n${screenshot.size}\n${screenshot.theme}`
       if (views.has(view))
         invalid(
-          `${where} lists two ${screenshot.size} ${screenshot.theme} screenshots of ${screenshot.route}.`,
+          `${where} lists two ${screenshot.size} ${screenshot.theme} screenshots of ${JSON.stringify(screenshot.route)}.`,
         )
       views.add(view)
       const { route, size, theme, path } = screenshot
@@ -425,14 +428,15 @@ function sameHubSource(left, right) {
   return left?.hubOrigin === right?.hubOrigin && left?.repositoryId === right?.repositoryId
 }
 
-function viewKey(source, prototypeId, buildNumber, route) {
-  return canonicalJson({
+function viewKeys(source, prototypeId, buildNumber, route) {
+  const view = {
     hubOrigin: source.hubOrigin,
     repositoryId: source.repositoryId,
     prototypeId,
     buildNumber,
     route,
-  })
+  }
+  return [derivedId("view", view), canonicalJson(view)]
 }
 
 function prototypeKey(source, prototypeId) {
@@ -450,17 +454,24 @@ function hubSource(value, label) {
   } catch {
     origin = null
   }
-  if (origin !== value.hubOrigin || !positive(value.repositoryId))
-    invalid(`${label} needs a canonical hubOrigin and a positive repositoryId.`)
+  if (origin !== value.hubOrigin || !sourceIdentifier(value.repositoryId))
+    invalid(`${label} needs a canonical hubOrigin and a positive integer or UUID repositoryId.`)
   return { hubOrigin: value.hubOrigin, repositoryId: value.repositoryId }
 }
 
 /**
- * The thread's latest status change, or null when two changes share the latest time. The export
- * does not protect the order of a timeline, so a tie has no latest change.
+ * The thread's latest status change, or null when its order cannot be established. Durable Hub
+ * resolution history carries a sequence. Older snapshots fall back to time only when none does.
  */
 function latestStatus(episode) {
   const statuses = (episode.timeline ?? []).filter((event) => event.type === "status_change")
+  if (statuses.length < 2) return statuses[0]
+  const sequenced = statuses.filter((event) => positive(event.payload?.sequence))
+  if (sequenced.length) {
+    const latestSequence = Math.max(...sequenced.map((event) => event.payload.sequence))
+    const latest = sequenced.filter((event) => event.payload.sequence === latestSequence)
+    return latest.length === 1 ? latest[0] : null
+  }
   const latest = statuses.reduce(
     (found, event) => (!found || compare(event.at, found.at) > 0 ? event : found),
     undefined,
@@ -470,10 +481,17 @@ function latestStatus(episode) {
 
 function byView(left, right) {
   return (
-    left.prototypeId - right.prototypeId ||
+    compareSourceIdentifiers(left.prototypeId, right.prototypeId) ||
     left.buildNumber - right.buildNumber ||
     compare(left.route, right.route)
   )
+}
+
+function compareSourceIdentifiers(left, right) {
+  if (typeof left === "number" && typeof right === "number") return left - right
+  if (typeof left === "number") return -1
+  if (typeof right === "number") return 1
+  return compare(left, right)
 }
 
 /** Desktop before narrow, and light before dark, the order the build action captures them in. */
@@ -490,6 +508,10 @@ function compare(left, right) {
 
 function positive(value) {
   return Number.isSafeInteger(value) && value > 0
+}
+
+function sourceIdentifier(value) {
+  return positive(value) || (typeof value === "string" && UUID.test(value))
 }
 
 function isObject(value) {

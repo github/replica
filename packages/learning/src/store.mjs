@@ -2332,19 +2332,20 @@ class LearningStore {
     const safelyOmittedEventIds = new Set(
       exportedEvents.map((event) => event.supersedes).filter(Boolean),
     )
+    const currentSourceEvents = (episodeIds) =>
+      observations.events.filter(
+        (event) =>
+          episodeIds.has(event.episodeId) &&
+          !JUDGMENTS.has(event.type) &&
+          !eligible.retracted.has(event.id) &&
+          !safelyOmittedEventIds.has(event.id),
+      )
     const completeEpisodeIds = exportedEpisodes
       .filter((episode) => {
-        const sourceEvents = observations.events.filter(
-          (event) =>
-            event.episodeId === episode.id &&
-            !JUDGMENTS.has(event.type) &&
-            event.payload !== undefined &&
-            !eligible.retracted.has(event.id) &&
-            !safelyOmittedEventIds.has(event.id),
-        )
+        const sourceEvents = currentSourceEvents(new Set([episode.id]))
         if (
           sourceEvents.some(
-            (event) => !exportedEventIds.has(event.id) && !safelyOmittedEventIds.has(event.id),
+            (event) => event.payload === undefined || !exportedEventIds.has(event.id),
           )
         )
           return false
@@ -2369,20 +2370,26 @@ class LearningStore {
       const key = hubViewKey(episode, observations.events)
       if (key) views.set(key, [...(views.get(key) ?? []), episode])
     }
+    const uncertainPrototypes = new Set()
+    for (const episode of observations.episodes) {
+      if (episode.source.kind !== HUB_SOURCE) continue
+      const sourceEvents = currentSourceEvents(new Set([episode.id]))
+      if (
+        hubViewKey(episode, observations.events) === null &&
+        sourceEvents.some(
+          (event) => event.payload === undefined || !exportedEventIds.has(event.id),
+        )
+      )
+        uncertainPrototypes.add(hubPrototypeKey(episode.source))
+    }
     const completeViews = [...views]
       .filter(([, viewEpisodes]) => {
         const source = viewEpisodes[0].source
-        const sourceEvents = observations.events.filter(
-          (event) =>
-            viewEpisodes.some((episode) => episode.id === event.episodeId) &&
-            !JUDGMENTS.has(event.type) &&
-            event.payload !== undefined &&
-            !eligible.retracted.has(event.id) &&
-            !safelyOmittedEventIds.has(event.id),
-        )
+        if (uncertainPrototypes.has(hubPrototypeKey(source))) return false
+        const sourceEvents = currentSourceEvents(new Set(viewEpisodes.map((episode) => episode.id)))
         if (
           sourceEvents.some(
-            (event) => !exportedEventIds.has(event.id) && !safelyOmittedEventIds.has(event.id),
+            (event) => event.payload === undefined || !exportedEventIds.has(event.id),
           )
         )
           return false
@@ -2405,27 +2412,18 @@ class LearningStore {
     const prototypes = new Map()
     for (const episode of observations.episodes) {
       if (episode.source.kind !== HUB_SOURCE) continue
-      const key = canonicalJson({
-        hubOrigin: episode.source.hubOrigin,
-        repositoryId: episode.source.repositoryId,
-        prototypeId: episode.source.prototypeId,
-      })
+      const key = hubPrototypeKey(episode.source)
       prototypes.set(key, [...(prototypes.get(key) ?? []), episode])
     }
     const completePrototypes = [...prototypes]
       .filter(([, prototypeEpisodes]) => {
         const source = prototypeEpisodes[0].source
-        const sourceEvents = observations.events.filter(
-          (event) =>
-            prototypeEpisodes.some((episode) => episode.id === event.episodeId) &&
-            !JUDGMENTS.has(event.type) &&
-            event.payload !== undefined &&
-            !eligible.retracted.has(event.id) &&
-            !safelyOmittedEventIds.has(event.id),
+        const sourceEvents = currentSourceEvents(
+          new Set(prototypeEpisodes.map((episode) => episode.id)),
         )
         if (
           sourceEvents.some(
-            (event) => !exportedEventIds.has(event.id) && !safelyOmittedEventIds.has(event.id),
+            (event) => event.payload === undefined || !exportedEventIds.has(event.id),
           )
         )
           return false
@@ -2715,12 +2713,20 @@ function hubViewKey(episode, events) {
   const current = comments.filter((event) => !superseded.has(event.id))
   const route = current.length === 1 ? current[0].payload.context?.route : null
   if (typeof route?.pathname !== "string") return null
-  return canonicalJson({
+  return derivedId("view", {
     hubOrigin: episode.source.hubOrigin,
     repositoryId: episode.source.repositoryId,
     prototypeId: episode.source.prototypeId,
     buildNumber: episode.source.buildNumber,
     route: `${route.pathname}${route.search ?? ""}${route.hash ?? ""}`,
+  })
+}
+
+function hubPrototypeKey(source) {
+  return canonicalJson({
+    hubOrigin: source.hubOrigin,
+    repositoryId: source.repositoryId,
+    prototypeId: source.prototypeId,
   })
 }
 

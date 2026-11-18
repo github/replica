@@ -3,6 +3,7 @@ import contextlib
 import importlib
 import importlib.util
 import json
+import math
 import os
 import socket
 import sys
@@ -115,6 +116,46 @@ def load_trainer(auto_model):
 
 
 class TrainerTest(unittest.TestCase):
+    def test_image_decode_enforces_pixel_budgets_before_rgb_conversion(self):
+        trainer = load_trainer(object())
+        cases = {
+            "one image": [(100_000, 100_000)],
+            "task total": [(5_000, 4_000), (5_000, 4_000), (5_000, 4_000)],
+        }
+        for name, dimensions in cases.items():
+            with self.subTest(name=name):
+                images = [
+                    types.SimpleNamespace(width=width, height=height, convert=mock.Mock())
+                    for width, height in dimensions
+                ]
+                trainer.Image = types.SimpleNamespace(open=mock.Mock(side_effect=images))
+
+                with self.assertRaises(ValueError):
+                    trainer.decode_images(["data:image/png;base64,AA=="] * len(images))
+
+                for image in images:
+                    image.convert.assert_not_called()
+
+    def test_readout_scaling_uses_population_spread_for_one_observation(self):
+        trainer = load_trainer(object())
+        policy = object.__new__(trainer.Policy)
+        pooled = mock.Mock()
+        pooled.mean.return_value = 4.0
+
+        def standard_deviation(dimension, **options):
+            population = options.get("unbiased") is False or options.get("correction") == 0
+            return 0.0 if dimension == 0 and population else math.nan
+
+        pooled.std.side_effect = standard_deviation
+        trainer.torch.cat = mock.Mock(return_value=pooled)
+        trainer.torch.ones_like = mock.Mock(return_value=1.0)
+        trainer.torch.where = mock.Mock(side_effect=lambda condition, spread, fallback: spread if condition else fallback)
+        policy.observe = mock.Mock(return_value=types.SimpleNamespace(pooled=object()))
+
+        policy.fit_scale(object(), ["task_1"])
+
+        self.assertEqual(policy.std, 1.0)
+
     def test_training_refuses_an_empty_train_or_dev_split_before_side_effects(self):
         trainer = load_trainer(object())
         temporary = tempfile.TemporaryDirectory()

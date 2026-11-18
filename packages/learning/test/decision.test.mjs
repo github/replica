@@ -25,11 +25,12 @@ import {
   weekTwoThreads,
 } from "../conformance/fixtures.mjs"
 import { main } from "../src/cli.mjs"
+import { canonicalJson } from "../src/canonical-json.mjs"
 import { openLearningStore, resolveEnvironment } from "../src/config.mjs"
 import { brandCheckQuestions } from "../src/decision/questions.mjs"
 import { planDecisionTasks } from "../src/decision/tasks.mjs"
 import { taskImagesNote } from "../src/decision/taskset.mjs"
-import { sealRecord } from "../src/records.mjs"
+import { sealEpisode, sealRecord } from "../src/records.mjs"
 
 const work = mkdtempSync(path.join(tmpdir(), "replica-learning-decision-"))
 after(() => rmSync(work, { recursive: true, force: true }))
@@ -154,7 +155,13 @@ const ALL_VIEWS = [
  */
 function buildsFile(
   repo,
-  { builds = BUILDS, route = "/checkout", views = ALL_VIEWS, name = "builds.json" } = {},
+  {
+    builds = BUILDS,
+    route = "/checkout",
+    views = ALL_VIEWS,
+    name = "builds.json",
+    source = { hubOrigin: HUB_ORIGIN, repositoryId: 42 },
+  } = {},
 ) {
   const directory = path.join(repo, ".replica", "builds")
   mkdirSync(directory, { recursive: true })
@@ -177,7 +184,7 @@ function buildsFile(
     file,
     JSON.stringify({
       schemaVersion: "replica.decision-builds/v1",
-      source: { hubOrigin: HUB_ORIGIN, repositoryId: 42 },
+      source,
       builds: entries,
     }),
   )
@@ -468,6 +475,52 @@ describe("replica-learning decision", () => {
     ])
   })
 
+  it("accepts UUID source IDs and orders prototype tasks deterministically", async () => {
+    const repositoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    const prototypeIds = new Map([
+      [11, 100],
+      [12, "11111111-1111-4111-8111-111111111111"],
+      [13, 2],
+    ])
+    const { repo, learningId, by } = await acceptedLearning("uuid-source-ids")
+    await grantTraining(repo, by)
+    await ok(repo, ["export", "--purpose", "training", ...by, "--out", ".replica/training.json"])
+    const bundle = JSON.parse(readFileSync(path.join(repo, ".replica", "training.json"), "utf8"))
+    for (const episode of bundle.episodes) {
+      episode.source.repositoryId = repositoryId
+      episode.source.prototypeId = prototypeIds.get(episode.source.prototypeId)
+      Object.assign(episode, sealEpisode(episode))
+    }
+    const episodeDigests = new Map(bundle.episodes.map((episode) => [episode.id, episode.digest]))
+    bundle.manifest.records = bundle.manifest.records.map((record) =>
+      record.kind === "episode" ? { ...record, digest: episodeDigests.get(record.id) } : record,
+    )
+    bundle.manifest = sealRecord(bundle.manifest)
+    const builds = JSON.parse(
+      readFileSync(
+        buildsFile(repo, {
+          source: { hubOrigin: HUB_ORIGIN, repositoryId },
+          builds: BUILDS.map(([prototypeId, ...rest]) => [
+            prototypeIds.get(prototypeId),
+            ...rest,
+          ]),
+        }),
+        "utf8",
+      ),
+    )
+
+    const { tasks } = planDecisionTasks(bundle, builds)
+
+    assert.deepEqual(
+      tasks.map((task) => [task.prototypeId, task.buildNumber, task.labels]),
+      [
+        [prototypeIds.get(13), 5, { [learningId]: false }],
+        [prototypeIds.get(11), 3, { [learningId]: false }],
+        [prototypeIds.get(12), 2, { [learningId]: false }],
+      ],
+    )
+  })
+
   it("does not take a resolution as fixing a problem someone wrote after it", async () => {
     // The prototype 12 thread was resolved on October 7, then its first comment was rewritten on
     // October 8, and the learning cites the rewritten comment.
@@ -568,6 +621,8 @@ describe("replica-learning decision", () => {
       [114, 46],
     ])
       threads.find((item) => item.root.id === commentId).root.author.githubId = githubId
+    for (const thread of threads)
+      for (const reply of thread.replies) reply.author.githubId = 1_000 + reply.id
     const { repo, learningId, by } = await acceptedLearning("adopted-reviewer-id", {
       before: [weekOneLog(), weekTwoLog({ threads })],
       after: [],
@@ -642,6 +697,51 @@ describe("replica-learning decision", () => {
     writeFileSync(path.join(repo, ".replica", "reversed.json"), JSON.stringify(bundle))
     const reversed = await tasksetFrom(repo, ".replica/reversed.json", builds, "reversed")
     assert.deepEqual(labelsOf(reversed.tasks), breaks)
+  })
+
+  it("uses durable resolution sequence when a later reopen has an earlier timestamp", async () => {
+    const threads = weekTwoThreads()
+    const thread = threads.find((item) => item.root.id === 103)
+    thread.root = {
+      ...thread.root,
+      resolvedAt: null,
+      resolvedBy: null,
+      resolutionHistory: [
+        {
+          id: "11111111-1111-4111-8111-111111111111",
+          sequence: 1,
+          state: "resolved",
+          at: "2026-10-07T12:00:00.000000Z",
+          actor: thread.root.author,
+        },
+        {
+          id: "22222222-2222-4222-8222-222222222222",
+          sequence: 2,
+          state: "unresolved",
+          at: "2026-10-06T12:00:00.000000Z",
+          actor: thread.root.author,
+        },
+      ],
+      updatedAt: "2026-10-08T18:00:00.000000Z",
+    }
+    const { repo, learningId, by } = await acceptedLearning("resolution-sequence", {
+      after: [weekTwoLog({ threads })],
+    })
+    await grantTraining(repo, by)
+
+    const { result, tasks } = await writeTaskset(
+      repo,
+      by,
+      buildsFile(repo),
+      "resolution-sequence",
+    )
+
+    assert.deepEqual(labelsOf(tasks), [
+      [11, 3, { [learningId]: { answer: false } }],
+      [12, 2, { [learningId]: { answer: false } }],
+      [13, 5, { [learningId]: { answer: false } }],
+    ])
+    assert.equal(result.counts.follows, 0)
   })
 
   it("keeps only the follows labels of a page missing a width or theme", async () => {
@@ -741,6 +841,31 @@ describe("replica-learning decision", () => {
       [13, 5, { [learningId]: { answer: false } }],
     ])
     assert.deepEqual([result.counts.follows, result.counts.breaks], [0, 3])
+  })
+
+  it("accepts complete view certificates written before view keys became fixed length", async () => {
+    const { repo, learningId, by } = await acceptedLearning("legacy-view-key")
+    await grantTraining(repo, by)
+    await ok(repo, ["export", "--purpose", "training", ...by, "--out", ".replica/training.json"])
+    const bundle = JSON.parse(readFileSync(path.join(repo, ".replica", "training.json"), "utf8"))
+    bundle.manifest.completeViews = [
+      canonicalJson({
+        hubOrigin: HUB_ORIGIN,
+        repositoryId: 42,
+        prototypeId: 12,
+        buildNumber: 3,
+        route: "/checkout",
+      }),
+    ]
+    bundle.manifest.completePrototypes = []
+    bundle.manifest = sealRecord(bundle.manifest)
+
+    const plan = planDecisionTasks(bundle, JSON.parse(readFileSync(buildsFile(repo), "utf8")))
+    const fixed = plan.tasks.find(
+      (task) => task.prototypeId === 12 && task.buildNumber === 3 && task.route === "/checkout",
+    )
+
+    assert.deepEqual(fixed?.labels, { [learningId]: true })
   })
 
   it("keeps follows available after recording that a captured comment needs no annotation", async () => {
@@ -1023,6 +1148,36 @@ describe("replica-learning decision", () => {
       assert.match(result.stderr, /screenshot.*outside.*Builds directory/i)
       assert.equal(existsSync(path.join(repo, out)), false)
     }
+  })
+
+  it("quotes control characters in duplicate screenshot route errors", async () => {
+    const { repo, by } = await acceptedLearning("duplicate-route-error")
+    await grantTraining(repo, by)
+    await ok(repo, ["export", "--purpose", "training", ...by, "--out", ".replica/training.json"])
+    const route = "/checkout\n\u001b[2J"
+    const builds = buildsFile(repo, {
+      route,
+      views: [
+        ["desktop", "light"],
+        ["desktop", "light"],
+      ],
+    })
+
+    const result = await cli(repo, [
+      "decision",
+      "taskset",
+      "--export",
+      ".replica/training.json",
+      "--builds",
+      builds,
+      "--out",
+      ".replica/tasksets/duplicate-route-error",
+    ])
+
+    assert.equal(result.code, 1)
+    assert.match(result.stderr, /"\/checkout\\n\\u001b\[2J"/)
+    assert.equal(result.stderr.includes("\u001b"), false)
+    assert.equal(result.stderr.includes("/checkout\n"), false)
   })
 
   it("uses the target's canonical checkout when cwd is outside it or the target uses a link", async () => {
