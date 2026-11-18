@@ -27,7 +27,7 @@ After installing Hub dependencies, use the [devcontainer](docs/development.md#de
 
 ```sh
 docker compose -f .devcontainer/compose.yaml up -d db
-cp .env.example .env
+[ -e .env ] || cp .env.example .env
 npm ci --prefix ../packages/learning --engine-strict --registry=https://packagefeedproxy.microsoft.io/npm/
 npm run setup
 npm run dev:api
