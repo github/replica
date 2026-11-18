@@ -1,8 +1,12 @@
 import type { PlannedCreate } from "../../../terraform/index.ts"
 
+import { keyVaultSecretsUser } from "../../role-identities.ts"
+
 const normalized = (value: string) => value.replace(/\/+$/, "").toLowerCase()
 
 const same = (left: string, right: string) => normalized(left) === normalized(right)
+
+const sameName = (left: string, right: string) => left.toLowerCase() === right.toLowerCase()
 
 const guid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
 const nonempty = (value: unknown): value is string =>
@@ -56,12 +60,15 @@ function assignmentId(value: unknown, scope: string): value is string {
   return id.startsWith(prefix) && guid.test(id.slice(prefix.length))
 }
 
-// Read-only: finds an existing role assignment with the exact planned scope, principal, and role.
-// An ID must match in full; a conflicting planned name and returned ID makes the lookup inconclusive.
 export function existingRoleAssignment(
   azure: (...args: string[]) => Promise<string>,
   subscriptionId: string,
 ) {
+  const builtInRolePath = `/providers/microsoft.authorization/roledefinitions/${keyVaultSecretsUser.id}`
+  const matchesBuiltInRole = (id: string) =>
+    same(id, builtInRolePath) ||
+    same(id, `/subscriptions/${subscriptionId}${builtInRolePath}`)
+
   return async ({ type, after }: PlannedCreate): Promise<string | undefined> => {
     if (type !== "azurerm_role_assignment" || !after || typeof after !== "object") return
     const { scope, principal_id, role_definition_id, role_definition_name } = after as Record<
@@ -71,23 +78,26 @@ export function existingRoleAssignment(
     const roleId = typeof role_definition_id === "string" ? role_definition_id : undefined
     const plannedName =
       typeof role_definition_name === "string" ? role_definition_name : undefined
-    const roleName = roleId === undefined ? plannedName : undefined
     if (typeof scope !== "string" || typeof principal_id !== "string") return
-    if (roleId === undefined && roleName === undefined) return
+    if (roleId === undefined && plannedName === undefined) return
     if (!scope.toLowerCase().startsWith(`/subscriptions/${subscriptionId.toLowerCase()}/`)) return
+    const knownName =
+      plannedName !== undefined && sameName(plannedName, keyVaultSecretsUser.name)
+    const knownId = roleId !== undefined && matchesBuiltInRole(roleId)
+    const knownRole = knownName || knownId
     if (
       !azureScope(scope) ||
       !guid.test(principal_id) ||
-      (roleId === undefined ? !nonempty(roleName) : !roleDefinitionId(roleId)) ||
-      (plannedName !== undefined && !nonempty(plannedName))
+      (roleId !== undefined && !roleDefinitionId(roleId)) ||
+      (plannedName !== undefined && !nonempty(plannedName)) ||
+      (knownName && roleId !== undefined && !knownId) ||
+      (knownId && plannedName !== undefined && !knownName)
     )
       throw new Error("The planned role assignment has invalid identifying information.")
-    const role = roleId ?? roleName
-    if (role === undefined) throw new Error("The planned role assignment has no role.")
-    const roleField = roleId === undefined ? "roleDefinitionName" : "roleDefinitionId"
-    const filter = roleName === undefined ? [] : ["--role", roleName]
+
+    // Azure CLI's role and exact-scope filters can omit matching case or trailing-slash variants.
     const value: unknown = JSON.parse(
-      await azure("role", "assignment", "list", "--scope", scope, ...filter),
+      await azure("role", "assignment", "list", "--scope", scope, "--include-inherited"),
     )
     if (!Array.isArray(value))
       throw new Error("Azure returned an incomplete role-assignment list.")
@@ -97,28 +107,39 @@ export function existingRoleAssignment(
       if (!item || typeof item !== "object" || Array.isArray(item))
         throw new Error("Azure returned incomplete role-assignment data.")
       const assignment = item as Record<string, unknown>
-      const actualRole = assignment[roleField]
       if (
         !azureScope(assignment.scope) ||
-        !assignmentId(assignment.id, assignment.scope) ||
-        !nonempty(assignment.principalId) ||
-        !guid.test(assignment.principalId) ||
-        !nonempty(actualRole) ||
-        (roleField === "roleDefinitionId" && !roleDefinitionId(actualRole)) ||
-        (roleId !== undefined &&
-          plannedName !== undefined &&
-          !nonempty(assignment.roleDefinitionName))
+        !assignmentId(assignment.id, assignment.scope)
       )
         throw new Error("Azure returned incomplete role-assignment data.")
-      if (!same(assignment.scope, scope) || !same(assignment.principalId, principal_id)) continue
-      if (same(actualRole, role)) matches.push(assignment.id)
-      else if (
-        roleId !== undefined &&
-        plannedName !== undefined &&
-        nonempty(assignment.roleDefinitionName) &&
-        same(assignment.roleDefinitionName, plannedName)
+      if (!same(assignment.scope, scope)) continue
+      if (!nonempty(assignment.principalId) || !guid.test(assignment.principalId))
+        throw new Error("Azure returned incomplete role-assignment data.")
+      if (!same(assignment.principalId, principal_id)) continue
+      if (!roleDefinitionId(assignment.roleDefinitionId))
+        throw new Error("Azure returned incomplete role-assignment data.")
+
+      const actualName = assignment.roleDefinitionName
+      if (plannedName !== undefined && !nonempty(actualName))
+        throw new Error("Azure returned incomplete role-assignment data.")
+      const matchingId = knownRole
+        ? matchesBuiltInRole(assignment.roleDefinitionId)
+        : roleId === undefined
+          ? undefined
+          : same(assignment.roleDefinitionId, roleId)
+      const expectedName = plannedName ?? (knownId ? keyVaultSecretsUser.name : undefined)
+      const matchingName =
+        expectedName !== undefined && nonempty(actualName)
+          ? sameName(actualName, expectedName)
+          : undefined
+      if (
+        (knownRole &&
+          normalized(assignment.roleDefinitionId).endsWith(builtInRolePath) &&
+          !matchingId) ||
+        (matchingId !== undefined && matchingName !== undefined && matchingId !== matchingName)
       )
         throw new Error("Azure returned an ambiguous role-assignment identity.")
+      if (matchingId ?? matchingName) matches.push(assignment.id)
     }
     if (matches.length > 1)
       throw new Error("Azure returned multiple matching role assignments.")

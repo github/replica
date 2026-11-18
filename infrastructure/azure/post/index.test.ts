@@ -1616,7 +1616,15 @@ it("regenerates and revalidates the plan on an explicit apply retry, blocking ne
   expect(test.ui.complete).not.toHaveBeenCalled()
 })
 
-it.each(["duplicate", "lookup failure", "malformed", "malformed retry", "absent"] as const)(
+it.each([
+  "duplicate",
+  "lookup failure",
+  "malformed",
+  "malformed retry",
+  "filtered duplicate",
+  "conflicting retry",
+  "absent",
+] as const)(
   "applies a secret read grant only after a conclusive clean Azure lookup: %s",
   async (lookup) => {
     const test = await scenario()
@@ -1624,27 +1632,41 @@ it.each(["duplicate", "lookup failure", "malformed", "malformed retry", "absent"
     const scope = `${reference.key_vault_id}/secrets/hub-bootstrap-secret`
     const principalId = "00000000-0000-0000-0000-000000000003"
     const grantId = `${scope}/providers/Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000004`
+    const roleId = `/subscriptions/${test.target.config.azure.subscriptionId}/providers/Microsoft.Authorization/roleDefinitions/4633458b-17de-408a-b874-0445c86b69e6`
     const environment = structuredClone(test.state.environment)
     const execute = test.run.getMockImplementation()!
-    const retry = lookup === "malformed retry"
+    const retry = lookup === "malformed retry" || lookup === "conflicting retry"
     if (retry) {
       test.state.failApply = true
       test.state.recovery = "retry"
     }
-    const checkGrant = vi.fn(async () => {
+    const checkGrant = vi.fn(async (args: string[]) => {
       if (lookup === "lookup failure") throw new Error("Synthetic Azure lookup failure")
-      if (lookup === "malformed" || retry) return JSON.stringify([{}])
-      return JSON.stringify(
+      if (lookup === "malformed" || lookup === "malformed retry") return JSON.stringify([{}])
+      const records =
         lookup === "absent"
           ? []
-          : [{ id: grantId, scope, principalId, roleDefinitionName: "Key Vault Secrets User" }],
+          : [
+              {
+                id: grantId,
+                scope,
+                principalId,
+                roleDefinitionId: lookup === "filtered duplicate" ? roleId.toUpperCase() : roleId,
+                roleDefinitionName:
+                  lookup === "conflicting retry" ? "Key Vault Administrator" : "Key Vault Secrets User",
+              },
+            ]
+      return JSON.stringify(
+        lookup === "filtered duplicate" && args.includes("--role")
+          ? records.filter(({ roleDefinitionId }) => roleDefinitionId === roleId)
+          : records,
       )
     })
     if (retry) checkGrant.mockResolvedValueOnce("[]")
     test.run.mockImplementation(async (executable, args, options) => {
       if (executable === "az" && args.slice(0, 3).join(" ") === "role assignment list") {
         expect(args[args.indexOf("--scope") + 1]).toBe(scope)
-        return checkGrant()
+        return checkGrant(args)
       }
       if (retry && executable === "terraform" && args[1] === "apply") {
         try {
@@ -1688,7 +1710,9 @@ it.each(["duplicate", "lookup failure", "malformed", "malformed retry", "absent"
     }
 
     await expect(result).rejects.toThrow(
-      lookup === "duplicate" ? /plan blocked.*already has resources/i : /plan blocked/i,
+      lookup === "duplicate" || lookup === "filtered duplicate"
+        ? /plan blocked.*already has resources/i
+        : /plan blocked/i,
     )
 
     expect(checkGrant).toHaveBeenCalledTimes(retry ? 2 : 1)

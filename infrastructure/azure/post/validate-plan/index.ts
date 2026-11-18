@@ -1,4 +1,4 @@
-const keyVaultSecretsUserRoleId = "4633458b-17de-408a-b874-0445c86b69e6"
+import { keyVaultSecretsUser } from "../../role-identities.ts"
 
 export function validatePostPlan(
   value: unknown,
@@ -128,12 +128,12 @@ export function validatePostPlan(
         `azurerm_role_assignment.runtime_secrets[${JSON.stringify(after.scope)}]` ||
       typeof after.principal_id !== "string" ||
       after.principal_id.toLowerCase() !== scope.principalId.toLowerCase() ||
-      after.role_definition_name !== "Key Vault Secrets User"
+      after.role_definition_name !== keyVaultSecretsUser.name
     )
       invalid()
     if (after.role_definition_id !== undefined && after.role_definition_id !== null) {
       if (typeof after.role_definition_id !== "string") invalid()
-      const role = `/providers/microsoft.authorization/roledefinitions/${keyVaultSecretsUserRoleId}`
+      const role = `/providers/microsoft.authorization/roledefinitions/${keyVaultSecretsUser.id}`
       const subscription = after.scope.split("/")[2]?.toLowerCase()
       const id = after.role_definition_id.replace(/\/+$/, "").toLowerCase()
       if (id !== role && id !== `/subscriptions/${subscription}${role}`) invalid()
