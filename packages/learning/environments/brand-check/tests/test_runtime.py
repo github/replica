@@ -654,8 +654,7 @@ class LocalRuntimeTest(unittest.TestCase):
         failed = self._wait_for_job(runtime, submitted["id"])
 
         self.assertEqual(failed["error"]["code"], "backend_failed")
-        self.assertIn("without a result", failed["error"]["message"])
-        self.assertIn("exit code 7", failed["error"]["message"])
+        self.assertEqual(failed["error"]["message"], "Backend operation failed.")
 
     def test_close_cancels_queued_jobs_instead_of_starting_them(self):
         started = self.taskset_dir.parent / "blocking-started"
@@ -749,6 +748,8 @@ class LocalRuntimeTest(unittest.TestCase):
 
         self.assertEqual(failed["state"], "failed")
         self.assertNotIn("candidateId", failed)
+        self.assertEqual(failed["error"]["message"], "Backend operation failed.")
+        self.assertNotIn("backend-token", json.dumps(failed))
         self.assertEqual(list((self.state_dir / "candidates").iterdir()), [])
         self.assertIsNone(runtime.promotion(required=False))
         runtime.close()

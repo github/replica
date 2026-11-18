@@ -634,18 +634,9 @@ class LocalRuntime:
                 if isinstance(error, (RuntimeFailure, ConnectorError))
                 else "backend_failed"
             )
-            message = (
-                "Connector operation failed."
-                if isinstance(error, ConnectorError)
-                else (
-                    str(error)
-                    if isinstance(error, RuntimeFailure)
-                    else "Backend operation failed."
-                )
-            )
             job.update(
                 state="failed",
-                error={"code": code, "message": message},
+                error={"code": code, "message": _durable_job_error(error)},
                 completedAt=_now(),
                 updatedAt=_now(),
             )
@@ -668,7 +659,7 @@ class LocalRuntime:
                 except ConnectorError as usage_error:
                     job["usageError"] = {
                         "code": usage_error.code,
-                        "message": "Connector operation failed.",
+                        "message": "Usage reporting failed.",
                     }
         finally:
             if context is not None and lease is not None:
@@ -688,7 +679,10 @@ class LocalRuntime:
                     )
                 except ConnectorError as error:
                     if error.category != "conflict":
-                        job["error"] = {"code": error.code, "message": str(error)}
+                        job["error"] = {
+                            "code": error.code,
+                            "message": "The durable job update failed.",
+                        }
             if lease is not None:
                 try:
                     self.connectors.jobs.release(
@@ -1166,6 +1160,18 @@ def _runtime_connector_failure(error: ConnectorError) -> RuntimeFailure:
         "internal": 500,
     }[error.category]
     return RuntimeFailure(error.code, "Connector operation failed.", status)
+
+
+def _durable_job_error(error: Exception) -> str:
+    if isinstance(error, RuntimeFailure):
+        return {
+            "job_timed_out": "The bounded training job reached its deadline.",
+            "taskset_changed": "The taskset changed after this job was submitted.",
+            "backend_failed": "Backend operation failed.",
+        }.get(error.code, "The training job failed.")
+    if isinstance(error, ConnectorError):
+        return "Connector operation failed."
+    return "Backend operation failed."
 
 
 def _run_backend(
