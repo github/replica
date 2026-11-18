@@ -53,6 +53,7 @@ function sharingDependencies(): SharingMocks {
 
 function productDependencies(): ProductRouteDependencies {
   return {
+    isRepositoryVisible: vi.fn().mockResolvedValue(true),
     listRepositories: vi.fn(),
     findRepositoryIndex: vi.fn(),
     findRepositoryAuthors: vi.fn(),

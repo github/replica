@@ -667,3 +667,960 @@ run "rerun_still_plans_configured_resource_changes" {
     error_message = "Ignoring service-assigned placement must not hide configured resource changes."
   }
 }
+
+run "github_app_combines_named_settings_generic_values_and_startup_secret_references" {
+  command = plan
+
+  variables {
+    deploy_hub                 = true
+    hub_application_origin     = "https://hub.example.com"
+    github_app_id              = "123456"
+    github_client_id           = "Iv23liExampleClient"
+    github_app_installation_id = "7890123"
+    github_provider_revision   = 2
+    runtime_environment_variables = {
+      PUBLIC_SETTING = "public"
+    }
+    runtime_secret_references = {
+      GITHUB_CLIENT_SECRET = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/github-client-secret/11111111111111111111111111111111"
+      }
+      GITHUB_APP_PRIVATE_KEY_BASE64 = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/github-app-private-key/22222222222222222222222222222222"
+      }
+      GITHUB_WEBHOOK_SECRET = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/github-webhook-secret/33333333333333333333333333333333"
+      }
+      HUB_AUTHENTICATION_ENCRYPTION_KEY = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/hub-authentication-encryption-key/44444444444444444444444444444444"
+      }
+      HUB_BOOTSTRAP_SECRET = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/hub-bootstrap-secret/55555555555555555555555555555555"
+      }
+    }
+  }
+
+  assert {
+    condition = alltrue([for name, value in {
+      HUB_APPLICATION_ORIGIN     = "https://hub.example.com"
+      GITHUB_APP_ID              = "123456"
+      GITHUB_CLIENT_ID           = "Iv23liExampleClient"
+      GITHUB_APP_INSTALLATION_ID = "7890123"
+      GITHUB_PROVIDER_REVISION   = "2"
+      PUBLIC_SETTING             = "public"
+      } : one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == name]) == value
+    ])
+    error_message = "Named GitHub settings and generic public values must reach Hub together, with the provider revision serialized as a string."
+  }
+  assert {
+    condition = (
+      length(azurerm_container_app.hub[0].secret) == 0 &&
+      alltrue([for env in azurerm_container_app.hub[0].template[0].container[0].env :
+        (env.secret_name == null || env.secret_name == "") &&
+        !contains(concat(["DATABASE_URL"], keys(var.runtime_secret_references)), env.name)
+      ]) &&
+      one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == "AZURE_CLIENT_ID"]) == azurerm_user_assigned_identity.hub.client_id &&
+      tomap(jsondecode(one([
+        for env in azurerm_container_app.hub[0].template[0].container[0].env
+        : env.value if env.name == "AZURE_KEY_VAULT_SECRET_REFERENCES"
+        ]))) == tomap(merge(
+        { DATABASE_URL = var.runtime_database_secret.secret_id },
+        { for name, reference in var.runtime_secret_references : name => reference.secret_id },
+      ))
+    )
+    error_message = "GitHub and authentication secrets must reach the managed-identity startup loader as URI-only metadata, without platform secrets or direct secret environment bindings."
+  }
+  assert {
+    condition = (
+      toset([for grant in azurerm_role_assignment.runtime_secrets : grant.scope]) == toset(concat(
+        ["${var.runtime_database_secret.key_vault_id}/secrets/runtime-database"],
+        [for name in ["github-client-secret", "github-app-private-key", "github-webhook-secret", "hub-authentication-encryption-key", "hub-bootstrap-secret"] :
+        "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github/secrets/${name}"]
+      )) &&
+      alltrue([for grant in azurerm_role_assignment.runtime_secrets :
+        grant.principal_id == azurerm_user_assigned_identity.hub.principal_id &&
+        grant.role_definition_name == "Key Vault Secrets User"
+      ])
+    )
+    error_message = "Hub may read only the individual GitHub App and authentication secrets it references, not the whole vault."
+  }
+}
+
+run "named_github_authentication_requires_an_explicit_origin" {
+  command = plan
+
+  variables {
+    deploy_hub       = true
+    github_client_id = "synthetic-client"
+  }
+
+  expect_failures = [azurerm_container_app.hub]
+}
+
+run "generic_github_authentication_requires_an_explicit_origin" {
+  command = plan
+
+  variables {
+    deploy_hub = true
+    runtime_environment_variables = {
+      GITHUB_CLIENT_ID = "synthetic-client"
+    }
+  }
+
+  expect_failures = [azurerm_container_app.hub]
+}
+
+run "entra_authentication_requires_an_explicit_origin" {
+  command = plan
+
+  variables {
+    deploy_hub = true
+    runtime_environment_variables = {
+      ENTRA_OIDC_CLIENT_ID = "synthetic-client"
+    }
+  }
+
+  expect_failures = [azurerm_container_app.hub]
+}
+
+run "local_sign_in_requires_an_explicit_origin" {
+  command = plan
+
+  variables {
+    deploy_hub = true
+    runtime_environment_variables = {
+      HUB_LOCAL_SIGN_IN = "true"
+    }
+  }
+
+  expect_failures = [azurerm_container_app.hub]
+}
+
+run "shared_authentication_secret_requires_an_explicit_origin" {
+  command = plan
+
+  variables {
+    deploy_hub = true
+    runtime_secret_references = {
+      HUB_BOOTSTRAP_SECRET = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/bootstrap"
+      }
+    }
+  }
+
+  expect_failures = [azurerm_container_app.hub]
+}
+
+run "authentication_accepts_a_secret_referenced_origin" {
+  command = plan
+
+  variables {
+    deploy_hub       = true
+    github_client_id = "synthetic-client"
+    runtime_secret_references = {
+      HUB_APPLICATION_ORIGIN = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/hub-origin/11111111111111111111111111111111"
+      }
+    }
+  }
+
+  assert {
+    condition = jsondecode(one([
+      for env in azurerm_container_app.hub[0].template[0].container[0].env
+      : env.value if env.name == "AZURE_KEY_VAULT_SECRET_REFERENCES"
+    ])).HUB_APPLICATION_ORIGIN == var.runtime_secret_references.HUB_APPLICATION_ORIGIN.secret_id
+    error_message = "The explicitly referenced origin must reach Hub's startup secret loader."
+  }
+}
+
+run "github_settings_are_omitted_when_unset" {
+  command = plan
+
+  variables {
+    deploy_hub = true
+  }
+
+  assert {
+    condition = length([
+      for env in azurerm_container_app.hub[0].template[0].container[0].env : env.name if startswith(env.name, "GITHUB_")
+    ]) == 0
+    error_message = "Unset GitHub App settings must not reach Hub's environment."
+  }
+  assert {
+    condition = (
+      var.hub_application_origin == null &&
+      length([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.name if env.name == "HUB_APPLICATION_ORIGIN"]) == 0 &&
+      length(azurerm_container_app_custom_domain.hub) == 0 &&
+      azurerm_container_app.hub[0].ingress[0].external_enabled &&
+      output.installation.url == "https://${azurerm_container_app.hub[0].ingress[0].fqdn}"
+    )
+    error_message = "An unset origin must leave the default HTTPS hosting and environment unchanged."
+  }
+}
+
+run "hub_application_origin_retains_a_nondefault_port" {
+  command = plan
+
+  variables {
+    deploy_hub             = true
+    hub_application_origin = "https://hub.example.com:8443"
+  }
+
+  assert {
+    condition     = one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == "HUB_APPLICATION_ORIGIN"]) == "https://hub.example.com:8443"
+    error_message = "The exact canonical origin, including its non-default port, must reach Hub."
+  }
+}
+
+run "hub_application_origin_accepts_a_single_label_hostname" {
+  command = plan
+
+  variables {
+    deploy_hub             = true
+    hub_application_origin = "https://localhost"
+  }
+
+  assert {
+    condition     = one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == "HUB_APPLICATION_ORIGIN"]) == "https://localhost"
+    error_message = "A canonical single-label hostname must remain unchanged."
+  }
+}
+
+run "hub_application_origin_accepts_ipv6" {
+  command = plan
+
+  variables {
+    deploy_hub             = true
+    hub_application_origin = "https://[::1]:65535"
+  }
+
+  assert {
+    condition     = one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == "HUB_APPLICATION_ORIGIN"]) == "https://[::1]:65535"
+    error_message = "A canonical IPv6 origin with the highest port must remain unchanged."
+  }
+}
+
+run "hub_application_origin_accepts_ipv4" {
+  command = plan
+
+  variables {
+    deploy_hub             = true
+    hub_application_origin = "https://127.0.0.1:0"
+  }
+
+  assert {
+    condition     = one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == "HUB_APPLICATION_ORIGIN"]) == "https://127.0.0.1:0"
+    error_message = "A canonical IPv4 origin with port zero must remain unchanged."
+  }
+}
+
+run "hub_application_origin_accepts_mapped_ipv6" {
+  command = plan
+
+  variables {
+    deploy_hub             = true
+    hub_application_origin = "https://[::ffff:c000:280]"
+  }
+
+  assert {
+    condition     = one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == "HUB_APPLICATION_ORIGIN"]) == "https://[::ffff:c000:280]"
+    error_message = "A canonical mapped IPv6 origin must remain unchanged."
+  }
+}
+
+run "hub_application_origin_accepts_the_maximum_length" {
+  command = plan
+
+  variables {
+    deploy_hub             = true
+    hub_application_origin = "https://${join(".", [for i in range(7) : join("", [for j in range(61) : "a"])])}.${join("", [for i in range(58) : "a"])}"
+  }
+
+  assert {
+    condition     = one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == "HUB_APPLICATION_ORIGIN"]) == var.hub_application_origin
+    error_message = "A canonical 500-character origin must remain unchanged."
+  }
+}
+
+run "generic_github_identifiers_satisfy_secret_reference_requirements" {
+  command = plan
+
+  variables {
+    deploy_hub = true
+    runtime_environment_variables = {
+      HUB_APPLICATION_ORIGIN     = "https://hub.example.com"
+      GITHUB_APP_ID              = "123456"
+      GITHUB_CLIENT_ID           = "Iv23liExampleClient"
+      GITHUB_APP_INSTALLATION_ID = "7890123"
+      GITHUB_PROVIDER_REVISION   = "2"
+    }
+    runtime_secret_references = {
+      GITHUB_CLIENT_SECRET = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/github-client-secret"
+      }
+      GITHUB_APP_PRIVATE_KEY_BASE64 = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/github-app-private-key"
+      }
+    }
+  }
+
+  assert {
+    condition = alltrue([for name, value in var.runtime_environment_variables :
+      one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == name]) == value
+    ])
+    error_message = "Existing generic GitHub settings must remain usable without requiring duplicate named inputs."
+  }
+  assert {
+    condition = tomap(jsondecode(one([
+      for env in azurerm_container_app.hub[0].template[0].container[0].env
+      : env.value if env.name == "AZURE_KEY_VAULT_SECRET_REFERENCES"
+      ]))) == tomap(merge(
+      { DATABASE_URL = var.runtime_database_secret.secret_id },
+      { for name, reference in var.runtime_secret_references : name => reference.secret_id },
+    ))
+    error_message = "Generic identifiers must satisfy both credential-reference requirements and preserve versionless URIs for startup retrieval."
+  }
+}
+
+run "named_github_setting_cannot_duplicate_a_generic_value_even_when_equal" {
+  command = plan
+
+  variables {
+    github_client_id = "Iv23liExampleClient"
+    runtime_environment_variables = {
+      GITHUB_CLIENT_ID = "Iv23liExampleClient"
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "invalid_github_identifiers_are_rejected" {
+  command = plan
+
+  variables {
+    github_app_id              = "app-123"
+    github_client_id           = "Iv23 client"
+    github_app_installation_id = "12.5"
+    github_provider_revision   = 1.5
+  }
+
+  expect_failures = [
+    var.github_app_id,
+    var.github_client_id,
+    var.github_app_installation_id,
+    var.github_provider_revision,
+  ]
+}
+
+run "named_github_settings_accept_their_upper_limits" {
+  command = plan
+
+  variables {
+    deploy_hub                 = true
+    hub_application_origin     = "https://hub.example.com"
+    github_app_id              = "9007199254740991"
+    github_client_id           = join("", [for i in range(200) : "c"])
+    github_app_installation_id = "9007199254740991"
+    github_provider_revision   = 2147483647
+  }
+
+  assert {
+    condition = alltrue([for name, value in {
+      GITHUB_APP_ID              = var.github_app_id
+      GITHUB_CLIENT_ID           = var.github_client_id
+      GITHUB_APP_INSTALLATION_ID = var.github_app_installation_id
+      GITHUB_PROVIDER_REVISION   = tostring(var.github_provider_revision)
+      } : one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == name]) == value
+    ])
+    error_message = "Valid upper-bound named GitHub settings must reach Hub unchanged."
+  }
+}
+
+run "named_client_id_accepts_a_non_ecmascript_whitespace_character" {
+  command = plan
+
+  variables {
+    deploy_hub             = true
+    hub_application_origin = "https://hub.example.com"
+    github_client_id       = "client\u0085id"
+  }
+
+  assert {
+    condition     = one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == "GITHUB_CLIENT_ID"]) == var.github_client_id
+    error_message = "Client IDs must accept characters that JavaScript does not classify as whitespace."
+  }
+}
+
+run "generic_client_id_accepts_a_non_ecmascript_whitespace_character" {
+  command = plan
+
+  variables {
+    deploy_hub             = true
+    hub_application_origin = "https://hub.example.com"
+    runtime_environment_variables = {
+      GITHUB_CLIENT_ID = "client\u0085id"
+    }
+  }
+
+  assert {
+    condition     = one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == "GITHUB_CLIENT_ID"]) == var.runtime_environment_variables["GITHUB_CLIENT_ID"]
+    error_message = "Generic client IDs must accept characters that JavaScript does not classify as whitespace."
+  }
+}
+
+run "generic_github_settings_accept_their_upper_limits" {
+  command = plan
+
+  variables {
+    deploy_hub = true
+    runtime_environment_variables = {
+      HUB_APPLICATION_ORIGIN     = "https://hub.example.com"
+      GITHUB_APP_ID              = "9007199254740991"
+      GITHUB_CLIENT_ID           = join("", [for i in range(200) : "c"])
+      GITHUB_APP_INSTALLATION_ID = "9007199254740991"
+      GITHUB_PROVIDER_REVISION   = "2147483647"
+    }
+  }
+
+  assert {
+    condition = alltrue([for name, value in var.runtime_environment_variables :
+      one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == name]) == value
+    ])
+    error_message = "Valid upper-bound generic GitHub settings must reach Hub unchanged."
+  }
+}
+
+run "named_client_id_accepts_200_utf16_code_units" {
+  command = plan
+
+  variables {
+    deploy_hub             = true
+    hub_application_origin = "https://hub.example.com"
+    github_client_id       = join("", [for i in range(100) : "🔑"])
+  }
+
+  assert {
+    condition = one([
+      for env in azurerm_container_app.hub[0].template[0].container[0].env
+      : env.value if env.name == "GITHUB_CLIENT_ID"
+    ]) == var.github_client_id
+    error_message = "A non-whitespace client ID at Hub's UTF-16 length limit must be retained."
+  }
+}
+
+run "generic_client_id_accepts_200_utf16_code_units" {
+  command = plan
+
+  variables {
+    deploy_hub = true
+    runtime_environment_variables = {
+      HUB_APPLICATION_ORIGIN = "https://hub.example.com"
+      GITHUB_CLIENT_ID       = join("", [for i in range(100) : "🔑"])
+    }
+  }
+
+  assert {
+    condition = one([
+      for env in azurerm_container_app.hub[0].template[0].container[0].env
+      : env.value if env.name == "GITHUB_CLIENT_ID"
+    ]) == var.runtime_environment_variables.GITHUB_CLIENT_ID
+    error_message = "A generic client ID at Hub's UTF-16 length limit must be retained."
+  }
+}
+
+run "named_github_settings_reject_values_above_their_limits" {
+  command = plan
+
+  variables {
+    hub_application_origin     = "https://hub.example.com"
+    github_app_id              = "9007199254740992"
+    github_client_id           = join("", [for i in range(201) : "c"])
+    github_app_installation_id = "9007199254740992"
+    github_provider_revision   = 2147483648
+  }
+
+  expect_failures = [
+    var.github_app_id,
+    var.github_client_id,
+    var.github_app_installation_id,
+    var.github_provider_revision,
+  ]
+}
+
+run "named_github_settings_reject_empty_and_non_positive_values" {
+  command = plan
+
+  variables {
+    github_app_id              = "0"
+    github_client_id           = ""
+    github_app_installation_id = "0"
+    github_provider_revision   = 0
+  }
+
+  expect_failures = [
+    var.github_app_id,
+    var.github_client_id,
+    var.github_app_installation_id,
+    var.github_provider_revision,
+  ]
+}
+
+run "named_client_id_rejects_non_ascii_whitespace" {
+  command = plan
+
+  variables {
+    github_client_id = "client\u00a0id"
+  }
+
+  expect_failures = [var.github_client_id]
+}
+
+run "named_client_id_rejects_a_byte_order_mark" {
+  command = plan
+
+  variables {
+    github_client_id = "client\ufeffid"
+  }
+
+  expect_failures = [var.github_client_id]
+}
+
+run "generic_client_id_rejects_non_ascii_whitespace" {
+  command = plan
+
+  variables {
+    runtime_environment_variables = {
+      GITHUB_CLIENT_ID = "client\u00a0id"
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "generic_client_id_rejects_a_byte_order_mark" {
+  command = plan
+
+  variables {
+    runtime_environment_variables = {
+      GITHUB_CLIENT_ID = "client\ufeffid"
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "named_client_id_rejects_more_than_200_utf16_code_units" {
+  command = plan
+
+  variables {
+    github_client_id = join("", [for i in range(101) : "🔑"])
+  }
+
+  expect_failures = [var.github_client_id]
+}
+
+run "generic_client_id_rejects_more_than_200_utf16_code_units" {
+  command = plan
+
+  variables {
+    runtime_environment_variables = {
+      GITHUB_CLIENT_ID = join("", [for i in range(101) : "🔑"])
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "generic_app_id_rejects_an_unsafe_integer" {
+  command = plan
+
+  variables {
+    runtime_environment_variables = {
+      GITHUB_APP_ID = "9007199254740992"
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "generic_app_id_rejects_zero" {
+  command = plan
+
+  variables {
+    runtime_environment_variables = {
+      GITHUB_APP_ID = "0"
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "generic_installation_id_rejects_an_unsafe_integer" {
+  command = plan
+
+  variables {
+    runtime_environment_variables = {
+      GITHUB_APP_INSTALLATION_ID = "9007199254740992"
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "generic_installation_id_rejects_zero" {
+  command = plan
+
+  variables {
+    runtime_environment_variables = {
+      GITHUB_APP_INSTALLATION_ID = "0"
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "generic_client_id_rejects_more_than_200_characters" {
+  command = plan
+
+  variables {
+    runtime_environment_variables = {
+      GITHUB_CLIENT_ID = join("", [for i in range(201) : "c"])
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "generic_client_id_rejects_whitespace" {
+  command = plan
+
+  variables {
+    runtime_environment_variables = {
+      GITHUB_CLIENT_ID = "client id"
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "generic_provider_revision_rejects_postgresql_overflow" {
+  command = plan
+
+  variables {
+    runtime_environment_variables = {
+      GITHUB_PROVIDER_REVISION = "2147483648"
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "generic_provider_revision_rejects_zero" {
+  command = plan
+
+  variables {
+    runtime_environment_variables = {
+      GITHUB_PROVIDER_REVISION = "0"
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "generic_provider_revision_rejects_a_fraction" {
+  command = plan
+
+  variables {
+    runtime_environment_variables = {
+      GITHUB_PROVIDER_REVISION = "1.5"
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "generic_origin_must_be_an_exact_https_origin_for_authentication" {
+  command = plan
+
+  variables {
+    deploy_hub = true
+    runtime_environment_variables = {
+      GITHUB_CLIENT_ID       = "synthetic-client"
+      HUB_APPLICATION_ORIGIN = "https://hub.example.com/"
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "generic_origin_rejects_http" {
+  command = plan
+
+  variables {
+    deploy_hub = true
+    runtime_environment_variables = {
+      GITHUB_CLIENT_ID       = "synthetic-client"
+      HUB_APPLICATION_ORIGIN = "http://hub.example.com"
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "non_positive_github_provider_revision_is_rejected" {
+  command = plan
+
+  variables {
+    github_provider_revision = 0
+  }
+
+  expect_failures = [var.github_provider_revision]
+}
+
+run "github_secrets_require_their_identifiers" {
+  command = plan
+
+  variables {
+    runtime_secret_references = {
+      GITHUB_APP_PRIVATE_KEY_BASE64 = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/github-app-private-key/22222222222222222222222222222222"
+      }
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "plain_github_settings_cannot_be_secret_references" {
+  command = plan
+
+  variables {
+    runtime_secret_references = {
+      GITHUB_APP_ID = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/github-app-id/11111111111111111111111111111111"
+      }
+    }
+  }
+
+  expect_failures = [var.runtime_secret_references]
+}
+
+run "empty_github_client_id_is_rejected" {
+  command = plan
+
+  variables {
+    github_client_id = ""
+  }
+
+  expect_failures = [var.github_client_id]
+}
+
+run "invalid_hub_application_origin_is_rejected" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://hub.example.com/"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_an_origin_longer_than_the_maximum" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://${join(".", [for i in range(7) : join("", [for j in range(61) : "a"])])}.${join("", [for i in range(59) : "a"])}"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_a_dotted_mapped_ipv6_address" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://[::ffff:192.0.2.128]"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_an_uppercase_host" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://HUB.example.com"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_a_shortened_ipv4_address" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://127.1"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_an_explicit_default_port" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://hub.example.com:443"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_a_zero_padded_port" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://hub.example.com:08443"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_a_non_numeric_port" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://hub.example.com:not-a-port"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_an_out_of_range_port" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://hub.example.com:65536"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_a_path" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://hub.example.com/path"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_a_query" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://hub.example.com?synthetic-query"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_a_fragment" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://hub.example.com#synthetic-fragment"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_credentials" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://synthetic-user:synthetic-password@hub.example.com"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_rejects_http" {
+  command = plan
+
+  variables {
+    hub_application_origin = "http://hub.example.com"
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "hub_application_origin_cannot_be_set_twice" {
+  command = plan
+
+  variables {
+    hub_application_origin = "https://hub.example.com"
+    runtime_secret_references = {
+      HUB_APPLICATION_ORIGIN = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/hub-origin/11111111111111111111111111111111"
+      }
+    }
+  }
+
+  expect_failures = [var.hub_application_origin]
+}
+
+run "copilot_only_github_app_key_requires_only_the_app_id" {
+  command = plan
+
+  variables {
+    deploy_hub    = true
+    github_app_id = "123456"
+    runtime_environment_variables = {
+      REPLICA_COPILOT_AUTHENTICATION         = "github-app-installation"
+      REPLICA_COPILOT_GITHUB_INSTALLATION_ID = "7890123"
+    }
+    runtime_secret_references = {
+      GITHUB_APP_PRIVATE_KEY_BASE64 = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/github-app-private-key"
+      }
+    }
+  }
+}
+
+run "copilot_github_app_key_with_a_webhook_requires_all_identifiers" {
+  command = plan
+
+  variables {
+    github_app_id = "123456"
+    runtime_environment_variables = {
+      REPLICA_COPILOT_AUTHENTICATION = "github-app-installation"
+    }
+    runtime_secret_references = {
+      GITHUB_APP_PRIVATE_KEY_BASE64 = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/github-app-private-key"
+      }
+      GITHUB_WEBHOOK_SECRET = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/github"
+        secret_id    = "https://github.vault.azure.net/secrets/github-webhook-secret"
+      }
+    }
+  }
+
+  expect_failures = [var.runtime_environment_variables]
+}

@@ -9,7 +9,7 @@ import {
   Textarea,
   TextInput,
 } from "@primer/react-brand"
-import { useEffect, useId, useRef, useState } from "react"
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react"
 import type { KeyboardEvent, SubmitEvent } from "react"
 
 import { HubAlert } from "@components/hub-alert"
@@ -83,7 +83,8 @@ export function PrototypeDescriptionDialog({
     wasEditing.current = editing
   }, [editing])
 
-  useEffect(() => {
+  // Keep the enabled button and the submission guard in sync before paint.
+  useLayoutEffect(() => {
     if (savingDetails) dialog.current?.focus()
     else if (wasSaving.current) nameInput.current?.focus()
 

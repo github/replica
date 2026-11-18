@@ -198,6 +198,7 @@ describe("createApp()", () => {
         setResolution: vi.fn(),
       },
       authorizeReviewAccess,
+      isRepositoryVisible: vi.fn().mockResolvedValue(true),
       listRepositories: vi.fn().mockResolvedValue([]),
       findRepositoryIndex: vi.fn(),
       findPrototypeDetail: vi.fn(),

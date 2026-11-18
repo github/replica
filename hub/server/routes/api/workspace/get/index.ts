@@ -4,6 +4,7 @@ import { hubSessionCookieName } from "../../../../integrations/express/hub-sessi
 import { readCookie } from "../../../../integrations/express/read-cookie/index.ts"
 import type { CurrentSessionDependencies } from "../../auth/types.ts"
 import { readProductSession } from "../../product/read-product-session/index.ts"
+import { readProductWithCurrentAuthority } from "../../product/read-product-with-current-authority/index.ts"
 import type { ProductRouteDependencies } from "../../product/types.ts"
 
 export function get(
@@ -19,12 +20,14 @@ export function get(
         response.status(401).json({ error: "Sign in to continue." })
         return
       }
-      const repositories = await product.listRepositories()
-      const current = await readProductSession(cookie, session)
-      if (!current || current.membershipId !== initial.membershipId) {
+      const read = await readProductWithCurrentAuthority(initial, cookie, session, (viewer) =>
+        product.listRepositories(viewer),
+      )
+      if (!read) {
         response.status(401).json({ error: "Sign in to continue." })
         return
       }
+      const { current, result: repositories } = read
       response.json({
         viewer: {
           id: current.userId,

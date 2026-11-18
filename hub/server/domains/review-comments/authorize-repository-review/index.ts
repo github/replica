@@ -7,9 +7,13 @@ export function authorizeRepositoryReview(
   actor: { provider: string },
   repository: { localPath: string | null } | null,
 ): RepositoryReviewAccess {
-  const localAccess = actor.provider === "local" && Boolean(repository?.localPath)
+  const allowed = repository
+    ? actor.provider === "local"
+      ? Boolean(repository.localPath)
+      : !repository.localPath
+    : false
   return {
-    canChange: localAccess,
-    canView: localAccess,
+    canChange: allowed,
+    canView: allowed,
   }
 }

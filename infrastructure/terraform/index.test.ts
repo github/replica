@@ -84,8 +84,10 @@ async function scenario({
   planVariables,
   planConfiguration = { root_module: { resources: [] } },
   retryApply,
+  beforeApply,
   validatePlan,
   findUntracked,
+  requireUntrackedCheck,
   extraEnv,
   signal,
   rootSuffix = "",
@@ -100,8 +102,10 @@ async function scenario({
   planVariables?: Record<string, unknown>
   planConfiguration?: Record<string, unknown> | null
   retryApply?(error: CommandExecutionError): boolean
+  beforeApply?(): Promise<void>
   validatePlan?(value: unknown): void
   findUntracked?: Parameters<typeof terraformModule>[0]["findUntracked"]
+  requireUntrackedCheck?: boolean
   extraEnv?: Record<string, string>
   signal?: AbortSignal
   rootSuffix?: string
@@ -174,8 +178,10 @@ async function scenario({
     ui,
     preapproved,
     retryApply,
+    beforeApply,
     validatePlan,
     findUntracked,
+    requireUntrackedCheck,
     signal,
   })
   return { module, run, calls, events, ui, directory, dataDirectory, secret }
@@ -231,6 +237,25 @@ describe("Terraform module", () => {
     expect(test.ui.confirm).not.toHaveBeenCalled()
   })
 
+  it("keeps an initialization error through retry and clears it once initialization succeeds", async () => {
+    const error = new CommandExecutionError("Initialize Terraform failed.", false, 1)
+    const test = await scenario({ failure: "init", failureCount: 1, error, preapproved: true })
+    const recovery: { message?: string; events: string[] }[] = []
+    test.ui.notice = vi.fn()
+    test.ui.recoveryNotice = vi.fn((message?: string) => {
+      recovery.push({ message, events: [...test.events] })
+    })
+    test.ui.select = vi.fn(async () => "retry")
+
+    await test.module.init("backend.hcl")
+
+    expect(recovery).toEqual([
+      { message: expect.stringContaining("Initialize Terraform failed."), events: ["init"] },
+      { message: undefined, events: ["init", "init"] },
+    ])
+    expect(test.ui.notice).not.toHaveBeenCalledWith("error", expect.anything())
+  })
+
   it.each([
     {
       reason: "unattended failure",
@@ -264,12 +289,20 @@ describe("Terraform module", () => {
     )
     const retryApply = vi.fn(() => true)
     const controller = new AbortController()
+    const validatedPlans: unknown[] = []
+    const guardedPlans: unknown[] = []
     const test = await scenario({
       preapproved: true,
       failure: "apply",
       failureCount: 1,
       error,
       retryApply,
+      validatePlan: (plan) => {
+        validatedPlans.push(plan)
+      },
+      beforeApply: async () => {
+        guardedPlans.push(validatedPlans.at(-1))
+      },
       signal: controller.signal,
       planVariables: { image: { value: "synthetic-immutable-image" } },
       planConfiguration: {
@@ -309,6 +342,8 @@ describe("Terraform module", () => {
     await applying
 
     expect(test.events).toEqual(["plan", "show", "apply", "plan", "show", "apply"])
+    expect(guardedPlans).toHaveLength(2)
+    expect(guardedPlans).toEqual(validatedPlans)
     expect(test.ui.confirm).not.toHaveBeenCalled()
     expect(test.ui.select).not.toHaveBeenCalled()
     const plans = test.calls.filter(({ args }) => args[1] === "plan")
@@ -607,6 +642,81 @@ describe("Terraform module", () => {
     expect(await readdir(test.dataDirectory)).toEqual([])
   })
 
+  it("awaits the guard after plan validation and consent before applying the saved plan", async () => {
+    const events: string[] = []
+    const release = Promise.withResolvers<void>()
+    const validatePlan = vi.fn(() => {
+      events.push("validate")
+    })
+    const beforeApply = vi.fn(async () => {
+      events.push("guard")
+      await release.promise
+    })
+    const test = await scenario({ beforeApply, validatePlan })
+    const run = test.run.getMockImplementation()!
+    test.run.mockImplementation(async (executable, args, options) => {
+      events.push(args[1]!)
+      return run(executable, args, options)
+    })
+    test.ui.confirm = vi.fn(async () => {
+      events.push("confirm")
+      return true
+    })
+    const applying = test.module.apply("installation.tfvars")
+    await vi.waitFor(() => expect(beforeApply).toHaveBeenCalledOnce())
+
+    expect(events).toEqual(["plan", "show", "validate", "confirm", "guard"])
+    expect(test.events).not.toContain("apply")
+    release.resolve()
+    await applying
+
+    expect(events).toEqual(["plan", "show", "validate", "confirm", "guard", "apply"])
+    expect(await readdir(test.dataDirectory)).toEqual([])
+  })
+
+  it("propagates a transient command error from the guard without applying or offering retry", async () => {
+    fakeRetryTimers()
+    const error = new CommandExecutionError("Guard read failed.", false, 1, "ECONNRESET")
+    const beforeApply = vi.fn(async () => {
+      throw error
+    })
+    const retryApply = vi.fn(() => true)
+    const test = await scenario({
+      preapproved: true,
+      planVariables: {},
+      beforeApply,
+      retryApply,
+    })
+    test.ui.select = vi.fn(async () => "exit")
+
+    await expect(test.module.apply("installation.tfvars")).rejects.toBe(error)
+
+    expect(beforeApply).toHaveBeenCalledOnce()
+    expect(test.events).toEqual(["plan", "show"])
+    expect(test.ui.select).not.toHaveBeenCalled()
+    expect(retryApply).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+    expect(await readdir(test.dataDirectory)).toEqual([])
+  })
+
+  it("stops a rejected custom plan before running the guard or applying", async () => {
+    const error = new Error("The fresh plan is outside the approved identity.")
+    const beforeApply = vi.fn(async () => {})
+    const test = await scenario({
+      beforeApply,
+      validatePlan: () => {
+        throw error
+      },
+    })
+
+    await expect(test.module.apply("installation.tfvars")).rejects.toBe(error)
+
+    expect(beforeApply).not.toHaveBeenCalled()
+    expect(test.events).toEqual(["plan", "show"])
+    expect(test.ui.confirm).not.toHaveBeenCalled()
+    expect(await readdir(test.dataDirectory)).toEqual([])
+  })
+
   it.each([
     { actions: ["delete"] },
     { actions: ["delete", "create"] },
@@ -614,13 +724,15 @@ describe("Terraform module", () => {
   ])(
     "rejects destructive normal-plan actions $actions even after deployment approval",
     async ({ actions }) => {
-      const test = await scenario({ actions, preapproved: true })
+      const beforeApply = vi.fn(async () => {})
+      const test = await scenario({ actions, preapproved: true, beforeApply })
       test.ui.select = vi.fn(async () => "exit")
 
       await expect(test.module.apply("installation.tfvars")).rejects.toThrow()
 
       expect(test.ui.confirm).not.toHaveBeenCalled()
       expect(test.ui.select).not.toHaveBeenCalled()
+      expect(beforeApply).not.toHaveBeenCalled()
       expect(test.events).not.toContain("apply")
       expect(await readdir(test.dataDirectory)).toEqual([])
     },
@@ -702,13 +814,15 @@ describe("Terraform module", () => {
   })
 
   it("does not apply when the operator refuses, and removes the sensitive plan", async () => {
-    const test = await scenario({ approved: false })
+    const beforeApply = vi.fn(async () => {})
+    const test = await scenario({ approved: false, beforeApply })
     test.ui.select = vi.fn(async () => "exit")
 
     await expect(test.module.apply("installation.tfvars")).rejects.toThrow()
 
     expect(test.ui.confirm).toHaveBeenCalledOnce()
     expect(test.ui.select).not.toHaveBeenCalled()
+    expect(beforeApply).not.toHaveBeenCalled()
     expect(test.events).not.toContain("apply")
     expect(await readdir(test.dataDirectory)).toEqual([])
   })
@@ -1072,6 +1186,36 @@ describe("Terraform module", () => {
 
       expect(test.events).toEqual(["plan", "show", "apply", "state", "plan", "show"])
       expect(test.ui.status).toHaveBeenCalledWith(expect.stringContaining("Could not check"))
+    })
+
+    it.each([
+      { phase: "initial plan", retry: false },
+      { phase: "fresh retry plan", retry: true },
+    ])("requires a conclusive lookup before approving the $phase", async ({ retry }) => {
+      const findUntracked = vi.fn(async (): Promise<string | undefined> => {
+        throw new Error("Synthetic Azure lookup failure")
+      })
+      if (retry) findUntracked.mockResolvedValueOnce(undefined)
+      const beforeApply = vi.fn(async () => {})
+      const test = await scenario({
+        requireUntrackedCheck: true,
+        findUntracked,
+        beforeApply,
+        resourceChanges: [grantChange(["create"])],
+        ...(retry && {
+          failure: "apply" as const,
+          failureCount: 1,
+          error: new CommandExecutionError("Synthetic apply failure", false, 1),
+        }),
+      })
+      test.ui.select = vi.fn<Select>(async () => "retry")
+
+      await expect(test.module.apply("installation.tfvars")).rejects.toThrow(/plan blocked/i)
+
+      expect(findUntracked).toHaveBeenCalledTimes(retry ? 2 : 1)
+      expect(test.ui.confirm).toHaveBeenCalledTimes(retry ? 1 : 0)
+      expect(beforeApply).toHaveBeenCalledTimes(retry ? 1 : 0)
+      expect(test.calls.filter(({ args }) => args[1] === "apply")).toHaveLength(retry ? 1 : 0)
     })
 
     it("prints self-contained import commands that keep paths with spaces and apostrophes intact", async () => {

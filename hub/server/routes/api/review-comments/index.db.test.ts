@@ -64,6 +64,7 @@ async function createMember(
     membershipId: randomUUID(),
     userId: user.id,
     provider,
+    sessionProvider: provider,
     login,
     name,
     role: "MEMBER",
@@ -183,7 +184,7 @@ describe("review comments API", () => {
     })
   })
 
-  it("allows configured local repositories without revealing denied repositories", async () => {
+  it("keeps local and provider review access on their matching repository modes", async () => {
     const configured = await createReviewTarget()
     const unconfigured = await createReviewTarget({ configured: false })
     const localMember = await createMember("local-developer", "Local developer")
@@ -199,6 +200,11 @@ describe("review comments API", () => {
         headers: sessionHeaders,
       })
       expect(githubDenied.status).toBe(404)
+
+      const githubAllowed = await fetch(`${baseUrl}${unconfigured.path}`, {
+        headers: sessionHeaders,
+      })
+      expect(githubAllowed.status).toBe(200)
 
       restore.mockResolvedValue(localMember)
       const unconfiguredDenied = await fetch(`${baseUrl}${unconfigured.path}`, {

@@ -35,6 +35,7 @@ async function withAccessRoute(
     role: "MEMBER" as const,
   }
   const product: ProductMocks = {
+    isRepositoryVisible: vi.fn().mockResolvedValue(true),
     listRepositories: vi.fn(),
     findRepositoryIndex: vi.fn(),
     findRepositoryAuthors: vi.fn(),

@@ -4,6 +4,7 @@ import type { updatePrototypeMetadata } from "../../../repositories/prototypes/u
 import { normalizeStartPage } from "../../../utils/normalize-start-page/index.ts"
 import { trimPrototypeMetadata } from "../../../utils/trim-prototype-metadata/index.ts"
 import { PrototypeMetadataError } from "../errors.ts"
+import type { PrototypeViewer } from "../types.ts"
 
 type Detail = NonNullable<Awaited<ReturnType<typeof findPrototypeDetail>>>
 
@@ -14,10 +15,18 @@ export interface PrototypeMetadataChanges {
 }
 
 export interface PrototypeMetadataRepositories {
-  restoreSession(sessionDigest: string): Promise<{ userId: string } | null>
-  lockPrototype(repositoryId: string, prototypeId: string): ReturnType<typeof lockEditablePrototype>
+  restoreSession(sessionDigest: string): Promise<PrototypeViewer | null>
+  lockPrototype(
+    repositoryId: string,
+    prototypeId: string,
+    viewer: PrototypeViewer,
+  ): ReturnType<typeof lockEditablePrototype>
   updatePrototype(id: string, data: Parameters<typeof updatePrototypeMetadata>[2]): Promise<unknown>
-  findDetail(repositoryId: string, prototypeId: string): Promise<Detail | null>
+  findDetail(
+    repositoryId: string,
+    prototypeId: string,
+    viewer: PrototypeViewer,
+  ): Promise<Detail | null>
 }
 
 function readText(value: string | null | undefined, maximum: number, label: string) {
@@ -82,7 +91,11 @@ export async function editPrototypeMetadata(
   return runTransaction(async (repositories) => {
     const viewer = await repositories.restoreSession(input.sessionDigest)
     if (!viewer) throw new PrototypeMetadataError("not_signed_in", "Sign in to continue.")
-    const prototype = await repositories.lockPrototype(input.repositoryId, input.prototypeId)
+    const prototype = await repositories.lockPrototype(
+      input.repositoryId,
+      input.prototypeId,
+      viewer,
+    )
     if (!prototype) {
       throw new PrototypeMetadataError("not_found", "Prototype not found.")
     }
@@ -104,10 +117,16 @@ export async function editPrototypeMetadata(
       startPage,
       ...(prototype.registeredAt ? {} : { authorId: viewer.userId, registeredAt: new Date() }),
     })
-    const detail = await repositories.findDetail(input.repositoryId, input.prototypeId)
+    const detail = await repositories.findDetail(input.repositoryId, input.prototypeId, viewer)
     if (!detail) throw new Error("The edited prototype is unavailable.")
     const currentViewer = await repositories.restoreSession(input.sessionDigest)
-    if (!currentViewer || currentViewer.userId !== viewer.userId) {
+    if (
+      !currentViewer ||
+      currentViewer.userId !== viewer.userId ||
+      currentViewer.membershipId !== viewer.membershipId ||
+      currentViewer.sessionProvider !== viewer.sessionProvider ||
+      currentViewer.role !== viewer.role
+    ) {
       throw new PrototypeMetadataError("not_signed_in", "Sign in to continue.")
     }
     return detail

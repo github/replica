@@ -258,6 +258,82 @@ it("keeps warning and error notices distinct from ordinary status even after act
   await rejected
 })
 
+it.each(["full-screen", "inline"])(
+  "keeps the submitted question in every frame until the next question replaces it in %s mode",
+  async (mode) => {
+    vi.stubEnv("TERM", "xterm")
+    vi.stubEnv("INK_SCREEN_READER", "false")
+    const abort = new AbortController()
+    const ui = open(abort, { fullscreen: mode === "full-screen" })
+    ui.status("Synthetic earlier operation")
+    const first = ui.text("First synthetic question", "accepted")
+    const terminal = show()
+    await vi.waitFor(() => expect(terminal.lastFrame()).toContain("First synthetic question"))
+    const submittedAt = terminal.frames.length
+
+    terminal.stdin.write("\r")
+
+    await expect(first).resolves.toBe("accepted")
+    await setImmediate()
+    expect(terminal.lastFrame()).toContain("First synthetic question")
+    terminal.stdin.write("-ignored")
+    await setImmediate()
+    expect(terminal.lastFrame()).toContain("accepted")
+    expect(terminal.lastFrame()).not.toContain("-ignored")
+    for (const frame of terminal.frames.slice(submittedAt)) {
+      expect(frame).toContain("First synthetic question")
+      expect(frame).not.toContain("Working...")
+    }
+
+    const nextAt = terminal.frames.length
+    const next = ui.text("Next synthetic question", "next answer")
+    const rejected = expect(next).rejects.toThrow(/cancel/i)
+    await vi.waitFor(() => expect(terminal.lastFrame()).toContain("Next synthetic question"))
+    for (const frame of terminal.frames.slice(nextAt)) {
+      expect(frame).toContain("Next synthetic question")
+      expect(frame).not.toContain("First synthetic question")
+      expect(frame).not.toContain("Working...")
+    }
+
+    abort.abort()
+    await rejected
+  },
+)
+
+it("keeps a step error through the recovery choice and restores the persistent warning when it is cleared", async () => {
+  const abort = new AbortController()
+  const ui = open(abort, { fullscreen: false, postSetup: true })
+  ui.notice!("warning", "Synthetic partial change still needs attention")
+  ui.recoveryNotice!("Synthetic credential file needs repair")
+  const recovery = ui.select("Recover the synthetic step", [
+    { label: "Recheck this file", value: "recheck" },
+  ])
+  const terminal = show()
+  await vi.waitFor(() =>
+    expect(terminal.lastFrame()).toMatch(/Error:.*Synthetic credential file needs repair/),
+  )
+  expect(terminal.lastFrame()).toContain("Synthetic partial change still needs attention")
+  expect(ui.summary()).toContain("Synthetic credential file needs repair")
+
+  terminal.stdin.write("\r")
+
+  await expect(recovery).resolves.toBe("recheck")
+  await setImmediate()
+  expect(terminal.lastFrame()).toContain("Synthetic credential file needs repair")
+  expect(ui.summary()).toContain("Synthetic credential file needs repair")
+  const clearedAt = terminal.frames.length
+  ui.recoveryNotice!()
+  await vi.waitFor(() => {
+    expect(terminal.lastFrame()).toMatch(/Warning:.*Synthetic partial change still needs attention/)
+    expect(terminal.lastFrame()).not.toContain("Synthetic credential file needs repair")
+  })
+  for (const frame of terminal.frames.slice(clearedAt)) {
+    expect(frame).toContain("Synthetic partial change still needs attention")
+    expect(frame).not.toContain("Synthetic credential file needs repair")
+  }
+  expect(ui.summary()).toBe("Synthetic partial change still needs attention")
+})
+
 it("does not resolve close until Ink has finished terminal restoration", async () => {
   let restored = () => {}
   boundary.waitUntilExit.mockReturnValue(

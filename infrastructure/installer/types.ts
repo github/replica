@@ -12,12 +12,16 @@ export interface DeploymentConfig {
   }
 }
 
+export type PostSetupAction = "sign-in" | "github" | "restart"
+
 export interface CommandOptions {
   cwd?: string
   env?: NodeJS.ProcessEnv
   signal?: AbortSignal
   // Public step description only; never use arguments, output, or credentials.
   label?: string
+  // The caller presents recoverable failures separately from persistent notices.
+  recoverable?: boolean
 }
 
 export type RunCommand = (
@@ -50,6 +54,7 @@ export interface FieldDefinition {
 export interface InstallerUI {
   status(message: string): void
   notice?(level: NoticeLevel, message: string): void
+  recoveryNotice?(message?: string): void
   phase?(phase: WizardPhase): void | Promise<void>
   confirm(message: string): Promise<boolean>
   wait(message: string): Promise<void>

@@ -1,7 +1,6 @@
 import { FreshAuthorizationPage } from "@pages/fresh-authorization-page"
 import { GithubAppSetupInstallPage } from "@pages/github-app-setup-install-page"
 import { GithubAppSetupRegisterPage } from "@pages/github-app-setup-register-page"
-import { GithubAppSetupShowPage } from "@pages/github-app-setup-show-page"
 import { HubAdminEnrollmentPage } from "@pages/hub-admin-enrollment-page"
 import { SessionRevocationPage } from "@pages/session-revocation-page"
 import type {
@@ -21,8 +20,6 @@ export function SettingsPublicScreen({
 }) {
   const views = settingsPublic(state, search)
   switch (section) {
-    case "github-setup":
-      return <GithubAppSetupShowPage data={views.setup} />
     case "github-register":
       return <GithubAppSetupRegisterPage data={views.register} />
     case "github-installed":

@@ -32,18 +32,28 @@ export interface ReviewRouteDependencies {
   ): Promise<RepositoryReviewAccess>
 }
 
+/** The signed-in viewer whose repository access limits product reads. */
+export interface ProductViewer {
+  membershipId: string
+  sessionProvider: string | null
+  role: "MEMBER" | "ADMINISTRATOR"
+}
+
 export interface ProductRouteDependencies {
   reviewComments?: ReviewCommentService
   authorizeReviewAccess?(
     repositoryId: string,
     actor: ReviewAccessActor,
   ): Promise<RepositoryReviewAccess>
-  listRepositories(): ReturnType<typeof listRepositories>
+  isRepositoryVisible(viewer: ProductViewer, repositoryId: string): Promise<boolean>
+  listRepositories(viewer: ProductViewer): ReturnType<typeof listRepositories>
   findRepositoryIndex(
+    viewer: ProductViewer,
     repositoryId: string,
     filters: RepositoryIndexFilters,
   ): ReturnType<typeof findRepositoryIndex>
   findPrototypeDetail(
+    viewer: ProductViewer,
     repositoryId: string,
     prototypeId: string,
     buildNumber?: number,
@@ -54,6 +64,7 @@ export interface ProductRouteDependencies {
     prepare: Parameters<typeof readPrototypeWithIntroduction>[1]["prepare"],
   ): ReturnType<typeof readPrototypeWithIntroduction>
   findRepositoryAuthors(
+    viewer: ProductViewer,
     repositoryId: string,
     filters: RepositoryAuthorsFilters,
   ): ReturnType<typeof findRepositoryAuthors>

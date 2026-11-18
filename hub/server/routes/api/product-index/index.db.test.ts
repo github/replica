@@ -1,15 +1,25 @@
-import { createHash, randomUUID } from "node:crypto"
+import { createHash, generateKeyPairSync, randomUUID } from "node:crypto"
 import { once } from "node:events"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import pg from "pg"
+import pino from "pino"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createApp } from "../../../create-app"
+import { syncGitHubInstallationRepositories } from "../../../domains/admission/sync-github-installation-repositories"
+import { createGitHubAuthenticationContext } from "../../../domains/authentication/create-github-authentication-context"
+import { activateGitHubRepositoryScoping } from "../../../domains/identity/activate-github-repository-scoping"
+import { createReviewCommentService } from "../../../domains/review-comments/create-review-comment-service"
+import { listInstallationRepositories } from "../../../integrations/github/list-installation-repositories"
 import { prisma } from "../../../integrations/prisma"
 import { findRepositoryIndex } from "../../../repositories/prototype-index/find-repository-index"
+import type { runApi } from "../../../run-api"
 import { getDatabaseUrl } from "../../../../test/database/get-database-url"
+import { createAuthenticationRouteDependencies } from "../auth/create-authentication-route-dependencies"
 import type { AuthenticationRouteDependencies } from "../auth/types"
+import { createLearningsRouteDependencies } from "../learnings/create-learnings-route-dependencies"
+import type { LearningsRouteDependencies } from "../learnings/types"
 import { createProductRouteDependencies } from "../product/create-product-route-dependencies"
 import type { ProductRouteDependencies } from "../product/types"
 
@@ -17,12 +27,13 @@ async function withServer(
   restore: AuthenticationRouteDependencies["currentSession"]["restore"],
   product: ProductRouteDependencies,
   operation: (baseUrl: string) => Promise<void>,
+  learnings?: LearningsRouteDependencies,
 ) {
   const authentication: AuthenticationRouteDependencies = {
     currentSession: { restore },
     signOut: { applicationOrigin: "http://127.0.0.1:5173", secureCookie: false, end: vi.fn() },
   }
-  const server = createServer(createApp({ authentication, product }))
+  const server = createServer(createApp({ authentication, learnings, product }))
   server.listen(0, "127.0.0.1")
   await once(server, "listening")
   try {
@@ -147,6 +158,7 @@ describe("real product index", () => {
       membershipId: randomUUID(),
       userId: randomUUID(),
       provider: "github",
+      sessionProvider: "github",
       login: "mona",
       name: "Mona",
       role: "MEMBER",
@@ -291,6 +303,7 @@ describe("real product index", () => {
       membershipId: randomUUID(),
       userId: authorId,
       provider: "github",
+      sessionProvider: "github",
       login: "mona",
       name: "Mona",
       role: "MEMBER" as const,
@@ -299,6 +312,7 @@ describe("real product index", () => {
       membershipId: randomUUID(),
       userId: randomUUID(),
       provider: "entra",
+      sessionProvider: "entra",
       login: "member",
       name: "Member",
       role: "MEMBER" as const,
@@ -467,6 +481,7 @@ describe("real product index", () => {
       membershipId: randomUUID(),
       userId: viewerId,
       provider: "entra",
+      sessionProvider: "entra",
       login: "viewer@example.test",
       name: "Viewer",
       role: "MEMBER",
@@ -591,6 +606,7 @@ describe("real product index", () => {
       membershipId: randomUUID(),
       userId: randomUUID(),
       provider: "github",
+      sessionProvider: "github",
       login: "mona",
       name: "Mona",
       role: "MEMBER" as const,
@@ -600,23 +616,23 @@ describe("real product index", () => {
     const product = createProductRouteDependencies()
     const listRepositories = product.listRepositories.bind(product)
     const findRepositoryIndex = product.findRepositoryIndex.bind(product)
-    const list = vi.spyOn(product, "listRepositories").mockImplementation(async () => {
-      const repositories = await listRepositories()
+    const list = vi.spyOn(product, "listRepositories").mockImplementation(async (viewer) => {
+      const repositories = await listRepositories(viewer)
       currentSession = null
       return repositories
     })
     const findRepositoryAuthors = product.findRepositoryAuthors.bind(product)
     const find = vi
       .spyOn(product, "findRepositoryIndex")
-      .mockImplementation(async (id, filters) => {
-        const index = await findRepositoryIndex(id, filters)
+      .mockImplementation(async (viewer, id, filters) => {
+        const index = await findRepositoryIndex(viewer, id, filters)
         currentSession = null
         return index
       })
     const findAuthors = vi
       .spyOn(product, "findRepositoryAuthors")
-      .mockImplementation(async (id, filters) => {
-        const authors = await findRepositoryAuthors(id, filters)
+      .mockImplementation(async (viewer, id, filters) => {
+        const authors = await findRepositoryAuthors(viewer, id, filters)
         currentSession = null
         return authors
       })
@@ -648,6 +664,7 @@ describe("real product index", () => {
       membershipId: randomUUID(),
       userId: randomUUID(),
       provider: "entra",
+      sessionProvider: "entra",
       login: "member",
       name: "Member",
       role: "MEMBER" as "MEMBER" | "ADMINISTRATOR",
@@ -657,8 +674,8 @@ describe("real product index", () => {
     const restore = vi.fn(() => Promise.resolve(currentSession))
     const product = createProductRouteDependencies()
     const listRepositories = product.listRepositories.bind(product)
-    vi.spyOn(product, "listRepositories").mockImplementation(async () => {
-      const repositories = await listRepositories()
+    vi.spyOn(product, "listRepositories").mockImplementation(async (viewer) => {
+      const repositories = await listRepositories(viewer)
       currentSession = { ...currentSession, role: roleAfterRead }
       return repositories
     })
@@ -682,6 +699,789 @@ describe("real product index", () => {
     })
   })
 
+  it("hides retained legacy history from every viewer when GitHub scoping is enabled", async () => {
+    const user = await prisma.user.create({ data: {} })
+    const membership = await prisma.membership.create({ data: { userId: user.id } })
+    const legacy = await prisma.repository.create({
+      data: { nameWithOwner: "team/reused", defaultBranch: "main" },
+    })
+    const current = await prisma.repository.create({
+      data: { githubRepositoryId: 1001, nameWithOwner: "team/reused", defaultBranch: "main" },
+    })
+    const other = await prisma.repository.create({
+      data: { githubRepositoryId: 1002, nameWithOwner: "team/other", defaultBranch: "main" },
+    })
+    const legacyPrototype = await prisma.prototype.create({
+      data: {
+        repositoryId: legacy.id,
+        branchName: "prototype/legacy",
+        name: "Legacy history",
+        registeredAt: new Date("2026-01-01T00:00:00Z"),
+      },
+    })
+    const build = await prisma.build.create({
+      data: {
+        prototypeId: legacyPrototype.id,
+        number: 1,
+        state: "successful",
+        commitSha: "a".repeat(40),
+      },
+    })
+    await prisma.prototype.update({
+      where: { id: legacyPrototype.id },
+      data: { currentBuildId: build.id },
+    })
+    const currentPrototype = await prisma.prototype.create({
+      data: {
+        repositoryId: current.id,
+        branchName: "prototype/current",
+        name: "Current prototype",
+        registeredAt: new Date("2026-01-01T00:00:00Z"),
+      },
+    })
+    await prisma.repositoryAccessGrant.createMany({
+      data: [legacy.id, current.id].map((repositoryId) => ({
+        membershipId: membership.id,
+        repositoryId,
+        observedAt: new Date(),
+      })),
+    })
+    const retainedHistory = await prisma.repository.findUniqueOrThrow({
+      where: { id: legacy.id },
+      include: { prototypes: { include: { builds: true } } },
+    })
+    const githubMember = {
+      membershipId: membership.id,
+      userId: user.id,
+      provider: "entra",
+      sessionProvider: "github",
+      login: "mona",
+      name: "Mona",
+      role: "MEMBER" as const,
+    }
+    const restore = vi.fn()
+    const headers = { cookie: "hub_session=viewer-session" }
+    const legacyPath = `/api/repositories/${legacy.id}`
+    const legacyPrototypePath = `${legacyPath}/prototypes/${legacyPrototype.id}`
+
+    await withServer(
+      restore,
+      createProductRouteDependencies({ scopeGitHubMembers: true }),
+      async (baseUrl) => {
+        for (const { viewer, visible, canReadOther } of [
+          {
+            viewer: { ...githubMember, role: "ADMINISTRATOR" as const },
+            visible: [current.id, other.id],
+            canReadOther: true,
+          },
+          {
+            viewer: { ...githubMember, provider: "github", sessionProvider: "entra" },
+            visible: [current.id, other.id],
+            canReadOther: true,
+          },
+          { viewer: githubMember, visible: [current.id], canReadOther: false },
+        ]) {
+          restore.mockResolvedValue(viewer)
+          const workspaceResponse = await fetch(`${baseUrl}/api/workspace`, { headers })
+          expect(workspaceResponse.status).toBe(200)
+          const workspace = (await workspaceResponse.json()) as { repositories: { id: string }[] }
+          expect(workspace.repositories.map(({ id }) => id).sort()).toEqual(visible.sort())
+
+          for (const path of [
+            legacyPath,
+            `${legacyPath}/authors`,
+            `${legacyPrototypePath}?view=minimized`,
+            `${legacyPrototypePath}/builds`,
+          ]) {
+            const response = await fetch(`${baseUrl}${path}`, { headers })
+            expect(response.status).toBe(404)
+            expect(await response.text()).not.toContain("Legacy history")
+          }
+          const currentResponse = await fetch(`${baseUrl}/api/repositories/${current.id}`, {
+            headers,
+          })
+          expect(currentResponse.status).toBe(200)
+          const currentIndex = (await currentResponse.json()) as { prototypes: { id: string }[] }
+          expect(currentIndex.prototypes.map(({ id }) => id)).toEqual([currentPrototype.id])
+          const otherResponse = await fetch(`${baseUrl}/api/repositories/${other.id}`, { headers })
+          expect(otherResponse.status).toBe(canReadOther ? 200 : 404)
+        }
+      },
+    )
+
+    restore.mockResolvedValue(githubMember)
+    await withServer(restore, createProductRouteDependencies(), async (baseUrl) => {
+      const workspaceResponse = await fetch(`${baseUrl}/api/workspace`, { headers })
+      expect(workspaceResponse.status).toBe(200)
+      const workspace = (await workspaceResponse.json()) as { repositories: { id: string }[] }
+      expect(workspace.repositories.map(({ id }) => id).sort()).toEqual(
+        [legacy.id, current.id, other.id].sort(),
+      )
+      const legacyIndex = await fetch(`${baseUrl}${legacyPath}`, { headers })
+      expect(legacyIndex.status).toBe(200)
+      expect(await legacyIndex.json()).toMatchObject({
+        prototypes: [expect.objectContaining({ id: legacyPrototype.id, name: "Legacy history" })],
+      })
+      const legacyBuilds = await fetch(`${baseUrl}${legacyPrototypePath}/builds`, { headers })
+      expect(legacyBuilds.status).toBe(200)
+      expect(await legacyBuilds.json()).toMatchObject({
+        builds: [expect.objectContaining({ number: 1, state: "successful" })],
+      })
+    })
+    await expect(
+      prisma.repository.findUniqueOrThrow({
+        where: { id: legacy.id },
+        include: { prototypes: { include: { builds: true } } },
+      }),
+    ).resolves.toEqual(retainedHistory)
+  })
+
+  it.each(["review comments", "learnings"] as const)(
+    "does not return %s when legacy visibility is lost after the initial lookup",
+    async (resource) => {
+      const repository = await prisma.repository.create({
+        data: { nameWithOwner: "team/legacy", defaultBranch: "main" },
+      })
+      const prototype = await prisma.prototype.create({
+        data: {
+          repositoryId: repository.id,
+          branchName: "prototype/legacy",
+          name: "Legacy prototype",
+          registeredAt: new Date("2026-01-01T00:00:00Z"),
+        },
+      })
+      const build = await prisma.build.create({
+        data: { prototypeId: prototype.id, number: 1, state: "successful" },
+      })
+      const user = await prisma.user.create({
+        data: { profile: { create: { provider: "entra", login: "mona", name: "Mona" } } },
+      })
+      const membership = await prisma.membership.create({ data: { userId: user.id } })
+      const secret = "Private legacy content"
+      const review = createReviewCommentService(prisma)
+      await review.createThread({
+        sessionDigest: "a".repeat(64),
+        repositoryId: repository.id,
+        prototypeId: prototype.id,
+        buildNumber: build.number,
+        body: secret,
+        actor: { userId: user.id, login: "mona", name: "Mona" },
+        anchor: {
+          schemaVersion: 1,
+          kind: "element",
+          route: { pathname: "/", search: "", hash: "" },
+          selector: "#content",
+          accessibleName: "Content",
+          tagName: "main",
+          selectedText: "",
+          rect: { x: 0, y: 0, width: 100, height: 100 },
+          viewport: { width: 800, height: 600, scrollX: 0, scrollY: 0 },
+          elementOffset: { x: 0.5, y: 0.5 },
+        },
+      })
+      const history = {
+        prototypes: { include: { builds: true } },
+        reviewThreads: { include: { comments: true } },
+      }
+      const legacyBefore = await prisma.repository.findUniqueOrThrow({
+        where: { id: repository.id },
+        include: history,
+      })
+      const viewer = {
+        membershipId: membership.id,
+        userId: user.id,
+        provider: "entra",
+        sessionProvider: "entra",
+        login: "mona",
+        name: "Mona",
+        role: "ADMINISTRATOR" as const,
+      }
+      const restore = vi.fn().mockResolvedValue(viewer)
+      const product = createProductRouteDependencies()
+      if (!product.reviewComments) throw new Error("Review comments are unavailable.")
+      const listThreads = product.reviewComments.listPrototypeThreads.bind(product.reviewComments)
+      let activateDuringRead = false
+      async function activate() {
+        if (activateDuringRead) await prisma.$transaction(activateGitHubRepositoryScoping)
+      }
+      const list = vi
+        .spyOn(product.reviewComments, "listPrototypeThreads")
+        .mockImplementation(async (repositoryId, prototypeId) => {
+          const threads = await listThreads(repositoryId, prototypeId)
+          await activate()
+          return threads
+        })
+      const learnings = await createLearningsRouteDependencies(
+        { HUB_APPLICATION_ORIGIN: "https://hub.example.test", DATABASE_URL: getDatabaseUrl() },
+        { restore },
+        pino({ level: "silent" }),
+      )
+      const overview = vi.spyOn(learnings, "getOverview").mockImplementation(async () => {
+        await activate()
+        return {
+          loadError: null,
+          identityReviewCount: 0,
+          suggestions: [],
+          learnings: [],
+          recall: { text: secret, count: 1 },
+        }
+      })
+      vi.spyOn(learnings, "getCopilot").mockResolvedValue({ state: "not-connected" })
+      vi.spyOn(learnings, "listRuns").mockResolvedValue({
+        runs: [],
+        usageCredits: "0",
+        active: false,
+      })
+
+      const path =
+        resource === "review comments"
+          ? `/api/repositories/${repository.id}/prototypes/${prototype.id}/review-comments`
+          : `/api/repositories/${repository.id}/learnings`
+      await withServer(
+        restore,
+        product,
+        async (baseUrl) => {
+          const headers = { cookie: "hub_session=member-session" }
+          const before = await fetch(`${baseUrl}${path}`, { headers })
+          expect(before.status).toBe(200)
+          expect(await before.text()).toContain(secret)
+
+          activateDuringRead = true
+          const after = await fetch(`${baseUrl}${path}`, { headers })
+          expect(after.status).toBe(404)
+          expect(await after.text()).not.toContain(secret)
+        },
+        learnings,
+      )
+      expect(resource === "review comments" ? list : overview).toHaveBeenCalledTimes(2)
+      await expect(
+        prisma.repository.findUniqueOrThrow({ where: { id: repository.id }, include: history }),
+      ).resolves.toEqual(legacyBefore)
+    },
+  )
+
+  it("does not disclose a legacy repository to a non-admin when scoping activates after lookup", async () => {
+    const repository = await prisma.repository.create({
+      data: { nameWithOwner: "team/legacy", defaultBranch: "main" },
+    })
+    const user = await prisma.user.create({ data: {} })
+    const membership = await prisma.membership.create({ data: { userId: user.id } })
+    const restore = vi.fn().mockResolvedValue({
+      membershipId: membership.id,
+      userId: user.id,
+      provider: "entra",
+      sessionProvider: "entra",
+      login: "mona",
+      name: "Mona",
+      role: "MEMBER",
+    })
+    const learnings = await createLearningsRouteDependencies(
+      { HUB_APPLICATION_ORIGIN: "https://hub.example.test", DATABASE_URL: getDatabaseUrl() },
+      { restore },
+      pino({ level: "silent" }),
+    )
+    const findRepository = learnings.findRepository.bind(learnings)
+    let activateDuringLookup = false
+    vi.spyOn(learnings, "findRepository").mockImplementation(async (viewer, repositoryId) => {
+      const found = await findRepository(viewer, repositoryId)
+      if (activateDuringLookup && found) {
+        await prisma.$transaction(activateGitHubRepositoryScoping)
+      }
+      return found
+    })
+    await withServer(
+      restore,
+      createProductRouteDependencies(),
+      async (baseUrl) => {
+        const path = `/api/repositories/${repository.id}/learnings`
+        const headers = { cookie: "hub_session=member-session" }
+        const before = await fetch(`${baseUrl}${path}`, { headers })
+        expect(before.status).toBe(200)
+        expect(await before.text()).toContain("team/legacy")
+
+        activateDuringLookup = true
+        const after = await fetch(`${baseUrl}${path}`, { headers })
+        const body = await after.text()
+        await expect(
+          prisma.repository.findUniqueOrThrow({ where: { id: repository.id } }),
+        ).resolves.toEqual(repository)
+        expect({ status: after.status, disclosedLegacy: body.includes("team/legacy") }).toEqual({
+          status: 404,
+          disclosedLegacy: false,
+        })
+      },
+      learnings,
+    )
+  })
+
+  it("preserves every legacy row while keeping its history hidden after a complete installation sync", async () => {
+    const legacy = await prisma.repository.create({
+      data: { nameWithOwner: "team/reused", defaultBranch: "main" },
+    })
+    const prototype = await prisma.prototype.create({
+      data: {
+        repositoryId: legacy.id,
+        branchName: "prototype/legacy",
+        name: "Retained legacy history",
+        registeredAt: new Date("2026-01-01T00:00:00Z"),
+      },
+    })
+    const build = await prisma.build.create({
+      data: { prototypeId: prototype.id, number: 1, state: "successful" },
+    })
+    await prisma.prototype.update({
+      where: { id: prototype.id },
+      data: { currentBuildId: build.id },
+    })
+    const user = await prisma.user.create({
+      data: { profile: { create: { provider: "github", login: "mona", name: "Mona" } } },
+    })
+    const review = createReviewCommentService(prisma)
+    const actor = { userId: user.id, login: "mona", name: "Mona" }
+    const reviewInput = {
+      sessionDigest: "a".repeat(64),
+      repositoryId: legacy.id,
+      prototypeId: prototype.id,
+      actor,
+    }
+    const thread = await review.createThread({
+      ...reviewInput,
+      buildNumber: build.number,
+      body: "Retained review",
+      anchor: {
+        schemaVersion: 1,
+        kind: "element",
+        route: { pathname: "/", search: "", hash: "" },
+        selector: "#content",
+        accessibleName: "Content",
+        tagName: "main",
+        selectedText: "",
+        rect: { x: 0, y: 0, width: 100, height: 100 },
+        viewport: { width: 800, height: 600, scrollX: 0, scrollY: 0 },
+        elementOffset: { x: 0.5, y: 0.5 },
+      },
+    })
+    await review.createReply({ ...reviewInput, threadId: thread.id, body: "Retained reply" })
+    await review.setResolution({ ...reviewInput, threadId: thread.id, resolved: true })
+
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const github = {
+      HUB_APPLICATION_ORIGIN: "https://hub.example.test",
+      HUB_AUTHENTICATION_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
+      HUB_BOOTSTRAP_SECRET: "bootstrap-secret-that-is-at-least-32-characters",
+      GITHUB_CLIENT_ID: "github-client",
+      GITHUB_CLIENT_SECRET: "github-secret",
+      GITHUB_PROVIDER_REVISION: "1",
+      GITHUB_APP_ID: "123",
+      GITHUB_APP_INSTALLATION_ID: "456",
+      GITHUB_APP_PRIVATE_KEY_BASE64: Buffer.from(
+        privateKey.export({ format: "pem", type: "pkcs1" }),
+      ).toString("base64"),
+      GITHUB_WEBHOOK_SECRET: "webhook-secret-at-least-twenty-characters",
+    }
+    const authentication = await createAuthenticationRouteDependencies(github)
+    const githubContext = createGitHubAuthenticationContext(github)
+    const provider = await prisma.authenticationProvider.findUniqueOrThrow({
+      where: { key: "github" },
+      include: { selectedRevision: true },
+    })
+    if (!provider.selectedRevision) throw new Error("GitHub provider has no selected revision.")
+    const identity = await prisma.externalIdentity.create({
+      data: { userId: user.id, provider: "github", issuer: "https://github.com", subject: "101" },
+    })
+    const membership = await prisma.membership.create({ data: { userId: user.id } })
+    await prisma.membershipAssignment.createMany({
+      data: [
+        {
+          externalIdentityId: identity.id,
+          membershipId: membership.id,
+          providerAssignmentSubject: "github_repository_access",
+          providerRevisionId: provider.selectedRevision.id,
+          role: "MEMBER",
+          source: "AUTHENTICATION_PROVIDER",
+        },
+        {
+          externalIdentityId: identity.id,
+          membershipId: membership.id,
+          role: "ADMINISTRATOR",
+          source: "BOOTSTRAP",
+        },
+      ],
+    })
+    const revocation = await prisma.sessionRevocationState.findUniqueOrThrow({
+      where: { key: "global" },
+    })
+    const token = "github-administrator-session"
+    await prisma.hubSession.create({
+      data: {
+        digest: createHash("sha256").update(token).digest("hex"),
+        externalIdentityId: identity.id,
+        expiresAt: new Date("2099-01-01T00:00:00Z"),
+        membershipId: membership.id,
+        providerRevisionId: provider.selectedRevision.id,
+        revocationRevision: revocation.revision,
+      },
+    })
+
+    const history = {
+      prototypes: { include: { builds: true } },
+      reviewThreads: {
+        include: {
+          comments: { orderBy: { publicId: "asc" as const } },
+          resolutionEvents: { orderBy: { sequence: "asc" as const } },
+        },
+      },
+    }
+    const legacyBefore = await prisma.repository.findUniqueOrThrow({
+      where: { id: legacy.id },
+      include: history,
+    })
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ token: "installation-token" }))
+      .mockResolvedValueOnce(
+        Response.json({
+          total_count: 1,
+          repositories: [{ id: 1001, full_name: legacy.nameWithOwner, default_branch: "trunk" }],
+        }),
+      )
+    await syncGitHubInstallationRepositories(
+      prisma,
+      () =>
+        listInstallationRepositories(
+          { appId: "123", installationId: "456", privateKey },
+          { fetch: request },
+        ),
+      {
+        configurationDigest: githubContext.configurationDigest,
+        revision: githubContext.providerRevision,
+      },
+    )
+    expect(request).toHaveBeenCalledTimes(2)
+    const current = await prisma.repository.findUniqueOrThrow({
+      where: { githubRepositoryId: 1001n },
+      include: { prototypes: true, reviewThreads: true },
+    })
+    expect(current).toMatchObject({
+      nameWithOwner: legacy.nameWithOwner,
+      defaultBranch: "trunk",
+      removedAt: null,
+      prototypes: [],
+      reviewThreads: [],
+    })
+    expect(current.id).not.toBe(legacy.id)
+
+    const learnings = await createLearningsRouteDependencies(
+      { ...github, DATABASE_URL: getDatabaseUrl() },
+      authentication.currentSession,
+      pino({ level: "silent" }),
+      { scopeGitHubMembers: true },
+    )
+    const getOverview = vi.spyOn(learnings, "getOverview").mockResolvedValue({
+      loadError: null,
+      identityReviewCount: 0,
+      suggestions: [],
+      learnings: [],
+      recall: { text: "", count: 0 },
+    })
+    await withServer(
+      authentication.currentSession.restore.bind(authentication.currentSession),
+      createProductRouteDependencies({ scopeGitHubMembers: true }),
+      async (baseUrl) => {
+        const headers = { cookie: `hub_session=${token}` }
+        const workspaceResponse = await fetch(`${baseUrl}/api/workspace`, { headers })
+        expect(workspaceResponse.status).toBe(200)
+        const workspace = (await workspaceResponse.json()) as { repositories: { id: string }[] }
+        expect(workspace.repositories.map(({ id }) => id)).toEqual([current.id])
+        expect((await fetch(`${baseUrl}/api/repositories/${legacy.id}`, { headers })).status).toBe(
+          404,
+        )
+        expect(
+          (await fetch(`${baseUrl}/api/repositories/${legacy.id}/learnings`, { headers })).status,
+        ).toBe(404)
+        expect(getOverview).not.toHaveBeenCalled()
+        const currentIndex = await fetch(`${baseUrl}/api/repositories/${current.id}`, { headers })
+        expect(currentIndex.status).toBe(200)
+        expect(await currentIndex.json()).toMatchObject({ prototypes: [] })
+        const currentLearnings = await fetch(
+          `${baseUrl}/api/repositories/${current.id}/learnings`,
+          {
+            headers,
+          },
+        )
+        expect(currentLearnings.status).toBe(200)
+        expect(getOverview).toHaveBeenCalledWith(
+          expect.objectContaining({ repositoryId: current.id }),
+        )
+      },
+      learnings,
+    )
+    await expect(
+      prisma.repository.findUniqueOrThrow({ where: { id: legacy.id }, include: history }),
+    ).resolves.toEqual(legacyBefore)
+  })
+
+  it("keeps unsynced legacy history hidden after restarting without GitHub", async () => {
+    const privateKey = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({
+      format: "pem",
+      type: "pkcs1",
+    })
+    const shared = {
+      HUB_APPLICATION_ORIGIN: "https://hub.example.test",
+      HUB_AUTHENTICATION_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
+      HUB_BOOTSTRAP_SECRET: "bootstrap-secret-that-is-at-least-32-characters",
+    }
+    const github = {
+      ...shared,
+      GITHUB_CLIENT_ID: "github-client",
+      GITHUB_CLIENT_SECRET: "github-secret",
+      GITHUB_PROVIDER_REVISION: "1",
+      GITHUB_APP_ID: "123",
+      GITHUB_APP_INSTALLATION_ID: "456",
+      GITHUB_APP_PRIVATE_KEY_BASE64: Buffer.from(privateKey).toString("base64"),
+      GITHUB_WEBHOOK_SECRET: "webhook-secret-at-least-twenty-characters",
+    }
+    const issuer = "https://login.microsoftonline.com/11111111-1111-4111-8111-111111111111/v2.0"
+    const entra = {
+      ...shared,
+      ENTRA_OIDC_CLIENT_AUTHENTICATION: "client-secret",
+      ENTRA_OIDC_CLIENT_ID: "22222222-2222-4222-8222-222222222222",
+      ENTRA_OIDC_CLIENT_SECRET: "entra-secret",
+      ENTRA_OIDC_ISSUER: issuer,
+      ENTRA_OIDC_PROVIDER_REVISION: "1",
+    }
+    const legacy = await prisma.repository.create({
+      data: { nameWithOwner: "team/legacy", defaultBranch: "main" },
+    })
+    const current = await prisma.repository.create({
+      data: { githubRepositoryId: 1001, nameWithOwner: "team/current", defaultBranch: "main" },
+    })
+    const prototype = await prisma.prototype.create({
+      data: {
+        repositoryId: legacy.id,
+        branchName: "prototype/legacy",
+        name: "Retained legacy history",
+        registeredAt: new Date("2026-01-01T00:00:00Z"),
+      },
+    })
+    const build = await prisma.build.create({
+      data: { prototypeId: prototype.id, number: 1, state: "successful" },
+    })
+    await prisma.prototype.update({
+      where: { id: prototype.id },
+      data: { currentBuildId: build.id },
+    })
+    await createAuthenticationRouteDependencies(github)
+    const githubContext = createGitHubAuthenticationContext(github)
+    const retainedHistory = await prisma.repository.findUniqueOrThrow({
+      where: { id: legacy.id },
+      include: { prototypes: { include: { builds: true } } },
+    })
+    const accessState = await prisma.gitHubRepositoryAccessState.findUniqueOrThrow({
+      where: { key: "global" },
+    })
+
+    await expect(
+      syncGitHubInstallationRepositories(
+        prisma,
+        () => Promise.reject(new Error("Installation listing failed")),
+        {
+          configurationDigest: githubContext.configurationDigest,
+          revision: githubContext.providerRevision,
+        },
+      ),
+    ).rejects.toThrow("Installation listing failed")
+    await expect(
+      prisma.repository.findUniqueOrThrow({
+        where: { id: legacy.id },
+        include: { prototypes: { include: { builds: true } } },
+      }),
+    ).resolves.toEqual(retainedHistory)
+    await expect(
+      prisma.gitHubRepositoryAccessState.findUniqueOrThrow({ where: { key: "global" } }),
+    ).resolves.toEqual(accessState)
+    expect(retainedHistory.removedAt).toBeNull()
+
+    for (const key of [
+      ...Object.keys(github).filter((name) => name.startsWith("GITHUB_")),
+      "ENTRA_OIDC_MANAGED_IDENTITY_CLIENT_ID",
+      "HUB_LOCAL_SIGN_IN",
+      "ARTIFACT_STORAGE_PROVIDER",
+      "ARTIFACT_STORAGE_DIRECTORY",
+      "AZURE_STORAGE_ACCOUNT",
+      "AZURE_STORAGE_CONTAINER",
+      "CLIENT_DIRECTORY",
+      "REPLICA_COPILOT_AUTHENTICATION",
+      "REPLICA_COPILOT_TOKEN",
+      "REPLICA_COPILOT_GITHUB_INSTALLATION_ID",
+      "REPLICA_COPILOT_GITHUB_ORGANIZATION",
+      "GITHUB_APP_PRIVATE_KEY",
+    ]) {
+      vi.stubEnv(key, undefined)
+    }
+    for (const [key, value] of Object.entries(entra)) vi.stubEnv(key, value)
+    vi.stubEnv("RUNTIME_MODE", "api")
+    vi.stubEnv("OTEL_SDK_DISABLED", "true")
+    vi.stubEnv("REPLICA_LEARNING_ROOT", "storage/learning")
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>((input) => {
+        const url = input instanceof Request ? input.url : input.toString()
+        if (url !== `${issuer}/.well-known/openid-configuration`) {
+          return Promise.reject(new Error(`Unexpected request: ${url}`))
+        }
+        return Promise.resolve(
+          Response.json({
+            authorization_endpoint: `${issuer}/oauth2/v2.0/authorize`,
+            id_token_signing_alg_values_supported: ["RS256"],
+            issuer,
+            jwks_uri: `${issuer}/discovery/v2.0/keys`,
+            token_endpoint: `${issuer}/oauth2/v2.0/token`,
+          }),
+        )
+      }),
+    )
+    const startApi = vi.fn<typeof runApi>().mockResolvedValue(undefined)
+    vi.doMock("../../../run-api/index.ts", () => ({ runApi: startApi }))
+    onTestFinished(() => vi.doUnmock("../../../run-api/index.ts"))
+    vi.spyOn(process, "exit").mockImplementation((code) => {
+      throw new Error(`Unexpected process exit: ${code}`)
+    })
+
+    await import("../../../index.ts")
+    vi.unstubAllGlobals()
+    const startup = startApi.mock.calls[0]?.[0]
+    if (!startup?.authentication || !startup.product || !startup.learnings) {
+      throw new Error("Restart did not create authenticated product routes.")
+    }
+    await expect(
+      prisma.authenticationProvider.findUniqueOrThrow({ where: { key: "github" } }),
+    ).resolves.toMatchObject({ enabled: false })
+    const provider = await prisma.authenticationProvider.findUniqueOrThrow({
+      where: { key: "entra" },
+      include: { selectedRevision: true },
+    })
+    if (!provider.selectedRevision) throw new Error("Entra provider has no selected revision.")
+    const user = await prisma.user.create({
+      data: { profile: { create: { provider: "entra", login: "member@example.test" } } },
+    })
+    const identity = await prisma.externalIdentity.create({
+      data: { userId: user.id, provider: "entra", issuer, subject: randomUUID() },
+    })
+    const membership = await prisma.membership.create({ data: { userId: user.id } })
+    await prisma.membershipAssignment.create({
+      data: {
+        externalIdentityId: identity.id,
+        membershipId: membership.id,
+        providerAssignmentSubject: randomUUID(),
+        providerRevisionId: provider.selectedRevision.id,
+        role: "MEMBER",
+        source: "AUTHENTICATION_PROVIDER",
+      },
+    })
+    const revocation = await prisma.sessionRevocationState.findUniqueOrThrow({
+      where: { key: "global" },
+    })
+    const token = "entra-session-after-restart"
+    await prisma.hubSession.create({
+      data: {
+        digest: createHash("sha256").update(token).digest("hex"),
+        externalIdentityId: identity.id,
+        expiresAt: new Date("2099-01-01T00:00:00Z"),
+        membershipId: membership.id,
+        providerRevisionId: provider.selectedRevision.id,
+        revocationRevision: revocation.revision,
+      },
+    })
+
+    const authentication = startup.authentication
+    await withServer(
+      (digest) => authentication.currentSession.restore(digest),
+      startup.product,
+      async (url) => {
+        const headers = { cookie: `hub_session=${token}` }
+        const workspace = await fetch(`${url}/api/workspace`, { headers })
+        expect(workspace.status).toBe(200)
+        const body = (await workspace.json()) as { repositories: { id: string }[] }
+        expect({
+          repositoryIds: body.repositories.map(({ id }) => id),
+          legacyIndex: (await fetch(`${url}/api/repositories/${legacy.id}`, { headers })).status,
+          currentIndex: (await fetch(`${url}/api/repositories/${current.id}`, { headers })).status,
+          legacyLearnings: (
+            await fetch(`${url}/api/repositories/${legacy.id}/learnings`, { headers })
+          ).status,
+          currentLearnings: (
+            await fetch(`${url}/api/repositories/${current.id}/learnings`, { headers })
+          ).status,
+        }).toEqual({
+          repositoryIds: [current.id],
+          legacyIndex: 404,
+          currentIndex: 200,
+          legacyLearnings: 404,
+          currentLearnings: 200,
+        })
+      },
+      startup.learnings,
+    )
+    await expect(
+      prisma.repository.findUniqueOrThrow({
+        where: { id: legacy.id },
+        include: { prototypes: { include: { builds: true } } },
+      }),
+    ).resolves.toEqual(retainedHistory)
+  }, 15_000)
+
+  it("rescopes workspace repositories when a GitHub administrator becomes a member", async () => {
+    const user = await prisma.user.create({ data: {} })
+    const membership = await prisma.membership.create({ data: { userId: user.id } })
+    const readable = await prisma.repository.create({
+      data: { githubRepositoryId: 1001, nameWithOwner: "team/readable", defaultBranch: "main" },
+    })
+    const hidden = await prisma.repository.create({
+      data: { githubRepositoryId: 1002, nameWithOwner: "team/hidden", defaultBranch: "main" },
+    })
+    await prisma.repositoryAccessGrant.create({
+      data: { membershipId: membership.id, repositoryId: readable.id, observedAt: new Date() },
+    })
+    let currentSession = {
+      membershipId: membership.id,
+      userId: user.id,
+      provider: "github",
+      sessionProvider: "github",
+      login: "mona",
+      name: "Mona",
+      role: "ADMINISTRATOR" as "MEMBER" | "ADMINISTRATOR",
+    }
+    const restore = vi.fn(() => Promise.resolve(currentSession))
+    const product = createProductRouteDependencies({ scopeGitHubMembers: true })
+    const listRepositories = product.listRepositories.bind(product)
+    let administratorRepositories: string[] = []
+    vi.spyOn(product, "listRepositories").mockImplementation(async (viewer) => {
+      const repositories = await listRepositories(viewer)
+      if (viewer.role === "ADMINISTRATOR") {
+        administratorRepositories = repositories.map(({ id }) => id)
+        currentSession = { ...currentSession, role: "MEMBER" }
+      }
+      return repositories
+    })
+
+    await withServer(restore, product, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/workspace`, {
+        headers: { cookie: "hub_session=member-session" },
+      })
+
+      expect(response.status).toBe(200)
+      const workspace = (await response.json()) as {
+        repositories: { id: string }[]
+        capabilities: { administerHub: boolean }
+      }
+      expect(administratorRepositories.sort()).toEqual([readable.id, hidden.id].sort())
+      expect(workspace.repositories.map(({ id }) => id)).toEqual([readable.id])
+      expect(workspace.capabilities.administerHub).toBe(false)
+      expect(restore).toHaveBeenCalledTimes(3)
+    })
+  })
+
   it("distinguishes malformed, missing, and removed repositories", async () => {
     const removedId = randomUUID()
     await prisma.repository.create({
@@ -696,6 +1496,7 @@ describe("real product index", () => {
       membershipId: randomUUID(),
       userId: randomUUID(),
       provider: "github",
+      sessionProvider: "github",
       login: "mona",
       name: "Mona",
       role: "MEMBER",
@@ -713,11 +1514,91 @@ describe("real product index", () => {
     })
   })
 
+  it("shows a scoped GitHub member only repositories they can read", async () => {
+    const readableId = randomUUID()
+    const hiddenId = randomUUID()
+    const userId = randomUUID()
+    const membershipId = randomUUID()
+    await prisma.repository.createMany({
+      data: [
+        {
+          id: readableId,
+          githubRepositoryId: 1001,
+          nameWithOwner: `team/readable-${readableId}`,
+          defaultBranch: "main",
+        },
+        {
+          id: hiddenId,
+          githubRepositoryId: 1002,
+          nameWithOwner: `team/hidden-${hiddenId}`,
+          defaultBranch: "main",
+        },
+      ],
+    })
+    await prisma.user.create({ data: { id: userId } })
+    await prisma.membership.create({ data: { id: membershipId, userId } })
+    await prisma.repositoryAccessGrant.create({
+      data: { membershipId, repositoryId: readableId, observedAt: new Date() },
+    })
+    const hiddenPrototype = await prisma.prototype.create({
+      data: {
+        repositoryId: hiddenId,
+        authorId: userId,
+        branchName: "prototype/hidden",
+        name: "Hidden",
+      },
+    })
+    const hiddenDetailPath = `/api/repositories/${hiddenId}/prototypes/${hiddenPrototype.id}?view=minimized`
+    const viewer = {
+      membershipId,
+      userId,
+      provider: "github",
+      sessionProvider: "github",
+      login: "mona",
+      name: "Mona",
+      role: "MEMBER" as const,
+    }
+    const headers = { cookie: "hub_session=member-session" }
+    const product = createProductRouteDependencies({ scopeGitHubMembers: true })
+
+    await withServer(vi.fn().mockResolvedValue(viewer), product, async (baseUrl) => {
+      const workspace = (await (await fetch(`${baseUrl}/api/workspace`, { headers })).json()) as {
+        repositories: { id: string }[]
+      }
+      const readable = await fetch(`${baseUrl}/api/repositories/${readableId}`, { headers })
+      const hidden = await fetch(`${baseUrl}/api/repositories/${hiddenId}`, { headers })
+      const hiddenUsers = await fetch(`${baseUrl}/api/repositories/${hiddenId}/authors`, {
+        headers,
+      })
+
+      expect(workspace.repositories.map(({ id }) => id)).toContain(readableId)
+      expect(workspace.repositories.map(({ id }) => id)).not.toContain(hiddenId)
+      expect(readable.status).toBe(200)
+      expect(hidden.status).toBe(404)
+      const hiddenDetail = await fetch(`${baseUrl}${hiddenDetailPath}`, { headers })
+
+      expect(hiddenUsers.status).toBe(404)
+      expect(hiddenDetail.status).toBe(404)
+    })
+    await withServer(
+      vi.fn().mockResolvedValue({ ...viewer, role: "ADMINISTRATOR" }),
+      product,
+      async (baseUrl) => {
+        const hidden = await fetch(`${baseUrl}/api/repositories/${hiddenId}`, { headers })
+        const hiddenDetail = await fetch(`${baseUrl}${hiddenDetailPath}`, { headers })
+
+        expect(hidden.status).toBe(200)
+        expect(hiddenDetail.status).toBe(200)
+      },
+    )
+  })
+
   it("returns an error when the repository lookup fails", async () => {
     const restore = vi.fn().mockResolvedValue({
       membershipId: randomUUID(),
       userId: randomUUID(),
       provider: "entra",
+      sessionProvider: "entra",
       login: "member",
       name: "Member",
       role: "MEMBER",

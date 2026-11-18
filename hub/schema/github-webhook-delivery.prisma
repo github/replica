@@ -1,0 +1,14 @@
+model GitHubWebhookDelivery {
+  // ID columns
+  id String @id @db.Uuid
+
+  // Attribute columns
+  event         String @db.VarChar(50)
+  payloadDigest String @map("payload_digest") @db.Char(64)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("github_webhook_deliveries")
+}

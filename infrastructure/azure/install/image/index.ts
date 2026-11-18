@@ -75,6 +75,7 @@ export async function publishImage(
           : undefined
       if (typeof digest !== "string" || !/^sha256:[a-f0-9]{64}$/.test(digest))
         throw new Error("Docker did not return an immutable image digest.")
+      ui.recoveryNotice?.()
       return `${foundation.registry_url}/replica-hub@${digest}`
     } catch (error) {
       if (

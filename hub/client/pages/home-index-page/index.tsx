@@ -127,9 +127,7 @@ export function HomeIndexPage({
                   method="post"
                   id={`${signInFormPrefix}-${action.provider}`}
                   key={action.provider}
-                >
-                  <input type="hidden" name="authenticity_token" value={data.authenticityToken} />
-                </form>
+                />
               ))}
 
               <Hero.ButtonGroup className="home__actions">

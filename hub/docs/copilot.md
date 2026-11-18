@@ -6,7 +6,7 @@ A Hub administrator can connect one deployment-wide Copilot credential for learn
 
 No Copilot credential provider is enabled by default. Production deployments can select the Hub GitHub App installation:
 
-- `REPLICA_COPILOT_AUTHENTICATION=github-app-installation` uses `GITHUB_APP_ID`, a PEM-encoded `GITHUB_APP_PRIVATE_KEY`, `REPLICA_COPILOT_GITHUB_ORGANIZATION`, and `REPLICA_COPILOT_GITHUB_INSTALLATION_ID`.
+- `REPLICA_COPILOT_AUTHENTICATION=github-app-installation` uses `GITHUB_APP_ID`, `REPLICA_COPILOT_GITHUB_ORGANIZATION`, and `REPLICA_COPILOT_GITHUB_INSTALLATION_ID`. It signs with the App's `GITHUB_APP_PRIVATE_KEY_BASE64`, or with `GITHUB_APP_PRIVATE_KEY` when that PEM override is set.
 - Hub verifies that the App and organization own that installation and that it grants only read-only organization Copilot requests.
 - Hub mints a fresh installation token for each learning command and never persists it. Usage is billed to the configured organization and remains subject to its model policy, budget, permission changes, and installation revocation.
 

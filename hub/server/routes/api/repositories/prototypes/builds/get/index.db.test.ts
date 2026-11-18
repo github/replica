@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto"
+import { createHash, generateKeyPairSync, randomBytes, randomUUID } from "node:crypto"
 import { once } from "node:events"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createApp } from "../../../../../../create-app"
 import { prisma } from "../../../../../../integrations/prisma"
+import { createAuthenticationRouteDependencies } from "../../../../auth/create-authentication-route-dependencies"
 import { createProductRouteDependencies } from "../../../../product/create-product-route-dependencies"
 import type { AuthenticationRouteDependencies } from "../../../../auth/types"
 
@@ -35,13 +36,14 @@ interface BuildHistoryBody {
 async function withServer(
   restore: AuthenticationRouteDependencies["currentSession"]["restore"],
   operation: (baseUrl: string) => Promise<void>,
+  options: { scopeGitHubMembers: boolean } = { scopeGitHubMembers: false },
 ) {
   const authentication: AuthenticationRouteDependencies = {
     currentSession: { restore },
     signOut: { applicationOrigin: "http://127.0.0.1:5173", secureCookie: false, end: vi.fn() },
   }
   const server = createServer(
-    createApp({ authentication, product: createProductRouteDependencies() }),
+    createApp({ authentication, product: createProductRouteDependencies(options) }),
   )
   server.listen(0, "127.0.0.1")
   await once(server, "listening")
@@ -55,7 +57,202 @@ async function withServer(
   }
 }
 
+async function createSession(
+  identityProvider: "github" | "entra",
+  profileProvider: "github" | "entra",
+  administrator = false,
+) {
+  const provider = await prisma.authenticationProvider.findUniqueOrThrow({
+    where: { key: identityProvider },
+  })
+  const login = randomUUID()
+  const user = await prisma.user.create({
+    data: { profile: { create: { provider: profileProvider, login } } },
+  })
+  const identity = await prisma.externalIdentity.create({
+    data: {
+      userId: user.id,
+      provider: identityProvider,
+      issuer:
+        identityProvider === "github"
+          ? "https://github.com"
+          : "https://login.microsoftonline.com/11111111-1111-4111-8111-111111111111/v2.0",
+      subject: user.id,
+    },
+  })
+  const membership = await prisma.membership.create({
+    data: {
+      userId: user.id,
+      assignments: {
+        create: administrator
+          ? { externalIdentityId: identity.id, source: "BOOTSTRAP", role: "ADMINISTRATOR" }
+          : {
+              externalIdentityId: identity.id,
+              providerRevisionId: provider.selectedRevisionId,
+              providerAssignmentSubject: identity.subject,
+              source: "AUTHENTICATION_PROVIDER",
+              role: "MEMBER",
+            },
+      },
+    },
+  })
+  const token = randomUUID()
+  const session = await prisma.hubSession.create({
+    data: {
+      membershipId: membership.id,
+      externalIdentityId: identity.id,
+      providerRevisionId: provider.selectedRevisionId,
+      digest: createHash("sha256").update(token).digest("hex"),
+      revocationRevision: 0,
+      expiresAt: new Date("2099-01-01T00:00:00Z"),
+    },
+  })
+  return { membership, session, token, user, login }
+}
+
 describe("prototype Build history API", () => {
+  it("uses the authenticated identity and current grant for paginated Build history", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const authentication = await createAuthenticationRouteDependencies({
+      GITHUB_CLIENT_ID: "test-client",
+      GITHUB_CLIENT_SECRET: "test-secret",
+      GITHUB_PROVIDER_REVISION: "1",
+      GITHUB_APP_ID: "123",
+      GITHUB_APP_INSTALLATION_ID: "456",
+      GITHUB_APP_PRIVATE_KEY_BASE64: Buffer.from(
+        privateKey.export({ format: "pem", type: "pkcs8" }).toString(),
+      ).toString("base64"),
+      GITHUB_WEBHOOK_SECRET: "test-webhook-secret-at-least-20-characters",
+      HUB_APPLICATION_ORIGIN: "http://127.0.0.1:5173",
+      HUB_AUTHENTICATION_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
+      HUB_BOOTSTRAP_SECRET: "test-bootstrap-secret-at-least-32-characters",
+    })
+    const member = await createSession("github", "entra")
+    const administrator = await createSession("github", "github", true)
+    const entraProvider = await prisma.authenticationProvider.create({
+      data: { enabled: false, key: "entra" },
+    })
+    const entraRevision = await prisma.authenticationProviderRevision.create({
+      data: { providerId: entraProvider.id, revision: 1, configurationDigest: "a".repeat(64) },
+    })
+    await prisma.authenticationProvider.update({
+      where: { id: entraProvider.id },
+      data: { enabled: true, selectedRevisionId: entraRevision.id },
+    })
+    const entraMember = await createSession("entra", "github")
+    const repository = await prisma.repository.create({
+      data: { githubRepositoryId: 1001, nameWithOwner: "team/private", defaultBranch: "main" },
+    })
+    const retained = await prisma.repository.create({
+      data: { githubRepositoryId: 1002, nameWithOwner: "team/retained", defaultBranch: "main" },
+    })
+    await prisma.repositoryAccessGrant.create({
+      data: {
+        membershipId: member.membership.id,
+        repositoryId: retained.id,
+        observedAt: new Date(),
+      },
+    })
+    const prototype = await prisma.prototype.create({
+      data: { repositoryId: repository.id, branchName: "prototype/private", name: "Private" },
+    })
+    await prisma.build.createMany({
+      data: Array.from({ length: 26 }, (_, index) => ({
+        prototypeId: prototype.id,
+        number: index + 1,
+        state: "successful",
+        createdAt: new Date(Date.UTC(2026, 9, 1, 0, index)),
+      })),
+    })
+    const restoreSession = authentication.currentSession.restore.bind(authentication.currentSession)
+    const restore = vi.fn(restoreSession)
+
+    await withServer(
+      restore,
+      async (baseUrl) => {
+        const url = `${baseUrl}/api/repositories/${repository.id}/prototypes/${prototype.id}/builds?page=2&build=26`
+        const headers = { cookie: `hub_session=${member.token}` }
+        async function expectPublicViewer(viewer: typeof member, provider: "github" | "entra") {
+          const viewerHeaders = { cookie: `hub_session=${viewer.token}` }
+          const session = await fetch(`${baseUrl}/api/auth/session`, { headers: viewerHeaders })
+          expect(session.status).toBe(200)
+          expect(await session.json()).toEqual({
+            authenticated: true,
+            membershipId: viewer.membership.id,
+            userId: viewer.user.id,
+            provider,
+            login: viewer.login,
+            name: null,
+            role: "MEMBER",
+          })
+          const workspace = await fetch(`${baseUrl}/api/workspace`, { headers: viewerHeaders })
+          expect(workspace.status).toBe(200)
+          const body = (await workspace.json()) as { viewer: unknown }
+          expect(body.viewer).toEqual({
+            id: viewer.user.id,
+            login: viewer.login,
+            name: null,
+            provider,
+            avatarUrl: null,
+          })
+          expect(body).not.toHaveProperty("sessionProvider")
+        }
+
+        await expectPublicViewer(member, "entra")
+        await expectPublicViewer(entraMember, "github")
+        expect((await fetch(url, { headers })).status).toBe(404)
+
+        await prisma.repositoryAccessGrant.create({
+          data: {
+            membershipId: member.membership.id,
+            repositoryId: repository.id,
+            observedAt: new Date(),
+          },
+        })
+        const granted = await fetch(url, { headers })
+        expect(granted.status).toBe(200)
+        const history = (await granted.json()) as BuildHistoryBody
+        expect(history.pagination).toEqual({ page: 2, pageSize: 25, totalCount: 26, pageCount: 2 })
+        expect(history.builds.map(({ number }) => number)).toEqual([1])
+        expect(history.prototype.builds.map(({ number }) => number)).toEqual([26, 1])
+        expect(history.prototype.latestBuild).toEqual({ number: 26, state: "successful" })
+
+        restore.mockImplementationOnce(async (digest) => {
+          const current = await restoreSession(digest)
+          await prisma.repositoryAccessGrant.deleteMany({
+            where: { membershipId: member.membership.id, repositoryId: repository.id },
+          })
+          return current
+        })
+        expect((await fetch(url, { headers })).status).toBe(404)
+
+        for (const token of [administrator.token, entraMember.token]) {
+          const response = await fetch(url, { headers: { cookie: `hub_session=${token}` } })
+          expect(response.status).toBe(200)
+          expect(await response.json()).toMatchObject({
+            builds: [{ number: 1 }],
+            pagination: { page: 2, totalCount: 26 },
+          })
+        }
+
+        await prisma.repositoryAccessGrant.create({
+          data: {
+            membershipId: member.membership.id,
+            repositoryId: repository.id,
+            observedAt: new Date(),
+          },
+        })
+        await prisma.hubSession.update({
+          where: { id: member.session.id },
+          data: { endedAt: new Date() },
+        })
+        expect((await fetch(url, { headers })).status).toBe(401)
+        expect(await prisma.prototypeIntroduction.count()).toBe(0)
+      },
+      { scopeGitHubMembers: true },
+    )
+  })
+
   it("pages through every Build of the prototype newest first with accurate totals", async () => {
     const repositoryId = randomUUID()
     const prototypeId = randomUUID()
@@ -108,6 +305,7 @@ describe("prototype Build history API", () => {
       membershipId: randomUUID(),
       userId: randomUUID(),
       provider: "github",
+      sessionProvider: "github",
       login: "mona",
       name: "Mona",
       role: "MEMBER",
@@ -200,6 +398,7 @@ describe("prototype Build history API", () => {
       membershipId: randomUUID(),
       userId: randomUUID(),
       provider: "github",
+      sessionProvider: "github",
       login: "mona",
       name: "Mona",
       role: "MEMBER",
@@ -262,6 +461,7 @@ describe("prototype Build history API", () => {
       membershipId: randomUUID(),
       userId: randomUUID(),
       provider: "entra",
+      sessionProvider: "entra",
       login: "member",
       name: "Member",
       role: "MEMBER",
@@ -331,6 +531,7 @@ describe("prototype Build history API", () => {
       membershipId: randomUUID(),
       userId: randomUUID(),
       provider: "github",
+      sessionProvider: "github",
       login: "mona",
       name: "Mona",
       role: "MEMBER",
@@ -384,6 +585,7 @@ describe("prototype Build history API", () => {
       membershipId: randomUUID(),
       userId: randomUUID(),
       provider: "github",
+      sessionProvider: "github",
       login: "mona",
       name: "Mona",
       role: "MEMBER" as const,

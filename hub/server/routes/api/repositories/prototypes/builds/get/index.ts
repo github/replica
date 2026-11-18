@@ -5,6 +5,7 @@ import { hubSessionCookieName } from "../../../../../../integrations/express/hub
 import { readCookie } from "../../../../../../integrations/express/read-cookie/index.ts"
 import type { CurrentSessionDependencies } from "../../../../auth/types.ts"
 import { readProductSession } from "../../../../product/read-product-session/index.ts"
+import { readProductWithCurrentAuthority } from "../../../../product/read-product-with-current-authority/index.ts"
 import type { ProductRouteDependencies } from "../../../../product/types.ts"
 
 const pageSize = 25
@@ -49,21 +50,17 @@ export function get(
       }
 
       const page = Number(query.data.page ?? "1")
-      const detail = await product.findPrototypeDetail(
-        repositoryId.data,
-        prototypeId.data,
-        query.data.build,
-        { page, pageSize },
+      const read = await readProductWithCurrentAuthority(initial, cookie, session, (viewer) =>
+        product.findPrototypeDetail(viewer, repositoryId.data, prototypeId.data, query.data.build, {
+          page,
+          pageSize,
+        }),
       )
-      const current = await readProductSession(cookie, session)
-      if (
-        !current ||
-        current.membershipId !== initial.membershipId ||
-        current.userId !== initial.userId
-      ) {
+      if (!read) {
         response.status(401).json({ error: "Sign in to continue." })
         return
       }
+      const detail = read.result
       if (!detail) {
         response.status(404).json({ error: "Prototype not found." })
         return

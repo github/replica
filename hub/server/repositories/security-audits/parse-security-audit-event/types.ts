@@ -6,6 +6,7 @@ import type {
   BootstrapAttemptDeniedAudit,
   ExternalIdentityCreatedAudit,
   ExternalIdentityCreateFailedAudit,
+  GitHubAppConnectionTestedAudit,
   ProviderRevisionDeniedAudit,
   ProviderRevisionPersistFailedAudit,
   ProviderRevisionSelectedAudit,
@@ -69,3 +70,4 @@ export type ParsedSecurityAuditEvent =
   | SessionRevocationAdvancedAudit
   | LearningDecisionAudit
   | LearningRunAudit
+  | GitHubAppConnectionTestedAudit

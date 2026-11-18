@@ -6,7 +6,7 @@ import express from "express"
 import { describe, expect, it, vi, type Mock } from "vitest"
 
 import type { CurrentSessionDependencies } from "../../../../auth/types"
-import type { ProductRouteDependencies } from "../../../../product/types"
+import type { ProductRouteDependencies, ProductViewer } from "../../../../product/types"
 import { get } from "."
 
 type ProductMocks = {
@@ -15,22 +15,9 @@ type ProductMocks = {
   ]: Mock<ProductRouteDependencies[Key]>
 }
 
-/** Keeps the real HTTP parsing and response while isolating database access. */
-async function withHistory(
-  operation: (url: string, product: ProductMocks) => Promise<void>,
-  restore?: CurrentSessionDependencies["restore"],
-) {
-  const repositoryId = randomUUID()
-  const prototypeId = randomUUID()
-  const viewer = {
-    membershipId: randomUUID(),
-    userId: randomUUID(),
-    provider: "github",
-    login: "mona",
-    name: "Mona",
-    role: "MEMBER" as const,
-  }
-  const product: ProductMocks = {
+function productWithHistory(repositoryId: string, prototypeId: string): ProductMocks {
+  return {
+    isRepositoryVisible: vi.fn(),
     listRepositories: vi.fn(),
     findRepositoryIndex: vi.fn(),
     findRepositoryAuthors: vi.fn(),
@@ -51,6 +38,37 @@ async function withHistory(
       buildPage: { builds: [{ number: 1, state: "failed" }], totalCount: 26 },
     }),
   }
+}
+
+function githubAdministrator() {
+  return {
+    membershipId: randomUUID(),
+    userId: randomUUID(),
+    provider: "github",
+    sessionProvider: "github",
+    login: "mona",
+    name: "Mona",
+    role: "ADMINISTRATOR" as const,
+  }
+}
+
+/** Keeps the real HTTP parsing and response while isolating database access. */
+async function withHistory(
+  operation: (url: string, product: ProductMocks, viewer: ProductViewer) => Promise<void>,
+  restore?: CurrentSessionDependencies["restore"],
+) {
+  const repositoryId = randomUUID()
+  const prototypeId = randomUUID()
+  const viewer = {
+    membershipId: randomUUID(),
+    userId: randomUUID(),
+    provider: "github",
+    sessionProvider: "github",
+    login: "mona",
+    name: "Mona",
+    role: "MEMBER" as const,
+  }
+  const product = productWithHistory(repositoryId, prototypeId)
   const app = express()
   app.get(
     "/:repositoryId/:prototypeId",
@@ -61,7 +79,7 @@ async function withHistory(
   await once(server, "listening")
   try {
     const { port } = server.address() as AddressInfo
-    await operation(`http://127.0.0.1:${port}/${repositoryId}/${prototypeId}`, product)
+    await operation(`http://127.0.0.1:${port}/${repositoryId}/${prototypeId}`, product, viewer)
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()))
@@ -71,7 +89,7 @@ async function withHistory(
 
 describe("get()", () => {
   it("returns older Builds without consuming an introduction or changing metadata", async () => {
-    await withHistory(async (url, product) => {
+    await withHistory(async (url, product, viewer) => {
       const response = await fetch(`${url}?page=2&build=26`, {
         headers: { cookie: "hub_session=member-session" },
       })
@@ -82,10 +100,13 @@ describe("get()", () => {
         pagination: { page: 2, pageSize: 25, totalCount: 26, pageCount: 2 },
       })
       const [repositoryId, prototypeId] = new URL(url).pathname.slice(1).split("/")
-      expect(product.findPrototypeDetail).toHaveBeenCalledWith(repositoryId, prototypeId, 26, {
-        page: 2,
-        pageSize: 25,
-      })
+      expect(product.findPrototypeDetail).toHaveBeenCalledWith(
+        viewer,
+        repositoryId,
+        prototypeId,
+        26,
+        { page: 2, pageSize: 25 },
+      )
       expect(product.readPrototypeWithIntroduction).not.toHaveBeenCalled()
       expect(product.editPrototypeMetadata).not.toHaveBeenCalled()
     })
@@ -124,6 +145,7 @@ describe("get()", () => {
       membershipId: randomUUID(),
       userId: randomUUID(),
       provider: "github",
+      sessionProvider: "github",
       login: "mona",
       name: "Mona",
       role: "MEMBER" as const,
@@ -140,4 +162,78 @@ describe("get()", () => {
       expect(await response.json()).not.toHaveProperty("builds")
     }, restore)
   })
+
+  it("rereads Builds with the current role after an administrator becomes a member", async () => {
+    const administrator = githubAdministrator()
+    const member = { ...administrator, role: "MEMBER" as const }
+    const restore = vi.fn().mockResolvedValueOnce(administrator).mockResolvedValue(member)
+
+    await withHistory(async (url, product) => {
+      const read = product.findPrototypeDetail.getMockImplementation()
+      if (!read) throw new Error("Build history fixture is missing.")
+      product.findPrototypeDetail.mockImplementationOnce(async (...args) => {
+        const detail = await read(...args)
+        if (!detail?.buildPage) return detail
+        return { ...detail, buildPage: { ...detail.buildPage, totalCount: 99 } }
+      })
+
+      const response = await fetch(url, {
+        headers: { cookie: "hub_session=member-session" },
+      })
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({
+        builds: [{ number: 1 }],
+        pagination: { totalCount: 26 },
+      })
+      expect(product.findPrototypeDetail.mock.calls.map(([viewer]) => viewer)).toEqual([
+        administrator,
+        member,
+      ])
+      expect(restore).toHaveBeenCalledTimes(3)
+    }, restore)
+  })
+
+  it("discards Builds when the authenticated session provider changes", async () => {
+    const administrator = githubAdministrator()
+    const restore = vi
+      .fn()
+      .mockResolvedValueOnce(administrator)
+      .mockResolvedValueOnce({ ...administrator, sessionProvider: "entra" })
+
+    await withHistory(async (url, product) => {
+      const response = await fetch(url, {
+        headers: { cookie: "hub_session=member-session" },
+      })
+      expect(response.status).toBe(401)
+      expect(await response.json()).not.toHaveProperty("builds")
+      expect(product.findPrototypeDetail).toHaveBeenCalledOnce()
+      expect(restore).toHaveBeenCalledTimes(2)
+    }, restore)
+  })
+
+  it.each(["revoked", "changed role again"])(
+    "discards Builds if the session is %s during the reread",
+    async (change) => {
+      const administrator = githubAdministrator()
+      const member = { ...administrator, role: "MEMBER" as const }
+      const restore = vi
+        .fn()
+        .mockResolvedValueOnce(administrator)
+        .mockResolvedValueOnce(member)
+        .mockResolvedValueOnce(change === "revoked" ? null : administrator)
+
+      await withHistory(async (url, product) => {
+        const response = await fetch(url, {
+          headers: { cookie: "hub_session=member-session" },
+        })
+        expect(response.status).toBe(401)
+        expect(await response.json()).not.toHaveProperty("builds")
+        expect(product.findPrototypeDetail.mock.calls.map(([viewer]) => viewer)).toEqual([
+          administrator,
+          member,
+        ])
+        expect(restore).toHaveBeenCalledTimes(3)
+      }, restore)
+    },
+  )
 })

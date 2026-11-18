@@ -31,7 +31,7 @@ export function get(
         return
       }
       const [resource, links, settings] = await Promise.all([
-        product.findPrototypeDetail(repositoryId.data, prototypeId.data, query.data.build),
+        product.findPrototypeDetail(initial, repositoryId.data, prototypeId.data, query.data.build),
         sharing.listLinks(prototypeId.data),
         sharing.getSettings(),
       ])

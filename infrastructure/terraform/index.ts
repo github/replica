@@ -51,9 +51,11 @@ export function terraformModule({
   ui,
   preapproved = false,
   retryApply,
+  beforeApply,
   signal,
   validatePlan,
   findUntracked,
+  requireUntrackedCheck = false,
 }: {
   directory: string
   dataDirectory: string
@@ -62,15 +64,18 @@ export function terraformModule({
   ui: InstallerUI
   preapproved?: boolean
   retryApply?(error: CommandExecutionError): boolean
+  beforeApply?(): Promise<void>
   signal?: AbortSignal
   validatePlan?(value: unknown): void
   // Read-only lookup of an existing cloud resource that a create-only change would duplicate.
   findUntracked?(change: PlannedCreate): Promise<string | undefined>
+  requireUntrackedCheck?: boolean
 }) {
   const command = (args: string[]) => {
     signal?.throwIfAborted()
     return run("terraform", [`-chdir=${directory}`, ...args], {
       env: { ...env, TF_DATA_DIR: dataDirectory },
+      recoverable: true,
       ...(signal && { signal }),
     })
   }
@@ -96,6 +101,7 @@ export function terraformModule({
       while (true) {
         try {
           await command(["init", "-input=false", "-lock-timeout=60s", `-backend-config=${backend}`])
+          ui.recoveryNotice?.()
           return
         } catch (error) {
           if (!(error instanceof CommandExecutionError) || error.aborted) throw error
@@ -143,13 +149,16 @@ export function terraformModule({
             if (id) found.push({ address, id })
           } catch (error) {
             if (signal?.aborted) throw error
-            if (!uncertainAddresses.has(address)) {
+            if (!requireUntrackedCheck && !uncertainAddresses.has(address)) {
               ui.status(
                 `Could not check whether ${address} already exists; Terraform reports a conflict if it does.`,
               )
               continue
             }
-            const message = `Terraform plan blocked: ${address} had an uncertain apply result and Azure could not be checked for it. Nothing from this plan was applied; saved progress and leases are kept. Retry when Azure is reachable.`
+            const reason = uncertainAddresses.has(address)
+              ? `${address} had an uncertain apply result and Azure could not be checked for it.`
+              : `Azure could not be checked for ${address}.`
+            const message = `Terraform plan blocked: ${reason} Nothing from this plan was applied; saved progress and leases are kept. Review Azure access and the lookup response before retrying.`
             ui.notice?.("error", message)
             throw new Error(message)
           }
@@ -280,7 +289,9 @@ export function terraformModule({
           }
           if (!approvedPlan && signature)
             approvedPlan = { signature, addresses: new Set(changes.map(({ address }) => address)) }
+          await beforeApply?.()
           await execute(["apply", "-input=false", "-lock-timeout=60s", path])
+          ui.recoveryNotice?.()
           return
         } catch (error) {
           if (

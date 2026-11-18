@@ -6,7 +6,6 @@ export interface HomeSignInAction {
 
 export interface HomeIndexPageData {
   alert: string | null
-  authenticityToken: string
   badge: string
   badgeAlternate: string
   description: string

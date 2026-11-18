@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react"
 import { Box, measureElement, useInput, type DOMElement } from "ink"
 
 export function ScrollPanel({
@@ -13,18 +13,24 @@ export function ScrollPanel({
   feedback: number
 }) {
   const content = useRef<DOMElement>(null)
-  const [offset, setOffset] = useState(0)
+  const [position, setPosition] = useState({ revision, offset: 0 })
+  const offset = position.revision === revision ? position.offset : 0
+  const setOffset = (update: number | ((value: number) => number)) =>
+    setPosition((current) => {
+      const previous = current.revision === revision ? current.offset : 0
+      const next = typeof update === "number" ? update : update(previous)
+      return current.revision === revision && current.offset === next
+        ? current
+        : { revision, offset: next }
+    })
   const [maximum, setMaximum] = useState(0)
-  useEffect(() => {
-    setOffset(0)
-  }, [revision])
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!content.current) return
     const maximum = Math.max(0, Math.ceil(measureElement(content.current).height) - height)
     setMaximum(maximum)
     setOffset((value) => Math.min(value, maximum))
   })
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (feedback && content.current) {
       setOffset(Math.max(0, Math.ceil(measureElement(content.current).height) - height))
     }

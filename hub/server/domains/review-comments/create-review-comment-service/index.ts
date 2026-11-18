@@ -62,6 +62,7 @@ export function createReviewCommentService(
     transaction: Prisma.TransactionClient,
     sessionDigest: string,
     userId: string,
+    repositoryId: string,
   ) => Promise<boolean> = () => Promise.resolve(true),
   options: {
     onDeleted?: (input: {
@@ -88,7 +89,12 @@ export function createReviewCommentService(
           body,
           anchor,
           authorize: (transaction) =>
-            authorizeMutation(transaction, input.sessionDigest, input.actor.userId),
+            authorizeMutation(
+              transaction,
+              input.sessionDigest,
+              input.actor.userId,
+              input.repositoryId,
+            ),
         }),
       )
       if (!result.ok) throw persistenceError(result.reason)
@@ -101,7 +107,12 @@ export function createReviewCommentService(
           ...input,
           body,
           authorize: (transaction) =>
-            authorizeMutation(transaction, input.sessionDigest, input.actor.userId),
+            authorizeMutation(
+              transaction,
+              input.sessionDigest,
+              input.actor.userId,
+              input.repositoryId,
+            ),
         }),
       )
       if (!result.ok) throw persistenceError(result.reason)
@@ -114,7 +125,12 @@ export function createReviewCommentService(
           ...input,
           body,
           authorize: (transaction) =>
-            authorizeMutation(transaction, input.sessionDigest, input.actor.userId),
+            authorizeMutation(
+              transaction,
+              input.sessionDigest,
+              input.actor.userId,
+              input.repositoryId,
+            ),
         }),
       )
       if (!result.ok) throw persistenceError(result.reason)
@@ -126,7 +142,12 @@ export function createReviewCommentService(
           repository.deleteComment({
             ...input,
             authorize: (transaction) =>
-              authorizeMutation(transaction, input.sessionDigest, input.actor.userId),
+              authorizeMutation(
+                transaction,
+                input.sessionDigest,
+                input.actor.userId,
+                input.repositoryId,
+              ),
           }),
         )
       }
@@ -161,7 +182,12 @@ export function createReviewCommentService(
         repository.setResolution({
           ...input,
           authorize: (transaction) =>
-            authorizeMutation(transaction, input.sessionDigest, input.actor.userId),
+            authorizeMutation(
+              transaction,
+              input.sessionDigest,
+              input.actor.userId,
+              input.repositoryId,
+            ),
         }),
       )
       if (!result.ok) throw persistenceError(result.reason)

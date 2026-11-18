@@ -1,32 +1,44 @@
 import { Prisma } from "../../../../generated/prisma/client.ts"
 import { restoreHubSession } from "../../../../domains/admission/restore-hub-session/index.ts"
 import { runSessionRestoreTransaction } from "../../../../domains/admission/run-session-restore-transaction/index.ts"
+import { createBuildPreviewOrigin } from "../../../../domains/build-preview/create-build-preview-origin/index.ts"
 import { editPrototypeMetadata } from "../../../../domains/prototypes/edit-prototype-metadata/index.ts"
 import { readPrototypeWithIntroduction } from "../../../../domains/prototypes/read-prototype-with-introduction/index.ts"
 import { authorizeRepositoryReview } from "../../../../domains/review-comments/authorize-repository-review/index.ts"
 import { createReviewCommentService } from "../../../../domains/review-comments/create-review-comment-service/index.ts"
+import { ReviewCommentError } from "../../../../domains/review-comments/errors.ts"
 import { prisma } from "../../../../integrations/prisma/index.ts"
 import { lockAuthenticationProvidersForPrototypeEdit } from "../../../../repositories/authentication-providers/lock-authentication-providers-for-prototype-edit/index.ts"
+import { findBuildPreviewTarget } from "../../../../repositories/build-artifacts/find-build-preview-target/index.ts"
+import { lockGitHubRepositoryAccessState } from "../../../../repositories/github-repository-access-states/lock-github-repository-access-state/index.ts"
 import { findRepositoryAuthors } from "../../../../repositories/prototype-index/find-repository-authors/index.ts"
 import { findRepositoryIndex } from "../../../../repositories/prototype-index/find-repository-index/index.ts"
 import { findPrototypeDetail } from "../../../../repositories/prototype-index/find-prototype-detail/index.ts"
 import { listRepositories } from "../../../../repositories/prototype-index/list-repositories/index.ts"
+import {
+  type RepositoryScope,
+  visibleRepositoryWhere,
+} from "../../../../repositories/prototype-index/visible-repository-where/index.ts"
 import { recordPrototypeIntroduction } from "../../../../repositories/prototype-introductions/record-prototype-introduction/index.ts"
 import { lockEditablePrototype } from "../../../../repositories/prototypes/lock-editable-prototype/index.ts"
 import { lockVisiblePrototype } from "../../../../repositories/prototypes/lock-visible-prototype/index.ts"
+import { findRepositoryReviewAccess } from "../../../../repositories/review-comments/find-repository-review-access/index.ts"
 import { updatePrototypeMetadata } from "../../../../repositories/prototypes/update-prototype-metadata/index.ts"
 import { lockSessionRevocationState } from "../../../../repositories/session-revocation-states/lock-session-revocation-state/index.ts"
-import { findBuildPreviewTarget } from "../../../../repositories/build-artifacts/find-build-preview-target/index.ts"
-import { findRepositoryReviewAccess } from "../../../../repositories/review-comments/find-repository-review-access/index.ts"
-import { createBuildPreviewOrigin } from "../../../../domains/build-preview/create-build-preview-origin/index.ts"
+import { findCurrentSessionProfile } from "../../../../repositories/user-profiles/find-current-session-profile/index.ts"
+import { readWithPersistedRepositoryScope } from "../read-with-persisted-repository-scope/index.ts"
+import { resolvePersistedRepositoryScope } from "../resolve-persisted-repository-scope/index.ts"
+import type { resolveRepositoryScope } from "../resolve-repository-scope/index.ts"
 import type { ProductRouteDependencies } from "../types.ts"
 
 interface CreateProductRouteDependenciesOptions {
   applicationOrigin?: string
+  scopeGitHubMembers?: boolean
   authorizeReviewMutation?: (
     transaction: Prisma.TransactionClient,
     sessionDigest: string,
     userId: string,
+    repositoryId: string,
   ) => Promise<boolean>
   onReviewCommentDeleted?: (input: {
     repositoryId: string
@@ -39,26 +51,86 @@ interface CreateProductRouteDependenciesOptions {
 
 export function createProductRouteDependencies({
   applicationOrigin,
+  scopeGitHubMembers = false,
   authorizeReviewMutation,
   onReviewCommentDeleted,
   previewBaseOrigin,
   withReviewCommentDeleteLock,
 }: CreateProductRouteDependenciesOptions = {}): ProductRouteDependencies {
+  function scope(
+    viewer: Parameters<typeof resolveRepositoryScope>[0],
+    database: Pick<Prisma.TransactionClient, "gitHubRepositoryAccessState"> = prisma,
+  ) {
+    return resolvePersistedRepositoryScope(database, viewer, scopeGitHubMembers)
+  }
+  function readScoped<Result>(
+    viewer: Parameters<typeof resolveRepositoryScope>[0],
+    read: (scope: RepositoryScope) => Promise<Result>,
+    database: Pick<Prisma.TransactionClient, "gitHubRepositoryAccessState"> = prisma,
+  ) {
+    return readWithPersistedRepositoryScope(database, viewer, scopeGitHubMembers, read)
+  }
+  function joinTransaction(transaction: Prisma.TransactionClient) {
+    return {
+      $transaction: <Result>(read: (client: Prisma.TransactionClient) => Promise<Result>) =>
+        read(transaction),
+      repository: transaction.repository,
+    }
+  }
+  async function lockAuthority(transaction: Prisma.TransactionClient) {
+    await lockAuthenticationProvidersForPrototypeEdit(transaction)
+    await lockSessionRevocationState(transaction)
+    await lockGitHubRepositoryAccessState(transaction)
+  }
+  async function restoreSession(
+    transaction: Prisma.TransactionClient,
+    joined: Parameters<typeof runSessionRestoreTransaction>[0],
+    digest: string,
+  ) {
+    const session = await restoreHubSession(digest, {
+      runTransaction: (restore) => runSessionRestoreTransaction(joined, restore),
+    })
+    if (!session) return null
+    const profile = await findCurrentSessionProfile(transaction, session)
+    return profile ? { ...session, sessionProvider: profile.sessionProvider } : null
+  }
+  async function repositoryIsVisible(
+    database: Pick<Prisma.TransactionClient, "gitHubRepositoryAccessState" | "repository">,
+    repositoryId: string,
+    viewer: Parameters<typeof resolveRepositoryScope>[0],
+  ) {
+    return readScoped(
+      viewer,
+      async (repositoryScope) =>
+        Boolean(
+          await database.repository.findFirst({
+            where: { id: repositoryId, ...visibleRepositoryWhere(repositoryScope) },
+            select: { id: true },
+          }),
+        ),
+      database,
+    )
+  }
   const authorizeReview =
     authorizeReviewMutation ??
-    (async (transaction: Prisma.TransactionClient, sessionDigest: string, userId: string) => {
-      await lockAuthenticationProvidersForPrototypeEdit(transaction)
-      await lockSessionRevocationState(transaction)
-      const restored = await restoreHubSession(sessionDigest, {
-        runTransaction: (operation) =>
-          runSessionRestoreTransaction(
-            {
-              $transaction: (read) => read(transaction),
-            },
-            operation,
-          ),
-      })
-      return restored?.userId === userId
+    (async (
+      transaction: Prisma.TransactionClient,
+      sessionDigest: string,
+      userId: string,
+      repositoryId: string,
+    ) => {
+      await lockAuthority(transaction)
+      const restored = await restoreSession(
+        transaction,
+        joinTransaction(transaction),
+        sessionDigest,
+      )
+      if (restored?.userId !== userId) return false
+      // Report a hidden repository as missing so members cannot probe for it.
+      if (!(await repositoryIsVisible(transaction, repositoryId, restored))) {
+        throw new ReviewCommentError("not_found", "Repository not found.")
+      }
+      return true
     })
   const buildArtifactUrl =
     applicationOrigin && previewBaseOrigin
@@ -88,17 +160,25 @@ export function createProductRouteDependencies({
     }),
     authorizeReviewAccess: async (repositoryId, actor) =>
       authorizeRepositoryReview(actor, await findRepositoryReviewAccess(prisma, repositoryId)),
-    listRepositories: () => listRepositories(prisma),
-    findRepositoryIndex: (repositoryId, filters) =>
-      findRepositoryIndex(prisma, repositoryId, filters),
-    findPrototypeDetail: (repositoryId, prototypeId, buildNumber, buildPage) =>
-      findPrototypeDetail(
-        prisma,
-        repositoryId,
-        prototypeId,
-        buildNumber,
-        buildPage,
-        buildArtifactUrl,
+    isRepositoryVisible: (viewer, repositoryId) =>
+      repositoryIsVisible(prisma, repositoryId, viewer),
+    listRepositories: (viewer) =>
+      readScoped(viewer, (repositoryScope) => listRepositories(prisma, repositoryScope)),
+    findRepositoryIndex: (viewer, repositoryId, filters) =>
+      readScoped(viewer, (repositoryScope) =>
+        findRepositoryIndex(prisma, repositoryId, filters, repositoryScope),
+      ),
+    findPrototypeDetail: (viewer, repositoryId, prototypeId, buildNumber, buildPage) =>
+      readScoped(viewer, (repositoryScope) =>
+        findPrototypeDetail(
+          prisma,
+          repositoryId,
+          prototypeId,
+          buildNumber,
+          buildPage,
+          repositoryScope,
+          buildArtifactUrl,
+        ),
       ),
     readPrototypeWithIntroduction: (input, prepare) =>
       readPrototypeWithIntroduction(input, {
@@ -106,28 +186,22 @@ export function createProductRouteDependencies({
         runTransaction: (operation) =>
           prisma.$transaction(
             async (transaction) => {
-              await lockAuthenticationProvidersForPrototypeEdit(transaction)
-              await lockSessionRevocationState(transaction)
-              const joined = {
-                $transaction: <Result>(
-                  read: (client: Prisma.TransactionClient) => Promise<Result>,
-                ) => read(transaction),
-                repository: transaction.repository,
-              }
+              await lockAuthority(transaction)
+              const joined = joinTransaction(transaction)
               return operation({
-                restoreSession: (digest) =>
-                  restoreHubSession(digest, {
-                    runTransaction: (restore) => runSessionRestoreTransaction(joined, restore),
-                  }),
-                lockPrototype: (repositoryId, prototypeId) =>
-                  lockVisiblePrototype(transaction, repositoryId, prototypeId),
-                findDetail: (repositoryId, prototypeId, buildNumber) =>
+                restoreSession: (digest) => restoreSession(transaction, joined, digest),
+                lockPrototype: async (repositoryId, prototypeId, viewer) =>
+                  (await repositoryIsVisible(transaction, repositoryId, viewer))
+                    ? lockVisiblePrototype(transaction, repositoryId, prototypeId)
+                    : null,
+                findDetail: async (repositoryId, prototypeId, viewer, buildNumber) =>
                   findPrototypeDetail(
                     joined,
                     repositoryId,
                     prototypeId,
                     buildNumber,
                     undefined,
+                    await scope(viewer, transaction),
                     buildArtifactUrl,
                   ),
                 recordIntroduction: (userId, prototypeId) =>
@@ -137,38 +211,34 @@ export function createProductRouteDependencies({
             { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
           ),
       }),
-    findRepositoryAuthors: (repositoryId, filters) =>
-      findRepositoryAuthors(prisma, repositoryId, filters),
+    findRepositoryAuthors: (viewer, repositoryId, filters) =>
+      readScoped(viewer, (repositoryScope) =>
+        findRepositoryAuthors(prisma, repositoryId, filters, repositoryScope),
+      ),
     editPrototypeMetadata: (input) =>
       editPrototypeMetadata(input, {
         runTransaction: (operation) =>
           prisma.$transaction(
             async (transaction) => {
-              await lockAuthenticationProvidersForPrototypeEdit(transaction)
-              await lockSessionRevocationState(transaction)
+              await lockAuthority(transaction)
               // Keep these reads in this transaction so authority and prototype locks remain
               // held through the read-back.
-              const joined = {
-                $transaction: <Result>(
-                  read: (client: Prisma.TransactionClient) => Promise<Result>,
-                ) => read(transaction),
-                repository: transaction.repository,
-              }
+              const joined = joinTransaction(transaction)
               return operation({
-                restoreSession: (digest) =>
-                  restoreHubSession(digest, {
-                    runTransaction: (restore) => runSessionRestoreTransaction(joined, restore),
-                  }),
-                lockPrototype: (repositoryId, prototypeId) =>
-                  lockEditablePrototype(transaction, repositoryId, prototypeId),
+                restoreSession: (digest) => restoreSession(transaction, joined, digest),
+                lockPrototype: async (repositoryId, prototypeId, viewer) =>
+                  (await repositoryIsVisible(transaction, repositoryId, viewer))
+                    ? lockEditablePrototype(transaction, repositoryId, prototypeId)
+                    : null,
                 updatePrototype: (id, data) => updatePrototypeMetadata(transaction, id, data),
-                findDetail: (repositoryId, prototypeId) =>
+                findDetail: async (repositoryId, prototypeId, viewer) =>
                   findPrototypeDetail(
                     joined,
                     repositoryId,
                     prototypeId,
                     undefined,
                     undefined,
+                    await scope(viewer, transaction),
                     buildArtifactUrl,
                   ),
               })

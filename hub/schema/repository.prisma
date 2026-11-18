@@ -5,15 +5,17 @@ model Repository {
   // Relations
   learningRuns               LearningRun[]
   learningDecisionOperations LearningDecisionOperation[]
-  prototypes             Prototype[]
-  branchHeadObservations BranchHeadObservation[]
-  reviewThreads          ReviewThread[]
+  prototypes                 Prototype[]
+  branchHeadObservations     BranchHeadObservation[]
+  reviewThreads              ReviewThread[]
+  accessGrants               RepositoryAccessGrant[]
 
   // Attribute columns
-  nameWithOwner String    @map("name_with_owner") @db.VarChar(255)
-  defaultBranch String    @map("default_branch") @db.VarChar(255)
-  localPath     String?   @unique @map("local_path") @db.VarChar(2048)
-  removedAt     DateTime? @map("removed_at") @db.Timestamptz(3)
+  githubRepositoryId BigInt?   @unique @map("github_repository_id")
+  nameWithOwner      String    @map("name_with_owner") @db.VarChar(255)
+  defaultBranch      String    @map("default_branch") @db.VarChar(255)
+  localPath          String?   @unique @map("local_path") @db.VarChar(2048)
+  removedAt          DateTime? @map("removed_at") @db.Timestamptz(3)
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

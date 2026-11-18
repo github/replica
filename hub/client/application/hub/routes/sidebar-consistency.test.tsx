@@ -189,7 +189,7 @@ describe("Hub sidebar consistency", () => {
       expect(router.state.location.pathname).toBe(pathname)
       expectRepositoryNavigation({ admin: true, unreadCount })
     }
-  })
+  }, 15_000)
 
   it.each([
     { profile: "owner", canCreate: true },

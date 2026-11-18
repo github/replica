@@ -7,6 +7,7 @@ import { hubSessionCookieName } from "../../../../../../integrations/express/hub
 import { readCookie } from "../../../../../../integrations/express/read-cookie/index.ts"
 import type { CurrentSessionDependencies } from "../../../../auth/types.ts"
 import { readProductSession } from "../../../../product/read-product-session/index.ts"
+import { readProductWithCurrentAuthority } from "../../../../product/read-product-with-current-authority/index.ts"
 import type { ProductRouteDependencies } from "../../../../product/types.ts"
 
 const querySchema = z
@@ -78,20 +79,14 @@ export function get(
         return
       }
 
-      const detail = await product.findPrototypeDetail(
-        repositoryId.data,
-        prototypeId.data,
-        buildNumber,
+      const read = await readProductWithCurrentAuthority(initial, cookie, session, (viewer) =>
+        product.findPrototypeDetail(viewer, repositoryId.data, prototypeId.data, buildNumber),
       )
-      const current = await readProductSession(cookie, session)
-      if (
-        !current ||
-        current.membershipId !== initial.membershipId ||
-        current.userId !== initial.userId
-      ) {
+      if (!read) {
         response.status(401).json({ error: "Sign in to continue." })
         return
       }
+      const detail = read.result
       if (!detail || (buildNumber !== undefined && !detail.selectedBuild)) {
         response.status(404).json({ error: "Prototype or successful Build not found." })
         return

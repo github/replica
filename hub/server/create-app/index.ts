@@ -13,6 +13,8 @@ import type { CreateAppOptions } from "./types.ts"
 export function createApp({
   authentication,
   broadcast,
+  githubSetup,
+  githubWebhooks,
   clientDirectory,
   copilotConnection,
   isReady,
@@ -39,11 +41,12 @@ export function createApp({
       "/api/shared",
       "/__replica/authorize",
       "/__replica/share/authorize",
+      "/api/settings",
     ],
     authenticationSecurity(),
   )
   app.use(
-    /^(?!\/api\/copilot-connection(?:\/|$))(?!\/api\/product\/sharing-settings(?:\/|$))(?!\/api\/repositories\/[^/]+\/learnings(?:\/|$))(?!\/api\/(?:auth|administrators\/authorizations|session-revocation\/authorizations)(?:\/|$))(?!\/api\/repositories\/[^/]+\/prototypes\/[^/]+(?:\/review-comments(?:\/|$)|\/share-links(?:\/|$)|\/?$)).*/i,
+    /^(?!\/api\/copilot-connection(?:\/|$))(?!\/api\/product\/sharing-settings(?:\/|$))(?!\/api\/repositories\/[^/]+\/learnings(?:\/|$))(?!\/api\/(?:auth|administrators\/authorizations|session-revocation\/authorizations|github\/webhooks)(?:\/|$))(?!\/api\/repositories\/[^/]+\/prototypes\/[^/]+(?:\/review-comments(?:\/|$)|\/share-links(?:\/|$)|\/?$)).*/i,
     express.json(),
   )
 
@@ -51,6 +54,8 @@ export function createApp({
     authentication,
     broadcast,
     copilotConnection,
+    githubSetup,
+    githubWebhooks,
     isReady,
     learnings,
     logger,

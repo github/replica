@@ -7,7 +7,6 @@ import { HomeIndexPage } from "."
 
 const data: HomeIndexPageData = {
   alert: null,
-  authenticityToken: "storybook-token",
   badge: "Collaborative prototyping",
   badgeAlternate: "Built for feedback",
   description:

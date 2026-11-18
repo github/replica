@@ -12,7 +12,6 @@ export function createCopilotCredentialProvider(
   const mode = environment.REPLICA_COPILOT_AUTHENTICATION?.trim()
   const hasEnvironmentToken = Boolean(environment.REPLICA_COPILOT_TOKEN?.trim())
   const githubAppKeys = [
-    "GITHUB_APP_ID",
     "GITHUB_APP_PRIVATE_KEY",
     "REPLICA_COPILOT_GITHUB_INSTALLATION_ID",
     "REPLICA_COPILOT_GITHUB_ORGANIZATION",
