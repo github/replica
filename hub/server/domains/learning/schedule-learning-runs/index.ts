@@ -13,12 +13,11 @@ export async function scheduleLearningRuns(dependencies: {
   fail(runId: string, error: unknown): Promise<unknown>
   now(): Date
 }) {
+  const now = dependencies.now()
+  await dependencies.deleteExpired(new Date(now.getTime() - 90 * 24 * 60 * 60 * 1_000))
   if (!dependencies.automaticEnabled) {
     return { scheduled: 0 }
   }
-
-  const now = dependencies.now()
-  await dependencies.deleteExpired(new Date(now.getTime() - 90 * 24 * 60 * 60 * 1_000))
   if (!(await dependencies.copilotUsable())) {
     return { scheduled: 0 }
   }

@@ -18,7 +18,7 @@ export function listDueLearningRepositories(
     latest_successes AS (
       SELECT DISTINCT ON (repository_id)
         repository_id,
-        finished_at,
+        started_at,
         comments_remaining,
         suggestions_remaining
       FROM learning_runs
@@ -50,7 +50,7 @@ export function listDueLearningRepositories(
           WHERE review_threads.repository_id = repositories.id
             AND (
               review_threads.updated_at > COALESCE(
-                latest_successes.finished_at,
+                latest_successes.started_at,
                 '-infinity'::timestamptz
               )
               OR EXISTS (
@@ -58,7 +58,7 @@ export function listDueLearningRepositories(
                 FROM review_comments
                 WHERE review_comments.thread_id = review_threads.id
                   AND review_comments.updated_at > COALESCE(
-                    latest_successes.finished_at,
+                    latest_successes.started_at,
                     '-infinity'::timestamptz
                   )
               )
@@ -67,7 +67,7 @@ export function listDueLearningRepositories(
                 FROM review_thread_resolution_events
                 WHERE review_thread_resolution_events.thread_id = review_threads.id
                   AND review_thread_resolution_events.occurred_at > COALESCE(
-                    latest_successes.finished_at,
+                    latest_successes.started_at,
                     '-infinity'::timestamptz
                   )
               )

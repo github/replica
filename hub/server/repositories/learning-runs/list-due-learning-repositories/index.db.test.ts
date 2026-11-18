@@ -208,4 +208,28 @@ describe("listDueLearningRepositories()", () => {
       new Set([commentsId, suggestionsId, failedAfterSuggestionsId]),
     )
   })
+
+  it("finds review evidence added after the successful run snapshot but before completion", async () => {
+    const repositoryId = randomUUID()
+    await prisma.repository.create({
+      data: { id: repositoryId, nameWithOwner: "team/during-run", defaultBranch: "main" },
+    })
+    await createReviewEvidence({
+      repositoryId,
+      updatedAt: new Date("2026-11-18T09:30:00Z"),
+    })
+    await prisma.learningRun.create({
+      data: {
+        repositoryId,
+        state: "SUCCEEDED",
+        snapshotDigest: `sha256:${"f".repeat(64)}`,
+        startedAt: new Date("2026-11-18T09:00:00Z"),
+        finishedAt: new Date("2026-11-18T10:00:00Z"),
+      },
+    })
+
+    await expect(listDueLearningRepositories(prisma, { requireGitHubId: false })).resolves.toEqual([
+      { id: repositoryId },
+    ])
+  })
 })

@@ -48,17 +48,35 @@ import { markReviewCommentLearningRedacted } from "../../../repositories/review-
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
 
 export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logger: Logger) {
+  let databaseDependenciesPromise:
+    | Promise<{
+        databaseUrl: string
+        prisma: Awaited<typeof import("../../../integrations/prisma/index.ts")>["prisma"]
+      }>
+    | undefined
+  function databaseDependencies() {
+    databaseDependenciesPromise ??= (async () => {
+      const resolvedEnvironment = resolveLocalSignInEnvironment(environment)
+      const databaseUrl = resolvedEnvironment.DATABASE_URL
+      if (!databaseUrl) {
+        throw new Error("DATABASE_URL is required for learning jobs.")
+      }
+      const { prisma } = await import("../../../integrations/prisma/index.ts")
+      return { databaseUrl, prisma }
+    })()
+    return databaseDependenciesPromise
+  }
+
   let dependenciesPromise: ReturnType<typeof loadDependencies> | undefined
   function loadDependencies() {
     return (async () => {
       const resolvedEnvironment = resolveLocalSignInEnvironment(environment)
       const configuration = await readLearningConfiguration(resolvedEnvironment)
-      const databaseUrl = resolvedEnvironment.DATABASE_URL
       const hubOrigin = resolvedEnvironment.HUB_APPLICATION_ORIGIN
-      if (!databaseUrl || !hubOrigin) {
-        throw new Error("DATABASE_URL and HUB_APPLICATION_ORIGIN are required for learning jobs.")
+      if (!hubOrigin) {
+        throw new Error("HUB_APPLICATION_ORIGIN is required for learning jobs.")
       }
-      const { prisma } = await import("../../../integrations/prisma/index.ts")
+      const { databaseUrl, prisma } = await databaseDependencies()
       const source = createReviewCommentLearningSource(prisma, hubOrigin)
       return { configuration, databaseUrl, prisma, source }
     })()
@@ -315,6 +333,8 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
   const schedule = createJobProcessor(scheduleLearningRunsJob, async () => {
     const automaticRuns = environment.REPLICA_LEARNING_AUTOMATIC_RUNS?.trim().toLowerCase()
     if (automaticRuns === undefined || automaticRuns === "false") {
+      const { prisma } = await databaseDependencies()
+      await deleteExpiredLearningRuns(prisma, new Date(Date.now() - 90 * 24 * 60 * 60 * 1_000))
       return { scheduled: 0 }
     }
     const { configuration, databaseUrl, prisma, source } = await dependencies()

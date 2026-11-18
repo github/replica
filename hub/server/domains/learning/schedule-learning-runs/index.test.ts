@@ -36,6 +36,7 @@ describe("scheduleLearningRuns()", () => {
 
     await expect(scheduleLearningRuns(deps)).resolves.toEqual({ scheduled: 0 })
 
+    expect(deps.deleteExpired).toHaveBeenCalledOnce()
     expect(deps.copilotUsable).not.toHaveBeenCalled()
     expect(deps.listDue).not.toHaveBeenCalled()
     expect(deps.create).not.toHaveBeenCalled()
