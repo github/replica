@@ -16,6 +16,7 @@ __all__ = [
     "RuntimeConnectors",
     "RuntimeScope",
     "RuntimeFailure",
+    "TrainingResult",
     "connector_conformance",
     "question_options",
 ]
@@ -33,6 +34,7 @@ _OPENENV_EXPORTS = {
     "LocalRuntime": ".runtime",
     "RuntimeConnectors": ".connectors",
     "RuntimeScope": ".connectors",
+    "TrainingResult": ".connectors",
     "RuntimeFailure": ".runtime",
 }
 

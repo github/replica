@@ -29,6 +29,7 @@ from replica_brand_check.connectors import (
     RuntimeOwner,
     RuntimeScope,
     TasksetArtifact,
+    TrainingResult,
     Usage,
 )
 from replica_brand_check.taskset import Taskset
@@ -127,6 +128,7 @@ class _MemoryJobs:
         self._versions = {}
         self._idempotency = {}
         self._leases = {}
+        self._cancellations = {}
         self._next_token = 0
 
     def create(self, job_id, record, context):
@@ -175,7 +177,7 @@ class _MemoryJobs:
             if record_scope == scope and record.get("state") in selected
         )
 
-    def update(self, job_id, record, *, expected_version, context):
+    def update(self, job_id, record, *, expected_version, lease, context):
         _check_context(context)
         key = (_scope_key(context.scope), job_id)
         if key not in self._jobs:
@@ -186,6 +188,12 @@ class _MemoryJobs:
             raise ConnectorError(
                 "job_cancelled",
                 "A cancelled job cannot advance.",
+                category="conflict",
+            )
+        if self._leases.get(key) != lease or lease.expires_at <= time.monotonic():
+            raise ConnectorError(
+                "job_lease_lost",
+                "The active job lease does not authorize this update.",
                 category="conflict",
             )
         if self._versions[key] != expected_version:
@@ -203,6 +211,17 @@ class _MemoryJobs:
     def cancel(self, job_id, *, expected_version, context):
         _check_context(context)
         key = (_scope_key(context.scope), job_id)
+        retry_key = (_scope_key(context.scope), context.idempotency_key)
+        request = (job_id, expected_version)
+        prior = self._cancellations.get(retry_key)
+        if prior is not None:
+            if prior[0] != request:
+                raise ConnectorError(
+                    "idempotency_conflict",
+                    "The idempotency key was reused with different input.",
+                    category="conflict",
+                )
+            return dict(prior[1])
         if key not in self._jobs:
             raise ConnectorError(
                 "job_not_found", "The job was not found.", category="not_found"
@@ -219,6 +238,7 @@ class _MemoryJobs:
         cancelled = dict(current, state="cancelled", version=expected_version + 1)
         self._jobs[key] = cancelled
         self._versions[key] = expected_version + 1
+        self._cancellations[retry_key] = (request, cancelled)
         return dict(cancelled)
 
     def acquire(self, job_id, *, ttl_seconds, context):
@@ -363,11 +383,18 @@ class _MemoryExecution:
         context,
         credential,
     ):
-        del taskset, work_directory, max_updates
+        del taskset, work_directory
         _check_context(context)
         _check_credential(credential, "training", context)
         self.training_contexts.append(context)
-        return {"operationId": context.operation_id}
+        return TrainingResult(
+            adapter_name="adapter.bin",
+            adapter=b"adapter",
+            baseline_report={"meanReward": 0.5},
+            candidate_report={"meanReward": 0.75},
+            metadata={"operationId": context.operation_id},
+            updates_completed=max_updates,
+        )
 
     def predict(self, adapter, request, *, context, credential):
         del adapter, request
@@ -434,7 +461,8 @@ class _MemoryObservability:
 class _MemoryBundle:
     def __init__(self):
         self.scope = RuntimeScope("tenant-one", "octo/example")
-        self.other_scope = RuntimeScope("tenant-two", "octo/example")
+        self.other_repository_scope = RuntimeScope("tenant-one", "octo/other")
+        self.other_tenant_scope = RuntimeScope("tenant-two", "octo/example")
         self.taskset = Taskset(Path("."), {}, (), {}, {"train": (), "dev": (), "test": ()})
         self.taskset_reference = "taskset:contract"
         self.execution = _MemoryExecution()
@@ -458,7 +486,8 @@ class _MemoryBundle:
         return ConnectorConformanceFixture(
             connectors=self.connectors,
             scope=self.scope,
-            other_scope=self.other_scope,
+            other_repository_scope=self.other_repository_scope,
+            other_tenant_scope=self.other_tenant_scope,
             taskset_reference=self.taskset_reference,
             usage=lambda: tuple(self.observability.events),
         )
@@ -551,26 +580,56 @@ class _CancelledLeaseJobs(_MemoryJobs):
 
 
 class _CancelledUpdateJobs(_MemoryJobs):
-    def update(self, job_id, record, *, expected_version, context):
+    def update(self, job_id, record, *, expected_version, lease, context):
         key = (_scope_key(context.scope), job_id)
         current = self._jobs.get(key)
+        active = self._leases.get(key)
         if current is not None and current.get("state") == "cancelled":
             self._jobs[key] = dict(current, state="queued")
+            accepted_lease = replace(lease, expires_at=time.monotonic() + 5)
+            self._leases[key] = accepted_lease
             try:
                 return super().update(
                     job_id,
                     record,
                     expected_version=expected_version,
+                    lease=accepted_lease,
                     context=context,
                 )
             finally:
                 self._jobs[key] = current
+                if active is None:
+                    self._leases.pop(key, None)
+                else:
+                    self._leases[key] = active
         return super().update(
             job_id,
             record,
             expected_version=expected_version,
+            lease=lease,
             context=context,
         )
+
+
+class _UnfencedUpdates(_MemoryJobs):
+    def update(self, job_id, record, *, expected_version, lease, context):
+        key = (_scope_key(context.scope), job_id)
+        active = self._leases.get(key)
+        accepted_lease = replace(lease, expires_at=time.monotonic() + 5)
+        self._leases[key] = accepted_lease
+        try:
+            return super().update(
+                job_id,
+                record,
+                expected_version=expected_version,
+                lease=accepted_lease,
+                context=context,
+            )
+        finally:
+            if active is None:
+                self._leases.pop(key, None)
+            else:
+                self._leases[key] = active
 
 
 class _DeadlineBlindExecution(_MemoryExecution):
@@ -583,8 +642,15 @@ class _DeadlineBlindExecution(_MemoryExecution):
         context,
         credential,
     ):
-        del taskset, work_directory, max_updates, credential
-        return {"operationId": context.operation_id}
+        del taskset, work_directory, credential
+        return TrainingResult(
+            "adapter.bin",
+            b"adapter",
+            {"meanReward": 0.5},
+            {"meanReward": 0.75},
+            {"operationId": context.operation_id},
+            max_updates,
+        )
 
     def predict(self, adapter, request, *, context, credential):
         del adapter, request, credential
@@ -685,6 +751,12 @@ class ConnectorConformanceTest(unittest.TestCase):
             "state advancement after durable cancellation",
         )
 
+    def test_shared_suite_rejects_job_updates_without_active_lease_fencing(self):
+        self._assert_suite_rejects(
+            lambda: _bundle_with(jobs=_UnfencedUpdates()),
+            "a stale worker updating a job after its lease was replaced",
+        )
+
     def test_shared_suite_rejects_training_or_inference_that_ignores_context(self):
         self._assert_suite_rejects(
             lambda: _bundle_with(execution=_DeadlineBlindExecution()),
@@ -736,6 +808,27 @@ class ConnectorConformanceTest(unittest.TestCase):
         self.assertTrue(failure.retryable)
         with self.assertRaises(ValueError):
             ConnectorError("provider_error", "No.", category="azure")
+
+    def test_digest_requires_exact_lowercase_sha256_hex(self):
+        for value in (
+            "0x" + "a" * 62,
+            "+" + "a" * 63,
+            "a_" + "a" * 62,
+            "A" * 64,
+        ):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                ContentDigest("sha256", value)
+
+    def test_credential_representation_omits_secret_value(self):
+        credential = Credential(
+            "secret-value",
+            time.monotonic() + 1,
+            "training",
+            RuntimeScope("tenant", "repo"),
+            "operation",
+        )
+
+        self.assertNotIn("secret-value", repr(credential))
 
     def _assert_suite_rejects(self, create_bundle, regression):
         result, output = self._run_suite(create_bundle)
