@@ -14,6 +14,7 @@ import json
 import math
 import multiprocessing
 import os
+import queue
 import re
 import shutil
 import threading
@@ -25,6 +26,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Protocol
 
+from .connectors import (
+    Cancellation,
+    ConnectorError,
+    Credential,
+    CredentialConnector,
+    InferenceConnector,
+    ObservabilityConnector,
+    OperationContext,
+    RuntimeOwner,
+    RuntimeScope,
+    TrainingConnector,
+    Usage,
+    check_context,
+)
 from .evaluate import EvaluationError, evaluate
 from .taskset import Taskset, load_taskset
 
@@ -67,7 +82,7 @@ class TrainingResult:
 
 
 class TrainingBackend(Protocol):
-    """A provider-neutral trainer and inference adapter."""
+    """Compatibility seam for the single-node fixture backend."""
 
     name: str
     production_eligible: bool
@@ -155,6 +170,68 @@ class FixtureBackend:
         return _fixture_answers(request["questions"], probabilities)
 
 
+class _NoCredentials:
+    def acquire(self, audience: str, context: OperationContext) -> None:
+        del audience, context
+        return None
+
+
+class _NoObservability:
+    def record(self, usage: Usage, context: OperationContext) -> None:
+        del usage, context
+
+
+class _BackendTrainingConnector:
+    """Adapt the existing backend API to the provider-neutral training contract."""
+
+    def __init__(self, backend: TrainingBackend):
+        self.backend = backend
+        self.name = backend.name
+        self.production_eligible = backend.production_eligible
+
+    def train(
+        self,
+        taskset: Taskset,
+        work_directory: Path,
+        *,
+        max_updates: int,
+        context: OperationContext,
+        credential: Credential | None,
+    ) -> TrainingResult:
+        del credential
+        check_context(context)
+        return self.backend.train(
+            taskset,
+            work_directory,
+            max_updates=max_updates,
+            deadline=context.deadline,
+        )
+
+
+class _BackendInferenceConnector:
+    """Adapt the existing backend API to the provider-neutral inference contract."""
+
+    def __init__(self, backend: TrainingBackend):
+        self.backend = backend
+        self.name = backend.name
+
+    def predict(
+        self,
+        adapter: Path,
+        request: Mapping[str, Any],
+        *,
+        context: OperationContext,
+        credential: Credential | None,
+    ) -> Mapping[str, Any]:
+        del credential
+        check_context(context)
+        return self.backend.predict(
+            adapter,
+            request,
+            timeout_seconds=max(0.0, context.deadline - time.monotonic()),
+        )
+
+
 class LocalRuntime:
     """Durable local jobs, immutable candidates, one promotion pointer, and inference."""
 
@@ -165,6 +242,9 @@ class LocalRuntime:
         backends: Mapping[str, TrainingBackend] | None = None,
         *,
         environment: str = "development",
+        scope: RuntimeScope | None = None,
+        credentials: CredentialConnector | None = None,
+        observability: ObservabilityConnector | None = None,
     ):
         if environment not in ENVIRONMENTS:
             raise RuntimeFailure(
@@ -175,9 +255,20 @@ class LocalRuntime:
         self.taskset = load_taskset(taskset_directory)
         self.taskset_digest = _taskset_digest(self.taskset)
         self.environment = environment
+        self.scope = scope or RuntimeScope("local", "local/runtime")
+        self.credentials = credentials or _NoCredentials()
+        self.observability = observability or _NoObservability()
         self.backends = dict({"fixture": FixtureBackend()} if backends is None else backends)
         if not self.backends:
             raise RuntimeFailure("backend_missing", "Configure at least one training backend.")
+        self.training_connectors: dict[str, TrainingConnector] = {
+            name: _BackendTrainingConnector(backend)
+            for name, backend in self.backends.items()
+        }
+        self.inference_connectors: dict[str, InferenceConnector] = {
+            name: _BackendInferenceConnector(backend)
+            for name, backend in self.backends.items()
+        }
         if fcntl is None:
             raise RuntimeFailure(
                 "runtime_unsupported", "The local runtime needs Unix file locking.", 500
@@ -384,21 +475,49 @@ class LocalRuntime:
         promotion = self.promotion()
         candidate_id = promotion["candidateId"]
         manifest = self._promotable_candidate(candidate_id)
-        backend = self.backends.get(manifest["backend"])
-        if backend is None:
+        connector = self.inference_connectors.get(manifest["backend"])
+        if connector is None:
             raise RuntimeFailure(
                 "backend_unavailable",
                 f"Promoted candidate backend {manifest['backend']} is not configured.",
                 503,
             )
         adapter = self.state_directory / "candidates" / candidate_id / manifest["adapter"]["file"]
-        answers = dict(
-            backend.predict(
-                adapter,
-                _backend_request(request),
-                timeout_seconds=timeout_seconds,
-            )
+        context = self._operation_context(
+            f"inference_{uuid.uuid4().hex}",
+            max_seconds=timeout_seconds,
+            owner=RuntimeOwner("service", "decision-runtime"),
         )
+        started = time.monotonic()
+        operation_error: Exception | None = None
+        try:
+            credential = self._acquire_credential("inference", context)
+            answers = dict(
+                _run_inference(
+                    connector,
+                    adapter,
+                    _backend_request(request),
+                    context=context,
+                    credential=credential,
+                )
+            )
+        except ConnectorError as error:
+            operation_error = _runtime_connector_failure(error)
+        except Exception as error:
+            operation_error = error
+        try:
+            self._record_usage(
+                context,
+                connector=connector.name,
+                kind="inference_seconds",
+                quantity=time.monotonic() - started,
+                unit="seconds",
+            )
+        except ConnectorError as error:
+            if operation_error is None:
+                operation_error = _runtime_connector_failure(error)
+        if operation_error is not None:
+            raise operation_error
         evaluations = []
         for key, question in request["questions"].items():
             if question.get("type") != "noul":
@@ -431,18 +550,41 @@ class LocalRuntime:
     def _run_job(self, job_id: str) -> None:
         job = self.job(job_id)
         work = self.state_directory / "work" / job_id
+        context: OperationContext | None = None
+        connector: TrainingConnector | None = None
+        usage_attempted = False
+        started = time.monotonic()
         try:
             job.update(state="running", startedAt=_now(), updatedAt=_now())
             _write_json_atomic(self._job_path(job_id), job)
             shutil.rmtree(work, ignore_errors=True)
             work.mkdir(mode=0o700)
-            backend = self.backends[job["backend"]]
+            connector = self.training_connectors[job["backend"]]
+            context = self._operation_context(
+                job_id,
+                max_seconds=job["limits"]["maxSeconds"],
+                owner=RuntimeOwner("worker", "single-node-runtime"),
+            )
+            credential = self._acquire_credential("training", context)
             result = _run_backend(
-                backend,
+                connector,
                 self.taskset,
                 work,
                 max_updates=job["limits"]["maxUpdates"],
-                max_seconds=job["limits"]["maxSeconds"],
+                context=context,
+                credential=credential,
+            )
+            usage_attempted = True
+            self._record_usage(
+                context,
+                connector=connector.name,
+                kind="training_updates",
+                quantity=job["limits"]["maxUpdates"],
+                unit="updates",
+                metadata={
+                    "elapsedSeconds": time.monotonic() - started,
+                    "state": "succeeded",
+                },
             )
             candidate_id = self._persist_candidate(job, result)
             job.update(
@@ -452,13 +594,36 @@ class LocalRuntime:
                 updatedAt=_now(),
             )
         except Exception as error:
-            code = error.code if isinstance(error, RuntimeFailure) else "backend_failed"
+            code = (
+                error.code
+                if isinstance(error, (RuntimeFailure, ConnectorError))
+                else "backend_failed"
+            )
             job.update(
                 state="failed",
                 error={"code": code, "message": str(error)},
                 completedAt=_now(),
                 updatedAt=_now(),
             )
+            if context is not None and connector is not None and not usage_attempted:
+                usage_attempted = True
+                try:
+                    self._record_usage(
+                        context,
+                        connector=connector.name,
+                        kind="training_updates",
+                        quantity=job["limits"]["maxUpdates"],
+                        unit="updates",
+                        metadata={
+                            "elapsedSeconds": time.monotonic() - started,
+                            "state": "failed",
+                        },
+                    )
+                except ConnectorError as usage_error:
+                    job["error"] = {
+                        "code": usage_error.code,
+                        "message": str(usage_error),
+                    }
         finally:
             _write_json_atomic(self._job_path(job_id), job)
             shutil.rmtree(work, ignore_errors=True)
@@ -627,6 +792,65 @@ class LocalRuntime:
         else:
             _write_immutable(history, data)
         _write_json_atomic(self.state_directory / "promotion.json", promotion)
+
+    def _operation_context(
+        self,
+        operation_id: str,
+        *,
+        max_seconds: float,
+        owner: RuntimeOwner,
+    ) -> OperationContext:
+        return OperationContext(
+            operation_id=operation_id,
+            idempotency_key=operation_id,
+            scope=self.scope,
+            owner=owner,
+            deadline=time.monotonic() + max_seconds,
+            cancellation=Cancellation(),
+        )
+
+    def _acquire_credential(
+        self, audience: str, context: OperationContext
+    ) -> Credential | None:
+        credential = self.credentials.acquire(audience, context)
+        if credential is None:
+            return None
+        if (
+            credential.audience != audience
+            or credential.scope != context.scope
+            or credential.operation_id != context.operation_id
+            or credential.expires_at <= time.monotonic()
+            or credential.expires_at > context.deadline
+        ):
+            raise ConnectorError(
+                "credential_scope_invalid",
+                "The credential is not restricted to this operation and scope.",
+                category="unauthorized",
+            )
+        return credential
+
+    def _record_usage(
+        self,
+        context: OperationContext,
+        *,
+        connector: str,
+        kind: str,
+        quantity: float,
+        unit: str,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> None:
+        self.observability.record(
+            Usage(
+                operation_id=context.operation_id,
+                scope=context.scope,
+                connector=connector,
+                kind=kind,
+                quantity=quantity,
+                unit=unit,
+                metadata=metadata or {},
+            ),
+            context,
+        )
 
     @staticmethod
     def _promotion(
@@ -956,34 +1180,56 @@ def _check_deadline(deadline: float) -> None:
         raise RuntimeFailure("job_timed_out", "The bounded training job reached maxSeconds.")
 
 
+def _runtime_connector_failure(error: ConnectorError) -> RuntimeFailure:
+    status = {
+        "invalid_input": 400,
+        "unauthorized": 401,
+        "not_found": 404,
+        "conflict": 409,
+        "cancelled": 409,
+        "integrity": 500,
+        "deadline_exceeded": 504,
+        "unavailable": 503,
+        "internal": 500,
+    }[error.category]
+    return RuntimeFailure(error.code, str(error), status)
+
+
 def _run_backend(
-    backend: TrainingBackend,
+    connector: TrainingConnector,
     taskset: Taskset,
     work_directory: Path,
     *,
     max_updates: int,
-    max_seconds: float,
+    context: OperationContext,
+    credential: Credential | None,
 ) -> TrainingResult:
     """Run backend code in a child that the runtime can stop at the job deadline."""
-    deadline = time.monotonic() + max_seconds
-    context = _process_context()
-    receive, send = context.Pipe(duplex=False)
-    process = context.Process(
+    max_seconds = max(0.0, context.deadline - time.monotonic())
+    process_context = _process_context()
+    receive, send = process_context.Pipe(duplex=False)
+    process = process_context.Process(
         target=_backend_process,
         args=(
             send,
-            backend,
+            connector,
             str(taskset.directory),
             str(work_directory),
             max_updates,
-            deadline,
+            context.operation_id,
+            context.idempotency_key,
+            context.scope,
+            context.owner,
+            context.deadline,
+            credential,
         ),
-        name=f"replica-{backend.name}-job",
+        name=f"replica-{connector.name}-job",
     )
     process.start()
     send.close()
     try:
         if not receive.poll(max_seconds):
+            context.cancellation.cancel()
             process.terminate()
             process.join()
             raise RuntimeFailure(
@@ -991,10 +1237,20 @@ def _run_backend(
             )
         kind, payload = receive.recv()
         process.join()
-        if kind == "error":
+        if kind == "runtime_error":
             code, message, status = payload
             raise RuntimeFailure(code, message, status)
-        _check_deadline(deadline)
+        if kind == "connector_error":
+            code, message, category, retryable = payload
+            raise ConnectorError(
+                code,
+                message,
+                category=category,
+                retryable=retryable,
+            )
+        if kind == "error":
+            raise RuntimeFailure("backend_failed", payload, 500)
+        _check_deadline(context.deadline)
         return payload
     finally:
         receive.close()
@@ -1005,19 +1261,33 @@ def _run_backend(
 
 def _backend_process(
     send: Any,
-    backend: TrainingBackend,
+    connector: TrainingConnector,
     taskset_directory: str,
     work_directory: str,
     max_updates: int,
+    operation_id: str,
+    idempotency_key: str,
+    scope: RuntimeScope,
+    owner: RuntimeOwner,
     deadline: float,
+    credential: Credential | None,
 ) -> None:
-    """Load task data afresh and run one serializable backend in a spawned child process."""
+    """Load task data afresh and run one serializable connector in a spawned child process."""
     try:
-        result = backend.train(
+        context = OperationContext(
+            operation_id=operation_id,
+            idempotency_key=idempotency_key,
+            scope=scope,
+            owner=owner,
+            deadline=deadline,
+            cancellation=Cancellation(),
+        )
+        result = connector.train(
             load_taskset(taskset_directory),
             Path(work_directory),
             max_updates=max_updates,
-            deadline=deadline,
+            context=context,
+            credential=credential,
         )
         try:
             send.send(("ok", result))
@@ -1025,16 +1295,16 @@ def _backend_process(
             pass
     except Exception as error:
         try:
-            send.send(
-                (
-                    "error",
-                    (
-                        error.code if isinstance(error, RuntimeFailure) else "backend_failed",
-                        str(error),
-                        error.status if isinstance(error, RuntimeFailure) else 500,
-                    ),
+            if isinstance(error, RuntimeFailure):
+                payload = ("runtime_error", (error.code, str(error), error.status))
+            elif isinstance(error, ConnectorError):
+                payload = (
+                    "connector_error",
+                    (error.code, str(error), error.category, error.retryable),
                 )
-            )
+            else:
+                payload = ("error", str(error))
+            send.send(payload)
         except (BrokenPipeError, OSError):
             pass
     finally:
@@ -1058,3 +1328,54 @@ def _process_context() -> Any:
         )
     )
     return multiprocessing.get_context("spawn" if installed else "fork")
+
+
+def _run_inference(
+    connector: InferenceConnector,
+    adapter: Path,
+    request: Mapping[str, Any],
+    *,
+    context: OperationContext,
+    credential: Credential | None,
+) -> Mapping[str, Any]:
+    """Bound inference even when a connector does not return after its deadline."""
+    completed: queue.Queue[Mapping[str, Any] | Exception] = queue.Queue(maxsize=1)
+    timeout_seconds = max(0.0, context.deadline - time.monotonic())
+
+    def run() -> None:
+        try:
+            result: Mapping[str, Any] | Exception = connector.predict(
+                adapter,
+                request,
+                context=context,
+                credential=credential,
+            )
+        except Exception as error:
+            result = error
+        completed.put(result)
+
+    thread = threading.Thread(
+        target=run,
+        name=f"replica-{connector.name}-inference",
+        daemon=True,
+    )
+    thread.start()
+    try:
+        result = completed.get(timeout=timeout_seconds)
+    except queue.Empty:
+        context.cancellation.cancel()
+        raise RuntimeFailure(
+            "inference_timed_out",
+            "The inference operation reached its deadline.",
+            504,
+        ) from None
+    if isinstance(result, Exception):
+        raise result
+    if time.monotonic() > context.deadline:
+        context.cancellation.cancel()
+        raise RuntimeFailure(
+            "inference_timed_out",
+            "The inference operation reached its deadline.",
+            504,
+        )
+    return result

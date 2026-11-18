@@ -15,6 +15,7 @@ from pathlib import Path
 from unittest import mock
 from urllib import error, request
 
+from replica_brand_check.connectors import Credential, RuntimeScope
 from replica_brand_check.runtime import FixtureBackend, LocalRuntime, RuntimeFailure
 from replica_brand_check.runtime_server import RuntimeHTTPServer, runtime_token
 from tests.support import PNG, RULE, make_task, write_taskset
@@ -35,6 +36,14 @@ class SlowBackend(FixtureBackend):
     def train(self, *args, **kwargs):
         time.sleep(2)
         return super().train(*args, **kwargs)
+
+
+class SlowInferenceBackend(FixtureBackend):
+    """A backend that ignores the inference timeout supplied by the compatibility adapter."""
+
+    def predict(self, *args, **kwargs):
+        time.sleep(0.1)
+        return super().predict(*args, **kwargs)
 
 
 class BlockingBackend(FixtureBackend):
@@ -61,6 +70,29 @@ class CapturingBackend(FixtureBackend):
     def predict(self, adapter, request, *, timeout_seconds):
         self.request = request
         return super().predict(adapter, request, timeout_seconds=timeout_seconds)
+
+
+class CapturingCredentials:
+    def __init__(self):
+        self.calls = []
+
+    def acquire(self, audience, context):
+        self.calls.append((audience, context))
+        return Credential(
+            value=f"{audience}-credential",
+            expires_at=context.deadline,
+            audience=audience,
+            scope=context.scope,
+            operation_id=context.operation_id,
+        )
+
+
+class CapturingObservability:
+    def __init__(self):
+        self.records = []
+
+    def record(self, usage, context):
+        self.records.append((usage, context))
 
 
 class LocalRuntimeTest(unittest.TestCase):
@@ -151,6 +183,45 @@ class LocalRuntimeTest(unittest.TestCase):
             },
         )
 
+    def test_passes_scoped_operation_context_to_credentials_and_usage_reporting(self):
+        credentials = CapturingCredentials()
+        observability = CapturingObservability()
+        scope = RuntimeScope("tenant-one", "github/example")
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            environment="test",
+            scope=scope,
+            credentials=credentials,
+            observability=observability,
+        )
+        self.addCleanup(runtime.close)
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
+        )
+        runtime.promote(finished["candidateId"], promoted_by="test-operator")
+        response = runtime.evaluate(self._request())
+
+        self.assertEqual(response["candidateId"], finished["candidateId"])
+        self.assertEqual(
+            [audience for audience, _ in credentials.calls],
+            ["training", "inference"],
+        )
+        self.assertTrue(all(context.scope == scope for _, context in credentials.calls))
+        self.assertEqual(
+            [usage.kind for usage, _ in observability.records],
+            ["training_updates", "inference_seconds"],
+        )
+        self.assertTrue(
+            all(
+                usage.scope == scope
+                and usage.operation_id == context.operation_id
+                and context.scope == scope
+                for usage, context in observability.records
+            )
+        )
+
     def test_detects_a_candidate_changed_to_claim_production_eligibility(self):
         runtime = self._runtime()
         finished = self._wait_for_job(
@@ -230,6 +301,26 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(failed["error"]["code"], "job_timed_out")
         self.assertEqual(list((self.state_dir / "candidates").iterdir()), [])
         self.assertEqual(multiprocessing.active_children(), [])
+
+    def test_bounds_inference_when_a_connector_ignores_its_deadline(self):
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"slow": SlowInferenceBackend()},
+            environment="test",
+        )
+        self.addCleanup(runtime.close)
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="slow", max_updates=8, max_seconds=5)["id"],
+        )
+        runtime.promote(finished["candidateId"], promoted_by="test-operator")
+
+        with self.assertRaises(RuntimeFailure) as timed_out:
+            runtime.evaluate(self._request(), timeout_seconds=0.01)
+
+        self.assertEqual(timed_out.exception.code, "inference_timed_out")
+        self.assertEqual(timed_out.exception.status, 504)
 
     def test_close_cancels_queued_jobs_instead_of_starting_them(self):
         started = self.taskset_dir.parent / "blocking-started"

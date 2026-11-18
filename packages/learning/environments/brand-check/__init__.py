@@ -9,9 +9,14 @@ __all__ = [
     "BrandCheckAction",
     "BrandCheckEnv",
     "BrandCheckObservation",
+    "ConnectorConformanceFixture",
+    "ConnectorError",
     "FixtureBackend",
     "LocalRuntime",
+    "RuntimeConnectors",
+    "RuntimeScope",
     "RuntimeFailure",
+    "connector_conformance",
     "question_options",
 ]
 
@@ -21,8 +26,13 @@ _OPENENV_EXPORTS = {
     "BrandCheckAction": ".models",
     "BrandCheckObservation": ".models",
     "BrandCheckEnv": ".client",
+    "ConnectorConformanceFixture": ".connector_conformance",
+    "connector_conformance": ".connector_conformance",
+    "ConnectorError": ".connectors",
     "FixtureBackend": ".runtime",
     "LocalRuntime": ".runtime",
+    "RuntimeConnectors": ".connectors",
+    "RuntimeScope": ".connectors",
     "RuntimeFailure": ".runtime",
 }
 
