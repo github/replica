@@ -11,11 +11,8 @@ export async function runCommand({
   const child = spawn(command, commandArguments, {
     cwd,
     env: environment ?? process.env,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: "ignore",
   })
-  const output: Buffer[] = []
-  child.stdout.on("data", (chunk: Buffer) => output.push(chunk))
-  child.stderr.on("data", (chunk: Buffer) => output.push(chunk))
 
   const code = await new Promise<number | null>((resolve, reject) => {
     child.once("error", reject)
@@ -23,10 +20,9 @@ export async function runCommand({
   })
   if (code === 0) return
 
-  const detail = Buffer.concat(output).toString("utf8").trim().slice(-700)
   throw new Error(
-    detail
-      ? `${command} failed while preparing local development: ${detail}`
-      : `${command} failed while preparing local development.`,
+    code === null
+      ? `${command} stopped without an exit status while preparing local development.`
+      : `${command} exited with code ${code} while preparing local development.`,
   )
 }
