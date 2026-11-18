@@ -809,8 +809,15 @@ class LocalCandidateConnector(_ScopedConnector):
                 "The candidate manifest no longer matches its immutable identity.",
                 category="integrity",
             )
+        artifact_records = descriptor.get("artifacts", [])
+        if not isinstance(artifact_records, list):
+            raise ConnectorError(
+                "candidate_damaged",
+                "The candidate descriptor has invalid artifacts.",
+                category="integrity",
+            )
         artifacts = []
-        for item in descriptor.get("artifacts", []):
+        for item in artifact_records:
             if not isinstance(item, dict):
                 raise ConnectorError(
                     "candidate_damaged",
@@ -821,6 +828,13 @@ class LocalCandidateConnector(_ScopedConnector):
                 name = item["name"]
                 artifact_digest = _content_digest(item["digest"])
                 media_type = item["mediaType"]
+                metadata = item.get("metadata", {})
+                if (
+                    not isinstance(name, str)
+                    or not isinstance(media_type, str)
+                    or not isinstance(metadata, dict)
+                ):
+                    raise ValueError("invalid candidate artifact descriptor")
                 data = (directory / name).read_bytes()
             except (KeyError, OSError, ValueError, TypeError):
                 raise ConnectorError(
@@ -839,7 +853,7 @@ class LocalCandidateConnector(_ScopedConnector):
                     artifact_digest,
                     media_type,
                     data,
-                    item.get("metadata", {}),
+                    metadata,
                 )
             )
         try:

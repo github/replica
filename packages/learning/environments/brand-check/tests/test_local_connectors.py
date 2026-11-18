@@ -586,6 +586,26 @@ class LocalConnectorPersistenceTest(unittest.TestCase):
 
         self.assertEqual(candidate_damaged.exception.category, "integrity")
 
+    def test_classifies_malformed_candidate_artifact_metadata_as_integrity_damage(self):
+        bundle, state_directory, scope = _new_bundle(self)
+        candidate = bundle.connectors.candidates.put(
+            _candidate("malformed"), _context(scope, "candidate")
+        )
+        descriptor_path = (
+            state_directory / "candidates" / candidate.id / ".candidate.json"
+        )
+        descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
+        descriptor["artifacts"][0]["mediaType"] = 7
+        os.chmod(descriptor_path, 0o600)
+        descriptor_path.write_text(json.dumps(descriptor), encoding="utf-8")
+
+        with self.assertRaises(ConnectorError) as candidate_damaged:
+            bundle.connectors.candidates.get(
+                candidate.id, _context(scope, "read-malformed-candidate")
+            )
+
+        self.assertEqual(candidate_damaged.exception.category, "integrity")
+
     def test_detects_coherent_candidate_content_replacement(self):
         bundle, state_directory, scope = _new_bundle(self)
         candidate = bundle.connectors.candidates.put(
