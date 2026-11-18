@@ -20,13 +20,25 @@ export function get(dependencies: LearningsRouteDependencies): RequestHandler {
         response.status(401).json({ code: "sign_in_required", error: "Sign in to continue." })
         return
       }
-      const repository = await dependencies.findRepository(repositoryId.data)
+      const repository = await dependencies.findRepository(initial, repositoryId.data)
       if (!repository) {
         response.status(404).json({ code: "repository_not_found", error: "Repository not found." })
         return
       }
       if (initial.role !== "ADMINISTRATOR") {
-        response.json({ accessDenied: true, repository, canAdministerHub: false })
+        const current = await readLearningSession(request, dependencies)
+        if (!current || current.membershipId !== initial.membershipId) {
+          response.status(401).json({ code: "sign_in_required", error: "Sign in to continue." })
+          return
+        }
+        const visible = await dependencies.findRepository(current, repository.id)
+        if (!visible) {
+          response
+            .status(404)
+            .json({ code: "repository_not_found", error: "Repository not found." })
+          return
+        }
+        response.json({ accessDenied: true, repository: visible, canAdministerHub: false })
         return
       }
 
@@ -41,6 +53,10 @@ export function get(dependencies: LearningsRouteDependencies): RequestHandler {
       const current = await readLearningSession(request, dependencies)
       if (!current || current.membershipId !== initial.membershipId) {
         response.status(401).json({ code: "sign_in_required", error: "Sign in to continue." })
+        return
+      }
+      if (!(await dependencies.findRepository(current, repository.id))) {
+        response.status(404).json({ code: "repository_not_found", error: "Repository not found." })
         return
       }
       if (current.role !== "ADMINISTRATOR") {

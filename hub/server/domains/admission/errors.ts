@@ -7,6 +7,7 @@ export type AdmissionDenialReason =
   | "membership_missing"
   | "provider_evidence_missing"
   | "provider_evidence_stale"
+  | "no_repository_access"
 
 export class AdmissionDeniedError extends Error {
   readonly reason: AdmissionDenialReason
@@ -24,6 +25,13 @@ export class AdmissionTransactionConflictError extends Error {
   constructor(options?: ErrorOptions) {
     super("The admission transaction conflicted with another database change.", options)
     this.name = "AdmissionTransactionConflictError"
+  }
+}
+
+export class AdmissionAuthorityChangedError extends Error {
+  constructor(options?: ErrorOptions) {
+    super("The caller's authority changed before the change was saved.", options)
+    this.name = "AdmissionAuthorityChangedError"
   }
 }
 

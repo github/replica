@@ -8,6 +8,8 @@ import type { AuthenticationRouteDependencies } from "../routes/api/auth/types.t
 import type { CopilotConnectionRouteDependencies } from "../routes/api/copilot-connection/types.ts"
 import type { LearningsRouteDependencies } from "../routes/api/learnings/types.ts"
 import type { ProductRouteDependencies } from "../routes/api/product/types.ts"
+import type { GitHubWebhookRouteDependencies } from "../routes/api/github/webhooks/types.ts"
+import type { GitHubSetupRouteDependencies } from "../routes/api/settings/github/types.ts"
 import { attachRealtimeServer } from "../integrations/ws/attach-realtime-server/index.ts"
 import { shutdownServer } from "../shutdown-server/index.ts"
 
@@ -15,6 +17,8 @@ export async function runApi({
   port,
   logger,
   authentication,
+  githubSetup,
+  githubWebhooks,
   copilotConnection,
   learnings,
   product,
@@ -31,6 +35,8 @@ export async function runApi({
   copilotConnection?: CopilotConnectionRouteDependencies
   learnings?: LearningsRouteDependencies
   product?: ProductRouteDependencies
+  githubSetup?: GitHubSetupRouteDependencies
+  githubWebhooks?: GitHubWebhookRouteDependencies
   trustedProxyHops?: number
   shutdownTimeoutMs?: number
   host?: string
@@ -58,6 +64,8 @@ export async function runApi({
       clientDirectory,
       isReady: async () => !stoppingRequested && (isReady ? await isReady() : true),
       authentication,
+      githubSetup,
+      githubWebhooks,
       copilotConnection: copilotConnection
         ? {
             ...copilotConnection,

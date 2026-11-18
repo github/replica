@@ -60,6 +60,7 @@ async function createMember(login: string, name: string | null): Promise<NonNull
     membershipId: randomUUID(),
     userId: user.id,
     provider: "github",
+    sessionProvider: "github",
     login,
     name,
     role: "MEMBER",

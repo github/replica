@@ -7,11 +7,11 @@ The API has liveness, readiness, repository index, prototype detail, and Build h
 Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The backend provides:
 
 - A provider-neutral identity foundation and configured [GitHub authentication](docs/authentication.md).
-- PostgreSQL-backed [background jobs](docs/background-jobs.md) with separate on-demand and scheduled workers. Product jobs are not registered yet.
+- PostgreSQL-backed [background jobs](docs/background-jobs.md) with separate on-demand and scheduled workers. A scheduled job reconciles the GitHub App installation's repositories.
 - Explicit server-side [telemetry spans](docs/telemetry.md).
 - A [WebSocket foundation](docs/websockets.md) that rejects upgrades until application access checks are supplied.
 
-The index can show seeded prototype records. Saving a draft registers it under the member who saves it. Repository discovery, Build hosting, and live multi-user reviews are not implemented.
+The index can show seeded prototype records and repositories connected through a GitHub App. Saving a draft registers it under the member who saves it. Build hosting and live multi-user reviews are not implemented.
 
 The [production runtime](docs/deployment.md) packages the frontend, API, and workers in one image, with a separate release setup script.
 

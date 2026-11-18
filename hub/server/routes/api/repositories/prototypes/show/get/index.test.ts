@@ -39,6 +39,7 @@ async function withDetailRoute(
     (_input, prepare) => Promise.resolve(prepare(detail, true)),
   )
   const product: ProductRouteDependencies = {
+    isRepositoryVisible: vi.fn(),
     listRepositories: vi.fn(),
     findRepositoryIndex: vi.fn(),
     findRepositoryAuthors: vi.fn(),

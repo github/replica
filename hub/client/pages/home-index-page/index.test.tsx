@@ -6,7 +6,6 @@ import type { HomeIndexPageData } from "./types"
 
 const PAGE_DATA: HomeIndexPageData = {
   alert: null as string | null,
-  authenticityToken: "token",
   badge: "Collaborative prototyping",
   badgeAlternate: "Built for feedback",
   description: "Turn GitHub branches into shareable prototypes.",

@@ -5,8 +5,8 @@ export async function lockEffectiveAdministratorAssignments(
   membershipIds: string[],
 ) {
   if (!membershipIds.length) return []
-  return database.$queryRaw<Array<{ id: string }>>`
-    SELECT assignment."id"
+  return database.$queryRaw<Array<{ id: string; membershipId: string }>>`
+    SELECT assignment."id", assignment."membership_id" AS "membershipId"
     FROM "membership_assignments" assignment
     LEFT JOIN "authentication_provider_revisions" revision
       ON revision."id" = assignment."provider_revision_id"

@@ -1,4 +1,4 @@
-import { createPrivateKey, createSign } from "node:crypto"
+import { createPrivateKey, createSign, type KeyObject } from "node:crypto"
 
 import type { GitHubAppJwtSigner } from "./types.ts"
 
@@ -6,9 +6,11 @@ function base64Url(value: Buffer | string) {
   return Buffer.from(value).toString("base64url")
 }
 
-export function createGitHubAppJwtSigner(privateKey: string): GitHubAppJwtSigner {
-  if (!privateKey.trim()) throw new Error("GitHub App private key is required.")
-  const key = createPrivateKey(privateKey)
+export function createGitHubAppJwtSigner(privateKey: string | KeyObject): GitHubAppJwtSigner {
+  if (typeof privateKey === "string" && !privateKey.trim()) {
+    throw new Error("GitHub App private key is required.")
+  }
+  const key = typeof privateKey === "string" ? createPrivateKey(privateKey) : privateKey
   return {
     sign({ appId, expiresAt, issuedAt }) {
       const header = base64Url(JSON.stringify({ alg: "RS256", typ: "JWT" }))

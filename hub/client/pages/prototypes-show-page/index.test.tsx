@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useLayoutEffect, useRef, useState } from "react"
 import { act, fireEvent, render, screen, within } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -750,6 +750,66 @@ describe("PrototypesShowPage()", () => {
     expect(new FormData(form).get("prototype[start_page]")).toBe("/#/activity?filter=mine")
     fireEvent.change(startPage, { target: { value: "" } })
     expect(new FormData(form).get("prototype[start_page]")).toBe("")
+  })
+
+  it("allows an immediate retry after a failed details save without duplicating a pending save", () => {
+    const onSaveDetails = vi.fn()
+    const error = "Could not save details"
+    const observed = { errorVisible: false, saveEnabled: false, name: "" }
+
+    function TestDialog({ saving, failed }: { saving: boolean; failed: boolean }) {
+      useLayoutEffect(() => {
+        if (!failed) return
+        const dialog = screen.getByRole("dialog")
+        const save = within(dialog).getByRole("button", { name: "Save details" })
+        observed.errorVisible = within(dialog).queryByText(error) !== null
+        observed.saveEnabled = !save.hasAttribute("disabled")
+        observed.name = within(dialog).getByRole<HTMLInputElement>("textbox", {
+          name: "Name",
+        }).value
+        if (observed.errorVisible && observed.saveEnabled) {
+          save.click()
+          save.click()
+        }
+      }, [failed])
+
+      return (
+        <PrototypeDescriptionDialog
+          data={PROTOTYPES_SHOW_PAGE_DATA}
+          editing
+          onEditingChange={vi.fn()}
+          onBranch={vi.fn()}
+          onClose={vi.fn()}
+          onSaveDetails={onSaveDetails}
+          savingDetails={saving}
+          detailsError={failed ? error : null}
+        />
+      )
+    }
+
+    const page = render(<TestDialog saving={false} failed={false} />, {
+      wrapper: HubThemeProvider,
+    })
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+      target: { value: "Updated prototype" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save details" }))
+    fireEvent.click(screen.getByRole("button", { name: "Save details" }))
+    expect(onSaveDetails).toHaveBeenCalledOnce()
+
+    page.rerender(<TestDialog saving failed={false} />)
+    expect(screen.getByRole("button", { name: "Save details" })).toBeDisabled()
+    fireEvent.submit(document.querySelector<HTMLFormElement>("#prototype-description-edit")!)
+    expect(onSaveDetails).toHaveBeenCalledOnce()
+
+    page.rerender(<TestDialog saving={false} failed />)
+    expect(observed).toEqual({ errorVisible: true, saveEnabled: true, name: "Updated prototype" })
+    expect(onSaveDetails).toHaveBeenCalledTimes(2)
+    expect(onSaveDetails).toHaveBeenLastCalledWith({
+      name: "Updated prototype",
+      description: PROTOTYPES_SHOW_PAGE_DATA.prototypeDescription,
+      startPage: PROTOTYPES_SHOW_PAGE_DATA.startPage,
+    })
   })
 
   it.each(["dismiss", "close", "backdrop"])("requests dialog dismissal through %s", (method) => {

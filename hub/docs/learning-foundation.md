@@ -14,7 +14,7 @@ Changing the active provider or its configuration digest makes the saved connect
 
 The GitHub App digest contains the stable App ID, organization login, and installation ID, but never signing material or an installation token. Rotating the App private key or changing a workload-backed signer does not change the connection identity. Changing the App, organization, or installation does. Installation removal and Copilot Requests permission denial are terminal refusals for that configuration; rate limits, network errors, and GitHub service failures remain transient failures. Hub never falls back to a personal credential mode.
 
-App JWT signing is an explicit integration boundary in code. The shipped runtime requires `GITHUB_APP_PRIVATE_KEY`. A future governed runtime composition can replace the signer with secret-store or workload-backed signing without exposing key material to the learning command.
+App JWT signing is an explicit integration boundary in code. The shipped runtime uses `GITHUB_APP_PRIVATE_KEY_BASE64`, or the `GITHUB_APP_PRIVATE_KEY` PEM override when set. A future governed runtime composition can replace the signer with secret-store or workload-backed signing without exposing key material to the learning command.
 
 Disconnecting removes the connection record and advances the generation. It does not remove the operator's credential source or any learning store.
 
@@ -25,6 +25,8 @@ Disconnecting removes the connection record and advances the generation. It does
 The repository learning integration supplies the persisted repository UUID and package scope `github.com/repositories/<repository-uuid>`. The store primitive creates `<root>/repositories/<repository-uuid>` with mode `0700` and writes the package's default `config.json` with mode `0600` only when it is absent. Existing configuration remains operator-owned.
 
 Decision commands use an existing store and never create one implicitly. The first complete review import prepares the store.
+
+When GitHub repository scoping first activates, previously authorized learning decisions and queued runs may finish writing to their original legacy repository's private store. The UUID-scoped store stays hidden and is never linked to a new ID-backed repository.
 
 ## Command boundary
 
@@ -50,7 +52,7 @@ Current product authorization has Hub members and Hub administrators but no repo
 
 The read response lists the ten newest persisted runs and decimal Copilot usage from runs started during the previous 30 days. It resolves every displayed package event against the current repository snapshot and shows the exact imported event body only when the event, episode, comment, Hub origin, and repository all match. Deleted comments remain visible as redacted evidence without text.
 
-Decision inputs follow the browser schema. Accept and reject require the exact reviewed digest; package `stale_review` failures return `409` rather than applying a changed suggestion. Reject and retire require a reason. Edited acceptance writes the proposed content to a private temporary file because command-line arguments must not carry review text. Successful and failed package decisions write typed security audits without storing content, evidence, or reasons.
+Decision inputs follow the browser schema. Accept and reject require the exact reviewed digest; package `stale_review` failures return `409` rather than applying a changed suggestion. If the repository becomes hidden while a decision runs, Hub returns a generic not-found response instead of exposing package-store failure details. Reject and retire require a reason. Edited acceptance writes the proposed content to a private temporary file because command-line arguments must not carry review text. Successful and failed package decisions write typed security audits without storing content, evidence, or reasons.
 
 The run endpoint requires a usable Copilot connection. It captures and digests one complete repeatable-read repository review snapshot, creates or reuses the repository's active run, writes its typed request audit, and enqueues one idempotent on-demand job. Enqueue failure marks a newly created run failed. A scheduled recovery sweep re-enqueues queued runs.
 
@@ -64,7 +66,7 @@ Soft deletion queues an idempotent package redaction job after the review transa
 | --- | --- |
 | `REPLICA_COPILOT_AUTHENTICATION` | Explicit provider: `github-app-installation` for organization billing, or `ambient-cli` / `environment-token` for local and compatibility use. There is no default or fallback. |
 | `GITHUB_APP_ID` | Stable GitHub App ID used by `github-app-installation`. This is the same Hub App integration identity, not a separate personal App. |
-| `GITHUB_APP_PRIVATE_KEY` | App signing key required by the shipped runtime. The signer remains replaceable in code for future governed runtime composition. |
+| `GITHUB_APP_PRIVATE_KEY_BASE64`, `GITHUB_APP_PRIVATE_KEY` | The App signing key as base64 or a PEM override. The signer remains replaceable in code for future governed runtime composition. |
 | `REPLICA_COPILOT_GITHUB_ORGANIZATION` | Organization billed for Copilot requests and shown in status and security audits. |
 | `REPLICA_COPILOT_GITHUB_INSTALLATION_ID` | Numeric installation ID for that organization. |
 | `REPLICA_COPILOT_TOKEN` | Required only with `environment-token`; used only for Copilot-backed package commands. Usage is attributed to the GitHub identity represented by this credential. |

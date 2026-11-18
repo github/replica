@@ -61,7 +61,7 @@ export function post(dependencies: LearningsRouteDependencies): RequestHandler {
         })
         return
       }
-      if (!(await dependencies.findRepository(repositoryId.data))) {
+      if (!(await dependencies.findRepository(initial, repositoryId.data))) {
         response.status(404).json({ code: "repository_not_found", error: "Repository not found." })
         return
       }

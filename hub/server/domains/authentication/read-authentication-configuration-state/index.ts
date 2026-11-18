@@ -1,4 +1,4 @@
-const githubKeys = ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "GITHUB_PROVIDER_REVISION"] as const
+import { readGitHubAppConfiguration } from "../read-github-app-configuration/index.ts"
 
 const entraKeys = [
   "ENTRA_OIDC_CLIENT_AUTHENTICATION",
@@ -15,13 +15,23 @@ export function readAuthenticationConfigurationState(environment: NodeJS.Process
   function configured(key: string) {
     return Boolean(environment[key]?.trim())
   }
-  const githubConfigured = githubKeys.some(configured)
+  const github = readGitHubAppConfiguration(environment)
+  const copilotOnlyApp =
+    environment.REPLICA_COPILOT_AUTHENTICATION?.trim() === "github-app-installation" &&
+    github.signIn === "not_configured" &&
+    !configured("GITHUB_APP_INSTALLATION_ID") &&
+    !configured("GITHUB_WEBHOOK_SECRET")
+  const githubStatus = copilotOnlyApp ? "not_configured" : github.status
+  const githubConfigured = githubStatus === "configured"
   const entraConfigured = entraKeys.some(configured)
   const localConfigured = environment.HUB_LOCAL_SIGN_IN?.trim() === "true"
   return {
     applicationOrigin: environment.HUB_APPLICATION_ORIGIN?.trim() || undefined,
     entraConfigured,
     githubConfigured,
+    githubProblems: copilotOnlyApp ? [] : github.problems,
+    githubSettingsPresent: githubStatus !== "not_configured",
+    githubStatus,
     localConfigured,
     providerConfigured: githubConfigured || entraConfigured || localConfigured,
     sharedConfigured: sharedKeys.some(configured),

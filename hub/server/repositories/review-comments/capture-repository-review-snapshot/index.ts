@@ -1,24 +1,24 @@
-import type { PrismaClient } from "../../../generated/prisma/client.ts"
+import type { Prisma } from "../../../generated/prisma/client.ts"
 import { reviewThreadInclude } from "../types.ts"
 
-export function captureRepositoryReviewSnapshotRecords(
-  database: Pick<PrismaClient, "$transaction">,
+export async function captureRepositoryReviewSnapshotRecords(
+  database: Pick<Prisma.TransactionClient, "repository" | "reviewThread">,
   repositoryId: string,
+  requireGitHubId: boolean,
 ) {
-  return database.$transaction(
-    async (transaction) => {
-      const repository = await transaction.repository.findFirst({
-        where: { id: repositoryId, removedAt: null },
-        select: { id: true, nameWithOwner: true },
-      })
-      if (!repository) return null
-      const threads = await transaction.reviewThread.findMany({
-        where: { repositoryId },
-        include: reviewThreadInclude,
-        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-      })
-      return { repository, threads }
+  const repository = await database.repository.findFirst({
+    where: {
+      id: repositoryId,
+      removedAt: null,
+      ...(requireGitHubId ? { githubRepositoryId: { not: null } } : {}),
     },
-    { isolationLevel: "RepeatableRead" },
-  )
+    select: { id: true, nameWithOwner: true },
+  })
+  if (!repository) return null
+  const threads = await database.reviewThread.findMany({
+    where: { repositoryId },
+    include: reviewThreadInclude,
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+  })
+  return { repository, threads }
 }

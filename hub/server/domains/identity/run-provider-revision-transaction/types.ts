@@ -37,6 +37,7 @@ export interface ProviderRevisionRepositories {
 }
 
 export interface AuthenticationProviderReconciliationRepositories extends ProviderRevisionRepositories {
+  activateGitHubRepositoryScoping(): Promise<void>
   disconnectCopilotConnectionWithoutEffectiveAdministrator(): Promise<{
     connectionId: string
     credentialProvider: string

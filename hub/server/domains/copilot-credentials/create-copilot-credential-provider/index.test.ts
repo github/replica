@@ -42,6 +42,35 @@ describe("createCopilotCredentialProvider()", () => {
     await expect(provider.getCredential()).resolves.toEqual({ githubToken: "credential" })
   })
 
+  it("ignores shared repository App settings outside the App-installation provider", async () => {
+    const shared = {
+      GITHUB_APP_ID: "123",
+      GITHUB_APP_PRIVATE_KEY_BASE64: Buffer.from(privateKey()).toString("base64"),
+    }
+    const cases = [
+      { environment: {}, key: "unconfigured", credential: null },
+      {
+        environment: { REPLICA_COPILOT_AUTHENTICATION: "ambient-cli" },
+        key: "ambient_cli",
+        credential: {},
+      },
+      {
+        environment: {
+          REPLICA_COPILOT_AUTHENTICATION: "environment-token",
+          REPLICA_COPILOT_TOKEN: "credential",
+        },
+        key: "environment_token",
+        credential: { githubToken: "credential" },
+      },
+    ]
+
+    for (const { environment, key, credential } of cases) {
+      const provider = createCopilotCredentialProvider({ ...shared, ...environment })
+      expect(provider.key).toBe(key)
+      await expect(provider.getCredential()).resolves.toEqual(credential)
+    }
+  })
+
   it("supports an explicitly selected GitHub App installation provider", () => {
     const provider = createCopilotCredentialProvider({
       REPLICA_COPILOT_AUTHENTICATION: "github-app-installation",
@@ -63,7 +92,8 @@ describe("createCopilotCredentialProvider()", () => {
 
   it.each([
     [{ REPLICA_COPILOT_TOKEN: "credential" }, /AUTHENTICATION=environment-token/],
-    [{ GITHUB_APP_ID: "123" }, /AUTHENTICATION=github-app-installation/],
+    [{ GITHUB_APP_PRIVATE_KEY: "partial" }, /AUTHENTICATION=github-app-installation/],
+    [{ REPLICA_COPILOT_GITHUB_ORGANIZATION: "github" }, /AUTHENTICATION=github-app-installation/],
     [{ REPLICA_COPILOT_AUTHENTICATION: "environment-token" }, /REPLICA_COPILOT_TOKEN is required/],
     [
       {
@@ -75,7 +105,7 @@ describe("createCopilotCredentialProvider()", () => {
     [
       {
         REPLICA_COPILOT_AUTHENTICATION: "ambient-cli",
-        GITHUB_APP_ID: "123",
+        GITHUB_APP_PRIVATE_KEY: "partial",
       },
       /must be unset/,
     ],

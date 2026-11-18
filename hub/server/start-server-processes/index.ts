@@ -5,6 +5,8 @@ import type { AuthenticationRouteDependencies } from "../routes/api/auth/types.t
 import type { CopilotConnectionRouteDependencies } from "../routes/api/copilot-connection/types.ts"
 import type { LearningsRouteDependencies } from "../routes/api/learnings/types.ts"
 import type { ProductRouteDependencies } from "../routes/api/product/types.ts"
+import type { GitHubWebhookRouteDependencies } from "../routes/api/github/webhooks/types.ts"
+import type { GitHubSetupRouteDependencies } from "../routes/api/settings/github/types.ts"
 import { runApi } from "../run-api/index.ts"
 import { jobProcessors } from "../workers/configuration.ts"
 import { runJobWorker } from "../workers/run-job-worker/index.ts"
@@ -23,6 +25,8 @@ export async function startServerProcesses(options: {
   copilotConnection?: CopilotConnectionRouteDependencies
   learnings?: LearningsRouteDependencies
   product?: ProductRouteDependencies
+  githubSetup?: GitHubSetupRouteDependencies
+  githubWebhooks?: GitHubWebhookRouteDependencies
   trustedProxyHops?: number
 }) {
   const controller = new AbortController()

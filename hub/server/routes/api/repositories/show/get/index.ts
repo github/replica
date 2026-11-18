@@ -5,6 +5,7 @@ import { hubSessionCookieName } from "../../../../../integrations/express/hub-se
 import { readCookie } from "../../../../../integrations/express/read-cookie/index.ts"
 import type { CurrentSessionDependencies } from "../../../auth/types.ts"
 import { readProductSession } from "../../../product/read-product-session/index.ts"
+import { readProductWithCurrentAuthority } from "../../../product/read-product-with-current-authority/index.ts"
 import type { ProductRouteDependencies } from "../../../product/types.ts"
 
 // Reject malformed filters instead of quietly showing a different index.
@@ -42,16 +43,18 @@ export function get(
         return
       }
       const { q = "", author = "", page = "1" } = query.data
-      const index = await product.findRepositoryIndex(repositoryId.data, {
-        query: q.trim(),
-        authorId: author === "me" ? initial.userId : author || null,
-        page: Number(page),
-      })
-      const current = await readProductSession(cookie, session)
-      if (!current || current.membershipId !== initial.membershipId) {
+      const read = await readProductWithCurrentAuthority(initial, cookie, session, (viewer) =>
+        product.findRepositoryIndex(viewer, repositoryId.data, {
+          query: q.trim(),
+          authorId: author === "me" ? viewer.userId : author || null,
+          page: Number(page),
+        }),
+      )
+      if (!read) {
         response.status(401).json({ error: "Sign in to continue." })
         return
       }
+      const index = read.result
       if (!index) {
         response.status(404).json({ error: "Repository not found." })
         return

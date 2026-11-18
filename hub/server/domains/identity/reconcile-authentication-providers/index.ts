@@ -174,6 +174,9 @@ export async function reconcileAuthenticationProviders(
               })
             }
           }
+          if (configuredKeys.has("github")) {
+            await repositories.activateGitHubRepositoryScoping()
+          }
           const disconnected =
             await repositories.disconnectCopilotConnectionWithoutEffectiveAdministrator()
           if (disconnected) {

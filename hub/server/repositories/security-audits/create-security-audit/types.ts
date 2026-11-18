@@ -135,6 +135,7 @@ export interface AdmissionDeniedAudit extends SecurityAuditEvent {
     | "membership_missing"
     | "provider_evidence_missing"
     | "provider_evidence_stale"
+    | "no_repository_access"
 }
 
 export interface AdmissionFailedAudit extends SecurityAuditEvent {
@@ -207,6 +208,12 @@ export interface SessionRevocationAdvancedAudit extends SecurityAuditEvent {
   revision: number
 }
 
+export interface GitHubAppConnectionTestedAudit extends SecurityAuditEvent {
+  type: "github_app_connection_tested"
+  actorMembershipId: string | null
+  failedChecks: string[]
+}
+
 export interface CopilotConnectionAudit extends SecurityAuditEvent {
   type: "copilot_connection"
   actorMembershipId: string | null
@@ -268,3 +275,4 @@ export type CreateSecurityAuditEvent =
   | SessionRevocationAdvancedAudit
   | LearningDecisionAudit
   | LearningRunAudit
+  | GitHubAppConnectionTestedAudit

@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from "node:crypto"
 import { describe, expect, it } from "vitest"
 
 import { resolveLocalSignInEnvironment } from "."
@@ -34,6 +35,39 @@ describe("resolveLocalSignInEnvironment()", () => {
     ).toThrow(
       "HUB_LOCAL_SIGN_IN cannot be combined with GitHub or Entra settings. Remove those settings to use local sign-in, or run npm run dev:api:live to use a configured provider.",
     )
+  })
+
+  it("allows local sign-in alongside a Copilot-only App", () => {
+    const pem = generateKeyPairSync("rsa", { modulusLength: 2048 })
+      .privateKey.export({ format: "pem", type: "pkcs8" })
+      .toString()
+    for (const key of [
+      { GITHUB_APP_PRIVATE_KEY: pem },
+      { GITHUB_APP_PRIVATE_KEY_BASE64: Buffer.from(pem).toString("base64") },
+    ]) {
+      const resolved = resolveLocalSignInEnvironment({
+        ...localEnvironment,
+        REPLICA_COPILOT_AUTHENTICATION: "github-app-installation",
+        GITHUB_APP_ID: "123",
+        REPLICA_COPILOT_GITHUB_INSTALLATION_ID: "456",
+        REPLICA_COPILOT_GITHUB_ORGANIZATION: "github",
+        ...key,
+      })
+
+      expect(resolved.HUB_APPLICATION_ORIGIN).toBe("http://127.0.0.1:5173")
+      expect(resolved.GITHUB_APP_ID).toBe("123")
+    }
+  })
+
+  it("still refuses actual GitHub repository setup alongside Copilot", () => {
+    expect(() =>
+      resolveLocalSignInEnvironment({
+        ...localEnvironment,
+        REPLICA_COPILOT_AUTHENTICATION: "github-app-installation",
+        GITHUB_APP_ID: "123",
+        GITHUB_APP_INSTALLATION_ID: "456",
+      }),
+    ).toThrow(/cannot be combined with GitHub or Entra settings/)
   })
 
   it("refuses an application origin that other machines can reach", () => {

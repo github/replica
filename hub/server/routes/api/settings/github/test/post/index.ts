@@ -1,0 +1,93 @@
+import { createHash } from "node:crypto"
+import type { RequestHandler } from "express"
+
+import { AdmissionAuthorityChangedError } from "../../../../../../domains/admission/errors.ts"
+import { GitHubProviderRequestError } from "../../../../../../integrations/github/errors.ts"
+import { authorizeGitHubSetup } from "../../authorize-github-setup/index.ts"
+import { recheckGitHubSetupAuthority } from "../../recheck-github-setup-authority/index.ts"
+import type { GitHubConnectionCheck } from "../../../../../../integrations/github/test-github-app-connection/types.ts"
+import type { GitHubSetupCaller, GitHubSetupRouteDependencies } from "../../types.ts"
+
+const listedNames = 5
+
+/** Syncs the installation's repositories. A failed sync keeps the existing list. */
+async function syncRepositoriesCheck(
+  dependencies: GitHubSetupRouteDependencies,
+  caller: GitHubSetupCaller,
+): Promise<GitHubConnectionCheck> {
+  let names: string[]
+  try {
+    names = await dependencies.syncRepositories(caller)
+  } catch (error) {
+    if (!(error instanceof GitHubProviderRequestError)) throw error
+    return {
+      name: "repositories",
+      result: "unknown",
+      detail: "GitHub could not list the installation's repositories. The previous list is kept.",
+    }
+  }
+  if (!names.length) {
+    return {
+      name: "repositories",
+      result: "fail",
+      detail:
+        "The App cannot read any repositories. Choose repositories in the installation settings.",
+    }
+  }
+  const shown = names.slice(0, listedNames).join(", ")
+  const more = names.length > listedNames ? `, and ${names.length - listedNames} more` : ""
+  return {
+    name: "repositories",
+    result: "pass",
+    detail: `Hub can read ${names.length} ${names.length === 1 ? "repository" : "repositories"}: ${shown}${more}.`,
+  }
+}
+
+export function post(dependencies: GitHubSetupRouteDependencies): RequestHandler {
+  return async (request, response, next) => {
+    try {
+      const access = await authorizeGitHubSetup(request, response, dependencies)
+      if (!access) return
+      const subjectDigest = createHash("sha256")
+        .update(["github_test", access.membershipId ?? request.ip ?? "unknown"].join(":"))
+        .digest("hex")
+      if (!(await dependencies.checkRateLimit("github_test", subjectDigest))) {
+        response.status(429).json({ error: "Too many connection tests. Try again in a minute." })
+        return
+      }
+      const checks = await dependencies.testConnection()
+      if (!checks) {
+        response.status(409).json({
+          error: "Add every GitHub App setting and restart Hub before testing the connection.",
+        })
+        return
+      }
+      if (
+        checks.some((check) => check.name === "installation" && check.result === "pass") &&
+        !checks.some((check) => check.name === "app_identity" && check.result === "fail")
+      ) {
+        try {
+          checks.push(await syncRepositoriesCheck(dependencies, access))
+        } catch (error) {
+          if (!(error instanceof AdmissionAuthorityChangedError)) throw error
+          response.status(403).json({
+            error: "Administrator access is required.",
+            requires: "administrator",
+          })
+          return
+        }
+      }
+      // The callback URL check is always advisory; any other unverified check is not a success.
+      await dependencies.writeTestAudit({
+        actorMembershipId: access.membershipId,
+        failedChecks: checks
+          .filter((check) => check.result !== "pass" && check.name !== "callback_url")
+          .map((check) => check.name),
+      })
+      if (!(await recheckGitHubSetupAuthority(request, response, dependencies, access))) return
+      response.json({ checks })
+    } catch (error) {
+      next(error)
+    }
+  }
+}

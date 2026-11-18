@@ -5,6 +5,7 @@ import { hubSessionCookieName } from "../../../../../integrations/express/hub-se
 import { readCookie } from "../../../../../integrations/express/read-cookie/index.ts"
 import type { CurrentSessionDependencies } from "../../../auth/types.ts"
 import { readProductSession } from "../../../product/read-product-session/index.ts"
+import { readProductWithCurrentAuthority } from "../../../product/read-product-with-current-authority/index.ts"
 import type { ProductRouteDependencies } from "../../../product/types.ts"
 
 const querySchema = z
@@ -46,16 +47,18 @@ export function get(
           return
         }
       }
-      const result = await product.findRepositoryAuthors(repositoryId.data, {
-        viewerId: initial.userId,
-        query: (query.data.q ?? "").trim(),
-        after,
-      })
-      const current = await readProductSession(cookie, session)
-      if (!current || current.membershipId !== initial.membershipId) {
+      const read = await readProductWithCurrentAuthority(initial, cookie, session, (viewer) =>
+        product.findRepositoryAuthors(viewer, repositoryId.data, {
+          viewerId: viewer.userId,
+          query: (query.data.q ?? "").trim(),
+          after,
+        }),
+      )
+      if (!read) {
         response.status(401).json({ error: "Sign in to continue." })
         return
       }
+      const result = read.result
       if (!result) {
         response.status(404).json({ error: "Repository not found." })
         return

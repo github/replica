@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient } from "../../../generated/prisma/client.ts"
 import { containsText } from "../contains-text/index.ts"
 import { reviewablePrototypeWhere } from "../reviewable-prototype-where/index.ts"
+import { type RepositoryScope, visibleRepositoryWhere } from "../visible-repository-where/index.ts"
 
 const pageSize = 20
 
@@ -18,9 +19,10 @@ export async function findRepositoryAuthors(
   database: Pick<PrismaClient, "repository" | "user">,
   repositoryId: string,
   filters: RepositoryAuthorsFilters,
+  scope: RepositoryScope = null,
 ) {
   const repository = await database.repository.findFirst({
-    where: { id: repositoryId, removedAt: null },
+    where: { id: repositoryId, ...visibleRepositoryWhere(scope) },
     select: { id: true, defaultBranch: true },
   })
   if (!repository) return null
@@ -49,6 +51,15 @@ export async function findRepositoryAuthors(
     take: pageSize + 1,
     select: { id: true, profile: { select: { login: true, name: true, provider: true } } },
   })
+  const currentRepository = await database.repository.findFirst({
+    where: {
+      id: repositoryId,
+      defaultBranch: repository.defaultBranch,
+      ...visibleRepositoryWhere(scope),
+    },
+    select: { id: true },
+  })
+  if (!currentRepository) return null
   const authors = rows
     .slice(0, pageSize)
     .flatMap(({ id, profile }) => (profile ? [{ id, ...profile, avatarUrl: null }] : []))
