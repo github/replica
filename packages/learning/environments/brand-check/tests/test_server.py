@@ -1,4 +1,5 @@
 import asyncio
+import ast
 import contextlib
 import importlib
 import importlib.util
@@ -116,6 +117,57 @@ def load_trainer(auto_model):
 
 
 class TrainerTest(unittest.TestCase):
+    def test_training_averages_each_task_surrogate_over_its_labeled_questions(self):
+        source = Path(__file__).parent.parent / "examples" / "train_d1_omni.py"
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        assignments = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "surrogate"
+                for target in node.targets
+            )
+        ]
+
+        self.assertEqual(len(assignments), 1)
+        reduction = assignments[0].value
+        self.assertIsInstance(reduction, ast.Call)
+        self.assertIsInstance(reduction.func, ast.Attribute)
+        self.assertEqual(reduction.func.attr, "mean")
+
+    def test_output_writers_do_not_follow_existing_destination_symlinks(self):
+        trainer = load_trainer(object())
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        directory = Path(temporary.name)
+        target = directory / "target"
+        target.write_text("keep", encoding="utf-8")
+
+        checkpoint = directory / "best.pt"
+        checkpoint.symlink_to(target)
+        trainer.torch.save = lambda _state, path: Path(path).write_text(
+            "checkpoint", encoding="utf-8"
+        )
+        trainer.save_private({}, checkpoint)
+        self.assertFalse(checkpoint.is_symlink())
+        self.assertEqual(checkpoint.read_text(encoding="utf-8"), "checkpoint")
+        self.assertEqual(target.read_text(encoding="utf-8"), "keep")
+
+        report = directory / "report.json"
+        report.symlink_to(target)
+        trainer.write_private(report, '{"ok": true}')
+        self.assertFalse(report.is_symlink())
+        self.assertEqual(report.read_text(encoding="utf-8"), '{"ok": true}')
+        self.assertEqual(target.read_text(encoding="utf-8"), "keep")
+
+        log = directory / "train.jsonl"
+        log.symlink_to(target)
+        with self.assertRaises(FileExistsError):
+            trainer.open_private(log)
+        self.assertTrue(log.is_symlink())
+        self.assertEqual(target.read_text(encoding="utf-8"), "keep")
+
     def test_image_decode_enforces_pixel_budgets_before_rgb_conversion(self):
         trainer = load_trainer(object())
         cases = {
@@ -135,6 +187,76 @@ class TrainerTest(unittest.TestCase):
 
                 for image in images:
                     image.convert.assert_not_called()
+
+    def test_training_preflights_each_task_pixel_budget_before_model_or_output_work(self):
+        trainer = load_trainer(object())
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        output = Path(temporary.name) / "run"
+        task_id = "task_00000000000000000000002a"
+        image = types.SimpleNamespace(path="large.png", name="large.png")
+        task = types.SimpleNamespace(id=task_id, images=[image])
+        taskset = types.SimpleNamespace(
+            by_split={"train": [task], "dev": [task], "test": []},
+            by_id={task_id: task},
+        )
+        decoded = mock.MagicMock()
+        decoded.__enter__.return_value = types.SimpleNamespace(width=10_000, height=6_000)
+
+        import replica_brand_check
+        import replica_brand_check.taskset
+
+        replica_brand_check.__dict__["BrandCheckAction"] = object
+        replica_brand_check.__dict__["BrandCheckEnv"] = object
+        self.addCleanup(replica_brand_check.__dict__.pop, "BrandCheckAction", None)
+        self.addCleanup(replica_brand_check.__dict__.pop, "BrandCheckEnv", None)
+        trainer.Policy = mock.Mock()
+        trainer.Image = types.SimpleNamespace(open=mock.Mock(return_value=decoded))
+
+        with mock.patch.object(
+            replica_brand_check.taskset, "load_taskset", return_value=taskset
+        ), self.assertRaisesRegex(ValueError, rf"Task {task_id} images have 60000000 pixels"):
+            trainer.train(types.SimpleNamespace(taskset="taskset", out=str(output)))
+
+        trainer.Policy.assert_not_called()
+        self.assertFalse(output.exists())
+
+    def test_evaluation_loads_checkpoints_as_weights_only(self):
+        trainer = load_trainer(object())
+        task = types.SimpleNamespace(id="task_000000000000000000000001")
+        taskset = types.SimpleNamespace(
+            by_split={"train": [], "dev": [], "test": [task]},
+            by_id={task.id: task},
+        )
+
+        import replica_brand_check
+        import replica_brand_check.taskset
+
+        replica_brand_check.__dict__["BrandCheckEnv"] = object
+        self.addCleanup(replica_brand_check.__dict__.pop, "BrandCheckEnv", None)
+        trainer.preflight_task_images = mock.Mock()
+        trainer.private_output_directory = mock.Mock(return_value=Path("unused"))
+        trainer.torch.load = mock.Mock(return_value={"part": "readout"})
+
+        class PolicyReached(Exception):
+            pass
+
+        trainer.Policy = mock.Mock(side_effect=PolicyReached)
+        args = types.SimpleNamespace(
+            taskset="taskset",
+            split="test",
+            out="unused",
+            trained="checkpoint.pt",
+            model="model",
+        )
+        with mock.patch.object(
+            replica_brand_check.taskset, "load_taskset", return_value=taskset
+        ), self.assertRaises(PolicyReached):
+            trainer.run_evaluate(args)
+
+        trainer.torch.load.assert_called_once_with(
+            "checkpoint.pt", map_location="cpu", weights_only=True
+        )
 
     def test_readout_scaling_uses_population_spread_for_one_observation(self):
         trainer = load_trainer(object())

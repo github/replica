@@ -142,6 +142,60 @@ describe("export completeness certificates", () => {
     }
   })
 
+  it("leaves completeness certificates empty for learnings-only exports", async () => {
+    const stored = createInMemoryProvider()
+    let rejectCertificateScans = false
+    let eventFilterCalls = 0
+    let certificateScans = 0
+    function watched(records) {
+      return new Proxy(records, {
+        get(target, property, receiver) {
+          if (property !== "filter") return Reflect.get(target, property, receiver)
+          return (predicate, ...rest) => {
+            eventFilterCalls += 1
+            const source = String(predicate)
+            if (source.includes("payload") && source.includes("role") && source.includes("root")) {
+              certificateScans += 1
+              throw new Error("completeness certificate scan reached")
+            }
+            return watched(target.filter(predicate, ...rest))
+          }
+        },
+      })
+    }
+    const provider = {
+      ...stored,
+      async readRecords(stream, query) {
+        const records = await stored.readRecords(stream, query)
+        if (stream !== "events" || !rejectCertificateScans) return records
+        return watched(records)
+      },
+    }
+    const store = await createLearningStore({ provider, clock: () => NOW })
+    try {
+      const grant = await store.addGrant(PERSON, {
+        purposes: ["review"],
+        sources: ["hub_review_comments"],
+        basis: "The team agreed to review its Hub comments.",
+      })
+      await store.importHubReviewComments(AGENT, weekOneLog(), { grantIds: [grant.id] })
+      rejectCertificateScans = true
+      const exported = await store.exportRecords(PERSON, {
+        purpose: "review",
+        destination: "learnings-only.json",
+        contents: "learnings",
+      })
+
+      assert.deepEqual(exported.manifest.completeEpisodeIds, [])
+      assert.deepEqual(exported.manifest.completeViews, [])
+      assert.deepEqual(exported.manifest.completePrototypes, [])
+      assert.ok(eventFilterCalls > 0)
+      assert.equal(certificateScans, 0)
+    } finally {
+      await store.close()
+    }
+  })
+
   it("withholds certificates for unavailable current events but permits safe omissions", async () => {
     const cases = [
       {

@@ -169,7 +169,10 @@ async function readImage(source) {
     return { bytes: await readFile(source), mediaType, extension }
   } catch (error) {
     if (error instanceof LearningError) throw error
-    throw new LearningError("not_found", `Cannot read ${source} (${error.code ?? error.message}).`)
+    throw new LearningError(
+      "not_found",
+      `Cannot read ${JSON.stringify(source)} (${error.code ?? error.message}).`,
+    )
   }
 }
 
@@ -188,7 +191,7 @@ async function resolveWithinBase(baseDirectory, candidate) {
   } catch (error) {
     throw new LearningError(
       "not_found",
-      `Cannot read screenshot ${candidate} (${error.code ?? error.message}).`,
+      `Cannot read screenshot ${JSON.stringify(candidate)} (${error.code ?? error.message}).`,
     )
   }
   if (leaves(root, canonical))

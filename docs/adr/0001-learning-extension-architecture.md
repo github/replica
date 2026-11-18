@@ -2,7 +2,7 @@
 
 Status: proposed on October 6, 2026, and revised on October 10, 2026 to follow the requirements the Replica maintainers agreed on. Needs review by the Replica maintainers.
 
-The learning package, providers, CLI, and demos implement the host-neutral parts of this architecture. Integration with the [new Hub](../../hub/README.md) is a later TypeScript layer; Hub does not yet run the learning loop.
+The learning package, providers, CLI, and demos implement the host-neutral parts of this architecture. The [new Hub](../../hub/README.md) runs that package through a bounded TypeScript process boundary for review imports, labeling, consolidation, decisions, recall, and redaction. Decision-model integration remains a later layer.
 
 ## Context
 
@@ -96,7 +96,7 @@ Each import records whether every list page and reply page was present. The impo
 
 ### Integration with Hub
 
-The new TypeScript Hub will integrate through the package's public command and contract boundaries in a later layer. That work must choose Hub-owned persistence and execution, import complete review snapshots, serialize imports and redactions for one repository, authenticate every human decision, and keep the package's consent and evidence rules intact. This ADR does not prescribe Hub routes, database models, jobs, or storage.
+The new TypeScript Hub integrates through the package's public command and contract boundaries. Hub owns private store placement and job execution, imports complete review snapshots, serializes imports and redactions for one repository, authenticates every human decision, and keeps the package's consent and evidence rules intact. [Learning foundation](../../hub/docs/learning-foundation.md) owns the Hub routes, database models, jobs, and storage boundary.
 
 The package can label through the [Copilot SDK](https://github.com/github/copilot-sdk). Its session has no tools, refuses every permission request, treats comment text as untrusted data rather than instructions, and never sees who wrote a comment. Copilot chooses the model unless the store's configuration names one, and each run records the usage Copilot reports. Hub supplies only a currently usable configured credential.
 
@@ -108,7 +108,7 @@ Learning happens first in explicit, inspectable memory. A training-purpose expor
 
 ## Consequences
 
-- Teams can swap the provider, labeler, or consolidator by configuration without changing core logic. In a checkout, every step except labeling with Copilot works offline.
+- Hub runs the explicit learning loop through the package boundary. Teams can swap the provider, labeler, or consolidator by configuration without changing core logic. In a checkout, every step except labeling with Copilot works offline.
 - One damaged policy record blocks every learning operation until someone repairs it. That is deliberate; a store that keeps running on damaged consent records can restore permissions nobody granted.
 - Providers, labelers, and consolidators are trusted code. The store limits what they are given and re-checks what they return, but it does not sandbox them.
 - Inside a checkout, learning data and exports live only under `.replica/`, after following links, and only when Git ignores that exact path. The checkout root and names that merely start with two dots count as inside. Git ignoring a path is not enough, since a dev server or build may still serve it.
@@ -135,6 +135,6 @@ Learning happens first in explicit, inspectable memory. A training-purpose expor
 2. Complete the security review of the operator-provided Copilot token and subprocess boundary, and verify the deployed connection with a least-privileged token.
 3. Add scenario contracts, a scenario runner, and capture adapters. The event types for tool calls, voice turns, UI states, and agent-to-agent messages are already reserved.
 4. Add an experience approval record and a read-only conformance checker for shipped work.
-5. Add the new TypeScript Hub integration as an explicit layer over these contracts.
+5. Add the TypeScript Hub decision-model integration as an explicit layer over these contracts.
 6. Add serving and promotion interfaces for the decision-model environment proposed by [ADR 0002](0002-decision-model-and-rl-environment.md).
 7. Decide distribution: publish the package, or keep it as private repository source.

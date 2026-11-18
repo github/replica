@@ -432,14 +432,50 @@ describe("Hub review collections", () => {
       assert.notEqual(later[0].id, original.at(-1).id)
       assert.deepEqual(events(again, [...original, ...later]), [])
     }
-    // The same reviewer, now named by a stable ID, did not resolve it again.
+    // The same reviewer, now named by a stable ID, replaces the login-only status rather than
+    // recording another resolution.
     const resolvedAt = "2026-10-07T12:00:00.000000Z"
-    const adopted = events(resolvedBy(resolvedAt, "ben-manager", 43), [])
-    assert.deepEqual(events(resolvedBy(resolvedAt, "ben-manager", 43), original), [])
+    const stable = resolvedBy(resolvedAt, "ben-manager", 43)
+    const adoption = events(stable, original)
+    assert.deepEqual(
+      adoption.map((event) => event.type),
+      ["retraction", "status_change"],
+    )
+    assert.deepEqual(events(stable, [...original, ...adoption]), [])
     // A login given without the stable ID it had may now belong to someone else.
     assert.deepEqual(
-      events(resolvedBy(resolvedAt, "ben-manager"), adopted).map((event) => event.payload.by.id),
+      events(resolvedBy(resolvedAt, "ben-manager"), [...original, ...adoption]).map(
+        (event) => event.payload.by.id,
+      ),
       ["github:ben-manager"],
     )
+  })
+
+  it("keeps stable resolver adoption through a later login rename without another resolution", () => {
+    const first = read(weekOneLog())
+    const scope = { ...expected, host: "github.com" }
+    const episodeId = "ep_stableresolver1"
+    const thread = structuredClone(first.threads.find((item) => item.root.id === 103))
+    Object.assign(thread.root, {
+      resolvedAt: "2026-10-07T12:00:00.000000Z",
+      resolvedByLogin: "ben-manager",
+      resolvedByGithubId: undefined,
+    })
+    function events(current, existing) {
+      return hubThreadEvents({ meta: first.meta, thread: current, scope, episodeId, existing })
+    }
+
+    const original = events(thread, [])
+    const adoptedThread = structuredClone(thread)
+    adoptedThread.root.resolvedByGithubId = 43
+    const adoption = events(adoptedThread, original)
+    const renamedThread = structuredClone(adoptedThread)
+    renamedThread.root.resolvedByLogin = "ben-lead"
+
+    assert.deepEqual(
+      adoption.map((event) => event.type),
+      ["retraction", "status_change"],
+    )
+    assert.deepEqual(events(renamedThread, [...original, ...adoption]), [])
   })
 })
