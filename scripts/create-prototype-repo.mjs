@@ -10,7 +10,7 @@ function stat(path) {
   try {
     return lstatSync(path)
   } catch (error) {
-    if (error.code !== "ENOENT") throw error
+    if (error.code !== "ENOENT" && error.code !== "ENOTDIR") throw error
   }
 }
 
