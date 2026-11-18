@@ -1019,18 +1019,24 @@ def _backend_process(
             max_updates=max_updates,
             deadline=deadline,
         )
-        send.send(("ok", result))
+        try:
+            send.send(("ok", result))
+        except (BrokenPipeError, OSError):
+            pass
     except Exception as error:
-        send.send(
-            (
-                "error",
+        try:
+            send.send(
                 (
-                    error.code if isinstance(error, RuntimeFailure) else "backend_failed",
-                    str(error),
-                    error.status if isinstance(error, RuntimeFailure) else 500,
-                ),
+                    "error",
+                    (
+                        error.code if isinstance(error, RuntimeFailure) else "backend_failed",
+                        str(error),
+                        error.status if isinstance(error, RuntimeFailure) else 500,
+                    ),
+                )
             )
-        )
+        except (BrokenPipeError, OSError):
+            pass
     finally:
         send.close()
 

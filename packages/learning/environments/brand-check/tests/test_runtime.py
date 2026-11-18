@@ -40,14 +40,15 @@ class SlowBackend(FixtureBackend):
 class BlockingBackend(FixtureBackend):
     """A backend whose first job waits so a second job stays queued during close."""
 
-    def __init__(self):
-        context = multiprocessing.get_context("fork")
-        self.started = context.Event()
-        self.release = context.Event()
+    def __init__(self, started: Path, release: Path):
+        self.started = started
+        self.release = release
 
     def train(self, *args, **kwargs):
-        self.started.set()
-        self.release.wait(5)
+        self.started.write_text("started", encoding="utf-8")
+        deadline = time.monotonic() + 5
+        while not self.release.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
         return super().train(*args, **kwargs)
 
 
@@ -231,7 +232,9 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(multiprocessing.active_children(), [])
 
     def test_close_cancels_queued_jobs_instead_of_starting_them(self):
-        backend = BlockingBackend()
+        started = self.taskset_dir.parent / "blocking-started"
+        release = self.taskset_dir.parent / "blocking-release"
+        backend = BlockingBackend(started, release)
         runtime = LocalRuntime(
             self.state_dir,
             self.taskset_dir,
@@ -239,12 +242,15 @@ class LocalRuntimeTest(unittest.TestCase):
             environment="test",
         )
         first = runtime.submit(backend="blocking", max_updates=1, max_seconds=5)
-        self.assertTrue(backend.started.wait(5))
+        deadline = time.monotonic() + 5
+        while not started.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(started.exists())
         second = runtime.submit(backend="blocking", max_updates=1, max_seconds=5)
         closing = threading.Thread(target=runtime.close)
         closing.start()
         time.sleep(0.05)
-        backend.release.set()
+        release.write_text("release", encoding="utf-8")
         closing.join(2)
         self.assertFalse(closing.is_alive())
         self.assertEqual(runtime.job(first["id"])["state"], "succeeded")
