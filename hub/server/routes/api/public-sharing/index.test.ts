@@ -204,13 +204,21 @@ describe("public sharing API", () => {
     sharing.revokeLink.mockResolvedValue(false)
 
     await withRoutes({ sharing }, async (baseUrl) => {
+      const repositoryId = randomUUID()
+      const prototypeId = randomUUID()
+      const publicId = randomUUID()
       const response = await fetch(
-        `${baseUrl}/api/repositories/${randomUUID()}/prototypes/${randomUUID()}/share-links/${randomUUID()}`,
+        `${baseUrl}/api/repositories/${repositoryId}/prototypes/${prototypeId}/share-links/${publicId}`,
         { method: "DELETE", headers: sessionHeaders() },
       )
 
       expect(response.status).toBe(404)
       expect(await response.json()).toEqual({ error: "Active share link not found." })
+      expect(sharing.revokeLink).toHaveBeenCalledWith({
+        repositoryId,
+        prototypeId,
+        publicId,
+      })
     })
   })
 

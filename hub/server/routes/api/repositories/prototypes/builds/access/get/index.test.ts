@@ -110,9 +110,9 @@ describe("get()", () => {
       const grant = readPreviewGrant(destination.searchParams.get("grant")!, preview.encryptionKey)
       expect(grant).toMatchObject({
         target: "preview",
-        route: "/checkout?step=shipping#address",
         sessionDigest: hashAuthenticationValue("member-session"),
       })
+      expect(destination.searchParams.get("route")).toBe("/checkout?step=shipping#address")
       expect(response.headers.get("cache-control")).toBe("no-store")
       expect(response.headers.get("referrer-policy")).toBe("no-referrer")
       const [repositoryId, prototypeId] = new URL(url).pathname.slice(1).split("/")
@@ -178,6 +178,26 @@ describe("get()", () => {
 
       expect(response.status).toBe(400)
       expect(response.headers.get("location")).toBeNull()
+    })
+  })
+
+  it("carries long valid routes outside the bounded encrypted grant", async () => {
+    await withAccessRoute(async (url, _product, preview) => {
+      const route = `/${"a".repeat(1500)}`
+      const request = new URL(url)
+      request.searchParams.set("target", "preview")
+      request.searchParams.set("route", route)
+      const response = await fetch(request, {
+        headers: { cookie: "hub_session=member-session" },
+        redirect: "manual",
+      })
+
+      expect(response.status).toBe(302)
+      const destination = new URL(response.headers.get("location")!)
+      expect(destination.searchParams.get("route")).toBe(route)
+      expect(
+        readPreviewGrant(destination.searchParams.get("grant")!, preview.encryptionKey),
+      ).toMatchObject({ target: "preview" })
     })
   })
 })

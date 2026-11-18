@@ -23,8 +23,10 @@ export async function readBuildPreviewFile(
       : requestPath === "/__replica/screenshots/narrow.png"
         ? "screenshots/narrow.png"
         : `dist${requestPath === "/" ? "/index.html" : requestPath}`
-  path = normalizeBuildArtifactPath(path) ?? ""
-  let artifact = path ? await dependencies.findArtifact(input.buildId, path) : null
+  const normalizedPath = normalizeBuildArtifactPath(path)
+  if (!normalizedPath) return { status: "not-found" }
+  path = normalizedPath
+  let artifact = await dependencies.findArtifact(input.buildId, path)
   if (!artifact && input.acceptsHtml && !requestPath.split("/").at(-1)?.includes(".")) {
     path = "dist/index.html"
     artifact = await dependencies.findArtifact(input.buildId, path)

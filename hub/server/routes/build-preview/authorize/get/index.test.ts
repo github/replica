@@ -130,4 +130,41 @@ describe("get()", () => {
       expect(findTargetById).not.toHaveBeenCalled()
     })
   })
+
+  it("validates and redirects to a deep route carried outside the grant", async () => {
+    await withAuthorizeRoute(async (origin, _dependencies, key, findTargetById) => {
+      const buildId = randomUUID()
+      findTargetById.mockResolvedValue({
+        buildId,
+        startPage: "/",
+        artifactPath: "dist/index.html",
+      })
+      const grant = createPreviewGrant(
+        {
+          buildId,
+          target: "preview",
+          expiresAt: new Date(Date.now() + 30_000),
+          sessionDigest: "a".repeat(64),
+        },
+        key,
+      )
+      const host = `${buildId}.preview.localhost:${new URL(origin).port}`
+
+      const valid = await request(
+        origin,
+        `/__replica/authorize?grant=${encodeURIComponent(grant)}&route=${encodeURIComponent("/checkout?step=shipping#address")}`,
+        host,
+      )
+      expect(valid.status).toBe(303)
+      expect(valid.headers.location).toBe("/checkout?step=shipping#address")
+
+      const unsafe = await request(
+        origin,
+        `/__replica/authorize?grant=${encodeURIComponent(grant)}&route=${encodeURIComponent("https://untrusted.example.com")}`,
+        host,
+      )
+      expect(unsafe.status).toBe(404)
+      expect(unsafe.headers["set-cookie"]).toBeUndefined()
+    })
+  })
 })

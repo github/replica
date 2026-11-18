@@ -14,7 +14,7 @@ export function get(
 ): RequestHandler {
   return async (request, response, next) => {
     try {
-      const buildId = readPreviewBuildId(request, preview.previewBaseOrigin)
+      const buildId = readPreviewBuildId(request.get("host"), preview.previewBaseOrigin)
       const value = typeof request.query.grant === "string" ? request.query.grant : ""
       const grant = readSharePreviewGrant(value, preview.encryptionKey)
       if (!buildId || !grant || grant.b !== buildId) {

@@ -14,6 +14,6 @@ if (process.env.ARTIFACT_STORAGE_PROVIDER === "filesystem") {
   process.env.ARTIFACT_STORAGE_DIRECTORY ??= resolve("storage/artifacts")
   await mkdir(process.env.ARTIFACT_STORAGE_DIRECTORY, { recursive: true })
 }
-process.env.HUB_PREVIEW_ORIGIN ??= "http://preview.localhost:3001"
+process.env.HUB_PREVIEW_ORIGIN ??= `http://preview.localhost:${process.env.PORT ?? "3001"}`
 
 await import("../../index.ts")

@@ -16,8 +16,9 @@ import { captureScreenshots } from "./index.mjs"
 describe("captureScreenshots()", () => {
   it("blocks prototype WebSocket connections during capture", async () => {
     let connected = false
-    const socketServer = createServer(() => {
+    const socketServer = createServer((socket) => {
       connected = true
+      socket.destroy()
     })
     socketServer.listen(0, "127.0.0.1")
     await new Promise((resolve) => socketServer.once("listening", resolve))
@@ -29,7 +30,11 @@ describe("captureScreenshots()", () => {
       await mkdir(path.join(root, "dist"))
       await writeFile(
         path.join(root, "dist/index.html"),
-        `<!doctype html><body><script>try { new WebSocket("ws://127.0.0.1:${address.port}") } catch { document.body.textContent = "blocked" }</script></body>`,
+        '<!doctype html><body><script>new Worker("/worker.js")</script></body>',
+      )
+      await writeFile(
+        path.join(root, "dist/worker.js"),
+        `new WebSocket("ws://127.0.0.1:${address.port}")`,
       )
 
       await captureScreenshots(root, screenshots)

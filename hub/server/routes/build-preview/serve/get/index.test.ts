@@ -290,6 +290,7 @@ describe("get()", () => {
           storageKey: "asset-key",
           byteLength: 2,
         })
+
         read.mockResolvedValue({
           status: "ok",
           bytes: Uint8Array.of(7, 8),
@@ -298,6 +299,41 @@ describe("get()", () => {
         const response = await request(origin, "/asset.bin", {
           ...requestHeaders(buildId, origin, `${shareCookie}; replica_preview=invalid`),
         })
+
+        expect(response.status).toBe(200)
+        expect(response.headers["cache-control"]).toBe("private, no-store")
+        expect(readAvailableShareLink).toHaveBeenCalledTimes(2)
+      },
+    )
+  })
+
+  it("falls back to a public session when a valid private cookie lost live authority", async () => {
+    await withServeRoute(
+      async ({
+        origin,
+        buildId,
+        cookie,
+        shareCookie,
+        restoreSession,
+        findArtifact,
+        read,
+        readAvailableShareLink,
+      }) => {
+        restoreSession.mockResolvedValue(null)
+        findArtifact.mockResolvedValue({
+          storageKey: "asset-key",
+          byteLength: 2,
+        })
+        read.mockResolvedValue({
+          status: "ok",
+          bytes: Uint8Array.of(7, 8),
+        })
+
+        const response = await request(
+          origin,
+          "/asset.bin",
+          requestHeaders(buildId, origin, `${cookie}; ${shareCookie}`),
+        )
 
         expect(response.status).toBe(200)
         expect(response.headers["cache-control"]).toBe("private, no-store")

@@ -165,8 +165,38 @@ describe("public sharing persistence", () => {
     await sharing.changeSettings("enable")
 
     await expect(
-      sharing.revokeLink({ prototypeId: fixture.prototype.id, publicId: randomUUID() }),
+      sharing.revokeLink({
+        repositoryId: fixture.repository.id,
+        prototypeId: fixture.prototype.id,
+        publicId: randomUUID(),
+      }),
     ).resolves.toBe(false)
+  })
+
+  it("does not revoke a link through another repository scope", async () => {
+    const fixture = await createFixture()
+    const sharing = await createPublicSharingRouteDependencies(environment)
+    await sharing.changeSettings("enable")
+    const link = await sharing.createLink({
+      buildNumber: fixture.build.number,
+      createdById: fixture.user.id,
+      createdByLogin: "octocat",
+      expiration: "seven_days",
+      label: "Repository scoped",
+      prototypeId: fixture.prototype.id,
+      repositoryId: fixture.repository.id,
+    })
+
+    await expect(
+      sharing.revokeLink({
+        repositoryId: randomUUID(),
+        prototypeId: fixture.prototype.id,
+        publicId: link.publicId,
+      }),
+    ).resolves.toBe(false)
+    await expect(sharing.readPublicLink(link.publicId)).resolves.toMatchObject({
+      state: "active",
+    })
   })
 
   it("rechecks link and policy availability after a public preview has already been prepared", async () => {
@@ -185,7 +215,11 @@ describe("public sharing persistence", () => {
     const prepared = await sharing.readPublicLink(link.publicId)
     expect(prepared).toMatchObject({ state: "active" })
 
-    await sharing.revokeLink({ prototypeId: fixture.prototype.id, publicId: link.publicId })
+    await sharing.revokeLink({
+      repositoryId: fixture.repository.id,
+      prototypeId: fixture.prototype.id,
+      publicId: link.publicId,
+    })
 
     await expect(sharing.readAvailableLink(link.id, fixture.build.id)).resolves.toBeNull()
     await expect(sharing.readAvailableLink(link.id, randomUUID())).resolves.toBeNull()

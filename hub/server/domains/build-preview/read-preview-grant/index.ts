@@ -9,7 +9,6 @@ const grantSchema = z
     t: z.enum(["preview", "desktop", "narrow"]),
     e: z.number().int().positive(),
     s: z.string().regex(/^[a-f0-9]{64}$/),
-    r: z.string().max(4096).optional(),
   })
   .strict()
 
@@ -22,7 +21,6 @@ export function readPreviewGrant(value: string, key: Buffer, now = new Date()) {
       target: grant.t,
       expiresAt: new Date(grant.e),
       sessionDigest: grant.s,
-      route: grant.r,
     }
   } catch {
     return null

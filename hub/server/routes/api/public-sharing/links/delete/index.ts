@@ -20,9 +20,10 @@ export function del(
         response.status(401).json({ error: "Sign in to continue." })
         return
       }
+      const repositoryId = z.uuid().safeParse(request.params.repositoryId)
       const prototypeId = z.uuid().safeParse(request.params.prototypeId)
       const publicId = z.uuid().safeParse(request.params.shareId)
-      if (!prototypeId.success || !publicId.success) {
+      if (!repositoryId.success || !prototypeId.success || !publicId.success) {
         response.status(400).json({ error: "Enter a valid share-link address." })
         return
       }
@@ -35,7 +36,13 @@ export function del(
         response.status(401).json({ error: "Sign in to continue." })
         return
       }
-      if (!(await sharing.revokeLink({ prototypeId: prototypeId.data, publicId: publicId.data }))) {
+      if (
+        !(await sharing.revokeLink({
+          repositoryId: repositoryId.data,
+          prototypeId: prototypeId.data,
+          publicId: publicId.data,
+        }))
+      ) {
         response.status(404).json({ error: "Active share link not found." })
         return
       }

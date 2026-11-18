@@ -51,4 +51,21 @@ describe("local API startup", () => {
       directory: undefined,
     })
   })
+
+  it("derives the preview origin from a custom API port", async () => {
+    vi.resetModules()
+    vi.stubEnv("PORT", "4101")
+    vi.stubEnv("HUB_PREVIEW_ORIGIN", undefined)
+    const start = vi.fn()
+    vi.doMock("../../index.ts", () => {
+      start({ previewOrigin: process.env.HUB_PREVIEW_ORIGIN })
+      return {}
+    })
+
+    await import(".")
+
+    expect(start).toHaveBeenCalledExactlyOnceWith({
+      previewOrigin: "http://preview.localhost:4101",
+    })
+  })
 })

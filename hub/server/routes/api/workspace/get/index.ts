@@ -9,6 +9,7 @@ import type { ProductRouteDependencies } from "../../product/types.ts"
 export function get(
   session: CurrentSessionDependencies,
   product: ProductRouteDependencies,
+  manageSharing = false,
 ): RequestHandler {
   return async (request, response, next) => {
     try {
@@ -36,7 +37,7 @@ export function get(
         capabilities: {
           createPrototypes: false,
           reviewPrototypes: current.provider === "local",
-          manageSharing: current.provider === "local",
+          manageSharing: current.provider === "local" && manageSharing,
           administerHub: current.role === "ADMINISTRATOR",
         },
       })

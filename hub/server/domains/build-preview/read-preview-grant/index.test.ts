@@ -29,7 +29,6 @@ describe("readPreviewGrant()", () => {
       buildId,
       target: "desktop",
       expiresAt,
-      route: undefined,
       sessionDigest: "a".repeat(64),
     })
   })

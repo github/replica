@@ -76,12 +76,14 @@ export function get(
           target: query.data.target,
           expiresAt: new Date(Date.now() + 30_000),
           sessionDigest: hashAuthenticationValue(cookie),
-          route: query.data.target === "preview" ? requestedRoute : undefined,
         },
         preview.encryptionKey,
       )
       const destination = new URL("/__replica/authorize", previewOrigin)
       destination.searchParams.set("grant", grant)
+      if (query.data.target === "preview" && requestedRoute) {
+        destination.searchParams.set("route", requestedRoute)
+      }
       response.setHeader("Cache-Control", "no-store")
       response.setHeader("Referrer-Policy", "no-referrer")
       response.redirect(302, destination.toString())

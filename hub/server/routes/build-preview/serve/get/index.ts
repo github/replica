@@ -38,7 +38,7 @@ function setSecurityHeaders(
 export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler {
   return async (request, response, next) => {
     try {
-      const buildId = readPreviewBuildId(request, dependencies.previewBaseOrigin)
+      const buildId = readPreviewBuildId(request.get("host"), dependencies.previewBaseOrigin)
       if (!buildId) {
         next()
         return
@@ -49,15 +49,15 @@ export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler
       const shareValue = readCookie(request, "replica_share_preview")
       const shareSession =
         shareValue && readSharePreviewSession(shareValue, buildId, dependencies.encryptionKey)
-      const publicLink =
-        !authenticated && shareSession && dependencies.readAvailableShareLink
-          ? await dependencies.readAvailableShareLink(shareSession.s, buildId)
-          : null
       const privateAuthorized =
         authenticated &&
         dependencies.restoreSession &&
         (await dependencies.restoreSession(authenticated.s)) &&
         (await dependencies.findTargetById(buildId, "preview"))
+      const publicLink =
+        !privateAuthorized && shareSession && dependencies.readAvailableShareLink
+          ? await dependencies.readAvailableShareLink(shareSession.s, buildId)
+          : null
       if (!privateAuthorized && !publicLink) {
         response.status(404).end()
         return

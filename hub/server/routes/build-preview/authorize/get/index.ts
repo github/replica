@@ -4,16 +4,25 @@ import { createPreviewSession } from "../../../../domains/build-preview/create-p
 import { readPreviewBuildId } from "../../../../domains/build-preview/read-preview-build-id/index.ts"
 import { readPreviewGrant } from "../../../../domains/build-preview/read-preview-grant/index.ts"
 import { normalizeStartPage } from "../../../../utils/normalize-start-page/index.ts"
+import { z } from "zod"
 import { createPreviewCookie } from "../../../../integrations/express/create-preview-cookie/index.ts"
 import type { BuildPreviewRouteDependencies } from "../../types.ts"
 
 export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler {
   return async (request, response, next) => {
     try {
-      const buildId = readPreviewBuildId(request, dependencies.previewBaseOrigin)
+      const buildId = readPreviewBuildId(request.get("host"), dependencies.previewBaseOrigin)
       const grantValue = typeof request.query.grant === "string" ? request.query.grant : ""
+      const requestedRoute = z.string().max(4096).safeParse(request.query.route)
       const grant = readPreviewGrant(grantValue, dependencies.encryptionKey)
+      const normalizedRoute = requestedRoute.success
+        ? normalizeStartPage(requestedRoute.data)
+        : null
       if (!buildId || !grant || grant.buildId !== buildId) {
+        response.status(404).end()
+        return
+      }
+      if (request.query.route !== undefined && !normalizedRoute) {
         response.status(404).end()
         return
       }
@@ -42,7 +51,7 @@ export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler
       response.setHeader("Referrer-Policy", "no-referrer")
       const destination =
         grant.target === "preview"
-          ? (normalizeStartPage(grant.route ?? target.startPage) ?? "/")
+          ? (normalizedRoute ?? normalizeStartPage(target.startPage) ?? "/")
           : `/__replica/screenshots/${grant.target}.png`
       response.redirect(303, destination)
     } catch (error) {

@@ -1,8 +1,8 @@
-import type { Request } from "express"
-
-export function readPreviewBuildId(request: Request, previewBaseOrigin: string): string | null {
+export function readPreviewBuildId(
+  host: string | undefined,
+  previewBaseOrigin: string,
+): string | null {
   const base = new URL(previewBaseOrigin)
-  const host = request.get("host")
   if (!host) return null
   let requestUrl: URL
   try {

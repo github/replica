@@ -83,7 +83,10 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
   )
   if (authentication) {
     if (product) {
-      app.get("/api/workspace", handleWorkspaceGet(authentication.currentSession, product))
+      app.get(
+        "/api/workspace",
+        handleWorkspaceGet(authentication.currentSession, product, Boolean(publicSharing)),
+      )
       app.get(
         "/api/repositories/:repositoryId",
         handleRepositoryGet(authentication.currentSession, product),

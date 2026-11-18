@@ -6,7 +6,6 @@ export function createPreviewGrant(
     target: "preview" | "desktop" | "narrow"
     expiresAt: Date
     sessionDigest: string
-    route?: string | null
   },
   key: Buffer,
 ): string {
@@ -17,7 +16,6 @@ export function createPreviewGrant(
       t: input.target,
       e: input.expiresAt.getTime(),
       s: input.sessionDigest,
-      ...(input.route ? { r: input.route } : {}),
     }),
     key,
   )
