@@ -1,0 +1,4 @@
+enum DecisionPromotionOperation {
+  PROMOTE
+  ROLLBACK
+}

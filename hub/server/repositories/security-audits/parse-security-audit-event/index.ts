@@ -320,6 +320,30 @@ const eventSchema = z.discriminatedUnion("type", [
       type: z.literal("repository_administration_denied"),
     })
     .strict(),
+  z
+    .object({
+      actorMembershipId: z.uuid(),
+      id: z.uuid(),
+      jobId: z.uuid(),
+      outcome: z.enum(["requested", "cancelled", "failed", "succeeded"]),
+      reason: z.string().min(1).max(100).optional(),
+      repositoryId: z.uuid(),
+      type: z.literal("decision_training"),
+    })
+    .strict(),
+  z
+    .object({
+      actorMembershipId: z.uuid(),
+      candidateId: z.uuid().optional(),
+      generation: z.number().int().positive(),
+      id: z.uuid(),
+      operation: z.enum(["promote", "rollback"]),
+      outcome: z.enum(["succeeded", "failed"]),
+      reason: z.string().min(1).max(100).optional(),
+      repositoryId: z.uuid(),
+      type: z.literal("decision_promotion"),
+    })
+    .strict(),
 ])
 
 export function parseSecurityAuditEvent(input: unknown): ParsedSecurityAuditEvent {

@@ -60,12 +60,21 @@ import { get as handleLearningsGet } from "./api/learnings/get/index.ts"
 import { post as handleLearningRunPost } from "./api/learnings/runs/post/index.ts"
 import { post as handleLearningDecisionPost } from "./api/learnings/decision/post/index.ts"
 import type { RouteDependencies } from "./types.ts"
+import { get as handleDecisionModelGet } from "./api/decision-model/get/index.ts"
+import { patch as handleDecisionModelPatch } from "./api/decision-model/patch/index.ts"
+import { post as handleDecisionTrainingPost } from "./api/decision-model/training-jobs/post/index.ts"
+import { get as handleDecisionTrainingGet } from "./api/decision-model/training-jobs/get/index.ts"
+import { post as handleDecisionTrainingCancelPost } from "./api/decision-model/training-jobs/cancel/post/index.ts"
+import { post as handleDecisionCandidatePromotionPost } from "./api/decision-model/candidates/promotion/post/index.ts"
+import { post as handleDecisionRollbackPost } from "./api/decision-model/rollback/post/index.ts"
+import { post as handleDecisionBuildEvaluationPost } from "./api/decision-model/builds/evaluation/post/index.ts"
 
 /** Keep endpoint registration separate from the app's shared middleware. */
 export function routes(app: Express, dependencies: RouteDependencies = {}): void {
   const {
     authentication,
     copilotConnection,
+    decisionModels,
     githubSetup,
     githubWebhooks,
     isReady,
@@ -386,6 +395,45 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
       requireOrigin(copilotConnection.applicationOrigin),
       express.json({ limit: "4kb", strict: true }),
       handleCopilotAuthorizationCancelPost(copilotConnection),
+    )
+  }
+  if (decisionModels) {
+    const path = "/api/repositories/:repositoryId/decision-model"
+    app.get(path, handleDecisionModelGet(decisionModels))
+    app.patch(
+      path,
+      requireOrigin(decisionModels.applicationOrigin),
+      express.json({ limit: "4kb", strict: true }),
+      handleDecisionModelPatch(decisionModels),
+    )
+    app.post(
+      `${path}/training-jobs`,
+      requireOrigin(decisionModels.applicationOrigin),
+      express.json({ limit: "4kb", strict: true }),
+      handleDecisionTrainingPost(decisionModels),
+    )
+    app.get(`${path}/training-jobs/:jobId`, handleDecisionTrainingGet(decisionModels))
+    app.post(
+      `${path}/training-jobs/:jobId/cancel`,
+      requireOrigin(decisionModels.applicationOrigin),
+      handleDecisionTrainingCancelPost(decisionModels),
+    )
+    app.post(
+      `${path}/candidates/:candidateId/promotion`,
+      requireOrigin(decisionModels.applicationOrigin),
+      express.json({ limit: "4kb", strict: true }),
+      handleDecisionCandidatePromotionPost(decisionModels),
+    )
+    app.post(
+      `${path}/rollback`,
+      requireOrigin(decisionModels.applicationOrigin),
+      express.json({ limit: "4kb", strict: true }),
+      handleDecisionRollbackPost(decisionModels),
+    )
+    app.post(
+      `${path}/builds/:buildId/evaluation`,
+      requireOrigin(decisionModels.applicationOrigin),
+      handleDecisionBuildEvaluationPost(decisionModels),
     )
   }
 }

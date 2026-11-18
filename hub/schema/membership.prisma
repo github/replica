@@ -4,13 +4,15 @@ model Membership {
   userId String @unique @map("user_id") @db.Uuid
 
   // Relations
-  user                    User                     @relation(fields: [userId], references: [id], onDelete: Restrict)
-  assignments             MembershipAssignment[]
-  sessions                HubSession[]
-  sensitiveAuthorizations SensitiveAuthorization[]
-  repositoryAccessGrants  RepositoryAccessGrant[]
-  copilotConnections      CopilotConnection[]
-  learningRuns            LearningRun[]
+  user                       User                        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  assignments                MembershipAssignment[]
+  sessions                   HubSession[]
+  sensitiveAuthorizations    SensitiveAuthorization[]
+  repositoryAccessGrants     RepositoryAccessGrant[]
+  copilotConnections         CopilotConnection[]
+  learningRuns               LearningRun[]
+  decisionTrainingJobs       DecisionTrainingJob[]
+  decisionModelPromotions    DecisionModelPromotion[]
   learningDecisionOperations LearningDecisionOperation[]
 
   // Attribute columns

@@ -10,6 +10,7 @@ model Build {
   branchHeadObservations BranchHeadObservation[]
   reviewThreads          ReviewThread[]
   shareLinks             ShareLink[]
+  decisionEvaluations    DecisionBuildEvaluation[]
 
   // Attribute columns
   number                   Int

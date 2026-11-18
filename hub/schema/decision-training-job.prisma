@@ -1,0 +1,47 @@
+model DecisionTrainingJob {
+  // ID columns
+  id                      String  @id @default(uuid()) @db.Uuid
+  repositoryId            String  @map("repository_id") @db.Uuid
+  requestedByMembershipId String? @map("requested_by_membership_id") @db.Uuid
+
+  // Relations
+  repository            Repository         @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  requestedByMembership Membership?        @relation(fields: [requestedByMembershipId], references: [id], onDelete: SetNull)
+  candidate             DecisionCandidate?
+
+  // Attribute columns
+  idempotencyKey                 String                   @map("idempotency_key") @db.VarChar(100)
+  runtimeJobId                   String?                  @map("runtime_job_id") @db.VarChar(100)
+  runtimeTasksetId               String?                  @map("runtime_taskset_id") @db.VarChar(100)
+  configurationGeneration        Int                      @map("configuration_generation")
+  state                          DecisionTrainingJobState @default(QUEUED)
+  backend                        String                   @db.VarChar(100)
+  maxUpdates                     Int                      @map("max_updates")
+  maxSeconds                     Int                      @map("max_seconds")
+  budgetCredits                  Decimal                  @map("budget_credits") @db.Decimal(20, 9)
+  consentGrantId                 String                   @map("consent_grant_id") @db.VarChar(255)
+  exportDigest                   String                   @map("export_digest") @db.VarChar(71)
+  repeatableReviewSnapshotDigest String                   @map("repeatable_review_snapshot_digest") @db.VarChar(71)
+  questionDigest                 String                   @map("question_digest") @db.VarChar(71)
+  buildSetDigest                 String                   @map("build_set_digest") @db.VarChar(71)
+  tasksetDigest                  String                   @map("taskset_digest") @db.VarChar(71)
+  candidateRuntimeId             String?                  @map("candidate_runtime_id") @db.VarChar(100)
+  failureCode                    String?                  @map("failure_code") @db.VarChar(100)
+  usageQuantity                  Decimal?                 @map("usage_quantity") @db.Decimal(20, 9)
+  usageUnit                      String?                  @map("usage_unit") @db.VarChar(50)
+  costAmount                     Decimal?                 @map("cost_amount") @db.Decimal(20, 9)
+  costCurrency                   String?                  @map("cost_currency") @db.VarChar(3)
+  submittedAt                    DateTime?                @map("submitted_at") @db.Timestamptz(3)
+  startedAt                      DateTime?                @map("started_at") @db.Timestamptz(3)
+  finishedAt                     DateTime?                @map("finished_at") @db.Timestamptz(3)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([repositoryId, runtimeJobId])
+  @@unique([repositoryId, idempotencyKey])
+  @@index([repositoryId, createdAt])
+  @@index([state, updatedAt])
+  @@map("decision_training_jobs")
+}

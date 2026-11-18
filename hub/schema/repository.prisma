@@ -5,6 +5,11 @@ model Repository {
   // Relations
   learningRuns               LearningRun[]
   learningDecisionOperations LearningDecisionOperation[]
+  decisionModelConfiguration DecisionModelConfiguration?
+  decisionTrainingJobs       DecisionTrainingJob[]
+  decisionCandidates         DecisionCandidate[]
+  decisionModelPromotions    DecisionModelPromotion[]
+  decisionBuildEvaluations   DecisionBuildEvaluation[]
   prototypes                 Prototype[]
   branchHeadObservations     BranchHeadObservation[]
   reviewThreads              ReviewThread[]

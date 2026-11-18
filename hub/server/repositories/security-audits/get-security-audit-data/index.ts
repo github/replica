@@ -368,5 +368,34 @@ export function getSecurityAuditData(
           reason: event.reason,
         },
       }
+    case "decision_training":
+      return {
+        id: event.id,
+        action: `decision.training.${event.outcome}`,
+        outcome:
+          event.outcome === "failed" ? SecurityAuditOutcome.FAILURE : SecurityAuditOutcome.SUCCESS,
+        targetType: "decision_training_job",
+        targetId: event.jobId,
+        context: {
+          actorMembershipId: event.actorMembershipId,
+          repositoryId: event.repositoryId,
+          ...(event.reason ? { reason: event.reason } : {}),
+        },
+      }
+    case "decision_promotion":
+      return {
+        id: event.id,
+        action: `decision.${event.operation}.${event.outcome}`,
+        outcome:
+          event.outcome === "failed" ? SecurityAuditOutcome.FAILURE : SecurityAuditOutcome.SUCCESS,
+        targetType: "decision_candidate",
+        targetId: event.candidateId,
+        context: {
+          actorMembershipId: event.actorMembershipId,
+          repositoryId: event.repositoryId,
+          generation: event.generation,
+          ...(event.reason ? { reason: event.reason } : {}),
+        },
+      }
   }
 }

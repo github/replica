@@ -1,0 +1,26 @@
+model DecisionModelPromotion {
+  // ID columns
+  id                     String  @id @default(uuid()) @db.Uuid
+  repositoryId           String  @map("repository_id") @db.Uuid
+  candidateId            String  @map("candidate_id") @db.Uuid
+  previousCandidateId    String? @map("previous_candidate_id") @db.Uuid
+  promotedByMembershipId String? @map("promoted_by_membership_id") @db.Uuid
+
+  // Relations
+  repository           Repository        @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  candidate            DecisionCandidate  @relation("PromotedCandidate", fields: [candidateId], references: [id], onDelete: Restrict)
+  previousCandidate    DecisionCandidate? @relation("PreviousPromotedCandidate", fields: [previousCandidateId], references: [id], onDelete: Restrict)
+  promotedByMembership Membership?        @relation(fields: [promotedByMembershipId], references: [id], onDelete: SetNull)
+
+  // Attribute columns
+  runtimeGeneration BigInt                     @map("runtime_generation")
+  operation         DecisionPromotionOperation
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([repositoryId, runtimeGeneration])
+  @@index([repositoryId, createdAt])
+  @@map("decision_model_promotions")
+}

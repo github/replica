@@ -1,0 +1,8 @@
+enum DecisionTrainingJobState {
+  QUEUED
+  SUBMITTED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}

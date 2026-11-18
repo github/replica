@@ -3,6 +3,34 @@ import { describe, expect, it } from "vitest"
 import { parseSecurityAuditEvent } from "."
 
 describe("parseSecurityAuditEvent()", () => {
+  it("accepts typed decision training and promotion events", () => {
+    const actorMembershipId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    const repositoryId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+
+    expect(
+      parseSecurityAuditEvent({
+        id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        type: "decision_training",
+        actorMembershipId,
+        repositoryId,
+        jobId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        outcome: "requested",
+      }),
+    ).toMatchObject({ type: "decision_training", outcome: "requested" })
+    expect(
+      parseSecurityAuditEvent({
+        id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+        type: "decision_promotion",
+        actorMembershipId,
+        repositoryId,
+        candidateId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+        generation: 2,
+        operation: "promote",
+        outcome: "succeeded",
+      }),
+    ).toMatchObject({ type: "decision_promotion", generation: 2 })
+  })
+
   it("uses the shared opaque provider key contract", () => {
     const event = {
       id: "5dd31031-6f1c-4c16-87c2-aee5342145cc",
