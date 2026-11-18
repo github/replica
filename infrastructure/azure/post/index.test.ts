@@ -523,6 +523,28 @@ it("announces the operation before awaiting a post-confirmation command without 
   }
 })
 
+it("records completion before releasing the installation leases", async () => {
+  const test = await scenario()
+  const phasesAtRelease: unknown[] = []
+  const run: RunCommand = async (executable, args, options) => {
+    if (args.slice(0, 4).join(" ") === "storage blob lease release")
+      phasesAtRelease.push(
+        JSON.parse(await readFile(join(test.directory, "post-desired.json"), "utf8")).phase,
+      )
+    return test.run(executable, args, options)
+  }
+
+  await postSetupAzure(test.target, {
+    action: "sign-in",
+    run,
+    ui: test.ui,
+    request: test.request,
+  })
+
+  expect(phasesAtRelease).toEqual(["complete", "complete"])
+  expect(test.leases.size).toBe(0)
+})
+
 it("uses the deployed digest despite stale deploy_hub=false and preserves settings across verification and configuration reruns", async () => {
   const test = await scenario()
   expect(test.state.environment.HUB_TRUSTED_PROXY_HOPS).toBe("1")

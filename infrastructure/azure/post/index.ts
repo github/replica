@@ -609,7 +609,6 @@ export async function postSetupAzure(
         })
       }
     }
-    for (const lock of [...locks].reverse()) await lock.release()
     if (action !== "restart")
       await writePrivateFile(
         journalPath,
@@ -620,6 +619,7 @@ export async function postSetupAzure(
           action,
         }),
       )
+    for (const lock of [...locks].reverse()) await lock.release()
     success = true
     ui.complete?.()
     return `${config.name}: ${action === "restart" ? "active Hub revision restarted" : "post-setup configuration applied"} using the unchanged deployed image.\n${publicOrigin}${action !== "restart" ? "/settings/github/setup" : ""}\n${action === "github" ? "GitHub sign-in is enabled. Verify the App connection, administrator enrollment, OAuth callback and signed webhooks separately." : action === "sign-in" ? "Setup access is available. GitHub sign-in remains dependent on the configured App credentials." : "Settings and pinned secret versions were retained."}${bootstrapFile ? `\nBootstrap secret saved privately: ${bootstrapFile}. Escrow it before removing this local copy.` : ""}`
