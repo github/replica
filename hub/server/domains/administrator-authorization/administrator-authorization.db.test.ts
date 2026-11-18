@@ -102,6 +102,12 @@ async function createAuthorizationFixture(
   operation: "DESIGNATE_ADMINISTRATORS" | "REVOKE_ADMINISTRATOR" = "DESIGNATE_ADMINISTRATORS",
   verified = true,
   lifetimeMilliseconds = 60_000,
+  authorizationOverrides?: {
+    cancelledAt?: Date
+    continuedAt?: Date
+    expiresAt?: Date
+    verifiedAt?: Date
+  },
 ) {
   const providerRevisionId = await createProvider()
   const actor = await createMembership({ administrator: true, login: "actor" })
@@ -129,6 +135,7 @@ async function createAuthorizationFixture(
       operation,
       targetMembershipIds: [target.membershipId],
       verifiedAt: verified ? new Date() : null,
+      ...authorizationOverrides,
     },
   })
   return { actor, authorizationId, hubSessionId, operation, providerRevisionId, target }
@@ -414,6 +421,84 @@ describe("administrator authorization persistence", () => {
     ).resolves.toEqual({ providerAssignmentSubject: assignmentSubject, role: "ADMINISTRATOR" })
   })
 
+  it("preserves the bound Entra session after role removal when Hub administrator authority remains", async () => {
+    const fixture = await createEntraAuthorizationFixture()
+    const hubAssignmentId = randomUUID()
+    const otherSessionId = randomUUID()
+    await prisma.membershipAssignment.create({
+      data: {
+        externalIdentityId: fixture.externalIdentityId,
+        id: hubAssignmentId,
+        membershipId: fixture.membershipId,
+        role: "ADMINISTRATOR",
+        source: "HUB_ADMINISTRATOR",
+      },
+    })
+    await prisma.hubSession.create({
+      data: {
+        digest: "c".repeat(64),
+        expiresAt: new Date(Date.now() + 60_000),
+        externalIdentityId: fixture.externalIdentityId,
+        id: otherSessionId,
+        membershipId: fixture.membershipId,
+        providerRevisionId: fixture.providerRevisionId,
+        revocationRevision: 0,
+      },
+    })
+    const authorizationAttemptId = await createConsumedAuthorizationAttempt({
+      authorizationId: fixture.authorizationId,
+      providerRevisionId: fixture.providerRevisionId,
+    })
+
+    await expect(
+      verifyAdministratorAuthorization(
+        {
+          authorizationAttemptId,
+          externalIdentityId: fixture.externalIdentityId,
+          providerAssignment: {
+            assignmentSubject: null,
+            issuedAt: new Date(),
+            providerRevisionId: fixture.providerRevisionId,
+            role: null,
+          },
+          providerKey: "entra",
+          requiresProviderAssignmentEvidence: true,
+          sessionDigest: "f".repeat(64),
+          sensitiveAuthorizationId: fixture.authorizationId,
+        },
+        verificationDependencies(),
+      ),
+    ).resolves.toBe("REVOKE_ADMINISTRATOR")
+    await expect(
+      prisma.membershipAssignment.findUniqueOrThrow({
+        select: { lifecycle: true },
+        where: { id: fixture.assignmentId },
+      }),
+    ).resolves.toEqual({ lifecycle: "REVOKED" })
+    await expect(
+      prisma.membershipAssignment.findUniqueOrThrow({
+        select: { lifecycle: true, role: true },
+        where: { id: hubAssignmentId },
+      }),
+    ).resolves.toEqual({ lifecycle: "ACTIVE", role: "ADMINISTRATOR" })
+    await expect(
+      prisma.hubSession.findUniqueOrThrow({
+        select: { endedAt: true },
+        where: { id: fixture.hubSessionId },
+      }),
+    ).resolves.toEqual({ endedAt: null })
+    const otherSession = await prisma.hubSession.findUniqueOrThrow({
+      select: { endedAt: true },
+      where: { id: otherSessionId },
+    })
+    expect(otherSession.endedAt).toBeInstanceOf(Date)
+    const authorization = await prisma.sensitiveAuthorization.findUniqueOrThrow({
+      select: { verifiedAt: true },
+      where: { id: fixture.authorizationId },
+    })
+    expect(authorization.verifiedAt).toBeInstanceOf(Date)
+  })
+
   it.each([null, "MEMBER"] as const)(
     "applies fresh Entra role loss to %s before denying administrator authorization",
     async (role) => {
@@ -511,6 +596,7 @@ describe("administrator authorization persistence", () => {
         state === "expired" ? -60_000 : 60_000,
       )
       const endedAt = new Date()
+      const callbackSessionId = randomUUID()
       if (state === "ended") {
         await prisma.hubSession.update({
           data: { endedAt },
@@ -523,7 +609,7 @@ describe("administrator authorization persistence", () => {
             digest: "c".repeat(64),
             expiresAt: new Date(Date.now() + 60_000),
             externalIdentityId: fixture.actor.externalIdentityId,
-            id: randomUUID(),
+            id: callbackSessionId,
             membershipId: fixture.actor.membershipId,
             providerRevisionId: fixture.providerRevisionId,
             revocationRevision: 0,
@@ -579,7 +665,115 @@ describe("administrator authorization persistence", () => {
       })
       expect(session.expiresAt).toEqual(originalSession.expiresAt)
       if (state === "ended") expect(session.endedAt).toEqual(endedAt)
-      if (state === "mismatched") expect(session.endedAt).toBeInstanceOf(Date)
+      if (state === "mismatched") {
+        expect(session.endedAt).toBeInstanceOf(Date)
+        const callbackSession = await prisma.hubSession.findUniqueOrThrow({
+          select: { endedAt: true },
+          where: { id: callbackSessionId },
+        })
+        expect(callbackSession.endedAt).toBeInstanceOf(Date)
+      }
+    },
+  )
+
+  it.each(["expired", "cancelled", "verified", "continued", "attempt", "identity"] as const)(
+    "applies provider evidence without preserving sessions for an invalid %s binding",
+    async (state) => {
+      const timestamp = new Date()
+      const fixture = await createAuthorizationFixture("DESIGNATE_ADMINISTRATORS", false, 60_000, {
+        ...(state === "expired" && { expiresAt: new Date(Date.now() - 60_000) }),
+        ...(state === "cancelled" && { cancelledAt: timestamp }),
+        ...(state === "continued" && { continuedAt: timestamp }),
+        ...((state === "verified" || state === "continued") && { verifiedAt: timestamp }),
+      })
+      const otherSessionId = randomUUID()
+      await prisma.hubSession.create({
+        data: {
+          digest: "c".repeat(64),
+          expiresAt: new Date(Date.now() + 60_000),
+          externalIdentityId: fixture.actor.externalIdentityId,
+          id: otherSessionId,
+          membershipId: fixture.actor.membershipId,
+          providerRevisionId: fixture.providerRevisionId,
+          revocationRevision: 0,
+        },
+      })
+
+      const attemptAuthorizationId = state === "attempt" ? randomUUID() : fixture.authorizationId
+      if (state === "attempt") {
+        await prisma.sensitiveAuthorization.create({
+          data: {
+            actorMembershipId: fixture.actor.membershipId,
+            expiresAt: new Date(Date.now() + 60_000),
+            externalIdentityId: fixture.actor.externalIdentityId,
+            hubSessionId: fixture.hubSessionId,
+            id: attemptAuthorizationId,
+            operation: fixture.operation,
+            targetMembershipIds: [fixture.target.membershipId],
+          },
+        })
+      }
+      const authorizationAttemptId = await createConsumedAuthorizationAttempt({
+        authorizationId: attemptAuthorizationId,
+        providerRevisionId: fixture.providerRevisionId,
+      })
+      let externalIdentityId = fixture.actor.externalIdentityId
+      if (state === "identity") {
+        const actor = await prisma.membership.findUniqueOrThrow({
+          select: { userId: true },
+          where: { id: fixture.actor.membershipId },
+        })
+        externalIdentityId = randomUUID()
+        await prisma.externalIdentity.create({
+          data: {
+            id: externalIdentityId,
+            issuer: "https://github.com",
+            provider: "github",
+            subject: randomUUID(),
+            userId: actor.userId,
+          },
+        })
+      }
+
+      await expect(
+        verifyAdministratorAuthorization(
+          {
+            authorizationAttemptId,
+            externalIdentityId,
+            providerAssignment: {
+              assignmentSubject: "repository-access",
+              issuedAt: new Date(),
+              providerRevisionId: fixture.providerRevisionId,
+              role: "MEMBER",
+            },
+            providerKey: "github",
+            requiresProviderAssignmentEvidence: true,
+            sessionDigest: "b".repeat(64),
+            sensitiveAuthorizationId: fixture.authorizationId,
+          },
+          verificationDependencies(),
+        ),
+      ).resolves.toBeNull()
+      await expect(
+        prisma.membershipAssignment.findFirstOrThrow({
+          select: { lifecycle: true, role: true },
+          where: { externalIdentityId, source: "AUTHENTICATION_PROVIDER" },
+        }),
+      ).resolves.toEqual({ lifecycle: "ACTIVE", role: "MEMBER" })
+      await expect(
+        prisma.sensitiveAuthorization.findUniqueOrThrow({
+          select: { verifiedAt: true },
+          where: { id: fixture.authorizationId },
+        }),
+      ).resolves.toEqual({
+        verifiedAt: state === "verified" || state === "continued" ? timestamp : null,
+      })
+      const sessions = await prisma.hubSession.findMany({
+        select: { endedAt: true },
+        where: { id: { in: [fixture.hubSessionId, otherSessionId] } },
+      })
+      expect(sessions).toHaveLength(2)
+      for (const session of sessions) expect(session.endedAt).toBeInstanceOf(Date)
     },
   )
 

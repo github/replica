@@ -82,6 +82,15 @@ export async function verifyAdministratorAuthorization(
           if (input.requiresProviderAssignmentEvidence && !input.providerAssignment) {
             throw new AdmissionDeniedError("provider_evidence_missing", input.externalIdentityId)
           }
+          const verificationInput = {
+            authorizationAttemptId: input.authorizationAttemptId,
+            externalIdentityId: input.externalIdentityId,
+            sessionDigest: input.sessionDigest,
+            sensitiveAuthorizationId: input.sensitiveAuthorizationId,
+          }
+          const verification: {
+            result?: Awaited<ReturnType<typeof repositories.verifySensitiveAuthorization>>
+          } = {}
           if (input.providerAssignment) {
             if (input.providerAssignment.providerRevisionId !== attempt.providerRevisionId) {
               throw new AdmissionDeniedError("configuration_changed", input.externalIdentityId)
@@ -115,7 +124,12 @@ export async function verifyAdministratorAuthorization(
               },
               {
                 createId: () => dependencies.createId(),
-                preserveAdministratorSessionDigest: input.sessionDigest,
+                preserveAdministratorSession: async () => {
+                  // Verify the updated authority before deciding which session to retain.
+                  verification.result =
+                    await repositories.verifySensitiveAuthorization(verificationInput)
+                  return verification.result ? input.sessionDigest : undefined
+                },
                 repositories,
               },
             )
@@ -138,12 +152,10 @@ export async function verifyAdministratorAuthorization(
               return null
             }
           }
-          const verified = await repositories.verifySensitiveAuthorization({
-            authorizationAttemptId: input.authorizationAttemptId,
-            externalIdentityId: input.externalIdentityId,
-            sessionDigest: input.sessionDigest,
-            sensitiveAuthorizationId: input.sensitiveAuthorizationId,
-          })
+          const verified =
+            verification.result === undefined
+              ? await repositories.verifySensitiveAuthorization(verificationInput)
+              : verification.result
           if (!verified) {
             const authorization = await repositories.getSensitiveAuthorizationAuditData(
               input.sensitiveAuthorizationId,

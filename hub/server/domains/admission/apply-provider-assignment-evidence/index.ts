@@ -150,7 +150,7 @@ export async function applyProviderAssignmentEvidence(
         !assignments.some((assignment) => assignment.role === "ADMINISTRATOR"),
       ),
       existingMembership?.lifecycle === "ACTIVE" && administrator
-        ? dependencies.preserveAdministratorSessionDigest
+        ? await dependencies.preserveAdministratorSession?.()
         : undefined,
     )
   }

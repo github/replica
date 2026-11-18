@@ -11,7 +11,7 @@ export interface ApplyProviderAssignmentEvidenceInput {
 export interface ApplyProviderAssignmentEvidenceDependencies {
   createId(): string
   markNoRepositoryAccess?: boolean
-  preserveAdministratorSessionDigest?: string
+  preserveAdministratorSession?(): Promise<string | undefined>
   repositories: AdmissionRepositories
 }
 
