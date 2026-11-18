@@ -65,9 +65,9 @@ describe("Hub image context", () => {
   })
 
   it("pins an integrity hash for every workspace package archive", async () => {
-    const lock: {
+    const lock = JSON.parse(await readFile(resolve("../package-lock.json"), "utf8")) as {
       packages: Record<string, { integrity?: string; link?: boolean; workspaces?: string[] }>
-    } = JSON.parse(await readFile(resolve("../package-lock.json"), "utf8"))
+    }
     const workspaces = new Set(lock.packages[""]?.workspaces ?? [])
     const missingIntegrity = Object.entries(lock.packages)
       .filter(([path, entry]) => path && !workspaces.has(path) && !entry.link && !entry.integrity)
