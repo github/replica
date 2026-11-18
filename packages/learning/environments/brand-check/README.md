@@ -161,7 +161,7 @@ A missing or invalid answer counts as wrong for accuracy and as `invalid`, and i
 
 ## Run the single-node reference runtime
 
-The single-node reference Replica decision runtime proves one complete customer-operated lifecycle on the new-Hub package foundation. It keeps mutable job records under `jobs/`, writes each completed candidate once under `candidates/`, keeps immutable promotion generations under `promotions/`, and serves only the candidate an operator explicitly promotes or restores. Replica does not receive the taskset, adapter, reports, token, or requests.
+The single-node reference Replica decision runtime proves one complete customer-operated lifecycle. It keeps mutable job records under `jobs/`, writes each completed candidate once under `candidates/`, keeps immutable promotion generations under `promotions/`, and serves only the candidate an operator explicitly promotes or restores. Replica does not receive the taskset, adapter, reports, token, or requests.
 
 The only backend in this first reference is deterministic and ignores image content. It uses the real taskset loader, proper-scoring evaluation, candidate store, promotion gate, rollback, and inference contract without a GPU or model download. Its candidates are for development and tests only; the runtime refuses to promote them when `--environment production`.
 
@@ -241,13 +241,14 @@ docker build -f server/runtime.Dockerfile -t replica-decision-runtime:dev .
 mkdir -p /path/to/runtime-state
 docker run --rm \
   -e REPLICA_RUNTIME_TOKEN \
+  --user "$(id -u):$(id -g)" \
   -v /path/to/taskset:/data/taskset:ro \
   -v /path/to/runtime-state:/data/runtime \
   -p 127.0.0.1:8010:8010 \
   replica-decision-runtime:dev
 ```
 
-The image contains no taskset, candidate, model, or credential. It runs as user 10001, which needs read access to the taskset and write access to the runtime-state directory. Add `--user "$(id -u):$(id -g)"` when the mounted directories allow only your account; rootless Podman also needs `--userns=keep-id`.
+The image contains no taskset, candidate, model, or credential. The runtime process must own the runtime-state directory because startup restricts its permissions to the owner. The example runs the process as the operator who created that directory. Without `--user`, the image runs as user 10001, so create and assign the mounted directory to that user first. Rootless Podman also needs `--userns=keep-id`.
 
 ### Replace the infrastructure
 

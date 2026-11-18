@@ -5,18 +5,26 @@ from __future__ import annotations
 import base64
 import json
 import multiprocessing
+import os
 import shutil
 import socket
+import stat
 import threading
 import time
 import unittest
 from collections.abc import Mapping
 from dataclasses import replace
+from multiprocessing.util import Finalize
 from pathlib import Path
 from unittest import mock
 from urllib import error, request
 
-from replica_brand_check.connectors import ConnectorError, Credential, RuntimeScope
+from replica_brand_check.connectors import (
+    ConnectorError,
+    Credential,
+    RuntimeScope,
+    TrainingResult,
+)
 from replica_brand_check.runtime import FixtureBackend, LocalRuntime, RuntimeFailure
 from replica_brand_check.runtime_server import RuntimeHTTPServer, runtime_token
 from tests.support import PNG, RULE, make_task, write_taskset
@@ -45,6 +53,40 @@ class SlowInferenceBackend(FixtureBackend):
     def predict(self, *args, **kwargs):
         time.sleep(0.1)
         return super().predict(*args, **kwargs)
+
+
+class LingeringBackend(FixtureBackend):
+    """A backend that returns but leaves its child process unable to exit."""
+
+    def train(self, *args, **kwargs):
+        Finalize(None, time.sleep, args=(30,), exitpriority=0)
+        return super().train(*args, **kwargs)
+
+
+class CrashingBackend(FixtureBackend):
+    """A backend that exits without returning a result."""
+
+    def train(self, *args, **kwargs):
+        os._exit(7)
+
+
+class UnknownCalibrationBackend(FixtureBackend):
+    """A backend whose public candidate report has no calibration evidence."""
+
+    def train(self, *args, **kwargs):
+        result = super().train(*args, **kwargs)
+        baseline = json.loads(json.dumps(result.baseline_report))
+        candidate = json.loads(json.dumps(result.candidate_report))
+        baseline["noul"]["ece"] = None
+        candidate["noul"]["ece"] = None
+        return TrainingResult(
+            adapter_name=result.adapter_name,
+            adapter=result.adapter,
+            baseline_report=baseline,
+            candidate_report=candidate,
+            metadata=result.metadata,
+            updates_completed=result.updates_completed,
+        )
 
 
 class BlockingBackend(FixtureBackend):
@@ -196,8 +238,9 @@ class LocalRuntimeTest(unittest.TestCase):
         )
         self.assertEqual(finished["state"], "succeeded")
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(RuntimeFailure) as not_promoted:
             runtime.evaluate(self._request())
+        self.assertEqual(not_promoted.exception.code, "candidate_not_promoted")
 
     def test_backend_receives_no_free_form_task_or_question_text(self):
         capture = self.taskset_dir.parent / "captured-request.json"
@@ -376,6 +419,7 @@ class LocalRuntimeTest(unittest.TestCase):
             {"max_updates": 1, "max_seconds": -1},
             {"max_updates": 10**12, "max_seconds": 1},
             {"max_updates": 1, "max_seconds": 10**12},
+            {"max_updates": 1, "max_seconds": 10**1000},
         )
         for limits in invalid_limits:
             with self.subTest(**limits):
@@ -447,6 +491,37 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(timed_out.exception.status, 504)
         self.assertEqual(multiprocessing.active_children(), [])
 
+    def test_bounds_a_worker_that_returns_but_does_not_exit(self):
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"lingering": LingeringBackend()},
+            environment="test",
+        )
+        self.addCleanup(runtime.close)
+
+        submitted = runtime.submit(backend="lingering", max_updates=1, max_seconds=1)
+        failed = self._wait_for_job(runtime, submitted["id"])
+
+        self.assertEqual(failed["error"]["code"], "job_timed_out")
+        self.assertEqual(multiprocessing.active_children(), [])
+
+    def test_reports_a_worker_that_exits_without_a_result(self):
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"crashing": CrashingBackend()},
+            environment="test",
+        )
+        self.addCleanup(runtime.close)
+
+        submitted = runtime.submit(backend="crashing", max_updates=1, max_seconds=5)
+        failed = self._wait_for_job(runtime, submitted["id"])
+
+        self.assertEqual(failed["error"]["code"], "backend_failed")
+        self.assertIn("without a result", failed["error"]["message"])
+        self.assertIn("exit code 7", failed["error"]["message"])
+
     def test_close_cancels_queued_jobs_instead_of_starting_them(self):
         started = self.taskset_dir.parent / "blocking-started"
         release = self.taskset_dir.parent / "blocking-release"
@@ -496,6 +571,35 @@ class LocalRuntimeTest(unittest.TestCase):
         reopened = self._runtime()
 
         self.assertNotEqual(reopened.taskset_digest, before)
+
+    def test_queued_job_refuses_a_taskset_changed_after_submission(self):
+        started = self.taskset_dir.parent / "taskset-job-started"
+        release = self.taskset_dir.parent / "taskset-job-release"
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"blocking": BlockingBackend(started, release)},
+            environment="test",
+        )
+        self.addCleanup(runtime.close)
+        runtime.submit(backend="blocking", max_updates=1, max_seconds=5)
+        deadline = time.monotonic() + 5
+        while not started.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        queued = runtime.submit(backend="blocking", max_updates=1, max_seconds=5)
+        tasks_path = self.taskset_dir / "tasks.jsonl"
+        tasks = [json.loads(line) for line in tasks_path.read_text(encoding="utf-8").splitlines()]
+        tasks[0]["questions"][RULE]["instructions"] = "Changed after submission"
+        tasks_path.write_text(
+            "".join(json.dumps(task) + "\n" for task in tasks),
+            encoding="utf-8",
+        )
+        release.write_text("release", encoding="utf-8")
+
+        failed = self._wait_for_job(runtime, queued["id"])
+
+        self.assertEqual(failed["error"]["code"], "taskset_changed")
+        self.assertNotIn("candidateId", failed)
 
     def test_persists_backend_failure_without_creating_a_candidate(self):
         runtime = LocalRuntime(
@@ -695,6 +799,37 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(recovered["generation"], 3)
         self.assertEqual(recovered["candidateId"], first["candidateId"])
         self.assertEqual(recovered["operation"], "rollback")
+
+    def test_rollback_continues_after_recovering_an_interrupted_promotion(self):
+        runtime = self._runtime()
+        first = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=4, max_seconds=5)["id"],
+        )
+        second = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
+        )
+        runtime.promote(first["candidateId"], promoted_by="first-operator")
+        original = runtime._write_promotion
+
+        def fail_pointer(promotion):
+            with mock.patch(
+                "replica_brand_check.runtime._write_json_atomic",
+                side_effect=OSError("pointer unavailable"),
+            ):
+                original(promotion)
+
+        with mock.patch.object(runtime, "_write_promotion", side_effect=fail_pointer):
+            with self.assertRaises(OSError):
+                runtime.promote(second["candidateId"], promoted_by="second-operator")
+
+        rollback = runtime.rollback(rolled_back_by="rollback-operator")
+
+        self.assertEqual(rollback["generation"], 3)
+        self.assertEqual(rollback["candidateId"], first["candidateId"])
+        self.assertEqual(rollback["previousCandidateId"], second["candidateId"])
+        self.assertEqual(rollback["operation"], "rollback")
 
     def test_production_rejects_fixture_promotion_without_changing_the_current_generation(self):
         runtime = self._runtime()
@@ -904,7 +1039,8 @@ class LocalRuntimeTest(unittest.TestCase):
 
     def test_header_deadline_releases_a_connection_slot(self):
         runtime = self._runtime()
-        server = RuntimeHTTPServer(("127.0.0.1", 0), runtime, TOKEN)
+        with mock.patch("replica_brand_check.runtime_server.MAX_CONNECTIONS", 1):
+            server = RuntimeHTTPServer(("127.0.0.1", 0), runtime, TOKEN)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         self.addCleanup(thread.join, 1)
@@ -920,27 +1056,53 @@ class LocalRuntimeTest(unittest.TestCase):
 
         connection.settimeout(1)
         self.assertEqual(connection.recv(1), b"")
-        self.assertEqual(
-            self._http_json(f"http://127.0.0.1:{server.server_address[1]}/health"),
-            {"status": "healthy"},
-        )
+        deadline = time.monotonic() + 1
+        while True:
+            try:
+                health = self._http_json(
+                    f"http://127.0.0.1:{server.server_address[1]}/health"
+                )
+                break
+            except error.URLError:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.01)
+        self.assertEqual(health, {"status": "healthy"})
 
     def test_unknown_calibration_is_not_reported_as_not_worse(self):
-        runtime = self._runtime()
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"unknown": UnknownCalibrationBackend()},
+            environment="test",
+        )
+        self.addCleanup(runtime.close)
         finished = self._wait_for_job(
             runtime,
-            runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
+            runtime.submit(backend="unknown", max_updates=8, max_seconds=5)["id"],
         )
         report = runtime.candidate(finished["candidateId"])["evaluation"]
-        report["baseline"]["noul"]["ece"] = None
-        report["candidate"]["noul"]["ece"] = None
-        from replica_brand_check.runtime import _candidate_evaluation
+        self.assertIsNone(report["evidence"]["calibrationErrorDelta"])
+        self.assertIsNone(report["evidence"]["calibrationNotWorse"])
 
-        compared = _candidate_evaluation(
-            runtime.taskset_digest, report["baseline"], report["candidate"]
-        )
-        self.assertIsNone(compared["evidence"]["calibrationErrorDelta"])
-        self.assertIsNone(compared["evidence"]["calibrationNotWorse"])
+    def test_acknowledged_state_syncs_files_and_directories(self):
+        synced = []
+        real_fsync = os.fsync
+
+        def record_fsync(descriptor):
+            synced.append(os.fstat(descriptor).st_mode)
+            return real_fsync(descriptor)
+
+        with mock.patch("replica_brand_check.runtime.os.fsync", side_effect=record_fsync):
+            runtime = self._runtime()
+            finished = self._wait_for_job(
+                runtime,
+                runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
+            )
+            runtime.promote(finished["candidateId"], promoted_by="test-operator")
+
+        self.assertTrue(any(stat.S_ISREG(mode) for mode in synced))
+        self.assertTrue(any(stat.S_ISDIR(mode) for mode in synced))
 
     def test_refuses_malformed_questions_before_calling_the_backend(self):
         runtime = self._runtime()
