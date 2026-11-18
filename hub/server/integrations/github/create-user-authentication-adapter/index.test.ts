@@ -11,6 +11,17 @@ const publicConfiguration = {
   userEndpoint: "https://api.github.com/user",
 }
 
+function repositoryPermissions(overrides: Partial<Record<string, boolean>> = {}) {
+  return {
+    admin: false,
+    maintain: false,
+    pull: true,
+    push: false,
+    triage: false,
+    ...overrides,
+  }
+}
+
 describe("createGitHubUserAuthenticationAdapter()", () => {
   it("uses exact OAuth arguments and binds immutable identity to the numeric GitHub user ID", async () => {
     const request = vi
@@ -120,7 +131,14 @@ describe("createGitHubUserAuthenticationAdapter()", () => {
     const request = mockSignInResponses(
       jsonResponse({
         total_count: 1,
-        repositories: [{ id: 42, full_name: "octo/prototypes", default_branch: "main" }],
+        repositories: [
+          {
+            id: 42,
+            full_name: "octo/prototypes",
+            default_branch: "main",
+            permissions: repositoryPermissions({ admin: true }),
+          },
+        ],
       }),
     )
     const adapter = createGitHubUserAuthenticationAdapter({
@@ -135,7 +153,12 @@ describe("createGitHubUserAuthenticationAdapter()", () => {
     expect(evidence).toMatchObject({
       providerAssignment: { assignmentSubject: "github_repository_access", role: "MEMBER" },
       repositoryAccess: [
-        { defaultBranch: "main", githubRepositoryId: 42, nameWithOwner: "octo/prototypes" },
+        {
+          accessLevel: "ADMIN",
+          defaultBranch: "main",
+          githubRepositoryId: 42,
+          nameWithOwner: "octo/prototypes",
+        },
       ],
     })
     expect(request.mock.calls[2]?.[0]).toBe(
@@ -148,12 +171,20 @@ describe("createGitHubUserAuthenticationAdapter()", () => {
       id: index + 1,
       full_name: `octo/repo-${index + 1}`,
       default_branch: "main",
+      permissions: repositoryPermissions(),
     }))
     const request = mockSignInResponses(
       jsonResponse({ total_count: 101, repositories: firstPage }),
       jsonResponse({
         total_count: 101,
-        repositories: [{ id: 101, full_name: "octo/repo-101", default_branch: "main" }],
+        repositories: [
+          {
+            id: 101,
+            full_name: "octo/repo-101",
+            default_branch: "main",
+            permissions: repositoryPermissions(),
+          },
+        ],
       }),
     )
     const adapter = createGitHubUserAuthenticationAdapter({
@@ -167,6 +198,7 @@ describe("createGitHubUserAuthenticationAdapter()", () => {
 
     expect(evidence.repositoryAccess).toHaveLength(101)
     expect(evidence.repositoryAccess?.[100]).toEqual({
+      accessLevel: "READ",
       defaultBranch: "main",
       githubRepositoryId: 101,
       nameWithOwner: "octo/repo-101",
@@ -198,6 +230,7 @@ describe("createGitHubUserAuthenticationAdapter()", () => {
         id: index + 1,
         full_name: `octo/repo-${index + 1}`,
         default_branch: "main",
+        permissions: repositoryPermissions(),
       }))
       const request = mockSignInResponses(
         jsonResponse({ total_count: 101, repositories: firstPage }),
@@ -224,6 +257,7 @@ describe("createGitHubUserAuthenticationAdapter()", () => {
         id: index + 1,
         full_name: `octo/repo-${index + 1}`,
         default_branch: "main",
+        permissions: repositoryPermissions(),
       }))
       const pages =
         problem === "short page"
@@ -237,6 +271,7 @@ describe("createGitHubUserAuthenticationAdapter()", () => {
                     id: problem === "duplicate ID" ? 1 : 101,
                     full_name: "octo/last",
                     default_branch: "main",
+                    permissions: repositoryPermissions(),
                   },
                 ],
               }),

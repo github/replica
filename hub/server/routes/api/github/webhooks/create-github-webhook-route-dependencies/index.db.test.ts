@@ -136,6 +136,7 @@ function installationRepository(repository: {
 }) {
   if (repository.githubRepositoryId === null) throw new Error("Missing GitHub repository ID.")
   return {
+    accessLevel: "ADMIN" as const,
     defaultBranch: repository.defaultBranch,
     githubRepositoryId: Number(repository.githubRepositoryId),
     nameWithOwner: repository.nameWithOwner,
@@ -224,6 +225,13 @@ async function signInWithGitHubAccess(input: {
           default_branch: repository.defaultBranch,
           full_name: repository.nameWithOwner,
           id: Number(repository.githubRepositoryId),
+          permissions: {
+            admin: true,
+            maintain: true,
+            pull: true,
+            push: true,
+            triage: true,
+          },
         })),
       }),
     )
@@ -1570,6 +1578,7 @@ describe("createGitHubWebhookRouteDependencies()", () => {
       })
       const staleRepositories = (retainAnother ? [removed, retained] : [removed]).map(
         (repository) => ({
+          accessLevel: "ADMIN" as const,
           defaultBranch: repository.defaultBranch,
           githubRepositoryId: Number(repository.githubRepositoryId),
           nameWithOwner: repository.nameWithOwner,
@@ -1701,6 +1710,13 @@ describe("GitHub repository access", () => {
               default_branch: repository.defaultBranch,
               full_name: repository.nameWithOwner,
               id: 1001,
+              permissions: {
+                admin: true,
+                maintain: true,
+                pull: true,
+                push: true,
+                triage: true,
+              },
             },
           ],
         }),
@@ -2235,7 +2251,12 @@ describe("syncGitHubInstallationRepositories()", () => {
     const staleSnapshot = [
       installationRepository(removed),
       installationRepository(retained),
-      { defaultBranch: "main", githubRepositoryId: 1003, nameWithOwner: "team/stale-only" },
+      {
+        accessLevel: "ADMIN" as const,
+        defaultBranch: "main",
+        githubRepositoryId: 1003,
+        nameWithOwner: "team/stale-only",
+      },
     ]
     const freshSnapshot = [installationRepository(retained)]
     const fetchRepositories = vi

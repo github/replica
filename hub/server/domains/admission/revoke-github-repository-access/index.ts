@@ -5,6 +5,7 @@ import { advanceGitHubRepositoryAccessState } from "../../../repositories/github
 import { claimGitHubWebhookDelivery } from "../../../repositories/github-webhook-deliveries/claim-github-webhook-delivery/index.ts"
 import type { GitHubWebhookDelivery } from "../../../repositories/github-webhook-deliveries/types.ts"
 import { markRepositoriesDisconnected } from "../../../repositories/repository-access/mark-repositories-disconnected/index.ts"
+import { lockRepositoryAdministrationChanges } from "../../../repositories/repository-access/lock-repository-administration-changes/index.ts"
 import { removeRepositoryAccessGrants } from "../../../repositories/repository-access/remove-repository-access-grants/index.ts"
 import { runWithBoundedRetries } from "../../identity/run-with-bounded-retries/index.ts"
 import { githubAccessTransactionOptions } from "../github-access-transaction-options/index.ts"
@@ -25,6 +26,7 @@ export async function revokeGitHubRepositoryAccess(
   await runWithBoundedRetries(
     () =>
       database.$transaction(async (transaction) => {
+        await lockRepositoryAdministrationChanges(transaction)
         await requireCurrentGitHubInstallation(transaction, provider)
         if (input.delivery && !(await claimGitHubWebhookDelivery(transaction, input.delivery))) {
           return

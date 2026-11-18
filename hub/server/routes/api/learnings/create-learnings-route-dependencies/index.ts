@@ -24,6 +24,8 @@ import { createLearningDecisionOperation } from "../../../../repositories/learni
 import { deleteLearningDecisionOperation } from "../../../../repositories/learning-decision-operations/delete-learning-decision-operation/index.ts"
 import { isEffectiveAdministrator } from "../../../../repositories/memberships/is-effective-administrator/index.ts"
 import { findActiveRepository } from "../../../../repositories/prototype-index/find-active-repository/index.ts"
+import { lockRepositoryAdministratorAuthority } from "../../../../repositories/repository-access/lock-repository-administrator-authority/index.ts"
+import { lockRepositoryAdministratorSession } from "../../../../repositories/repository-access/lock-repository-administrator-session/index.ts"
 import { createSecurityAudit } from "../../../../repositories/security-audits/create-security-audit/index.ts"
 import { readWithPersistedRepositoryScope } from "../../product/read-with-persisted-repository-scope/index.ts"
 import type { resolveRepositoryScope } from "../../product/resolve-repository-scope/index.ts"
@@ -96,6 +98,20 @@ export async function createLearningsRouteDependencies(
   return {
     applicationOrigin,
     currentSession,
+    authorizeRepositoryAdministration: (input) =>
+      prisma.$transaction((transaction) =>
+        lockRepositoryAdministratorAuthority(transaction, input),
+      ),
+    auditRepositoryAdministrationDenial: async ({ actorMembershipId, operation, repositoryId }) => {
+      await createSecurityAudit(prisma, {
+        id: randomUUID(),
+        type: "repository_administration_denied",
+        actorMembershipId,
+        operation,
+        reason: "authority_missing",
+        repositoryId,
+      })
+    },
     findRepository,
     getOverview: async ({ repositoryId, viewer }) => {
       try {
@@ -122,7 +138,30 @@ export async function createLearningsRouteDependencies(
     },
     getCopilot,
     listRuns: (repositoryId) => listLearningRuns(prisma, repositoryId, new Date()),
-    requestRun: async ({ actorMembershipId, repositoryId, requestedById }) => {
+    requestRun: async ({ actorMembershipId, repositoryId, requestedById, sessionDigest }) => {
+      if (
+        !(await prisma.$transaction((transaction) =>
+          lockRepositoryAdministratorSession(transaction, {
+            membershipId: actorMembershipId,
+            repositoryId,
+            sessionDigest,
+          }),
+        ))
+      ) {
+        await createSecurityAudit(prisma, {
+          id: randomUUID(),
+          type: "repository_administration_denied",
+          actorMembershipId,
+          operation: "learning_run",
+          reason: "authority_missing",
+          repositoryId,
+        })
+        throw new LearningsError(
+          403,
+          "repository_administrator_required",
+          "Repository administrator access is required.",
+        )
+      }
       if ((await getCopilot()).state !== "connected") {
         throw new LearningsError(
           409,
@@ -146,7 +185,24 @@ export async function createLearningsRouteDependencies(
           { cause: error },
         )
       }
-      const { run, created } = await prisma.$transaction(async (transaction) => {
+      const requested = await prisma.$transaction(async (transaction) => {
+        if (
+          !(await lockRepositoryAdministratorSession(transaction, {
+            membershipId: actorMembershipId,
+            repositoryId,
+            sessionDigest,
+          }))
+        ) {
+          await createSecurityAudit(transaction, {
+            id: randomUUID(),
+            type: "repository_administration_denied",
+            actorMembershipId,
+            operation: "learning_run",
+            reason: "authority_missing",
+            repositoryId,
+          })
+          return null
+        }
         const result = await createLearningRun(transaction, {
           repositoryId,
           requestedById,
@@ -165,6 +221,14 @@ export async function createLearningsRouteDependencies(
         }
         return result
       })
+      if (!requested) {
+        throw new LearningsError(
+          403,
+          "repository_administrator_required",
+          "Repository administrator access is required.",
+        )
+      }
+      const { run, created } = requested
       const queue = createJobQueue({ name: "on-demand", databaseUrl, logger })
       try {
         await enqueueJob(
@@ -233,7 +297,7 @@ export async function createLearningsRouteDependencies(
         databaseUrl,
         run: () => operation(),
       }),
-    decide: async ({ actorMembershipId, ...input }) => {
+    decide: async ({ actorMembershipId, sessionDigest, ...input }) => {
       const viewer: Parameters<typeof resolveRepositoryScope>[0] = {
         membershipId: actorMembershipId,
         role: "ADMINISTRATOR",
@@ -245,17 +309,19 @@ export async function createLearningsRouteDependencies(
         const result = await withLearningExecutionLock({
           databaseUrl,
           run: async (signal) => {
-            if (!(await isEffectiveAdministrator(prisma, actorMembershipId))) {
-              throw new LearningsError(
-                403,
-                "repository_administrator_required",
-                "Repository administrator access is required.",
-              )
-            }
             if (!(await findRepository(viewer, input.repositoryId))) {
               throw new LearningsError(404, "repository_not_found", "Repository not found.")
             }
-            await prisma.$transaction(async (transaction) => {
+            const authorized = await prisma.$transaction(async (transaction) => {
+              if (
+                !(await lockRepositoryAdministratorSession(transaction, {
+                  membershipId: actorMembershipId,
+                  repositoryId: input.repositoryId,
+                  sessionDigest,
+                }))
+              ) {
+                return false
+              }
               await createLearningDecisionOperation(transaction, {
                 id: operationId,
                 actorMembershipId,
@@ -273,7 +339,23 @@ export async function createLearningsRouteDependencies(
                 outcome: "requested",
                 repositoryId: input.repositoryId,
               })
+              return true
             })
+            if (!authorized) {
+              await createSecurityAudit(prisma, {
+                id: randomUUID(),
+                type: "repository_administration_denied",
+                actorMembershipId,
+                operation: "learning_decision",
+                reason: "authority_missing",
+                repositoryId: input.repositoryId,
+              })
+              throw new LearningsError(
+                403,
+                "repository_administrator_required",
+                "Repository administrator access is required.",
+              )
+            }
             operationCreated = true
             return executeLearningDecision({
               ...configuration,

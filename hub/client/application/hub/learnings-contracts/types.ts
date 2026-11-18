@@ -52,12 +52,16 @@ export interface LearningRunResponse {
 }
 
 export type LearningsResponse =
-  | { accessDenied: true; repository: RepositoryRecord; canAdministerHub: boolean }
+  | {
+      accessDenied: true
+      repository: RepositoryRecord
+      capabilities: { administerHub: boolean; administerRepository: false }
+    }
   | {
       accessDenied: false
       repository: RepositoryRecord
-      canAdministerHub: boolean
-      permissions: { decide: boolean; requestRun: boolean }
+      capabilities: { administerHub: boolean; administerRepository: true }
+      permissions: { viewEvidence: boolean; decide: boolean; requestRun: boolean }
       copilot:
         | { state: "connected"; connectedBy: string | null }
         | { state: "not-connected" }

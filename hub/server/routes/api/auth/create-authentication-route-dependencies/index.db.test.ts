@@ -213,6 +213,13 @@ describe("createAuthenticationRouteDependencies()", () => {
                   default_branch: repository.defaultBranch,
                   full_name: repository.nameWithOwner,
                   id: repository.githubRepositoryId,
+                  permissions: {
+                    admin: true,
+                    maintain: true,
+                    pull: true,
+                    push: true,
+                    triage: true,
+                  },
                 },
               ],
             }),

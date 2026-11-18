@@ -310,6 +310,16 @@ const eventSchema = z.discriminatedUnion("type", [
       type: z.literal("learning_run"),
     })
     .strict(),
+  z
+    .object({
+      actorMembershipId: z.uuid(),
+      id: z.uuid(),
+      operation: z.enum(["learning_overview", "learning_run", "learning_decision"]),
+      reason: z.literal("authority_missing"),
+      repositoryId: z.uuid(),
+      type: z.literal("repository_administration_denied"),
+    })
+    .strict(),
 ])
 
 export function parseSecurityAuditEvent(input: unknown): ParsedSecurityAuditEvent {

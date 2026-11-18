@@ -246,7 +246,12 @@ describe("admitAuthenticationProof()", () => {
             role: "MEMBER",
           },
           repositoryAccess: [
-            { defaultBranch: "main", githubRepositoryId: 42, nameWithOwner: "octo/example" },
+            {
+              accessLevel: "ADMIN",
+              defaultBranch: "main",
+              githubRepositoryId: 42,
+              nameWithOwner: "octo/example",
+            },
           ],
         },
         {
@@ -288,7 +293,12 @@ describe("admitAuthenticationProof()", () => {
             role: "MEMBER",
           },
           repositoryAccess: [
-            { defaultBranch: "main", githubRepositoryId: 42, nameWithOwner: "octo/example" },
+            {
+              accessLevel: "ADMIN",
+              defaultBranch: "main",
+              githubRepositoryId: 42,
+              nameWithOwner: "octo/example",
+            },
           ],
         },
         {
@@ -972,6 +982,7 @@ describe("admitAuthenticationProof()", () => {
       writeAudit: vi.fn(),
     }
     const repository = {
+      accessLevel: "ADMIN" as const,
       defaultBranch: "main",
       githubRepositoryId: 42,
       nameWithOwner: "octo/prototypes",

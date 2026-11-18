@@ -38,6 +38,7 @@ const inputSchema = z
       .array(
         z
           .object({
+            accessLevel: z.enum(["READ", "TRIAGE", "WRITE", "MAINTAIN", "ADMIN"]),
             defaultBranch: z.string().min(1).max(255),
             githubRepositoryId: z.number().int().positive(),
             nameWithOwner: z.string().min(3).max(255),
@@ -346,13 +347,18 @@ export async function admitAuthenticationProof(
   try {
     result = await runWithBoundedRetries(
       () =>
-        dependencies.runTransaction((repositories) =>
-          admitWithinTransaction(
-            repositories,
-            input,
-            () => dependencies.createId(),
-            () => dependencies.getBootstrapSecretDigest(),
-          ),
+        dependencies.runTransaction(
+          (repositories) =>
+            admitWithinTransaction(
+              repositories,
+              input,
+              () => dependencies.createId(),
+              () => dependencies.getBootstrapSecretDigest(),
+            ),
+          {
+            repositoryAuthorityChange:
+              input.providerKey === "github" && input.repositoryAccess !== undefined,
+          },
         ),
       (error) => error instanceof AdmissionTransactionConflictError,
     )

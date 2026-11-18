@@ -1,0 +1,7 @@
+enum RepositoryAccessLevel {
+  READ
+  TRIAGE
+  WRITE
+  MAINTAIN
+  ADMIN
+}

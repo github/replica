@@ -34,6 +34,7 @@ export async function withLearningExecutionLock<T>({
       "SELECT pg_try_advisory_lock(1919242348, 2) AS locked",
     )
     if (!result.rows[0]?.locked) throw new Error("Another learning operation is still running.")
+    await client.query("SELECT pg_advisory_lock_shared(1919242348, 3)")
     controller.signal.throwIfAborted()
     running = run(controller.signal)
     return await Promise.race([running, connectionFailed])

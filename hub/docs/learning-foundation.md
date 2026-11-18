@@ -48,7 +48,9 @@ The browser contracts are:
 - `POST /api/repositories/:repositoryId/learnings/runs`
 - `POST /api/repositories/:repositoryId/learnings/:learningId/decision`
 
-Current product authorization has Hub members and Hub administrators but no repository-specific role model. Signed-in members receive the Learnings contract's access-denied response without suggestion, evidence, permission, Copilot, or usage data. Hub administrators may read accepted guidance and recall previews and may make decisions. Every write rereads the live session and administrator authority immediately before it reaches the package store.
+Learnings uses the shared repository-administrator boundary. It requires current GitHub admin permission recorded on the active repository grant, an active membership and repository, and the enabled selected GitHub provider. Hub administration remains deployment and security authority and does not grant access to repository learning evidence. Signed-in users without repository authority receive the Learnings contract's access-denied response without suggestion, evidence, permission, Copilot, or usage data. The response projects Hub and repository administration separately so navigation never treats one as the other.
+
+The same repository authority is the boundary for learning overview evidence, explicit runs, decisions, training opt-in, repository budgets, candidate promotion, and later runtime operations. Only the overview, run, and decision routes exist in this version. Every read rechecks authority after asynchronous store reads before returning private data. Every write rereads the live session and repository authority after waits, and the run transaction locks the provider, membership, repository, and grant rows before it records work. Typed denials write security audits containing the membership, repository, operation, and denial reason, never learning content, evidence, decision reasons, or credentials.
 
 The read response lists the ten newest persisted runs and decimal Copilot usage from runs started during the previous 30 days. It resolves every displayed package event against the current repository snapshot and shows the exact imported event body only when the event, episode, comment, Hub origin, and repository all match. Deleted comments remain visible as redacted evidence without text.
 
@@ -78,4 +80,4 @@ The environment-token mode may obtain its secret through a platform secret refer
 
 ## Current limits
 
-The first production flow is explicit: a repository administrator requests a run. Hub does not yet schedule daily discovery runs based on comment changes. Repository-specific roles are also not modeled yet, so current product authorization uses live Hub administrator authority. The package remains authoritative for consent, evidence eligibility, lifecycle, recall, and redaction.
+The first production flow is explicit: a repository administrator requests a run. Hub does not yet schedule daily discovery runs based on comment changes. GitHub is the only repository-authority provider in this version; Entra, local sessions, and Hub administrator assignments do not synthesize repository administration. The package remains authoritative for consent, evidence eligibility, lifecycle, recall, and redaction.
