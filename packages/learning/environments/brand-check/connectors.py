@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -10,6 +11,8 @@ from threading import Event
 from typing import Any, Mapping, Protocol, Sequence
 
 from .taskset import Taskset
+
+_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
 
 CONNECTOR_ERROR_CATEGORIES = (
     "invalid_input",
@@ -75,16 +78,8 @@ class ContentDigest:
     value: str
 
     def __post_init__(self) -> None:
-        if (
-            self.algorithm != "sha256"
-            or len(self.value) != 64
-            or self.value != self.value.lower()
-        ):
+        if self.algorithm != "sha256" or not _SHA256_HEX.fullmatch(self.value):
             raise ValueError("Content digest must be a SHA-256 hexadecimal value.")
-        try:
-            int(self.value, 16)
-        except ValueError:
-            raise ValueError("Content digest must be a SHA-256 hexadecimal value.") from None
 
     def __str__(self) -> str:
         return f"{self.algorithm}:{self.value}"
@@ -213,7 +208,7 @@ class Promotion:
 class Credential:
     """A short-lived credential restricted to one operation and customer scope."""
 
-    value: str
+    value: str = field(repr=False)
     expires_at: float
     audience: str
     scope: RuntimeScope
@@ -260,6 +255,31 @@ class Usage:
             raise ValueError("Usage needs valid attribution, quantity, unit, and optional cost.")
 
 
+@dataclass(frozen=True)
+class TrainingResult:
+    """Persistable artifacts and measured work from one completed training operation."""
+
+    adapter_name: str
+    adapter: bytes
+    baseline_report: Mapping[str, Any]
+    candidate_report: Mapping[str, Any]
+    metadata: Mapping[str, Any]
+    updates_completed: int
+
+    def __post_init__(self) -> None:
+        if (
+            Path(self.adapter_name).name != self.adapter_name
+            or not self.adapter_name
+            or not isinstance(self.adapter, bytes)
+            or isinstance(self.updates_completed, bool)
+            or not isinstance(self.updates_completed, int)
+            or self.updates_completed < 0
+        ):
+            raise ValueError(
+                "Training result needs a safe adapter name, bytes, and measured updates."
+            )
+
+
 class TasksetConnector(Protocol):
     def resolve(self, reference: str, context: OperationContext) -> TasksetArtifact: ...
 
@@ -289,6 +309,7 @@ class JobConnector(Protocol):
         record: Mapping[str, Any],
         *,
         expected_version: int,
+        lease: JobLease,
         context: OperationContext,
     ) -> Mapping[str, Any]: ...
 
@@ -342,7 +363,7 @@ class TrainingConnector(Protocol):
         max_updates: int,
         context: OperationContext,
         credential: Credential | None,
-    ) -> Any: ...
+    ) -> TrainingResult: ...
 
 
 class InferenceConnector(Protocol):

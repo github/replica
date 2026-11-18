@@ -14,14 +14,12 @@ import json
 import math
 import multiprocessing
 import os
-import queue
 import re
 import shutil
 import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Protocol
@@ -37,6 +35,7 @@ from .connectors import (
     RuntimeOwner,
     RuntimeScope,
     TrainingConnector,
+    TrainingResult,
     Usage,
     check_context,
 )
@@ -68,17 +67,6 @@ class RuntimeFailure(ValueError):
         super().__init__(message)
         self.code = code
         self.status = status
-
-
-@dataclass(frozen=True)
-class TrainingResult:
-    """Artifacts a backend produced for one completed training job."""
-
-    adapter_name: str
-    adapter: bytes
-    baseline_report: Mapping[str, Any]
-    candidate_report: Mapping[str, Any]
-    metadata: Mapping[str, Any]
 
 
 class TrainingBackend(Protocol):
@@ -154,6 +142,7 @@ class FixtureBackend:
             baseline_report=baseline,
             candidate_report=candidate,
             metadata={"kind": "deterministic-fixture", "updates": max_updates},
+            updates_completed=max_updates,
         )
 
     def predict(
@@ -579,10 +568,11 @@ class LocalRuntime:
                 context,
                 connector=connector.name,
                 kind="training_updates",
-                quantity=job["limits"]["maxUpdates"],
+                quantity=result.updates_completed,
                 unit="updates",
                 metadata={
                     "elapsedSeconds": time.monotonic() - started,
+                    "requestedUpdates": job["limits"]["maxUpdates"],
                     "state": "succeeded",
                 },
             )
@@ -612,15 +602,17 @@ class LocalRuntime:
                         context,
                         connector=connector.name,
                         kind="training_updates",
-                        quantity=job["limits"]["maxUpdates"],
+                        quantity=0,
                         unit="updates",
                         metadata={
                             "elapsedSeconds": time.monotonic() - started,
+                            "requestedUpdates": job["limits"]["maxUpdates"],
                             "state": "failed",
+                            "actualUpdatesKnown": False,
                         },
                     )
                 except ConnectorError as usage_error:
-                    job["error"] = {
+                    job["usageError"] = {
                         "code": usage_error.code,
                         "message": str(usage_error),
                     }
@@ -839,6 +831,14 @@ class LocalRuntime:
         unit: str,
         metadata: Mapping[str, Any] | None = None,
     ) -> None:
+        reporting_context = OperationContext(
+            operation_id=context.operation_id,
+            idempotency_key=f"{context.idempotency_key}:usage",
+            scope=context.scope,
+            owner=context.owner,
+            deadline=time.monotonic() + 5,
+            cancellation=Cancellation(),
+        )
         self.observability.record(
             Usage(
                 operation_id=context.operation_id,
@@ -849,7 +849,7 @@ class LocalRuntime:
                 unit=unit,
                 metadata=metadata or {},
             ),
-            context,
+            reporting_context,
         )
 
     @staticmethod
@@ -1183,7 +1183,7 @@ def _check_deadline(deadline: float) -> None:
 def _runtime_connector_failure(error: ConnectorError) -> RuntimeFailure:
     status = {
         "invalid_input": 400,
-        "unauthorized": 401,
+        "unauthorized": 503,
         "not_found": 404,
         "conflict": 409,
         "cancelled": 409,
@@ -1338,44 +1338,103 @@ def _run_inference(
     context: OperationContext,
     credential: Credential | None,
 ) -> Mapping[str, Any]:
-    """Bound inference even when a connector does not return after its deadline."""
-    completed: queue.Queue[Mapping[str, Any] | Exception] = queue.Queue(maxsize=1)
+    """Run inference in a child that the runtime can stop at the request deadline."""
     timeout_seconds = max(0.0, context.deadline - time.monotonic())
-
-    def run() -> None:
-        try:
-            result: Mapping[str, Any] | Exception = connector.predict(
-                adapter,
-                request,
-                context=context,
-                credential=credential,
-            )
-        except Exception as error:
-            result = error
-        completed.put(result)
-
-    thread = threading.Thread(
-        target=run,
+    process_context = _process_context()
+    receive, send = process_context.Pipe(duplex=False)
+    process = process_context.Process(
+        target=_inference_process,
+        args=(
+            send,
+            connector,
+            str(adapter),
+            dict(request),
+            context.operation_id,
+            context.idempotency_key,
+            context.scope,
+            context.owner,
+            context.deadline,
+            credential,
+        ),
         name=f"replica-{connector.name}-inference",
-        daemon=True,
     )
-    thread.start()
+    process.start()
+    send.close()
     try:
-        result = completed.get(timeout=timeout_seconds)
-    except queue.Empty:
-        context.cancellation.cancel()
-        raise RuntimeFailure(
-            "inference_timed_out",
-            "The inference operation reached its deadline.",
-            504,
-        ) from None
-    if isinstance(result, Exception):
-        raise result
-    if time.monotonic() > context.deadline:
-        context.cancellation.cancel()
-        raise RuntimeFailure(
-            "inference_timed_out",
-            "The inference operation reached its deadline.",
-            504,
+        if not receive.poll(timeout_seconds):
+            context.cancellation.cancel()
+            process.terminate()
+            process.join()
+            raise RuntimeFailure(
+                "inference_timed_out",
+                "The inference operation reached its deadline.",
+                504,
+            )
+        kind, payload = receive.recv()
+        process.join()
+        if kind == "runtime_error":
+            code, message, status = payload
+            raise RuntimeFailure(code, message, status)
+        if kind == "connector_error":
+            code, message, category, retryable = payload
+            raise ConnectorError(
+                code,
+                message,
+                category=category,
+                retryable=retryable,
+            )
+        if kind == "error":
+            raise RuntimeFailure("inference_failed", payload, 500)
+        return payload
+    finally:
+        receive.close()
+        if process.is_alive():
+            process.terminate()
+            process.join()
+
+
+def _inference_process(
+    send: Any,
+    connector: InferenceConnector,
+    adapter: str,
+    request: Mapping[str, Any],
+    operation_id: str,
+    idempotency_key: str,
+    scope: RuntimeScope,
+    owner: RuntimeOwner,
+    deadline: float,
+    credential: Credential | None,
+) -> None:
+    """Run one serializable inference connector in a terminable child process."""
+    try:
+        context = OperationContext(
+            operation_id=operation_id,
+            idempotency_key=idempotency_key,
+            scope=scope,
+            owner=owner,
+            deadline=deadline,
+            cancellation=Cancellation(),
         )
-    return result
+        result = connector.predict(
+            Path(adapter),
+            request,
+            context=context,
+            credential=credential,
+        )
+        send.send(("ok", result))
+    except Exception as error:
+        try:
+            if isinstance(error, RuntimeFailure):
+                payload = ("runtime_error", (error.code, str(error), error.status))
+            elif isinstance(error, ConnectorError):
+                payload = (
+                    "connector_error",
+                    (error.code, str(error), error.category, error.retryable),
+                )
+            else:
+                payload = ("error", str(error))
+            send.send(payload)
+        except (BrokenPipeError, OSError):
+            pass
+    finally:
+        send.close()

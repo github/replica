@@ -11,11 +11,12 @@ import threading
 import time
 import unittest
 from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 from urllib import error, request
 
-from replica_brand_check.connectors import Credential, RuntimeScope
+from replica_brand_check.connectors import ConnectorError, Credential, RuntimeScope
 from replica_brand_check.runtime import FixtureBackend, LocalRuntime, RuntimeFailure
 from replica_brand_check.runtime_server import RuntimeHTTPServer, runtime_token
 from tests.support import PNG, RULE, make_task, write_taskset
@@ -64,12 +65,19 @@ class BlockingBackend(FixtureBackend):
 class CapturingBackend(FixtureBackend):
     """A fixture backend that records the projected inference request."""
 
-    def __init__(self):
-        self.request = None
+    def __init__(self, capture: Path):
+        self.capture = capture
 
     def predict(self, adapter, request, *, timeout_seconds):
-        self.request = request
+        self.capture.write_text(json.dumps(request), encoding="utf-8")
         return super().predict(adapter, request, timeout_seconds=timeout_seconds)
+
+
+class PartialBackend(FixtureBackend):
+    """A backend that reports fewer completed updates than its budget."""
+
+    def train(self, *args, **kwargs):
+        return replace(super().train(*args, **kwargs), updates_completed=2)
 
 
 class CapturingCredentials:
@@ -93,6 +101,40 @@ class CapturingObservability:
 
     def record(self, usage, context):
         self.records.append((usage, context))
+
+
+class ContextCheckingObservability(CapturingObservability):
+    def record(self, usage, context):
+        context.cancellation.raise_if_requested()
+        if time.monotonic() >= context.deadline:
+            raise ConnectorError(
+                "reporting_deadline",
+                "The reporting deadline elapsed.",
+                category="deadline_exceeded",
+            )
+        super().record(usage, context)
+
+
+class FailingObservability:
+    def record(self, usage, context):
+        del usage, context
+        raise ConnectorError(
+            "usage_unavailable",
+            "Usage reporting is unavailable.",
+            category="unavailable",
+            retryable=True,
+        )
+
+
+class InferenceFailingCredentials(CapturingCredentials):
+    def acquire(self, audience, context):
+        if audience == "inference":
+            raise ConnectorError(
+                "credential_unavailable",
+                "The runtime credential is unavailable.",
+                category="unauthorized",
+            )
+        return super().acquire(audience, context)
 
 
 class LocalRuntimeTest(unittest.TestCase):
@@ -158,7 +200,8 @@ class LocalRuntimeTest(unittest.TestCase):
             runtime.evaluate(self._request())
 
     def test_backend_receives_no_free_form_task_or_question_text(self):
-        backend = CapturingBackend()
+        capture = self.taskset_dir.parent / "captured-request.json"
+        backend = CapturingBackend(capture)
         runtime = LocalRuntime(
             self.state_dir,
             self.taskset_dir,
@@ -174,7 +217,7 @@ class LocalRuntimeTest(unittest.TestCase):
         runtime.evaluate(self._request())
 
         self.assertEqual(
-            backend.request,
+            json.loads(capture.read_text(encoding="utf-8")),
             {
                 "images": [
                     "data:image/png;base64," + base64.b64encode(PNG).decode("ascii")
@@ -221,6 +264,87 @@ class LocalRuntimeTest(unittest.TestCase):
                 for usage, context in observability.records
             )
         )
+
+    def test_reports_measured_training_updates_and_requested_budget(self):
+        observability = CapturingObservability()
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"partial": PartialBackend()},
+            environment="test",
+            observability=observability,
+        )
+        self.addCleanup(runtime.close)
+
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="partial", max_updates=8, max_seconds=5)["id"],
+        )
+
+        self.assertEqual(finished["state"], "succeeded")
+        usage, _context = observability.records[0]
+        self.assertEqual(usage.quantity, 2)
+        self.assertEqual(usage.metadata["requestedUpdates"], 8)
+
+    def test_preserves_job_failure_when_usage_reporting_also_fails(self):
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"failing": FailingBackend()},
+            environment="test",
+            observability=FailingObservability(),
+        )
+        self.addCleanup(runtime.close)
+
+        failed = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="failing", max_updates=8, max_seconds=5)["id"],
+        )
+
+        self.assertEqual(failed["error"]["code"], "backend_failed")
+        self.assertEqual(failed["usageError"]["code"], "usage_unavailable")
+
+    def test_reports_timeout_usage_with_a_fresh_completion_context(self):
+        observability = ContextCheckingObservability()
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"slow": SlowBackend()},
+            environment="test",
+            observability=observability,
+        )
+        self.addCleanup(runtime.close)
+
+        failed = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="slow", max_updates=1, max_seconds=1)["id"],
+        )
+
+        self.assertEqual(failed["error"]["code"], "job_timed_out")
+        usage, reporting_context = observability.records[0]
+        self.assertEqual(usage.quantity, 0)
+        self.assertFalse(reporting_context.cancellation.requested)
+        self.assertGreater(reporting_context.deadline, time.monotonic())
+
+    def test_maps_runtime_credential_failure_to_service_unavailable(self):
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            environment="test",
+            credentials=InferenceFailingCredentials(),
+        )
+        self.addCleanup(runtime.close)
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
+        )
+        runtime.promote(finished["candidateId"], promoted_by="test-operator")
+
+        with self.assertRaises(RuntimeFailure) as unavailable:
+            runtime.evaluate(self._request())
+
+        self.assertEqual(unavailable.exception.code, "credential_unavailable")
+        self.assertEqual(unavailable.exception.status, 503)
 
     def test_detects_a_candidate_changed_to_claim_production_eligibility(self):
         runtime = self._runtime()
@@ -321,6 +445,7 @@ class LocalRuntimeTest(unittest.TestCase):
 
         self.assertEqual(timed_out.exception.code, "inference_timed_out")
         self.assertEqual(timed_out.exception.status, 504)
+        self.assertEqual(multiprocessing.active_children(), [])
 
     def test_close_cancels_queued_jobs_instead_of_starting_them(self):
         started = self.taskset_dir.parent / "blocking-started"

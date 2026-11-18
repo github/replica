@@ -257,20 +257,20 @@ The runtime contract follows the lifecycle rather than the services of one cloud
 | --- | --- |
 | Taskset | Resolve one validated, immutable taskset inside the requested tenant and repository scope |
 | Artifact | Store and read bytes by a verified SHA-256 digest without changing stored content |
-| Job | Create and cancel durable jobs, compare-and-swap their versions, and grant one expiring worker lease |
+| Job | Create and cancel durable jobs, compare-and-swap their versions, and require the active expiring worker lease for each state update |
 | Candidate | Store immutable model candidates and append explicit promotion or rollback generations |
-| Training | Run one bounded training operation and return candidate artifacts and evaluation evidence |
+| Training | Run one bounded training operation and return persistable candidate artifacts, evaluation evidence, and measured completed updates |
 | Inference | Evaluate one request with the explicitly promoted candidate |
 | Credential | Acquire a short-lived credential restricted to one operation, audience, tenant, and repository |
 | Observability | Attribute usage, optional cost, and provider diagnostics to the scoped operation |
 
 Every call receives an `OperationContext`. It names the tenant, repository, owner, operation, idempotency key, monotonic deadline, and cooperative cancellation signal. A retry with the same idempotency key and input returns the first result. Reusing the key for different input is a conflict. Connectors must check cancellation and deadlines before causing side effects.
 
-Artifacts and candidates are immutable. Their identities include content digests, and a connector must fail with an integrity error when bytes do not match the claimed digest. Job leases are exclusive until released or expired. Promotion is an append-only sequence: a caller supplies the generation it observed, and a stale caller gets a conflict instead of replacing a newer decision.
+Artifacts and candidates are immutable. Their identities include content digests, and a connector must fail with an integrity error when bytes do not match the claimed digest. Job leases are exclusive until released or expired. Every versioned update presents the active lease, so a worker whose lease expired or was replaced cannot write even when it still knows the current job version. Promotion is an append-only sequence: a caller supplies the generation it observed, and a stale caller gets a conflict instead of replacing a newer decision.
 
 Connector failures use stable codes plus one category: invalid input, not found, conflict, unauthorized, integrity, cancelled, deadline exceeded, unavailable, or internal. Only a connector that knows an operation is safe to repeat marks its error retryable. Usage records always name the operation and customer scope; providers may add quantities and cost, but must not add provider-specific fields to the shared lifecycle records.
 
-[`connector_conformance.py`](connector_conformance.py) returns one reusable `unittest` suite for a fresh connector bundle. Local and hosted implementations run that suite unchanged. Its contract-only fixture proves scope isolation, immutable content, idempotent retries, lease expiry, promotion generations, cancellation and deadlines, credential boundaries, error classification, and usage/cost attribution.
+[`connector_conformance.py`](connector_conformance.py) returns one reusable `unittest` suite for a fresh connector bundle. Local and hosted implementations run that suite unchanged. Its contract-only fixture proves tenant and repository isolation across every stored record, immutable content, idempotent retries, lease expiry and fencing, promotion generations, cancellation and deadlines, persistable training output, credential boundaries, error classification, and usage/cost attribution.
 
 The current single-node runtime preserves its HTTP API, process-isolated training, and filesystem behavior. Compatibility adapters project the existing fixture backend onto the training and inference contracts and pass scoped contexts through credential and observability connectors. A backend and its configuration must remain serializable because installed runtimes execute training in a spawned process. The next layer can replace the embedded filesystem state with local connector implementations without changing orchestration or the HTTP API.
 
