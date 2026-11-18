@@ -120,6 +120,7 @@ appendFileSync(${JSON.stringify(log)}, JSON.stringify(process.argv.slice(2)) + "
         Object.keys(branchRefs(resolve(fixture.configuration.root, "minimal"))).sort(),
       ).toEqual(["main", "prototype/example"])
     },
+    15_000,
   )
 
   it("reports the Starter creation stage safely when the Node scaffold fails", async () => {

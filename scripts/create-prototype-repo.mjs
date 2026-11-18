@@ -2,7 +2,6 @@ import { execFileSync } from "node:child_process"
 import {
   chmodSync,
   copyFileSync,
-  cpSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -11,6 +10,7 @@ import {
   rmSync,
   utimesSync,
 } from "node:fs"
+import { cp } from "node:fs/promises"
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
@@ -45,7 +45,8 @@ function safePath(path) {
     )
 }
 
-export function createRepository(argument) {
+export async function createRepository(argument, { signal } = {}) {
+  signal?.throwIfAborted()
   const name = basename(argument)
   const parentPath = dirname(resolve(argument))
   if (!stat(parentPath)?.isDirectory() && !stat(parentPath)?.isSymbolicLink()) {
@@ -144,7 +145,8 @@ export function createRepository(argument) {
     execFileSync("git", ["init", "-q", "--initial-branch=main", files])
     mkdirSync(destination)
     created = true
-    cpSync(files, destination, { recursive: true, preserveTimestamps: true })
+    await cp(files, destination, { recursive: true, preserveTimestamps: true })
+    signal?.throwIfAborted()
     created = false
     console.log(
       `Created ${destination} with ${count} starter files and a new, uncommitted Git repository.`,
@@ -156,16 +158,31 @@ export function createRepository(argument) {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+const entrypoint =
+  process.argv[1] && stat(process.argv[1])
+    ? pathToFileURL(realpathSync(process.argv[1])).href
+    : undefined
+if (import.meta.url === entrypoint) {
   if (process.argv.length !== 3) {
     console.error(usage)
     process.exitCode = 2
   } else {
+    const controller = new AbortController()
+    const interrupts = ["SIGINT", "SIGTERM"].map((signal) => {
+      const interrupt = () => {
+        process.exitCode = signal === "SIGINT" ? 130 : 143
+        controller.abort(new Error("Repository creation interrupted."))
+      }
+      process.on(signal, interrupt)
+      return [signal, interrupt]
+    })
     try {
-      createRepository(process.argv[2])
+      await createRepository(process.argv[2], { signal: controller.signal })
     } catch (error) {
       console.error(error.message)
-      process.exitCode = 1
+      process.exitCode ||= 1
+    } finally {
+      for (const [signal, interrupt] of interrupts) process.off(signal, interrupt)
     }
   }
 }

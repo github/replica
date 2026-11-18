@@ -402,6 +402,81 @@ test("creation keeps shell metacharacters literal in destination paths", t => {
   assertNoTemporaryFiles(directory)
 })
 
+test("the creator runs through a directory alias without running when imported", t => {
+  const { directory, checkout } = checkoutFixture(t)
+  const alias = join(directory, "source alias")
+  symlinkSync(checkout, alias, directoryLinkType)
+  const bootstrap = join(alias, "scripts/create-prototype-repo.mjs")
+  const destination = join(directory, "prototype")
+  const imported = spawnSync(process.execPath, [
+    "--input-type=module",
+    "--eval",
+    `await import(${JSON.stringify(pathToFileURL(bootstrap).href)})`,
+    destination,
+  ], { cwd: directory, encoding: "utf8" })
+  assert.equal(imported.status, 0, imported.stderr)
+  assert.equal(imported.stdout, "")
+  assert.ok(!existsSync(destination))
+  const result = run(destination, directory, bootstrap)
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(readFileSync(join(destination, "src/example.txt"), "utf8"), "starter/src/example.txt")
+  assertNoTemporaryFiles(directory)
+})
+
+test("termination removes an incomplete repository", { skip: process.platform === "win32" }, t => {
+  const { directory, bootstrap } = checkoutFixture(t)
+  const destination = join(directory, "prototype")
+  const interrupt = join(directory, "interrupt.mjs")
+  writeFileSync(interrupt, `
+import fs from "node:fs"
+import { syncBuiltinESMExports } from "node:module"
+const mkdir = fs.mkdirSync
+fs.mkdirSync = (path, ...args) => {
+  const result = mkdir(path, ...args)
+  if (path === process.env.REPLICA_TEST_DESTINATION) process.kill(process.pid, "SIGTERM")
+  return result
+}
+syncBuiltinESMExports()
+`)
+  const result = spawnSync(process.execPath, [
+    "--import", pathToFileURL(interrupt).href, bootstrap, destination,
+  ], {
+    cwd: directory,
+    encoding: "utf8",
+    timeout: 10_000,
+    env: { ...process.env, REPLICA_TEST_DESTINATION: destination },
+  })
+  assert.equal(result.error, undefined)
+  assert.notEqual(result.status, 0)
+  assert.ok(!existsSync(destination))
+  assertNoTemporaryFiles(directory)
+})
+
+test("termination cancels a download and removes its staging directory", {
+  skip: process.platform === "win32",
+}, t => {
+  const directory = workspace(t)
+  const destination = join(directory, "prototype")
+  const download = join(directory, "download.mjs")
+  writeFileSync(download, `
+globalThis.fetch = async (url, { signal } = {}) => new Promise((resolve, reject) => {
+  const pending = setInterval(() => {}, 1000)
+  signal?.addEventListener("abort", () => {
+    clearInterval(pending)
+    reject(signal.reason)
+  }, { once: true })
+  process.kill(process.pid, "SIGTERM")
+})
+`)
+  const result = spawnSync(process.execPath, [
+    "--import", pathToFileURL(download).href, installer, destination,
+  ], { cwd: directory, encoding: "utf8", timeout: 10_000 })
+  assert.equal(result.error, undefined)
+  assert.notEqual(result.status, 0)
+  assert.ok(!existsSync(destination))
+  assertNoTemporaryFiles(directory)
+})
+
 test("the internal Starter override permits only its designated root inside the checkout", t => {
   const { directory, checkout, bootstrap } = checkoutFixture(t)
   const allowed = join(checkout, "local-prototypes")

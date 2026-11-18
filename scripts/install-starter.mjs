@@ -6,7 +6,7 @@ import { pipeline } from "node:stream/promises"
 import { pathToFileURL } from "node:url"
 
 // Keep this downloader standalone: people download and review just this file.
-async function install(destination) {
+async function install(destination, signal) {
   if (!statSync(dirname(resolve(destination)), { throwIfNoEntry: false })?.isDirectory()) {
     throw new Error("Destination must have an existing parent directory.")
   }
@@ -19,9 +19,12 @@ async function install(destination) {
     try {
       const response = await fetch(
         "https://github.com/github/replica/archive/refs/heads/main.tar.gz",
+        { signal },
       )
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      await pipeline(Readable.fromWeb(response.body), createWriteStream(archive, { flags: "wx" }))
+      await pipeline(Readable.fromWeb(response.body), createWriteStream(archive, { flags: "wx" }), {
+        signal,
+      })
     } catch (error) {
       throw new Error(
         "Could not download the Replica source archive. Check your network connection and access to GitHub, then try again.",
@@ -87,7 +90,7 @@ async function install(destination) {
       throw new Error("Replica source archive is missing the starter or setup script.")
     tar(["-xzf", archive, "-C", temporary, `${root}/starter`, `${root}/${script}`])
     const { createRepository } = await import(pathToFileURL(join(temporary, root, script)).href)
-    createRepository(destination)
+    await createRepository(destination, { signal })
   } finally {
     rmSync(temporary, { recursive: true, force: true })
   }
@@ -97,10 +100,21 @@ if (process.argv.length !== 3) {
   console.error("Usage: node install-starter.mjs <new-repository-directory>")
   process.exitCode = 2
 } else {
+  const controller = new AbortController()
+  const interrupts = ["SIGINT", "SIGTERM"].map((signal) => {
+    const interrupt = () => {
+      process.exitCode = signal === "SIGINT" ? 130 : 143
+      controller.abort(new Error("Starter installation interrupted."))
+    }
+    process.on(signal, interrupt)
+    return [signal, interrupt]
+  })
   try {
-    await install(process.argv[2])
+    await install(process.argv[2], controller.signal)
   } catch (error) {
     console.error(error.message)
-    process.exitCode = 1
+    process.exitCode ||= 1
+  } finally {
+    for (const [signal, interrupt] of interrupts) process.off(signal, interrupt)
   }
 }
