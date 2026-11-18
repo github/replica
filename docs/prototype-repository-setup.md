@@ -44,7 +44,7 @@ node scripts/create-prototype-repo.mjs ../my-prototype
 
 Both paths create an independent, uncommitted Git repository with no remote. They copy the starter without Replica's source history, require no GitHub credentials, and publish nothing. The installer does not install Node.js or app dependencies.
 
-Use a Node.js version supported by the starter and Git. The `--use-env-proxy` option lets Node use configured `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` settings. Downloaded installation also needs tar and a writable current directory for temporary downloads. Creation runs without Bash on Windows, macOS and Linux; the old shell entrypoints remain compatibility wrappers. A previously downloaded shell installer may be outdated until `main` contains these changes; download the current installer again if its compatibility wrapper says it is outdated. This does not change the [Linux requirements for local Hub Builds](../hub/docs/development.md#build-local-prototype-repositories).
+Use a Node.js version supported by the starter and Git. The `--use-env-proxy` option lets Node use configured `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` settings. Downloaded installation also needs tar and a writable current directory for temporary downloads. Creation runs without Bash on Windows, macOS and Linux. This does not change the [Linux requirements for local Hub Builds](../hub/docs/development.md#build-local-prototype-repositories).
 
 Before asking the user to accept the copied repository's Copilot app configuration, review `.github/github-app.yml` and the startup details in the copied `README.md`. Explain that session startup can install Copilot CLI globally when missing, install or enable the Replica plugin, and will run `npm ci`.
 

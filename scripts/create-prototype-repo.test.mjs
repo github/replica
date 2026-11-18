@@ -299,7 +299,6 @@ function checkoutFixture(t) {
 function archiveFixture(
   t,
   {
-    creatorWrapper = false,
     gitMetadata,
     missing,
     symlink,
@@ -320,12 +319,6 @@ function archiveFixture(
   const bootstrap = join(archiveRoot, "scripts/create-prototype-repo.mjs")
   mkdirSync(dirname(bootstrap), { recursive: true })
   copyFileSync(script, bootstrap)
-  if (creatorWrapper) {
-    copyFileSync(
-      join(root, "scripts/create-prototype-repo.sh"),
-      join(archiveRoot, "scripts/create-prototype-repo.sh"),
-    )
-  }
   if (missing) rmSync(join(archiveRoot, missing))
   if (symlink) writeFileSync(join(archiveRoot, "starter/src/linked"), "link fixture")
   if (traversal || unsafePath) writeFileSync(join(archiveRoot, "starter/src/unsafe.txt"), "unsafe")
@@ -629,10 +622,6 @@ test("installs an archive with Git for Windows GNU tar first on PATH", t => {
 test("documented installer entry points opt into Node environment proxies", async t => {
   const docs = readFileSync(join(root, "docs/prototype-repository-setup.md"), "utf8")
   assert.match(docs, /node --use-env-proxy install-starter\.mjs/)
-  assert.match(
-    readFileSync(join(root, "scripts/install-starter.sh"), "utf8"),
-    /node\s+--use-env-proxy/,
-  )
 
   const requests = []
   const proxy = createServer()
@@ -688,35 +677,6 @@ test("Windows PowerShell instructions use the curl executable", () => {
   const command = docs.match(/# Windows PowerShell 5\.1\r?\n([\s\S]*?)\r?\n```/)?.[1]
   assert.ok(command, "Missing Windows PowerShell 5.1 installer command")
   assert.match(command, /^\s*curl\.exe\b/m)
-})
-
-test("an older creator wrapper explains how to get the matching installer", t => {
-  const bash = spawnSync("bash", ["--version"], { encoding: "utf8" })
-  if (bash.error || bash.status !== 0) return t.skip("Bash is unavailable.")
-
-  const fixture = archiveFixture(t, { creatorWrapper: true })
-  const extracted = join(fixture.directory, "extracted")
-  mkdirSync(extracted)
-  execFileSync(
-    "tar",
-    [
-      "-xzf",
-      fixture.archive,
-      "-C",
-      extracted,
-      "replica-main/starter",
-      "replica-main/scripts/create-prototype-repo.sh",
-    ],
-  )
-  const repository = join(extracted, "replica-main")
-  const destination = "prototype"
-  const result = spawnSync("bash", ["scripts/create-prototype-repo.sh", destination], {
-    cwd: repository,
-    encoding: "utf8",
-  })
-  assert.equal(result.status, 1, result.stderr)
-  assert.match(result.stderr, /installer copy is outdated.*download the latest installer/i)
-  assert.ok(!existsSync(join(repository, destination)))
 })
 
 test("ignores an unrelated symlink in the archive", t => {
