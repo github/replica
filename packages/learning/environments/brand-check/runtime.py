@@ -14,6 +14,7 @@ import json
 import math
 import multiprocessing
 import os
+import pickle
 import re
 import shutil
 import threading
@@ -323,7 +324,7 @@ class LocalRuntime:
         with self._lock:
             recovered = self._recover_promotion()
             current = self.promotion()
-            if recovered:
+            if recovered and recovered["operation"] == "rollback":
                 return current
             candidate_id = current.get("previousCandidateId")
             if not isinstance(candidate_id, str):
@@ -441,6 +442,7 @@ class LocalRuntime:
                 backend,
                 self.taskset,
                 work,
+                expected_taskset_digest=job["tasksetDigest"],
                 max_updates=job["limits"]["maxUpdates"],
                 max_seconds=job["limits"]["maxSeconds"],
             )
@@ -509,6 +511,7 @@ class LocalRuntime:
             _write_immutable(staging / "evaluation.json", _json_bytes(report))
             _write_immutable(staging / "manifest.json", _json_bytes(manifest))
             os.replace(staging, target)
+            _sync_directory(candidates)
         finally:
             if staging.exists():
                 shutil.rmtree(staging)
@@ -532,10 +535,10 @@ class LocalRuntime:
                 )
                 _write_json_atomic(path, job)
 
-    def _recover_promotion(self) -> bool:
+    def _recover_promotion(self) -> dict[str, Any] | None:
         history = sorted((self.state_directory / "promotions").glob("*.json"))
         if not history:
-            return False
+            return None
         latest = self._record(history[-1], "promotion generation", history[-1].stem)
         latest_generation = latest.get("generation")
         if (
@@ -553,14 +556,14 @@ class LocalRuntime:
         )
         current_generation = current.get("generation", 0) if current else 0
         if latest_generation == current_generation:
-            return False
+            return None
         if (
             latest_generation == current_generation + 1
             and latest.get("previousCandidateId")
             == (current.get("candidateId") if current else None)
         ):
             _write_json_atomic(current_path, latest)
-            return True
+            return latest
         raise RuntimeFailure(
             "state_damaged",
             "Promotion history is not one generation ahead of the current pointer.",
@@ -780,7 +783,6 @@ def _check_limits(max_updates: int, max_seconds: float) -> None:
     if (
         isinstance(max_seconds, bool)
         or not isinstance(max_seconds, (int, float))
-        or not math.isfinite(max_seconds)
         or not MIN_SECONDS <= max_seconds <= MAX_SECONDS
     ):
         raise RuntimeFailure(
@@ -927,9 +929,13 @@ def _write_json_atomic(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}")
     try:
-        temporary.write_bytes(_json_bytes(value))
-        os.chmod(temporary, 0o600)
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(_json_bytes(value))
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(temporary, path)
+        _sync_directory(path.parent)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -943,8 +949,17 @@ def _write_immutable(path: Path, data: bytes) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.link(temporary, path)
+        _sync_directory(path.parent)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _sync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _now() -> str:
@@ -961,19 +976,21 @@ def _run_backend(
     taskset: Taskset,
     work_directory: Path,
     *,
+    expected_taskset_digest: str,
     max_updates: int,
     max_seconds: float,
 ) -> TrainingResult:
     """Run backend code in a child that the runtime can stop at the job deadline."""
     deadline = time.monotonic() + max_seconds
     context = _process_context()
-    receive, send = context.Pipe(duplex=False)
+    result_path = work_directory / "result.pickle"
     process = context.Process(
         target=_backend_process,
         args=(
-            send,
+            str(result_path),
             backend,
             str(taskset.directory),
+            expected_taskset_digest,
             str(work_directory),
             max_updates,
             deadline,
@@ -981,64 +998,83 @@ def _run_backend(
         name=f"replica-{backend.name}-job",
     )
     process.start()
-    send.close()
     try:
-        if not receive.poll(max_seconds):
-            process.terminate()
-            process.join()
+        process.join(max(0.0, deadline - time.monotonic()))
+        if process.is_alive():
+            _stop_process(process)
             raise RuntimeFailure(
                 "job_timed_out", "The bounded training job reached maxSeconds."
             )
-        kind, payload = receive.recv()
-        process.join()
+        try:
+            with result_path.open("rb") as handle:
+                kind, payload = pickle.load(handle)
+        except (FileNotFoundError, EOFError, OSError, pickle.UnpicklingError):
+            raise RuntimeFailure(
+                "backend_failed",
+                f"The training worker exited without a result (exit code {process.exitcode}).",
+                500,
+            ) from None
         if kind == "error":
             code, message, status = payload
             raise RuntimeFailure(code, message, status)
         _check_deadline(deadline)
         return payload
     finally:
-        receive.close()
         if process.is_alive():
-            process.terminate()
-            process.join()
+            _stop_process(process)
 
 
 def _backend_process(
-    send: Any,
+    result_path: str,
     backend: TrainingBackend,
     taskset_directory: str,
+    expected_taskset_digest: str,
     work_directory: str,
     max_updates: int,
     deadline: float,
 ) -> None:
     """Load task data afresh and run one serializable backend in a spawned child process."""
     try:
+        taskset = load_taskset(taskset_directory)
+        if _taskset_digest(taskset) != expected_taskset_digest:
+            raise RuntimeFailure(
+                "taskset_changed",
+                "The taskset changed after this job was submitted.",
+                409,
+            )
         result = backend.train(
-            load_taskset(taskset_directory),
+            taskset,
             Path(work_directory),
             max_updates=max_updates,
             deadline=deadline,
         )
-        try:
-            send.send(("ok", result))
-        except (BrokenPipeError, OSError):
-            pass
+        outcome = ("ok", result)
     except Exception as error:
-        try:
-            send.send(
-                (
-                    "error",
-                    (
-                        error.code if isinstance(error, RuntimeFailure) else "backend_failed",
-                        str(error),
-                        error.status if isinstance(error, RuntimeFailure) else 500,
-                    ),
-                )
-            )
-        except (BrokenPipeError, OSError):
-            pass
+        outcome = (
+            "error",
+            (
+                error.code if isinstance(error, RuntimeFailure) else "backend_failed",
+                str(error),
+                error.status if isinstance(error, RuntimeFailure) else 500,
+            ),
+        )
+    temporary = Path(result_path).with_name(f".{Path(result_path).name}.{uuid.uuid4().hex}")
+    try:
+        with temporary.open("xb") as handle:
+            pickle.dump(outcome, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, result_path)
     finally:
-        send.close()
+        temporary.unlink(missing_ok=True)
+
+
+def _stop_process(process: Any) -> None:
+    process.terminate()
+    process.join(0.1)
+    if process.is_alive():
+        process.kill()
+        process.join(0.1)
 
 
 def _process_context() -> Any:
