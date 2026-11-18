@@ -234,6 +234,11 @@ export async function createLearningsRouteDependencies(
         run: () => operation(),
       }),
     decide: async ({ actorMembershipId, ...input }) => {
+      const viewer: Parameters<typeof resolveRepositoryScope>[0] = {
+        membershipId: actorMembershipId,
+        role: "ADMINISTRATOR",
+        sessionProvider: null,
+      }
       const operationId = randomUUID()
       let operationCreated = false
       try {
@@ -247,12 +252,7 @@ export async function createLearningsRouteDependencies(
                 "Repository administrator access is required.",
               )
             }
-            if (
-              !(await findRepository(
-                { membershipId: actorMembershipId, role: "ADMINISTRATOR", sessionProvider: null },
-                input.repositoryId,
-              ))
-            ) {
+            if (!(await findRepository(viewer, input.repositoryId))) {
               throw new LearningsError(404, "repository_not_found", "Repository not found.")
             }
             await prisma.$transaction(async (transaction) => {
@@ -311,7 +311,8 @@ export async function createLearningsRouteDependencies(
         }
         return result
       } catch (error) {
-        if (operationCreated && isDefinitiveDecisionRejection(error)) {
+        const definitiveRejection = operationCreated && isDefinitiveDecisionRejection(error)
+        if (definitiveRejection) {
           await prisma.$transaction(async (transaction) => {
             const claimed = await deleteLearningDecisionOperation(transaction, operationId)
             if (claimed.count !== 1) return
@@ -330,9 +331,18 @@ export async function createLearningsRouteDependencies(
               repositoryId: input.repositoryId,
             })
           })
-          throw error
         }
         if (
+          operationCreated &&
+          error instanceof LearningCommandError &&
+          !(await findRepository(viewer, input.repositoryId))
+        ) {
+          throw new LearningsError(404, "repository_not_found", "Repository not found.", {
+            cause: error,
+          })
+        }
+        if (
+          !definitiveRejection &&
           error instanceof Error &&
           error.message === "Another learning operation is still running."
         ) {
