@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import pg from "pg"
 import { describe, expect, it } from "vitest"
 
+import { waitForBlockedQuery } from "../../../test/database/wait-for-blocked-query"
 import { prisma } from "../../integrations/prisma"
 import { searchAdministratorCandidates } from "../../repositories/memberships/search-administrator-candidates"
 import { createSecurityAudit } from "../../repositories/security-audits/create-security-audit"
@@ -884,6 +885,193 @@ describe("administrator authorization persistence", () => {
       await locker.end()
     }
   })
+
+  it.each(["session", "authorization"] as const)(
+    "rechecks %s expiry after waiting to end a peer session",
+    async (expiring) => {
+      const databaseUrl = process.env.DATABASE_URL
+      if (!databaseUrl) throw new Error("DATABASE_URL is required.")
+      const lifetime = 2_500
+      const expiresAt = new Date(Date.now() + lifetime)
+      const fixture = await createAuthorizationFixture(
+        "DESIGNATE_ADMINISTRATORS",
+        false,
+        expiring === "session" ? lifetime : 60_000,
+        expiring === "authorization" ? { expiresAt } : undefined,
+      )
+      const otherSessionId = randomUUID()
+      await prisma.hubSession.create({
+        data: {
+          digest: "c".repeat(64),
+          expiresAt: new Date(Date.now() + 60_000),
+          externalIdentityId: fixture.actor.externalIdentityId,
+          id: otherSessionId,
+          membershipId: fixture.actor.membershipId,
+          providerRevisionId: fixture.providerRevisionId,
+          revocationRevision: 0,
+        },
+      })
+      const authorizationAttemptId = await createConsumedAuthorizationAttempt({
+        authorizationId: fixture.authorizationId,
+        providerRevisionId: fixture.providerRevisionId,
+      })
+      const deadline =
+        expiring === "session"
+          ? (
+              await prisma.hubSession.findUniqueOrThrow({
+                select: { expiresAt: true },
+                where: { id: fixture.hubSessionId },
+              })
+            ).expiresAt
+          : expiresAt
+      const locker = new pg.Client({ connectionString: databaseUrl })
+      const inspector = new pg.Client({ connectionString: databaseUrl })
+      await locker.connect()
+      try {
+        await inspector.connect()
+        await locker.query("BEGIN")
+        const { rows } = await locker.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")
+        await locker.query("SELECT id FROM hub_sessions WHERE id = $1 FOR UPDATE", [otherSessionId])
+        const verification = verifyAdministratorAuthorization(
+          {
+            authorizationAttemptId,
+            externalIdentityId: fixture.actor.externalIdentityId,
+            providerAssignment: {
+              assignmentSubject: "repository-access",
+              issuedAt: new Date(),
+              providerRevisionId: fixture.providerRevisionId,
+              role: "MEMBER",
+            },
+            providerKey: "github",
+            requiresProviderAssignmentEvidence: true,
+            sessionDigest: "b".repeat(64),
+            sensitiveAuthorizationId: fixture.authorizationId,
+          },
+          verificationDependencies(),
+        ).then(
+          (value) => ({ value }),
+          (error: unknown) => ({ error }),
+        )
+        await waitForBlockedQuery(inspector, rows[0]!.pid, "")
+        const stillValid = await locker.query<{ valid: boolean }>(
+          "SELECT clock_timestamp() < $1::timestamptz AS valid",
+          [deadline],
+        )
+        expect(stillValid.rows[0]?.valid).toBe(true)
+        await locker.query(
+          "SELECT pg_sleep(GREATEST(0, extract(epoch FROM ($1::timestamptz - clock_timestamp())) + 0.1))",
+          [deadline],
+        )
+        await locker.query("COMMIT")
+        await expect(verification).resolves.toEqual({ value: null })
+        await expect(
+          prisma.sensitiveAuthorization.findUniqueOrThrow({
+            select: { verifiedAt: true },
+            where: { id: fixture.authorizationId },
+          }),
+        ).resolves.toEqual({ verifiedAt: null })
+        await expect(
+          prisma.membershipAssignment.findFirstOrThrow({
+            select: { lifecycle: true, role: true },
+            where: {
+              externalIdentityId: fixture.actor.externalIdentityId,
+              source: "AUTHENTICATION_PROVIDER",
+            },
+          }),
+        ).resolves.toEqual({ lifecycle: "ACTIVE", role: "MEMBER" })
+        const otherSession = await prisma.hubSession.findUniqueOrThrow({
+          select: { endedAt: true },
+          where: { id: otherSessionId },
+        })
+        expect(otherSession.endedAt).toBeInstanceOf(Date)
+        const initiatingSession = await prisma.hubSession.findUniqueOrThrow({
+          select: { endedAt: true },
+          where: { id: fixture.hubSessionId },
+        })
+        expect(initiatingSession.endedAt).toBeInstanceOf(Date)
+      } finally {
+        await locker.query("ROLLBACK").catch(() => undefined)
+        await inspector.end()
+        await locker.end()
+      }
+    },
+    8_000,
+  )
+
+  it("rechecks authorization expiry after waiting for its verification lock", async () => {
+    const databaseUrl = process.env.DATABASE_URL
+    if (!databaseUrl) throw new Error("DATABASE_URL is required.")
+    const expiresAt = new Date(Date.now() + 2_500)
+    const fixture = await createAuthorizationFixture("DESIGNATE_ADMINISTRATORS", false, 60_000, {
+      expiresAt,
+    })
+    const authorizationAttemptId = await createConsumedAuthorizationAttempt({
+      authorizationId: fixture.authorizationId,
+      providerRevisionId: fixture.providerRevisionId,
+    })
+    const locker = new pg.Client({ connectionString: databaseUrl })
+    const inspector = new pg.Client({ connectionString: databaseUrl })
+    await locker.connect()
+    try {
+      await inspector.connect()
+      await locker.query("BEGIN")
+      const { rows } = await locker.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")
+      await locker.query("SELECT id FROM sensitive_authorizations WHERE id = $1 FOR UPDATE", [
+        fixture.authorizationId,
+      ])
+      const verification = verifyAdministratorAuthorization(
+        {
+          authorizationAttemptId,
+          externalIdentityId: fixture.actor.externalIdentityId,
+          providerAssignment: {
+            assignmentSubject: "repository-access",
+            issuedAt: new Date(),
+            providerRevisionId: fixture.providerRevisionId,
+            role: "MEMBER",
+          },
+          providerKey: "github",
+          requiresProviderAssignmentEvidence: true,
+          sessionDigest: "b".repeat(64),
+          sensitiveAuthorizationId: fixture.authorizationId,
+        },
+        verificationDependencies(),
+      ).then(
+        (value) => ({ value }),
+        (error: unknown) => ({ error }),
+      )
+      await waitForBlockedQuery(inspector, rows[0]!.pid, "")
+      const stillValid = await inspector.query<{ valid: boolean }>(
+        "SELECT clock_timestamp() < $1::timestamptz AS valid",
+        [expiresAt],
+      )
+      expect(stillValid.rows[0]?.valid).toBe(true)
+      await locker.query(
+        "SELECT pg_sleep(GREATEST(0, extract(epoch FROM ($1::timestamptz - clock_timestamp())) + 0.1))",
+        [expiresAt],
+      )
+      await locker.query("COMMIT")
+      await expect(verification).resolves.toEqual({ value: null })
+      await expect(
+        prisma.sensitiveAuthorization.findUniqueOrThrow({
+          select: { verifiedAt: true },
+          where: { id: fixture.authorizationId },
+        }),
+      ).resolves.toEqual({ verifiedAt: null })
+      await expect(
+        prisma.membershipAssignment.findFirstOrThrow({
+          select: { lifecycle: true, role: true },
+          where: {
+            externalIdentityId: fixture.actor.externalIdentityId,
+            source: "AUTHENTICATION_PROVIDER",
+          },
+        }),
+      ).resolves.toEqual({ lifecycle: "ACTIVE", role: "MEMBER" })
+    } finally {
+      await locker.query("ROLLBACK").catch(() => undefined)
+      await inspector.end()
+      await locker.end()
+    }
+  }, 8_000)
 
   it("cancels only the bound session authorization and prevents later continuation", async () => {
     const fixture = await createAuthorizationFixture()

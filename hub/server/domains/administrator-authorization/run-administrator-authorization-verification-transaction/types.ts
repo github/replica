@@ -4,6 +4,9 @@ import type { verifySensitiveAuthorization } from "../../../repositories/sensiti
 import type { AdmissionRepositories } from "../../admission/run-admission-transaction/types.ts"
 
 export interface AdministratorAuthorizationVerificationRepositories extends AdmissionRepositories {
+  canVerifySensitiveAuthorization(
+    input: Parameters<typeof verifySensitiveAuthorization>[1],
+  ): Promise<boolean>
   getSensitiveAuthorizationAuditData(
     id: string,
   ): ReturnType<typeof getSensitiveAuthorizationAuditData>
