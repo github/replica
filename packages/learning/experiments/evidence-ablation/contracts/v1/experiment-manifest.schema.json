@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/github/replica/packages/learning/experiments/evidence-ablation/contracts/v1/experiment-manifest.schema.json",
+  "title": "Replica learning evidence ablation experiment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "name", "corpus", "tiers", "split", "runtime", "budgets", "privacy"],
+  "properties": {
+    "schemaVersion": { "const": "replica.learning-evidence-experiment/v1" },
+    "name": { "type": "string", "minLength": 1 },
+    "corpus": { "type": "string", "minLength": 1 },
+    "tiers": {
+      "type": "array",
+      "minItems": 2,
+      "uniqueItems": true,
+      "items": { "enum": ["A", "B", "C"] }
+    },
+    "split": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unit", "seed", "train", "dev", "test"],
+      "properties": {
+        "unit": { "enum": ["prototype", "repository"] },
+        "seed": { "type": "integer" },
+        "train": { "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1 },
+        "dev": { "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1 },
+        "test": { "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1 }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["backend", "maxUpdates", "maxSeconds"],
+      "properties": {
+        "backend": { "type": "string", "minLength": 1 },
+        "backendModule": { "type": "string", "minLength": 1 },
+        "maxUpdates": { "type": "integer", "minimum": 1, "maximum": 100000 },
+        "maxSeconds": { "type": "number", "minimum": 1, "maximum": 86400 }
+      }
+    },
+    "budgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxComments", "maxOutcomes", "maxSessionActions"],
+      "properties": {
+        "maxComments": { "type": "integer", "minimum": 1 },
+        "maxOutcomes": { "type": "integer", "minimum": 1 },
+        "maxSessionActions": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reportIdentifiers", "includeRawContent"],
+      "properties": {
+        "reportIdentifiers": { "const": "digests-only" },
+        "includeRawContent": { "const": false }
+      }
+    }
+  }
+}

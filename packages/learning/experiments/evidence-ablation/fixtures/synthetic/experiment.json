@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "replica.learning-evidence-experiment/v1",
+  "name": "Synthetic Replica evidence ablation",
+  "corpus": "corpus.json",
+  "tiers": [
+    "A",
+    "B",
+    "C"
+  ],
+  "split": {
+    "unit": "prototype",
+    "seed": 20261118,
+    "train": 0.6,
+    "dev": 0.2,
+    "test": 0.2
+  },
+  "runtime": {
+    "backend": "fixture",
+    "maxUpdates": 8,
+    "maxSeconds": 30
+  },
+  "budgets": {
+    "maxComments": 500,
+    "maxOutcomes": 500,
+    "maxSessionActions": 1000
+  },
+  "privacy": {
+    "reportIdentifiers": "digests-only",
+    "includeRawContent": false
+  }
+}

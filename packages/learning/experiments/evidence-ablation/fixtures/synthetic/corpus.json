@@ -1,0 +1,3241 @@
+{
+  "schemaVersion": "replica.learning-evidence-corpus/v1",
+  "purpose": {
+    "id": "synthetic-evidence-study",
+    "description": "Evaluate evidence-tier yield and usefulness without customer data.",
+    "consentRecordedAt": "2026-09-01T00:00:00Z",
+    "approvedBy": "synthetic-fixture-owner",
+    "allowedUses": [
+      "evaluation",
+      "analytics",
+      "training"
+    ],
+    "retention": {
+      "owner": "synthetic-fixture-owner",
+      "deleteBy": "2027-09-01T00:00:00Z"
+    }
+  },
+  "source": {
+    "kind": "synthetic",
+    "repositoryScope": "github.com/synthetic/replica-prototypes",
+    "exportedAt": "2026-10-01T00:00:00Z"
+  },
+  "learnings": [
+    {
+      "id": "mem_111111111111111111111111",
+      "text": "Put a visible label above every form field.",
+      "theme": "field-labels",
+      "fixtureTerms": [
+        "visible label",
+        "field label",
+        "label above"
+      ]
+    },
+    {
+      "id": "mem_222222222222222222222222",
+      "text": "Use the shared primary action instead of an unstyled button.",
+      "theme": "primary-action",
+      "fixtureTerms": [
+        "primary action",
+        "unstyled button",
+        "shared button"
+      ]
+    },
+    {
+      "id": "mem_333333333333333333333333",
+      "text": "Keep the narrow layout usable without horizontal scrolling.",
+      "theme": "narrow-layout",
+      "fixtureTerms": [
+        "horizontal scroll",
+        "narrow layout",
+        "phone width"
+      ]
+    }
+  ],
+  "prototypes": [
+    {
+      "id": "prototype-01",
+      "repositoryId": "repo-alpha",
+      "name": "Request triage 1",
+      "branch": "prototype/request-triage-1",
+      "startPage": "/requests?view=open#queue",
+      "templates": [
+        {
+          "id": "default",
+          "name": "Request queue",
+          "route": "/requests?view=open#queue"
+        },
+        {
+          "id": "empty",
+          "name": "Empty state",
+          "route": "/requests?view=empty"
+        }
+      ],
+      "tierA": {
+        "reviewThreads": [
+          {
+            "id": "thread-1",
+            "buildNumber": 1,
+            "route": "/requests?view=open#queue",
+            "anchor": {
+              "schemaVersion": "replica.review-anchor/v1",
+              "kind": "area",
+              "route": "/requests?view=open#queue"
+            },
+            "comments": [
+              {
+                "id": "comment-1-root",
+                "kind": "root",
+                "body": "The main action does not match the repository guidance.",
+                "createdAt": "2026-09-02T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-1"
+                }
+              },
+              {
+                "id": "comment-1-reply",
+                "kind": "reply",
+                "body": "Updated in the next Build and checked in both captured layouts.",
+                "createdAt": "2026-09-03T12:00:00Z",
+                "editedAt": "2026-09-03T14:00:00Z",
+                "actor": {
+                  "kind": "agent",
+                  "id": "copilot-author"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "tierB": {
+        "builds": [
+          {
+            "number": 1,
+            "commitSha": "0201aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-02T12:00:00Z",
+            "routes": [
+              {
+                "route": "/requests?view=open#queue",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "number": 2,
+            "commitSha": "0202aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-03T12:00:00Z",
+            "routes": [
+              {
+                "route": "/requests?view=open#queue",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "number": 3,
+            "commitSha": "0203aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-04T12:00:00Z",
+            "routes": [
+              {
+                "route": "/requests?view=open#queue",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "outcomes": [
+          {
+            "threadId": "thread-1",
+            "learningId": "mem_222222222222222222222222",
+            "problemBuildNumber": 1,
+            "changedBuildNumber": 2,
+            "events": [
+              {
+                "kind": "resolved",
+                "at": "2026-09-04T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-1"
+                }
+              }
+            ],
+            "reviewerVerified": true,
+            "changed": true
+          }
+        ]
+      },
+      "tierC": {
+        "authoringSessions": [
+          {
+            "id": "session-1",
+            "purpose": "evaluation",
+            "consentId": "synthetic-evidence-study",
+            "startedAt": "2026-09-02T08:00:00Z",
+            "prompt": "Update the request triage prototype using the repository's design-system guidance and keep the existing start page and templates.",
+            "actions": [
+              {
+                "kind": "inspect-guidance",
+                "at": "2026-09-02T09:00:00Z",
+                "learningId": "mem_222222222222222222222222",
+                "buildNumber": 1,
+                "result": "unchanged"
+              },
+              {
+                "kind": "edit",
+                "at": "2026-09-03T09:00:00Z",
+                "learningId": "mem_222222222222222222222222",
+                "buildNumber": 2,
+                "result": "improved"
+              },
+              {
+                "kind": "capture-build",
+                "at": "2026-09-04T09:00:00Z",
+                "learningId": "mem_333333333333333333333333",
+                "buildNumber": 3,
+                "result": "improved"
+              }
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "expectedLearnings": [
+          "mem_222222222222222222222222",
+          "mem_333333333333333333333333"
+        ],
+        "buildLabels": [
+          {
+            "buildNumber": 1,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_222222222222222222222222",
+            "follows": false,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 1,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_333333333333333333333333",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 2,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_222222222222222222222222",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 2,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_333333333333333333333333",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 3,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_222222222222222222222222",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 3,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_333333333333333333333333",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          }
+        ]
+      }
+    },
+    {
+      "id": "prototype-02",
+      "repositoryId": "repo-alpha",
+      "name": "Request triage 2",
+      "branch": "prototype/request-triage-2",
+      "startPage": "/",
+      "templates": [
+        {
+          "id": "default",
+          "name": "Request queue",
+          "route": "/"
+        },
+        {
+          "id": "empty",
+          "name": "Empty state",
+          "route": "/requests?view=empty"
+        }
+      ],
+      "tierA": {
+        "reviewThreads": [
+          {
+            "id": "thread-2",
+            "buildNumber": 1,
+            "route": "/",
+            "anchor": {
+              "schemaVersion": "replica.review-anchor/v1",
+              "kind": "element",
+              "route": "/"
+            },
+            "comments": [
+              {
+                "id": "comment-2-root",
+                "kind": "root",
+                "body": "This might be intentional, but the primary action feels inconsistent.",
+                "createdAt": "2026-09-03T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-2"
+                }
+              },
+              {
+                "id": "comment-2-reply",
+                "kind": "reply",
+                "body": "Updated in the next Build and checked in both captured layouts.",
+                "createdAt": "2026-09-04T12:00:00Z",
+                "editedAt": "2026-09-04T14:00:00Z",
+                "actor": {
+                  "kind": "agent",
+                  "id": "copilot-author"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "tierB": {
+        "builds": [
+          {
+            "number": 1,
+            "commitSha": "0301aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-03T12:00:00Z",
+            "routes": [
+              {
+                "route": "/",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "number": 2,
+            "commitSha": "0302aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-04T12:00:00Z",
+            "routes": [
+              {
+                "route": "/",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "number": 3,
+            "commitSha": "0303aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-05T12:00:00Z",
+            "routes": [
+              {
+                "route": "/",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "outcomes": [
+          {
+            "threadId": "thread-2",
+            "learningId": "mem_333333333333333333333333",
+            "problemBuildNumber": 1,
+            "changedBuildNumber": 2,
+            "events": [
+              {
+                "kind": "resolved",
+                "at": "2026-09-05T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-2"
+                }
+              }
+            ],
+            "reviewerVerified": false,
+            "changed": true
+          }
+        ]
+      },
+      "tierC": {
+        "authoringSessions": [
+          {
+            "id": "session-2",
+            "purpose": "evaluation",
+            "consentId": "synthetic-evidence-study",
+            "startedAt": "2026-09-03T08:00:00Z",
+            "prompt": "Update the request triage prototype using the repository's design-system guidance and keep the existing start page and templates.",
+            "actions": [
+              {
+                "kind": "inspect-guidance",
+                "at": "2026-09-03T09:00:00Z",
+                "learningId": "mem_333333333333333333333333",
+                "buildNumber": 1,
+                "result": "unchanged"
+              },
+              {
+                "kind": "edit",
+                "at": "2026-09-04T09:00:00Z",
+                "learningId": "mem_333333333333333333333333",
+                "buildNumber": 2,
+                "result": "improved"
+              },
+              {
+                "kind": "capture-build",
+                "at": "2026-09-05T09:00:00Z",
+                "learningId": "mem_111111111111111111111111",
+                "buildNumber": 3,
+                "result": "improved"
+              },
+              {
+                "kind": "respond-to-review",
+                "at": "2026-09-05T11:00:00Z",
+                "learningId": "mem_222222222222222222222222",
+                "buildNumber": 2,
+                "result": "improved"
+              }
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "expectedLearnings": [
+          "mem_333333333333333333333333",
+          "mem_111111111111111111111111"
+        ],
+        "buildLabels": [
+          {
+            "buildNumber": 1,
+            "route": "/",
+            "learningId": "mem_333333333333333333333333",
+            "follows": false,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 1,
+            "route": "/",
+            "learningId": "mem_111111111111111111111111",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 2,
+            "route": "/",
+            "learningId": "mem_333333333333333333333333",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 2,
+            "route": "/",
+            "learningId": "mem_111111111111111111111111",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 3,
+            "route": "/",
+            "learningId": "mem_333333333333333333333333",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 3,
+            "route": "/",
+            "learningId": "mem_111111111111111111111111",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          }
+        ]
+      }
+    },
+    {
+      "id": "prototype-03",
+      "repositoryId": "repo-alpha",
+      "name": "Request triage 3",
+      "branch": "prototype/request-triage-3",
+      "startPage": "/requests?view=open#queue",
+      "templates": [
+        {
+          "id": "default",
+          "name": "Request queue",
+          "route": "/requests?view=open#queue"
+        },
+        {
+          "id": "empty",
+          "name": "Empty state",
+          "route": "/requests?view=empty"
+        }
+      ],
+      "tierA": {
+        "reviewThreads": [
+          {
+            "id": "thread-3",
+            "buildNumber": 1,
+            "route": "/requests?view=open#queue",
+            "anchor": {
+              "schemaVersion": "replica.review-anchor/v1",
+              "kind": "area",
+              "route": "/requests?view=open#queue"
+            },
+            "comments": [
+              {
+                "id": "comment-3-root",
+                "kind": "root",
+                "body": "The field labels is missing. Please add a visible label.",
+                "createdAt": "2026-09-04T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-3"
+                }
+              },
+              {
+                "id": "comment-3-reply",
+                "kind": "reply",
+                "body": "Updated in the next Build and checked in both captured layouts.",
+                "createdAt": "2026-09-05T12:00:00Z",
+                "editedAt": "2026-09-05T14:00:00Z",
+                "actor": {
+                  "kind": "agent",
+                  "id": "copilot-author"
+                }
+              },
+              {
+                "id": "comment-3-deleted",
+                "kind": "reply",
+                "body": null,
+                "createdAt": "2026-09-05T15:00:00Z",
+                "deletedAt": "2026-09-05T16:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "github-user:legacy"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "tierB": {
+        "builds": [
+          {
+            "number": 1,
+            "commitSha": "0401aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-04T12:00:00Z",
+            "routes": [
+              {
+                "route": "/requests?view=open#queue",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "number": 2,
+            "commitSha": "0402aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-05T12:00:00Z",
+            "routes": [
+              {
+                "route": "/requests?view=open#queue",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "number": 3,
+            "commitSha": "0403aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-06T12:00:00Z",
+            "routes": [
+              {
+                "route": "/requests?view=open#queue",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "outcomes": [
+          {
+            "threadId": "thread-3",
+            "learningId": "mem_111111111111111111111111",
+            "problemBuildNumber": 1,
+            "changedBuildNumber": 2,
+            "events": [
+              {
+                "kind": "resolved",
+                "at": "2026-09-06T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-3"
+                }
+              }
+            ],
+            "reviewerVerified": true,
+            "changed": true
+          }
+        ]
+      },
+      "tierC": {
+        "authoringSessions": [
+          {
+            "id": "session-3",
+            "purpose": "evaluation",
+            "consentId": "synthetic-evidence-study",
+            "startedAt": "2026-09-04T08:00:00Z",
+            "prompt": "Update the request triage prototype using the repository's design-system guidance and keep the existing start page and templates.",
+            "actions": [
+              {
+                "kind": "inspect-guidance",
+                "at": "2026-09-04T09:00:00Z",
+                "learningId": "mem_111111111111111111111111",
+                "buildNumber": 1,
+                "result": "unchanged"
+              },
+              {
+                "kind": "edit",
+                "at": "2026-09-05T09:00:00Z",
+                "learningId": "mem_111111111111111111111111",
+                "buildNumber": 2,
+                "result": "improved"
+              },
+              {
+                "kind": "capture-build",
+                "at": "2026-09-06T09:00:00Z",
+                "learningId": "mem_222222222222222222222222",
+                "buildNumber": 3,
+                "result": "improved"
+              }
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "expectedLearnings": [
+          "mem_111111111111111111111111",
+          "mem_222222222222222222222222"
+        ],
+        "buildLabels": [
+          {
+            "buildNumber": 1,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_111111111111111111111111",
+            "follows": false,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 1,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_222222222222222222222222",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 2,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_111111111111111111111111",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 2,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_222222222222222222222222",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 3,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_111111111111111111111111",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 3,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_222222222222222222222222",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          }
+        ]
+      }
+    },
+    {
+      "id": "prototype-04",
+      "repositoryId": "repo-alpha",
+      "name": "Request triage 4",
+      "branch": "prototype/request-triage-4",
+      "startPage": "/",
+      "templates": [
+        {
+          "id": "default",
+          "name": "Request queue",
+          "route": "/"
+        },
+        {
+          "id": "empty",
+          "name": "Empty state",
+          "route": "/requests?view=empty"
+        }
+      ],
+      "tierA": {
+        "reviewThreads": [
+          {
+            "id": "thread-4",
+            "buildNumber": 1,
+            "route": "/",
+            "anchor": {
+              "schemaVersion": "replica.review-anchor/v1",
+              "kind": "element",
+              "route": "/"
+            },
+            "comments": [
+              {
+                "id": "comment-4-root",
+                "kind": "root",
+                "body": "The main action does not match the repository guidance.",
+                "createdAt": "2026-09-05T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-0"
+                }
+              },
+              {
+                "id": "comment-4-reply",
+                "kind": "reply",
+                "body": "Updated in the next Build and checked in both captured layouts.",
+                "createdAt": "2026-09-06T12:00:00Z",
+                "editedAt": "2026-09-06T14:00:00Z",
+                "actor": {
+                  "kind": "agent",
+                  "id": "copilot-author"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "tierB": {
+        "builds": [
+          {
+            "number": 1,
+            "commitSha": "0501aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-05T12:00:00Z",
+            "routes": [
+              {
+                "route": "/",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "number": 2,
+            "commitSha": "0502aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-06T12:00:00Z",
+            "routes": [
+              {
+                "route": "/",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "number": 3,
+            "commitSha": "0503aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-07T12:00:00Z",
+            "routes": [
+              {
+                "route": "/",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "outcomes": [
+          {
+            "threadId": "thread-4",
+            "learningId": "mem_222222222222222222222222",
+            "problemBuildNumber": 1,
+            "changedBuildNumber": 2,
+            "events": [
+              {
+                "kind": "resolved",
+                "at": "2026-09-07T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-0"
+                }
+              },
+              {
+                "kind": "reopened",
+                "at": "2026-09-08T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-0"
+                }
+              },
+              {
+                "kind": "resolved-again",
+                "at": "2026-09-09T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-0"
+                }
+              }
+            ],
+            "reviewerVerified": true,
+            "changed": true
+          }
+        ]
+      },
+      "tierC": {
+        "authoringSessions": [
+          {
+            "id": "session-4",
+            "purpose": "evaluation",
+            "consentId": "synthetic-evidence-study",
+            "startedAt": "2026-09-05T08:00:00Z",
+            "prompt": "Update the request triage prototype using the repository's design-system guidance and keep the existing start page and templates.",
+            "actions": [
+              {
+                "kind": "inspect-guidance",
+                "at": "2026-09-05T09:00:00Z",
+                "learningId": "mem_222222222222222222222222",
+                "buildNumber": 1,
+                "result": "unchanged"
+              },
+              {
+                "kind": "edit",
+                "at": "2026-09-06T09:00:00Z",
+                "learningId": "mem_222222222222222222222222",
+                "buildNumber": 2,
+                "result": "improved"
+              },
+              {
+                "kind": "capture-build",
+                "at": "2026-09-07T09:00:00Z",
+                "learningId": "mem_333333333333333333333333",
+                "buildNumber": 3,
+                "result": "improved"
+              }
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "expectedLearnings": [
+          "mem_222222222222222222222222",
+          "mem_333333333333333333333333"
+        ],
+        "buildLabels": [
+          {
+            "buildNumber": 1,
+            "route": "/",
+            "learningId": "mem_222222222222222222222222",
+            "follows": false,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 1,
+            "route": "/",
+            "learningId": "mem_333333333333333333333333",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 2,
+            "route": "/",
+            "learningId": "mem_222222222222222222222222",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 2,
+            "route": "/",
+            "learningId": "mem_333333333333333333333333",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 3,
+            "route": "/",
+            "learningId": "mem_222222222222222222222222",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 3,
+            "route": "/",
+            "learningId": "mem_333333333333333333333333",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          }
+        ]
+      }
+    },
+    {
+      "id": "prototype-05",
+      "repositoryId": "repo-alpha",
+      "name": "Request triage 5",
+      "branch": "prototype/request-triage-5",
+      "startPage": "/requests?view=open#queue",
+      "templates": [
+        {
+          "id": "default",
+          "name": "Request queue",
+          "route": "/requests?view=open#queue"
+        },
+        {
+          "id": "empty",
+          "name": "Empty state",
+          "route": "/requests?view=empty"
+        }
+      ],
+      "tierA": {
+        "reviewThreads": [
+          {
+            "id": "thread-5",
+            "buildNumber": 1,
+            "route": "/requests?view=open#queue",
+            "anchor": {
+              "schemaVersion": "replica.review-anchor/v1",
+              "kind": "area",
+              "route": "/requests?view=open#queue"
+            },
+            "comments": [
+              {
+                "id": "comment-5-root",
+                "kind": "root",
+                "body": "This page breaks when I review it on a phone.",
+                "createdAt": "2026-09-06T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-1"
+                }
+              },
+              {
+                "id": "comment-5-reply",
+                "kind": "reply",
+                "body": "Updated in the next Build and checked in both captured layouts.",
+                "createdAt": "2026-09-07T12:00:00Z",
+                "editedAt": "2026-09-07T14:00:00Z",
+                "actor": {
+                  "kind": "agent",
+                  "id": "copilot-author"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "tierB": {
+        "builds": [
+          {
+            "number": 1,
+            "commitSha": "0601aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-06T12:00:00Z",
+            "routes": [
+              {
+                "route": "/requests?view=open#queue",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "number": 2,
+            "commitSha": "0602aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-07T12:00:00Z",
+            "routes": [
+              {
+                "route": "/requests?view=open#queue",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "number": 3,
+            "commitSha": "0603aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-08T12:00:00Z",
+            "routes": [
+              {
+                "route": "/requests?view=open#queue",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "outcomes": [
+          {
+            "threadId": "thread-5",
+            "learningId": "mem_333333333333333333333333",
+            "problemBuildNumber": 1,
+            "changedBuildNumber": 2,
+            "events": [
+              {
+                "kind": "resolved",
+                "at": "2026-09-08T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-1"
+                }
+              }
+            ],
+            "reviewerVerified": false,
+            "changed": true
+          }
+        ]
+      },
+      "tierC": {
+        "authoringSessions": [
+          {
+            "id": "session-5",
+            "purpose": "evaluation",
+            "consentId": "synthetic-evidence-study",
+            "startedAt": "2026-09-06T08:00:00Z",
+            "prompt": "Update the request triage prototype using the repository's design-system guidance and keep the existing start page and templates.",
+            "actions": [
+              {
+                "kind": "inspect-guidance",
+                "at": "2026-09-06T09:00:00Z",
+                "learningId": "mem_333333333333333333333333",
+                "buildNumber": 1,
+                "result": "unchanged"
+              },
+              {
+                "kind": "edit",
+                "at": "2026-09-07T09:00:00Z",
+                "learningId": "mem_333333333333333333333333",
+                "buildNumber": 2,
+                "result": "improved"
+              },
+              {
+                "kind": "capture-build",
+                "at": "2026-09-08T09:00:00Z",
+                "learningId": "mem_111111111111111111111111",
+                "buildNumber": 3,
+                "result": "regressed"
+              }
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "expectedLearnings": [
+          "mem_333333333333333333333333",
+          "mem_111111111111111111111111"
+        ],
+        "buildLabels": [
+          {
+            "buildNumber": 1,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_333333333333333333333333",
+            "follows": false,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 1,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_111111111111111111111111",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 2,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_333333333333333333333333",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 2,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_111111111111111111111111",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 3,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_333333333333333333333333",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 3,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_111111111111111111111111",
+            "follows": false,
+            "judgment": "synthetic-ground-truth"
+          }
+        ]
+      }
+    },
+    {
+      "id": "prototype-06",
+      "repositoryId": "repo-alpha",
+      "name": "Request triage 6",
+      "branch": "prototype/request-triage-6",
+      "startPage": "/",
+      "templates": [
+        {
+          "id": "default",
+          "name": "Request queue",
+          "route": "/"
+        },
+        {
+          "id": "empty",
+          "name": "Empty state",
+          "route": "/requests?view=empty"
+        }
+      ],
+      "tierA": {
+        "reviewThreads": [
+          {
+            "id": "thread-6",
+            "buildNumber": 1,
+            "route": "/",
+            "anchor": {
+              "schemaVersion": "replica.review-anchor/v1",
+              "kind": "element",
+              "route": "/"
+            },
+            "comments": [
+              {
+                "id": "comment-6-root",
+                "kind": "root",
+                "body": "The field labels is missing. Please add a visible label.",
+                "createdAt": "2026-09-07T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-2"
+                }
+              },
+              {
+                "id": "comment-6-reply",
+                "kind": "reply",
+                "body": "Updated in the next Build and checked in both captured layouts.",
+                "createdAt": "2026-09-08T12:00:00Z",
+                "editedAt": "2026-09-08T14:00:00Z",
+                "actor": {
+                  "kind": "agent",
+                  "id": "copilot-author"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "tierB": {
+        "builds": [
+          {
+            "number": 1,
+            "commitSha": "0701aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-07T12:00:00Z",
+            "routes": [
+              {
+                "route": "/",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "number": 2,
+            "commitSha": "0702aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-08T12:00:00Z",
+            "routes": [
+              {
+                "route": "/",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "number": 3,
+            "commitSha": "0703aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-09T12:00:00Z",
+            "routes": [
+              {
+                "route": "/",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "outcomes": [
+          {
+            "threadId": "thread-6",
+            "learningId": "mem_111111111111111111111111",
+            "problemBuildNumber": 1,
+            "changedBuildNumber": 2,
+            "events": [
+              {
+                "kind": "resolved",
+                "at": "2026-09-09T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-2"
+                }
+              }
+            ],
+            "reviewerVerified": true,
+            "changed": true
+          }
+        ]
+      },
+      "tierC": {
+        "authoringSessions": [
+          {
+            "id": "session-6",
+            "purpose": "evaluation",
+            "consentId": "synthetic-evidence-study",
+            "startedAt": "2026-09-07T08:00:00Z",
+            "prompt": "Update the request triage prototype using the repository's design-system guidance and keep the existing start page and templates.",
+            "actions": [
+              {
+                "kind": "inspect-guidance",
+                "at": "2026-09-07T09:00:00Z",
+                "learningId": "mem_111111111111111111111111",
+                "buildNumber": 1,
+                "result": "unchanged"
+              },
+              {
+                "kind": "edit",
+                "at": "2026-09-08T09:00:00Z",
+                "learningId": "mem_111111111111111111111111",
+                "buildNumber": 2,
+                "result": "improved"
+              },
+              {
+                "kind": "capture-build",
+                "at": "2026-09-09T09:00:00Z",
+                "learningId": "mem_222222222222222222222222",
+                "buildNumber": 3,
+                "result": "improved"
+              }
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "expectedLearnings": [
+          "mem_111111111111111111111111",
+          "mem_222222222222222222222222"
+        ],
+        "buildLabels": [
+          {
+            "buildNumber": 1,
+            "route": "/",
+            "learningId": "mem_111111111111111111111111",
+            "follows": false,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 1,
+            "route": "/",
+            "learningId": "mem_222222222222222222222222",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 2,
+            "route": "/",
+            "learningId": "mem_111111111111111111111111",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 2,
+            "route": "/",
+            "learningId": "mem_222222222222222222222222",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 3,
+            "route": "/",
+            "learningId": "mem_111111111111111111111111",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 3,
+            "route": "/",
+            "learningId": "mem_222222222222222222222222",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          }
+        ]
+      }
+    },
+    {
+      "id": "prototype-07",
+      "repositoryId": "repo-beta",
+      "name": "Request triage 7",
+      "branch": "prototype/request-triage-7",
+      "startPage": "/requests?view=open#queue",
+      "templates": [
+        {
+          "id": "default",
+          "name": "Request queue",
+          "route": "/requests?view=open#queue"
+        },
+        {
+          "id": "empty",
+          "name": "Empty state",
+          "route": "/requests?view=empty"
+        }
+      ],
+      "tierA": {
+        "reviewThreads": [
+          {
+            "id": "thread-7",
+            "buildNumber": 1,
+            "route": "/requests?view=open#queue",
+            "anchor": {
+              "schemaVersion": "replica.review-anchor/v1",
+              "kind": "area",
+              "route": "/requests?view=open#queue"
+            },
+            "comments": [
+              {
+                "id": "comment-7-root",
+                "kind": "root",
+                "body": "The main action does not match the repository guidance.",
+                "createdAt": "2026-09-08T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-3"
+                }
+              },
+              {
+                "id": "comment-7-reply",
+                "kind": "reply",
+                "body": "Updated in the next Build and checked in both captured layouts.",
+                "createdAt": "2026-09-09T12:00:00Z",
+                "editedAt": "2026-09-09T14:00:00Z",
+                "actor": {
+                  "kind": "agent",
+                  "id": "copilot-author"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "tierB": {
+        "builds": [
+          {
+            "number": 1,
+            "commitSha": "0801aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-08T12:00:00Z",
+            "routes": [
+              {
+                "route": "/requests?view=open#queue",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "number": 2,
+            "commitSha": "0802aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-09T12:00:00Z",
+            "routes": [
+              {
+                "route": "/requests?view=open#queue",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "number": 3,
+            "commitSha": "0803aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-10T12:00:00Z",
+            "routes": [
+              {
+                "route": "/requests?view=open#queue",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "outcomes": [
+          {
+            "threadId": "thread-7",
+            "learningId": "mem_222222222222222222222222",
+            "problemBuildNumber": 1,
+            "changedBuildNumber": 2,
+            "events": [
+              {
+                "kind": "resolved",
+                "at": "2026-09-10T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-3"
+                }
+              }
+            ],
+            "reviewerVerified": true,
+            "changed": true
+          }
+        ]
+      },
+      "tierC": {
+        "authoringSessions": [
+          {
+            "id": "session-7",
+            "purpose": "evaluation",
+            "consentId": "synthetic-evidence-study",
+            "startedAt": "2026-09-08T08:00:00Z",
+            "prompt": "Update the request triage prototype using the repository's design-system guidance and keep the existing start page and templates.",
+            "actions": [
+              {
+                "kind": "inspect-guidance",
+                "at": "2026-09-08T09:00:00Z",
+                "learningId": "mem_222222222222222222222222",
+                "buildNumber": 1,
+                "result": "unchanged"
+              },
+              {
+                "kind": "edit",
+                "at": "2026-09-09T09:00:00Z",
+                "learningId": "mem_222222222222222222222222",
+                "buildNumber": 2,
+                "result": "improved"
+              },
+              {
+                "kind": "capture-build",
+                "at": "2026-09-10T09:00:00Z",
+                "learningId": "mem_333333333333333333333333",
+                "buildNumber": 3,
+                "result": "improved"
+              }
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "expectedLearnings": [
+          "mem_222222222222222222222222",
+          "mem_333333333333333333333333"
+        ],
+        "buildLabels": [
+          {
+            "buildNumber": 1,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_222222222222222222222222",
+            "follows": false,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 1,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_333333333333333333333333",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 2,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_222222222222222222222222",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 2,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_333333333333333333333333",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 3,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_222222222222222222222222",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 3,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_333333333333333333333333",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          }
+        ]
+      }
+    },
+    {
+      "id": "prototype-08",
+      "repositoryId": "repo-beta",
+      "name": "Request triage 8",
+      "branch": "prototype/request-triage-8",
+      "startPage": "/",
+      "templates": [
+        {
+          "id": "default",
+          "name": "Request queue",
+          "route": "/"
+        },
+        {
+          "id": "empty",
+          "name": "Empty state",
+          "route": "/requests?view=empty"
+        }
+      ],
+      "tierA": {
+        "reviewThreads": [
+          {
+            "id": "thread-8",
+            "buildNumber": 1,
+            "route": "/",
+            "anchor": {
+              "schemaVersion": "replica.review-anchor/v1",
+              "kind": "element",
+              "route": "/"
+            },
+            "comments": [
+              {
+                "id": "comment-8-root",
+                "kind": "root",
+                "body": "This page breaks when I review it on a phone.",
+                "createdAt": "2026-09-09T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-0"
+                }
+              },
+              {
+                "id": "comment-8-reply",
+                "kind": "reply",
+                "body": "Updated in the next Build and checked in both captured layouts.",
+                "createdAt": "2026-09-10T12:00:00Z",
+                "editedAt": "2026-09-10T14:00:00Z",
+                "actor": {
+                  "kind": "agent",
+                  "id": "copilot-author"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "tierB": {
+        "builds": [
+          {
+            "number": 1,
+            "commitSha": "0901aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-09T12:00:00Z",
+            "routes": [
+              {
+                "route": "/",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "number": 2,
+            "commitSha": "0902aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-10T12:00:00Z",
+            "routes": [
+              {
+                "route": "/",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "number": 3,
+            "commitSha": "0903aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-11T12:00:00Z",
+            "routes": [
+              {
+                "route": "/",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "outcomes": [
+          {
+            "threadId": "thread-8",
+            "learningId": "mem_333333333333333333333333",
+            "problemBuildNumber": 1,
+            "changedBuildNumber": 2,
+            "events": [
+              {
+                "kind": "resolved",
+                "at": "2026-09-11T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-0"
+                }
+              },
+              {
+                "kind": "reopened",
+                "at": "2026-09-12T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-0"
+                }
+              },
+              {
+                "kind": "resolved-again",
+                "at": "2026-09-13T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-0"
+                }
+              }
+            ],
+            "reviewerVerified": false,
+            "changed": false
+          }
+        ]
+      },
+      "tierC": {
+        "authoringSessions": [
+          {
+            "id": "session-8",
+            "purpose": "evaluation",
+            "consentId": "synthetic-evidence-study",
+            "startedAt": "2026-09-09T08:00:00Z",
+            "prompt": "Update the request triage prototype using the repository's design-system guidance and keep the existing start page and templates.",
+            "actions": [
+              {
+                "kind": "inspect-guidance",
+                "at": "2026-09-09T09:00:00Z",
+                "learningId": "mem_333333333333333333333333",
+                "buildNumber": 1,
+                "result": "unchanged"
+              },
+              {
+                "kind": "edit",
+                "at": "2026-09-10T09:00:00Z",
+                "learningId": "mem_333333333333333333333333",
+                "buildNumber": 2,
+                "result": "unchanged"
+              },
+              {
+                "kind": "capture-build",
+                "at": "2026-09-11T09:00:00Z",
+                "learningId": "mem_111111111111111111111111",
+                "buildNumber": 3,
+                "result": "improved"
+              },
+              {
+                "kind": "respond-to-review",
+                "at": "2026-09-11T10:00:00Z",
+                "learningId": "mem_111111111111111111111111",
+                "buildNumber": 2,
+                "result": "improved"
+              },
+              {
+                "kind": "respond-to-review",
+                "at": "2026-09-11T11:00:00Z",
+                "learningId": "mem_222222222222222222222222",
+                "buildNumber": 2,
+                "result": "improved"
+              }
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "expectedLearnings": [
+          "mem_333333333333333333333333",
+          "mem_111111111111111111111111"
+        ],
+        "buildLabels": [
+          {
+            "buildNumber": 1,
+            "route": "/",
+            "learningId": "mem_333333333333333333333333",
+            "follows": false,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 1,
+            "route": "/",
+            "learningId": "mem_111111111111111111111111",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 2,
+            "route": "/",
+            "learningId": "mem_333333333333333333333333",
+            "follows": false,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 2,
+            "route": "/",
+            "learningId": "mem_111111111111111111111111",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 3,
+            "route": "/",
+            "learningId": "mem_333333333333333333333333",
+            "follows": false,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 3,
+            "route": "/",
+            "learningId": "mem_111111111111111111111111",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          }
+        ]
+      }
+    },
+    {
+      "id": "prototype-09",
+      "repositoryId": "repo-beta",
+      "name": "Request triage 9",
+      "branch": "prototype/request-triage-9",
+      "startPage": "/requests?view=open#queue",
+      "templates": [
+        {
+          "id": "default",
+          "name": "Request queue",
+          "route": "/requests?view=open#queue"
+        },
+        {
+          "id": "empty",
+          "name": "Empty state",
+          "route": "/requests?view=empty"
+        }
+      ],
+      "tierA": {
+        "reviewThreads": [
+          {
+            "id": "thread-9",
+            "buildNumber": 1,
+            "route": "/requests?view=open#queue",
+            "anchor": {
+              "schemaVersion": "replica.review-anchor/v1",
+              "kind": "area",
+              "route": "/requests?view=open#queue"
+            },
+            "comments": [
+              {
+                "id": "comment-9-root",
+                "kind": "root",
+                "body": "The field labels is missing. Please add a visible label.",
+                "createdAt": "2026-09-10T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-1"
+                }
+              },
+              {
+                "id": "comment-9-reply",
+                "kind": "reply",
+                "body": "Updated in the next Build and checked in both captured layouts.",
+                "createdAt": "2026-09-11T12:00:00Z",
+                "editedAt": "2026-09-11T14:00:00Z",
+                "actor": {
+                  "kind": "agent",
+                  "id": "copilot-author"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "tierB": {
+        "builds": [
+          {
+            "number": 1,
+            "commitSha": "0a01aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-10T12:00:00Z",
+            "routes": [
+              {
+                "route": "/requests?view=open#queue",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "number": 2,
+            "commitSha": "0a02aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-11T12:00:00Z",
+            "routes": [
+              {
+                "route": "/requests?view=open#queue",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "number": 3,
+            "commitSha": "0a03aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-12T12:00:00Z",
+            "routes": [
+              {
+                "route": "/requests?view=open#queue",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "outcomes": [
+          {
+            "threadId": "thread-9",
+            "learningId": "mem_111111111111111111111111",
+            "problemBuildNumber": 1,
+            "changedBuildNumber": 2,
+            "events": [
+              {
+                "kind": "resolved",
+                "at": "2026-09-12T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-1"
+                }
+              }
+            ],
+            "reviewerVerified": true,
+            "changed": true
+          }
+        ]
+      },
+      "tierC": {
+        "authoringSessions": [
+          {
+            "id": "session-9",
+            "purpose": "evaluation",
+            "consentId": "synthetic-evidence-study",
+            "startedAt": "2026-09-10T08:00:00Z",
+            "prompt": "Update the request triage prototype using the repository's design-system guidance and keep the existing start page and templates.",
+            "actions": [
+              {
+                "kind": "inspect-guidance",
+                "at": "2026-09-10T09:00:00Z",
+                "learningId": "mem_111111111111111111111111",
+                "buildNumber": 1,
+                "result": "unchanged"
+              },
+              {
+                "kind": "edit",
+                "at": "2026-09-11T09:00:00Z",
+                "learningId": "mem_111111111111111111111111",
+                "buildNumber": 2,
+                "result": "improved"
+              },
+              {
+                "kind": "capture-build",
+                "at": "2026-09-12T09:00:00Z",
+                "learningId": "mem_222222222222222222222222",
+                "buildNumber": 3,
+                "result": "regressed"
+              }
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "expectedLearnings": [
+          "mem_111111111111111111111111",
+          "mem_222222222222222222222222"
+        ],
+        "buildLabels": [
+          {
+            "buildNumber": 1,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_111111111111111111111111",
+            "follows": false,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 1,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_222222222222222222222222",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 2,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_111111111111111111111111",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 2,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_222222222222222222222222",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 3,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_111111111111111111111111",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 3,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_222222222222222222222222",
+            "follows": false,
+            "judgment": "synthetic-ground-truth"
+          }
+        ]
+      }
+    },
+    {
+      "id": "prototype-10",
+      "repositoryId": "repo-beta",
+      "name": "Request triage 10",
+      "branch": "prototype/request-triage-10",
+      "startPage": "/",
+      "templates": [
+        {
+          "id": "default",
+          "name": "Request queue",
+          "route": "/"
+        },
+        {
+          "id": "empty",
+          "name": "Empty state",
+          "route": "/requests?view=empty"
+        }
+      ],
+      "tierA": {
+        "reviewThreads": [
+          {
+            "id": "thread-10",
+            "buildNumber": 1,
+            "route": "/",
+            "anchor": {
+              "schemaVersion": "replica.review-anchor/v1",
+              "kind": "element",
+              "route": "/"
+            },
+            "comments": [
+              {
+                "id": "comment-10-root",
+                "kind": "root",
+                "body": "The main action does not match the repository guidance.",
+                "createdAt": "2026-09-11T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-2"
+                }
+              },
+              {
+                "id": "comment-10-reply",
+                "kind": "reply",
+                "body": "Updated in the next Build and checked in both captured layouts.",
+                "createdAt": "2026-09-12T12:00:00Z",
+                "editedAt": "2026-09-12T14:00:00Z",
+                "actor": {
+                  "kind": "agent",
+                  "id": "copilot-author"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "tierB": {
+        "builds": [
+          {
+            "number": 1,
+            "commitSha": "0b01aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-11T12:00:00Z",
+            "routes": [
+              {
+                "route": "/",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "number": 2,
+            "commitSha": "0b02aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-12T12:00:00Z",
+            "routes": [
+              {
+                "route": "/",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "number": 3,
+            "commitSha": "0b03aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-13T12:00:00Z",
+            "routes": [
+              {
+                "route": "/",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "outcomes": [
+          {
+            "threadId": "thread-10",
+            "learningId": "mem_222222222222222222222222",
+            "problemBuildNumber": 1,
+            "changedBuildNumber": 2,
+            "events": [
+              {
+                "kind": "resolved",
+                "at": "2026-09-13T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-2"
+                }
+              }
+            ],
+            "reviewerVerified": true,
+            "changed": true
+          }
+        ]
+      },
+      "tierC": {
+        "authoringSessions": [
+          {
+            "id": "session-10",
+            "purpose": "evaluation",
+            "consentId": "synthetic-evidence-study",
+            "startedAt": "2026-09-11T08:00:00Z",
+            "prompt": "Update the request triage prototype using the repository's design-system guidance and keep the existing start page and templates.",
+            "actions": [
+              {
+                "kind": "inspect-guidance",
+                "at": "2026-09-11T09:00:00Z",
+                "learningId": "mem_222222222222222222222222",
+                "buildNumber": 1,
+                "result": "unchanged"
+              },
+              {
+                "kind": "edit",
+                "at": "2026-09-12T09:00:00Z",
+                "learningId": "mem_222222222222222222222222",
+                "buildNumber": 2,
+                "result": "improved"
+              },
+              {
+                "kind": "capture-build",
+                "at": "2026-09-13T09:00:00Z",
+                "learningId": "mem_333333333333333333333333",
+                "buildNumber": 3,
+                "result": "improved"
+              }
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "expectedLearnings": [
+          "mem_222222222222222222222222",
+          "mem_333333333333333333333333"
+        ],
+        "buildLabels": [
+          {
+            "buildNumber": 1,
+            "route": "/",
+            "learningId": "mem_222222222222222222222222",
+            "follows": false,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 1,
+            "route": "/",
+            "learningId": "mem_333333333333333333333333",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 2,
+            "route": "/",
+            "learningId": "mem_222222222222222222222222",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 2,
+            "route": "/",
+            "learningId": "mem_333333333333333333333333",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 3,
+            "route": "/",
+            "learningId": "mem_222222222222222222222222",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 3,
+            "route": "/",
+            "learningId": "mem_333333333333333333333333",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          }
+        ]
+      }
+    },
+    {
+      "id": "prototype-11",
+      "repositoryId": "repo-beta",
+      "name": "Request triage 11",
+      "branch": "prototype/request-triage-11",
+      "startPage": "/requests?view=open#queue",
+      "templates": [
+        {
+          "id": "default",
+          "name": "Request queue",
+          "route": "/requests?view=open#queue"
+        },
+        {
+          "id": "empty",
+          "name": "Empty state",
+          "route": "/requests?view=empty"
+        }
+      ],
+      "tierA": {
+        "reviewThreads": [
+          {
+            "id": "thread-11",
+            "buildNumber": 1,
+            "route": "/requests?view=open#queue",
+            "anchor": {
+              "schemaVersion": "replica.review-anchor/v1",
+              "kind": "area",
+              "route": "/requests?view=open#queue"
+            },
+            "comments": [
+              {
+                "id": "comment-11-root",
+                "kind": "root",
+                "body": "This page breaks when I review it on a phone.",
+                "createdAt": "2026-09-12T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-3"
+                }
+              },
+              {
+                "id": "comment-11-reply",
+                "kind": "reply",
+                "body": "Updated in the next Build and checked in both captured layouts.",
+                "createdAt": "2026-09-13T12:00:00Z",
+                "editedAt": "2026-09-13T14:00:00Z",
+                "actor": {
+                  "kind": "agent",
+                  "id": "copilot-author"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "tierB": {
+        "builds": [
+          {
+            "number": 1,
+            "commitSha": "0c01aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-12T12:00:00Z",
+            "routes": [
+              {
+                "route": "/requests?view=open#queue",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "number": 2,
+            "commitSha": "0c02aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-13T12:00:00Z",
+            "routes": [
+              {
+                "route": "/requests?view=open#queue",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "number": 3,
+            "commitSha": "0c03aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-14T12:00:00Z",
+            "routes": [
+              {
+                "route": "/requests?view=open#queue",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "outcomes": [
+          {
+            "threadId": "thread-11",
+            "learningId": "mem_333333333333333333333333",
+            "problemBuildNumber": 1,
+            "changedBuildNumber": 2,
+            "events": [
+              {
+                "kind": "resolved",
+                "at": "2026-09-14T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-3"
+                }
+              }
+            ],
+            "reviewerVerified": false,
+            "changed": true
+          }
+        ]
+      },
+      "tierC": {
+        "authoringSessions": [
+          {
+            "id": "session-11",
+            "purpose": "evaluation",
+            "consentId": "synthetic-evidence-study",
+            "startedAt": "2026-09-12T08:00:00Z",
+            "prompt": "Update the request triage prototype using the repository's design-system guidance and keep the existing start page and templates.",
+            "actions": [
+              {
+                "kind": "inspect-guidance",
+                "at": "2026-09-12T09:00:00Z",
+                "learningId": "mem_333333333333333333333333",
+                "buildNumber": 1,
+                "result": "unchanged"
+              },
+              {
+                "kind": "edit",
+                "at": "2026-09-13T09:00:00Z",
+                "learningId": "mem_333333333333333333333333",
+                "buildNumber": 2,
+                "result": "improved"
+              },
+              {
+                "kind": "capture-build",
+                "at": "2026-09-14T09:00:00Z",
+                "learningId": "mem_111111111111111111111111",
+                "buildNumber": 3,
+                "result": "improved"
+              }
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "expectedLearnings": [
+          "mem_333333333333333333333333",
+          "mem_111111111111111111111111"
+        ],
+        "buildLabels": [
+          {
+            "buildNumber": 1,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_333333333333333333333333",
+            "follows": false,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 1,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_111111111111111111111111",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 2,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_333333333333333333333333",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 2,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_111111111111111111111111",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 3,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_333333333333333333333333",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 3,
+            "route": "/requests?view=open#queue",
+            "learningId": "mem_111111111111111111111111",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          }
+        ]
+      }
+    },
+    {
+      "id": "prototype-12",
+      "repositoryId": "repo-beta",
+      "name": "Request triage 12",
+      "branch": "prototype/request-triage-12",
+      "startPage": "/",
+      "templates": [
+        {
+          "id": "default",
+          "name": "Request queue",
+          "route": "/"
+        },
+        {
+          "id": "empty",
+          "name": "Empty state",
+          "route": "/requests?view=empty"
+        }
+      ],
+      "tierA": {
+        "reviewThreads": [
+          {
+            "id": "thread-12",
+            "buildNumber": 1,
+            "route": "/",
+            "anchor": {
+              "schemaVersion": "replica.review-anchor/v1",
+              "kind": "element",
+              "route": "/"
+            },
+            "comments": [
+              {
+                "id": "comment-12-root",
+                "kind": "root",
+                "body": "The field labels is missing. Please add a visible label.",
+                "createdAt": "2026-09-13T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-0"
+                }
+              },
+              {
+                "id": "comment-12-reply",
+                "kind": "reply",
+                "body": "Updated in the next Build and checked in both captured layouts.",
+                "createdAt": "2026-09-14T12:00:00Z",
+                "editedAt": "2026-09-14T14:00:00Z",
+                "actor": {
+                  "kind": "agent",
+                  "id": "copilot-author"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "tierB": {
+        "builds": [
+          {
+            "number": 1,
+            "commitSha": "0d01aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-13T12:00:00Z",
+            "routes": [
+              {
+                "route": "/",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "number": 2,
+            "commitSha": "0d02aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-14T12:00:00Z",
+            "routes": [
+              {
+                "route": "/",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "number": 3,
+            "commitSha": "0d03aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-09-15T12:00:00Z",
+            "routes": [
+              {
+                "route": "/",
+                "screenshots": [
+                  {
+                    "size": "desktop",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "desktop",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "light",
+                    "path": "synthetic-screen.png"
+                  },
+                  {
+                    "size": "narrow",
+                    "theme": "dark",
+                    "path": "synthetic-screen.png"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "outcomes": [
+          {
+            "threadId": "thread-12",
+            "learningId": "mem_111111111111111111111111",
+            "problemBuildNumber": 1,
+            "changedBuildNumber": 2,
+            "events": [
+              {
+                "kind": "resolved",
+                "at": "2026-09-15T12:00:00Z",
+                "actor": {
+                  "kind": "human",
+                  "id": "reviewer-0"
+                }
+              }
+            ],
+            "reviewerVerified": true,
+            "changed": true
+          }
+        ]
+      },
+      "tierC": {
+        "authoringSessions": [
+          {
+            "id": "session-12",
+            "purpose": "evaluation",
+            "consentId": "synthetic-evidence-study",
+            "startedAt": "2026-09-13T08:00:00Z",
+            "prompt": "Update the request triage prototype using the repository's design-system guidance and keep the existing start page and templates.",
+            "actions": [
+              {
+                "kind": "inspect-guidance",
+                "at": "2026-09-13T09:00:00Z",
+                "learningId": "mem_111111111111111111111111",
+                "buildNumber": 1,
+                "result": "unchanged"
+              },
+              {
+                "kind": "edit",
+                "at": "2026-09-14T09:00:00Z",
+                "learningId": "mem_111111111111111111111111",
+                "buildNumber": 2,
+                "result": "improved"
+              },
+              {
+                "kind": "capture-build",
+                "at": "2026-09-15T09:00:00Z",
+                "learningId": "mem_222222222222222222222222",
+                "buildNumber": 3,
+                "result": "improved"
+              }
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "expectedLearnings": [
+          "mem_111111111111111111111111",
+          "mem_222222222222222222222222"
+        ],
+        "buildLabels": [
+          {
+            "buildNumber": 1,
+            "route": "/",
+            "learningId": "mem_111111111111111111111111",
+            "follows": false,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 1,
+            "route": "/",
+            "learningId": "mem_222222222222222222222222",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 2,
+            "route": "/",
+            "learningId": "mem_111111111111111111111111",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 2,
+            "route": "/",
+            "learningId": "mem_222222222222222222222222",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 3,
+            "route": "/",
+            "learningId": "mem_111111111111111111111111",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          },
+          {
+            "buildNumber": 3,
+            "route": "/",
+            "learningId": "mem_222222222222222222222222",
+            "follows": true,
+            "judgment": "synthetic-ground-truth"
+          }
+        ]
+      }
+    }
+  ]
+}

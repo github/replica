@@ -4,6 +4,8 @@
 
 The design and its trade-offs are in [ADR 0001](../../docs/adr/0001-learning-extension-architecture.md), and the decision model's in [ADR 0002](../../docs/adr/0002-decision-model-and-rl-environment.md).
 
+Before collecting more learning inputs, use the local [learning evidence ablation harness](experiments/evidence-ablation/README.md) to compare raw comments, review outcomes, and explicitly exported authoring sessions on the same held-out prototypes. The harness reads only named local exports and includes a deterministic no-GPU demonstration.
+
 ## What the first loop does
 
 The package turns saved Hub review comments into guidance that a person approved. Its CLI, providers, and demos work independently. The [new Hub](../../hub/README.md) captures complete repository review snapshots and runs the explicit learning loop through this command boundary.

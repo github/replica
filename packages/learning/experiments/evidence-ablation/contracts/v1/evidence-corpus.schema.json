@@ -1,0 +1,318 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/github/replica/packages/learning/experiments/evidence-ablation/contracts/v1/evidence-corpus.schema.json",
+  "title": "Replica learning evidence ablation corpus",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "purpose", "source", "learnings", "prototypes"],
+  "properties": {
+    "schemaVersion": { "const": "replica.learning-evidence-corpus/v1" },
+    "purpose": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "description", "consentRecordedAt", "approvedBy", "allowedUses", "retention"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 },
+        "consentRecordedAt": { "type": "string", "format": "date-time" },
+        "approvedBy": { "type": "string", "minLength": 1 },
+        "allowedUses": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["evaluation", "analytics", "training"] }
+        },
+        "retention": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["owner", "deleteBy"],
+          "properties": {
+            "owner": { "type": "string", "minLength": 1 },
+            "deleteBy": { "type": "string", "format": "date-time" }
+          }
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "repositoryScope", "exportedAt"],
+      "properties": {
+        "kind": { "enum": ["synthetic", "explicit-local-export"] },
+        "repositoryScope": { "type": "string", "minLength": 1 },
+        "exportedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "learnings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "text", "theme", "fixtureTerms"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^mem_[0-9a-f]{24}$" },
+          "text": { "type": "string", "minLength": 1 },
+          "theme": { "type": "string", "minLength": 1 },
+          "fixtureTerms": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "prototypes": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "repositoryId",
+          "name",
+          "branch",
+          "startPage",
+          "templates",
+          "tierA",
+          "tierB",
+          "tierC",
+          "evaluation"
+        ],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "repositoryId": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "branch": { "type": "string", "minLength": 1 },
+          "startPage": { "type": "string", "pattern": "^/" },
+          "templates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "name", "route"],
+              "properties": {
+                "id": { "type": "string", "minLength": 1 },
+                "name": { "type": "string", "minLength": 1 },
+                "route": { "type": "string", "pattern": "^/" }
+              }
+            }
+          },
+          "tierA": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["reviewThreads"],
+            "properties": {
+              "reviewThreads": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/reviewThread" }
+              }
+            }
+          },
+          "tierB": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["builds", "outcomes"],
+            "properties": {
+              "builds": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/build" }
+              },
+              "outcomes": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/outcome" }
+              }
+            }
+          },
+          "tierC": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["authoringSessions"],
+            "properties": {
+              "authoringSessions": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/authoringSession" }
+              }
+            }
+          },
+          "evaluation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["expectedLearnings", "buildLabels"],
+            "properties": {
+              "expectedLearnings": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": { "type": "string", "pattern": "^mem_[0-9a-f]{24}$" }
+              },
+              "buildLabels": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["buildNumber", "route", "learningId", "follows", "judgment"],
+                  "properties": {
+                    "buildNumber": { "type": "integer", "minimum": 1 },
+                    "route": { "type": "string", "pattern": "^/" },
+                    "learningId": { "type": "string", "pattern": "^mem_[0-9a-f]{24}$" },
+                    "follows": { "type": "boolean" },
+                    "judgment": { "enum": ["synthetic-ground-truth", "human-blinded"] }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "enum": ["human", "agent", "system"] },
+        "id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "reviewComment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "body", "createdAt", "actor"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["root", "reply"] },
+        "body": { "type": ["string", "null"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "editedAt": { "type": "string", "format": "date-time" },
+        "deletedAt": { "type": "string", "format": "date-time" },
+        "actor": { "$ref": "#/$defs/actor" }
+      }
+    },
+    "reviewThread": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "buildNumber", "route", "anchor", "comments"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "buildNumber": { "type": "integer", "minimum": 1 },
+        "route": { "type": "string", "pattern": "^/" },
+        "anchor": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schemaVersion", "kind", "route"],
+          "properties": {
+            "schemaVersion": { "const": "replica.review-anchor/v1" },
+            "kind": { "enum": ["element", "area"] },
+            "route": { "type": "string", "pattern": "^/" }
+          }
+        },
+        "comments": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/reviewComment" }
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["number", "commitSha", "createdAt", "routes"],
+      "properties": {
+        "number": { "type": "integer", "minimum": 1 },
+        "commitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "routes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["route", "screenshots"],
+            "properties": {
+              "route": { "type": "string", "pattern": "^/" },
+              "screenshots": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["size", "theme", "path"],
+                  "properties": {
+                    "size": { "enum": ["desktop", "narrow"] },
+                    "theme": { "enum": ["light", "dark"] },
+                    "path": { "type": "string", "minLength": 1 }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "threadId",
+        "learningId",
+        "problemBuildNumber",
+        "changedBuildNumber",
+        "events",
+        "reviewerVerified"
+      ],
+      "properties": {
+        "threadId": { "type": "string", "minLength": 1 },
+        "learningId": { "type": "string", "pattern": "^mem_[0-9a-f]{24}$" },
+        "problemBuildNumber": { "type": "integer", "minimum": 1 },
+        "changedBuildNumber": { "type": "integer", "minimum": 1 },
+        "events": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "at", "actor"],
+            "properties": {
+              "kind": { "enum": ["resolved", "reopened", "resolved-again"] },
+              "at": { "type": "string", "format": "date-time" },
+              "actor": { "$ref": "#/$defs/actor" }
+            }
+          }
+        },
+        "reviewerVerified": { "type": "boolean" },
+        "changed": { "type": "boolean" }
+      }
+    },
+    "authoringSession": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "purpose", "consentId", "startedAt", "prompt", "actions"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "purpose": { "const": "evaluation" },
+        "consentId": { "type": "string", "minLength": 1 },
+        "startedAt": { "type": "string", "format": "date-time" },
+        "prompt": { "type": "string" },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "at", "learningId", "buildNumber", "result"],
+            "properties": {
+              "kind": { "enum": ["inspect-guidance", "edit", "capture-build", "respond-to-review"] },
+              "at": { "type": "string", "format": "date-time" },
+              "learningId": { "type": "string", "pattern": "^mem_[0-9a-f]{24}$" },
+              "buildNumber": { "type": "integer", "minimum": 1 },
+              "result": { "enum": ["improved", "regressed", "unchanged"] },
+              "screenshotPath": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    }
+  }
+}
