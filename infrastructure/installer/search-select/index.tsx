@@ -5,9 +5,11 @@ import { Select, TextInput } from "@inkjs/ui"
 export function SearchSelect({
   options,
   onChange,
+  isDisabled = false,
 }: {
   options: { label: string; value: string }[]
   onChange: (value: string) => void
+  isDisabled?: boolean
 }) {
   const [query, setQuery] = useState("")
   const search = query.trim().toLowerCase()
@@ -21,14 +23,19 @@ export function SearchSelect({
     <Box flexDirection="column">
       <Box gap={1}>
         <Text>Search:</Text>
-        <TextInput placeholder="Type a name or ID" onChange={setQuery} />
+        <TextInput placeholder="Type a name or ID" onChange={setQuery} isDisabled={isDisabled} />
       </Box>
       <Text dimColor>
         {matches.length} of {options.length} options match;{" "}
         {Math.min(matches.length, visibleOptionCount)} visible at a time.
       </Text>
       {matches.length ? (
-        <Select options={matches} visibleOptionCount={visibleOptionCount} onChange={onChange} />
+        <Select
+          options={matches}
+          visibleOptionCount={visibleOptionCount}
+          onChange={onChange}
+          isDisabled={isDisabled}
+        />
       ) : (
         <Text color="yellow">
           No matching options. Change your search or clear it with Backspace.

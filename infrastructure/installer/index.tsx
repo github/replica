@@ -80,7 +80,7 @@ if (values.help) {
         try {
           return await observed(executable, args, options)
         } catch (error) {
-          if (error instanceof CommandExecutionError && !error.aborted)
+          if (error instanceof CommandExecutionError && !error.aborted && !options?.recoverable)
             terminal?.notice?.("error", error.message)
           throw error
         }

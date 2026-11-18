@@ -13,6 +13,7 @@ export function FieldPrompt({
   onError,
   onEdit,
   onFeedback,
+  isDisabled = false,
 }: {
   field: FieldDefinition
   initialValue?: string
@@ -20,6 +21,7 @@ export function FieldPrompt({
   onError: (error: Error) => void
   onEdit?: (value: string) => void
   onFeedback?: () => void
+  isDisabled?: boolean
 }) {
   const [value, setValue] = useState(initialValue)
   const [error, setError] = useState<string>()
@@ -67,7 +69,13 @@ export function FieldPrompt({
       <Text>{field.help}</Text>
       <Box marginTop={1}>
         <Text color={terminalColors.accent}>{"> "}</Text>
-        <TextInput key={revision} defaultValue={value} onChange={change} onSubmit={submit} />
+        <TextInput
+          key={revision}
+          defaultValue={value}
+          onChange={change}
+          onSubmit={submit}
+          isDisabled={isDisabled}
+        />
       </Box>
       {error && <Text color={terminalColors.error}>Error: {error}</Text>}
     </Box>
