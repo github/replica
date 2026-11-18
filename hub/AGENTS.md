@@ -14,10 +14,10 @@ Keep shared canvas and Controls source under `client/`; the prototype extension 
 
 ## Install and run
 
-Run the following commands from `hub/`, using a Node.js version supported by `engines.node` in [package.json](package.json). Use the npm proxy, not the public registry:
+Run the following commands from `hub/`, using a Node.js version supported by `engines.node` in [package.json](package.json). If your environment requires an npm proxy, append `--registry=https://YOUR_PROXY/` to each `npm ci` command. Explicit scoped registry mappings still apply.
 
 ```sh
-npm ci --engine-strict --registry=https://packagefeedproxy.microsoft.io/npm/
+npm ci --engine-strict
 npm run dev:mock
 ```
 
@@ -27,8 +27,8 @@ After installing Hub dependencies, use the [devcontainer](docs/development.md#de
 
 ```sh
 docker compose -f .devcontainer/compose.yaml up -d db
-[ -e .env ] || cp .env.example .env
-npm ci --prefix ../packages/learning --engine-strict --registry=https://packagefeedproxy.microsoft.io/npm/
+[ -e .env ] || [ -L .env ] || cp -n .env.example .env
+npm ci --prefix ../packages/learning --engine-strict
 npm run setup
 npm run dev:api
 ```
