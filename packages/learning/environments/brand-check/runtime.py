@@ -591,9 +591,14 @@ class LocalRuntime:
                 if isinstance(error, (RuntimeFailure, ConnectorError))
                 else "backend_failed"
             )
+            message = (
+                "Connector operation failed."
+                if isinstance(error, ConnectorError)
+                else str(error)
+            )
             job.update(
                 state="failed",
-                error={"code": code, "message": str(error)},
+                error={"code": code, "message": message},
                 completedAt=_now(),
                 updatedAt=_now(),
             )
@@ -616,7 +621,7 @@ class LocalRuntime:
                 except ConnectorError as usage_error:
                     job["usageError"] = {
                         "code": usage_error.code,
-                        "message": str(usage_error),
+                        "message": "Connector operation failed.",
                     }
         finally:
             _write_json_atomic(self._job_path(job_id), job)

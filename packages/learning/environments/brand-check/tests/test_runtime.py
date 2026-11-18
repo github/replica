@@ -162,7 +162,7 @@ class FailingObservability:
         del usage, context
         raise ConnectorError(
             "usage_unavailable",
-            "Usage reporting is unavailable.",
+            "provider secret: test-token",
             category="unavailable",
             retryable=True,
         )
@@ -174,6 +174,17 @@ class InferenceFailingCredentials(CapturingCredentials):
             raise ConnectorError(
                 "credential_unavailable",
                 "provider secret: test-token",
+                category="unauthorized",
+            )
+        return super().acquire(audience, context)
+
+
+class TrainingFailingCredentials(CapturingCredentials):
+    def acquire(self, audience, context):
+        if audience == "training":
+            raise ConnectorError(
+                "credential_unavailable",
+                "provider secret: training-token",
                 category="unauthorized",
             )
         return super().acquire(audience, context)
@@ -346,6 +357,10 @@ class LocalRuntimeTest(unittest.TestCase):
 
         self.assertEqual(failed["error"]["code"], "backend_failed")
         self.assertEqual(failed["usageError"]["code"], "usage_unavailable")
+        self.assertEqual(
+            failed["usageError"]["message"], "Connector operation failed."
+        )
+        self.assertNotIn("test-token", failed["usageError"]["message"])
 
     def test_reports_timeout_usage_with_a_fresh_completion_context(self):
         observability = ContextCheckingObservability()
@@ -390,6 +405,24 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(unavailable.exception.status, 503)
         self.assertEqual(str(unavailable.exception), "Connector operation failed.")
         self.assertNotIn("test-token", str(unavailable.exception))
+
+    def test_redacts_training_credential_failure_from_the_job_record(self):
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            environment="test",
+            credentials=TrainingFailingCredentials(),
+        )
+        self.addCleanup(runtime.close)
+
+        failed = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
+        )
+
+        self.assertEqual(failed["error"]["code"], "credential_unavailable")
+        self.assertEqual(failed["error"]["message"], "Connector operation failed.")
+        self.assertNotIn("training-token", failed["error"]["message"])
 
     def test_detects_a_candidate_changed_to_claim_production_eligibility(self):
         runtime = self._runtime()
