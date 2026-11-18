@@ -29,6 +29,7 @@ import { jobProcessors } from "./workers/configuration.ts"
 import { runJobWorker } from "./workers/run-job-worker/index.ts"
 import type { AuthenticationRouteDependencies } from "./routes/api/auth/types.ts"
 import type { CopilotConnectionRouteDependencies } from "./routes/api/copilot-connection/types.ts"
+import type { DecisionModelRouteDependencies } from "./routes/api/decision-model/types.ts"
 import type { GitHubWebhookRouteDependencies } from "./routes/api/github/webhooks/types.ts"
 import type { LearningsRouteDependencies } from "./routes/api/learnings/types.ts"
 import type { ProductRouteDependencies } from "./routes/api/product/types.ts"
@@ -42,9 +43,11 @@ try {
   const configuration = parseRuntimeConfig(process.env)
   const localDevelopment = readLocalDevelopmentConfiguration(process.env)
   await prepareLocalDevelopment(localDevelopment)
+  let learningConfiguration: Awaited<ReturnType<typeof readLearningConfiguration>> | undefined
+  let decisionRuntimeConfiguration: ReturnType<typeof readDecisionRuntimeConfiguration> = null
   if (configuration.mode !== "setup") {
-    await readLearningConfiguration(process.env)
-    readDecisionRuntimeConfiguration(process.env)
+    learningConfiguration = await readLearningConfiguration(process.env)
+    decisionRuntimeConfiguration = readDecisionRuntimeConfiguration(process.env)
   }
   const storage =
     configuration.mode !== "setup" && configuration.hasArtifactStorage
@@ -66,6 +69,7 @@ try {
     const trustedProxyHops = runsApi ? configuredTrustedProxyHops : 0
     let authentication: AuthenticationRouteDependencies | undefined
     let copilotConnection: CopilotConnectionRouteDependencies | undefined
+    let decisionModels: DecisionModelRouteDependencies | undefined
     let learnings: LearningsRouteDependencies | undefined
     let product: ProductRouteDependencies | undefined
     let preview: BuildPreviewRouteDependencies | undefined
@@ -119,6 +123,7 @@ try {
         }
       }
       if (configuration.databaseUrl) {
+        const databaseUrl = configuration.databaseUrl
         const { createAuthenticationRouteDependencies, disableAuthenticationProviders } =
           await import("./routes/api/auth/create-authentication-route-dependencies/index.ts")
         try {
@@ -149,6 +154,38 @@ try {
               { scopeGitHubMembers: authenticationConfiguration.githubConfigured },
             )
             learnings = learningDependencies
+            if (decisionRuntimeConfiguration) {
+              const applicationOrigin = authenticationEnvironment.HUB_APPLICATION_ORIGIN
+              if (!storage || !learningConfiguration || !applicationOrigin) {
+                throw new Error(
+                  "Application origin, artifact storage, and learning storage are required when the decision runtime is configured.",
+                )
+              }
+              const { createHubDecisionTasksetSource } =
+                await import("./domains/decision-model/create-hub-decision-taskset-source/index.ts")
+              const { createDecisionModelRouteDependencies } =
+                await import("./routes/api/decision-model/create-decision-model-route-dependencies/index.ts")
+              const source = createHubDecisionTasksetSource({
+                artifactStorage: storage,
+                cliPath: learningConfiguration.cliPath,
+                database: (await import("./integrations/prisma/index.ts")).prisma,
+                databaseUrl,
+                hubOrigin: applicationOrigin,
+                learningRoot: learningConfiguration.root,
+                nodePath: learningConfiguration.nodePath,
+                staticDirectories: learningConfiguration.staticDirectories,
+              })
+              decisionModels = createDecisionModelRouteDependencies({
+                applicationOrigin,
+                baseUrl: decisionRuntimeConfiguration.baseUrl,
+                credentialProvider: decisionRuntimeConfiguration.credentialProvider,
+                currentSession: authentication.currentSession,
+                databaseUrl,
+                logger,
+                tasksetSource: source.tasksetSource,
+                prepareBuildEvaluation: (input) => source.prepareBuildEvaluation(input),
+              })
+            }
             const { createProductRouteDependencies } =
               await import("./routes/api/product/create-product-route-dependencies/index.ts")
             const { readAnalyticsSettings } =
@@ -258,6 +295,7 @@ try {
         githubSetup,
         githubWebhooks,
         copilotConnection,
+        decisionModels,
         learnings,
         product,
         preview,
@@ -277,6 +315,7 @@ try {
           githubSetup,
           githubWebhooks,
           copilotConnection,
+          decisionModels,
           learnings,
           product,
           preview,

@@ -440,6 +440,36 @@ describe("decision training orchestration", () => {
     expect(getTrainingJob).not.toHaveBeenCalled()
   })
 
+  it("fails before submission when taskset transfer stores different bytes", async () => {
+    const submitTraining = vi.fn()
+    const updateJobState = vi.fn().mockResolvedValue(job({ state: "FAILED" }))
+    const deps = dependencies({
+      runtime: {
+        ...dependencies().runtime,
+        transferTaskset: vi.fn().mockResolvedValue({
+          id: "runtime-taskset-1",
+          tasksetDigest: `sha256:${"9".repeat(64)}`,
+        }),
+        submitTraining,
+      },
+      store: {
+        ...dependencies().store,
+        getJob: vi.fn().mockResolvedValue(job()),
+        updateJobState,
+      },
+    })
+
+    await expect(processDecisionTrainingJob({ repositoryId, jobId }, deps)).resolves.toMatchObject({
+      terminal: true,
+      job: { state: "FAILED" },
+    })
+
+    expect(submitTraining).not.toHaveBeenCalled()
+    expect(updateJobState).toHaveBeenCalledWith(
+      expect.objectContaining({ state: "FAILED", failureCode: "taskset_drift" }),
+    )
+  })
+
   it("persists absolute and per-learning candidate evidence with exact usage and cost", async () => {
     const submitted = job({
       state: "RUNNING",

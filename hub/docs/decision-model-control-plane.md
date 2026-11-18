@@ -2,7 +2,7 @@
 
 Hub provides the backend contracts for customer-specific decision-model training, review, promotion, rollback, and Build evaluation. The model runtime stays on customer-operated infrastructure. Hub stores references, digests, decisions, and usage metadata, not taskset contents, credentials, adapters, reports, or model weights.
 
-The control plane is not enabled by default. Runtime composition must supply the adapter that turns stored Build screenshot artifacts into the decision Builds contract and the learning-package taskset preparation source before the API and workers are registered. The runtime client uses the merged taskset upload, cancellation, hard-credit-budget, authoritative usage, and generation-checked promotion contracts.
+The control plane is not enabled by default. Configuring the decision runtime registers the API and workers only when Hub also has private learning storage and provider-neutral artifact storage. The runtime client uses the merged taskset upload, cancellation, hard-credit-budget, authoritative usage, and generation-checked promotion contracts.
 
 ## Flow
 
@@ -25,6 +25,16 @@ flowchart LR
 5. Hub stores the runtime job ID, candidate ID, evaluation digests, eligibility, and usage or cost metadata. Model artifacts remain in the customer runtime.
 6. A repository administrator reviews a candidate and explicitly promotes it or restores the previous candidate. Hub and the runtime both reject a stale promotion generation.
 7. Build evaluation sends server-prepared screenshots and questions to the runtime. Hub saves the result only when the runtime used the candidate and generation that Hub recorded as promoted.
+
+## Taskset source
+
+Hub selects active registered prototypes that have review threads, then selects their successful Builds with a publication time. It orders each prototype's Builds by workflow creation time and Build number. Removed repositories, deleted or unregistered prototypes, unsuccessful or unpublished Builds, and records from another repository never enter the source.
+
+The source reads `templates.json` and PNG screenshots through the configured artifact-storage contract. It maps the root and each declared template to the exact route captured by the build action, with desktop and narrow viewports in light and dark themes. The private Build-set snapshot pins each image's SHA-256 digest, media type, route, viewport, and theme. A missing, unavailable, oversized, malformed, or incomplete set is an explicit preparation failure; Hub does not turn partial coverage into a successful training request.
+
+Training preparation takes the PostgreSQL learning-operation lock, imports one repeatable complete review snapshot under an active training-purpose grant, and exports only currently accepted and permitted evidence. It normalizes volatile export and taskset transport metadata so an unchanged request reproduces the same pinned digests. The learning package still owns question generation, review-outcome labels, and prototype-level train, development, and test splitting.
+
+Hub stages export, Build, screenshot, and taskset files in mode-0700 temporary directories, enforces fixed file, byte, prototype, Build, and screenshot bounds, creates a deterministic private taskset archive, and removes staging on success or failure. The worker regenerates every pinned input before transfer, refuses drift, verifies the runtime's stored taskset digest, and uses stable taskset and training idempotency keys.
 
 ## Access
 
@@ -103,7 +113,7 @@ Training and inference usage accept a decimal quantity and unit plus an optional
 
 `decision.training` runs on the on-demand queue. One job can poll for up to 24 hours with five-minute retry spacing, while the repository's own `maxSeconds` plus a five-minute completion window is the stricter domain deadline. Runtime rate limits, timeouts, and availability failures retry. Invalid responses, authorization failures, digest drift, stale settings, and invariant failures stop. Terminal state changes and their security audits commit together, and conditional transitions prevent cancellation or a delayed worker from replacing an existing terminal result.
 
-`decision.recover-training` lists active PostgreSQL records and re-enqueues each stable job ID. Runtime composition must register this processor and its schedule when it supplies the taskset and Build artifact sources. This preserves the existing rule that Prisma writes and BullMQ enqueueing are not one transaction.
+`decision.recover-training` lists active PostgreSQL records and re-enqueues each stable job ID. Runtime composition registers this processor and its schedule when decision-runtime configuration is present. This preserves the existing rule that Prisma writes and BullMQ enqueueing are not one transaction.
 
 ## Non-goals
 
