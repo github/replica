@@ -216,8 +216,6 @@ A task shows every screenshot of its page, desktop before narrow and light befor
 
 Hub names each screenshot by the address the build action was asked to capture. The build action follows redirects and Controls URL defaults without recording where the page ended up, so a comment made at the address a page redirects to finds no screenshot.
 
-The [single-node reference Replica decision runtime](environments/brand-check/README.md#run-the-single-node-reference-runtime) is customer-operated on the new-Hub package foundation. It accepts that taskset, tracks a bounded deterministic fixture job, stores an immutable candidate and proper-scoring evaluation report, requires explicit promotion or rollback, and serves the promoted result through an authenticated scoring endpoint. The fixture proves the lifecycle without a GPU or model download, but its candidates are development/test-only and cannot be promoted in production. The runtime keeps a small backend interface for later real-model work.
-
 The output directory must be new and, inside a checkout, under `.replica/`. It holds:
 
 | File | Contents |
@@ -244,6 +242,8 @@ The command skips evidence it cannot turn into a label, and reports each reason:
 | `screenshot-missing` | The Builds file has no screenshot of that page |
 | `renderings-incomplete` | The page lacks a screenshot at one width or theme, so it gets no "breaks" label |
 | `learning-over-limit` | More than 64 learnings were accepted, and recall ranks this one below the first 64 |
+
+The [single-node reference Replica decision runtime](environments/brand-check/README.md#run-the-single-node-reference-runtime) is customer-operated. It accepts that taskset, tracks a bounded deterministic fixture job, stores an immutable candidate and proper-scoring evaluation report, requires explicit promotion or rollback, and serves the promoted result through an authenticated scoring endpoint. The fixture proves the lifecycle without a GPU or model download, but its candidates are development/test-only and cannot be promoted in production. The runtime keeps a small backend interface for later real-model work.
 
 ## Local storage
 
@@ -274,4 +274,4 @@ Anyone who can open the files sees every stored comment, whatever the grants say
 ## Not in this version
 
 - The commit SHA in comment results. Evidence pins the prototype and Build number, which Hub keeps unique per prototype. Naming the commit needs one more field in the canvas comment API.
-- Experience scenarios, a capture proxy, a trainer, and serving. [ADR 0001](../../docs/adr/0001-learning-extension-architecture.md) describes how they attach to these contracts, and [ADR 0002](../../docs/adr/0002-decision-model-and-rl-environment.md) adds the first environment.
+- Experience scenarios, a capture proxy, and production model training and serving. [ADR 0001](../../docs/adr/0001-learning-extension-architecture.md) describes how they attach to these contracts, and [ADR 0002](../../docs/adr/0002-decision-model-and-rl-environment.md) adds the first environment and development-only fixture runtime.
