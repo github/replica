@@ -2322,6 +2322,131 @@ class LearningStore {
         }))
     const exportedEpisodes = learningsOnly ? [] : eligible.episodes
     const exportedEvents = learningsOnly ? [] : eligible.events
+    const episodeSources = exportedEpisodes.map((episode) => episode.source)
+    const collections = learningsOnly
+      ? []
+      : (await this.#read("collections", context)).filter((collection) =>
+          episodeSources.some((source) => sameCollectionSource(collection.source, source)),
+        )
+    const exportedEventIds = new Set(exportedEvents.map((event) => event.id))
+    const safelyOmittedEventIds = new Set(
+      exportedEvents.map((event) => event.supersedes).filter(Boolean),
+    )
+    function currentSourceEvents(episodeIds) {
+      return observations.events.filter(
+        (event) =>
+          episodeIds.has(event.episodeId) &&
+          !JUDGMENTS.has(event.type) &&
+          !eligible.retracted.has(event.id) &&
+          !safelyOmittedEventIds.has(event.id),
+      )
+    }
+    const completeEpisodeIds = exportedEpisodes
+      .filter((episode) => {
+        const sourceEvents = currentSourceEvents(new Set([episode.id]))
+        if (
+          sourceEvents.some(
+            (event) => event.payload === undefined || !exportedEventIds.has(event.id),
+          )
+        )
+          return false
+        const latest = sourceEvents.reduce(
+          (found, event) => (!found || event.at > found ? event.at : found),
+          undefined,
+        )
+        return collections.some(
+          (collection) =>
+            sameCollectionSource(collection.source, episode.source) &&
+            collection.complete === true &&
+            collection.filters.resolution === "all" &&
+            collection.filters.read === "all" &&
+            collection.filters.from === null &&
+            collection.filters.to === null &&
+            (!latest || collection.capturedAt >= latest),
+        )
+      })
+      .map((episode) => episode.id)
+    const views = new Map()
+    if (!learningsOnly)
+      for (const episode of observations.episodes) {
+        const key = hubViewKey(episode, observations.events)
+        if (key) views.set(key, [...(views.get(key) ?? []), episode])
+      }
+    const uncertainPrototypes = new Set()
+    if (!learningsOnly)
+      for (const episode of observations.episodes) {
+        if (episode.source.kind !== HUB_SOURCE) continue
+        const sourceEvents = currentSourceEvents(new Set([episode.id]))
+        if (
+          hubViewKey(episode, observations.events) === null &&
+          sourceEvents.some(
+            (event) => event.payload === undefined || !exportedEventIds.has(event.id),
+          )
+        )
+          uncertainPrototypes.add(hubPrototypeKey(episode.source))
+      }
+    const completeViews = [...views]
+      .filter(([, viewEpisodes]) => {
+        const source = viewEpisodes[0].source
+        if (uncertainPrototypes.has(hubPrototypeKey(source))) return false
+        const sourceEvents = currentSourceEvents(new Set(viewEpisodes.map((episode) => episode.id)))
+        if (
+          sourceEvents.some(
+            (event) => event.payload === undefined || !exportedEventIds.has(event.id),
+          )
+        )
+          return false
+        const latest = sourceEvents.reduce(
+          (found, event) => (!found || event.at > found ? event.at : found),
+          undefined,
+        )
+        return collections.some(
+          (collection) =>
+            sameCollectionSource(collection.source, source) &&
+            collection.complete === true &&
+            collection.filters.resolution === "all" &&
+            collection.filters.read === "all" &&
+            collection.filters.from === null &&
+            collection.filters.to === null &&
+            (!latest || collection.capturedAt >= latest),
+        )
+      })
+      .map(([key]) => key)
+    const prototypes = new Map()
+    if (!learningsOnly)
+      for (const episode of observations.episodes) {
+        if (episode.source.kind !== HUB_SOURCE) continue
+        const key = hubPrototypeKey(episode.source)
+        prototypes.set(key, [...(prototypes.get(key) ?? []), episode])
+      }
+    const completePrototypes = [...prototypes]
+      .filter(([, prototypeEpisodes]) => {
+        const source = prototypeEpisodes[0].source
+        const sourceEvents = currentSourceEvents(
+          new Set(prototypeEpisodes.map((episode) => episode.id)),
+        )
+        if (
+          sourceEvents.some(
+            (event) => event.payload === undefined || !exportedEventIds.has(event.id),
+          )
+        )
+          return false
+        const latest = sourceEvents.reduce(
+          (found, event) => (!found || event.at > found ? event.at : found),
+          undefined,
+        )
+        return collections.some(
+          (collection) =>
+            sameCollectionSource(collection.source, source) &&
+            collection.complete === true &&
+            collection.filters.resolution === "all" &&
+            collection.filters.read === "all" &&
+            collection.filters.from === null &&
+            collection.filters.to === null &&
+            (!latest || collection.capturedAt >= latest),
+        )
+      })
+      .map(([key]) => key)
     const memories = []
     for (const { record, status } of items) {
       if (record.state !== "accepted") exclude(`memory-${record.state}`)
@@ -2357,14 +2482,23 @@ class LearningStore {
       destination,
       contents,
       counts: {
+        collections: collections.length,
         episodes: exportedEpisodes.length,
         events: exportedEvents.length,
         memories: memories.length,
         grants: exportedGrants.length,
       },
+      completeEpisodeIds,
+      completeViews,
+      completePrototypes,
       excluded: [...excluded].map(([reason, count]) => ({ reason, count })),
       records: [
         ...exportedGrants.map((grant) => ({ kind: "grant", id: grant.id, digest: grant.digest })),
+        ...collections.map((collection) => ({
+          kind: "collection",
+          id: collection.id,
+          digest: collection.digest,
+        })),
         ...exportedEpisodes.map((episode) => ({
           kind: "episode",
           id: episode.id,
@@ -2387,7 +2521,10 @@ class LearningStore {
         ),
       ],
     )
-    return { manifest, bundle: { manifest, grants: exportedGrants, episodes, memories } }
+    return {
+      manifest,
+      bundle: { manifest, grants: exportedGrants, collections, episodes, memories },
+    }
   }
 
   /**
@@ -2558,6 +2695,43 @@ function replacementProblem({ expired, notYetValid, evidenceEligible = true }) {
   if (notYetValid) return "it does not apply yet"
   if (!evidenceEligible) return "its evidence no longer permits instruction"
   return null
+}
+
+function sameCollectionSource(collection, episode) {
+  return (
+    collection.kind === episode.kind &&
+    collection.hubOrigin === episode.hubOrigin &&
+    collection.repositoryId === episode.repositoryId
+  )
+}
+
+function hubViewKey(episode, events) {
+  if (episode.source.kind !== HUB_SOURCE) return null
+  const comments = events.filter(
+    (event) =>
+      event.episodeId === episode.id &&
+      event.type === "human_comment" &&
+      event.payload?.role === "root",
+  )
+  const superseded = new Set(comments.map((event) => event.supersedes).filter(Boolean))
+  const current = comments.filter((event) => !superseded.has(event.id))
+  const route = current.length === 1 ? current[0].payload.context?.route : null
+  if (typeof route?.pathname !== "string") return null
+  return derivedId("view", {
+    hubOrigin: episode.source.hubOrigin,
+    repositoryId: episode.source.repositoryId,
+    prototypeId: episode.source.prototypeId,
+    buildNumber: episode.source.buildNumber,
+    route: `${route.pathname}${route.search ?? ""}${route.hash ?? ""}`,
+  })
+}
+
+function hubPrototypeKey(source) {
+  return canonicalJson({
+    hubOrigin: source.hubOrigin,
+    repositoryId: source.repositoryId,
+    prototypeId: source.prototypeId,
+  })
 }
 
 /** The audit operations that may record a change to each stream, and the subject kind. */

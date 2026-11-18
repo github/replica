@@ -2,7 +2,7 @@
 
 Status: proposed on October 6, 2026, and revised on October 10, 2026 to follow the requirements the Replica maintainers agreed on. Needs review by the Replica maintainers.
 
-The learning package, providers, CLI, and demos implement this architecture. The [new Hub](../../hub/README.md) now stores review conversations, captures complete repository snapshots, connects Copilot, runs explicit learning jobs, records decisions, recalls accepted guidance, and redacts deleted comment text. Daily change-driven discovery remains separate work.
+The learning package, providers, CLI, and demos implement the host-neutral parts of this architecture. The [new Hub](../../hub/README.md) runs that package through a bounded TypeScript process boundary for review imports, labeling, consolidation, decisions, recall, and redaction. Decision-model integration remains a later layer.
 
 ## Context
 
@@ -96,27 +96,26 @@ Each import records whether every list page and reply page was present. The impo
 
 ### Integration with Hub
 
-Hub runs `replica-learning` for every step, so the package's rules apply throughout. It keeps one store per repository outside any checkout. An explicit background job imports review comments, removes deleted text, labels new or edited comments, and proposes learnings. Administrators review proposals, and recall returns accepted learnings for agents.
+The new TypeScript Hub integrates through the package's public command and contract boundaries. Hub owns private store placement and job execution, imports complete review snapshots, serializes imports and redactions for one repository, authenticates every human decision, and keeps the package's consent and evidence rules intact. [Learning foundation](../../hub/docs/learning-foundation.md) owns the Hub routes, database models, jobs, and storage boundary.
 
 The package can label through the [Copilot SDK](https://github.com/github/copilot-sdk). Its session has no tools, refuses every permission request, treats comment text as untrusted data rather than instructions, and never sees who wrote a comment. Copilot chooses the model unless the store's configuration names one, and each run records the usage Copilot reports. Hub supplies only a currently usable configured credential.
 
-The command still runs in a checkout, with data under `.replica/learning/`, for contributors and for other hosts. This complements #230: its discovery output can become labels, and its judge can become a consolidator.
+The command runs in a checkout, with data under `.replica/learning/`, and also supports hosts that provide an explicit repository scope and data directory.
 
-### No model training in this version
+### Model training stays behind an export boundary
 
-Learning happens in explicit, inspectable memory. A training-purpose export is the only way evidence could reach a trainer, and it needs its own grant.
+Learning happens first in explicit, inspectable memory. A training-purpose export is the only way evidence may reach the decision-model environment proposed by [ADR 0002](0002-decision-model-and-rl-environment.md), and it needs its own grant.
 
 ## Consequences
 
-- The loop runs in Hub without anyone starting each step. Teams can swap the provider, labeler, or consolidator by configuration without changing core logic. In a checkout, every step except labeling with Copilot works offline.
+- Hub runs the explicit learning loop through the package boundary. Teams can swap the provider, labeler, or consolidator by configuration without changing core logic. In a checkout, every step except labeling with Copilot works offline.
 - One damaged policy record blocks every learning operation until someone repairs it. That is deliberate; a store that keeps running on damaged consent records can restore permissions nobody granted.
 - Providers, labelers, and consolidators are trusted code. The store limits what they are given and re-checks what they return, but it does not sandbox them.
 - Inside a checkout, learning data and exports live only under `.replica/`, after following links, and only when Git ignores that exact path. The checkout root and names that merely start with two dots count as inside. Git ignoring a path is not enough, since a dev server or build may still serve it.
-- The command asserts identities. Hub passes only people it authenticated with GitHub, and only for repositories they administer.
+- The command asserts identities. An integrating host must pass only identities and repository authority it authenticated.
 - The generated validator file is large, as in `packages/controls`.
-- Hub keeps one SQLite file per repository. A team that needs a shared database server brings its own provider and runs the conformance suite against it.
-- Hub's production image includes Node.js and the command, which adds about 260 MB.
-- Copilot usage counts toward the token owner's plan, not necessarily the administrator who enabled the connection. The operator supplies a token intended to have only the Copilot requests permission; Hub keeps it in process configuration, not its database. The operator must verify its actual scope and manage expiry, rotation and revocation. Token replacement requires a full stop/start with no old/new process overlap, including learning and SDK children; rolling replacement is unsupported. Credential custody, subprocess isolation and deployed authentication still need security review.
+- SQLite is the default local provider. A host that needs another database implements the provider interface and runs the conformance suite against it.
+- Copilot credential custody, billing, subprocess isolation, and deployed authentication remain integration decisions for the new Hub layer.
 
 ## Alternatives considered
 
@@ -136,5 +135,6 @@ Learning happens in explicit, inspectable memory. A training-purpose export is t
 2. Complete the security review of the operator-provided Copilot token and subprocess boundary, and verify the deployed connection with a least-privileged token.
 3. Add scenario contracts, a scenario runner, and capture adapters. The event types for tool calls, voice turns, UI states, and agent-to-agent messages are already reserved.
 4. Add an experience approval record and a read-only conformance checker for shipped work.
-5. Add trainer, serving, and environment interfaces behind one promotion gate. Training data leaves only through a training-purpose export.
-6. Decide distribution: publish the package, or keep shipping it inside Hub's image.
+5. Add the TypeScript Hub decision-model integration as an explicit layer over these contracts.
+6. Add serving and promotion interfaces for the decision-model environment proposed by [ADR 0002](0002-decision-model-and-rl-environment.md).
+7. Decide distribution: publish the package, or keep it as private repository source.

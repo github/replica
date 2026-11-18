@@ -508,6 +508,9 @@
         "at": {
           "$ref": "common.schema.json#/$defs/timestamp"
         },
+        "sequence": {
+          "$ref": "common.schema.json#/$defs/positiveInteger"
+        },
         "by": {
           "$ref": "common.schema.json#/$defs/actor"
         }
