@@ -1,8 +1,10 @@
 import { randomBytes } from "node:crypto"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import type { ArtifactStorage } from "../../../domains/artifacts/create-artifact-storage/types"
 import { createBuildPreviewRouteDependencies } from "."
+
+vi.mock("../../../integrations/prisma/index.ts", () => ({ prisma: {} }))
 
 const storage = {} as ArtifactStorage
 const encryptionKey = randomBytes(32).toString("base64")
