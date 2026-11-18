@@ -273,7 +273,32 @@ export async function readInstallationInputs(
     !parseHttpsOrigin(environment.HUB_APPLICATION_ORIGIN)
   )
     throw invalid()
-  // Mirrors Hub: an App used only for Copilot needs no sign-in, installation, or webhook settings.
+  const configured = (name: string) => Boolean(environment[name]?.trim() || secrets[name])
+  if (environment.REPLICA_COPILOT_AUTHENTICATION?.trim() === "github-app-installation") {
+    const missing = [
+      "GITHUB_APP_ID",
+      "REPLICA_COPILOT_GITHUB_INSTALLATION_ID",
+      "REPLICA_COPILOT_GITHUB_ORGANIZATION",
+    ].filter((name) => !configured(name))
+    for (const [name, pattern] of [
+      ["REPLICA_COPILOT_GITHUB_INSTALLATION_ID", /^[1-9]\d*$/],
+      ["REPLICA_COPILOT_GITHUB_ORGANIZATION", /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/],
+    ] as const) {
+      if (
+        configured(name) &&
+        environment[name] !== undefined &&
+        !pattern.test(environment[name].trim())
+      )
+        missing.push(name)
+    }
+    if (!configured("GITHUB_APP_PRIVATE_KEY") && !configured("GITHUB_APP_PRIVATE_KEY_BASE64"))
+      missing.push("GITHUB_APP_PRIVATE_KEY or GITHUB_APP_PRIVATE_KEY_BASE64")
+    if (missing.length)
+      throw new Error(
+        `Saved Terraform inputs require valid ${missing.join(", ")} when REPLICA_COPILOT_AUTHENTICATION=github-app-installation. Supply runtime values or secret references before retrying; no cloud changes or input rewrites were started.`,
+      )
+  }
+  // Copilot-only Apps need no GitHub sign-in, sign-in installation, or webhook settings.
   const copilotOnly =
     environment.REPLICA_COPILOT_AUTHENTICATION?.trim() === "github-app-installation" &&
     [
@@ -292,7 +317,6 @@ export async function readInstallationInputs(
           (!environment.GITHUB_CLIENT_ID || !environment.GITHUB_APP_INSTALLATION_ID))))
   )
     throw invalid()
-  const configured = (name: string) => Boolean(environment[name]?.trim() || secrets[name])
   const githubSettings = [
     "GITHUB_APP_ID",
     "GITHUB_APP_PRIVATE_KEY_BASE64",
@@ -322,6 +346,11 @@ export async function readInstallationInputs(
   )
     throw new Error(
       "Saved Terraform inputs require HUB_APPLICATION_ORIGIN when authentication is configured. Supply an exact HTTPS origin or a secret reference before retrying; no cloud changes or input rewrites were started.",
+    )
+  const sharedKeys = ["HUB_AUTHENTICATION_ENCRYPTION_KEY", "HUB_BOOTSTRAP_SECRET"]
+  if (["HUB_APPLICATION_ORIGIN", ...sharedKeys].some(configured) && !sharedKeys.every(configured))
+    throw new Error(
+      `Saved Terraform inputs require ${sharedKeys.filter((name) => !configured(name)).join(", ")} together with HUB_APPLICATION_ORIGIN for authentication. Supply secret references before retrying; no cloud changes or input rewrites were started.`,
     )
   return result
 }
