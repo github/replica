@@ -15,6 +15,7 @@ import { afterEach, expect, it, vi } from "vitest"
 
 import type { AzureInstallation } from "../../install/types.ts"
 import { installationNames } from "../../install/settings.ts"
+import type { PostInputs } from "../types.ts"
 import { postSetupProgress } from "./index.ts"
 
 const directories: string[] = []
@@ -46,6 +47,159 @@ async function scenario() {
   const ui = { status: vi.fn(), notice: vi.fn(), confirm: vi.fn(), wait: vi.fn() }
   return { context: { directory, config, ui }, reference }
 }
+
+async function signInScenario(versioned = true) {
+  const test = await scenario()
+  const originReference = {
+    ...test.reference,
+    secret_id: test.reference.secret_id.replace("github-client-secret", "hub-application-origin"),
+  }
+  const sharedReferences = {
+    HUB_AUTHENTICATION_ENCRYPTION_KEY: {
+      ...test.reference,
+      secret_id: test.reference.secret_id.replace("github-client-secret", "hub-encryption-key"),
+    },
+    HUB_BOOTSTRAP_SECRET: {
+      ...test.reference,
+      secret_id: test.reference.secret_id.replace("github-client-secret", "hub-bootstrap-secret"),
+    },
+  }
+  const inputs: PostInputs = {
+    image: `registry.azurecr.io/hub@sha256:${"a".repeat(64)}`,
+    deploy_hub: true,
+    runtime_environment_variables: { RETAINED_SETTING: "keep" },
+    runtime_secret_references: {
+      RETAINED_SECRET: test.reference,
+      HUB_APPLICATION_ORIGIN: {
+        ...originReference,
+        secret_id: versioned ? originReference.secret_id : originReference.secret_id.slice(0, -33),
+      },
+    },
+  }
+  const desired: PostInputs = {
+    ...inputs,
+    runtime_environment_variables: {
+      ...inputs.runtime_environment_variables,
+      HUB_TRUSTED_PROXY_HOPS: "2",
+    },
+    runtime_secret_references: {
+      ...inputs.runtime_secret_references,
+      ...sharedReferences,
+      HUB_APPLICATION_ORIGIN: originReference,
+    },
+  }
+  return { ...test, inputs, desired, sharedReferences }
+}
+
+it.each(["pinned", "unversioned"] as const)(
+  "recognizes saved sign-in configuration after a crash with %s secret-backed origin references",
+  async (origin) => {
+    const test = await signInScenario(origin === "pinned")
+    const progress = await postSetupProgress(test.context, "sign-in", test.inputs)
+    await progress.saveAnswer("origin", "https://sample.example.com")
+    await progress.saveAnswer("proxyHops", "2")
+    for (const [key, reference] of Object.entries(test.sharedReferences))
+      await progress.saveReference(key, reference)
+
+    const resumed = await postSetupProgress(test.context, "sign-in", test.desired)
+
+    expect(resumed.hasSaved).toBe(false)
+    expect(resumed.answers).toEqual({})
+    expect(resumed.references).toEqual({})
+  },
+)
+
+it.each([
+  "image",
+  "unrelated environment",
+  "unrelated reference",
+  "origin vault",
+  "origin name",
+  "origin version",
+  "origin source",
+  "shared reference",
+] as const)(
+  "rejects a changed %s when reconciling saved sign-in configuration and preserves progress",
+  async (change) => {
+    const test = await signInScenario()
+    const progress = await postSetupProgress(test.context, "sign-in", test.inputs)
+    await progress.saveAnswer("origin", "https://sample.example.com")
+    await progress.saveAnswer("proxyHops", "2")
+    for (const [key, reference] of Object.entries(test.sharedReferences))
+      await progress.saveReference(key, reference)
+    const desired = structuredClone(test.desired)
+    const references = desired.runtime_secret_references!
+    if (change === "image") desired.image = `registry.azurecr.io/hub@sha256:${"b".repeat(64)}`
+    if (change === "unrelated environment")
+      desired.runtime_environment_variables!.RETAINED_SETTING = "changed"
+    if (change === "unrelated reference")
+      references.RETAINED_SECRET.secret_id = references.RETAINED_SECRET.secret_id.replace(
+        "a".repeat(32),
+        "b".repeat(32),
+      )
+    if (change === "origin vault") {
+      references.HUB_APPLICATION_ORIGIN.key_vault_id =
+        references.HUB_APPLICATION_ORIGIN.key_vault_id.replace(/\/vaults\/[^/]+$/, "/vaults/other")
+      references.HUB_APPLICATION_ORIGIN.secret_id =
+        references.HUB_APPLICATION_ORIGIN.secret_id.replace(/https:\/\/[^.]+/, "https://other")
+    }
+    if (change === "origin name")
+      references.HUB_APPLICATION_ORIGIN.secret_id =
+        references.HUB_APPLICATION_ORIGIN.secret_id.replace("hub-application-origin", "other-origin")
+    if (change === "origin version")
+      references.HUB_APPLICATION_ORIGIN.secret_id =
+        references.HUB_APPLICATION_ORIGIN.secret_id.replace("a".repeat(32), "b".repeat(32))
+    if (change === "origin source") {
+      delete references.HUB_APPLICATION_ORIGIN
+      desired.hub_application_origin = "https://sample.example.com"
+    }
+    if (change === "shared reference")
+      references.HUB_BOOTSTRAP_SECRET.secret_id =
+        references.HUB_BOOTSTRAP_SECRET.secret_id.replace("a".repeat(32), "b".repeat(32))
+    const saved = await readFile(progress.path)
+
+    await expect(postSetupProgress(test.context, "sign-in", desired)).rejects.toThrow()
+
+    expect(await readFile(progress.path)).toEqual(saved)
+  },
+)
+
+it("preserves an unresolved sign-in upload instead of accepting written desired inputs", async () => {
+  const test = await signInScenario()
+  const progress = await postSetupProgress(test.context, "sign-in", test.inputs)
+  await progress.saveAnswer("origin", "https://sample.example.com")
+  await progress.saveAnswer("proxyHops", "2")
+  await progress.saveReference(
+    "HUB_AUTHENTICATION_ENCRYPTION_KEY",
+    test.sharedReferences.HUB_AUTHENTICATION_ENCRYPTION_KEY,
+  )
+  await progress.pendingUpload("HUB_BOOTSTRAP_SECRET")
+  const saved = await readFile(progress.path)
+
+  await expect(postSetupProgress(test.context, "sign-in", test.desired)).rejects.toThrow()
+
+  expect(await readFile(progress.path)).toEqual(saved)
+  const resumed = await postSetupProgress(test.context, "sign-in", test.inputs)
+  expect(resumed.pending).toBe("HUB_BOOTSTRAP_SECRET")
+})
+
+it("preserves legacy sign-in progress without origin-reference proof when inputs change", async () => {
+  const test = await signInScenario()
+  const progress = await postSetupProgress(test.context, "sign-in", test.inputs)
+  await progress.saveAnswer("origin", "https://sample.example.com")
+  await progress.saveAnswer("proxyHops", "2")
+  for (const [key, reference] of Object.entries(test.sharedReferences))
+    await progress.saveReference(key, reference)
+  const { version, target, action, inputs, answers, references, complete } = JSON.parse(
+    await readFile(progress.path, "utf8"),
+  )
+  const legacy = JSON.stringify({ version, target, action, inputs, answers, references, complete })
+  await writeFile(progress.path, legacy)
+
+  await expect(postSetupProgress(test.context, "sign-in", test.desired)).rejects.toThrow()
+
+  expect(await readFile(progress.path, "utf8")).toBe(legacy)
+})
 
 it("persists only validated public answers, credential paths and versioned references in a private file", async () => {
   const test = await scenario()
