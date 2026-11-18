@@ -181,8 +181,11 @@ uv venv --python 3.12
 uv pip install -e .
 .venv/bin/replica-decision-runtime \
   --environment development \
+  --tenant local --repository github/example \
   --taskset /path/to/taskset --state /path/to/runtime-state --port 8010
 ```
+
+`--tenant` and `--repository` assign the customer scope that every connector call receives. A single-user process may keep the defaults; a shared host must set both from its authenticated customer and repository context.
 
 Submit and track a bounded fixture job, then promote its candidate:
 
@@ -247,13 +250,35 @@ docker run --rm \
 
 The image contains no taskset, candidate, model, or credential. The runtime process must own the runtime-state directory because startup restricts its permissions to the owner. The example runs the process as the operator who created that directory. Without `--user`, the image runs as user 10001, so create and assign the mounted directory to that user first. Rootless Podman also needs `--userns=keep-id`.
 
-### Add another backend later
+### Replace the infrastructure
 
-`TrainingBackend` is the extension seam. A backend can run in a separate terminable process, declares its name and whether its candidates may be promoted in production, implements one bounded `train` call that returns an adapter plus baseline and candidate reports, and implements `predict` for that adapter. Installed runtimes use a spawned worker process, so a backend and its configuration must be serializable. The runtime owns job state, candidate integrity, promotion, rollback, and HTTP authentication. This first reference does not connect the existing d1 trainer to that interface.
+The runtime contract follows the lifecycle rather than the services of one cloud. [`connectors.py`](connectors.py) defines these replaceable responsibilities:
+
+| Connector | Responsibility |
+| --- | --- |
+| Taskset | Resolve one validated, immutable taskset inside the requested tenant and repository scope |
+| Artifact | Store and read bytes by a verified SHA-256 digest without changing stored content |
+| Job | Create and cancel durable jobs, compare-and-swap their versions, and require the active expiring worker lease for each state update |
+| Candidate | Store immutable model candidates and append explicit promotion or rollback generations |
+| Training | Run one bounded training operation and return persistable candidate artifacts, evaluation evidence, and measured completed updates |
+| Inference | Evaluate one request with the explicitly promoted candidate |
+| Credential | Acquire a short-lived credential restricted to one operation, audience, tenant, and repository |
+| Observability | Attribute usage, optional cost, and provider diagnostics to the scoped operation |
+
+Every call receives an `OperationContext`. It names the tenant, repository, owner, operation, idempotency key, monotonic deadline, and cooperative cancellation signal. A retry with the same idempotency key and input returns the first result. Reusing the key for different input is a conflict. Connectors must check cancellation and deadlines before causing side effects.
+
+Artifacts and candidates are immutable. Their identities include content digests, and a connector must fail with an integrity error when bytes do not match the claimed digest. Job leases are exclusive until released or expired. Every versioned update presents the active lease, so a worker whose lease expired or was replaced cannot write even when it still knows the current job version. Promotion is an append-only sequence: a caller supplies the generation it observed, and a stale caller gets a conflict instead of replacing a newer decision.
+
+Connector failures use stable codes plus one category: invalid input, not found, conflict, unauthorized, integrity, cancelled, deadline exceeded, unavailable, or internal. Only a connector that knows an operation is safe to repeat marks its error retryable. Usage records always name the operation and customer scope; providers may add quantities and cost, but must not add provider-specific fields to the shared lifecycle records.
+
+[`connector_conformance.py`](connector_conformance.py) returns one reusable `unittest` suite for a fresh connector bundle. Local and hosted implementations run that suite unchanged. Its contract-only fixture proves tenant and repository isolation across every stored record, immutable content, idempotent retries, lease expiry and fencing, promotion generations, cancellation and deadlines, persistable training output, credential boundaries, error classification, and usage/cost attribution.
+
+The current single-node runtime preserves its HTTP API, process-isolated training and inference, and filesystem behavior. Compatibility adapters project the existing fixture backend onto the training and inference contracts and pass scoped contexts through credential and observability connectors. A backend and its configuration must remain serializable because installed runtimes execute training and each inference request in a spawned process. Each inference request pays process-startup cost, and model state loaded inside one inference child is not retained for the next request. The next layer can replace the embedded filesystem state with local connector implementations without changing orchestration or the HTTP API.
 
 ### Trust, data, and credential boundaries
 
-- The operator chooses the host. The reference runtime never calls Replica or a cloud service. A later cloud implementation can keep the same job, candidate, promotion, and inference contracts.
+- The operator chooses the host. The reference runtime never calls Replica or a cloud service. A later hosted implementation can keep the same job, candidate, promotion, and inference contracts.
+- The operator or hosting layer assigns the tenant and repository scope. A storage connector must return not found, rather than reveal another scope's records. A credential connector must reject another tenant or repository as unauthorized without minting a credential.
 - The taskset contains private screenshots, learning text, and labels. Mount it read-only. A training-consent withdrawal still requires the operator to delete the taskset and every candidate derived from that export.
 - The runtime state contains adapters, evaluation reports, job errors, and the promotion pointer. Back it up or delete it under the customer's retention rules. Candidate files are created read-only and never updated in place.
 - The runtime token authorizes training, promotion, candidate reads, and inference. Keep it in a protected file or secret store and pass it through the environment, not the command line or image.

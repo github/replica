@@ -13,17 +13,19 @@ import threading
 import time
 import unittest
 from collections.abc import Mapping
+from dataclasses import replace
 from multiprocessing.util import Finalize
 from pathlib import Path
 from unittest import mock
 from urllib import error, request
 
-from replica_brand_check.runtime import (
-    FixtureBackend,
-    LocalRuntime,
-    RuntimeFailure,
+from replica_brand_check.connectors import (
+    ConnectorError,
+    Credential,
+    RuntimeScope,
     TrainingResult,
 )
+from replica_brand_check.runtime import FixtureBackend, LocalRuntime, RuntimeFailure
 from replica_brand_check.runtime_server import RuntimeHTTPServer, runtime_token
 from tests.support import PNG, RULE, make_task, write_taskset
 
@@ -34,7 +36,19 @@ class FailingBackend(FixtureBackend):
     """A backend that fails after the runtime has accepted its job."""
 
     def train(self, *args, **kwargs):
-        raise RuntimeError("deliberate backend failure")
+        raise RuntimeError("provider secret: backend-token")
+
+
+class ConnectorFailingBackend(FixtureBackend):
+    """A backend that raises a connector-classified failure in the worker."""
+
+    def train(self, *args, **kwargs):
+        raise ConnectorError(
+            "provider_unavailable",
+            "provider secret: connector-token",
+            category="unavailable",
+            retryable=True,
+        )
 
 
 class SlowBackend(FixtureBackend):
@@ -43,6 +57,21 @@ class SlowBackend(FixtureBackend):
     def train(self, *args, **kwargs):
         time.sleep(2)
         return super().train(*args, **kwargs)
+
+
+class SlowInferenceBackend(FixtureBackend):
+    """A backend that ignores the inference timeout supplied by the compatibility adapter."""
+
+    def predict(self, *args, **kwargs):
+        time.sleep(0.1)
+        return super().predict(*args, **kwargs)
+
+
+class FailingInferenceBackend(FixtureBackend):
+    """A backend that exposes an unexpected provider failure during inference."""
+
+    def predict(self, *args, **kwargs):
+        raise RuntimeError("provider secret: inference-token")
 
 
 class LingeringBackend(FixtureBackend):
@@ -75,6 +104,7 @@ class UnknownCalibrationBackend(FixtureBackend):
             baseline_report=baseline,
             candidate_report=candidate,
             metadata=result.metadata,
+            updates_completed=result.updates_completed,
         )
 
 
@@ -96,12 +126,87 @@ class BlockingBackend(FixtureBackend):
 class CapturingBackend(FixtureBackend):
     """A fixture backend that records the projected inference request."""
 
-    def __init__(self):
-        self.request = None
+    def __init__(self, capture: Path):
+        self.capture = capture
 
     def predict(self, adapter, request, *, timeout_seconds):
-        self.request = request
+        self.capture.write_text(json.dumps(request), encoding="utf-8")
         return super().predict(adapter, request, timeout_seconds=timeout_seconds)
+
+
+class PartialBackend(FixtureBackend):
+    """A backend that reports fewer completed updates than its budget."""
+
+    def train(self, *args, **kwargs):
+        return replace(super().train(*args, **kwargs), updates_completed=2)
+
+
+class CapturingCredentials:
+    def __init__(self):
+        self.calls = []
+
+    def acquire(self, audience, context):
+        self.calls.append((audience, context))
+        return Credential(
+            value=f"{audience}-credential",
+            expires_at=context.deadline,
+            audience=audience,
+            scope=context.scope,
+            operation_id=context.operation_id,
+        )
+
+
+class CapturingObservability:
+    def __init__(self):
+        self.records = []
+
+    def record(self, usage, context):
+        self.records.append((usage, context))
+
+
+class ContextCheckingObservability(CapturingObservability):
+    def record(self, usage, context):
+        context.cancellation.raise_if_requested()
+        if time.monotonic() >= context.deadline:
+            raise ConnectorError(
+                "reporting_deadline",
+                "The reporting deadline elapsed.",
+                category="deadline_exceeded",
+            )
+        super().record(usage, context)
+
+
+class FailingObservability:
+    def record(self, usage, context):
+        del usage, context
+        raise ConnectorError(
+            "usage_unavailable",
+            "provider secret: test-token",
+            category="unavailable",
+            retryable=True,
+        )
+
+
+class InferenceFailingCredentials(CapturingCredentials):
+    def acquire(self, audience, context):
+        if audience == "inference":
+            raise ConnectorError(
+                "credential_unavailable",
+                "provider secret: test-token",
+                category="unauthorized",
+            )
+        return super().acquire(audience, context)
+
+
+class TrainingFailingCredentials(CapturingCredentials):
+    def acquire(self, audience, context):
+        if audience == "training":
+            raise ConnectorError(
+                "credential_unavailable",
+                "provider secret: training-token",
+                category="unauthorized",
+            )
+        return super().acquire(audience, context)
 
 
 class LocalRuntimeTest(unittest.TestCase):
@@ -168,7 +273,8 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(not_promoted.exception.code, "candidate_not_promoted")
 
     def test_backend_receives_no_free_form_task_or_question_text(self):
-        backend = CapturingBackend()
+        capture = self.taskset_dir.parent / "captured-request.json"
+        backend = CapturingBackend(capture)
         runtime = LocalRuntime(
             self.state_dir,
             self.taskset_dir,
@@ -184,7 +290,7 @@ class LocalRuntimeTest(unittest.TestCase):
         runtime.evaluate(self._request())
 
         self.assertEqual(
-            backend.request,
+            json.loads(capture.read_text(encoding="utf-8")),
             {
                 "images": [
                     "data:image/png;base64," + base64.b64encode(PNG).decode("ascii")
@@ -192,6 +298,221 @@ class LocalRuntimeTest(unittest.TestCase):
                 "questions": {RULE: {"type": "noul"}},
             },
         )
+
+    def test_passes_scoped_operation_context_to_credentials_and_usage_reporting(self):
+        credentials = CapturingCredentials()
+        observability = CapturingObservability()
+        scope = RuntimeScope("tenant-one", "github/example")
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            environment="test",
+            scope=scope,
+            credentials=credentials,
+            observability=observability,
+        )
+        self.addCleanup(runtime.close)
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
+        )
+        runtime.promote(finished["candidateId"], promoted_by="test-operator")
+        response = runtime.evaluate(self._request())
+
+        self.assertEqual(response["candidateId"], finished["candidateId"])
+        self.assertEqual(
+            [audience for audience, _ in credentials.calls],
+            ["training", "inference"],
+        )
+        self.assertTrue(all(context.scope == scope for _, context in credentials.calls))
+        self.assertEqual(
+            [usage.kind for usage, _ in observability.records],
+            ["training_updates", "inference_seconds"],
+        )
+        self.assertTrue(
+            all(
+                usage.scope == scope
+                and usage.operation_id == context.operation_id
+                and context.scope == scope
+                for usage, context in observability.records
+            )
+        )
+
+    def test_reports_measured_training_updates_and_requested_budget(self):
+        observability = CapturingObservability()
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"partial": PartialBackend()},
+            environment="test",
+            observability=observability,
+        )
+        self.addCleanup(runtime.close)
+
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="partial", max_updates=8, max_seconds=5)["id"],
+        )
+
+        self.assertEqual(finished["state"], "succeeded")
+        usage, _context = observability.records[0]
+        self.assertEqual(usage.quantity, 2)
+        self.assertEqual(usage.metadata["requestedUpdates"], 8)
+
+    def test_preserves_job_failure_when_usage_reporting_also_fails(self):
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"failing": FailingBackend()},
+            environment="test",
+            observability=FailingObservability(),
+        )
+        self.addCleanup(runtime.close)
+
+        failed = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="failing", max_updates=8, max_seconds=5)["id"],
+        )
+
+        self.assertEqual(failed["error"]["code"], "backend_failed")
+        self.assertEqual(failed["error"]["message"], "Backend operation failed.")
+        self.assertNotIn("backend-token", failed["error"]["message"])
+        self.assertEqual(failed["usageError"]["code"], "usage_unavailable")
+        self.assertEqual(
+            failed["usageError"]["message"], "Connector operation failed."
+        )
+        self.assertNotIn("test-token", failed["usageError"]["message"])
+
+    def test_preserves_successful_candidate_when_usage_reporting_fails(self):
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            environment="test",
+            observability=FailingObservability(),
+        )
+        self.addCleanup(runtime.close)
+
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
+        )
+
+        self.assertEqual(finished["state"], "succeeded")
+        self.assertIn("candidateId", finished)
+        self.assertEqual(finished["usageError"]["code"], "usage_unavailable")
+        self.assertEqual(
+            finished["usageError"]["message"],
+            "Connector operation failed.",
+        )
+        self.assertEqual(
+            runtime.candidate(finished["candidateId"])["manifest"]["id"],
+            finished["candidateId"],
+        )
+
+    def test_reports_timeout_usage_with_a_fresh_completion_context(self):
+        observability = ContextCheckingObservability()
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"slow": SlowBackend()},
+            environment="test",
+            observability=observability,
+        )
+        self.addCleanup(runtime.close)
+
+        failed = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="slow", max_updates=1, max_seconds=1)["id"],
+        )
+
+        self.assertEqual(failed["error"]["code"], "job_timed_out")
+        usage, reporting_context = observability.records[0]
+        self.assertEqual(usage.quantity, 0)
+        self.assertFalse(reporting_context.cancellation.requested)
+        self.assertGreater(reporting_context.deadline, time.monotonic())
+
+    def test_maps_runtime_credential_failure_to_service_unavailable(self):
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            environment="test",
+            credentials=InferenceFailingCredentials(),
+        )
+        self.addCleanup(runtime.close)
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
+        )
+        runtime.promote(finished["candidateId"], promoted_by="test-operator")
+
+        with self.assertRaises(RuntimeFailure) as unavailable:
+            runtime.evaluate(self._request())
+
+        self.assertEqual(unavailable.exception.code, "credential_unavailable")
+        self.assertEqual(unavailable.exception.status, 503)
+        self.assertEqual(str(unavailable.exception), "Connector operation failed.")
+        self.assertNotIn("test-token", str(unavailable.exception))
+
+    def test_redacts_training_credential_failure_from_the_job_record(self):
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            environment="test",
+            credentials=TrainingFailingCredentials(),
+        )
+        self.addCleanup(runtime.close)
+
+        failed = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
+        )
+
+        self.assertEqual(failed["error"]["code"], "credential_unavailable")
+        self.assertEqual(failed["error"]["message"], "Connector operation failed.")
+        self.assertNotIn("training-token", failed["error"]["message"])
+
+    def test_redacts_connector_failure_from_the_training_worker_result(self):
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"connector-failure": ConnectorFailingBackend()},
+            environment="test",
+        )
+        self.addCleanup(runtime.close)
+
+        failed = self._wait_for_job(
+            runtime,
+            runtime.submit(
+                backend="connector-failure", max_updates=8, max_seconds=5
+            )["id"],
+        )
+
+        self.assertEqual(failed["error"]["code"], "provider_unavailable")
+        self.assertEqual(failed["error"]["message"], "Connector operation failed.")
+        self.assertNotIn("connector-token", failed["error"]["message"])
+
+    def test_redacts_unexpected_inference_worker_failure(self):
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"inference-failure": FailingInferenceBackend()},
+            environment="test",
+        )
+        self.addCleanup(runtime.close)
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(
+                backend="inference-failure", max_updates=8, max_seconds=5
+            )["id"],
+        )
+        runtime.promote(finished["candidateId"], promoted_by="test-operator")
+
+        with self.assertRaises(RuntimeFailure) as failed:
+            runtime.evaluate(self._request())
+
+        self.assertEqual(failed.exception.code, "inference_failed")
+        self.assertEqual(str(failed.exception), "Inference operation failed.")
+        self.assertNotIn("inference-token", str(failed.exception))
 
     def test_detects_a_candidate_changed_to_claim_production_eligibility(self):
         runtime = self._runtime()
@@ -273,6 +594,37 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(failed["error"]["code"], "job_timed_out")
         self.assertEqual(list((self.state_dir / "candidates").iterdir()), [])
         self.assertEqual(multiprocessing.active_children(), [])
+
+    def test_bounds_inference_when_a_connector_ignores_its_deadline(self):
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"slow": SlowInferenceBackend()},
+            environment="test",
+        )
+        self.addCleanup(runtime.close)
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="slow", max_updates=8, max_seconds=5)["id"],
+        )
+        runtime.promote(finished["candidateId"], promoted_by="test-operator")
+
+        with self.assertRaises(RuntimeFailure) as timed_out:
+            runtime.evaluate(self._request(), timeout_seconds=0.01)
+
+        self.assertEqual(timed_out.exception.code, "inference_timed_out")
+        self.assertEqual(timed_out.exception.status, 504)
+        self.assertEqual(multiprocessing.active_children(), [])
+        self.assertEqual(list((self.state_dir / "work").iterdir()), [])
+        self.assertEqual(
+            sorted(
+                path.name
+                for path in (
+                    self.state_dir / "candidates" / finished["candidateId"]
+                ).iterdir()
+            ),
+            ["adapter.json", "evaluation.json", "manifest.json"],
+        )
 
     def test_bounds_a_worker_that_returns_but_does_not_exit(self):
         runtime = LocalRuntime(
@@ -846,7 +1198,7 @@ class LocalRuntimeTest(unittest.TestCase):
                     f"http://127.0.0.1:{server.server_address[1]}/health"
                 )
                 break
-            except error.URLError:
+            except (error.URLError, ConnectionError):
                 if time.monotonic() >= deadline:
                     raise
                 time.sleep(0.01)

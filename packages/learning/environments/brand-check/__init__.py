@@ -3,15 +3,22 @@
 from importlib import import_module
 from typing import Any
 
+from .connector_conformance import ConnectorConformanceFixture, connector_conformance
 from .taskset import question_options
 
 __all__ = [
     "BrandCheckAction",
     "BrandCheckEnv",
     "BrandCheckObservation",
+    "ConnectorConformanceFixture",
+    "ConnectorError",
     "FixtureBackend",
     "LocalRuntime",
+    "RuntimeConnectors",
+    "RuntimeScope",
     "RuntimeFailure",
+    "TrainingResult",
+    "connector_conformance",
     "question_options",
 ]
 
@@ -21,8 +28,12 @@ _OPENENV_EXPORTS = {
     "BrandCheckAction": ".models",
     "BrandCheckObservation": ".models",
     "BrandCheckEnv": ".client",
+    "ConnectorError": ".connectors",
     "FixtureBackend": ".runtime",
     "LocalRuntime": ".runtime",
+    "RuntimeConnectors": ".connectors",
+    "RuntimeScope": ".connectors",
+    "TrainingResult": ".connectors",
     "RuntimeFailure": ".runtime",
 }
 
