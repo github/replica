@@ -731,6 +731,25 @@ class LocalRuntime:
                     completedAt=_now(),
                     updatedAt=_now(),
                 )
+                usage_attempted = True
+                try:
+                    self._record_usage(
+                        context,
+                        connector=connector.name,
+                        kind="training_updates",
+                        quantity=result.updates_completed,
+                        unit="updates",
+                        metadata={
+                            "elapsedSeconds": time.monotonic() - started,
+                            "requestedUpdates": job["limits"]["maxUpdates"],
+                            "state": "succeeded",
+                        },
+                    )
+                except ConnectorError as usage_error:
+                    job["usageError"] = {
+                        "code": usage_error.code,
+                        "message": "Connector operation failed.",
+                    }
                 job = dict(
                     self.connectors.jobs.update(
                         job_id,
@@ -741,38 +760,6 @@ class LocalRuntime:
                     )
                 )
                 durable_finished = True
-            usage_attempted = True
-            try:
-                self._record_usage(
-                    context,
-                    connector=connector.name,
-                    kind="training_updates",
-                    quantity=result.updates_completed,
-                    unit="updates",
-                    metadata={
-                        "elapsedSeconds": time.monotonic() - started,
-                        "requestedUpdates": job["limits"]["maxUpdates"],
-                        "state": "succeeded",
-                    },
-                )
-            except ConnectorError as usage_error:
-                job["usageError"] = {
-                    "code": usage_error.code,
-                    "message": "Connector operation failed.",
-                }
-                job = dict(
-                    self.connectors.jobs.update(
-                        job_id,
-                        job,
-                        expected_version=job["version"],
-                        lease=lease,
-                        context=self._operation_context(
-                            f"usage_{job_id}",
-                            max_seconds=30,
-                            owner=RuntimeOwner("worker", "single-node-runtime"),
-                        ),
-                    )
-                )
         except Exception as error:
             if isinstance(error, ConnectorError) and error.category == "cancelled":
                 job.update(
