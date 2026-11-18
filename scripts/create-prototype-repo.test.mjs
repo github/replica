@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
-import { execFileSync, spawnSync } from "node:child_process"
+import { execFileSync, spawn, spawnSync } from "node:child_process"
+import { createServer } from "node:http"
 import {
   copyFileSync,
   cpSync,
@@ -13,7 +14,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs"
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { gunzipSync, gzipSync } from "node:zlib"
@@ -297,7 +298,16 @@ function checkoutFixture(t) {
 
 function archiveFixture(
   t,
-  { gitMetadata, missing, symlink, traversal, unrelatedSymlink, unrelatedTraversal, unsafePath } = {},
+  {
+    creatorWrapper = false,
+    gitMetadata,
+    missing,
+    symlink,
+    traversal,
+    unrelatedSymlink,
+    unrelatedTraversal,
+    unsafePath,
+  } = {},
 ) {
   const directory = workspace(t)
   const source = join(directory, "source")
@@ -310,6 +320,12 @@ function archiveFixture(
   const bootstrap = join(archiveRoot, "scripts/create-prototype-repo.mjs")
   mkdirSync(dirname(bootstrap), { recursive: true })
   copyFileSync(script, bootstrap)
+  if (creatorWrapper) {
+    copyFileSync(
+      join(root, "scripts/create-prototype-repo.sh"),
+      join(archiveRoot, "scripts/create-prototype-repo.sh"),
+    )
+  }
   if (missing) rmSync(join(archiveRoot, missing))
   if (symlink) writeFileSync(join(archiveRoot, "starter/src/linked"), "link fixture")
   if (traversal || unsafePath) writeFileSync(join(archiveRoot, "starter/src/unsafe.txt"), "unsafe")
@@ -376,15 +392,42 @@ globalThis.fetch = async url => {
   return { directory, archive, download }
 }
 
-function runInstaller(destination, { directory, archive, download }) {
+function runInstaller(destination, { directory, archive, download }, env = process.env) {
   return spawnSync(process.execPath, ["--import", pathToFileURL(download).href, installer, destination], {
     cwd: directory,
     encoding: "utf8",
     env: {
-      ...process.env,
+      ...env,
       REPLICA_TEST_ARCHIVE: archive,
     },
   })
+}
+
+function gitForWindowsTarDirectory() {
+  if (process.platform !== "win32") return undefined
+  const gitPaths = spawnSync("where.exe", ["git"], { encoding: "utf8" })
+  if (gitPaths.status !== 0) return undefined
+
+  for (const gitPath of gitPaths.stdout.split(/\r?\n/).filter(Boolean)) {
+    let directory = dirname(gitPath)
+    for (let depth = 0; depth < 6; depth += 1) {
+      const tarDirectory = join(directory, "usr", "bin")
+      const tar = join(tarDirectory, "tar.exe")
+      if (existsSync(tar)) {
+        try {
+          if (execFileSync(tar, ["--version"], { encoding: "utf8" }).includes("GNU tar")) {
+            return tarDirectory
+          }
+        } catch {
+          continue
+        }
+      }
+      const parent = dirname(directory)
+      if (parent === directory) break
+      directory = parent
+    }
+  }
+  return undefined
 }
 
 function assertNoTemporaryFiles(directory) {
@@ -566,6 +609,114 @@ test("installs a public-style archive without a checkout or credentials", t => {
   assert.equal(execFileSync("git", ["remote"], { cwd: destination }).toString(), "")
   assert.equal(spawnSync("git", ["rev-parse", "HEAD"], { cwd: destination }).status, 128)
   assertNoTemporaryFiles(fixture.directory)
+})
+
+test("installs an archive with Git for Windows GNU tar first on PATH", t => {
+  const tarDirectory = gitForWindowsTarDirectory()
+  if (!tarDirectory) return t.skip("Git for Windows GNU tar is unavailable.")
+
+  const fixture = archiveFixture(t)
+  const destination = join(fixture.directory, "prototype")
+  const result = runInstaller(destination, fixture, {
+    ...process.env,
+    PATH: [tarDirectory, process.env.PATH].join(delimiter),
+  })
+  assert.equal(result.status, 0, result.stderr)
+  assert.ok(existsSync(join(destination, ".agents/skills/setup-skills/SKILL.md")))
+  assertNoTemporaryFiles(fixture.directory)
+})
+
+test("documented installer entry points opt into Node environment proxies", async t => {
+  const docs = readFileSync(join(root, "docs/prototype-repository-setup.md"), "utf8")
+  assert.match(docs, /node --use-env-proxy install-starter\.mjs/)
+  assert.match(
+    readFileSync(join(root, "scripts/install-starter.sh"), "utf8"),
+    /node\s+--use-env-proxy/,
+  )
+
+  const requests = []
+  const proxy = createServer()
+  proxy.on("connect", (request, socket) => {
+    requests.push(request.url)
+    socket.end("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nContent-Length: 0\r\n\r\n")
+  })
+  await new Promise(resolve => proxy.listen(0, "127.0.0.1", resolve))
+  t.after(() => new Promise(resolve => proxy.close(resolve)))
+
+  const address = proxy.address()
+  assert.ok(address && typeof address === "object")
+  const proxyUrl = `http://127.0.0.1:${address.port}`
+  const targetUrl = "https://example.invalid/proxy-test"
+  const result = await new Promise(resolve => {
+    const child = spawn(
+      process.execPath,
+      [
+        "--use-env-proxy",
+        "--input-type=module",
+        "--eval",
+        `await fetch(${JSON.stringify(targetUrl)}).catch(() => {})`,
+      ],
+      {
+        env: {
+          ...process.env,
+          HTTP_PROXY: proxyUrl,
+          HTTPS_PROXY: proxyUrl,
+          NO_PROXY: "",
+          ALL_PROXY: "",
+          http_proxy: proxyUrl,
+          https_proxy: proxyUrl,
+          no_proxy: "",
+          all_proxy: "",
+        },
+        stdio: "ignore",
+      },
+    )
+    const timeout = setTimeout(() => child.kill(), 5_000)
+    child.once("error", error => resolve({ error }))
+    child.once("close", (status, signal) => {
+      clearTimeout(timeout)
+      resolve({ status, signal })
+    })
+  })
+  assert.equal(result.error, undefined)
+  assert.equal(result.status, 0)
+  assert.deepEqual(requests, ["example.invalid:443"])
+})
+
+test("Windows PowerShell instructions use the curl executable", () => {
+  const docs = readFileSync(join(root, "docs/prototype-repository-setup.md"), "utf8")
+  const command = docs.match(/# Windows PowerShell 5\.1\r?\n([\s\S]*?)\r?\n```/)?.[1]
+  assert.ok(command, "Missing Windows PowerShell 5.1 installer command")
+  assert.match(command, /^\s*curl\.exe\b/m)
+})
+
+test("an older creator wrapper explains how to get the matching installer", t => {
+  const bash = spawnSync("bash", ["--version"], { encoding: "utf8" })
+  if (bash.error || bash.status !== 0) return t.skip("Bash is unavailable.")
+
+  const fixture = archiveFixture(t, { creatorWrapper: true })
+  const extracted = join(fixture.directory, "extracted")
+  mkdirSync(extracted)
+  execFileSync(
+    "tar",
+    [
+      "-xzf",
+      fixture.archive,
+      "-C",
+      extracted,
+      "replica-main/starter",
+      "replica-main/scripts/create-prototype-repo.sh",
+    ],
+  )
+  const repository = join(extracted, "replica-main")
+  const destination = "prototype"
+  const result = spawnSync("bash", ["scripts/create-prototype-repo.sh", destination], {
+    cwd: repository,
+    encoding: "utf8",
+  })
+  assert.equal(result.status, 1, result.stderr)
+  assert.match(result.stderr, /installer copy is outdated.*download the latest installer/i)
+  assert.ok(!existsSync(join(repository, destination)))
 })
 
 test("ignores an unrelated symlink in the archive", t => {

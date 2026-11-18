@@ -20,4 +20,4 @@ temporary="$(mktemp -d "$PWD/.replica-download.XXXXXX")"
 trap 'rm -r -- "$temporary"' EXIT
 curl -q -fLSs --output "$temporary/install-starter.mjs" \
   'https://raw.githubusercontent.com/github/replica/main/scripts/install-starter.mjs'
-node "$temporary/install-starter.mjs" "$@"
+node --use-env-proxy "$temporary/install-starter.mjs" "$@"

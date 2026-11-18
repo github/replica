@@ -15,16 +15,18 @@ async function install(destination, signal) {
   }
   const temporary = mkdtempSync(resolve(".replica-download."))
   try {
-    const archive = join(temporary, "replica.tar.gz")
+    const archive = "replica.tar.gz"
     try {
       const response = await fetch(
         "https://github.com/github/replica/archive/refs/heads/main.tar.gz",
         { signal },
       )
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      await pipeline(Readable.fromWeb(response.body), createWriteStream(archive, { flags: "wx" }), {
-        signal,
-      })
+      await pipeline(
+        Readable.fromWeb(response.body),
+        createWriteStream(join(temporary, archive), { flags: "wx" }),
+        { signal },
+      )
     } catch (error) {
       throw new Error(
         "Could not download the Replica source archive. Check your network connection and access to GitHub, then try again.",
@@ -32,7 +34,11 @@ async function install(destination, signal) {
       )
     }
     function tar(args) {
-      return execFileSync("tar", args, { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 })
+      return execFileSync("tar", args, {
+        cwd: temporary,
+        encoding: "utf8",
+        maxBuffer: 32 * 1024 * 1024,
+      })
     }
     const members = tar(["-tzf", archive]).split(/\r?\n/).slice(0, -1)
     const types = tar(["-tvzf", archive]).split(/\r?\n/).slice(0, -1)
@@ -88,7 +94,7 @@ async function install(destination, signal) {
     }
     if (required.size)
       throw new Error("Replica source archive is missing the starter or setup script.")
-    tar(["-xzf", archive, "-C", temporary, `${root}/starter`, `${root}/${script}`])
+    tar(["-xzf", archive, "-C", ".", `${root}/starter`, `${root}/${script}`])
     const { createRepository } = await import(pathToFileURL(join(temporary, root, script)).href)
     await createRepository(destination, { signal })
   } finally {
