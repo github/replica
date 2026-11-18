@@ -154,6 +154,34 @@ class TasksetArtifact:
 
 
 @dataclass(frozen=True)
+class TasksetImage:
+    """One private image transferred as part of a complete taskset."""
+
+    path: str
+    media_type: str
+    digest: ContentDigest
+    data: bytes
+
+    def __post_init__(self) -> None:
+        if not self.path or not self.media_type.strip() or not isinstance(self.data, bytes):
+            raise ValueError("A taskset image needs a path, media type, digest, and bytes.")
+
+
+@dataclass(frozen=True)
+class TasksetBundle:
+    """Provider-neutral contents needed to validate and register one taskset."""
+
+    manifest: Mapping[str, Any]
+    tasks: Sequence[Mapping[str, Any]]
+    images: Sequence[TasksetImage]
+    digest: ContentDigest | None = None
+
+    def __post_init__(self) -> None:
+        if not self.tasks or not self.images:
+            raise ValueError("A taskset bundle needs tasks and images.")
+
+
+@dataclass(frozen=True)
 class JobLease:
     """Exclusive permission for one worker to advance a durable job."""
 
@@ -281,6 +309,10 @@ class TrainingResult:
 
 
 class TasksetConnector(Protocol):
+    def register(
+        self, bundle: TasksetBundle, context: OperationContext
+    ) -> TasksetArtifact: ...
+
     def resolve(self, reference: str, context: OperationContext) -> TasksetArtifact: ...
 
 

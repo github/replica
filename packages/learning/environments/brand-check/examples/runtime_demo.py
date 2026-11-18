@@ -13,7 +13,9 @@ import time
 from pathlib import Path
 
 try:
-    from replica_brand_check.runtime import LocalRuntime
+    from replica_brand_check.local_connectors import taskset_digest
+    from replica_brand_check.runtime import FixtureBackend, LocalRuntime
+    from replica_brand_check.taskset import load_taskset
 except ModuleNotFoundError:
     root = Path(__file__).resolve().parent.parent
     spec = importlib.util.spec_from_file_location(
@@ -23,7 +25,9 @@ except ModuleNotFoundError:
     package = importlib.util.module_from_spec(spec)
     sys.modules["replica_brand_check"] = package
     spec.loader.exec_module(package)
-    from replica_brand_check.runtime import LocalRuntime
+    from replica_brand_check.local_connectors import taskset_digest
+    from replica_brand_check.runtime import FixtureBackend, LocalRuntime
+    from replica_brand_check.taskset import load_taskset
 
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
@@ -102,6 +106,36 @@ def write_taskset(directory: Path) -> None:
     )
 
 
+class SlowFixtureBackend(FixtureBackend):
+    name = "fixture"
+
+    def train(self, *args, **kwargs):
+        time.sleep(0.25)
+        return super().train(*args, **kwargs)
+
+
+def upload_request(directory: Path) -> tuple[str, dict]:
+    loaded = load_taskset(directory)
+    tasks = [
+        json.loads(line)
+        for line in (directory / "tasks.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    image = directory / "images" / "screen.png"
+    return taskset_digest(loaded).value, {
+        "schemaVersion": "replica.decision-taskset-upload/v1",
+        "manifest": dict(loaded.metadata),
+        "tasks": tasks,
+        "images": [
+            {
+                "path": "images/screen.png",
+                "mediaType": "image/png",
+                "digest": "sha256:" + hashlib.sha256(PNG).hexdigest(),
+                "dataBase64": base64.b64encode(image.read_bytes()).decode(),
+            }
+        ],
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", required=True, type=Path, help="new directory for demo data")
@@ -112,12 +146,44 @@ def main() -> int:
     taskset = args.out / "taskset"
     state = args.out / "runtime"
     write_taskset(taskset)
-    runtime = LocalRuntime(state, taskset)
+    digest, upload = upload_request(taskset)
+    runtime = LocalRuntime(state, None, backends={"fixture": SlowFixtureBackend()})
     try:
+        registered = runtime.register_taskset(
+            digest, upload, idempotency_key="demo-taskset-upload"
+        )
+        retry = runtime.register_taskset(
+            digest, upload, idempotency_key="demo-taskset-upload"
+        )
+        running = runtime.submit(
+            backend="fixture",
+            max_updates=4,
+            max_seconds=30,
+            taskset_digest=registered["digest"],
+        )
+        while runtime.job(running["id"])["state"] == "queued":
+            time.sleep(0.01)
+        cancelled = runtime.submit(
+            backend="fixture",
+            max_updates=4,
+            max_seconds=30,
+            taskset_digest=registered["digest"],
+        )
+        cancellation = runtime.cancel(
+            cancelled["id"], idempotency_key="demo-job-cancel"
+        )
+        cancellation_retry = runtime.cancel(
+            cancelled["id"], idempotency_key="demo-job-cancel"
+        )
+        while runtime.job(running["id"])["state"] not in ("succeeded", "failed"):
+            time.sleep(0.01)
         jobs = []
         for updates in (4, 8):
             submitted = runtime.submit(
-                backend="fixture", max_updates=updates, max_seconds=30
+                backend="fixture",
+                max_updates=updates,
+                max_seconds=30,
+                taskset_digest=registered["digest"],
             )
             while True:
                 job = runtime.job(submitted["id"])
@@ -142,6 +208,10 @@ def main() -> int:
         print(
             json.dumps(
                 {
+                    "taskset": registered,
+                    "tasksetRetry": retry,
+                    "cancellation": cancellation,
+                    "cancellationRetry": cancellation_retry,
                     "jobs": jobs,
                     "candidate": candidate,
                     "promotions": [first, second, rollback],

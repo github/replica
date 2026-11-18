@@ -6,7 +6,7 @@ import hashlib
 import time
 import unittest
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -20,6 +20,7 @@ from .connectors import (
     RuntimeConnectors,
     RuntimeOwner,
     RuntimeScope,
+    TasksetBundle,
     TrainingResult,
     Usage,
 )
@@ -33,6 +34,8 @@ class ConnectorConformanceFixture:
     scope: RuntimeScope
     other_repository_scope: RuntimeScope
     other_tenant_scope: RuntimeScope
+    taskset_bundle: TasksetBundle
+    taskset_digest: ContentDigest
     taskset_reference: str
     usage: Callable[[], Sequence[Usage]]
 
@@ -50,6 +53,10 @@ def connector_conformance(
 
     return unittest.TestSuite(
         [
+            case(
+                "registers immutable scoped tasksets",
+                _taskset_registration(create_fixture),
+            ),
             case("isolates tenant and repository scope", _scope_isolation(create_fixture)),
             case("stores immutable content by digest", _immutable_artifacts(create_fixture)),
             case("stores immutable scoped candidates", _immutable_candidates(create_fixture)),
@@ -86,6 +93,76 @@ def connector_conformance(
             case("attributes usage and cost to the operation", _usage(create_fixture)),
         ]
     )
+
+
+def _taskset_registration(create_fixture):
+    def run(case):
+        fixture = create_fixture()
+        context = _context(
+            fixture.scope,
+            "taskset-register",
+            idempotency_key="taskset-register",
+        )
+        registered = fixture.connectors.tasksets.register(
+            fixture.taskset_bundle,
+            context,
+        )
+        case.assertEqual(registered.digest, fixture.taskset_digest)
+        case.assertEqual(registered.reference, f"taskset:{registered.digest.value}")
+        case.assertEqual(
+            fixture.connectors.tasksets.register(fixture.taskset_bundle, context),
+            registered,
+        )
+        changed = replace(
+            fixture.taskset_bundle,
+            manifest={**fixture.taskset_bundle.manifest, "exportId": "changed"},
+            digest=registered.digest,
+        )
+        with case.assertRaises(ConnectorError) as immutable:
+            fixture.connectors.tasksets.register(
+                changed,
+                _context(
+                    fixture.scope,
+                    "taskset-register-changed",
+                    idempotency_key="taskset-register-changed",
+                ),
+            )
+        case.assertEqual(immutable.exception.category, "conflict")
+        with case.assertRaises(ConnectorError) as retry_conflict:
+            fixture.connectors.tasksets.register(
+                changed,
+                _context(
+                    fixture.scope,
+                    "taskset-register-reused-key",
+                    idempotency_key="taskset-register",
+                ),
+            )
+        case.assertEqual(retry_conflict.exception.category, "conflict")
+        case.assertEqual(
+            fixture.connectors.tasksets.resolve(
+                registered.reference,
+                _context(fixture.scope, "taskset-resolve"),
+            ),
+            registered,
+        )
+        for label, scope in (
+            ("repository", fixture.other_repository_scope),
+            ("tenant", fixture.other_tenant_scope),
+        ):
+            with case.assertRaises(ConnectorError) as refused:
+                fixture.connectors.tasksets.register(
+                    fixture.taskset_bundle,
+                    _context(scope, f"taskset-register-other-{label}"),
+                )
+            case.assertEqual(refused.exception.category, "unauthorized")
+            with case.assertRaises(ConnectorError) as hidden:
+                fixture.connectors.tasksets.resolve(
+                    registered.reference,
+                    _context(scope, f"taskset-resolve-other-{label}"),
+                )
+            case.assertEqual(hidden.exception.category, "not_found")
+
+    return run
 
 
 def _scope_isolation(create_fixture):
@@ -395,6 +472,23 @@ def _job_cancellation(create_fixture):
             "job_cancel",
             ttl_seconds=5,
             context=_context(fixture.scope, "cancel-job-lease"),
+        )
+        with case.assertRaises(ConnectorError) as cross_scope:
+            fixture.connectors.jobs.cancel(
+                "job_cancel",
+                expected_version=created["version"],
+                context=_context(
+                    fixture.other_tenant_scope,
+                    "cancel-job-other-tenant",
+                ),
+            )
+        case.assertIn(cross_scope.exception.category, ("not_found", "unauthorized"))
+        case.assertEqual(
+            fixture.connectors.jobs.get(
+                "job_cancel",
+                _context(fixture.scope, "cancel-job-after-other-tenant"),
+            ),
+            created,
         )
         cancelled = fixture.connectors.jobs.cancel(
             "job_cancel",
