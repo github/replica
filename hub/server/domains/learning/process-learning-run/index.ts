@@ -83,10 +83,12 @@ export async function processLearningRun(
       snapshotDigest: string
       startedAt: Date | null
       state: "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED"
+      scheduled: boolean
       requestedBy: { profile: { login: string | null } | null } | null
       requestedByMembershipId: string | null
     } | null>
     now(): Date
+    hasPendingUserRun(): Promise<boolean>
     prepare(repositoryId: string): Promise<{ directory: string; repositoryScope: string }>
     isAdministrator(membershipId: string): Promise<boolean>
     refuseCredential?(): Promise<void>
@@ -112,20 +114,29 @@ export async function processLearningRun(
   if (!run || !["QUEUED", "RUNNING"].includes(run.state)) return
   try {
     await dependencies.withLock(async (signal) => {
+      if (run.scheduled && (await dependencies.hasPendingUserRun())) {
+        throw new Error("User-requested learning work is waiting.")
+      }
       if (run.state === "QUEUED" && !(await dependencies.claim(runId, dependencies.now()))) return
       const current = await dependencies.getRun(runId)
       if (!current) throw new Error("The claimed learning run disappeared.")
       if (current.state !== "RUNNING") return
-      const actor = current.requestedBy?.profile?.login
-      if (
-        !actor ||
-        !current.requestedByMembershipId ||
-        !(await dependencies.isAdministrator(current.requestedByMembershipId))
-      ) {
-        throw new LearningCommandError(
-          "not_authorized",
-          "The person who requested this run is no longer an administrator.",
-        )
+      let actor: string
+      if (current.scheduled) {
+        actor = "system:replica-hub"
+      } else {
+        const requester = current.requestedBy?.profile?.login
+        if (
+          !requester ||
+          !current.requestedByMembershipId ||
+          !(await dependencies.isAdministrator(current.requestedByMembershipId))
+        ) {
+          throw new LearningCommandError(
+            "not_authorized",
+            "The person who requested this run is no longer an administrator.",
+          )
+        }
+        actor = `human:${requester}`
       }
       const snapshot = await dependencies.capture(current.repositoryId)
       if (snapshot.digest !== current.snapshotDigest) {
@@ -169,9 +180,11 @@ export async function processLearningRun(
               "--source",
               "hub_review_comments",
               "--basis",
-              "A repository administrator explicitly requested this learning run.",
+              current.scheduled
+                ? "Replica Hub scheduled this repository's daily learning run."
+                : "A repository administrator explicitly requested this learning run.",
               "--by",
-              `human:${actor}`,
+              actor,
               ...common,
             ],
             { signal },
@@ -289,7 +302,10 @@ export async function processLearningRun(
   } catch (error) {
     if (
       error instanceof Error &&
-      error.message === "Another learning operation is still running."
+      [
+        "Another learning operation is still running.",
+        "User-requested learning work is waiting.",
+      ].includes(error.message)
     ) {
       throw error
     }

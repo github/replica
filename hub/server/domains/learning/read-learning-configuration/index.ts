@@ -8,6 +8,14 @@ export async function readLearningConfiguration(
   environment: NodeJS.ProcessEnv,
   applicationRoot = process.cwd(),
 ) {
+  const automaticRunsValue = environment.REPLICA_LEARNING_AUTOMATIC_RUNS?.trim().toLowerCase()
+  if (
+    automaticRunsValue !== undefined &&
+    automaticRunsValue !== "true" &&
+    automaticRunsValue !== "false"
+  ) {
+    throw new LearningConfigurationError("REPLICA_LEARNING_AUTOMATIC_RUNS must be true or false.")
+  }
   const clientDirectory = environment.CLIENT_DIRECTORY?.trim()
   let root: string
   try {
@@ -41,6 +49,7 @@ export async function readLearningConfiguration(
     )
   }
   return {
+    automaticRuns: automaticRunsValue === "true",
     cliPath,
     copilotCredentialProvider,
     nodePath,

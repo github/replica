@@ -8,6 +8,6 @@ export function listQueuedLearningRuns(
     where: { state: { in: ["QUEUED", "RUNNING"] } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     take: limit,
-    select: { id: true },
+    select: { id: true, scheduled: true },
   })
 }

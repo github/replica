@@ -146,14 +146,14 @@ export async function createLearningsRouteDependencies(
           { cause: error },
         )
       }
-      const { run, created } = await prisma.$transaction(async (transaction) => {
+      const { run, created, promoted } = await prisma.$transaction(async (transaction) => {
         const result = await createLearningRun(transaction, {
           repositoryId,
           requestedById,
           requestedByMembershipId: actorMembershipId,
           snapshotDigest: snapshot.digest,
         })
-        if (result.created) {
+        if (result.created || result.promoted) {
           await createSecurityAudit(transaction, {
             id: randomUUID(),
             type: "learning_run",
@@ -174,7 +174,7 @@ export async function createLearningsRouteDependencies(
           { jobId: `learning-run-${run.id}` },
         )
       } catch (error) {
-        if (created) {
+        if (created || promoted) {
           await finishLearningRun(prisma, run.id, {
             state: "FAILED",
             failureCode: "enqueue_failed",
@@ -200,7 +200,10 @@ export async function createLearningsRouteDependencies(
       } finally {
         await queue.close()
       }
-      return { notice: created ? "Learning run requested." : "Learning run already in progress." }
+      return {
+        notice:
+          created || promoted ? "Learning run requested." : "Learning run already in progress.",
+      }
     },
     redactComment: async ({ repositoryId, commentId, actorLogin }) => {
       const queue = createJobQueue({ name: "on-demand", databaseUrl, logger })

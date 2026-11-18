@@ -1,16 +1,21 @@
+import { randomUUID } from "node:crypto"
 import type { Logger } from "pino"
 
-import { getCopilotConnectionStatus } from "../../copilot-connection/get-copilot-connection-status/index.ts"
 import { resolveLocalSignInEnvironment } from "../../authentication/resolve-local-sign-in-environment/index.ts"
+import { getCopilotConnectionStatus } from "../../copilot-connection/get-copilot-connection-status/index.ts"
+import { ReviewCommentError } from "../../review-comments/errors.ts"
 import { createReviewCommentLearningSource } from "../create-review-comment-learning-source/index.ts"
 import { learningRunJob } from "../jobs/learning-run.ts"
 import { recoverLearningRunsJob } from "../jobs/recover-learning-runs.ts"
 import { redactReviewCommentJob } from "../jobs/redact-review-comment.ts"
+import { scheduleLearningRunsJob } from "../jobs/schedule-learning-runs.ts"
 import { prepareLearningStore } from "../prepare-learning-store/index.ts"
 import { processLearningRun } from "../process-learning-run/index.ts"
 import { processReviewCommentRedaction } from "../process-review-comment-redaction/index.ts"
+import { recoverLearningRunJobs } from "../recover-learning-run-jobs/index.ts"
 import { reconcileLearningDecisionOperation } from "../reconcile-learning-decision-operation/index.ts"
 import { readLearningConfiguration } from "../read-learning-configuration/index.ts"
+import { scheduleLearningRuns } from "../schedule-learning-runs/index.ts"
 import { createJobProcessor } from "../../../integrations/bullmq/create-job-processor/index.ts"
 import { createJobQueue } from "../../../integrations/bullmq/create-job-queue/index.ts"
 import { enqueueRecoverableJob } from "../../../integrations/bullmq/enqueue-recoverable-job/index.ts"
@@ -24,17 +29,23 @@ import { lockCopilotConnectionState } from "../../../repositories/copilot-connec
 import { recordCopilotCredentialRefusal } from "../../../repositories/copilot-connection-states/record-copilot-credential-refusal/index.ts"
 import { getCopilotConnection } from "../../../repositories/copilot-connections/get-copilot-connection/index.ts"
 import { claimLearningRun } from "../../../repositories/learning-runs/claim-learning-run/index.ts"
+import { createLearningRun } from "../../../repositories/learning-runs/create-learning-run/index.ts"
+import { deleteExpiredLearningRuns } from "../../../repositories/learning-runs/delete-expired-learning-runs/index.ts"
+import { failScheduledLearningRunEnqueue } from "../../../repositories/learning-runs/fail-scheduled-learning-run-enqueue/index.ts"
 import { finishLearningRun } from "../../../repositories/learning-runs/finish-learning-run/index.ts"
 import { getLearningRun } from "../../../repositories/learning-runs/get-learning-run/index.ts"
+import { hasPendingUserLearningRun } from "../../../repositories/learning-runs/has-pending-user-learning-run/index.ts"
+import { isLearningRunRepositoryAvailable } from "../../../repositories/learning-runs/is-learning-run-repository-available/index.ts"
+import { listDueLearningRepositories } from "../../../repositories/learning-runs/list-due-learning-repositories/index.ts"
 import { listQueuedLearningRuns } from "../../../repositories/learning-runs/list-queued-learning-runs/index.ts"
 import { deleteLearningDecisionOperation } from "../../../repositories/learning-decision-operations/delete-learning-decision-operation/index.ts"
 import { listLearningDecisionOperations } from "../../../repositories/learning-decision-operations/list-learning-decision-operations/index.ts"
 import { updateLearningRunProgress } from "../../../repositories/learning-runs/update-learning-run-progress/index.ts"
 import { isEffectiveAdministrator } from "../../../repositories/memberships/is-effective-administrator/index.ts"
+import { lockGitHubRepositoryAccessState } from "../../../repositories/github-repository-access-states/lock-github-repository-access-state/index.ts"
 import { listDeletedReviewComments } from "../../../repositories/review-comments/list-deleted-review-comments/index.ts"
 import { markReviewCommentLearningRedacted } from "../../../repositories/review-comments/mark-review-comment-learning-redacted/index.ts"
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
-import { randomUUID } from "node:crypto"
 
 export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logger: Logger) {
   let dependenciesPromise: ReturnType<typeof loadDependencies> | undefined
@@ -57,8 +68,40 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
     return dependenciesPromise
   }
 
-  const run = createJobProcessor(learningRunJob, async ({ runId }) => {
+  async function copilotUsable() {
+    const { configuration, prisma } = await dependencies()
+    const connection = await getCopilotConnection(prisma)
+    const state = await getCopilotConnectionState(prisma)
+    if (!state) return false
+    return getCopilotConnectionStatus(
+      connection
+        ? {
+            connectedBy: {
+              login: connection.connectedByMembership.user.profile?.login ?? null,
+              membershipId: connection.connectedByMembershipId,
+              name: connection.connectedByMembership.user.profile?.name ?? null,
+            },
+            credentialDigest: connection.credentialDigest,
+            credentialProvider: connection.credentialProvider,
+            verifiedAt: connection.verifiedAt,
+          }
+        : null,
+      configuration.copilotCredentialProvider,
+      connection
+        ? await isEffectiveAdministrator(prisma, connection.connectedByMembershipId)
+        : false,
+      {
+        credentialDigest: state.refusedCredentialDigest,
+        credentialProvider: state.refusedCredentialProvider,
+        refusedAt: state.refusedAt,
+      },
+    ).connected
+  }
+
+  async function processRun(runId: string, scheduled: boolean) {
     const { configuration, databaseUrl, prisma, source } = await dependencies()
+    const stored = await getLearningRun(prisma, runId)
+    if (!stored || stored.scheduled !== scheduled) return
     let credentialSnapshot:
       | {
           connectionId: string
@@ -72,6 +115,7 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
       capture: (repositoryId) => source.captureCompleteSnapshot({ repositoryId }),
       finish: (id, input) => finishLearningRun(prisma, id, input),
       getRun: (id) => getLearningRun(prisma, id),
+      hasPendingUserRun: () => hasPendingUserLearningRun(prisma),
       now: () => new Date(),
       isAdministrator: (membershipId) => isEffectiveAdministrator(prisma, membershipId),
       prepare: (repositoryId) =>
@@ -174,20 +218,23 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
       updateProgress: (id, input) => updateLearningRunProgress(prisma, id, input),
       withLock: (operation) => withLearningExecutionLock({ databaseUrl, run: operation }),
     })
-  })
+  }
+
+  const run = createJobProcessor(learningRunJob, ({ runId }) => processRun(runId, false))
+  const scheduledRun = createJobProcessor(learningRunJob, ({ runId }) => processRun(runId, true))
 
   const recover = createJobProcessor(recoverLearningRunsJob, async () => {
     const { configuration, databaseUrl, prisma } = await dependencies()
-    const queue = createJobQueue({ name: "on-demand", databaseUrl, logger })
+    const onDemandQueue = createJobQueue({ name: "on-demand", databaseUrl, logger })
+    const scheduledQueue = createJobQueue({ name: "scheduled", databaseUrl, logger })
     try {
-      for (const queued of await listQueuedLearningRuns(prisma)) {
-        await enqueueRecoverableJob(
-          queue,
-          learningRunJob,
-          { runId: queued.id },
-          `learning-run-${queued.id}`,
-        )
-      }
+      await recoverLearningRunJobs({
+        list: () => listQueuedLearningRuns(prisma),
+        enqueueOnDemand: (runId) =>
+          enqueueRecoverableJob(onDemandQueue, learningRunJob, { runId }, `learning-run-${runId}`),
+        enqueueScheduled: (runId) =>
+          enqueueRecoverableJob(scheduledQueue, learningRunJob, { runId }, `learning-run-${runId}`),
+      })
       let redactionCursor: { deletedAt: Date; id: string } | undefined
       do {
         const comments = await listDeletedReviewComments(prisma, {
@@ -195,7 +242,7 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
         })
         for (const comment of comments) {
           await enqueueRecoverableJob(
-            queue,
+            onDemandQueue,
             redactReviewCommentJob,
             {
               repositoryId: comment.thread.repositoryId,
@@ -261,6 +308,67 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
         }
       }
     } finally {
+      await Promise.all([onDemandQueue.close(), scheduledQueue.close()])
+    }
+  })
+
+  const schedule = createJobProcessor(scheduleLearningRunsJob, async () => {
+    const automaticRuns = environment.REPLICA_LEARNING_AUTOMATIC_RUNS?.trim().toLowerCase()
+    if (automaticRuns === undefined || automaticRuns === "false") {
+      return { scheduled: 0 }
+    }
+    const { configuration, databaseUrl, prisma, source } = await dependencies()
+    const queue = createJobQueue({ name: "scheduled", databaseUrl, logger })
+    try {
+      return await scheduleLearningRuns({
+        automaticEnabled: configuration.automaticRuns,
+        copilotUsable,
+        deleteExpired: (cutoff) => deleteExpiredLearningRuns(prisma, cutoff),
+        listDue: () =>
+          prisma.$transaction(async (transaction) => {
+            const access = await lockGitHubRepositoryAccessState(transaction)
+            return listDueLearningRepositories(transaction, {
+              requireGitHubId: access.scopingActivatedAt !== null,
+            })
+          }),
+        capture: async (repositoryId) => {
+          try {
+            return await source.captureCompleteSnapshot({ repositoryId })
+          } catch (error) {
+            if (error instanceof ReviewCommentError && error.code === "not_found") return null
+            throw error
+          }
+        },
+        create: (input) =>
+          prisma.$transaction(async (transaction) => {
+            const access = await lockGitHubRepositoryAccessState(transaction)
+            if (
+              !(await isLearningRunRepositoryAvailable(
+                transaction,
+                input.repositoryId,
+                access.scopingActivatedAt !== null,
+              ))
+            ) {
+              return null
+            }
+            return createLearningRun(transaction, input)
+          }),
+        enqueue: (runId) =>
+          enqueueRecoverableJob(queue, learningRunJob, { runId }, `learning-run-${runId}`),
+        fail: async (runId, error) => {
+          const failed = await failScheduledLearningRunEnqueue(prisma, runId, new Date())
+          if (failed.count === 0) return
+          logger.error(
+            {
+              errorType: error instanceof Error ? error.name : "UnknownError",
+              runId,
+            },
+            "Scheduled learning run enqueue failed",
+          )
+        },
+        now: () => new Date(),
+      })
+    } finally {
       await queue.close()
     }
   })
@@ -289,5 +397,5 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
     })
   })
 
-  return { run, recover, redact }
+  return { run, scheduledRun, recover, redact, schedule }
 }

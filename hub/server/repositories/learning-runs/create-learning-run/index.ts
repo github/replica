@@ -3,19 +3,28 @@ import type { Prisma } from "../../../generated/prisma/client.ts"
 
 export async function createLearningRun(
   database: Pick<Prisma.TransactionClient, "learningRun">,
-  input: {
-    repositoryId: string
-    requestedById: string
-    requestedByMembershipId: string
-    snapshotDigest: string
-  },
+  input:
+    | {
+        repositoryId: string
+        requestedById: string
+        requestedByMembershipId: string
+        scheduled?: false
+        snapshotDigest: string
+      }
+    | {
+        repositoryId: string
+        requestedById?: never
+        requestedByMembershipId?: never
+        scheduled: true
+        snapshotDigest: string
+      },
 ) {
   const id = randomUUID()
   const created = await database.learningRun.createMany({
     data: { id, ...input },
     skipDuplicates: true,
   })
-  const run = await database.learningRun.findFirst({
+  let run = await database.learningRun.findFirst({
     where:
       created.count === 1
         ? { id }
@@ -25,5 +34,21 @@ export async function createLearningRun(
           },
   })
   if (!run) throw new Error("The active learning run could not be found.")
-  return { run, created: created.count === 1 }
+  let promoted = false
+  if (created.count === 0 && !input.scheduled && run.scheduled && run.state === "QUEUED") {
+    const promotion = await database.learningRun.updateMany({
+      where: { id: run.id, scheduled: true, state: "QUEUED" },
+      data: {
+        requestedById: input.requestedById,
+        requestedByMembershipId: input.requestedByMembershipId,
+        scheduled: false,
+        snapshotDigest: input.snapshotDigest,
+      },
+    })
+    if (promotion.count === 1) {
+      run = await database.learningRun.findUniqueOrThrow({ where: { id: run.id } })
+      promoted = true
+    }
+  }
+  return { run, created: created.count === 1, promoted }
 }

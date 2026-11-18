@@ -14,6 +14,7 @@ function dependencies(overrides: Partial<Dependencies> = {}) {
     id: "11111111-2222-4333-8444-555555555555",
     repositoryId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     snapshotDigest: "sha256:snapshot",
+    scheduled: false,
     state: "QUEUED",
     startedAt: new Date("2026-11-13T09:59:00Z"),
     requestedBy: { profile: { login: "mona" } },
@@ -37,6 +38,7 @@ function dependencies(overrides: Partial<Dependencies> = {}) {
       return Promise.resolve()
     }),
     getRun: vi.fn().mockImplementation(() => Promise.resolve(run)),
+    hasPendingUserRun: vi.fn().mockResolvedValue(false),
     now: vi.fn(() => new Date("2026-11-13T10:00:00Z")),
     isAdministrator: vi.fn().mockResolvedValue(true),
     prepare: vi.fn().mockResolvedValue({
@@ -142,6 +144,62 @@ describe("processLearningRun()", () => {
 
     expect(deps.claim).not.toHaveBeenCalled()
     expect(deps.finished[0]).toMatchObject({ input: { state: "SUCCEEDED" } })
+  })
+
+  it("defers a queued scheduled run before claim while user work is waiting", async () => {
+    const deps = dependencies({
+      hasPendingUserRun: vi.fn().mockResolvedValue(true),
+    })
+    deps.run.scheduled = true
+    deps.run.requestedBy = null
+    deps.run.requestedByMembershipId = null
+
+    await expect(processLearningRun("11111111-2222-4333-8444-555555555555", deps)).rejects.toThrow(
+      "User-requested learning work is waiting.",
+    )
+
+    expect(deps.claim).not.toHaveBeenCalled()
+    expect(deps.capture).not.toHaveBeenCalled()
+    expect(deps.finished).toEqual([])
+  })
+
+  it("processes a scheduled run without user authority and records a system actor", async () => {
+    const deps = dependencies()
+    deps.run.scheduled = true
+    deps.run.requestedBy = null
+    deps.run.requestedByMembershipId = null
+
+    await processLearningRun("11111111-2222-4333-8444-555555555555", deps)
+
+    expect(deps.isAdministrator).not.toHaveBeenCalled()
+    expect(
+      deps.commands.find((arguments_) => arguments_[0] === "grants" && arguments_[1] === "add"),
+    ).toEqual(expect.arrayContaining(["--by", "system:replica-hub"]))
+    expect(deps.finished[0]).toMatchObject({ input: { state: "SUCCEEDED" } })
+  })
+
+  it("fails a scheduled run visibly when evidence changes after scheduling", async () => {
+    const deps = dependencies({
+      capture: vi.fn().mockResolvedValue({
+        collection: { kind: "replica.hub-review-collection/v1" },
+        digest: "sha256:changed",
+        capturedAt: new Date("2026-11-13T09:00:00Z"),
+      }),
+    })
+    deps.run.scheduled = true
+    deps.run.requestedBy = null
+    deps.run.requestedByMembershipId = null
+
+    await processLearningRun("11111111-2222-4333-8444-555555555555", deps)
+
+    expect(deps.prepare).not.toHaveBeenCalled()
+    expect(deps.runCommand).not.toHaveBeenCalled()
+    expect(deps.finished[0]).toMatchObject({
+      input: {
+        state: "FAILED",
+        failureCode: "snapshot_changed",
+      },
+    })
   })
 
   it("retries a recovered running job when another learning mutation holds the lock", async () => {

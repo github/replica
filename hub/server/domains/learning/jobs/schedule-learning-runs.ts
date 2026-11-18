@@ -1,0 +1,7 @@
+import { z } from "zod"
+
+export const scheduleLearningRunsJob = {
+  name: "learning.schedule-runs",
+  schema: z.object({}).strict(),
+  options: { attempts: 3, backoff: { type: "exponential", delay: 60_000 } },
+}
