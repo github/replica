@@ -313,6 +313,8 @@ runtime_environment_variables = {
 
 These values are stored directly in Terraform state and Container Apps configuration. Do not put credentials, tokens, or private keys in this map; use `runtime_secret_references` for secret values. Terraform and guided updates reject names with an underscore-separated `SECRET`, `TOKEN`, `PASSWORD`, `PASSWD`, `PASSPHRASE`, `CREDENTIAL`, `APIKEY`, or `KEY` word, including plurals, such as `SERVICE_API_KEY` or `HUB_BOOTSTRAP_SECRET`. Supply those settings through `runtime_secret_references`, even when the value is not sensitive. Words that only contain these terms, such as `TOKENIZER` or `MONKEY_MODE`, are allowed. Supplying public authentication settings alone does not complete sign-in configuration; follow [Hub deployment](../hub/docs/deployment.md#image-and-runtime) for the corresponding required settings.
 
+Terraform may include an invalid input line in its error output, including any credential supplied on that line. Remove credentials from the input before running Terraform and protect or redact any captured output if a credential was supplied.
+
 Azure containers run `node dist/server/scripts/azure-entrypoint/index.js runtime`, `setup`, or `provision`. The entrypoint validates the complete reference map and explicit managed-identity client ID before fetching anything. It retrieves values directly from Key Vault with that identity, applies them to the workload's in-memory environment only after all reads succeed, then imports the selected workload. Startup secret retrieval has one 30-second deadline, with a bounded exponential retry for transient authorization, throttling, and service errors under the same identity; it stops on cancellation or failure before API/worker startup, database provisioning, or migrations. Secret-retrieval errors do not print token, URL, response-body, or secret contents. Registry pulling still uses Azure's normal managed-identity registry configuration; this does not bypass image-pull, DNS, or access failures.
 
 Setup can receive only its migration `DATABASE_URL`; provisioning requires exactly its three versioned administrator/password references. Runtime requires its runtime `DATABASE_URL` and may receive validated additional references. References cannot overwrite already-defined environment values or deployment-owned configuration, including the identity and reference-map fields. Existing secret-scoped grants remain unchanged; no vault-wide access is added. Versioned URLs are recommended for deliberate rotation. An unversioned runtime/setup URL selects the latest value only at startup, not through Container Apps' background secret refresh. Restart through a reviewed serialized release to pick up a new version.
@@ -518,6 +520,7 @@ terraform init -backend=false -input=false -lockfile=readonly
 terraform fmt -check -recursive
 terraform validate
 terraform test
+node --test tests/diagnostics.test.mjs
 node --test deploy-hub/index.test.ts stop-hub/index.test.ts ../installer/command/describe/index.test.ts
 ```
 

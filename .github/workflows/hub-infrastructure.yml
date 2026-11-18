@@ -33,6 +33,12 @@ jobs:
           terraform_wrapper: false
       - run: terraform init -backend=false -input=false -lockfile=readonly
       - run: terraform ${{ matrix.command }}
+      - if: matrix.module == '.' && matrix.command == 'test'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - if: matrix.module == '.' && matrix.command == 'test'
+        run: node --test tests/diagnostics.test.mjs
 
   release:
     name: Release orchestration tests
