@@ -6,7 +6,7 @@ export interface ShareLinkDisplayData {
   createdLabel?: string
   expiresAt: string | null
   expiresLabel: string
-  id: number
+  id: number | string
   label: string
   url: string
 }

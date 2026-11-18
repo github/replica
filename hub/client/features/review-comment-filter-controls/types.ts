@@ -9,6 +9,7 @@ export interface ReviewCommentFilterControlsProps {
   filters: ReviewCommentFilters
   participants: ReviewCommentAuthor[]
   showPins: boolean
+  supportsReadState?: boolean
   copy: ReviewCommentsCopy
   onFiltersChange: (filters: ReviewCommentFilters) => void
   onShowPinsChange: (showPins: boolean) => void

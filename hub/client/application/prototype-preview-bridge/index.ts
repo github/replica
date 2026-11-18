@@ -862,8 +862,7 @@ function receiveCanvasMessage(event: MessageEvent<unknown>) {
 const installed = Symbol.for("replica.canvas.bridge.v1")
 const bridgeWindow = window as Window & { [installed]?: boolean | (() => void) }
 
-export function installBridge(origin: string) {
-  if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) throw new Error("Invalid Replica canvas parent.")
+function install(origin: string) {
   const previous = bridgeWindow[installed]
   if (previous === true)
     throw new Error("Remove the old source bridge before using the extension-owned bridge.")
@@ -967,4 +966,25 @@ export function installBridge(origin: string) {
     selectedOverlay = null
     selectedOverlayTarget = null
   }
+}
+
+export function installBridge(origin: string, environment: "canvas" | "hosted" = "canvas") {
+  if (environment === "canvas") {
+    if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) {
+      throw new Error("Invalid Replica canvas parent.")
+    }
+  } else {
+    const parsed = URL.parse(origin)
+    if (
+      !parsed ||
+      parsed.origin !== origin ||
+      parsed.pathname !== "/" ||
+      parsed.search ||
+      parsed.hash ||
+      !["http:", "https:"].includes(parsed.protocol)
+    ) {
+      throw new Error("Invalid Replica Hub parent.")
+    }
+  }
+  install(origin)
 }

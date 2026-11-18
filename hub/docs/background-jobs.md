@@ -65,7 +65,7 @@ Use the functions under `server/integrations/bullmq/`:
 
 `runJobWorker()` owns process signals and consumer lifetime outside the integration. Integration code does not import domains, repositories, or the shared logger; worker composition injects processors and logging.
 
-Payloads must serialize as JSON. Prefer record IDs and necessary revision identifiers over snapshots, credentials, or private text. Load current records and recheck access when execution begins. Do not rely on TypeScript alone: enqueue and execution both validate input.
+Payloads must serialize as JSON. Prefer record IDs and necessary revision identifiers over snapshots, credentials, or private text. Load current records and recheck access when execution begins. Do not rely on TypeScript alone: enqueue and execution both validate input. The on-demand queue registers the development-only local Build synchronization job. Its empty payload causes execution-time discovery from `LOCAL_PROTOTYPE_ROOT`; the processor refuses non-development or non-local database configuration.
 
 Retries default to one attempt. A definition can specify `attempts`, `backoff`, and `priority`; an enqueue can override priority. Choose retries according to the operation, not a universal policy. Retention keeps at most 1,000 successful jobs for up to one day and 5,000 failed jobs for up to seven days. BullMQ applies removal lazily as jobs finish, not as a strict expiry timer. Job records can retain payloads and failure messages, so restrict database access and keep secrets out of thrown errors as well as payloads.
 

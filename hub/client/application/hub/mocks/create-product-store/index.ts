@@ -281,6 +281,7 @@ export function createProductStore(context: MockFlowContext) {
           .map((link) => ({ ...link })),
         enabled: sharingEnabled,
         canManage: session.read().capabilities.manageSharing && resource.prototype.canEdit,
+        expirationOptions: ["one_day", "seven_days"],
       }
     },
 
@@ -299,7 +300,8 @@ export function createProductStore(context: MockFlowContext) {
       if (build.state !== "successful" || !build.previewUrl) {
         throw new MockStoreError(422, "Choose a successful Build with a preview.")
       }
-      const id = Math.max(0, ...links.map((link) => link.id)) + 1
+      const id =
+        Math.max(0, ...links.flatMap((link) => (typeof link.id === "number" ? [link.id] : []))) + 1
       const now = Date.now()
       const link: ProductShareLink = {
         id,
@@ -311,7 +313,13 @@ export function createProductStore(context: MockFlowContext) {
         createdBy: viewer.login,
         createdAt: new Date(now).toISOString(),
         expiresAt: new Date(
-          now + (parsed.data.expiration === "one_day" ? 1 : 7) * millisecondsPerDay,
+          now +
+            {
+              one_day: 1,
+              seven_days: 7,
+              thirty_days: 30,
+            }[parsed.data.expiration] *
+              millisecondsPerDay,
         ).toISOString(),
         revokedAt: null,
       }
@@ -373,8 +381,8 @@ export function createProductStore(context: MockFlowContext) {
     getPublicShare(shareId: string): ProductPublicResponse {
       const link = links.find((entry) => entry.shareId === shareId)
       if (!link) throw new MockStoreError(404, "Shared preview not found.")
-      if (link.revokedAt) return { state: "revoked", label: link.label }
       if (!sharingEnabled) return { state: "disabled", label: link.label }
+      if (link.revokedAt) return { state: "revoked", label: link.label }
       if (Date.parse(link.expiresAt) <= Date.now()) return { state: "expired", label: link.label }
       const prototype = resources.prototypes.find(
         (entry) => entry.repositoryId === link.repositoryId && entry.id === link.prototypeId,
@@ -395,6 +403,8 @@ export function createProductStore(context: MockFlowContext) {
         buildNumber: build.number,
         previewUrl: build.previewUrl,
         expiresAt: link.expiresAt,
+        controlsIdentity: `share:${link.shareId}`,
+        controlsOrigin: new URL(build.previewUrl).origin,
       }
     },
   }

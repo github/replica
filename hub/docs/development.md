@@ -1,6 +1,6 @@
 # Hub development
 
-Use the Hub devcontainer for Node.js and its pinned PostgreSQL version, or run Node.js locally with PostgreSQL 17 or newer. Hub can expose GitHub, Microsoft Entra, or both sign-in choices and reusable administrator enrollment when the shared settings and at least one provider profile are configured. See [Deployment](deployment.md) for the production runtime.
+Use the Hub devcontainer for API, frontend, database, and worker development, or run Node.js locally with PostgreSQL 17 or newer. Local Build execution requires a Linux host with Docker because the runner starts a nested, constrained Build container; the devcontainer does not expose a Docker daemon. Hub can expose GitHub, Microsoft Entra, or both sign-in choices and reusable administrator enrollment when the shared settings and at least one provider profile are configured. See [Deployment](deployment.md) for the production runtime.
 
 ## Frontend without a backend
 
@@ -38,7 +38,7 @@ Run these commands from `hub/`, inside the devcontainer or with local Node.js. F
 
 | Command | Sign-in | Use it when |
 | --- | --- | --- |
-| `npm run dev:api` | One fixed local developer who is a Hub administrator | You want to try or test Hub without setting up a sign-in provider. This is the default. |
+| `npm run dev:api` | One fixed local developer who is a Hub administrator | You want local repositories and no sign-in provider. This is the default. |
 | `npm run dev:api:live` | GitHub or Entra, as configured in `.env` | You are testing provider sign-in, administrator enrollment through a provider, or real user identities. |
 
 For example, to start with local sign-in:
@@ -53,9 +53,21 @@ In a second terminal, also from `hub/`, start Vite:
 npm run dev
 ```
 
-Open <http://127.0.0.1:5173>. React Router's Vite development server forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` and `GET /api/ready` return JSON. The [authentication and Hub session guide](authentication.md) describes configured sign-in and enrollment. A signed-in member opens the first available repository, or an empty workspace when none exist. The real index supports search, user filtering, pagination, and latest Build status. Members can browse Build history and edit a visible prototype's name, description, and start page; saving a draft registers it. Hosted previews and live review remain unavailable.
+Open <http://localhost:5173>. React Router's Vite development server forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` and `GET /api/ready` return JSON. The [authentication and Hub session guide](authentication.md) describes configured sign-in and enrollment. A signed-in member opens the first available repository, or an empty workspace when none exist. The real index supports search, user filtering, pagination, and latest Build status. Members can browse Build history, select a successful Build with `?build=N`, open its isolated preview, edit visible prototype metadata, use persisted review conversations, and manage [Build-pinned local share links](share-links.md).
 
-With `npm run dev:api`, the home page shows **Sign in as local developer**. Selecting it signs you in as one fixed local developer who is a Hub administrator. No password or outside account is involved. The API refuses to start in this mode unless `NODE_ENV` is `development` and `DATABASE_URL` points at a local development database. It also requires `HOST` to be `127.0.0.1`, `::1`, or `localhost` and `HUB_APPLICATION_ORIGIN` to be a loopback origin. It refuses GitHub or Entra sign-in and repository connection settings, but an explicitly configured Copilot GitHub App can still be used. Unset origin, encryption key, and bootstrap secret values get local defaults. See [Local developer sign-in](authentication.md#local-developer-sign-in) for how this mode reuses the normal sign-in checks. The command defaults `NODE_ENV` to `development` and enables local sign-in for you.
+With `npm run dev:api`, the home page shows **Sign in as local developer**. Selecting it signs you in as one fixed local developer who is a Hub administrator. No password or outside account is involved. The command explicitly enables `HUB_LOCAL_MODE` and local sign-in and defaults `NODE_ENV` to `development`. The API refuses local mode unless the runtime role is API-only and `DATABASE_URL` points at a local development database. It also requires `HOST` to be `127.0.0.1`, `::1`, or `localhost` and `HUB_APPLICATION_ORIGIN` to be a loopback origin. It refuses GitHub or Entra sign-in and repository connection settings, but an explicitly configured Copilot GitHub App can still be used. Unset origin, encryption key, and bootstrap secret values get local defaults. See [Local developer sign-in](authentication.md#local-developer-sign-in) for how this mode reuses the normal sign-in checks.
+
+Local-mode startup prepares the absolute `LOCAL_PROTOTYPE_ROOT`, defaulting to the ignored `hub/.local/prototypes/` directory. The root is separate from `hub/storage/`, which remains available for production-shaped database, artifact, and learning data. Production, combined, scheduled-worker, and setup runtimes reject local mode rather than changing their startup requirements. The development API, local commands, and local on-demand worker use this root, the optional `LOCAL_REPLICA_BUILD_ACTION_ROOT`, and the optional `LOCAL_BUILD_TEMPORARY_ROOT` through one configuration contract.
+
+When the prototype root is empty, the first start creates `minimal/` from the canonical [Replica Starter](../../starter/), installs its locked dependencies, commits `main`, and creates the committed `prototype/example` branch with a scaffolded example route. The commits use fixed example authorship and timestamps so the same starter revision produces the same repository history. Preparation also installs the shared [Build action](../../actions/build/) runtime dependencies from its lockfile and its pinned Chromium browser. It skips the npm install when the required dependencies are already present; Playwright's browser installation is idempotent.
+
+Later starts always prepare the shared Build action dependencies, but they do not add, replace, switch, or commit anything in a nonempty prototype root. This includes the seeded repository after a developer edits it. To prepare without keeping the API running, use:
+
+```sh
+npm run local:prepare
+```
+
+To add another local repository, create a Git repository as an immediate child of the configured root and give its default branch at least one commit. Keep unrelated repositories and production data outside this directory.
 
 Remove GitHub or Entra sign-in and repository connection settings from `.env` before switching to local mode; otherwise, use `npm run dev:api:live`. Starting local mode on a database with enabled providers disables those providers. To switch back to live mode on that database, increase the revision of each provider you re-enable by exactly one above its last stored revision. For example, if the last GitHub revision was `1`, set `GITHUB_PROVIDER_REVISION=2`.
 
@@ -85,8 +97,37 @@ When you sign in through GitHub or Entra instead, find your `userId` in the brow
 NODE_ENV=development npm run db:seed:index -- USER_UUID
 ```
 
-The command requires an active Hub member and a local development database. It accepts a loopback PostgreSQL URL or the exact devcontainer database URL, and rejects query parameters that override the host, address, port, or service. It creates a sample repository and six prototypes with fixed IDs. Five show each Build state, and one has no Build. Their commit and author values are synthetic. Running it again restores those samples, including metadata added after an upgrade. A GitHub member sees only connected repositories granted at sign-in; use an administrator, Entra, or local developer session to view the seeded repository.
+The command requires an active Hub member and a local development database. It accepts a loopback PostgreSQL URL or the exact devcontainer database URL, and rejects query parameters that override the host, address, port, or service. It creates a sample repository and six prototypes with fixed IDs. Five show each Build state, and one has no Build. Their commit and author values are synthetic. When artifact storage is configured, the seed also writes its sample preview files; without storage it remains database-only and omits those artifact records. Running it again restores those samples, including metadata added after an upgrade. A GitHub member sees only connected repositories granted at sign-in; use an administrator, Entra, or local developer session to view the seeded repository. The local repository flow below is limited to one development machine and one local identity.
 
+## Build local prototype repositories
+
+Local Build discovery is a development-only replacement for the old Rails local mode. It needs no GitHub App, remote repository, workflow, or GitHub authorization. Sign in once as the fixed local developer and configure filesystem artifact storage:
+
+```sh
+ARTIFACT_STORAGE_PROVIDER=filesystem
+ARTIFACT_STORAGE_DIRECTORY=/absolute/service-owned/artifacts
+```
+
+The filesystem provider requires the Linux protections described in [Artifact storage](artifact-storage.md). Run local Builds on a Linux host where Docker is available to the Hub process and the configured temporary Build root is visible to that Docker daemon. The standard devcontainer remains suitable for the API, frontend, database, and workers, but it does not expose a Docker daemon for nested Build execution. `npm run dev:api` and every `local:*` command run the same safe preparation first. Run one scan and Build synchronization directly:
+
+```sh
+npm run local:builds
+```
+
+Alternatively, after `npm run setup`, enqueue the same scan and run the local on-demand worker:
+
+```sh
+npm run local:builds:enqueue
+npm run local:worker
+```
+
+Each scan considers committed heads for the default branch and every other local branch. Hub creates one stable local repository and branch prototype, records the observed head, and creates at most one Build for that exact commit. An unchanged successful or failed head is not rebuilt. A queued or interrupted running Build may resume. Discovery and Build failures are isolated so another repository can still finish.
+
+The runner uses an isolated detached Git worktree for the exact commit, so working-tree changes and untracked files do not enter the Build. Successful packages store validated `dist` files, screenshots, and the optional template manifest as immutable artifact bytes. Hub records failed state and a bounded error summary when validation, the prototype build, screenshots, packaging, storage, or persistence fails.
+
+Successful local Builds are immediately available to the authenticated [preview layer](build-previews.md) through their saved `BuildArtifact` records. The preview and screenshot URLs use the same artifact paths and storage keys written by synchronization; no import or second artifact representation is required. The injected preview bridge supplies element and area anchors to the parent Hub page. The fixed local identity can list and change persisted conversations for those configured repositories while each thread remains pinned to the successful Build where it began. After a local administrator enables deployment sharing, the same saved preview can receive an opaque public link through the [local sharing contract](share-links.md).
+
+Reviews and share links do not modify or duplicate Build artifacts. Public links do not expose review or repository data. This local flow does not add GitHub collaborator lookup, mentions, inbox notifications, reactions, Canvas pairing, hosted repository discovery, workflow installation, or GitHub authorization.
 Vite also forwards WebSocket upgrades under `/api`. The `/api/realtime` endpoint rejects connections until application access checks are connected; see [WebSocket updates](websockets.md). Stopping the API closes its WebSocket connections as well.
 
 The API reads an optional `PORT` environment variable, defaulting to 3001. If you change it, update the local Vite proxy target to match. The editor forwards ports 3001, 5173, and 6006 from the devcontainer. API startup reads `.env` when present; Compose's environment takes precedence.

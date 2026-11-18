@@ -1,0 +1,5 @@
+enum BuildArtifactKind {
+  dist
+  screenshot
+  manifest
+}

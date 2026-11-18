@@ -13,6 +13,10 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed:index": "node server/scripts/seed-prototype-index/index.ts",
+    "local:prepare": "node server/scripts/prepare-local-development/index.ts",
+    "local:builds": "node server/scripts/run-local-builds/index.ts",
+    "local:builds:enqueue": "node server/scripts/enqueue-local-builds/index.ts",
+    "local:worker": "node server/scripts/start-local-worker/index.ts",
     "db:studio": "prisma studio",
     "jobs:setup": "node server/scripts/setup-jobs/index.ts",
     "setup": "node server/scripts/setup/index.ts",
@@ -75,6 +79,7 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-router": "8.5.0",
+    "tldts": "7.4.12",
     "ws": "8.22.0",
     "zod": "4.6.5"
   },

@@ -47,7 +47,7 @@ export function presentReviewThreadComments(thread: ReviewThread, viewerId: stri
         occurredAt: event.occurredAt,
       })),
       activityVersion: thread.activityVersion,
-      viewerLastSeenActivityVersion: null,
+      viewerLastSeenActivityVersion: thread.activityVersion,
     },
     ...thread.replies.map((reply) => ({
       ...presentMessage(reply, viewerId),

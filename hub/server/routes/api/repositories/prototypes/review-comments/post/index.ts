@@ -2,10 +2,11 @@ import type { RequestHandler } from "express"
 import { z } from "zod"
 
 import type { CurrentSessionDependencies } from "../../../../auth/types.ts"
-import type { ProductRouteDependencies } from "../../../../product/types.ts"
+import type { ReviewRouteDependencies } from "../../../../product/types.ts"
 import { readReviewIdentifiers } from "../../../../review-comments/read-review-identifiers/index.ts"
 import { readReviewSession } from "../../../../review-comments/read-review-session/index.ts"
 import { presentReviewThreadComments } from "../../../../review-comments/present-review-thread-comments/index.ts"
+import { requireReviewAccess } from "../../../../review-comments/require-review-access/index.ts"
 import { respondReviewError } from "../../../../review-comments/respond-review-error/index.ts"
 
 const bodySchema = z
@@ -22,7 +23,7 @@ const bodySchema = z
 
 export function post(
   session: CurrentSessionDependencies,
-  reviewComments: NonNullable<ProductRouteDependencies["reviewComments"]>,
+  review: ReviewRouteDependencies,
 ): RequestHandler {
   return async (request, response, next) => {
     try {
@@ -37,7 +38,12 @@ export function post(
         response.status(400).json({ error: "The review comment request is invalid." })
         return
       }
-      const thread = await reviewComments.createThread({
+      if (
+        !(await requireReviewAccess(response, review, identifiers.repositoryId, current, "change"))
+      ) {
+        return
+      }
+      const thread = await review.reviewComments.createThread({
         sessionDigest: current.sessionDigest,
         repositoryId: identifiers.repositoryId,
         prototypeId: identifiers.prototypeId,

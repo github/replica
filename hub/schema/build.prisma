@@ -4,9 +4,12 @@ model Build {
   prototypeId String @map("prototype_id") @db.Uuid
 
   // Relations
-  prototype  Prototype   @relation("PrototypeBuilds", fields: [prototypeId], references: [id], onDelete: Restrict)
-  currentFor Prototype[] @relation("CurrentPrototypeBuild")
-  reviewThreads ReviewThread[]
+  prototype              Prototype               @relation("PrototypeBuilds", fields: [prototypeId], references: [id], onDelete: Restrict)
+  currentFor             Prototype[]             @relation("CurrentPrototypeBuild")
+  artifacts              BuildArtifact[]
+  branchHeadObservations BranchHeadObservation[]
+  reviewThreads          ReviewThread[]
+  shareLinks             ShareLink[]
 
   // Attribute columns
   number               Int
@@ -22,6 +25,8 @@ model Build {
   startedAt            DateTime?  @map("started_at") @db.Timestamptz(3)
   finishedAt           DateTime?  @map("finished_at") @db.Timestamptz(3)
   failureSummary       String?    @map("failure_summary") @db.VarChar(1000)
+  localLeaseId         String?    @map("local_lease_id") @db.Uuid
+  localLeaseExpiresAt  DateTime?  @map("local_lease_expires_at") @db.Timestamptz(3)
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

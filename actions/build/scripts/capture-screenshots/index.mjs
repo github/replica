@@ -1,4 +1,5 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { createServer, request } from "node:http"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -11,6 +12,36 @@ import { listenOnLoopback } from "../listen-on-loopback/index.mjs"
 import { readTemplates } from "../read-templates/index.mjs"
 import { requiredPathArgument } from "../required-path-argument/index.mjs"
 import { validateBuildOutput } from "../validate-build-output/index.mjs"
+
+async function createCaptureProxy(allowedOrigin) {
+  const proxy = createServer((incoming, response) => {
+    let target
+    try {
+      target = new URL(incoming.url)
+    } catch {
+      response.writeHead(400).end()
+      return
+    }
+    if (target.origin !== allowedOrigin) {
+      response.writeHead(403).end()
+      return
+    }
+    const outgoing = request(target, {
+      method: incoming.method,
+      headers: { ...incoming.headers, host: target.host },
+    })
+    outgoing.on("response", (upstream) => {
+      response.writeHead(upstream.statusCode ?? 502, upstream.headers)
+      upstream.pipe(response)
+    })
+    outgoing.on("error", () => response.writeHead(502).end())
+    incoming.pipe(outgoing)
+  })
+  proxy.on("connect", (_request, socket) => socket.destroy())
+  proxy.on("upgrade", (_request, socket) => socket.destroy())
+  const port = await listenOnLoopback(proxy)
+  return { proxy, address: `http://127.0.0.1:${port}` }
+}
 
 /** Captures the root and declared templates in both color schemes at each width. */
 export async function captureScreenshots(root, screenshots, configRoot = root) {
@@ -28,13 +59,16 @@ export async function captureScreenshots(root, screenshots, configRoot = root) {
     manifest?.templates.map((template) => template.path),
   )
   const port = await listenOnLoopback(server)
+  const allowedOrigin = `http://127.0.0.1:${port}`
+  const captureProxy = await createCaptureProxy(allowedOrigin)
   let browser
 
   try {
     browser = await chromium.launch({
       executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
+      proxy: { server: captureProxy.address },
+      args: ["--proxy-bypass-list=<-loopback>"],
     })
-    const allowedOrigin = `http://127.0.0.1:${port}`
     const adapterUrl = `${allowedOrigin}/__replica/capture-controls.js`
 
     const destinations = [
@@ -50,7 +84,15 @@ export async function captureScreenshots(root, screenshots, configRoot = root) {
       for (const viewport of VIEWPORTS) {
         for (const colorScheme of ["light", "dark"]) {
           const context = await browser.newContext({ viewport, colorScheme })
+          await context.routeWebSocket(/.*/, (socket) => socket.close())
           const page = await context.newPage()
+          await page.addInitScript(() => {
+            globalThis.WebSocket = class {
+              constructor() {
+                throw new Error("WebSocket connections are disabled during screenshot capture.")
+              }
+            }
+          })
           await context.route("**/*", async (route) => {
             const requestUrl = new URL(route.request().url())
 
@@ -116,6 +158,7 @@ export async function captureScreenshots(root, screenshots, configRoot = root) {
     }
   } finally {
     await browser?.close()
+    await closeServer(captureProxy.proxy)
     await closeServer(server)
   }
 }

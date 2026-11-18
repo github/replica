@@ -6,10 +6,12 @@ import type { CurrentSessionDependencies } from "../../auth/types.ts"
 import { readProductSession } from "../../product/read-product-session/index.ts"
 import { readProductWithCurrentAuthority } from "../../product/read-product-with-current-authority/index.ts"
 import type { ProductRouteDependencies } from "../../product/types.ts"
+import { authorizeRepositoryReview } from "../../../../domains/review-comments/authorize-repository-review/index.ts"
 
 export function get(
   session: CurrentSessionDependencies,
   product: ProductRouteDependencies,
+  manageSharing = false,
 ): RequestHandler {
   return async (request, response, next) => {
     try {
@@ -27,6 +29,13 @@ export function get(
         return
       }
       const { current, result: repositories } = read
+      const presentedRepositories = repositories.map(({ localPath, ...repository }) => ({
+        ...repository,
+        capabilities: {
+          reviewPrototypes: authorizeRepositoryReview(current, { localPath }).canView,
+          manageSharing: current.provider === "local" && Boolean(localPath) && manageSharing,
+        },
+      }))
       response.json({
         viewer: {
           id: current.userId,
@@ -35,7 +44,7 @@ export function get(
           provider: current.provider,
           avatarUrl: null,
         },
-        repositories,
+        repositories: presentedRepositories,
         capabilities: {
           createPrototypes: false,
           reviewPrototypes: false,

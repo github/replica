@@ -10,9 +10,9 @@ import type { ProductRouteDependencies, ProductViewer } from "../../../../produc
 import { get } from "."
 
 type ProductMocks = {
-  [Key in Exclude<keyof ProductRouteDependencies, "reviewComments">]: Mock<
-    ProductRouteDependencies[Key]
-  >
+  [
+    Key in Exclude<keyof ProductRouteDependencies, "authorizeReviewAccess" | "reviewComments">
+  ]: Mock<ProductRouteDependencies[Key]>
 }
 
 function productWithHistory(repositoryId: string, prototypeId: string): ProductMocks {
@@ -23,6 +23,7 @@ function productWithHistory(repositoryId: string, prototypeId: string): ProductM
     findRepositoryAuthors: vi.fn(),
     editPrototypeMetadata: vi.fn(),
     readPrototypeWithIntroduction: vi.fn(),
+    findBuildPreviewTarget: vi.fn(),
     findPrototypeDetail: vi.fn().mockResolvedValue({
       repository: { id: repositoryId },
       prototype: {

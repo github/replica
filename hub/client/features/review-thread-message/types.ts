@@ -25,8 +25,8 @@ export interface ReviewThreadMessageProps {
   onRequestDelete: () => void
   onCancelDelete: () => void
   onDelete: () => void
-  onAddReaction: (content: ReviewReactionContent) => Promise<boolean>
-  onRemoveReaction: (content: ReviewReactionContent) => Promise<boolean>
+  onAddReaction?: (content: ReviewReactionContent) => Promise<boolean>
+  onRemoveReaction?: (content: ReviewReactionContent) => Promise<boolean>
   onBurstReaction: (emoji: string, x: number, y: number) => void
   onMarkUnread?: () => void
   markUnreadDisabled?: boolean

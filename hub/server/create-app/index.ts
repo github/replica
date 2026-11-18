@@ -20,7 +20,9 @@ export function createApp({
   isReady,
   learnings,
   logger,
+  preview,
   product,
+  publicSharing,
   trustedProxyHops = 0,
 }: CreateAppOptions = {}) {
   const app = express()
@@ -36,12 +38,15 @@ export function createApp({
       "/api/security-audits",
       "/api/workspace",
       "/api/repositories",
+      "/api/shared",
+      "/__replica/authorize",
+      "/__replica/share/authorize",
       "/api/settings",
     ],
     authenticationSecurity(),
   )
   app.use(
-    /^(?!\/api\/copilot-connection(?:\/|$))(?!\/api\/repositories\/[^/]+\/learnings(?:\/|$))(?!\/api\/(?:auth|administrators\/authorizations|session-revocation\/authorizations|github\/webhooks)(?:\/|$))(?!\/api\/repositories\/[^/]+\/prototypes\/[^/]+(?:\/review-comments(?:\/|$)|\/?$)).*/i,
+    /^(?!\/api\/copilot-connection(?:\/|$))(?!\/api\/product\/sharing-settings(?:\/|$))(?!\/api\/repositories\/[^/]+\/learnings(?:\/|$))(?!\/api\/(?:auth|administrators\/authorizations|session-revocation\/authorizations|github\/webhooks)(?:\/|$))(?!\/api\/repositories\/[^/]+\/prototypes\/[^/]+(?:\/review-comments(?:\/|$)|\/share-links(?:\/|$)|\/?$)).*/i,
     express.json(),
   )
 
@@ -54,7 +59,9 @@ export function createApp({
     isReady,
     learnings,
     logger,
+    preview,
     product,
+    publicSharing,
   })
   app.use("/api", respondNotFound)
   if (clientDirectory) {

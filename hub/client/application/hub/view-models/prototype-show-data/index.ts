@@ -24,10 +24,16 @@ export function prototypeShowData(
     surface: "preview",
     real: options.real,
   })
+  const repositoryCapabilities = workspace.repositories.find(
+    ({ id }) => id === data.repository.id,
+  )?.capabilities
 
   return {
     ...workspaceData,
-    shareLinksPath: options.real ? undefined : workspaceData.shareLinksPath,
+    shareLinksPath:
+      options.real && !repositoryCapabilities?.manageSharing
+        ? undefined
+        : workspaceData.shareLinksPath,
     buildPinned: search.has("build"),
     controlsIdentity: data.controlsIdentity,
     prototypeName: data.prototype.name,
@@ -82,6 +88,8 @@ export function prototypeShowData(
     reviewComments: {
       bodyMaximumBytes: 10_000,
       copy: reviewCommentsCopy,
+      supportsReactions: !options.real,
+      supportsReadState: !options.real,
     },
     latestBuild: selectedBuild && !previewBuild ? undefined : workspaceData.latestBuild,
     buildSelectionLabel:

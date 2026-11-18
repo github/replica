@@ -7,7 +7,7 @@ export async function listRepositories(
 ) {
   return database.repository.findMany({
     where: visibleRepositoryWhere(scope),
-    select: { id: true, nameWithOwner: true, defaultBranch: true },
+    select: { id: true, nameWithOwner: true, defaultBranch: true, localPath: true },
     orderBy: [{ nameWithOwner: "asc" }, { id: "asc" }],
   })
 }

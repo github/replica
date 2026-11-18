@@ -25,6 +25,17 @@ import { delete_ as handleReviewCommentDelete } from "./api/repositories/prototy
 import { post as handleReviewCommentReplyPost } from "./api/repositories/prototypes/review-comments/replies/post/index.ts"
 import { post as handleReviewThreadResolutionPost } from "./api/repositories/prototypes/review-comments/resolution/post/index.ts"
 import { delete_ as handleReviewThreadResolutionDelete } from "./api/repositories/prototypes/review-comments/resolution/delete/index.ts"
+import { get as handleBuildPreviewAccessGet } from "./api/repositories/prototypes/builds/access/get/index.ts"
+import { get as handleBuildPreviewAuthorizeGet } from "./build-preview/authorize/get/index.ts"
+import { get as handleBuildPreviewServeGet } from "./build-preview/serve/get/index.ts"
+import { get as handleSharePreviewAuthorizeGet } from "./build-preview/share-authorize/get/index.ts"
+import { get as handleSharingSettingsGet } from "./api/public-sharing/settings/get/index.ts"
+import { patch as handleSharingSettingsPatch } from "./api/public-sharing/settings/patch/index.ts"
+import { get as handleShareLinksGet } from "./api/public-sharing/links/get/index.ts"
+import { post as handleShareLinksPost } from "./api/public-sharing/links/post/index.ts"
+import { del as handleShareLinksDelete } from "./api/public-sharing/links/delete/index.ts"
+import { get as handlePublicShareGet } from "./api/public-sharing/public/get/index.ts"
+import { get as handlePublicSharePreviewGet } from "./api/public-sharing/public-preview/get/index.ts"
 import { get as handleAdministratorsGet } from "./api/administrators/get/index.ts"
 import { get as handleAdministratorCandidatesGet } from "./api/administrators/candidates/get/index.ts"
 import { post as handleAdministratorAuthorizationStartPost } from "./api/administrators/authorizations/start/post/index.ts"
@@ -60,8 +71,17 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
     isReady,
     learnings,
     logger,
+    preview,
     product,
+    publicSharing,
   } = dependencies
+  if (preview) {
+    app.get("/__replica/authorize", handleBuildPreviewAuthorizeGet(preview))
+    if (publicSharing) {
+      app.get("/__replica/share/authorize", handleSharePreviewAuthorizeGet(preview, publicSharing))
+    }
+    app.get("/{*path}", handleBuildPreviewServeGet(preview))
+  }
   app.get("/api/health", handleApiHealthGet)
   app.get("/api/ready", (request, response) =>
     handleApiReadyGet(request, response, { isReady, logger }),
@@ -83,7 +103,10 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
   }
   if (authentication) {
     if (product) {
-      app.get("/api/workspace", handleWorkspaceGet(authentication.currentSession, product))
+      app.get(
+        "/api/workspace",
+        handleWorkspaceGet(authentication.currentSession, product, Boolean(publicSharing)),
+      )
       app.get(
         "/api/repositories/:repositoryId",
         handleRepositoryGet(authentication.currentSession, product),
@@ -100,55 +123,91 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
         "/api/repositories/:repositoryId/prototypes/:prototypeId/builds",
         handleBuildHistoryGet(authentication.currentSession, product),
       )
+      if (preview) {
+        app.get(
+          "/api/repositories/:repositoryId/prototypes/:prototypeId/builds/:buildNumber/access",
+          handleBuildPreviewAccessGet(authentication.currentSession, product, preview),
+        )
+      }
       app.patch(
         "/api/repositories/:repositoryId/prototypes/:prototypeId",
         requireOrigin(authentication.signOut.applicationOrigin),
         express.json({ limit: "32kb", strict: true }),
         handlePrototypePatch(authentication.currentSession, product),
       )
-      if (product.reviewComments) {
+      if (product.reviewComments && product.authorizeReviewAccess) {
+        const authorizeReviewAccess = product.authorizeReviewAccess.bind(product)
+        const review = {
+          reviewComments: product.reviewComments,
+          authorizeReviewAccess,
+        }
         const reviewCommentsPath =
           "/api/repositories/:repositoryId/prototypes/:prototypeId/review-comments"
         app.get(
           reviewCommentsPath,
-          handleReviewCommentsGet(
-            authentication.currentSession,
-            product.reviewComments,
-            (viewer, repositoryId) => product.isRepositoryVisible(viewer, repositoryId),
+          handleReviewCommentsGet(authentication.currentSession, review, (viewer, repositoryId) =>
+            product.isRepositoryVisible(viewer, repositoryId),
           ),
         )
         app.post(
           reviewCommentsPath,
           requireOrigin(authentication.signOut.applicationOrigin),
           express.json({ limit: "32kb", strict: true }),
-          handleReviewCommentsPost(authentication.currentSession, product.reviewComments),
+          handleReviewCommentsPost(authentication.currentSession, review),
         )
         app.patch(
           `${reviewCommentsPath}/:commentId`,
           requireOrigin(authentication.signOut.applicationOrigin),
           express.json({ limit: "32kb", strict: true }),
-          handleReviewCommentPatch(authentication.currentSession, product.reviewComments),
+          handleReviewCommentPatch(authentication.currentSession, review),
         )
         app.delete(
           `${reviewCommentsPath}/:commentId`,
           requireOrigin(authentication.signOut.applicationOrigin),
-          handleReviewCommentDelete(authentication.currentSession, product.reviewComments),
+          handleReviewCommentDelete(authentication.currentSession, review),
         )
         app.post(
           `${reviewCommentsPath}/:threadId/replies`,
           requireOrigin(authentication.signOut.applicationOrigin),
           express.json({ limit: "32kb", strict: true }),
-          handleReviewCommentReplyPost(authentication.currentSession, product.reviewComments),
+          handleReviewCommentReplyPost(authentication.currentSession, review),
         )
         app.post(
           `${reviewCommentsPath}/:threadId/resolution`,
           requireOrigin(authentication.signOut.applicationOrigin),
-          handleReviewThreadResolutionPost(authentication.currentSession, product.reviewComments),
+          handleReviewThreadResolutionPost(authentication.currentSession, review),
         )
         app.delete(
           `${reviewCommentsPath}/:threadId/resolution`,
           requireOrigin(authentication.signOut.applicationOrigin),
-          handleReviewThreadResolutionDelete(authentication.currentSession, product.reviewComments),
+          handleReviewThreadResolutionDelete(authentication.currentSession, review),
+        )
+      }
+      if (publicSharing) {
+        app.get(
+          "/api/product/sharing-settings",
+          handleSharingSettingsGet(authentication.currentSession, publicSharing),
+        )
+        app.patch(
+          "/api/product/sharing-settings",
+          requireOrigin(authentication.signOut.applicationOrigin),
+          express.json({ limit: "4kb", strict: true }),
+          handleSharingSettingsPatch(authentication.currentSession, publicSharing),
+        )
+        app.get(
+          "/api/repositories/:repositoryId/prototypes/:prototypeId/share-links",
+          handleShareLinksGet(authentication.currentSession, product, publicSharing),
+        )
+        app.post(
+          "/api/repositories/:repositoryId/prototypes/:prototypeId/share-links",
+          requireOrigin(authentication.signOut.applicationOrigin),
+          express.json({ limit: "4kb", strict: true }),
+          handleShareLinksPost(authentication.currentSession, publicSharing),
+        )
+        app.delete(
+          "/api/repositories/:repositoryId/prototypes/:prototypeId/share-links/:shareId",
+          requireOrigin(authentication.signOut.applicationOrigin),
+          handleShareLinksDelete(authentication.currentSession, publicSharing),
         )
       }
     }
@@ -296,6 +355,12 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
       requireOrigin(authentication.signOut.applicationOrigin),
       handleSignOutPost(authentication.signOut),
     )
+  }
+  if (publicSharing) {
+    app.get("/api/shared/:shareId", handlePublicShareGet(publicSharing))
+    if (preview) {
+      app.get("/api/shared/:shareId/preview", handlePublicSharePreviewGet(publicSharing, preview))
+    }
   }
   if (copilotConnection) {
     app.get("/api/copilot-connection", handleCopilotConnectionGet(copilotConnection))

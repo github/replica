@@ -30,6 +30,12 @@ export const repositorySchema = z.object({
   id: recordIdentifierSchema,
   nameWithOwner: z.string().min(1),
   defaultBranch: z.string().min(1),
+  capabilities: z
+    .object({
+      reviewPrototypes: z.boolean(),
+      manageSharing: z.boolean(),
+    })
+    .optional(),
 })
 
 export const buildSchema = z.object({
