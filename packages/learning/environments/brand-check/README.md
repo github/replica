@@ -278,7 +278,7 @@ The current single-node runtime preserves its HTTP API, process-isolated trainin
 ### Trust, data, and credential boundaries
 
 - The operator chooses the host. The reference runtime never calls Replica or a cloud service. A later hosted implementation can keep the same job, candidate, promotion, and inference contracts.
-- The operator or hosting layer assigns the tenant and repository scope. A connector must return not found, rather than reveal another scope's records.
+- The operator or hosting layer assigns the tenant and repository scope. A storage connector must return not found, rather than reveal another scope's records. A credential connector must reject another tenant or repository as unauthorized without minting a credential.
 - The taskset contains private screenshots, learning text, and labels. Mount it read-only. A training-consent withdrawal still requires the operator to delete the taskset and every candidate derived from that export.
 - The runtime state contains adapters, evaluation reports, job errors, and the promotion pointer. Back it up or delete it under the customer's retention rules. Candidate files are created read-only and never updated in place.
 - The runtime token authorizes training, promotion, candidate reads, and inference. Keep it in a protected file or secret store and pass it through the environment, not the command line or image.

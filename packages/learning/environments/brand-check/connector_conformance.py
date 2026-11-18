@@ -558,14 +558,16 @@ def _credentials(create_fixture):
         case.assertEqual(credential.audience, "training")
         case.assertGreater(credential.expires_at, time.monotonic())
         case.assertLessEqual(credential.expires_at, context.deadline)
-        other = fixture.connectors.credentials.acquire(
-            "training",
-            _context(fixture.other_tenant_scope, "credential-other"),
-        )
-        case.assertFalse(
-            credential.value == other.value,
-            "Credential values must differ across scopes.",
-        )
+        for label, scope in (
+            ("repository", fixture.other_repository_scope),
+            ("tenant", fixture.other_tenant_scope),
+        ):
+            with case.assertRaises(ConnectorError) as rejected:
+                fixture.connectors.credentials.acquire(
+                    "training",
+                    _context(scope, f"credential-other-{label}"),
+                )
+            case.assertEqual(rejected.exception.category, "unauthorized")
 
     return run
 

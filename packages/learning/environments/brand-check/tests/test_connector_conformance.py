@@ -437,8 +437,20 @@ def _check_credential(
 
 
 class _MemoryCredentials:
+    def __init__(
+        self,
+        scope: RuntimeScope = RuntimeScope("tenant-one", "octo/example"),
+    ):
+        self.scope = scope
+
     def acquire(self, audience, context):
         _check_context(context)
+        if context.scope != self.scope:
+            raise ConnectorError(
+                "credential_scope_unauthorized",
+                "Credentials are unavailable outside this customer scope.",
+                category="unauthorized",
+            )
         expires_at = min(context.deadline, time.monotonic() + 60)
         value = hashlib.sha256(
             (
@@ -490,7 +502,7 @@ class _MemoryBundle:
             candidates=_MemoryCandidates(),
             training={"contract": self.execution},
             inference={"contract": self.execution},
-            credentials=_MemoryCredentials(),
+            credentials=_MemoryCredentials(self.scope),
             observability=self.observability,
         )
 
@@ -691,6 +703,18 @@ class _UnboundedCredentials(_MemoryCredentials):
         )
 
 
+class _CrossScopeCredentials(_MemoryCredentials):
+    def acquire(self, audience, context):
+        _check_context(context)
+        return Credential(
+            f"{context.operation_id}:{audience}",
+            min(context.deadline, time.monotonic() + 60),
+            audience,
+            context.scope,
+            context.operation_id,
+        )
+
+
 class _WrongScopeCredentials(_MemoryCredentials):
     def acquire(self, audience, context):
         credential = super().acquire(audience, context)
@@ -806,6 +830,12 @@ class ConnectorConformanceTest(unittest.TestCase):
         self._assert_suite_rejects(
             lambda: _bundle_with(credentials=_WrongScopeCredentials()),
             "credentials issued for another customer scope",
+        )
+
+    def test_shared_suite_rejects_credential_acquisition_outside_the_bundle_scope(self):
+        self._assert_suite_rejects(
+            lambda: _bundle_with(credentials=_CrossScopeCredentials()),
+            "credential acquisition outside the bundle scope",
         )
 
     def test_shared_suite_rejects_usage_without_operation_attribution(self):
