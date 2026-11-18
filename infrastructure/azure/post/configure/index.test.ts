@@ -1280,6 +1280,101 @@ it("keeps all existing GitHub references and the verified provider revision when
   expect(await otherFiles(test.context.directory)).toEqual([])
 })
 
+it("preserves inputs and secrets when Copilot installation reconfirmation is declined", async () => {
+  const test = await scenario()
+  await configuredGithub(test)
+  Object.assign(test.inputs.runtime_environment_variables!, {
+    REPLICA_COPILOT_AUTHENTICATION: "github-app-installation",
+    REPLICA_COPILOT_GITHUB_INSTALLATION_ID: "789",
+    REPLICA_COPILOT_GITHUB_ORGANIZATION: "sample-team",
+  })
+  const original = structuredClone(test.inputs)
+  vi.mocked(test.ui.text).mockImplementation(async (label, initial) =>
+    label === "GitHub App ID" ? "999" : (initial ?? ""),
+  )
+  vi.mocked(test.ui.confirm).mockResolvedValue(false)
+
+  await expect(
+    configurePostSetup(test.context, "github", test.inputs, test.deployment),
+  ).rejects.toBeInstanceOf(PostSetupExit)
+
+  expect(test.ui.confirm).toHaveBeenCalledOnce()
+  expect(test.ui.confirm).toHaveBeenCalledWith(
+    expect.stringMatching(/Copilot.*installation.*GitHub App 999/i),
+  )
+  expect(test.inputs).toEqual(original)
+  expect(test.uploads).toEqual([])
+})
+
+it.each(["environment", "secret reference"] as const)(
+  "keeps the separate Copilot installation and references after fresh approval with its mode stored through %s",
+  async (source) => {
+    const test = await scenario()
+    await configuredGithub(test)
+    test.inputs.runtime_environment_variables!.REPLICA_COPILOT_GITHUB_ORGANIZATION = "sample-team"
+    test.inputs.runtime_secret_references!.REPLICA_COPILOT_GITHUB_INSTALLATION_ID =
+      test.reference("copilot-installation")
+    test.secrets.set("copilot-installation", "789")
+    if (source === "environment")
+      test.inputs.runtime_environment_variables!.REPLICA_COPILOT_AUTHENTICATION =
+        "github-app-installation"
+    else {
+      test.inputs.runtime_secret_references!.REPLICA_COPILOT_AUTHENTICATION =
+        test.reference("copilot-mode")
+      test.secrets.set("copilot-mode", "github-app-installation")
+    }
+    const original = structuredClone(test.inputs)
+    vi.mocked(test.ui.text).mockImplementation(async (label, initial) =>
+      label === "GitHub App ID" ? "999" : (initial ?? ""),
+    )
+    vi.mocked(test.ui.confirm).mockResolvedValue(true)
+
+    const desired = await configurePostSetup(test.context, "github", test.inputs, test.deployment)
+
+    expect(desired.github_app_id).toBe("999")
+    expect(desired.github_app_installation_id).toBe("456")
+    expect(desired.runtime_environment_variables).toEqual(original.runtime_environment_variables)
+    expect(desired.runtime_secret_references).toEqual(original.runtime_secret_references)
+    vi.mocked(test.ui.confirm).mockResolvedValue(false)
+
+    await expect(
+      configurePostSetup(test.context, "github", test.inputs, test.deployment),
+    ).rejects.toBeInstanceOf(PostSetupExit)
+    expect(test.ui.confirm).toHaveBeenCalledTimes(2)
+    expect(test.inputs).toEqual(original)
+    expect(test.uploads).toEqual([])
+  },
+)
+
+it.each([
+  { appId: "123", mode: "github-app-installation" },
+  { appId: "999", mode: "environment-token" },
+  { appId: "999", mode: "ambient-cli" },
+])("preserves Copilot mode $mode without reconfirmation for App $appId", async ({ appId, mode }) => {
+  const test = await scenario()
+  await configuredGithub(test)
+  test.inputs.runtime_environment_variables!.REPLICA_COPILOT_AUTHENTICATION = mode
+  if (mode === "github-app-installation") {
+    Object.assign(test.inputs.runtime_environment_variables!, {
+      REPLICA_COPILOT_GITHUB_INSTALLATION_ID: "789",
+      REPLICA_COPILOT_GITHUB_ORGANIZATION: "sample-team",
+    })
+  } else if (mode === "environment-token")
+    test.inputs.runtime_secret_references!.REPLICA_COPILOT_TOKEN = test.reference("copilot-token")
+  const original = structuredClone(test.inputs)
+  vi.mocked(test.ui.text).mockImplementation(async (label, initial) =>
+    label === "GitHub App ID" ? appId : (initial ?? ""),
+  )
+
+  const desired = await configurePostSetup(test.context, "github", test.inputs, test.deployment)
+
+  expect(test.ui.confirm).not.toHaveBeenCalled()
+  expect(desired.runtime_environment_variables).toEqual(original.runtime_environment_variables)
+  expect(desired.runtime_secret_references).toEqual(original.runtime_secret_references)
+  expect(test.inputs).toEqual(original)
+  expect(test.uploads).toEqual([])
+})
+
 it("pins the exact version read for a kept unversioned GitHub credential", async () => {
   const test = await scenario()
   await configuredGithub(test)

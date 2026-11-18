@@ -569,6 +569,30 @@ export async function configurePostSetup(
     String(inputs.github_app_id ?? inputs.runtime_environment_variables?.GITHUB_APP_ID ?? ""),
     numeric,
   )
+  const appChanged =
+    next.github_app_id !== deployment.environment.GITHUB_APP_ID ||
+    next.github_app_id !==
+      String(
+        inputs.github_app_id ??
+          inputs.runtime_environment_variables?.GITHUB_APP_ID ??
+          deployment.environment.GITHUB_APP_ID ??
+          "",
+      )
+  if (appChanged) {
+    const copilotMode = references.REPLICA_COPILOT_AUTHENTICATION
+      ? (await readExisting(references.REPLICA_COPILOT_AUTHENTICATION)).value
+      : (inputs.runtime_environment_variables?.REPLICA_COPILOT_AUTHENTICATION ??
+        deployment.environment.REPLICA_COPILOT_AUTHENTICATION)
+    if (
+      copilotMode?.trim() === "github-app-installation" &&
+      !(await ui.confirm(
+        `Copilot shares this GitHub App ID and key, but uses its own organization installation ID. Have you independently verified that the configured Copilot installation ID belongs to GitHub App ${next.github_app_id} and the configured Copilot organization? It need not match the repository installation ID.`,
+      ))
+    )
+      throw new PostSetupExit(
+        "Copilot installation was not reconfirmed. Review REPLICA_COPILOT_GITHUB_INSTALLATION_ID and REPLICA_COPILOT_GITHUB_ORGANIZATION for the replacement App before retrying. Desired inputs and secret versions were preserved.",
+      )
+  }
   next.github_client_id = await field(
     "github_client_id",
     "GitHub App client ID",
