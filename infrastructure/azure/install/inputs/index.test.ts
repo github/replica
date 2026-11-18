@@ -42,9 +42,15 @@ describe("readInstallationInputs()", () => {
       JSON.stringify({ ...inputs, runtime_environment_variables: { [name]: "synthetic-value" } }),
     )
 
-    await expect(readInstallationInputs("synthetic-installation", config)).rejects.toThrow(
+    const failure = await readInstallationInputs("synthetic-installation", config).catch(
+      (error: unknown) => error,
+    )
+
+    expect(failure).toBeInstanceOf(Error)
+    expect(String(failure)).toContain(
       `Move ${name} from runtime_environment_variables to runtime_secret_references`,
     )
+    expect(String(failure)).not.toContain("synthetic-value")
   })
 
   it("accepts public settings whose names only contain credential words inside other words", async () => {
@@ -539,8 +545,8 @@ describe("readInstallationInputs()", () => {
     vi.mocked(readPrivateFile).mockResolvedValue(
       JSON.stringify({
         ...inputs,
-        runtime_environment_variables: { SERVICE_API_KEY: secret.secret_id },
-        runtime_secret_references: { SERVICE_API_KEY: secret },
+        runtime_environment_variables: { SERVICE_ENDPOINT: secret.secret_id },
+        runtime_secret_references: { SERVICE_ENDPOINT: secret },
       }),
     )
 
@@ -550,6 +556,24 @@ describe("readInstallationInputs()", () => {
 
     expect(failure).toBeInstanceOf(Error)
     expect(String(failure)).not.toContain(secret.secret_id)
+  })
+
+  it("does not suggest moving deployment-owned metadata to secret references", async () => {
+    const { config, inputs } = boundaryInputs()
+    vi.mocked(readPrivateFile).mockResolvedValue(
+      JSON.stringify({
+        ...inputs,
+        runtime_environment_variables: { AZURE_KEY_VAULT_SECRET_REFERENCES: "synthetic-value" },
+      }),
+    )
+
+    const failure = await readInstallationInputs("synthetic-installation", config).catch(
+      (error: unknown) => error,
+    )
+
+    expect(failure).toBeInstanceOf(Error)
+    expect(String(failure)).not.toContain("Move AZURE_KEY_VAULT_SECRET_REFERENCES")
+    expect(String(failure)).not.toContain("synthetic-value")
   })
 
   it("rejects an operator secret reference that would replace Azure startup metadata", async () => {
