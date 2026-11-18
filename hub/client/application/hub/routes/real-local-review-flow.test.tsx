@@ -136,6 +136,7 @@ describe("real local review flow", () => {
       id: repositoryId,
       nameWithOwner: "local/review-prototype",
       defaultBranch: "main",
+      capabilities: { reviewPrototypes: true, manageSharing: false },
     }
     const build = {
       number: 3,
@@ -202,7 +203,7 @@ describe("real local review flow", () => {
           repositories: [repository],
           capabilities: {
             createPrototypes: false,
-            reviewPrototypes: true,
+            reviewPrototypes: false,
             manageSharing: false,
             administerHub: true,
           },

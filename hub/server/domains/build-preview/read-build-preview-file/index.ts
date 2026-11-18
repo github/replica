@@ -7,6 +7,27 @@ import type {
   ReadBuildPreviewFileInput,
 } from "./types.ts"
 
+function readDeclaredRoutePathnames(bytes: Uint8Array): string[] {
+  try {
+    const value: unknown = JSON.parse(new TextDecoder().decode(bytes))
+    if (!value || typeof value !== "object" || !("templates" in value)) return []
+    const templates = value.templates
+    if (!Array.isArray(templates)) return []
+    return templates.flatMap((template) => {
+      if (!template || typeof template !== "object" || !("path" in template)) return []
+      const path = (template as Record<string, unknown>).path
+      if (typeof path !== "string") return []
+      try {
+        return [decodeURIComponent(new URL(path, "http://preview.invalid").pathname)]
+      } catch {
+        return []
+      }
+    })
+  } catch {
+    return []
+  }
+}
+
 export async function readBuildPreviewFile(
   input: ReadBuildPreviewFileInput,
   dependencies: ReadBuildPreviewFileDependencies,
@@ -22,12 +43,31 @@ export async function readBuildPreviewFile(
       ? "screenshots/desktop.png"
       : requestPath === "/__replica/screenshots/narrow.png"
         ? "screenshots/narrow.png"
-        : `dist${requestPath === "/" ? "/index.html" : requestPath}`
+        : `dist${
+            requestPath === "/"
+              ? "/index.html"
+              : requestPath.endsWith("/")
+                ? `${requestPath}index.html`
+                : requestPath
+          }`
   const normalizedPath = normalizeBuildArtifactPath(path)
   if (!normalizedPath) return { status: "not-found" }
   path = normalizedPath
   let artifact = await dependencies.findArtifact(input.buildId, path)
-  if (!artifact && input.acceptsHtml && !requestPath.split("/").at(-1)?.includes(".")) {
+  let useSpaFallback = input.acceptsHtml && !requestPath.split("/").at(-1)?.includes(".")
+  if (!artifact && input.acceptsHtml && !useSpaFallback) {
+    const manifest = await dependencies.findArtifact(input.buildId, "templates.json")
+    if (manifest) {
+      const storedManifest = await dependencies.storage.read(manifest.storageKey)
+      if (storedManifest.status !== "ok") {
+        return {
+          status: storedManifest.status === "not-found" ? "not-found" : "unavailable",
+        }
+      }
+      useSpaFallback = readDeclaredRoutePathnames(storedManifest.bytes).includes(requestPath)
+    }
+  }
+  if (!artifact && useSpaFallback) {
     path = "dist/index.html"
     artifact = await dependencies.findArtifact(input.buildId, path)
   }

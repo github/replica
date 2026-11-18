@@ -163,6 +163,7 @@ describe("createApp()", () => {
     const prototypeId = randomUUID()
     const shareId = randomUUID()
     const buildId = randomUUID()
+    const remoteRepositoryId = randomUUID()
     const restore = vi.fn().mockResolvedValue({
       membershipId: randomUUID(),
       userId: randomUUID(),
@@ -199,7 +200,20 @@ describe("createApp()", () => {
       },
       authorizeReviewAccess,
       isRepositoryVisible: vi.fn().mockResolvedValue(true),
-      listRepositories: vi.fn().mockResolvedValue([]),
+      listRepositories: vi.fn().mockResolvedValue([
+        {
+          id: repositoryId,
+          nameWithOwner: "local/minimal",
+          defaultBranch: "main",
+          localPath: "/workspace/minimal",
+        },
+        {
+          id: remoteRepositoryId,
+          nameWithOwner: "github/remote",
+          defaultBranch: "main",
+          localPath: null,
+        },
+      ]),
       findRepositoryIndex: vi.fn(),
       findPrototypeDetail: vi.fn(),
       readPrototypeWithIntroduction: vi.fn(),
@@ -269,7 +283,41 @@ describe("createApp()", () => {
       })
       expect(workspace.status).toBe(200)
       expect(await workspace.json()).toMatchObject({
-        capabilities: { manageSharing: true, reviewPrototypes: true },
+        capabilities: { manageSharing: false, reviewPrototypes: false },
+        repositories: [
+          {
+            id: repositoryId,
+            capabilities: { manageSharing: true, reviewPrototypes: true },
+          },
+          {
+            capabilities: { manageSharing: false, reviewPrototypes: false },
+          },
+        ],
+      })
+
+      restore.mockResolvedValue({
+        membershipId: randomUUID(),
+        userId: randomUUID(),
+        provider: "github",
+        sessionProvider: "github",
+        login: "octocat",
+        name: "The Octocat",
+        role: "MEMBER",
+      })
+      const hostedWorkspace = await fetch(`${base}/api/workspace`, {
+        headers: { cookie: "hub_session=github-session" },
+      })
+      expect(await hostedWorkspace.json()).toMatchObject({
+        repositories: [
+          {
+            id: repositoryId,
+            capabilities: { manageSharing: false, reviewPrototypes: false },
+          },
+          {
+            id: remoteRepositoryId,
+            capabilities: { manageSharing: false, reviewPrototypes: true },
+          },
+        ],
       })
     } finally {
       await new Promise<void>((resolve, reject) => {

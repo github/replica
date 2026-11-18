@@ -6,11 +6,11 @@ Threads and messages have separate UUID storage identities. Each message also ha
 
 Resolution is thread state, not message state. Each real resolve or reopen transition appends an immutable event with a monotonically increasing thread sequence, stable actor UUID, presentation snapshot, and occurrence time. Repeating an already-applied transition is idempotent and adds no event. A resolved thread must be reopened before it accepts another reply.
 
-## Local authorization
+## Repository authorization
 
-The current product rule grants review view and change access only to the fixed local identity for an active repository with a configured local path. The route calls a separate review-authorization dependency before reading or changing conversations, so GitHub repository access can become another authority source without weakening the local rule. Other identities and repositories without a local path receive the same not-found response.
+Local sessions can view and change reviews only for active repositories with a configured local path. GitHub sessions can review only non-local repositories included in their current installation access. The route rechecks the live session, current repository visibility, and matching local or provider review mode before returning conversations. Other identities and inaccessible repositories receive the same not-found response.
 
-Every query also binds prototype, Build, thread, and comment identifiers back to the requested repository, so an identifier from another repository or prototype is not usable through the route. The workspace advertises review capability only for local sign-in.
+Every query also binds prototype, Build, thread, and comment identifiers back to the requested repository, so an identifier from another repository or prototype is not usable through the route. The workspace advertises review and sharing capabilities on each repository instead of inferring them from the sign-in provider.
 
 ## Product API
 
@@ -30,7 +30,7 @@ Reads and mutations retain the existing flat `comments` response contract used b
 
 The retained prototype screen loads this API directly. A conversation starts from an element or area anchor supplied by the preview bridge and records the selected successful Build number. Replies, edits, deletion, resolution, and reopening update the saved thread without changing Build artifacts. Ordinary failed writes keep the loaded conversation and draft available for retry. A refreshed `401`, `403`, `404`, or `503` clears comments that are no longer authorized.
 
-Reactions, mentions, inbox notifications, read or unread state, public sharing, Canvas pairing, live updates, and GitHub authorization are not part of this flow. Real mode does not present their controls.
+Reactions, mentions, inbox notifications, read or unread state, public sharing, Canvas pairing, and live updates are not part of this flow. Real mode does not present their controls.
 
 ## Learning snapshot seam
 

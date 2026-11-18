@@ -35,10 +35,15 @@ export function PrototypeScreen({
   const mock = import.meta.env.DEV && import.meta.env.MODE === "mock"
   // Mock canEdit still protects its separate management and sharing workflows.
   const canEditDetails = mock ? Boolean(session?.viewer) : data.prototype.canEdit
+  const repositoryCapabilities = workspace.repositories.find(
+    ({ id }) => id === data.repository.id,
+  )?.capabilities
   const pageData = prototypeShowData(workspace, data, new URLSearchParams(location.search), {
     real: !mock,
   })
-  pageData.reviewReadOnly = !session?.capabilities.reviewPrototypes
+  pageData.reviewReadOnly = mock
+    ? !session?.capabilities.reviewPrototypes
+    : !repositoryCapabilities?.reviewPrototypes
   if (pageData.reviewReadOnly) {
     pageData.reviewComments = {
       ...pageData.reviewComments,

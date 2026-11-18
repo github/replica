@@ -5,6 +5,7 @@ import { decryptAuthenticationValue } from "../../authentication/decrypt-authent
 const sessionSchema = z
   .object({
     v: z.literal(1),
+    p: z.literal("session"),
     b: z.uuid(),
     s: z.uuid(),
     e: z.number().int().positive(),

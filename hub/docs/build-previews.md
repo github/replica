@@ -12,11 +12,11 @@ The prototype response keeps Build selection on `/repositories/:repositoryId/pro
 4. The preview origin exchanges the grant for a 15-minute, host-only, HTTP-only cookie.
 5. Preview files are read by opaque storage key. Hub session cookies and provider credentials never enter the Build origin.
 
-`HUB_PREVIEW_ORIGIN` is the wildcard base. For example, `https://preview.example.com` serves one Build from `https://<build-uuid>.preview.example.com`. Operators must configure wildcard DNS and TLS. Local development uses `http://preview.localhost:3001`.
+`HUB_PREVIEW_ORIGIN` is the wildcard base. For example, `https://preview.example.net` serves one Build from `https://<build-uuid>.preview.example.net` while Hub runs on `https://hub.example.com`. Outside local development, the preview and Hub origins must use separate registrable domains so untrusted preview content cannot shadow Hub cookies through a parent domain. Operators must configure wildcard DNS and TLS. Local development uses `http://preview.localhost:3001`.
 
 ## File behavior
 
-Package paths remain relative and may not contain empty, dot, dot-dot, control, surrogate, absolute, or backslash segments. `/` serves `dist/index.html`. A missing extensionless browser route falls back to that entry so client-side routing works; missing asset paths return 404. The prototype's normalized start page is used after grant exchange.
+Package paths remain relative and may not contain empty, dot, dot-dot, control, surrogate, absolute, or backslash segments. `/` serves `dist/index.html`, and directory-style requests first look for their nested `index.html`. A missing extensionless browser route falls back to the application entry point. A dotted route receives the same fallback only when the saved template manifest declares it; missing asset paths return 404. The prototype's normalized start page is used after grant exchange.
 
 Content types come from the checked package path, with unknown extensions served as `application/octet-stream`. HTML is private and revalidated. Immutable assets use a private one-year cache. Desktop and narrow screenshots are served from their package paths through the same Build authorization.
 
@@ -28,4 +28,4 @@ Each Build has a separate origin. Responses deny MIME sniffing and referrers, re
 
 The first version does not add Canvas pairing, standalone Build pages, hosted repository discovery, hosted Build execution, or GitHub App setup.
 
-Local mode also supports [Build-pinned public share links](share-links.md). They reuse this file-serving path and Build-specific origin, but exchange a separate public grant for a separate `replica_share_preview` cookie. Public requests recheck the saved link and deployment setting before and after artifact reads. They never accept a Hub session as public authorization or expose repository and review data.
+Local mode also supports [Build-pinned public share links](share-links.md). They reuse this file-serving path and Build-specific origin, but exchange a purpose-bound public grant for a separate purpose-bound `replica_share_preview` cookie. Grants and cookies cannot be exchanged. Public requests recheck the saved link and deployment setting before and after artifact reads. They never accept a Hub session as public authorization or expose repository and review data.

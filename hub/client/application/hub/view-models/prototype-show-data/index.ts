@@ -24,11 +24,14 @@ export function prototypeShowData(
     surface: "preview",
     real: options.real,
   })
+  const repositoryCapabilities = workspace.repositories.find(
+    ({ id }) => id === data.repository.id,
+  )?.capabilities
 
   return {
     ...workspaceData,
     shareLinksPath:
-      options.real && !workspace.capabilities?.manageSharing
+      options.real && !repositoryCapabilities?.manageSharing
         ? undefined
         : workspaceData.shareLinksPath,
     buildPinned: search.has("build"),

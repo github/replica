@@ -5,6 +5,6 @@ export function injectPreviewBridge(html: Uint8Array): Uint8Array {
   const script = '<script src="/__replica/bridge/v1.js"></script>'
   const output = closingHead.test(source)
     ? source.replace(closingHead, `${script}</head>`)
-    : `${script}${source}`
+    : `${source}${script}`
   return new TextEncoder().encode(output)
 }

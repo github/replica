@@ -17,7 +17,7 @@ model BranchHeadObservation {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  @@unique([repositoryId, branchName, commitSha])
-  @@index([repositoryId, branchName, lastObservedAt])
+  @@unique([repositoryId, branchName, commitSha], map: "branch_head_observations_repository_branch_commit_key")
+  @@index([repositoryId, branchName, lastObservedAt], map: "branch_head_observations_repository_branch_last_observed_idx")
   @@map("branch_head_observations")
 }

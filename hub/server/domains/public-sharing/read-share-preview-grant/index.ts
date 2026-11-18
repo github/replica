@@ -5,6 +5,7 @@ import { decryptAuthenticationValue } from "../../authentication/decrypt-authent
 const grantSchema = z
   .object({
     v: z.literal(1),
+    p: z.literal("grant"),
     b: z.uuid(),
     s: z.uuid(),
     e: z.number().int().positive(),

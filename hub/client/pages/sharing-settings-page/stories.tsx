@@ -27,7 +27,7 @@ const data: SharingSettingsPageData = {
     "Anyone with a new share link can view its fixed Build without signing in. Previously revoked links stay revoked.",
   confirmLabel: "I understand and confirm this deployment-wide change.",
   verification:
-    "This change requires GitHub verification within the last five minutes on this browser. If verification is required, Hub continues your confirmed change after it succeeds.",
+    "Hub checks your current administrator session again before applying this deployment-wide change.",
 }
 
 const meta = {
@@ -50,15 +50,6 @@ export const DisableConfirmation: Story = {
       submitLabel: "Disable public sharing",
       consequence:
         "All existing share links will be permanently revoked, including open previews and pending handoffs. Enabling later permits new links only.",
-    },
-  },
-}
-export const FreshChallenge: Story = {
-  args: {
-    data: {
-      ...data,
-      alert:
-        "Fresh GitHub authorization is required. No changes were made. Verify your account, then submit the action again.",
     },
   },
 }

@@ -7,6 +7,7 @@ export function createSharePreviewGrant(
   return encryptAuthenticationValue(
     JSON.stringify({
       v: 1,
+      p: "grant",
       b: input.buildId,
       s: input.shareLinkId,
       e: input.expiresAt.getTime(),

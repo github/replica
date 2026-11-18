@@ -5,7 +5,11 @@ ADD COLUMN "local_lease_expires_at" TIMESTAMPTZ(3);
 UPDATE "builds"
 SET "state" = 'queued',
     "started_at" = NULL
-WHERE "state" = 'running';
+FROM "prototypes", "repositories"
+WHERE "builds"."prototype_id" = "prototypes"."id"
+  AND "prototypes"."repository_id" = "repositories"."id"
+  AND "repositories"."local_path" IS NOT NULL
+  AND "builds"."state" = 'running';
 
 ALTER TABLE "builds"
 ADD CONSTRAINT "builds_local_lease_check"

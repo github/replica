@@ -6,7 +6,10 @@ export function updateShareLinkExpirations(
 ) {
   return database.$transaction(
     updates.map(({ id, expiresAt }) =>
-      database.shareLink.update({ where: { id }, data: { expiresAt } }),
+      database.shareLink.updateMany({
+        where: { id, expiresAt: { gt: expiresAt } },
+        data: { expiresAt },
+      }),
     ),
   )
 }

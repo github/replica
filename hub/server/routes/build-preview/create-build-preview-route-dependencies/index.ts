@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { getDomain } from "tldts"
 
 import type { ArtifactStorage } from "../../../domains/artifacts/create-artifact-storage/types.ts"
 import { hostedPreviewBridgeSource } from "../../../assets/hosted-preview-bridge.ts"
@@ -37,6 +38,20 @@ export function createBuildPreviewRouteDependencies(
   }
   if (previewBaseOrigin.hostname === applicationOrigin.hostname) {
     throw new Error("HUB_PREVIEW_ORIGIN must use a separate wildcard hostname.")
+  }
+  const localPreview =
+    previewBaseOrigin.hostname.endsWith(".localhost") &&
+    (applicationOrigin.hostname === "localhost" ||
+      applicationOrigin.hostname === "127.0.0.1" ||
+      applicationOrigin.hostname === "[::1]")
+  if (
+    !localPreview &&
+    (!getDomain(applicationOrigin.hostname) ||
+      getDomain(applicationOrigin.hostname) === getDomain(previewBaseOrigin.hostname))
+  ) {
+    throw new Error(
+      "HUB_PREVIEW_ORIGIN must use a separate registrable domain from HUB_APPLICATION_ORIGIN.",
+    )
   }
   if (
     previewBaseOrigin.protocol !== "https:" &&

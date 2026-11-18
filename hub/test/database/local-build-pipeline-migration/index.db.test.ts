@@ -51,6 +51,9 @@ describe("local Build pipeline migration", () => {
           const repositoryId = randomUUID()
           const prototypeId = randomUUID()
           const buildId = randomUUID()
+          const remoteRepositoryId = randomUUID()
+          const remotePrototypeId = randomUUID()
+          const remoteBuildId = randomUUID()
           await database.query(
             `INSERT INTO repositories (id, name_with_owner, default_branch)
              VALUES ($1, 'team/design', 'main')`,
@@ -87,6 +90,40 @@ describe("local Build pipeline migration", () => {
               options,
             )
           }
+          await database.query(
+            await readFile(join(migrationDirectory, localBuildMigration, "migration.sql"), "utf8"),
+          )
+          await run(
+            "prisma",
+            [
+              "migrate",
+              "resolve",
+              "--applied",
+              localBuildMigration,
+              "--config",
+              join(hubRoot, "prisma7.config.ts"),
+            ],
+            options,
+          )
+          await database.query(
+            `UPDATE repositories SET local_path = '/workspace/design' WHERE id = $1`,
+            [repositoryId],
+          )
+          await database.query(
+            `INSERT INTO repositories (id, name_with_owner, default_branch)
+             VALUES ($1, 'team/remote', 'main')`,
+            [remoteRepositoryId],
+          )
+          await database.query(
+            `INSERT INTO prototypes (id, repository_id, branch_name, name, registered_at)
+             VALUES ($1, $2, 'prototype/remote', 'Remote', clock_timestamp())`,
+            [remotePrototypeId, remoteRepositoryId],
+          )
+          await database.query(
+            `INSERT INTO builds (id, prototype_id, number, state, commit_sha, started_at)
+             VALUES ($1, $2, 1, 'running', $3, clock_timestamp())`,
+            [remoteBuildId, remotePrototypeId, "b".repeat(40)],
+          )
           await run(
             "prisma",
             ["migrate", "deploy", "--config", join(hubRoot, "prisma7.config.ts")],
@@ -101,7 +138,13 @@ describe("local Build pipeline migration", () => {
                 [repositoryId],
               )
             ).rows,
-          ).toEqual([{ name_with_owner: "team/design", default_branch: "main", local_path: null }])
+          ).toEqual([
+            {
+              name_with_owner: "team/design",
+              default_branch: "main",
+              local_path: "/workspace/design",
+            },
+          ])
           expect(
             (
               await database.query(
@@ -118,6 +161,24 @@ describe("local Build pipeline migration", () => {
               local_lease_expires_at: null,
             },
           ])
+          const remoteBuild = (
+            await database.query<{
+              state: string
+              started_at: Date | null
+              local_lease_id: string | null
+              local_lease_expires_at: Date | null
+            }>(
+              `SELECT state, started_at, local_lease_id, local_lease_expires_at
+               FROM builds WHERE id = $1`,
+              [remoteBuildId],
+            )
+          ).rows[0]
+          expect(remoteBuild).toMatchObject({
+            state: "running",
+            local_lease_id: null,
+            local_lease_expires_at: null,
+          })
+          expect(remoteBuild?.started_at).toBeInstanceOf(Date)
 
           const observationId = randomUUID()
           await database.query(

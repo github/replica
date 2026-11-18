@@ -10,6 +10,7 @@ import { completeLocalBuildSuccess } from "../../../repositories/local-builds/co
 import { findLocalDeveloper } from "../../../repositories/local-builds/find-local-developer/index.ts"
 import { markLocalBuildRunning } from "../../../repositories/local-builds/mark-local-build-running/index.ts"
 import { prepareLocalBuild } from "../../../repositories/local-builds/prepare-local-build/index.ts"
+import { LocalBuildPreconditionError } from "../errors.ts"
 import type { LocalBuildSynchronizationSummary, SynchronizeLocalBuildsInput } from "./types.ts"
 
 function artifactKey(buildId: string, leaseId: string, artifactPath: string) {
@@ -29,7 +30,9 @@ export async function synchronizeLocalBuilds({
 }: SynchronizeLocalBuildsInput): Promise<LocalBuildSynchronizationSummary> {
   const localDeveloper = await findLocalDeveloper(database)
   if (!localDeveloper) {
-    throw new Error("Sign in as the local developer before running local Builds.")
+    throw new LocalBuildPreconditionError(
+      "Sign in as the local developer before running local Builds.",
+    )
   }
   const discovery = await discover(prototypeRoot)
   const summary: LocalBuildSynchronizationSummary = {

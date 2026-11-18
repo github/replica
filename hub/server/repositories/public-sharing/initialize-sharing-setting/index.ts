@@ -1,6 +1,6 @@
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
 
-import { publicSharingSettingKey } from "../get-sharing-setting/index.ts"
+import { publicSharingSettingKey } from "../../../utils/public-sharing-setting-key/index.ts"
 
 export function initializeSharingSetting(database: PrismaClient) {
   return database.sharingSetting.upsert({
