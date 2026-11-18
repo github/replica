@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { execFileSync } from "node:child_process"
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
-import { isAbsolute, relative, resolve } from "node:path"
+import { basename, isAbsolute, relative, resolve } from "node:path"
 import { describe, expect, it, onTestFinished } from "vitest"
 
 import { runCommand } from "../../../integrations/process/run-command"
@@ -36,7 +36,7 @@ function expectSeedDependencyInstall(directory: string, prototypesRoot: string) 
   const local = relative(prototypesRoot, directory)
   expect(isAbsolute(local)).toBe(false)
   expect(local.startsWith("..")).toBe(false)
-  expect(local.split("/").at(-1)).toBe("minimal")
+  expect(basename(directory)).toBe("minimal")
 }
 
 function testConfiguration(): {
@@ -45,9 +45,7 @@ function testConfiguration(): {
   npmDirectories: string[]
   runTestCommand: (options: RunCommandOptions) => Promise<void>
 } {
-  const root = resolve(
-    `server/domains/local-development/prepare-local-development/.prepare-test-${randomUUID()}`,
-  )
+  const root = resolve(`.prepare-test-${randomUUID()}`)
   const browserDirectories: string[] = []
   const npmDirectories: string[] = []
   onTestFinished(() => rm(root, { force: true, recursive: true }))
@@ -56,7 +54,7 @@ function testConfiguration(): {
     browserDirectories,
     configuration: {
       buildActionDirectory: resolve(root, ".build-action"),
-      createPrototypeScript: resolve(sourceRepositoryRoot, "scripts/create-prototype-repo.sh"),
+      createPrototypeScript: resolve(sourceRepositoryRoot, "scripts/create-prototype-repo.mjs"),
       enabled: true,
       root,
       sourceRoot: sourceRepositoryRoot,
@@ -64,7 +62,10 @@ function testConfiguration(): {
     },
     npmDirectories,
     runTestCommand: async (options) => {
-      if (options.command === "npm" && options.arguments[0] === "ci") {
+      if (
+        (options.command === "npm" && options.arguments[0] === "ci") ||
+        (options.command === process.execPath && options.arguments[1] === "ci")
+      ) {
         npmDirectories.push(options.cwd)
         return
       }
@@ -81,7 +82,65 @@ function testConfiguration(): {
 }
 
 describe("prepareLocalDevelopment()", () => {
+  it.runIf(process.platform === "win32")(
+    "runs both npm installs through Node with a literal entrypoint containing spaces and shell characters",
+    async () => {
+      const fixture = testConfiguration()
+      const tools = `${fixture.configuration.root}-npm tools & spaces`
+      onTestFinished(() => rm(tools, { force: true, recursive: true }))
+      const entrypoint = resolve(tools, "npm-cli.js")
+      const log = resolve(tools, "arguments.jsonl")
+      fixture.configuration.buildActionDirectory = resolve(tools, "build-action")
+      await mkdir(fixture.configuration.buildActionDirectory, { recursive: true })
+      await writeFile(
+        entrypoint,
+        `import { appendFileSync } from "node:fs"
+appendFileSync(${JSON.stringify(log)}, JSON.stringify(process.argv.slice(2)) + "\\n")
+`,
+      )
+      vi.stubEnv("npm_execpath", entrypoint)
+
+      await prepareLocalDevelopment(fixture.configuration, {
+        runCommand: (options) =>
+          options.arguments[0] === entrypoint
+            ? runCommand(options)
+            : fixture.runTestCommand(options),
+      })
+
+      expect(
+        (await readFile(log, "utf8"))
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line) as unknown),
+      ).toEqual([
+        ["ci", "--ignore-scripts", "--omit=dev", "--engine-strict"],
+        ["ci", "--engine-strict"],
+      ])
+      expect(
+        Object.keys(branchRefs(resolve(fixture.configuration.root, "minimal"))).sort(),
+      ).toEqual(["main", "prototype/example"])
+    },
+  )
+
+  it("reports the Starter creation stage safely when the Node scaffold fails", async () => {
+    const fixture = testConfiguration()
+
+    await expect(
+      prepareLocalDevelopment(fixture.configuration, {
+        runCommand: async (options) => {
+          if (options.arguments[0] === fixture.configuration.createPrototypeScript) {
+            throw new Error("private subprocess diagnostics")
+          }
+          await fixture.runTestCommand(options)
+        },
+      }),
+    ).rejects.toThrow(
+      "Could not create the Starter repository. Check the local preparation prerequisites and try again.",
+    )
+  })
+
   it("deterministically seeds Minimal with committed main and example branches", async () => {
+    vi.stubEnv("npm_execpath", undefined)
     const first = testConfiguration()
 
     await prepareLocalDevelopment(first.configuration, { runCommand: first.runTestCommand })
