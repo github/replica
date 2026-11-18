@@ -35,6 +35,7 @@ interface Progress {
   inputs: string
   secretOrigin?: {
     inputs: string
+    normalizedInputs?: string
     references: Record<string, Reference>
   }
 }
@@ -43,6 +44,7 @@ export async function postSetupProgress(
   context: Pick<AzureInstallation, "config" | "directory" | "ui" | "signal">,
   action: "sign-in" | "github",
   inputs?: PostInputs,
+  verifiedImage?: string,
 ) {
   const path = join(context.directory, `post-${action}-progress.json`)
   const target = JSON.stringify(context.config)
@@ -71,6 +73,13 @@ export async function postSetupProgress(
       inputs?.runtime_secret_references?.HUB_APPLICATION_ORIGIN && {
         secretOrigin: {
           inputs: retainedFingerprint(inputs),
+          ...(verifiedImage && {
+            normalizedInputs: retainedFingerprint({
+              ...inputs,
+              image: verifiedImage,
+              deploy_hub: true,
+            }),
+          }),
           references: Object.fromEntries(
             Object.entries(inputs.runtime_secret_references).map(([key, value]) => [
               key,
@@ -90,6 +99,8 @@ export async function postSetupProgress(
     return value as Record<string, unknown>
   }
   const keys: readonly string[] = action === "github" ? credentialKeys : sharedKeys
+  const pinned = (secretId: string) =>
+    /\/secrets\/[a-z0-9-]{1,127}\/[a-f0-9]{32}$/i.test(secretId)
   function answer(key: string, value: unknown): string {
     if (typeof value !== "string" || value.length > 4096 || /[\u0000-\u001f\u007f]/.test(value))
       invalid()
@@ -125,7 +136,7 @@ export async function postSetupProgress(
       !/^https:\/\/[a-z0-9-]{1,24}\.vault\.azure\.net\/secrets\/[a-z0-9-]{1,127}(\/[a-f0-9]{32})?$/i.test(
         raw.secret_id,
       ) ||
-      (!retained && !/\/[a-f0-9]{32}$/i.test(raw.secret_id)) ||
+      (!retained && !pinned(raw.secret_id)) ||
       new URL(raw.secret_id).hostname.toLowerCase() !==
         `${raw.key_vault_id.split("/").at(-1)?.toLowerCase()}.vault.azure.net`
     )
@@ -171,13 +182,21 @@ export async function postSetupProgress(
       const saved = record(raw.secretOrigin)
       if (
         action !== "sign-in" ||
-        Object.keys(saved).some((key) => !["inputs", "references"].includes(key)) ||
+        Object.keys(saved).some(
+          (key) => !["inputs", "normalizedInputs", "references"].includes(key),
+        ) ||
         typeof saved.inputs !== "string" ||
-        !/^[a-f0-9]{64}$/.test(saved.inputs)
+        !/^[a-f0-9]{64}$/.test(saved.inputs) ||
+        (saved.normalizedInputs !== undefined &&
+          (typeof saved.normalizedInputs !== "string" ||
+            !/^[a-f0-9]{64}$/.test(saved.normalizedInputs)))
       )
         invalid()
       secretOrigin = {
         inputs: saved.inputs,
+        ...(typeof saved.normalizedInputs === "string" && {
+          normalizedInputs: saved.normalizedInputs,
+        }),
         references: Object.fromEntries(
           Object.entries(record(saved.references)).map(([key, value]) => [
             key,
@@ -218,7 +237,11 @@ export async function postSetupProgress(
       const currentReferences = inputs?.runtime_secret_references ?? {}
       const secretOriginMatches =
         desired.origin === undefined &&
-        data.secretOrigin?.inputs === retainedFingerprint(inputs) &&
+        (data.secretOrigin?.inputs === retainedFingerprint(inputs) ||
+          (verifiedImage !== undefined &&
+            inputs?.image === verifiedImage &&
+            inputs.deploy_hub === true &&
+            data.secretOrigin?.normalizedInputs === retainedFingerprint(inputs))) &&
         Object.keys(retainedReferences).length === Object.keys(currentReferences).length &&
         Object.entries(retainedReferences).every(([key, saved]) => {
           const current = currentReferences[key]
@@ -228,13 +251,17 @@ export async function postSetupProgress(
             checked.key_vault_id.toLowerCase() === saved.key_vault_id.toLowerCase() &&
             (checked.secret_id.toLowerCase() === saved.secret_id.toLowerCase() ||
               ((key === "HUB_APPLICATION_ORIGIN" || sharedKeys.some((name) => name === key)) &&
-                !/\/[a-f0-9]{32}$/i.test(saved.secret_id) &&
+                !pinned(saved.secret_id) &&
                 checked.secret_id.toLowerCase().replace(/\/[a-f0-9]{32}$/i, "") ===
                   saved.secret_id.toLowerCase()))
           )
         })
       if (
         data.pending === undefined &&
+        (!data.secretOrigin ||
+          (data.answers.origin !== undefined &&
+            data.answers.proxyHops !== undefined &&
+            secretOriginMatches)) &&
         Object.entries(data.answers).every(
           ([key, value]) =>
             key.endsWith("_FILE") ||

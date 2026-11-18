@@ -12,6 +12,7 @@ import * as installationInputs from "../install/inputs/index.ts"
 import { installationNames } from "../install/settings.ts"
 import type { PostInputs, PostSetupTarget } from "./types.ts"
 import { postSetupAzure } from "./index.ts"
+import { postSetupProgress } from "./progress/index.ts"
 
 vi.mock("ink", async (importOriginal) => {
   const ink = await importOriginal<typeof import("ink")>()
@@ -592,6 +593,71 @@ it("uses the deployed digest despite stale deploy_hub=false and preserves settin
   ).toBe(false)
   expect(test.leases.size).toBe(0)
 })
+
+it.each(["verified", "changed"] as const)(
+  "resumes a secret-backed sign-in checkpoint only with the %s deployed image",
+  async (image) => {
+    const test = await scenario()
+    const originReference = test.reference("hub-application-origin")
+    delete test.inputs.hub_application_origin
+    delete test.state.environment.HUB_APPLICATION_ORIGIN
+    test.inputs.runtime_secret_references!.HUB_APPLICATION_ORIGIN = originReference
+    test.secretValues.set("hub-application-origin", test.origin)
+    test.state.environment.AZURE_KEY_VAULT_SECRET_REFERENCES = JSON.stringify({
+      ...JSON.parse(test.state.environment.AZURE_KEY_VAULT_SECRET_REFERENCES!),
+      HUB_APPLICATION_ORIGIN: originReference.secret_id,
+    })
+    const progress = await postSetupProgress(
+      { config: test.target.config, directory: test.directory, ui: test.ui },
+      "sign-in",
+      test.inputs,
+      test.image,
+    )
+    await progress.saveAnswer("origin", test.origin)
+    await progress.saveAnswer("proxyHops", "2")
+    const savedProgress = await readFile(progress.path, "utf8")
+    const desired: PostInputs = {
+      ...test.inputs,
+      image: image === "verified" ? test.image : `registry.azurecr.io/hub@sha256:${"c".repeat(64)}`,
+      deploy_hub: true,
+      runtime_environment_variables: {
+        ...test.inputs.runtime_environment_variables,
+        HUB_TRUSTED_PROXY_HOPS: "2",
+      },
+    }
+    const content = JSON.stringify(desired)
+    const journalPath = join(test.directory, "post-desired.json")
+    const journal = JSON.stringify({
+      target: JSON.stringify(test.target.config),
+      hash: createHash("sha256").update(content).digest("hex"),
+      phase: "pending",
+      action: "sign-in",
+      previousReferences: JSON.parse(test.state.environment.AZURE_KEY_VAULT_SECRET_REFERENCES!),
+    })
+    await writeFile(test.inputsPath, content, { mode: 0o600 })
+    await writeFile(journalPath, journal, { mode: 0o600 })
+
+    const result = postSetupAzure(test.target, {
+      action: "sign-in",
+      run: test.run,
+      ui: test.ui,
+      request: test.request,
+    })
+    if (image === "changed") {
+      await expect(result).rejects.toThrow(/inputs changed/i)
+      expect(await readFile(test.inputsPath, "utf8")).toBe(content)
+      expect(await readFile(journalPath, "utf8")).toBe(journal)
+      expect(await readFile(progress.path, "utf8")).toBe(savedProgress)
+      expect(test.plans).toEqual([])
+    } else {
+      await expect(result).resolves.toContain(`${test.origin}/settings/github/setup`)
+      expect(JSON.parse(await readFile(test.inputsPath, "utf8"))).toEqual(desired)
+      expect(test.plans).toHaveLength(1)
+      expect(test.applies).toBe(1)
+      expect(test.uploads).toEqual([])
+    }
+  },
+)
 
 it("repairs a stopped Hub with saved authentication secrets but no origin only after a valid answer", async () => {
   const test = await scenario()
