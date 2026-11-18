@@ -1261,6 +1261,7 @@ class LocalTrainingConnector:
         self.backend = backend
         self.name = backend.name
         self.production_eligible = backend.production_eligible
+        self.requires_credential = getattr(backend, "requires_credential", True)
 
     def train(
         self,
@@ -1271,8 +1272,16 @@ class LocalTrainingConnector:
         context: OperationContext,
         credential: Credential | None,
     ) -> Any:
-        del credential
         check_context(context)
+        train_with_context = getattr(self.backend, "train_with_context", None)
+        if train_with_context is not None:
+            return train_with_context(
+                taskset,
+                work_directory,
+                max_updates=max_updates,
+                context=context,
+                credential=credential,
+            )
         return self.backend.train(
             taskset,
             work_directory,
@@ -1287,6 +1296,34 @@ class LocalInferenceConnector:
     def __init__(self, backend: Any):
         self.backend = backend
         self.name = backend.name
+        self.requires_credential = getattr(backend, "requires_credential", True)
+
+    def readiness(self) -> Mapping[str, Any] | None:
+        readiness = getattr(self.backend, "readiness", None)
+        return readiness() if readiness is not None else None
+
+    def project_request(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        project = getattr(self.backend, "project_request", None)
+        if project is not None:
+            return project(request)
+        return {
+            "images": list(request["images"]),
+            "questions": {
+                key: (
+                    {"type": "noul"}
+                    if question["type"] == "noul"
+                    else {
+                        "type": question["type"],
+                        "criteria": (
+                            list(question["criteria"])
+                            if question["type"] == "choice"
+                            else len(question["criteria"])
+                        ),
+                    }
+                )
+                for key, question in request["questions"].items()
+            },
+        }
 
     def predict(
         self,

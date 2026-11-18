@@ -163,7 +163,9 @@ A missing or invalid answer counts as wrong for accuracy and as `invalid`, and i
 
 The single-node reference Replica decision runtime proves one complete customer-operated lifecycle. It keeps mutable job records under `jobs/`, writes each completed candidate once under `candidates/`, keeps immutable promotion generations under `promotions/`, and serves only the candidate an operator explicitly promotes or restores. Replica does not receive the taskset, adapter, reports, token, or requests.
 
-The only backend in this first reference is deterministic and ignores image content. It uses the real taskset loader, proper-scoring evaluation, candidate store, promotion gate, rollback, and inference contract without a GPU or model download. Its candidates are for development and tests only; the runtime refuses to promote them when `--environment production`.
+The default installation configures only a deterministic fixture backend that ignores image content. It uses the real taskset loader, proper-scoring evaluation, candidate store, promotion gate, rollback, and inference contract without a GPU or model download. Its candidates are for development and tests only; the runtime refuses to promote them when `--environment production`.
+
+The optional `d1-omni` backend runs the pinned Liquid AI d1-omni-600M base model on customer-controlled hardware. Training returns only the trained readout or head adapter plus baseline and candidate test reports. The candidate store keeps those two artifacts and the normal immutable manifest; it does not copy the base model. Inference loads that pinned base plus the explicitly promoted adapter and returns the same structured probabilities as the fixture backend.
 
 ```sh
 cd packages/learning/environments/brand-check
@@ -184,6 +186,44 @@ uv pip install -e .
   --tenant local --repository github/example \
   --taskset /path/to/taskset --state /path/to/runtime-state --port 8010
 ```
+
+That is the explicit fixture-only installation. It has no PyTorch or model dependency and does not validate model quality.
+
+For the real connector, install the optional model dependencies, download the pinned revision, review its model-supplied Python, and allowlist only that absolute directory:
+
+```sh
+uv pip install -e ".[model]"
+hf download LiquidAI/d1-omni-600M \
+  --revision 02b55d7076f15129e59ab3f94783f32c4b088674 \
+  --local-dir models/d1-omni-600M
+export REPLICA_TRUSTED_MODEL_DIRS="$(pwd)/models/d1-omni-600M"
+.venv/bin/replica-decision-runtime \
+  --environment development \
+  --tenant local --repository github/example \
+  --taskset /path/to/taskset --state /path/to/runtime-state \
+  --d1-model "$(pwd)/models/d1-omni-600M" --port 8010
+```
+
+Submit a real job with `"backend":"d1-omni"`. The runtime applies the same update and wall-time bounds, operation scope, taskset pin, durable lease, idempotency, cancellation, candidate evidence, promotion, and usage reporting as the fixture path. The local model backend needs no external credential, so the runtime does not mint one for its training or inference calls.
+
+| Host | Training | Inference | Meaning |
+| --- | --- | --- | --- |
+| NVIDIA with PyTorch CUDA | Supported | Supported | Real local model execution and evaluation evidence |
+| Apple silicon with PyTorch MPS | Supported | Supported | Real local model execution and evaluation evidence |
+| CPU with model dependencies | Rejected | Supported for smoke and low-volume checks | Does not validate training quality or representative performance |
+| Default fixture-only install | Fixture only | Fixture only | Validates orchestration, not model quality |
+
+`GET /ready` reports backend capability, accelerator, dependency and model status, and `coldStart` without exposing the private model path, taskset digest, or promoted candidate ID. The single-node runtime intentionally starts a bounded child for every inference request, so the d1 backend reports `coldStart: "per-request"` and reloads the base model each time. This favors isolation and enforceable deadlines over latency; a hosted inference connector can keep a warm model without changing the lifecycle contracts.
+
+Before spending a training budget, run one opt-in real-model smoke check:
+
+```sh
+.venv/bin/replica-d1-omni-smoke \
+  --model "$(pwd)/models/d1-omni-600M" \
+  --taskset /path/to/taskset
+```
+
+Add `--adapter /path/to/adapter.pt` to load a promoted-format adapter. The command reports the accelerator and elapsed time and deliberately prints `qualityValidated: false`; one successful forward pass is not evaluation evidence.
 
 `--tenant` and `--repository` assign the customer scope that every connector call receives. A single-user process may keep the defaults; a shared host must set both from its authenticated customer and repository context.
 
@@ -250,7 +290,7 @@ docker run --rm \
 
 The image contains no taskset, candidate, model, or credential. The runtime process must own the runtime-state directory because startup restricts its permissions to the owner. The example runs the process as the operator who created that directory. Without `--user`, the image runs as user 10001, so create and assign the mounted directory to that user first. Rootless Podman also needs `--userns=keep-id`.
 
-The included Compose file wires the same complete local bundle without a GPU or external service:
+The included Compose file wires the fixture-only local bundle without a GPU or external service:
 
 ```sh
 mkdir -p /path/to/runtime-state
@@ -276,8 +316,8 @@ The runtime contract follows the lifecycle rather than the services of one cloud
 | Artifact | `LocalArtifactConnector` keeps verified immutable bytes under private SHA-256 paths | Keep immutable candidate inputs and outputs in private content-addressed storage |
 | Job | `LocalJobConnector` keeps atomic JSON records, compare-and-swap versions, durable cancellation, idempotency records, and requires the active expiring worker lease for each state update | Keep durable job state and fence each transactional update through one worker lease |
 | Candidate | `LocalCandidateConnector` keeps read-only candidate files, verifies their digests, and appends atomic promotion or rollback generations | Keep immutable candidate manifests and artifacts, with a transactional generation-checked promotion pointer |
-| Training | `LocalTrainingConnector` runs a trusted backend inside the bounded local worker and returns persistable artifacts, evaluation evidence, and measured completed updates | Schedule bounded training on customer-selected compute and return the same candidate evidence and measured work |
-| Inference | `LocalInferenceConnector` serves the adapter from the explicitly promoted local candidate | Send evaluation requests only to the explicitly promoted model deployment |
+| Training | `LocalTrainingConnector` runs the fixture or real d1 backend inside the bounded local worker and returns only persistable adapter bytes, evaluation evidence, and measured completed updates | Schedule bounded training on customer-selected compute and return the same candidate evidence and measured work |
+| Inference | `LocalInferenceConnector` serves the explicitly promoted fixture adapter or pinned d1 base plus promoted adapter | Send evaluation requests only to the explicitly promoted model deployment |
 | Credential | `LocalCredentialConnector` mints short-lived operation-bound credentials from a private installation key | Acquire workload or brokered credentials restricted to the operation, audience, tenant, and repository |
 | Observability | `LocalObservabilityConnector` appends scoped usage, optional cost, and metadata to private JSON Lines | Send the same scoped usage and cost records to the operator's telemetry and billing sinks |
 
@@ -307,10 +347,10 @@ The single-node runtime preserves its HTTP API and lifecycle behavior while ever
 
 [examples/train_d1_omni.py](examples/train_d1_omni.py) trains Liquid AI's d1-omni-600M against this environment with reinforcement learning. It keeps the released model frozen and, by default, trains a small readout of 1,025 numbers on top of it. The readout reads the model's internal state at each yes-or-no question's answer options and corrects the released model's answer. `--part head` trains the whole decision head instead, about 26 million of the model's 587 million parameters. On a synthetic taskset of 518 practice pages, the head's dev score rose from 0.685 to at best 0.753, barely above the 0.750 that answering 50% to every question earns, while its practice score rose much more. The readout raised the dev score to 0.807. Either way, the trainer learns from the rewards alone. Every 10 updates it scores the dev split and keeps the weights with the best dev reward, because a small taskset is easy to memorize.
 
-Install the trainer's packages next to this one, download the model at the revision the example was written for, and start the server as above. The model runs its own code from its folder, so review that code before you run it.
+Install the `model` extra, download the pinned model revision, and start the server as above. The model runs its own code from its folder, so review that code before you run it.
 
 ```sh
-uv pip install torch torchvision "transformers>=5.14" pillow
+uv pip install -e ".[model]"
 hf download LiquidAI/d1-omni-600M --revision 02b55d7076f15129e59ab3f94783f32c4b088674 --local-dir models/d1-omni-600M
 export REPLICA_TRUSTED_MODEL_DIRS="$(pwd)/models/d1-omni-600M"
 .venv/bin/python examples/train_d1_omni.py train --allow-insecure-loopback --model models/d1-omni-600M --taskset /path/to/taskset --out runs/demo

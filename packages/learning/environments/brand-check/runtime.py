@@ -462,10 +462,24 @@ class LocalRuntime:
             return None
         return promotion
 
-    def ready(self) -> None:
-        """Fail unless the promoted candidate is intact and its backend can serve requests."""
+    def ready(self) -> dict[str, Any]:
+        """Return readiness detail after checking the promoted candidate and backend."""
         promotion = self.promotion()
-        self._promotable_candidate(promotion["candidateId"])
+        manifest = self._promotable_candidate(promotion["candidateId"])
+        connector = self.inference_connectors[manifest["backend"]]
+        readiness = getattr(connector, "readiness", lambda: None)()
+        if readiness is None:
+            return {"status": "ready"}
+        if not readiness.get("inference", False):
+            raise RuntimeFailure(
+                "backend_unavailable",
+                f"Promoted candidate backend {manifest['backend']} is not ready for inference.",
+                503,
+            )
+        return {
+            "status": "ready",
+            "backend": readiness,
+        }
 
     def evaluate(
         self, request: Mapping[str, Any], *, timeout_seconds: float = 120
@@ -500,12 +514,17 @@ class LocalRuntime:
         started = time.monotonic()
         operation_error: Exception | None = None
         try:
-            credential = self._acquire_credential("inference", context)
+            credential = (
+                self._acquire_credential("inference", context)
+                if getattr(connector, "requires_credential", True)
+                else None
+            )
+            project_request = getattr(connector, "project_request", _backend_request)
             answers = dict(
                 _run_inference(
                     connector,
                     adapter,
-                    _backend_request(request),
+                    project_request(request),
                     work_directory=work,
                     context=context,
                     credential=credential,
@@ -592,7 +611,11 @@ class LocalRuntime:
             shutil.rmtree(work, ignore_errors=True)
             work.mkdir(mode=0o700)
             connector = self.training_connectors[job["backend"]]
-            credential = self._acquire_credential("training", context)
+            credential = (
+                self._acquire_credential("training", context)
+                if getattr(connector, "requires_credential", True)
+                else None
+            )
             result = _run_backend(
                 connector,
                 self.taskset,

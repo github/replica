@@ -107,7 +107,7 @@ def load_trainer(auto_model):
         "PIL": pillow,
         "transformers": transformers,
     }
-    source = Path(__file__).parent.parent / "examples" / "train_d1_omni.py"
+    source = Path(__file__).parent.parent / "d1_omni.py"
     spec = importlib.util.spec_from_file_location("test_train_d1_omni", source)
     trainer = importlib.util.module_from_spec(spec)
     modules[spec.name] = trainer
@@ -118,7 +118,7 @@ def load_trainer(auto_model):
 
 class TrainerTest(unittest.TestCase):
     def test_training_averages_each_task_surrogate_over_its_labeled_questions(self):
-        source = Path(__file__).parent.parent / "examples" / "train_d1_omni.py"
+        source = Path(__file__).parent.parent / "d1_omni.py"
         tree = ast.parse(source.read_text(encoding="utf-8"))
         assignments = [
             node
