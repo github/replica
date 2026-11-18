@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 import os
 import re
 import shutil
@@ -98,6 +99,28 @@ def taskset_digest(taskset: Taskset) -> ContentDigest:
         ],
     }
     return _digest(_json_bytes(identity))
+
+
+def _candidate_content_digest(
+    manifest: Mapping[str, Any],
+    artifacts: Sequence[Artifact],
+) -> ContentDigest:
+    identity = hashlib.sha256()
+    identity.update(_json_bytes(manifest))
+    for artifact in artifacts:
+        identity.update(b"\0")
+        identity.update(
+            _json_bytes(
+                {
+                    "digest": str(artifact.digest),
+                    "mediaType": artifact.media_type,
+                    "metadata": artifact.metadata,
+                }
+            )
+        )
+        identity.update(b"\0")
+        identity.update(artifact.data)
+    return ContentDigest("sha256", identity.hexdigest())
 
 
 def _write_json_atomic(path: Path, value: Any, *, mode: int = 0o600) -> None:
@@ -240,6 +263,32 @@ class LocalArtifactConnector(_ScopedConnector):
             )
         data_path, metadata_path = self._paths(artifact.digest)
         with self._lock:
+            if data_path.exists() and not metadata_path.exists():
+                try:
+                    data = data_path.read_bytes()
+                except OSError:
+                    raise ConnectorError(
+                        "artifact_unreadable",
+                        "The artifact cannot be read.",
+                        category="integrity",
+                    ) from None
+                if _digest(data) != artifact.digest or data != artifact.data:
+                    raise ConnectorError(
+                        "artifact_damaged",
+                        "The stored artifact no longer matches its immutable identity.",
+                        category="integrity",
+                    )
+                _write_immutable(
+                    metadata_path,
+                    _json_bytes(
+                        {
+                            "digest": str(artifact.digest),
+                            "mediaType": artifact.media_type,
+                            "metadata": artifact.metadata,
+                        }
+                    ),
+                )
+                return artifact
             if data_path.exists() or metadata_path.exists():
                 existing = self.get(artifact.digest, context)
                 if existing != artifact:
@@ -475,7 +524,7 @@ class LocalJobConnector(_ScopedConnector):
         context: OperationContext,
     ) -> JobLease:
         self._check(context)
-        if ttl_seconds <= 0:
+        if not math.isfinite(ttl_seconds) or ttl_seconds <= 0:
             raise ConnectorError(
                 "lease_ttl_invalid",
                 "A job lease needs a positive lifetime.",
@@ -523,7 +572,7 @@ class LocalJobConnector(_ScopedConnector):
         context: OperationContext,
     ) -> JobLease:
         self._check(context)
-        if ttl_seconds <= 0:
+        if not math.isfinite(ttl_seconds) or ttl_seconds <= 0:
             raise ConnectorError(
                 "lease_ttl_invalid",
                 "A job lease needs a positive lifetime.",
@@ -609,13 +658,13 @@ class LocalCandidateConnector(_ScopedConnector):
 
     def put(self, candidate: Candidate, context: OperationContext) -> Candidate:
         self._check(context)
-        self._validate_candidate(candidate)
         candidate_id = _checked_identifier(candidate.id, "candidate")
+        self._validate_candidate(candidate)
         target = self.candidates / candidate_id
         with self._lock:
             if target.exists():
                 existing = self.get(candidate.id, context)
-                if existing != candidate:
+                if not self._candidates_equal(existing, candidate):
                     raise ConnectorError(
                         "candidate_immutable",
                         "The candidate ID already identifies different content.",
@@ -659,6 +708,12 @@ class LocalCandidateConnector(_ScopedConnector):
                         {
                             "id": candidate.id,
                             "digest": str(candidate.digest),
+                            "contentDigest": str(
+                                _candidate_content_digest(
+                                    candidate.manifest,
+                                    candidate.artifacts,
+                                )
+                            ),
                             "manifestDigest": str(_digest(_json_bytes(candidate.manifest))),
                             "artifacts": names,
                         }
@@ -682,8 +737,9 @@ class LocalCandidateConnector(_ScopedConnector):
                 category="not_found",
             )
         descriptor_path = directory / self.DESCRIPTOR
-        if not descriptor_path.exists():
-            self._migrate_existing_candidate(directory, candidate_id)
+        with self._lock:
+            if not descriptor_path.exists():
+                self._migrate_existing_candidate(directory, candidate_id)
         descriptor = _read_object(
             descriptor_path,
             code="candidate_not_found",
@@ -697,6 +753,11 @@ class LocalCandidateConnector(_ScopedConnector):
         try:
             digest = _content_digest(descriptor["digest"])
             manifest_digest = _content_digest(descriptor["manifestDigest"])
+            content_digest = (
+                _content_digest(descriptor["contentDigest"])
+                if "contentDigest" in descriptor
+                else None
+            )
         except (KeyError, ValueError):
             raise ConnectorError(
                 "candidate_damaged",
@@ -761,6 +822,16 @@ class LocalCandidateConnector(_ScopedConnector):
                 "The candidate descriptor names another candidate.",
                 category="integrity",
             )
+        if (
+            content_digest is not None
+            and _candidate_content_digest(candidate.manifest, candidate.artifacts)
+            != content_digest
+        ):
+            raise ConnectorError(
+                "candidate_damaged",
+                "The candidate content no longer matches its immutable identity.",
+                category="integrity",
+            )
         self._validate_candidate(candidate)
         return candidate
 
@@ -803,38 +874,38 @@ class LocalCandidateConnector(_ScopedConnector):
 
     def current(self, context: OperationContext) -> Promotion | None:
         self._check(context, hide=True)
-        self._recover_promotion()
-        path = self.root / "promotion.json"
-        if not path.is_file():
-            return None
-        saved = _read_object(
-            path,
-            code="promotion_not_found",
-            message="The promotion was not found.",
-        )
-        generation = saved.get("generation")
-        if not isinstance(generation, int):
-            raise ConnectorError(
-                "promotion_damaged",
-                "The stored promotion generation is invalid.",
-                category="integrity",
+        with self._lock:
+            path = self.root / "promotion.json"
+            if not path.is_file():
+                return None
+            saved = _read_object(
+                path,
+                code="promotion_not_found",
+                message="The promotion was not found.",
             )
-        promotion = self._promotion_from_json(
-            saved,
-            self._promotion_owner_kind(generation),
-        )
-        history = _read_object(
-            self.promotions / f"{promotion.generation:08d}.json",
-            code="promotion_not_found",
-            message="The promotion generation was not found.",
-        )
-        if history != saved:
-            raise ConnectorError(
-                "promotion_damaged",
-                "The current promotion does not match its immutable generation.",
-                category="integrity",
+            generation = saved.get("generation")
+            if not isinstance(generation, int):
+                raise ConnectorError(
+                    "promotion_damaged",
+                    "The stored promotion generation is invalid.",
+                    category="integrity",
+                )
+            promotion = self._promotion_from_json(
+                saved,
+                self._promotion_owner_kind(generation),
             )
-        return promotion
+            history = _read_object(
+                self.promotions / f"{promotion.generation:08d}.json",
+                code="promotion_not_found",
+                message="The promotion generation was not found.",
+            )
+            if history != saved:
+                raise ConnectorError(
+                    "promotion_damaged",
+                    "The current promotion does not match its immutable generation.",
+                    category="integrity",
+                )
+            return promotion
 
     def artifact_path(
         self,
@@ -861,9 +932,10 @@ class LocalCandidateConnector(_ScopedConnector):
             message="The promotion was not found.",
         )
 
-    def recover_promotion(self, context: OperationContext) -> bool:
+    def recover_promotion(self, context: OperationContext) -> dict[str, Any] | None:
         self._check(context)
-        return self._recover_promotion()
+        with self._lock:
+            return self._recover_promotion()
 
     def _validate_candidate(self, candidate: Candidate) -> None:
         for artifact in candidate.artifacts:
@@ -873,6 +945,14 @@ class LocalCandidateConnector(_ScopedConnector):
                     "A candidate artifact does not match its digest.",
                     category="integrity",
                 )
+    @staticmethod
+    def _candidates_equal(left: Candidate, right: Candidate) -> bool:
+        return (
+            left.id == right.id
+            and left.digest == right.digest
+            and left.manifest == right.manifest
+            and tuple(left.artifacts) == tuple(right.artifacts)
+        )
 
     def _write_promotion(self, promotion: Promotion) -> None:
         saved = {
@@ -908,10 +988,10 @@ class LocalCandidateConnector(_ScopedConnector):
             _write_immutable(history, data)
         _write_json_atomic(self.root / "promotion.json", saved)
 
-    def _recover_promotion(self) -> bool:
+    def _recover_promotion(self) -> dict[str, Any] | None:
         history = sorted(self.promotions.glob("*.json"))
         if not history:
-            return False
+            return None
         latest = _read_object(
             history[-1],
             code="promotion_not_found",
@@ -946,14 +1026,14 @@ class LocalCandidateConnector(_ScopedConnector):
         )
         current_generation = current.get("generation", 0) if current else 0
         if promotion.generation == current_generation:
-            return False
+            return None
         if (
             promotion.generation == current_generation + 1
             and latest.get("previousCandidateId")
             == (current.get("candidateId") if current else None)
         ):
             _write_json_atomic(current_path, latest)
-            return True
+            return latest
         raise ConnectorError(
             "promotion_damaged",
             "Promotion history is not one generation ahead of the current pointer.",
@@ -1004,16 +1084,24 @@ class LocalCandidateConnector(_ScopedConnector):
                 "The existing candidate has no artifacts.",
                 category="integrity",
             )
-        identity = hashlib.sha256()
-        identity.update(_json_bytes(manifest))
-        for item in artifacts:
-            identity.update((directory / item["name"]).read_bytes())
+        candidate_artifacts = tuple(
+            Artifact(
+                _content_digest(item["digest"]),
+                item["mediaType"],
+                (directory / item["name"]).read_bytes(),
+                item["metadata"],
+            )
+            for item in artifacts
+        )
         _write_immutable(
             directory / self.DESCRIPTOR,
             _json_bytes(
                 {
                     "id": candidate_id,
-                    "digest": str(ContentDigest("sha256", identity.hexdigest())),
+                    "digest": str(_digest(candidate_id.encode())),
+                    "contentDigest": str(
+                        _candidate_content_digest(manifest, candidate_artifacts)
+                    ),
                     "manifestDigest": str(_digest(_json_bytes(manifest))),
                     "artifacts": artifacts,
                 }

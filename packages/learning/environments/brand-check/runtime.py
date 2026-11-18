@@ -367,14 +367,26 @@ class LocalRuntime:
                 "candidate_mismatch", "The candidate belongs to another taskset.", 409
             )
         with self._lock:
-            current = self.promotion(required=False)
-            if current and current["candidateId"] == candidate_id:
-                return current
             context = self._operation_context(
                 f"promote_{uuid.uuid4().hex}",
                 max_seconds=30,
                 owner=RuntimeOwner("human", promoted_by.strip()),
             )
+            try:
+                recovered = self.local_connectors.candidates.recover_promotion(
+                    context
+                )
+            except ConnectorError as error:
+                raise _runtime_connector_failure(error) from None
+            current = self.promotion(required=False)
+            if current and current["candidateId"] == candidate_id:
+                return current
+            if recovered:
+                raise RuntimeFailure(
+                    "promotion_recovered",
+                    "The previous promotion completed after its pointer write failed. Retry the requested promotion.",
+                    409,
+                )
             try:
                 self.connectors.candidates.promote(
                     candidate_id,
@@ -721,6 +733,28 @@ class LocalRuntime:
         candidate_id = _candidate_id(manifest_identity, result.adapter, report)
         manifest = {"id": candidate_id, **manifest_identity}
         try:
+            artifacts = (
+                Artifact(
+                    ContentDigest(
+                        "sha256",
+                        hashlib.sha256(result.adapter).hexdigest(),
+                    ),
+                    "application/json"
+                    if result.adapter_name.endswith(".json")
+                    else "application/octet-stream",
+                    result.adapter,
+                    {"name": result.adapter_name},
+                ),
+                Artifact(
+                    ContentDigest(
+                        "sha256",
+                        hashlib.sha256(_json_bytes(report)).hexdigest(),
+                    ),
+                    "application/json",
+                    _json_bytes(report),
+                    {"name": "evaluation.json"},
+                ),
+            )
             self.connectors.candidates.put(
                 Candidate(
                     candidate_id,
@@ -734,28 +768,7 @@ class LocalRuntime:
                         ).hexdigest(),
                     ),
                     manifest,
-                    (
-                        Artifact(
-                            ContentDigest(
-                                "sha256",
-                                hashlib.sha256(result.adapter).hexdigest(),
-                            ),
-                            "application/json"
-                            if result.adapter_name.endswith(".json")
-                            else "application/octet-stream",
-                            result.adapter,
-                            {"name": result.adapter_name},
-                        ),
-                        Artifact(
-                            ContentDigest(
-                                "sha256",
-                                hashlib.sha256(_json_bytes(report)).hexdigest(),
-                            ),
-                            "application/json",
-                            _json_bytes(report),
-                            {"name": "evaluation.json"},
-                        ),
-                    ),
+                    artifacts,
                 ),
                 self._operation_context(
                     f"candidate_{job['id']}",

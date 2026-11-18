@@ -9,6 +9,7 @@ import shutil
 import tempfile
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from replica_brand_check.connector_conformance import (
@@ -202,6 +203,71 @@ class LocalConnectorPersistenceTest(unittest.TestCase):
             bundle.connectors.jobs.list(("queued",), context),
         )
 
+    def test_completes_metadata_after_an_interrupted_artifact_write(self):
+        bundle, state_directory, scope = _new_bundle(self)
+        artifact = Artifact(
+            digest=_digest(b"recoverable"),
+            media_type="application/octet-stream",
+            data=b"recoverable",
+            metadata={"purpose": "test"},
+        )
+        data_path = (
+            state_directory
+            / "artifacts"
+            / "sha256"
+            / artifact.digest.value[:2]
+            / artifact.digest.value
+        )
+        data_path.parent.mkdir(parents=True)
+        data_path.write_bytes(artifact.data)
+
+        stored = bundle.connectors.artifacts.put(
+            artifact,
+            _context(scope, "recover-artifact"),
+        )
+
+        self.assertEqual(stored, artifact)
+        self.assertEqual(
+            bundle.connectors.artifacts.get(
+                artifact.digest,
+                _context(scope, "read-recovered-artifact"),
+            ),
+            artifact,
+        )
+
+    def test_rejects_non_finite_lease_lifetimes_without_writing_a_lease(self):
+        bundle, state_directory, scope = _new_bundle(self)
+        context = _context(scope, "lease-lifetime")
+        bundle.connectors.jobs.create("job_infinite", {"state": "queued"}, context)
+
+        with self.assertRaises(ConnectorError) as invalid:
+            bundle.connectors.jobs.acquire(
+                "job_infinite",
+                ttl_seconds=float("inf"),
+                context=context,
+            )
+
+        self.assertEqual(invalid.exception.category, "invalid_input")
+        self.assertFalse(
+            (state_directory / "jobs" / ".leases" / "job_infinite.json").exists()
+        )
+
+    def test_accepts_an_identical_candidate_with_list_artifacts(self):
+        bundle, _, scope = _new_bundle(self)
+        context = _context(scope, "candidate-list")
+        original = _candidate("list")
+        candidate = Candidate(
+            original.id,
+            original.digest,
+            original.manifest,
+            list(original.artifacts),
+        )
+
+        bundle.connectors.candidates.put(candidate, context)
+        retried = bundle.connectors.candidates.put(candidate, context)
+
+        self.assertEqual(tuple(retried.artifacts), tuple(candidate.artifacts))
+
     def test_refuses_to_rebind_existing_state_to_another_scope(self):
         bundle, state_directory, scope = _new_bundle(self)
         taskset_directory = bundle.tasksets.taskset.directory
@@ -299,6 +365,52 @@ class LocalConnectorPersistenceTest(unittest.TestCase):
         self.assertEqual(current.owner, RuntimeOwner("human", "legacy-operator"))
         self.assertTrue((candidate_directory / ".candidate.json").is_file())
         self.assertTrue((state_directory / ".scope.json").is_file())
+
+    def test_serializes_concurrent_legacy_candidate_migration(self):
+        taskset_directory = write_taskset(
+            self,
+            [
+                make_task(1, answer=True),
+                make_task(2, split="test", answer=True),
+            ],
+        )
+        state_directory = taskset_directory.parent / "concurrent-legacy-state"
+        self.addCleanup(shutil.rmtree, state_directory, True)
+        candidate_directory = state_directory / "candidates" / "candidate_legacy"
+        candidate_directory.mkdir(parents=True)
+        (candidate_directory / "adapter.json").write_text(
+            '{"probabilities":{}}\n',
+            encoding="utf-8",
+        )
+        (candidate_directory / "evaluation.json").write_text(
+            '{"tasksetDigest":"sha256:legacy"}\n',
+            encoding="utf-8",
+        )
+        (candidate_directory / "manifest.json").write_text(
+            '{"id":"candidate_legacy","adapter":{"file":"adapter.json"}}\n',
+            encoding="utf-8",
+        )
+        scope = RuntimeScope("tenant-one", "github/example")
+        bundle = create_local_connector_bundle(
+            state_directory,
+            taskset_directory,
+            {"fixture": _FixtureBackend()},
+            scope=scope,
+        )
+        self.addCleanup(bundle.close)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = tuple(
+                executor.map(
+                    lambda operation: bundle.connectors.candidates.get(
+                        "candidate_legacy",
+                        _context(scope, operation),
+                    ),
+                    ("legacy-one", "legacy-two"),
+                )
+            )
+
+        self.assertEqual(results[0], results[1])
 
     def test_recovers_scoped_state_and_usage_after_restart(self):
         bundle, state_directory, scope = _new_bundle(self)
@@ -404,7 +516,6 @@ class LocalConnectorPersistenceTest(unittest.TestCase):
 
         paths = tuple(state_directory.rglob("*"))
         self.assertTrue(paths)
-        self.assertTrue(all(path.is_relative_to(state_directory) for path in paths))
         self.assertFalse(
             any(
                 scope.tenant_id in path.relative_to(state_directory).as_posix()
@@ -444,6 +555,48 @@ class LocalConnectorPersistenceTest(unittest.TestCase):
         with self.assertRaises(ConnectorError) as candidate_damaged:
             bundle.connectors.candidates.get(
                 candidate.id, _context(scope, "read-candidate")
+            )
+
+        self.assertEqual(candidate_damaged.exception.category, "integrity")
+
+    def test_detects_coherent_candidate_content_replacement(self):
+        bundle, state_directory, scope = _new_bundle(self)
+        candidate = bundle.connectors.candidates.put(
+            _candidate("coherent"), _context(scope, "candidate")
+        )
+        directory = state_directory / "candidates" / candidate.id
+        descriptor_path = directory / ".candidate.json"
+        descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
+        manifest = {"name": "changed", "artifact": str(_digest(b"changed"))}
+        artifact = descriptor["artifacts"][0]
+        artifact_path = directory / artifact["name"]
+        os.chmod(artifact_path, 0o600)
+        artifact_path.write_bytes(b"changed")
+        artifact["digest"] = str(_digest(b"changed"))
+        manifest_path = directory / "manifest.json"
+        os.chmod(manifest_path, 0o600)
+        manifest_path.write_text(
+            json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
+        descriptor["manifestDigest"] = str(
+            _digest(
+                (
+                    json.dumps(manifest, sort_keys=True, separators=(",", ":"))
+                    + "\n"
+                ).encode()
+            )
+        )
+        os.chmod(descriptor_path, 0o600)
+        descriptor_path.write_text(
+            json.dumps(descriptor, sort_keys=True, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(ConnectorError) as candidate_damaged:
+            bundle.connectors.candidates.get(
+                candidate.id,
+                _context(scope, "read-replaced-candidate"),
             )
 
         self.assertEqual(candidate_damaged.exception.category, "integrity")
