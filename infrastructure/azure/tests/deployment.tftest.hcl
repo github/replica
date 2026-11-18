@@ -391,6 +391,21 @@ run "runtime_environment_rejects_null_values" {
   expect_failures = [var.runtime_environment_variables]
 }
 
+run "runtime_environment_rejects_credential_names" {
+  command = plan
+  variables {
+    runtime_environment_variables = { REPLICA_COPILOT_TOKEN = "synthetic-value" }
+  }
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "runtime_environment_accepts_credential_words_inside_other_words" {
+  command = plan
+  variables {
+    runtime_environment_variables = { MONKEY_MODE = "on", TOKENIZER = "basic" }
+  }
+}
+
 run "runtime_environment_cannot_duplicate_a_secret_reference" {
   command = plan
   variables {

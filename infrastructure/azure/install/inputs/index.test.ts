@@ -25,6 +25,40 @@ describe("readInstallationInputs()", () => {
     await expect(readInstallationInputs("synthetic-installation", config)).resolves.toEqual(expected)
   })
 
+  it.each([
+    "HUB_BOOTSTRAP_SECRET",
+    "SECRETS_PATH",
+    "REPLICA_COPILOT_TOKEN",
+    "HUB_RUNTIME_PASSWORD",
+    "SMTP_PASSWD",
+    "SIGNING_PASSPHRASE",
+    "SERVICE_CREDENTIALS",
+    "SERVICE_APIKEY",
+    "SERVICE_API_KEY",
+    "GITHUB_APP_PRIVATE_KEY_BASE64",
+  ])("rejects credential-named runtime environment setting %s", async (name) => {
+    const { config, inputs } = boundaryInputs()
+    vi.mocked(readPrivateFile).mockResolvedValue(
+      JSON.stringify({ ...inputs, runtime_environment_variables: { [name]: "synthetic-value" } }),
+    )
+
+    await expect(readInstallationInputs("synthetic-installation", config)).rejects.toThrow(
+      `Move ${name} from runtime_environment_variables to runtime_secret_references`,
+    )
+  })
+
+  it("accepts public settings whose names only contain credential words inside other words", async () => {
+    const { config, inputs } = boundaryInputs()
+    const environment = { MONKEY_MODE: "on", TOKENIZER: "basic", KEYBOARD_LAYOUT: "us" }
+    vi.mocked(readPrivateFile).mockResolvedValue(
+      JSON.stringify({ ...inputs, runtime_environment_variables: environment }),
+    )
+
+    await expect(readInstallationInputs("synthetic-installation", config)).resolves.toMatchObject({
+      runtime_environment_variables: environment,
+    })
+  })
+
   it("retains public runtime values, empty strings, and boundary names without a secret-reference count limit", async () => {
     const { config, inputs } = boundaryInputs()
     const environment = {

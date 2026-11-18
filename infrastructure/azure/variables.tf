@@ -153,6 +153,14 @@ variable "runtime_environment_variables" {
   }
 
   validation {
+    condition = alltrue([
+      for name in keys(var.runtime_environment_variables) :
+      !can(regex("(^|_)(SECRET|TOKEN|PASSWORD|PASSWD|PASSPHRASE|CREDENTIAL|APIKEY|KEY)S?(_|$)", name))
+    ])
+    error_message = "Credential-named settings, such as names containing a SECRET, TOKEN, PASSWORD, CREDENTIAL, or KEY word, cannot be stored in Terraform state. Move each to runtime_secret_references as a Key Vault secret reference."
+  }
+
+  validation {
     condition = (
       alltrue([
         for name in ["GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID"] :
