@@ -2,7 +2,7 @@
 
 A decision model is a small vision-language model, one that reads images and text together. It answers typed questions about whether a Build's screenshots follow a repository's accepted learnings.
 
-This guide takes a team from a training export and Build screenshots to a trained and evaluated model. Producing those inputs from the new TypeScript Hub, serving the model, and using it on new Builds are separate later layers. See [ADR 0002](adr/0002-decision-model-and-rl-environment.md) for the design and trade-offs.
+This guide takes a team from a training export and Build screenshots to a trained and evaluated model. Producing those inputs from the new TypeScript Hub is a later integration layer. The learning package also includes a customer-operated, single-node reference Replica decision runtime for bounded training jobs, explicit promotion and rollback, and authenticated inference. See [ADR 0002](adr/0002-decision-model-and-rl-environment.md) for the design and trade-offs.
 
 The team runs training on infrastructure it chooses. Replica provides the taskset contract, the OpenEnv brand-check environment, an evaluation command, and a reference trainer.
 
@@ -88,3 +88,7 @@ The trainer accepts only a local model directory named in `REPLICA_TRUSTED_MODEL
 Choose settings against the development split. Score the test split only once after choosing the weights, so it remains an honest comparison. Compare `released-test-report.json` with `trained-test-report.json`: mean reward should improve, and expected calibration error should not get worse.
 
 See [Train d1-omni-600M](../packages/learning/environments/brand-check/README.md#train-d1-omni-600m) for the reference results, or [Connect a trainer](../packages/learning/environments/brand-check/README.md#connect-a-trainer) to use another OpenEnv trainer.
+
+## 4. Exercise the reference runtime
+
+The [single-node reference runtime](../packages/learning/environments/brand-check/README.md#run-the-single-node-reference-runtime) lets an operator exercise the complete job, candidate, promotion, rollback, and inference lifecycle on customer-controlled infrastructure. Its deterministic fixture backend is for development and tests only; it proves the runtime contract without claiming model quality or adding the real d1 backend.
