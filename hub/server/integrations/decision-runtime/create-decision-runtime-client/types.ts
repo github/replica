@@ -67,6 +67,7 @@ export interface DecisionRuntimeClient {
     backend: string
     maxUpdates: number
     maxSeconds: number
+    maxCredits: string
     tasksetId: string
     tasksetDigest: string
     idempotencyKey: string

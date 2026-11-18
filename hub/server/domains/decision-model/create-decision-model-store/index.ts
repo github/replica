@@ -1,8 +1,9 @@
-import type { Prisma } from "../../../generated/prisma/client.ts"
+import { randomUUID } from "node:crypto"
+import { Prisma, type PrismaClient } from "../../../generated/prisma/client.ts"
 
+import { saveDecisionBuildEvaluation } from "../../../repositories/decision-build-evaluations/save-decision-build-evaluation/index.ts"
 import { getDecisionCandidate } from "../../../repositories/decision-candidates/get-decision-candidate/index.ts"
 import { saveDecisionCandidate } from "../../../repositories/decision-candidates/save-decision-candidate/index.ts"
-import { saveDecisionBuildEvaluation } from "../../../repositories/decision-build-evaluations/save-decision-build-evaluation/index.ts"
 import { getDecisionModelConfiguration } from "../../../repositories/decision-model-configurations/get-decision-model-configuration/index.ts"
 import { getDecisionModelPromotion } from "../../../repositories/decision-model-promotions/get-decision-model-promotion/index.ts"
 import { saveDecisionModelPromotion } from "../../../repositories/decision-model-promotions/save-decision-model-promotion/index.ts"
@@ -10,7 +11,22 @@ import { createOrGetDecisionTrainingJob } from "../../../repositories/decision-t
 import { getDecisionTrainingJob } from "../../../repositories/decision-training-jobs/get-decision-training-job/index.ts"
 import { sumDecisionTrainingUsage } from "../../../repositories/decision-training-jobs/sum-decision-training-usage/index.ts"
 import { updateDecisionTrainingJob } from "../../../repositories/decision-training-jobs/update-decision-training-job/index.ts"
+import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
+import { DecisionModelError } from "../errors.ts"
 import type { DecisionModelStore, DecisionTrainingJobRecord } from "../types.ts"
+
+const activeStates = ["QUEUED", "SUBMITTED", "RUNNING"] as const
+
+function decimalUnits(value: string): bigint {
+  const [whole = "0", fraction = ""] = value.split(".")
+  return BigInt(whole) * 1_000_000_000n + BigInt(fraction.padEnd(9, "0"))
+}
+
+function decimalString(value: bigint): string {
+  const whole = value / 1_000_000_000n
+  const fraction = (value % 1_000_000_000n).toString().padStart(9, "0").replace(/0+$/, "")
+  return fraction ? `${whole}.${fraction}` : whole.toString()
+}
 
 function jobRecord(
   job: Awaited<ReturnType<typeof getDecisionTrainingJob>> extends infer Result
@@ -41,16 +57,7 @@ function jobRecord(
   }
 }
 
-export function createDecisionModelStore(
-  database: Pick<
-    Prisma.TransactionClient,
-    | "decisionBuildEvaluation"
-    | "decisionCandidate"
-    | "decisionModelConfiguration"
-    | "decisionModelPromotion"
-    | "decisionTrainingJob"
-  >,
-): DecisionModelStore {
+export function createDecisionModelStore(database: PrismaClient): DecisionModelStore {
   return {
     async getConfiguration(repositoryId) {
       const configuration = await getDecisionModelConfiguration(database, repositoryId)
@@ -68,56 +75,163 @@ export function createDecisionModelStore(
     getMonthlyUsageCredits: (repositoryId, since) =>
       sumDecisionTrainingUsage(database, repositoryId, since),
     async createOrGetJob(input) {
-      const result = await createOrGetDecisionTrainingJob(database, {
-        repositoryId: input.repositoryId,
-        requestedByMembershipId: input.requestedByMembershipId,
-        idempotencyKey: input.idempotencyKey,
-        configurationGeneration: input.configurationGeneration,
-        backend: input.settings.backend,
-        maxUpdates: input.settings.maxUpdates,
-        maxSeconds: input.settings.maxSeconds,
-        budgetCredits: input.settings.monthlyBudgetCredits,
-        consentGrantId: input.taskset.consentGrantId,
-        exportDigest: input.taskset.exportDigest,
-        repeatableReviewSnapshotDigest: input.taskset.repeatableReviewSnapshotDigest,
-        questionDigest: input.taskset.questionDigest,
-        buildSetDigest: input.taskset.buildSetDigest,
-        tasksetDigest: input.taskset.tasksetDigest,
-      })
-      return { created: result.created, job: jobRecord(result.job) }
+      return database.$transaction(
+        async (transaction) => {
+          await transaction.$queryRaw`
+            SELECT id
+            FROM decision_model_configurations
+            WHERE repository_id = ${input.repositoryId}::uuid
+            FOR UPDATE
+          `
+          const configuration = await getDecisionModelConfiguration(transaction, input.repositoryId)
+          if (
+            !configuration?.enabled ||
+            configuration.generation !== input.configurationGeneration
+          ) {
+            throw new DecisionModelError(
+              409,
+              "configuration_stale",
+              "The repository decision-model settings changed.",
+            )
+          }
+          const existing = await getDecisionTrainingJobByIdempotencyKey(
+            transaction,
+            input.repositoryId,
+            input.idempotencyKey,
+          )
+          if (existing) return { created: false, job: jobRecord(existing) }
+          const since = new Date()
+          since.setUTCDate(1)
+          since.setUTCHours(0, 0, 0, 0)
+          const [active, used] = await Promise.all([
+            transaction.decisionTrainingJob.aggregate({
+              where: {
+                repositoryId: input.repositoryId,
+                createdAt: { gte: since },
+                state: { in: [...activeStates] },
+              },
+              _sum: { budgetCredits: true },
+            }),
+            transaction.decisionTrainingJob.aggregate({
+              where: {
+                repositoryId: input.repositoryId,
+                createdAt: { gte: since },
+                usageUnit: "credits",
+                state: { in: ["SUCCEEDED", "FAILED", "CANCELLED"] },
+              },
+              _sum: { usageQuantity: true },
+            }),
+          ])
+          const remaining =
+            decimalUnits(configuration.monthlyBudgetCredits.toString()) -
+            decimalUnits(active._sum.budgetCredits?.toString() ?? "0") -
+            decimalUnits(used._sum.usageQuantity?.toString() ?? "0")
+          if (remaining <= 0) {
+            throw new DecisionModelError(
+              409,
+              "budget_exceeded",
+              "The repository decision-model budget has been reached.",
+            )
+          }
+          const result = await createOrGetDecisionTrainingJob(transaction, {
+            repositoryId: input.repositoryId,
+            requestedByMembershipId: input.requestedByMembershipId,
+            idempotencyKey: input.idempotencyKey,
+            configurationGeneration: input.configurationGeneration,
+            backend: input.settings.backend,
+            maxUpdates: input.settings.maxUpdates,
+            maxSeconds: input.settings.maxSeconds,
+            budgetCredits: decimalString(remaining),
+            consentGrantId: input.taskset.consentGrantId,
+            exportDigest: input.taskset.exportDigest,
+            repeatableReviewSnapshotDigest: input.taskset.repeatableReviewSnapshotDigest,
+            questionDigest: input.taskset.questionDigest,
+            buildSetDigest: input.taskset.buildSetDigest,
+            tasksetDigest: input.taskset.tasksetDigest,
+          })
+          if (result.created) {
+            await createSecurityAudit(transaction, {
+              id: randomUUID(),
+              type: "decision_training",
+              actorMembershipId: input.requestedByMembershipId,
+              outcome: "requested",
+              repositoryId: input.repositoryId,
+              jobId: result.job.id,
+            })
+          }
+          return { created: result.created, job: jobRecord(result.job) }
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
+      )
     },
     async getJob(repositoryId, jobId) {
       const job = await getDecisionTrainingJob(database, repositoryId, jobId)
       return job ? jobRecord(job) : null
     },
     async markJobSubmitted(input) {
-      return jobRecord(
-        await updateDecisionTrainingJob(database, {
-          id: input.jobId,
-          runtimeJobId: input.runtimeJobId,
-          runtimeTasksetId: input.runtimeTasksetId,
-        }),
-      )
+      const result = await updateDecisionTrainingJob(database, {
+        id: input.jobId,
+        runtimeJobId: input.runtimeJobId,
+        runtimeTasksetId: input.runtimeTasksetId,
+        expectedStates: ["QUEUED"],
+      })
+      return jobRecord(result.job)
     },
     async updateJobState(input) {
-      return jobRecord(
-        await updateDecisionTrainingJob(database, {
+      return database.$transaction(async (transaction) => {
+        const result = await updateDecisionTrainingJob(transaction, {
           id: input.jobId,
           state: input.state,
+          expectedStates: [...activeStates],
           candidateRuntimeId: input.candidateRuntimeId,
           failureCode: input.failureCode,
           usage: input.usage,
-        }),
-      )
+        })
+        if (result.changed && input.audit) {
+          await createSecurityAudit(transaction, {
+            id: randomUUID(),
+            type: "decision_training",
+            actorMembershipId: input.audit.actorMembershipId,
+            outcome: input.audit.outcome,
+            repositoryId: input.audit.repositoryId,
+            jobId: input.jobId,
+            ...(input.audit.reason ? { reason: input.audit.reason } : {}),
+          })
+        }
+        return jobRecord(result.job)
+      })
     },
-    async saveCandidate(input) {
-      const candidate = await saveDecisionCandidate(database, input)
-      return {
-        id: candidate.id,
-        repositoryId: candidate.repositoryId,
-        runtimeCandidateId: candidate.runtimeCandidateId,
-        tasksetDigest: candidate.tasksetDigest,
-      }
+    async completeJobWithCandidate(input) {
+      return database.$transaction(async (transaction) => {
+        const result = await updateDecisionTrainingJob(transaction, {
+          id: input.trainingJobId,
+          state: "SUCCEEDED",
+          expectedStates: ["SUBMITTED", "RUNNING"],
+          candidateRuntimeId: input.runtimeCandidateId,
+          usage: input.jobUsage,
+        })
+        if (!result.changed) return { candidate: null, job: jobRecord(result.job) }
+        const candidate = await saveDecisionCandidate(transaction, input)
+        if (input.actorMembershipId) {
+          await createSecurityAudit(transaction, {
+            id: randomUUID(),
+            type: "decision_training",
+            actorMembershipId: input.actorMembershipId,
+            outcome: "succeeded",
+            repositoryId: input.repositoryId,
+            jobId: input.trainingJobId,
+          })
+        }
+        return {
+          candidate: {
+            id: candidate.id,
+            repositoryId: candidate.repositoryId,
+            runtimeCandidateId: candidate.runtimeCandidateId,
+            tasksetDigest: candidate.tasksetDigest,
+          },
+          job: jobRecord(result.job),
+        }
+      })
     },
     async getCandidate(repositoryId, candidateId) {
       const candidate = await getDecisionCandidate(database, repositoryId, candidateId)
@@ -143,17 +257,29 @@ export function createDecisionModelStore(
         : null
     },
     async savePromotion(input) {
-      const promotion = await saveDecisionModelPromotion(database, {
-        ...input,
-        runtimeGeneration: BigInt(input.runtimeGeneration),
+      return database.$transaction(async (transaction) => {
+        const promotion = await saveDecisionModelPromotion(transaction, {
+          ...input,
+          runtimeGeneration: BigInt(input.runtimeGeneration),
+        })
+        await createSecurityAudit(transaction, {
+          id: randomUUID(),
+          type: "decision_promotion",
+          actorMembershipId: input.promotedByMembershipId,
+          operation: input.operation === "PROMOTE" ? "promote" : "rollback",
+          outcome: "succeeded",
+          repositoryId: input.repositoryId,
+          candidateId: input.candidateId,
+          generation: input.runtimeGeneration,
+        })
+        return {
+          candidateId: promotion.candidateId,
+          runtimeCandidateId: promotion.candidate.runtimeCandidateId,
+          previousCandidateId: promotion.previousCandidateId,
+          previousRuntimeCandidateId: promotion.previousCandidate?.runtimeCandidateId ?? null,
+          runtimeGeneration: Number(promotion.runtimeGeneration),
+        }
       })
-      return {
-        candidateId: promotion.candidateId,
-        runtimeCandidateId: promotion.candidate.runtimeCandidateId,
-        previousCandidateId: promotion.previousCandidateId,
-        previousRuntimeCandidateId: promotion.previousCandidate?.runtimeCandidateId ?? null,
-        runtimeGeneration: Number(promotion.runtimeGeneration),
-      }
     },
     async saveBuildEvaluation(input) {
       return saveDecisionBuildEvaluation(database, {
@@ -163,4 +289,14 @@ export function createDecisionModelStore(
       })
     },
   }
+}
+
+function getDecisionTrainingJobByIdempotencyKey(
+  database: Prisma.TransactionClient,
+  repositoryId: string,
+  idempotencyKey: string,
+) {
+  return database.decisionTrainingJob.findUnique({
+    where: { repositoryId_idempotencyKey: { repositoryId, idempotencyKey } },
+  })
 }

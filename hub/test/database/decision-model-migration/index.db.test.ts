@@ -29,7 +29,7 @@ describe("decision-model migration", () => {
         try {
           const hubRoot = fileURLToPath(new URL("../../../", import.meta.url))
           const migrationsRoot = join(hubRoot, "schema/migrations")
-          const decisionMigration = "20261202130000_decision_model_control_plane"
+          const decisionMigration = "20261203140000_decision_model_control_plane"
           const baseMigrations = (await readdir(migrationsRoot, { withFileTypes: true }))
             .filter((entry) => entry.isDirectory() && entry.name < decisionMigration)
             .map((entry) => entry.name)

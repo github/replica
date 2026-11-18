@@ -66,14 +66,5 @@ export async function promoteDecisionCandidate(
     runtimeGeneration: promotion.generation,
     operation: "PROMOTE",
   })
-  await dependencies.audit.write({
-    type: "decision_promotion",
-    operation: "promote",
-    outcome: "succeeded",
-    actorMembershipId: input.actorMembershipId,
-    repositoryId: input.repositoryId,
-    candidateId: candidate.id,
-    generation: promotion.generation,
-  })
   return saved
 }

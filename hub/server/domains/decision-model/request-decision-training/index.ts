@@ -53,15 +53,6 @@ export async function requestDecisionTraining(
         settings: configuration,
         taskset,
       })
-      if (result.created) {
-        await dependencies.audit.write({
-          type: "decision_training",
-          outcome: "requested",
-          actorMembershipId: input.actorMembershipId,
-          repositoryId: input.repositoryId,
-          jobId: result.job.id,
-        })
-      }
       return result
     },
   )

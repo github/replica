@@ -92,6 +92,37 @@ describe("createDecisionRuntimeClient()", () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
+  it("submits the reserved credit limit with the bounded training job", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "job-1",
+          state: "queued",
+          tasksetDigest,
+        }),
+      ),
+    )
+    const client = createDecisionRuntimeClient({
+      baseUrl: "https://runtime.example.test",
+      credentialProvider: credentialProvider(),
+      fetch,
+    })
+
+    await client.submitTraining({
+      backend: "customer-gpu",
+      maxUpdates: 8,
+      maxSeconds: 300,
+      maxCredits: "12.5",
+      tasksetId: "taskset-1",
+      tasksetDigest,
+      idempotencyKey: "training-1",
+    })
+
+    const [, init] = fetch.mock.calls[0]!
+    if (typeof init?.body !== "string") throw new Error("Expected a JSON request body.")
+    expect(init.body).toContain('"maxCredits":"12.5"')
+  })
+
   it.each([
     [401, "authentication_failed"],
     [409, "conflict"],
@@ -125,6 +156,19 @@ describe("createDecisionRuntimeClient()", () => {
     await expect(client.getTrainingJob("job-1")).rejects.toMatchObject({
       name: "DecisionRuntimeError",
       code: "invalid_response",
+    })
+  })
+
+  it("stops reading an unbounded response after two MiB", async () => {
+    const client = createDecisionRuntimeClient({
+      baseUrl: "https://runtime.example.test",
+      credentialProvider: credentialProvider(),
+      fetch: vi.fn().mockResolvedValue(new Response("x".repeat(2 * 1024 * 1024 + 1))),
+    })
+
+    await expect(client.getTrainingJob("job-1")).rejects.toMatchObject({
+      code: "invalid_response",
+      message: "The decision runtime returned an oversized response.",
     })
   })
 })

@@ -2,7 +2,6 @@ import type { Logger } from "pino"
 
 import { cancelDecisionTraining } from "../../../../domains/decision-model/cancel-decision-training/index.ts"
 import { createCurrentAdministratorDecisionAuthorization } from "../../../../domains/decision-model/create-current-administrator-decision-authorization/index.ts"
-import { createDecisionModelAuditWriter } from "../../../../domains/decision-model/create-decision-model-audit-writer/index.ts"
 import { createDecisionModelStore } from "../../../../domains/decision-model/create-decision-model-store/index.ts"
 import { evaluateBuildWithDecisionModel } from "../../../../domains/decision-model/evaluate-build-with-decision-model/index.ts"
 import { DecisionModelError } from "../../../../domains/decision-model/errors.ts"
@@ -54,7 +53,6 @@ export function createDecisionModelRouteDependencies(
   })
   const dependencies = {
     authorization,
-    audit: createDecisionModelAuditWriter(prisma),
     now: () => new Date(),
     prepareTaskset: (input: { repositoryId: string; actorMembershipId: string }) =>
       prepareDecisionTaskset(input, options.tasksetSource),

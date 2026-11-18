@@ -102,6 +102,27 @@ function validateIdempotencyKey(value: string): string {
     .parse(value)
 }
 
+async function readBoundedResponse(response: Response, maximumBytes: number): Promise<string> {
+  if (!response.body) return ""
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let bytes = 0
+  let text = ""
+  while (true) {
+    const result = await reader.read()
+    if (result.done) return text + decoder.decode()
+    bytes += result.value.byteLength
+    if (bytes > maximumBytes) {
+      await reader.cancel()
+      throw new DecisionRuntimeError(
+        "invalid_response",
+        "The decision runtime returned an oversized response.",
+      )
+    }
+    text += decoder.decode(result.value, { stream: true })
+  }
+}
+
 export function createDecisionRuntimeClient({
   baseUrl,
   credentialProvider,
@@ -204,13 +225,7 @@ export function createDecisionRuntimeClient({
         "The decision runtime returned an oversized response.",
       )
     }
-    const text = await response.text()
-    if (text.length > 2 * 1024 * 1024) {
-      throw new DecisionRuntimeError(
-        "invalid_response",
-        "The decision runtime returned an oversized response.",
-      )
-    }
+    const text = await readBoundedResponse(response, 2 * 1024 * 1024)
     let body: unknown
     try {
       body = text ? JSON.parse(text) : {}
@@ -294,6 +309,10 @@ export function createDecisionRuntimeClient({
             backend: input.backend,
             maxUpdates: input.maxUpdates,
             maxSeconds: input.maxSeconds,
+            maxCredits: z
+              .string()
+              .regex(/^(?:0|[1-9]\d*)(?:\.\d{1,9})?$/)
+              .parse(input.maxCredits),
             tasksetId: input.tasksetId,
             tasksetDigest,
           }),

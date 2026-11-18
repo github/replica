@@ -49,7 +49,6 @@ function dependencies(overrides: Partial<DecisionModelDependencies> = {}) {
     authorization: {
       requireRepositoryAdministrator: vi.fn().mockResolvedValue(undefined),
     },
-    audit: { write: vi.fn().mockResolvedValue(undefined) },
     now: () => new Date("2026-11-18T12:00:00Z"),
     prepareBuildEvaluation: vi.fn().mockResolvedValue({
       state: {},
@@ -92,7 +91,7 @@ function dependencies(overrides: Partial<DecisionModelDependencies> = {}) {
       getJob: vi.fn(),
       markJobSubmitted: vi.fn(),
       updateJobState: vi.fn(),
-      saveCandidate: vi.fn(),
+      completeJobWithCandidate: vi.fn(),
       getCandidate: vi.fn(),
       getPromotion: vi.fn(),
       savePromotion: vi.fn(),
@@ -107,15 +106,13 @@ function sha256(bytes: Uint8Array) {
 }
 
 describe("decision training orchestration", () => {
-  it("returns the existing job for a repeated idempotency key without a duplicate audit", async () => {
+  it("returns the existing job for a repeated idempotency key", async () => {
     const existing = job()
     const createOrGetJob = vi
       .fn()
       .mockResolvedValueOnce({ created: true, job: existing })
       .mockResolvedValueOnce({ created: false, job: existing })
-    const writeAudit = vi.fn().mockResolvedValue(undefined)
     const deps = dependencies({
-      audit: { write: writeAudit },
       store: { ...dependencies().store, createOrGetJob },
     })
     const input = {
@@ -138,7 +135,6 @@ describe("decision training orchestration", () => {
       2,
       expect.objectContaining({ idempotencyKey: "repository-1:training-1" }),
     )
-    expect(writeAudit).toHaveBeenCalledOnce()
   })
 
   it("rejects training when the repository has reached its explicit budget", async () => {
@@ -249,7 +245,54 @@ describe("decision training orchestration", () => {
       jobId,
       state: "FAILED",
       failureCode: "taskset_drift",
+      audit: {
+        actorMembershipId: membershipId,
+        outcome: "failed",
+        reason: "taskset_drift",
+        repositoryId,
+      },
     })
+  })
+
+  it("cancels a runtime job when Hub cancellation wins the submission race", async () => {
+    const cancelTrainingJob = vi.fn().mockResolvedValue({
+      id: "runtime-job-1",
+      state: "cancelled",
+      tasksetDigest,
+    })
+    const getTrainingJob = vi.fn()
+    const deps = dependencies({
+      runtime: {
+        ...dependencies().runtime,
+        transferTaskset: vi.fn().mockResolvedValue({
+          id: "runtime-taskset-1",
+          tasksetDigest,
+        }),
+        submitTraining: vi.fn().mockResolvedValue({
+          id: "runtime-job-1",
+          state: "queued",
+          tasksetDigest,
+        }),
+        cancelTrainingJob,
+        getTrainingJob,
+      },
+      store: {
+        ...dependencies().store,
+        getJob: vi.fn().mockResolvedValue(job()),
+        markJobSubmitted: vi.fn().mockResolvedValue(job({ state: "CANCELLED" })),
+      },
+    })
+
+    await expect(processDecisionTrainingJob({ repositoryId, jobId }, deps)).resolves.toMatchObject({
+      terminal: true,
+      job: { state: "CANCELLED" },
+    })
+
+    expect(cancelTrainingJob).toHaveBeenCalledWith({
+      id: "runtime-job-1",
+      idempotencyKey: "repository-1:training-1:cancel-after-submit",
+    })
+    expect(getTrainingJob).not.toHaveBeenCalled()
   })
 
   it("persists candidate references and usage when polling reaches success", async () => {
@@ -258,12 +301,14 @@ describe("decision training orchestration", () => {
       runtimeJobId: "runtime-job-1",
       runtimeTasksetId: "runtime-taskset-1",
     })
-    const updateJobState = vi.fn().mockResolvedValue(job({ state: "SUCCEEDED" }))
-    const saveCandidate = vi.fn().mockResolvedValue({
-      id: "candidate-1",
-      repositoryId,
-      runtimeCandidateId: "runtime-candidate-1",
-      tasksetDigest,
+    const completeJobWithCandidate = vi.fn().mockResolvedValue({
+      candidate: {
+        id: "candidate-1",
+        repositoryId,
+        runtimeCandidateId: "runtime-candidate-1",
+        tasksetDigest,
+      },
+      job: job({ state: "SUCCEEDED" }),
     })
     const deps = dependencies({
       runtime: {
@@ -288,8 +333,7 @@ describe("decision training orchestration", () => {
       store: {
         ...dependencies().store,
         getJob: vi.fn().mockResolvedValue(submitted),
-        saveCandidate,
-        updateJobState,
+        completeJobWithCandidate,
       },
     })
 
@@ -298,7 +342,7 @@ describe("decision training orchestration", () => {
       job: { state: "SUCCEEDED" },
     })
 
-    expect(saveCandidate).toHaveBeenCalledWith({
+    expect(completeJobWithCandidate).toHaveBeenCalledWith({
       repositoryId,
       trainingJobId: jobId,
       runtimeCandidateId: "runtime-candidate-1",
@@ -309,12 +353,8 @@ describe("decision training orchestration", () => {
       meanRewardDelta: 0.2,
       calibrationErrorDelta: -0.1,
       usage: { quantity: "20", unit: "gpu-second" },
-    })
-    expect(updateJobState).toHaveBeenCalledWith({
-      jobId,
-      state: "SUCCEEDED",
-      candidateRuntimeId: "runtime-candidate-1",
-      usage: { quantity: "12", unit: "gpu-second" },
+      jobUsage: { quantity: "12", unit: "gpu-second" },
+      actorMembershipId: membershipId,
     })
   })
 
@@ -325,9 +365,8 @@ describe("decision training orchestration", () => {
       state: "cancelled",
       tasksetDigest,
     })
-    const writeAudit = vi.fn().mockResolvedValue(undefined)
+    const updateJobState = vi.fn().mockResolvedValue(job({ state: "CANCELLED" }))
     const deps = dependencies({
-      audit: { write: writeAudit },
       runtime: {
         ...dependencies().runtime,
         cancelTrainingJob,
@@ -335,7 +374,7 @@ describe("decision training orchestration", () => {
       store: {
         ...dependencies().store,
         getJob: vi.fn().mockResolvedValue(running),
-        updateJobState: vi.fn().mockResolvedValue(job({ state: "CANCELLED" })),
+        updateJobState,
       },
     })
 
@@ -347,21 +386,21 @@ describe("decision training orchestration", () => {
       id: "runtime-job-1",
       idempotencyKey: "repository-1:training-1:cancel",
     })
-    expect(writeAudit).toHaveBeenCalledWith({
-      type: "decision_training",
-      outcome: "cancelled",
-      actorMembershipId: membershipId,
-      repositoryId,
+    expect(updateJobState).toHaveBeenCalledWith({
       jobId,
+      state: "CANCELLED",
+      audit: {
+        actorMembershipId: membershipId,
+        outcome: "cancelled",
+        repositoryId,
+      },
     })
   })
 
   it("rejects promotion when the runtime generation changed after Hub's read", async () => {
     const promote = vi.fn()
     const savePromotion = vi.fn()
-    const writeAudit = vi.fn()
     const deps = dependencies({
-      audit: { write: writeAudit },
       runtime: {
         ...dependencies().runtime,
         promote,
@@ -404,7 +443,6 @@ describe("decision training orchestration", () => {
 
     expect(promote).not.toHaveBeenCalled()
     expect(savePromotion).not.toHaveBeenCalled()
-    expect(writeAudit).not.toHaveBeenCalled()
   })
 
   it("reconciles a runtime promotion that completed before Hub saved it", async () => {

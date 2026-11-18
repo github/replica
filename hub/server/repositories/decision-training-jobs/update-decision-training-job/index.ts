@@ -15,18 +15,24 @@ function usageData(usage?: DecisionRuntimeUsage) {
 export async function updateDecisionTrainingJob(
   database: Pick<Prisma.TransactionClient, "decisionTrainingJob">,
   input:
-    | { id: string; runtimeJobId: string; runtimeTasksetId: string }
+    | {
+        id: string
+        runtimeJobId: string
+        runtimeTasksetId: string
+        expectedStates: DecisionTrainingJobState[]
+      }
     | {
         id: string
         state: DecisionTrainingJobState
+        expectedStates: DecisionTrainingJobState[]
         candidateRuntimeId?: string
         failureCode?: string
         usage?: DecisionRuntimeUsage
       },
 ) {
   if ("runtimeJobId" in input) {
-    return database.decisionTrainingJob.update({
-      where: { id: input.id },
+    const updated = await database.decisionTrainingJob.updateMany({
+      where: { id: input.id, state: { in: input.expectedStates } },
       data: {
         runtimeJobId: input.runtimeJobId,
         runtimeTasksetId: input.runtimeTasksetId,
@@ -34,10 +40,14 @@ export async function updateDecisionTrainingJob(
         submittedAt: new Date(),
       },
     })
+    return {
+      changed: updated.count === 1,
+      job: await database.decisionTrainingJob.findUniqueOrThrow({ where: { id: input.id } }),
+    }
   }
   const terminal = ["SUCCEEDED", "FAILED", "CANCELLED"].includes(input.state)
-  return database.decisionTrainingJob.update({
-    where: { id: input.id },
+  const updated = await database.decisionTrainingJob.updateMany({
+    where: { id: input.id, state: { in: input.expectedStates } },
     data: {
       state: input.state,
       candidateRuntimeId: input.candidateRuntimeId,
@@ -47,4 +57,8 @@ export async function updateDecisionTrainingJob(
       ...usageData(input.usage),
     },
   })
+  return {
+    changed: updated.count === 1,
+    job: await database.decisionTrainingJob.findUniqueOrThrow({ where: { id: input.id } }),
+  }
 }

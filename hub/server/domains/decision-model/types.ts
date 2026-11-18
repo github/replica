@@ -102,8 +102,14 @@ export interface DecisionModelStore {
     candidateRuntimeId?: string
     failureCode?: string
     usage?: DecisionRuntimeUsage
+    audit?: {
+      actorMembershipId: string
+      outcome: "cancelled" | "failed"
+      reason?: string
+      repositoryId: string
+    }
   }): Promise<DecisionTrainingJobRecord>
-  saveCandidate(input: {
+  completeJobWithCandidate(input: {
     repositoryId: string
     trainingJobId: string
     runtimeCandidateId: string
@@ -114,7 +120,12 @@ export interface DecisionModelStore {
     meanRewardDelta: number | null
     calibrationErrorDelta: number | null
     usage?: DecisionRuntimeUsage
-  }): Promise<DecisionCandidateRecord>
+    jobUsage?: DecisionRuntimeUsage
+    actorMembershipId?: string
+  }): Promise<{
+    candidate: DecisionCandidateRecord | null
+    job: DecisionTrainingJobRecord
+  }>
   getCandidate(repositoryId: string, candidateId: string): Promise<DecisionCandidateRecord | null>
   getPromotion(repositoryId: string): Promise<DecisionPromotionRecord | null>
   savePromotion(input: {
@@ -139,33 +150,8 @@ export interface DecisionModelStore {
   }): Promise<{ id: string }>
 }
 
-export interface DecisionModelAuditWriter {
-  write(
-    input:
-      | {
-          type: "decision_training"
-          outcome: "requested" | "cancelled" | "failed" | "succeeded"
-          actorMembershipId: string
-          repositoryId: string
-          jobId: string
-          reason?: string
-        }
-      | {
-          type: "decision_promotion"
-          operation: "promote" | "rollback"
-          outcome: "succeeded" | "failed"
-          actorMembershipId: string
-          repositoryId: string
-          candidateId?: string
-          generation: number
-          reason?: string
-        },
-  ): Promise<void>
-}
-
 export interface DecisionModelDependencies {
   authorization: DecisionModelAuthorization
-  audit: DecisionModelAuditWriter
   now(): Date
   prepareTaskset(input: {
     repositoryId: string

@@ -75,14 +75,5 @@ export async function rollbackDecisionCandidate(
     runtimeGeneration: promotion.generation,
     operation: "ROLLBACK",
   })
-  await dependencies.audit.write({
-    type: "decision_promotion",
-    operation: "rollback",
-    outcome: "succeeded",
-    actorMembershipId: input.actorMembershipId,
-    repositoryId: input.repositoryId,
-    candidateId: candidate.id,
-    generation: promotion.generation,
-  })
   return saved
 }

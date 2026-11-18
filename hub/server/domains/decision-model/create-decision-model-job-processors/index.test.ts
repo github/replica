@@ -32,7 +32,6 @@ function dependencies(state: "RUNNING" | "SUCCEEDED"): DecisionModelDependencies
   }
   return {
     authorization: { requireRepositoryAdministrator: vi.fn() },
-    audit: { write: vi.fn() },
     now: () => new Date("2026-11-18T12:05:00Z"),
     prepareTaskset: vi.fn(),
     prepareBuildEvaluation: vi.fn(),
@@ -77,11 +76,14 @@ function dependencies(state: "RUNNING" | "SUCCEEDED"): DecisionModelDependencies
         .mockImplementation((input: { state: DecisionTrainingJobRecord["state"] }) =>
           Promise.resolve({ ...trainingJob, state: input.state }),
         ),
-      saveCandidate: vi.fn().mockResolvedValue({
-        id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-        repositoryId,
-        runtimeCandidateId: "candidate_runtime",
-        tasksetDigest: `sha256:${"d".repeat(64)}`,
+      completeJobWithCandidate: vi.fn().mockResolvedValue({
+        candidate: {
+          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          repositoryId,
+          runtimeCandidateId: "candidate_runtime",
+          tasksetDigest: `sha256:${"d".repeat(64)}`,
+        },
+        job: { ...trainingJob, state: "SUCCEEDED" },
       }),
       getCandidate: vi.fn(),
       getPromotion: vi.fn(),
