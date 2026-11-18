@@ -886,16 +886,17 @@ class LocalRuntimeTest(unittest.TestCase):
             runtime,
             runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
         )
-        original = runtime._write_promotion
+        candidates = runtime.local_connectors.candidates
+        original = candidates._write_promotion
 
         def fail_pointer(promotion):
             with mock.patch(
-                "replica_brand_check.runtime._write_json_atomic",
+                "replica_brand_check.local_connectors._write_json_atomic",
                 side_effect=OSError("pointer unavailable"),
             ):
                 original(promotion)
 
-        with mock.patch.object(runtime, "_write_promotion", side_effect=fail_pointer):
+        with mock.patch.object(candidates, "_write_promotion", side_effect=fail_pointer):
             with self.assertRaises(OSError):
                 runtime.promote(finished["candidateId"], promoted_by="test-operator")
 
@@ -917,16 +918,17 @@ class LocalRuntimeTest(unittest.TestCase):
         )
         runtime.promote(first["candidateId"], promoted_by="test-operator")
         runtime.promote(second["candidateId"], promoted_by="test-operator")
-        original = runtime._write_promotion
+        candidates = runtime.local_connectors.candidates
+        original = candidates._write_promotion
 
         def fail_pointer(promotion):
             with mock.patch(
-                "replica_brand_check.runtime._write_json_atomic",
+                "replica_brand_check.local_connectors._write_json_atomic",
                 side_effect=OSError("pointer unavailable"),
             ):
                 original(promotion)
 
-        with mock.patch.object(runtime, "_write_promotion", side_effect=fail_pointer):
+        with mock.patch.object(candidates, "_write_promotion", side_effect=fail_pointer):
             with self.assertRaises(OSError):
                 runtime.rollback(rolled_back_by="test-operator")
 

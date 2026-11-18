@@ -250,20 +250,38 @@ docker run --rm \
 
 The image contains no taskset, candidate, model, or credential. The runtime process must own the runtime-state directory because startup restricts its permissions to the owner. The example runs the process as the operator who created that directory. Without `--user`, the image runs as user 10001, so create and assign the mounted directory to that user first. Rootless Podman also needs `--userns=keep-id`.
 
+The included Compose file wires the same complete local bundle without a GPU or external service:
+
+```sh
+mkdir -p /path/to/runtime-state
+chmod 700 /path/to/runtime-state
+export REPLICA_RUNTIME_TOKEN="$(cat ~/.replica-runtime-token)"
+export REPLICA_TASKSET_DIR=/absolute/path/to/taskset
+export REPLICA_RUNTIME_STATE_DIR=/absolute/path/to/runtime-state
+export REPLICA_RUNTIME_TENANT=local
+export REPLICA_RUNTIME_REPOSITORY=github/example
+export REPLICA_RUNTIME_USER="$(id -u):$(id -g)"
+docker compose up --build
+```
+
+Compose binds the service only to localhost. It mounts the taskset read-only and the private runtime state read-write. The local factory binds that state directory permanently to the configured tenant and repository, so reopening it under another scope fails instead of exposing the first scope's jobs or candidates.
+
 ### Replace the infrastructure
 
-The runtime contract follows the lifecycle rather than the services of one cloud. [`connectors.py`](connectors.py) defines these replaceable responsibilities:
+The runtime contract follows the lifecycle rather than the services of one cloud. [`connectors.py`](connectors.py) defines the interfaces, and [`local_connectors.py`](local_connectors.py) composes the complete single-node implementation:
 
-| Connector | Responsibility |
-| --- | --- |
-| Taskset | Resolve one validated, immutable taskset inside the requested tenant and repository scope |
-| Artifact | Store and read bytes by a verified SHA-256 digest without changing stored content |
-| Job | Create and cancel durable jobs, compare-and-swap their versions, and require the active expiring worker lease for each state update |
-| Candidate | Store immutable model candidates and append explicit promotion or rollback generations |
-| Training | Run one bounded training operation and return persistable candidate artifacts, evaluation evidence, and measured completed updates |
-| Inference | Evaluate one request with the explicitly promoted candidate |
-| Credential | Acquire a short-lived credential restricted to one operation, audience, tenant, and repository |
-| Observability | Attribute usage, optional cost, and provider diagnostics to the scoped operation |
+| Interface | Local implementation | Future hosted responsibility |
+| --- | --- | --- |
+| Taskset | `LocalTasksetConnector` validates one read-only mounted taskset and resolves only its scoped content digest | Resolve a private taskset object after checking tenant and repository access |
+| Artifact | `LocalArtifactConnector` keeps verified immutable bytes under private SHA-256 paths | Keep immutable candidate inputs and outputs in private content-addressed storage |
+| Job | `LocalJobConnector` keeps atomic JSON records, compare-and-swap versions, durable cancellation, idempotency records, and requires the active expiring worker lease for each state update | Keep durable job state and fence each transactional update through one worker lease |
+| Candidate | `LocalCandidateConnector` keeps read-only candidate files, verifies their digests, and appends atomic promotion or rollback generations | Keep immutable candidate manifests and artifacts, with a transactional generation-checked promotion pointer |
+| Training | `LocalTrainingConnector` runs a trusted backend inside the bounded local worker and returns persistable artifacts, evaluation evidence, and measured completed updates | Schedule bounded training on customer-selected compute and return the same candidate evidence and measured work |
+| Inference | `LocalInferenceConnector` serves the adapter from the explicitly promoted local candidate | Send evaluation requests only to the explicitly promoted model deployment |
+| Credential | `LocalCredentialConnector` mints short-lived operation-bound credentials from a private installation key | Acquire workload or brokered credentials restricted to the operation, audience, tenant, and repository |
+| Observability | `LocalObservabilityConnector` appends scoped usage, optional cost, and metadata to private JSON Lines | Send the same scoped usage and cost records to the operator's telemetry and billing sinks |
+
+`create_local_connector_bundle` is the composition boundary. `LocalRuntime` uses that factory for tasksets, artifacts, jobs, candidates, training, inference, credentials, and observability; it no longer keeps a second filesystem implementation beside the connectors. Existing `jobs/`, `candidates/`, `promotions/`, and `promotion.json` data remains readable. The factory adds private connector metadata beside it and migrates an existing candidate descriptor when the candidate is first read.
 
 Every call receives an `OperationContext`. It names the tenant, repository, owner, operation, idempotency key, monotonic deadline, and cooperative cancellation signal. A retry with the same idempotency key and input returns the first result. Reusing the key for different input is a conflict. Connectors must check cancellation and deadlines before causing side effects.
 
@@ -273,7 +291,7 @@ Connector failures use stable codes plus one category: invalid input, not found,
 
 [`connector_conformance.py`](connector_conformance.py) returns one reusable `unittest` suite for a fresh connector bundle. Local and hosted implementations run that suite unchanged. Its contract-only fixture proves tenant and repository isolation across every stored record, immutable content, idempotent retries, lease expiry and fencing, promotion generations, cancellation and deadlines, persistable training output, credential boundaries, error classification, and usage/cost attribution.
 
-The current single-node runtime preserves its HTTP API, process-isolated training and inference, and filesystem behavior. Compatibility adapters project the existing fixture backend onto the training and inference contracts and pass scoped contexts through credential and observability connectors. A backend and its configuration must remain serializable because installed runtimes execute training and each inference request in a spawned process. Each inference request pays process-startup cost, and model state loaded inside one inference child is not retained for the next request. The next layer can replace the embedded filesystem state with local connector implementations without changing orchestration or the HTTP API.
+The single-node runtime preserves its HTTP API and lifecycle behavior while every infrastructure operation goes through the local bundle. Installed runtimes execute training and each inference request in a spawned process, so a backend and its configuration must remain serializable. Each inference request pays process-startup cost, and model state loaded inside one inference child is not retained for the next request. A future hosted bundle replaces the implementations, not the lifecycle records or routes, and must pass the same suite without provider-specific fields in the shared contracts.
 
 ### Trust, data, and credential boundaries
 

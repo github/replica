@@ -26,8 +26,11 @@ from pathlib import Path
 from typing import Any, Mapping, Protocol
 
 from .connectors import (
+    Artifact,
     Cancellation,
+    Candidate,
     ConnectorError,
+    ContentDigest,
     Credential,
     CredentialConnector,
     InferenceConnector,
@@ -41,17 +44,15 @@ from .connectors import (
     check_context,
 )
 from .evaluate import EvaluationError, evaluate
+from .local_connectors import (
+    LocalConnectorBundle,
+    create_local_connector_bundle,
+)
 from .taskset import Taskset, load_taskset
-
-try:
-    import fcntl
-except ImportError:  # pragma: no cover - the reference runtime supports Unix hosts and containers.
-    fcntl = None
 
 JOB_SCHEMA = "replica.decision-training-job/v1"
 CANDIDATE_SCHEMA = "replica.decision-candidate/v1"
 CANDIDATE_REPORT_SCHEMA = "replica.decision-candidate-evaluation/v1"
-PROMOTION_SCHEMA = "replica.decision-promotion/v1"
 INFERENCE_SCHEMA = "replica.decision-evaluation-response/v1"
 MIN_UPDATES = 1
 MAX_UPDATES = 100_000
@@ -160,68 +161,6 @@ class FixtureBackend:
         return _fixture_answers(request["questions"], probabilities)
 
 
-class _NoCredentials:
-    def acquire(self, audience: str, context: OperationContext) -> None:
-        del audience, context
-        return None
-
-
-class _NoObservability:
-    def record(self, usage: Usage, context: OperationContext) -> None:
-        del usage, context
-
-
-class _BackendTrainingConnector:
-    """Adapt the existing backend API to the provider-neutral training contract."""
-
-    def __init__(self, backend: TrainingBackend):
-        self.backend = backend
-        self.name = backend.name
-        self.production_eligible = backend.production_eligible
-
-    def train(
-        self,
-        taskset: Taskset,
-        work_directory: Path,
-        *,
-        max_updates: int,
-        context: OperationContext,
-        credential: Credential | None,
-    ) -> TrainingResult:
-        del credential
-        check_context(context)
-        return self.backend.train(
-            taskset,
-            work_directory,
-            max_updates=max_updates,
-            deadline=context.deadline,
-        )
-
-
-class _BackendInferenceConnector:
-    """Adapt the existing backend API to the provider-neutral inference contract."""
-
-    def __init__(self, backend: TrainingBackend):
-        self.backend = backend
-        self.name = backend.name
-
-    def predict(
-        self,
-        adapter: Path,
-        request: Mapping[str, Any],
-        *,
-        context: OperationContext,
-        credential: Credential | None,
-    ) -> Mapping[str, Any]:
-        del credential
-        check_context(context)
-        return self.backend.predict(
-            adapter,
-            request,
-            timeout_seconds=max(0.0, context.deadline - time.monotonic()),
-        )
-
-
 class LocalRuntime:
     """Durable local jobs, immutable candidates, one promotion pointer, and inference."""
 
@@ -241,64 +180,57 @@ class LocalRuntime:
                 "environment_invalid",
                 f"Environment must be one of {', '.join(ENVIRONMENTS)}.",
             )
-        self.state_directory = Path(state_directory).resolve()
-        self.taskset = load_taskset(taskset_directory)
-        self.taskset_digest = _taskset_digest(self.taskset)
         self.environment = environment
         self.scope = scope or RuntimeScope("local", "local/runtime")
-        self.credentials = credentials or _NoCredentials()
-        self.observability = observability or _NoObservability()
         self.backends = dict({"fixture": FixtureBackend()} if backends is None else backends)
         if not self.backends:
             raise RuntimeFailure("backend_missing", "Configure at least one training backend.")
-        self.training_connectors: dict[str, TrainingConnector] = {
-            name: _BackendTrainingConnector(backend)
-            for name, backend in self.backends.items()
-        }
-        self.inference_connectors: dict[str, InferenceConnector] = {
-            name: _BackendInferenceConnector(backend)
-            for name, backend in self.backends.items()
-        }
-        if fcntl is None:
-            raise RuntimeFailure(
-                "runtime_unsupported", "The local runtime needs Unix file locking.", 500
+        try:
+            self.local_connectors: LocalConnectorBundle = create_local_connector_bundle(
+                state_directory,
+                taskset_directory,
+                self.backends,
+                scope=self.scope,
+                credentials=credentials,
+                observability=observability,
             )
+        except ConnectorError as error:
+            raise _runtime_connector_failure(error) from None
+        self.state_directory = self.local_connectors.state_directory
+        self.connectors = self.local_connectors.connectors
+        self.credentials = self.connectors.credentials
+        self.observability = self.connectors.observability
+        self.training_connectors = dict(self.connectors.training)
+        self.inference_connectors = dict(self.connectors.inference)
         self._lock = threading.RLock()
-        self.state_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-        os.chmod(self.state_directory, 0o700)
-        self._owner = (self.state_directory / ".runtime.lock").open("a+b")
         try:
-            fcntl.flock(self._owner.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            self._owner.close()
-            raise RuntimeFailure(
-                "runtime_in_use",
-                f"Another runtime owns {self.state_directory}.",
-                409,
-            ) from None
-        try:
+            resolved = self.connectors.tasksets.resolve(
+                self.local_connectors.taskset_reference,
+                self._operation_context(
+                    f"taskset_{uuid.uuid4().hex}",
+                    max_seconds=30,
+                    owner=RuntimeOwner("service", "decision-runtime"),
+                ),
+            )
+            self.taskset = resolved.taskset
+            self.taskset_digest = str(resolved.digest)
             self._executor = ThreadPoolExecutor(
                 max_workers=1, thread_name_prefix="replica-training"
             )
-            for name in ("jobs", "candidates", "promotions", "work"):
-                directory = self.state_directory / name
-                directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-                os.chmod(directory, 0o700)
-            self._recover_promotion()
+            work = self.state_directory / "work"
+            work.mkdir(parents=True, exist_ok=True, mode=0o700)
+            os.chmod(work, 0o700)
             self._recover_interrupted_jobs()
         except Exception:
             if hasattr(self, "_executor"):
                 self._executor.shutdown(wait=False, cancel_futures=True)
-            fcntl.flock(self._owner.fileno(), fcntl.LOCK_UN)
-            self._owner.close()
+            self.local_connectors.close()
             raise
 
     def close(self) -> None:
         """Wait for the current job and stop the worker."""
         self._executor.shutdown(wait=True, cancel_futures=True)
-        if not self._owner.closed:
-            fcntl.flock(self._owner.fileno(), fcntl.LOCK_UN)
-            self._owner.close()
+        self.local_connectors.close()
 
     def submit(
         self, *, backend: str = "fixture", max_updates: int, max_seconds: float
@@ -324,22 +256,69 @@ class LocalRuntime:
             "createdAt": _now(),
             "updatedAt": _now(),
         }
-        _write_json_atomic(self._job_path(job_id), job)
+        context = self._operation_context(
+            job_id,
+            max_seconds=max_seconds,
+            owner=RuntimeOwner("service", "decision-runtime"),
+        )
+        try:
+            stored = dict(self.connectors.jobs.create(job_id, job, context))
+        except ConnectorError as error:
+            raise _runtime_connector_failure(error) from None
         self._executor.submit(self._run_job, job_id)
-        return job
+        return _public_job(stored)
 
     def job(self, job_id: str) -> dict[str, Any]:
         """Return one persisted job."""
-        return self._record(self._job_path(_checked_id(job_id, "job_")), "job", job_id)
+        return _public_job(self._job_record(job_id))
+
+    def _job_record(self, job_id: str) -> dict[str, Any]:
+        identifier = _checked_id(job_id, "job_")
+        try:
+            return dict(
+                self.connectors.jobs.get(
+                    identifier,
+                    self._operation_context(
+                        f"read_{uuid.uuid4().hex}",
+                        max_seconds=30,
+                        owner=RuntimeOwner("service", "decision-runtime"),
+                    ),
+                )
+            )
+        except ConnectorError as error:
+            raise _runtime_connector_failure(error) from None
 
     def candidate(self, candidate_id: str) -> dict[str, Any]:
         """Return one immutable candidate manifest and evaluation report."""
         identifier = _checked_id(candidate_id, "candidate_")
-        directory = self.state_directory / "candidates" / identifier
-        if not directory.is_dir():
-            raise RuntimeFailure("candidate_not_found", f"Candidate {candidate_id} was not found.", 404)
-        manifest = self._record(directory / "manifest.json", "candidate", candidate_id)
-        report = self._record(directory / "evaluation.json", "candidate report", candidate_id)
+        context = self._operation_context(
+            f"candidate_{uuid.uuid4().hex}",
+            max_seconds=30,
+            owner=RuntimeOwner("service", "decision-runtime"),
+        )
+        try:
+            candidate = self.connectors.candidates.get(identifier, context)
+        except ConnectorError as error:
+            raise _runtime_connector_failure(error) from None
+        manifest = dict(candidate.manifest)
+        report_artifact = next(
+            (
+                artifact
+                for artifact in candidate.artifacts
+                if artifact.metadata.get("name") == "evaluation.json"
+            ),
+            None,
+        )
+        try:
+            report = json.loads(report_artifact.data) if report_artifact else None
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            report = None
+        if not isinstance(report, dict):
+            raise RuntimeFailure(
+                "candidate_damaged",
+                f"Candidate {candidate_id} has no valid evaluation report.",
+                500,
+            )
         adapter = manifest.get("adapter", {})
         adapter_file = adapter.get("file") if isinstance(adapter, dict) else None
         if (
@@ -356,8 +335,13 @@ class LocalRuntime:
                 "candidate_damaged", f"Candidate {candidate_id} has an invalid adapter record.", 500
             )
         try:
-            adapter_bytes = (directory / adapter_file).read_bytes()
-        except OSError:
+            adapter_artifact = next(
+                artifact
+                for artifact in candidate.artifacts
+                if artifact.metadata.get("name") == adapter_file
+            )
+            adapter_bytes = adapter_artifact.data
+        except StopIteration:
             raise RuntimeFailure(
                 "candidate_damaged", f"Candidate {candidate_id} has no readable adapter.", 500
             ) from None
@@ -383,18 +367,25 @@ class LocalRuntime:
                 "candidate_mismatch", "The candidate belongs to another taskset.", 409
             )
         with self._lock:
-            self._recover_promotion()
             current = self.promotion(required=False)
             if current and current["candidateId"] == candidate_id:
                 return current
-            promotion = self._promotion(
-                candidate_id,
-                previous_candidate_id=current["candidateId"] if current else None,
-                generation=(current["generation"] + 1) if current else 1,
-                promoted_by=promoted_by.strip(),
-                operation="promote",
+            context = self._operation_context(
+                f"promote_{uuid.uuid4().hex}",
+                max_seconds=30,
+                owner=RuntimeOwner("human", promoted_by.strip()),
             )
-            self._write_promotion(promotion)
+            try:
+                self.connectors.candidates.promote(
+                    candidate_id,
+                    expected_generation=current["generation"] if current else 0,
+                    operation="promote",
+                    context=context,
+                )
+                promotion = self.local_connectors.candidates.promotion_json(context)
+            except ConnectorError as error:
+                raise _runtime_connector_failure(error) from None
+            assert promotion is not None
             return promotion
 
     def rollback(self, *, rolled_back_by: str) -> dict[str, Any]:
@@ -402,7 +393,17 @@ class LocalRuntime:
         if not isinstance(rolled_back_by, str) or not rolled_back_by.strip():
             raise RuntimeFailure("invalid_input", "rolledBackBy must name the operator.")
         with self._lock:
-            recovered = self._recover_promotion()
+            context = self._operation_context(
+                f"rollback_{uuid.uuid4().hex}",
+                max_seconds=30,
+                owner=RuntimeOwner("human", rolled_back_by.strip()),
+            )
+            try:
+                recovered = self.local_connectors.candidates.recover_promotion(
+                    context
+                )
+            except ConnectorError as error:
+                raise _runtime_connector_failure(error) from None
             current = self.promotion()
             if recovered and recovered["operation"] == "rollback":
                 return current
@@ -414,20 +415,31 @@ class LocalRuntime:
                     409,
                 )
             self._promotable_candidate(candidate_id)
-            promotion = self._promotion(
-                candidate_id,
-                previous_candidate_id=current["candidateId"],
-                generation=current["generation"] + 1,
-                promoted_by=rolled_back_by.strip(),
-                operation="rollback",
-            )
-            self._write_promotion(promotion)
+            try:
+                self.connectors.candidates.promote(
+                    candidate_id,
+                    expected_generation=current["generation"],
+                    operation="rollback",
+                    context=context,
+                )
+                promotion = self.local_connectors.candidates.promotion_json(context)
+            except ConnectorError as error:
+                raise _runtime_connector_failure(error) from None
+            assert promotion is not None
             return promotion
 
     def promotion(self, *, required: bool = True) -> dict[str, Any] | None:
         """Return the current promotion, or fail closed when inference has no promoted model."""
-        path = self.state_directory / "promotion.json"
-        if not path.is_file():
+        context = self._operation_context(
+            f"promotion_{uuid.uuid4().hex}",
+            max_seconds=30,
+            owner=RuntimeOwner("service", "decision-runtime"),
+        )
+        try:
+            promotion = self.local_connectors.candidates.promotion_json(context)
+        except ConnectorError as error:
+            raise _runtime_connector_failure(error) from None
+        if promotion is None:
             if required:
                 raise RuntimeFailure(
                     "candidate_not_promoted",
@@ -435,21 +447,6 @@ class LocalRuntime:
                     409,
                 )
             return None
-        promotion = self._record(path, "promotion", "current")
-        generation = promotion.get("generation")
-        if not isinstance(generation, int) or generation < 1:
-            raise RuntimeFailure("state_damaged", "Stored promotion generation is invalid.", 500)
-        history = self._record(
-            self.state_directory / "promotions" / f"{generation:08d}.json",
-            "promotion generation",
-            str(generation),
-        )
-        if history != promotion:
-            raise RuntimeFailure(
-                "state_damaged",
-                "The current promotion does not match its immutable generation.",
-                500,
-            )
         return promotion
 
     def ready(self) -> None:
@@ -472,7 +469,6 @@ class LocalRuntime:
                 f"Promoted candidate backend {manifest['backend']} is not configured.",
                 503,
             )
-        adapter = self.state_directory / "candidates" / candidate_id / manifest["adapter"]["file"]
         context = self._operation_context(
             f"inference_{uuid.uuid4().hex}",
             max_seconds=timeout_seconds,
@@ -480,6 +476,14 @@ class LocalRuntime:
         )
         work = self.state_directory / "work" / context.operation_id
         work.mkdir(mode=0o700)
+        try:
+            adapter = self.local_connectors.candidates.artifact_path(
+                candidate_id,
+                manifest["adapter"]["file"],
+                context,
+            )
+        except ConnectorError as error:
+            raise _runtime_connector_failure(error) from None
         started = time.monotonic()
         operation_error: Exception | None = None
         try:
@@ -543,23 +547,38 @@ class LocalRuntime:
         }
 
     def _run_job(self, job_id: str) -> None:
-        job = self.job(job_id)
+        job = self._job_record(job_id)
         work = self.state_directory / "work" / job_id
         context: OperationContext | None = None
         connector: TrainingConnector | None = None
         usage_attempted = False
+        lease = None
         started = time.monotonic()
         try:
-            job.update(state="running", startedAt=_now(), updatedAt=_now())
-            _write_json_atomic(self._job_path(job_id), job)
-            shutil.rmtree(work, ignore_errors=True)
-            work.mkdir(mode=0o700)
-            connector = self.training_connectors[job["backend"]]
             context = self._operation_context(
                 job_id,
                 max_seconds=job["limits"]["maxSeconds"],
                 owner=RuntimeOwner("worker", "single-node-runtime"),
             )
+            lease = self.connectors.jobs.acquire(
+                job_id,
+                ttl_seconds=job["limits"]["maxSeconds"] + 30,
+                context=context,
+            )
+            updated = dict(job)
+            updated.update(state="running", startedAt=_now(), updatedAt=_now())
+            job = dict(
+                self.connectors.jobs.update(
+                    job_id,
+                    updated,
+                    expected_version=job["version"],
+                    lease=lease,
+                    context=context,
+                )
+            )
+            shutil.rmtree(work, ignore_errors=True)
+            work.mkdir(mode=0o700)
+            connector = self.training_connectors[job["backend"]]
             credential = self._acquire_credential("training", context)
             result = _run_backend(
                 connector,
@@ -639,7 +658,36 @@ class LocalRuntime:
                         "message": "Connector operation failed.",
                     }
         finally:
-            _write_json_atomic(self._job_path(job_id), job)
+            if context is not None:
+                try:
+                    job = dict(
+                        self.connectors.jobs.update(
+                            job_id,
+                            job,
+                            expected_version=job["version"],
+                            lease=lease,
+                            context=self._operation_context(
+                                f"finish_{job_id}",
+                                max_seconds=30,
+                                owner=RuntimeOwner("worker", "single-node-runtime"),
+                            ),
+                        )
+                    )
+                except ConnectorError as error:
+                    if error.category != "conflict":
+                        job["error"] = {"code": error.code, "message": str(error)}
+            if lease is not None:
+                try:
+                    self.connectors.jobs.release(
+                        lease,
+                        self._operation_context(
+                            f"release_{job_id}",
+                            max_seconds=30,
+                            owner=lease.owner,
+                        ),
+                    )
+                except ConnectorError:
+                    pass
             shutil.rmtree(work, ignore_errors=True)
 
     def _persist_candidate(self, job: Mapping[str, Any], result: TrainingResult) -> str:
@@ -672,35 +720,68 @@ class LocalRuntime:
         }
         candidate_id = _candidate_id(manifest_identity, result.adapter, report)
         manifest = {"id": candidate_id, **manifest_identity}
-        candidates = self.state_directory / "candidates"
-        target = candidates / candidate_id
-        if target.exists():
-            existing = self.candidate(candidate_id)
-            if existing["manifest"] != manifest or existing["evaluation"] != report:
-                raise RuntimeFailure(
-                    "candidate_collision", f"Candidate id {candidate_id} already has other data.", 500
-                )
-            return candidate_id
-        staging = candidates / f".{candidate_id}.{uuid.uuid4().hex}"
-        staging.mkdir(mode=0o700)
         try:
-            _write_immutable(staging / result.adapter_name, result.adapter)
-            _write_immutable(staging / "evaluation.json", _json_bytes(report))
-            _write_immutable(staging / "manifest.json", _json_bytes(manifest))
-            os.replace(staging, target)
-            _sync_directory(candidates)
-        finally:
-            if staging.exists():
-                shutil.rmtree(staging)
+            self.connectors.candidates.put(
+                Candidate(
+                    candidate_id,
+                    ContentDigest(
+                        "sha256",
+                        hashlib.sha256(
+                            _json_bytes(manifest)
+                            + b"\0"
+                            + result.adapter
+                            + _json_bytes(report)
+                        ).hexdigest(),
+                    ),
+                    manifest,
+                    (
+                        Artifact(
+                            ContentDigest(
+                                "sha256",
+                                hashlib.sha256(result.adapter).hexdigest(),
+                            ),
+                            "application/json"
+                            if result.adapter_name.endswith(".json")
+                            else "application/octet-stream",
+                            result.adapter,
+                            {"name": result.adapter_name},
+                        ),
+                        Artifact(
+                            ContentDigest(
+                                "sha256",
+                                hashlib.sha256(_json_bytes(report)).hexdigest(),
+                            ),
+                            "application/json",
+                            _json_bytes(report),
+                            {"name": "evaluation.json"},
+                        ),
+                    ),
+                ),
+                self._operation_context(
+                    f"candidate_{job['id']}",
+                    max_seconds=30,
+                    owner=RuntimeOwner("worker", "single-node-runtime"),
+                ),
+            )
+        except ConnectorError as error:
+            raise _runtime_connector_failure(error) from None
         return candidate_id
 
     def _recover_interrupted_jobs(self) -> None:
-        for path in (self.state_directory / "jobs").glob("job_*.json"):
-            try:
-                job = _read_json(path)
-            except (OSError, ValueError):
-                continue
-            if job.get("state") in ("queued", "running"):
+        context = self._operation_context(
+            f"recovery_{uuid.uuid4().hex}",
+            max_seconds=30,
+            owner=RuntimeOwner("service", "decision-runtime"),
+        )
+        try:
+            jobs = self.connectors.jobs.list(("queued", "running"), context)
+            for existing in jobs:
+                lease = self.connectors.jobs.acquire(
+                    existing["id"],
+                    ttl_seconds=30,
+                    context=context,
+                )
+                job = dict(existing)
                 job.update(
                     state="failed",
                     error={
@@ -710,64 +791,16 @@ class LocalRuntime:
                     completedAt=_now(),
                     updatedAt=_now(),
                 )
-                _write_json_atomic(path, job)
-
-    def _recover_promotion(self) -> dict[str, Any] | None:
-        history = sorted((self.state_directory / "promotions").glob("*.json"))
-        if not history:
-            return None
-        latest = self._record(history[-1], "promotion generation", history[-1].stem)
-        latest_generation = latest.get("generation")
-        if (
-            not isinstance(latest_generation, int)
-            or history[-1].name != f"{latest_generation:08d}.json"
-        ):
-            raise RuntimeFailure(
-                "state_damaged", "The latest promotion generation is invalid.", 500
-            )
-        current_path = self.state_directory / "promotion.json"
-        current = (
-            self._record(current_path, "promotion", "current")
-            if current_path.is_file()
-            else None
-        )
-        current_generation = current.get("generation", 0) if current else 0
-        if latest_generation == current_generation:
-            return None
-        if (
-            latest_generation == current_generation + 1
-            and latest.get("previousCandidateId")
-            == (current.get("candidateId") if current else None)
-        ):
-            _write_json_atomic(current_path, latest)
-            return latest
-        raise RuntimeFailure(
-            "state_damaged",
-            "Promotion history is not one generation ahead of the current pointer.",
-            500,
-        )
-
-    def _record(self, path: Path, kind: str, identifier: str) -> dict[str, Any]:
-        try:
-            value = _read_json(path)
-        except FileNotFoundError:
-            raise RuntimeFailure(
-                f"{kind.replace(' ', '_')}_not_found",
-                f"{kind.title()} {identifier} was not found.",
-                404,
-            ) from None
-        except (OSError, ValueError):
-            raise RuntimeFailure(
-                "state_damaged", f"Stored {kind} {identifier} is not valid JSON.", 500
-            ) from None
-        if not isinstance(value, dict):
-            raise RuntimeFailure(
-                "state_damaged", f"Stored {kind} {identifier} is not an object.", 500
-            )
-        return value
-
-    def _job_path(self, job_id: str) -> Path:
-        return self.state_directory / "jobs" / f"{job_id}.json"
+                self.connectors.jobs.update(
+                    job["id"],
+                    job,
+                    expected_version=existing["version"],
+                    lease=lease,
+                    context=context,
+                )
+                self.connectors.jobs.release(lease, context)
+        except ConnectorError as error:
+            raise _runtime_connector_failure(error) from None
 
     def _promotable_candidate(self, candidate_id: str) -> dict[str, Any]:
         candidate = self.candidate(candidate_id)["manifest"]
@@ -789,24 +822,6 @@ class LocalRuntime:
                 409,
             )
         return candidate
-
-    def _write_promotion(self, promotion: Mapping[str, Any]) -> None:
-        history = (
-            self.state_directory
-            / "promotions"
-            / f"{promotion['generation']:08d}.json"
-        )
-        data = _json_bytes(promotion)
-        if history.exists():
-            if history.read_bytes() != data:
-                raise RuntimeFailure(
-                    "state_damaged",
-                    f"Promotion generation {promotion['generation']} already has other data.",
-                    500,
-                )
-        else:
-            _write_immutable(history, data)
-        _write_json_atomic(self.state_directory / "promotion.json", promotion)
 
     def _operation_context(
         self,
@@ -875,24 +890,10 @@ class LocalRuntime:
             reporting_context,
         )
 
-    @staticmethod
-    def _promotion(
-        candidate_id: str,
-        *,
-        previous_candidate_id: str | None,
-        generation: int,
-        promoted_by: str,
-        operation: str,
-    ) -> dict[str, Any]:
-        return {
-            "schemaVersion": PROMOTION_SCHEMA,
-            "generation": generation,
-            "candidateId": candidate_id,
-            "previousCandidateId": previous_candidate_id,
-            "operation": operation,
-            "promotedBy": promoted_by,
-            "promotedAt": _now(),
-        }
+def _public_job(job: Mapping[str, Any]) -> dict[str, Any]:
+    public = dict(job)
+    public.pop("version", None)
+    return public
 
 
 def _candidate_evaluation(
@@ -973,46 +974,6 @@ def _fixture_answers(
                 options = tuple(str(level) for level in range(levels))
             answers[key] = {"probabilities": {option: 1.0 / len(options) for option in options}}
     return answers
-
-
-def _taskset_digest(taskset: Taskset) -> str:
-    identity = {
-        "manifest": _json_data(taskset.metadata),
-        "tasks": [
-            {
-                "id": task.id,
-                "split": task.split,
-                "state": _json_data(task.state),
-                "images": [
-                    {
-                        "role": image.role,
-                        "path": image.name,
-                        "mediaType": image.media_type,
-                        "digest": image.digest,
-                        "size": image.size,
-                        "theme": image.theme,
-                    }
-                    for image in task.images
-                ],
-                "questions": {
-                    key: _json_data(question.spec)
-                    for key, question in task.questions.items()
-                },
-                "labels": _json_data(task.labels),
-                "provenance": _json_data(task.provenance),
-            }
-            for task in taskset.tasks
-        ],
-    }
-    return "sha256:" + hashlib.sha256(_json_bytes(identity)).hexdigest()
-
-
-def _json_data(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {key: _json_data(member) for key, member in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_data(member) for member in value]
-    return value
 
 
 def _check_limits(max_updates: int, max_seconds: float) -> None:
@@ -1167,43 +1128,6 @@ def _json_bytes(value: Any) -> bytes:
     return (
         json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":")) + "\n"
     ).encode()
-
-
-def _write_json_atomic(path: Path, value: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}")
-    try:
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(_json_bytes(value))
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-        _sync_directory(path.parent)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def _write_immutable(path: Path, data: bytes) -> None:
-    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}")
-    try:
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(data)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.link(temporary, path)
-        _sync_directory(path.parent)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def _sync_directory(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
 
 
 def _now() -> str:
