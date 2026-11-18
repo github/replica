@@ -478,6 +478,8 @@ class LocalRuntime:
             max_seconds=timeout_seconds,
             owner=RuntimeOwner("service", "decision-runtime"),
         )
+        work = self.state_directory / "work" / context.operation_id
+        work.mkdir(mode=0o700)
         started = time.monotonic()
         operation_error: Exception | None = None
         try:
@@ -487,6 +489,7 @@ class LocalRuntime:
                     connector,
                     adapter,
                     _backend_request(request),
+                    work_directory=work,
                     context=context,
                     credential=credential,
                 )
@@ -495,6 +498,8 @@ class LocalRuntime:
             operation_error = _runtime_connector_failure(error)
         except Exception as error:
             operation_error = error
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
         try:
             self._record_usage(
                 context,
@@ -565,19 +570,6 @@ class LocalRuntime:
                 context=context,
                 credential=credential,
             )
-            usage_attempted = True
-            self._record_usage(
-                context,
-                connector=connector.name,
-                kind="training_updates",
-                quantity=result.updates_completed,
-                unit="updates",
-                metadata={
-                    "elapsedSeconds": time.monotonic() - started,
-                    "requestedUpdates": job["limits"]["maxUpdates"],
-                    "state": "succeeded",
-                },
-            )
             candidate_id = self._persist_candidate(job, result)
             job.update(
                 state="succeeded",
@@ -585,6 +577,25 @@ class LocalRuntime:
                 completedAt=_now(),
                 updatedAt=_now(),
             )
+            usage_attempted = True
+            try:
+                self._record_usage(
+                    context,
+                    connector=connector.name,
+                    kind="training_updates",
+                    quantity=result.updates_completed,
+                    unit="updates",
+                    metadata={
+                        "elapsedSeconds": time.monotonic() - started,
+                        "requestedUpdates": job["limits"]["maxUpdates"],
+                        "state": "succeeded",
+                    },
+                )
+            except ConnectorError as usage_error:
+                job["usageError"] = {
+                    "code": usage_error.code,
+                    "message": "Connector operation failed.",
+                }
         except Exception as error:
             code = (
                 error.code
@@ -1230,7 +1241,6 @@ def _run_backend(
     credential: Credential | None,
 ) -> TrainingResult:
     """Run backend code in a child that the runtime can stop at the job deadline."""
-    timeout_seconds = max(0.0, context.deadline - time.monotonic())
     process_context = _process_context()
     result_path = work_directory / "result.pickle"
     process = process_context.Process(
@@ -1253,7 +1263,7 @@ def _run_backend(
     )
     process.start()
     try:
-        process.join(timeout_seconds)
+        process.join(max(0.0, context.deadline - time.monotonic()))
         if process.is_alive():
             context.cancellation.cancel()
             _stop_process(process)
@@ -1386,13 +1396,13 @@ def _run_inference(
     adapter: Path,
     request: Mapping[str, Any],
     *,
+    work_directory: Path,
     context: OperationContext,
     credential: Credential | None,
 ) -> Mapping[str, Any]:
     """Run inference in a child that the runtime can stop at the request deadline."""
-    timeout_seconds = max(0.0, context.deadline - time.monotonic())
     process_context = _process_context()
-    result_path = adapter.parent / f".inference-{context.operation_id}.pickle"
+    result_path = work_directory / "result.pickle"
     process = process_context.Process(
         target=_inference_process,
         args=(
@@ -1411,7 +1421,7 @@ def _run_inference(
     )
     process.start()
     try:
-        process.join(timeout_seconds)
+        process.join(max(0.0, context.deadline - time.monotonic()))
         if process.is_alive():
             context.cancellation.cancel()
             _stop_process(process)
@@ -1442,6 +1452,13 @@ def _run_inference(
             )
         if kind == "error":
             raise RuntimeFailure("inference_failed", payload, 500)
+        if time.monotonic() > context.deadline:
+            context.cancellation.cancel()
+            raise RuntimeFailure(
+                "inference_timed_out",
+                "The inference operation reached its deadline.",
+                504,
+            )
         return payload
     finally:
         result_path.unlink(missing_ok=True)

@@ -383,6 +383,32 @@ class LocalRuntimeTest(unittest.TestCase):
         )
         self.assertNotIn("test-token", failed["usageError"]["message"])
 
+    def test_preserves_successful_candidate_when_usage_reporting_fails(self):
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            environment="test",
+            observability=FailingObservability(),
+        )
+        self.addCleanup(runtime.close)
+
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
+        )
+
+        self.assertEqual(finished["state"], "succeeded")
+        self.assertIn("candidateId", finished)
+        self.assertEqual(finished["usageError"]["code"], "usage_unavailable")
+        self.assertEqual(
+            finished["usageError"]["message"],
+            "Connector operation failed.",
+        )
+        self.assertEqual(
+            runtime.candidate(finished["candidateId"])["manifest"]["id"],
+            finished["candidateId"],
+        )
+
     def test_reports_timeout_usage_with_a_fresh_completion_context(self):
         observability = ContextCheckingObservability()
         runtime = LocalRuntime(
@@ -589,6 +615,16 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(timed_out.exception.code, "inference_timed_out")
         self.assertEqual(timed_out.exception.status, 504)
         self.assertEqual(multiprocessing.active_children(), [])
+        self.assertEqual(list((self.state_dir / "work").iterdir()), [])
+        self.assertEqual(
+            sorted(
+                path.name
+                for path in (
+                    self.state_dir / "candidates" / finished["candidateId"]
+                ).iterdir()
+            ),
+            ["adapter.json", "evaluation.json", "manifest.json"],
+        )
 
     def test_bounds_a_worker_that_returns_but_does_not_exit(self):
         runtime = LocalRuntime(

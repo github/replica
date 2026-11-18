@@ -10,6 +10,7 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
+import replica_brand_check
 from replica_brand_check.connector_conformance import (
     ConnectorConformanceFixture,
     connector_conformance,
@@ -298,6 +299,7 @@ class _MemoryCandidates:
     def __init__(self):
         self._items = {}
         self._promotions = {}
+        self._promotion_idempotency = {}
 
     def put(self, candidate, context):
         _check_context(context)
@@ -341,9 +343,18 @@ class _MemoryCandidates:
         _check_context(context)
         self.get(candidate_id, context)
         scope = _scope_key(context.scope)
+        retry_key = (scope, context.idempotency_key)
+        request = (candidate_id, expected_generation, operation)
+        prior = self._promotion_idempotency.get(retry_key)
+        if prior is not None:
+            if prior[0] != request:
+                raise ConnectorError(
+                    "idempotency_conflict",
+                    "The idempotency key was reused with different input.",
+                    category="conflict",
+                )
+            return prior[1]
         current = self._promotions.get(scope)
-        if current is not None and current.candidate_id == candidate_id:
-            return current
         generation = current.generation if current is not None else 0
         if generation != expected_generation:
             raise ConnectorError(
@@ -359,6 +370,7 @@ class _MemoryCandidates:
             context.owner,
         )
         self._promotions[scope] = promoted
+        self._promotion_idempotency[retry_key] = (request, promoted)
         return promoted
 
     def current(self, context):
@@ -657,6 +669,16 @@ class _DeadlineBlindExecution(_MemoryExecution):
         return {"operationId": context.operation_id}
 
 
+class _AlwaysFailingInference(_MemoryExecution):
+    def predict(self, adapter, request, *, context, credential):
+        del adapter, request, context, credential
+        raise ConnectorError(
+            "deadline_exceeded",
+            "Inference is never available.",
+            category="deadline_exceeded",
+        )
+
+
 class _UnboundedCredentials(_MemoryCredentials):
     def acquire(self, audience, context):
         _check_context(context)
@@ -703,6 +725,10 @@ def _bundle_with(**overrides):
 
 
 class ConnectorConformanceTest(unittest.TestCase):
+    def test_package_exports_the_conformance_factory_as_a_callable(self):
+        self.assertIs(replica_brand_check.connector_conformance, connector_conformance)
+        self.assertTrue(callable(replica_brand_check.connector_conformance))
+
     def test_contract_only_bundle_passes_the_reusable_conformance_suite(self):
         result, output = self._run_suite(_MemoryBundle)
 
@@ -761,6 +787,13 @@ class ConnectorConformanceTest(unittest.TestCase):
         self._assert_suite_rejects(
             lambda: _bundle_with(execution=_DeadlineBlindExecution()),
             "training or inference that ignores cancellation and deadlines",
+        )
+
+    def test_shared_suite_rejects_inference_that_never_serves_a_live_request(self):
+        inference = _AlwaysFailingInference()
+        self._assert_suite_rejects(
+            lambda: _bundle_with(inference={"contract": inference}),
+            "inference that rejects every live request",
         )
 
     def test_shared_suite_rejects_credentials_that_outlive_the_operation(self):

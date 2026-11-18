@@ -3,6 +3,7 @@
 from importlib import import_module
 from typing import Any
 
+from .connector_conformance import ConnectorConformanceFixture, connector_conformance
 from .taskset import question_options
 
 __all__ = [
@@ -27,8 +28,6 @@ _OPENENV_EXPORTS = {
     "BrandCheckAction": ".models",
     "BrandCheckObservation": ".models",
     "BrandCheckEnv": ".client",
-    "ConnectorConformanceFixture": ".connector_conformance",
-    "connector_conformance": ".connector_conformance",
     "ConnectorError": ".connectors",
     "FixtureBackend": ".runtime",
     "LocalRuntime": ".runtime",

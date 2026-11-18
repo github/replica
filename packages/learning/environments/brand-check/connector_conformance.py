@@ -8,6 +8,7 @@ import unittest
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from .connectors import (
     Artifact,
@@ -122,7 +123,7 @@ def _scope_isolation(create_fixture):
             with case.assertRaises(ConnectorError) as hidden:
                 fixture.connectors.jobs.get("job_scoped", other)
             case.assertEqual(hidden.exception.category, "not_found")
-            case.assertEqual(fixture.connectors.jobs.list((job["state"],), other), ())
+            case.assertFalse(fixture.connectors.jobs.list((job["state"],), other))
             with case.assertRaises(ConnectorError) as hidden:
                 fixture.connectors.candidates.get(candidate.id, other)
             case.assertEqual(hidden.exception.category, "not_found")
@@ -134,25 +135,40 @@ def _scope_isolation(create_fixture):
 def _immutable_artifacts(create_fixture):
     def run(case):
         fixture = create_fixture()
-        context = _context(fixture.scope, "artifact")
         artifact = _artifact(b"first")
         unseen_mismatch = Artifact(_digest(b"claimed"), "application/octet-stream", b"actual")
         with case.assertRaises(ConnectorError) as mismatch:
-            fixture.connectors.artifacts.put(unseen_mismatch, context)
+            fixture.connectors.artifacts.put(
+                unseen_mismatch,
+                _context(fixture.scope, "artifact-mismatch"),
+            )
         case.assertEqual(mismatch.exception.category, "integrity")
         with case.assertRaises(ConnectorError):
-            fixture.connectors.artifacts.get(unseen_mismatch.digest, context)
-        case.assertEqual(fixture.connectors.artifacts.put(artifact, context), artifact)
-        case.assertEqual(fixture.connectors.artifacts.put(artifact, context), artifact)
+            fixture.connectors.artifacts.get(
+                unseen_mismatch.digest,
+                _context(fixture.scope, "artifact-mismatch-read"),
+            )
+        put_context = _context(fixture.scope, "artifact-put")
+        case.assertEqual(fixture.connectors.artifacts.put(artifact, put_context), artifact)
+        case.assertEqual(fixture.connectors.artifacts.put(artifact, put_context), artifact)
         changed = Artifact(
             digest=artifact.digest,
             media_type=artifact.media_type,
             data=b"changed",
         )
         with case.assertRaises(ConnectorError) as conflict:
-            fixture.connectors.artifacts.put(changed, context)
+            fixture.connectors.artifacts.put(
+                changed,
+                _context(fixture.scope, "artifact-changed"),
+            )
         case.assertEqual(conflict.exception.category, "integrity")
-        case.assertEqual(fixture.connectors.artifacts.get(artifact.digest, context), artifact)
+        case.assertEqual(
+            fixture.connectors.artifacts.get(
+                artifact.digest,
+                _context(fixture.scope, "artifact-read"),
+            ),
+            artifact,
+        )
 
     return run
 
@@ -206,10 +222,15 @@ def _immutable_candidates(create_fixture):
 def _leases(create_fixture):
     def run(case):
         fixture = create_fixture()
-        context = _context(fixture.scope, "lease")
-        fixture.connectors.jobs.create("job_lease", {"state": "queued"}, context)
+        fixture.connectors.jobs.create(
+            "job_lease",
+            {"state": "queued"},
+            _context(fixture.scope, "lease-create"),
+        )
         first = fixture.connectors.jobs.acquire(
-            "job_lease", ttl_seconds=5, context=context
+            "job_lease",
+            ttl_seconds=5,
+            context=_context(fixture.scope, "lease-first"),
         )
         with case.assertRaises(ConnectorError) as conflict:
             fixture.connectors.jobs.acquire(
@@ -218,7 +239,10 @@ def _leases(create_fixture):
                 context=_context(fixture.scope, "lease-conflict"),
             )
         case.assertEqual(conflict.exception.category, "conflict")
-        fixture.connectors.jobs.release(first, context)
+        fixture.connectors.jobs.release(
+            first,
+            _context(fixture.scope, "lease-first-release"),
+        )
         expiring = fixture.connectors.jobs.acquire(
             "job_lease",
             ttl_seconds=0.05,
@@ -260,7 +284,11 @@ def _promotion_generations(create_fixture):
         second = fixture.connectors.candidates.put(
             _candidate("two"), _context(fixture.scope, "candidate-two")
         )
-        first_promotion_context = _context(fixture.scope, "promotion-one")
+        first_promotion_context = _context(
+            fixture.scope,
+            "promotion-one",
+            idempotency_key="promotion-one",
+        )
         generation_one = fixture.connectors.candidates.promote(
             first.id,
             expected_generation=0,
@@ -283,6 +311,29 @@ def _promotion_generations(create_fixture):
         )
         case.assertEqual(generation_two.generation, 2)
         case.assertEqual(generation_two.previous_candidate_id, first.id)
+        case.assertEqual(
+            fixture.connectors.candidates.promote(
+                first.id,
+                expected_generation=0,
+                operation="promote",
+                context=first_promotion_context,
+            ),
+            generation_one,
+        )
+        case.assertEqual(
+            fixture.connectors.candidates.current(
+                _context(fixture.scope, "promotion-current")
+            ),
+            generation_two,
+        )
+        with case.assertRaises(ConnectorError) as current_stale:
+            fixture.connectors.candidates.promote(
+                second.id,
+                expected_generation=0,
+                operation="promote",
+                context=_context(fixture.scope, "current-candidate-stale"),
+            )
+        case.assertEqual(current_stale.exception.category, "conflict")
         with case.assertRaises(ConnectorError) as stale:
             fixture.connectors.candidates.promote(
                 first.id,
@@ -335,9 +386,10 @@ def _lease_cancellation(create_fixture):
 def _job_cancellation(create_fixture):
     def run(case):
         fixture = create_fixture()
-        context = _context(fixture.scope, "cancel-job")
         created = fixture.connectors.jobs.create(
-            "job_cancel", {"state": "queued"}, context
+            "job_cancel",
+            {"state": "queued"},
+            _context(fixture.scope, "cancel-job-create"),
         )
         lease = fixture.connectors.jobs.acquire(
             "job_cancel",
@@ -347,14 +399,38 @@ def _job_cancellation(create_fixture):
         cancelled = fixture.connectors.jobs.cancel(
             "job_cancel",
             expected_version=created["version"],
-            context=context,
+            context=_context(
+                fixture.scope,
+                "cancel-job",
+                idempotency_key="cancel-job",
+            ),
         )
         case.assertEqual(cancelled["state"], "cancelled")
         case.assertEqual(
             fixture.connectors.jobs.cancel(
                 "job_cancel",
                 expected_version=created["version"],
-                context=context,
+                context=_context(
+                    fixture.scope,
+                    "cancel-job-retry",
+                    idempotency_key="cancel-job",
+                ),
+            ),
+            cancelled,
+        )
+        with case.assertRaises(ConnectorError) as advanced:
+            fixture.connectors.jobs.update(
+                "job_cancel",
+                {"state": "running"},
+                expected_version=cancelled["version"],
+                lease=lease,
+                context=_context(fixture.scope, "advance-cancelled"),
+            )
+        case.assertEqual(advanced.exception.category, "conflict")
+        case.assertEqual(
+            fixture.connectors.jobs.get(
+                "job_cancel",
+                _context(fixture.scope, "cancelled-read"),
             ),
             cancelled,
         )
@@ -376,16 +452,6 @@ def _job_cancellation(create_fixture):
                 context=_context(fixture.scope, "stale-cancel"),
             )
         case.assertEqual(stale.exception.category, "conflict")
-        with case.assertRaises(ConnectorError) as advanced:
-            fixture.connectors.jobs.update(
-                "job_cancel",
-                {"state": "running"},
-                expected_version=cancelled["version"],
-                lease=lease,
-                context=_context(fixture.scope, "advance-cancelled"),
-            )
-        case.assertEqual(advanced.exception.category, "conflict")
-
     return run
 
 
@@ -399,7 +465,7 @@ def _job_versioning(create_fixture):
         )
         lease = fixture.connectors.jobs.acquire(
             "job_live",
-            ttl_seconds=0.05,
+            ttl_seconds=5,
             context=_context(fixture.scope, "live-lease"),
         )
         running = fixture.connectors.jobs.update(
@@ -423,7 +489,16 @@ def _job_versioning(create_fixture):
             fixture.connectors.jobs.get("job_live", running_context),
             running,
         )
-        time.sleep(max(0, lease.expires_at - time.monotonic()) + 0.01)
+        fixture.connectors.jobs.release(
+            lease,
+            _context(fixture.scope, "live-version-release"),
+        )
+        expiring = fixture.connectors.jobs.acquire(
+            "job_live",
+            ttl_seconds=0.05,
+            context=_context(fixture.scope, "live-expiring"),
+        )
+        time.sleep(max(0, expiring.expires_at - time.monotonic()) + 0.01)
         replacement = fixture.connectors.jobs.acquire(
             "job_live",
             ttl_seconds=1,
@@ -434,7 +509,7 @@ def _job_versioning(create_fixture):
                 "job_live",
                 {"state": "succeeded"},
                 expected_version=running["version"],
-                lease=lease,
+                lease=expiring,
                 context=_context(fixture.scope, "live-stale-lease"),
             )
         case.assertEqual(fenced.exception.category, "conflict")
@@ -549,33 +624,55 @@ def _execution_context(create_fixture):
         training_credential = fixture.connectors.credentials.acquire(
             "training", training_context
         )
-        for connector in fixture.connectors.training.values():
-            result = connector.train(
-                taskset,
-                Path("."),
-                max_updates=1,
-                context=training_context,
-                credential=training_credential,
-            )
-            case.assertIsInstance(result, TrainingResult)
-            case.assertEqual(result.updates_completed, 1)
-            case.assertTrue(result.adapter)
+        with TemporaryDirectory() as work:
+            for connector in fixture.connectors.training.values():
+                result = connector.train(
+                    taskset,
+                    Path(work),
+                    max_updates=1,
+                    context=training_context,
+                    credential=training_credential,
+                )
+                case.assertIsInstance(result, TrainingResult)
+                case.assertEqual(result.updates_completed, 1)
+                case.assertTrue(result.adapter)
+                adapter = Path(work) / result.adapter_name
+                adapter.write_bytes(result.adapter)
+                inference_context = _context(
+                    fixture.scope,
+                    "successful-inference",
+                )
+                inference_credential = fixture.connectors.credentials.acquire(
+                    "inference",
+                    inference_context,
+                )
+                prediction = fixture.connectors.inference[connector.name].predict(
+                    adapter,
+                    {"questions": {}},
+                    context=inference_context,
+                    credential=inference_credential,
+                )
+                case.assertEqual(
+                    prediction["operationId"],
+                    inference_context.operation_id,
+                )
         cancelled = Cancellation()
         cancelled.cancel()
-        for connector in fixture.connectors.training.values():
-            with case.assertRaises(ConnectorError) as stopped:
-                connector.train(
-                    taskset,
-                    Path("."),
-                    max_updates=1,
-                    context=_context(
-                        fixture.scope,
-                        "cancelled-training",
-                        cancellation=cancelled,
-                    ),
-                    credential=None,
-                )
-            case.assertEqual(stopped.exception.category, "cancelled")
+        with TemporaryDirectory() as work:
+            for connector in fixture.connectors.training.values():
+                with case.assertRaises(ConnectorError) as stopped:
+                    connector.train(
+                        taskset,
+                        Path(work),
+                        max_updates=1,
+                        context=_context(
+                            fixture.scope,
+                            "cancelled-training",
+                            cancellation=cancelled,
+                        ),
+                        credential=None,
+                    )
+                case.assertEqual(stopped.exception.category, "cancelled")
         for connector in fixture.connectors.inference.values():
             with case.assertRaises(ConnectorError) as expired:
                 connector.predict(
