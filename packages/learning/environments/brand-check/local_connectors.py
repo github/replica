@@ -368,7 +368,8 @@ class LocalJobConnector(_ScopedConnector):
         self.jobs = root / "jobs"
         self.idempotency = self.jobs / ".idempotency"
         self.leases = self.jobs / ".leases"
-        for directory in (self.jobs, self.idempotency, self.leases):
+        self.cancellations = self.jobs / ".cancellations"
+        for directory in (self.jobs, self.idempotency, self.leases, self.cancellations):
             directory.mkdir(parents=True, exist_ok=True, mode=0o700)
             os.chmod(directory, 0o700)
         for path in self.leases.glob("*.json"):
@@ -456,7 +457,9 @@ class LocalJobConnector(_ScopedConnector):
         states: Sequence[str],
         context: OperationContext,
     ) -> Sequence[Mapping[str, Any]]:
-        self._check(context)
+        check_context(context)
+        if context.scope != self.scope:
+            return ()
         selected = set(states)
         records = []
         for path in sorted(self.jobs.glob("*.json")):
@@ -504,14 +507,32 @@ class LocalJobConnector(_ScopedConnector):
         self._check(context)
         with self._lock:
             current = self.get(job_id, context)
-            if current["version"] != expected_version:
+            cancellation_path = self._cancellation_path(job_id)
+            if cancellation_path.exists():
+                cancellation = _read_object(
+                    cancellation_path,
+                    code="job_cancellation_not_found",
+                    message="The job cancellation was not found.",
+                )
+                if cancellation.get("idempotencyKey") != context.idempotency_key:
+                    raise ConnectorError(
+                        "job_version_conflict",
+                        "The job changed before cancellation.",
+                        category="conflict",
+                    )
+                if current.get("state") == "cancelled":
+                    return current
+            elif current["version"] != expected_version:
                 raise ConnectorError(
                     "job_version_conflict",
                     "The job changed before cancellation.",
                     category="conflict",
                 )
-            if current.get("state") == "cancelled":
-                return current
+            else:
+                _write_immutable(
+                    cancellation_path,
+                    _json_bytes({"idempotencyKey": context.idempotency_key}),
+                )
             saved = dict(current, state="cancelled", version=expected_version + 1)
             _write_json_atomic(self._job_path(job_id), saved)
             return saved
@@ -608,11 +629,20 @@ class LocalJobConnector(_ScopedConnector):
         lease: JobLease,
         context: OperationContext,
     ) -> dict[str, Any]:
-        saved = _read_object(
-            self._lease_path(lease.job_id),
-            code="job_lease_lost",
-            message="The job lease is no longer owned by this worker.",
-        )
+        try:
+            saved = _read_object(
+                self._lease_path(lease.job_id),
+                code="job_lease_lost",
+                message="The job lease is no longer owned by this worker.",
+            )
+        except ConnectorError as error:
+            if error.category != "not_found":
+                raise
+            raise ConnectorError(
+                "job_lease_lost",
+                "The job lease is no longer owned by this worker.",
+                category="conflict",
+            ) from None
         owner = saved.get("owner", {})
         if (
             saved.get("token") != lease.token
@@ -636,6 +666,9 @@ class LocalJobConnector(_ScopedConnector):
 
     def _lease_path(self, job_id: str) -> Path:
         return self.leases / f"{_checked_identifier(job_id, 'job')}.json"
+
+    def _cancellation_path(self, job_id: str) -> Path:
+        return self.cancellations / f"{_checked_identifier(job_id, 'job')}.json"
 
 
 class LocalCandidateConnector(_ScopedConnector):
@@ -873,7 +906,9 @@ class LocalCandidateConnector(_ScopedConnector):
             return promotion
 
     def current(self, context: OperationContext) -> Promotion | None:
-        self._check(context, hide=True)
+        check_context(context)
+        if context.scope != self.scope:
+            return None
         with self._lock:
             path = self.root / "promotion.json"
             if not path.is_file():

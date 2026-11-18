@@ -25,6 +25,7 @@ from replica_brand_check.connectors import (
     OperationContext,
     RuntimeOwner,
     RuntimeScope,
+    TrainingResult,
     Usage,
 )
 from replica_brand_check.local_connectors import create_local_connector_bundle
@@ -47,7 +48,14 @@ class _FixtureBackend:
     production_eligible = False
 
     def train(self, *args, **kwargs):
-        raise AssertionError("cancelled training reached the backend")
+        return TrainingResult(
+            adapter_name="adapter.bin",
+            adapter=b"adapter",
+            baseline_report={"meanReward": 0.5},
+            candidate_report={"meanReward": 0.75},
+            metadata={},
+            updates_completed=kwargs["max_updates"],
+        )
 
     def predict(self, *args, **kwargs):
         raise AssertionError("expired inference reached the backend")
@@ -121,7 +129,8 @@ def _conformance_fixture() -> ConnectorConformanceFixture:
         ],
     )
     scope = RuntimeScope("tenant-one", "github/example")
-    other_scope = RuntimeScope("tenant-two", "github/example")
+    other_repository_scope = RuntimeScope("tenant-one", "github/other")
+    other_tenant_scope = RuntimeScope("tenant-two", "github/example")
     bundle = create_local_connector_bundle(
         Path(holder.name) / "state",
         taskset_directory,
@@ -132,7 +141,8 @@ def _conformance_fixture() -> ConnectorConformanceFixture:
     return ConnectorConformanceFixture(
         connectors=bundle.connectors,
         scope=scope,
-        other_scope=other_scope,
+        other_repository_scope=other_repository_scope,
+        other_tenant_scope=other_tenant_scope,
         taskset_reference=bundle.taskset_reference,
         usage=bundle.observability.records,
     )

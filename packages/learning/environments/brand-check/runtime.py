@@ -670,7 +670,7 @@ class LocalRuntime:
                         "message": "Connector operation failed.",
                     }
         finally:
-            if context is not None:
+            if context is not None and lease is not None:
                 try:
                     job = dict(
                         self.connectors.jobs.update(
