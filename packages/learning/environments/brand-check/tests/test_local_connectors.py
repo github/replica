@@ -58,7 +58,10 @@ class _FixtureBackend:
         )
 
     def predict(self, *args, **kwargs):
-        raise AssertionError("expired inference reached the backend")
+        raise AssertionError("context-aware inference should use predict_with_context")
+
+    def predict_with_context(self, *args, **kwargs):
+        return {"operationId": kwargs["context"].operation_id}
 
 
 def _digest(data: bytes) -> ContentDigest:

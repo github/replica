@@ -623,7 +623,7 @@ class LocalRuntimeTest(unittest.TestCase):
                     self.state_dir / "candidates" / finished["candidateId"]
                 ).iterdir()
             ),
-            ["adapter.json", "evaluation.json", "manifest.json"],
+            [".candidate.json", "adapter.json", "evaluation.json", "manifest.json"],
         )
 
     def test_bounds_a_worker_that_returns_but_does_not_exit(self):

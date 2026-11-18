@@ -682,7 +682,13 @@ class LocalCandidateConnector(_ScopedConnector):
         self.candidates = root / "candidates"
         self.promotions = root / "promotions"
         self.promotion_owners = root / ".connectors" / "promotion-owners"
-        for directory in (self.candidates, self.promotions, self.promotion_owners):
+        self.promotion_idempotency = root / ".connectors" / "promotion-idempotency"
+        for directory in (
+            self.candidates,
+            self.promotions,
+            self.promotion_owners,
+            self.promotion_idempotency,
+        ):
             directory.mkdir(parents=True, exist_ok=True, mode=0o700)
             os.chmod(directory, 0o700)
         os.chmod(self.promotion_owners.parent, 0o700)
@@ -885,9 +891,47 @@ class LocalCandidateConnector(_ScopedConnector):
             )
         self.get(candidate_id, context)
         with self._lock:
+            request_digest = _digest(
+                _json_bytes(
+                    {
+                        "candidateId": candidate_id,
+                        "expectedGeneration": expected_generation,
+                        "operation": operation,
+                        "scope": _scope_key(context.scope),
+                    }
+                )
+            )
+            idempotency_path = self._promotion_idempotency_path(
+                context.idempotency_key
+            )
+            if idempotency_path.exists():
+                saved = _read_object(
+                    idempotency_path,
+                    code="promotion_idempotency_not_found",
+                    message="The promotion retry was not found.",
+                )
+                if saved.get("requestDigest") != str(request_digest):
+                    raise ConnectorError(
+                        "idempotency_conflict",
+                        "The idempotency key was reused with different input.",
+                        category="conflict",
+                    )
+                generation = saved.get("generation")
+                if not isinstance(generation, int):
+                    raise ConnectorError(
+                        "promotion_idempotency_damaged",
+                        "The promotion retry record is invalid.",
+                        category="integrity",
+                    )
+                return self._promotion_from_json(
+                    _read_object(
+                        self.promotions / f"{generation:08d}.json",
+                        code="promotion_not_found",
+                        message="The promotion generation was not found.",
+                    ),
+                    self._promotion_owner_kind(generation),
+                )
             current = self.current(context)
-            if current is not None and current.candidate_id == candidate_id:
-                return current
             generation = current.generation if current else 0
             if generation != expected_generation:
                 raise ConnectorError(
@@ -903,6 +947,15 @@ class LocalCandidateConnector(_ScopedConnector):
                 context.owner,
             )
             self._write_promotion(promotion)
+            _write_immutable(
+                idempotency_path,
+                _json_bytes(
+                    {
+                        "generation": promotion.generation,
+                        "requestDigest": str(request_digest),
+                    }
+                ),
+            )
             return promotion
 
     def current(self, context: OperationContext) -> Promotion | None:
@@ -1161,6 +1214,11 @@ class LocalCandidateConnector(_ScopedConnector):
             )
         return kind
 
+    def _promotion_idempotency_path(self, key: str) -> Path:
+        return self.promotion_idempotency / (
+            hashlib.sha256(key.encode()).hexdigest() + ".json"
+        )
+
     @staticmethod
     def _promotion_from_json(
         saved: Mapping[str, Any],
@@ -1226,6 +1284,14 @@ class LocalInferenceConnector:
     ) -> Mapping[str, Any]:
         del credential
         check_context(context)
+        predict_with_context = getattr(self.backend, "predict_with_context", None)
+        if predict_with_context is not None:
+            return predict_with_context(
+                adapter,
+                request,
+                context=context,
+                timeout_seconds=max(0.0, context.deadline - time.monotonic()),
+            )
         return self.backend.predict(
             adapter,
             request,
