@@ -26,6 +26,8 @@ The repository learning integration supplies the persisted repository UUID and p
 
 Decision commands use an existing store and never create one implicitly. The first complete review import prepares the store.
 
+When GitHub repository scoping first activates, previously authorized learning decisions and queued runs may finish writing to their original legacy repository's private store. The UUID-scoped store stays hidden and is never linked to a new ID-backed repository.
+
 ## Command boundary
 
 The runner starts Node.js with the configured CLI entry point, appends `--json`, and gives the child only:
@@ -50,7 +52,7 @@ Current product authorization has Hub members and Hub administrators but no repo
 
 The read response lists the ten newest persisted runs and decimal Copilot usage from runs started during the previous 30 days. It resolves every displayed package event against the current repository snapshot and shows the exact imported event body only when the event, episode, comment, Hub origin, and repository all match. Deleted comments remain visible as redacted evidence without text.
 
-Decision inputs follow the browser schema. Accept and reject require the exact reviewed digest; package `stale_review` failures return `409` rather than applying a changed suggestion. Reject and retire require a reason. Edited acceptance writes the proposed content to a private temporary file because command-line arguments must not carry review text. Successful and failed package decisions write typed security audits without storing content, evidence, or reasons.
+Decision inputs follow the browser schema. Accept and reject require the exact reviewed digest; package `stale_review` failures return `409` rather than applying a changed suggestion. If the repository becomes hidden while a decision runs, Hub returns a generic not-found response instead of exposing package-store failure details. Reject and retire require a reason. Edited acceptance writes the proposed content to a private temporary file because command-line arguments must not carry review text. Successful and failed package decisions write typed security audits without storing content, evidence, or reasons.
 
 The run endpoint requires a usable Copilot connection. It captures and digests one complete repeatable-read repository review snapshot, creates or reuses the repository's active run, writes its typed request audit, and enqueues one idempotent on-demand job. Enqueue failure marks a newly created run failed. A scheduled recovery sweep re-enqueues queued runs.
 
