@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from .connectors import RuntimeScope
 from .runtime import ENVIRONMENTS, FixtureBackend, LocalRuntime, RuntimeFailure
 
 TOKEN_VARIABLE = "REPLICA_RUNTIME_TOKEN"
@@ -216,6 +217,16 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1", help="address to listen on")
     parser.add_argument("--port", type=int, default=8010, help="port to listen on")
     parser.add_argument(
+        "--tenant",
+        default="local",
+        help="customer tenant scope passed to every infrastructure connector",
+    )
+    parser.add_argument(
+        "--repository",
+        default="local/runtime",
+        help="repository scope passed to every infrastructure connector",
+    )
+    parser.add_argument(
         "--environment",
         choices=ENVIRONMENTS,
         default="development",
@@ -229,6 +240,7 @@ def main() -> None:
         args.taskset,
         {"fixture": FixtureBackend()},
         environment=args.environment,
+        scope=RuntimeScope(args.tenant, args.repository),
     )
     server = RuntimeHTTPServer((args.host, args.port), runtime, token)
     previous = signal.getsignal(signal.SIGTERM)
