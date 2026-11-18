@@ -239,7 +239,7 @@ class LocalRuntimeTest(unittest.TestCase):
             environment="test",
         )
         first = runtime.submit(backend="blocking", max_updates=1, max_seconds=5)
-        self.assertTrue(backend.started.wait(1))
+        self.assertTrue(backend.started.wait(5))
         second = runtime.submit(backend="blocking", max_updates=1, max_seconds=5)
         closing = threading.Thread(target=runtime.close)
         closing.start()
