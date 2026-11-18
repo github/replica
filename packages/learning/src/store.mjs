@@ -2377,9 +2377,7 @@ class LearningStore {
       const sourceEvents = currentSourceEvents(new Set([episode.id]))
       if (
         hubViewKey(episode, observations.events) === null &&
-        sourceEvents.some(
-          (event) => event.payload === undefined || !exportedEventIds.has(event.id),
-        )
+        sourceEvents.some((event) => event.payload === undefined || !exportedEventIds.has(event.id))
       )
         uncertainPrototypes.add(hubPrototypeKey(episode.source))
     }

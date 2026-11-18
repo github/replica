@@ -500,10 +500,7 @@ describe("replica-learning decision", () => {
       readFileSync(
         buildsFile(repo, {
           source: { hubOrigin: HUB_ORIGIN, repositoryId },
-          builds: BUILDS.map(([prototypeId, ...rest]) => [
-            prototypeIds.get(prototypeId),
-            ...rest,
-          ]),
+          builds: BUILDS.map(([prototypeId, ...rest]) => [prototypeIds.get(prototypeId), ...rest]),
         }),
         "utf8",
       ),
@@ -729,12 +726,7 @@ describe("replica-learning decision", () => {
     })
     await grantTraining(repo, by)
 
-    const { result, tasks } = await writeTaskset(
-      repo,
-      by,
-      buildsFile(repo),
-      "resolution-sequence",
-    )
+    const { result, tasks } = await writeTaskset(repo, by, buildsFile(repo), "resolution-sequence")
 
     assert.deepEqual(labelsOf(tasks), [
       [11, 3, { [learningId]: { answer: false } }],

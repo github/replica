@@ -93,7 +93,8 @@ describe("export completeness certificates", () => {
       sources: ["hub_review_comments"],
       basis: "The team agreed to review its Hub comments.",
     })
-    for (const log of logs) await store.importHubReviewComments(AGENT, log, { grantIds: [grant.id] })
+    for (const log of logs)
+      await store.importHubReviewComments(AGENT, log, { grantIds: [grant.id] })
     return { provider, store }
   }
 
