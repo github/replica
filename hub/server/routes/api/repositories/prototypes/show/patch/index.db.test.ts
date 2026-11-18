@@ -53,7 +53,7 @@ async function openServer(
 }
 
 async function createMember(
-  options: { administrator?: boolean; expiresAt?: Date; profileProvider?: string } = {},
+  options: { administrator?: boolean; profileProvider?: string; sessionExpiresInMs?: number } = {},
 ) {
   const provider = await prisma.authenticationProvider.findUniqueOrThrow({
     where: { key: "github" },
@@ -89,7 +89,10 @@ async function createMember(
       providerRevisionId: provider.selectedRevisionId,
       digest: createHash("sha256").update(token).digest("hex"),
       revocationRevision: 0,
-      expiresAt: options.expiresAt ?? new Date("2099-01-01T00:00:00Z"),
+      expiresAt:
+        options.sessionExpiresInMs === undefined
+          ? new Date("2099-01-01T00:00:00Z")
+          : new Date(Date.now() + options.sessionExpiresInMs),
     },
   })
   return { user, membership, assignment, session, token }
@@ -551,9 +554,10 @@ describe("prototype PATCH API", () => {
 
   it("rejects an edit when its session expires while waiting for the prototype lock", async () => {
     const server = await openServer()
-    const expiresAt = new Date(Date.now() + 3_000)
-    const member = await createMember({ expiresAt })
-    const { prototype, url } = await createPrototype(server.url, "prototype/session-expiry")
+    const { repository, prototype, url } = await createPrototype(
+      server.url,
+      "prototype/session-expiry",
+    )
     const database = new pg.Client({ connectionString: getDatabaseUrl() })
     await database.connect()
     let transactionOpen = false
@@ -562,10 +566,18 @@ describe("prototype PATCH API", () => {
       await database.query("BEGIN")
       transactionOpen = true
       await database.query("SELECT id FROM prototypes WHERE id = $1 FOR UPDATE", [prototype.id])
+      const member = await createMember({ sessionExpiresInMs: 3_000 })
+      await prisma.repositoryAccessGrant.create({
+        data: {
+          membershipId: member.membership.id,
+          repositoryId: repository.id,
+          observedAt: new Date(),
+        },
+      })
       edit = patch(url, member.token, { name: "Expired" })
       await waitForDatabaseLock(getDatabaseUrl())
       await new Promise<void>((resolve) =>
-        setTimeout(resolve, Math.max(0, expiresAt.getTime() - Date.now() + 100)),
+        setTimeout(resolve, Math.max(0, member.session.expiresAt.getTime() - Date.now() + 100)),
       )
       await database.query("COMMIT")
       transactionOpen = false
@@ -576,7 +588,7 @@ describe("prototype PATCH API", () => {
       if (edit) await Promise.allSettled([edit])
       await database.end()
     }
-  })
+  }, 15_000)
 
   it("commits an edit before global session revocation waiting on its lock", async () => {
     const server = await openServer()

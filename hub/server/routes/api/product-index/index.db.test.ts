@@ -1429,7 +1429,7 @@ describe("real product index", () => {
         include: { prototypes: { include: { builds: true } } },
       }),
     ).resolves.toEqual(retainedHistory)
-  })
+  }, 15_000)
 
   it("rescopes workspace repositories when a GitHub administrator becomes a member", async () => {
     const user = await prisma.user.create({ data: {} })

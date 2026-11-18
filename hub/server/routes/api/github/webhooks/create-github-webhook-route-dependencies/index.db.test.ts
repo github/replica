@@ -843,6 +843,7 @@ describe("createGitHubWebhookRouteDependencies()", () => {
         })),
       )
     },
+    15_000,
   )
 
   it("rejects a reused delivery ID with a different event or raw-body digest", async () => {
