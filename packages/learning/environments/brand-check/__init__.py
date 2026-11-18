@@ -12,11 +12,13 @@ __all__ = [
     "ConnectorConformanceFixture",
     "ConnectorError",
     "FixtureBackend",
+    "LocalConnectorBundle",
     "LocalRuntime",
     "RuntimeConnectors",
     "RuntimeScope",
     "RuntimeFailure",
     "connector_conformance",
+    "create_local_connector_bundle",
     "question_options",
 ]
 
@@ -30,10 +32,12 @@ _OPENENV_EXPORTS = {
     "connector_conformance": ".connector_conformance",
     "ConnectorError": ".connectors",
     "FixtureBackend": ".runtime",
+    "LocalConnectorBundle": ".local_connectors",
     "LocalRuntime": ".runtime",
     "RuntimeConnectors": ".connectors",
     "RuntimeScope": ".connectors",
     "RuntimeFailure": ".runtime",
+    "create_local_connector_bundle": ".local_connectors",
 }
 
 
