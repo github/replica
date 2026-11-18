@@ -659,7 +659,7 @@ class LocalRuntime:
                 except ConnectorError as usage_error:
                     job["usageError"] = {
                         "code": usage_error.code,
-                        "message": "Usage reporting failed.",
+                        "message": "Connector operation failed.",
                     }
         finally:
             if context is not None and lease is not None:
