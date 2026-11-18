@@ -36,7 +36,19 @@ class FailingBackend(FixtureBackend):
     """A backend that fails after the runtime has accepted its job."""
 
     def train(self, *args, **kwargs):
-        raise RuntimeError("deliberate backend failure")
+        raise RuntimeError("provider secret: backend-token")
+
+
+class ConnectorFailingBackend(FixtureBackend):
+    """A backend that raises a connector-classified failure in the worker."""
+
+    def train(self, *args, **kwargs):
+        raise ConnectorError(
+            "provider_unavailable",
+            "provider secret: connector-token",
+            category="unavailable",
+            retryable=True,
+        )
 
 
 class SlowBackend(FixtureBackend):
@@ -53,6 +65,13 @@ class SlowInferenceBackend(FixtureBackend):
     def predict(self, *args, **kwargs):
         time.sleep(0.1)
         return super().predict(*args, **kwargs)
+
+
+class FailingInferenceBackend(FixtureBackend):
+    """A backend that exposes an unexpected provider failure during inference."""
+
+    def predict(self, *args, **kwargs):
+        raise RuntimeError("provider secret: inference-token")
 
 
 class LingeringBackend(FixtureBackend):
@@ -162,7 +181,7 @@ class FailingObservability:
         del usage, context
         raise ConnectorError(
             "usage_unavailable",
-            "Usage reporting is unavailable.",
+            "provider secret: test-token",
             category="unavailable",
             retryable=True,
         )
@@ -174,6 +193,17 @@ class InferenceFailingCredentials(CapturingCredentials):
             raise ConnectorError(
                 "credential_unavailable",
                 "provider secret: test-token",
+                category="unauthorized",
+            )
+        return super().acquire(audience, context)
+
+
+class TrainingFailingCredentials(CapturingCredentials):
+    def acquire(self, audience, context):
+        if audience == "training":
+            raise ConnectorError(
+                "credential_unavailable",
+                "provider secret: training-token",
                 category="unauthorized",
             )
         return super().acquire(audience, context)
@@ -345,7 +375,13 @@ class LocalRuntimeTest(unittest.TestCase):
         )
 
         self.assertEqual(failed["error"]["code"], "backend_failed")
+        self.assertEqual(failed["error"]["message"], "Backend operation failed.")
+        self.assertNotIn("backend-token", failed["error"]["message"])
         self.assertEqual(failed["usageError"]["code"], "usage_unavailable")
+        self.assertEqual(
+            failed["usageError"]["message"], "Connector operation failed."
+        )
+        self.assertNotIn("test-token", failed["usageError"]["message"])
 
     def test_reports_timeout_usage_with_a_fresh_completion_context(self):
         observability = ContextCheckingObservability()
@@ -390,6 +426,67 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(unavailable.exception.status, 503)
         self.assertEqual(str(unavailable.exception), "Connector operation failed.")
         self.assertNotIn("test-token", str(unavailable.exception))
+
+    def test_redacts_training_credential_failure_from_the_job_record(self):
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            environment="test",
+            credentials=TrainingFailingCredentials(),
+        )
+        self.addCleanup(runtime.close)
+
+        failed = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
+        )
+
+        self.assertEqual(failed["error"]["code"], "credential_unavailable")
+        self.assertEqual(failed["error"]["message"], "Connector operation failed.")
+        self.assertNotIn("training-token", failed["error"]["message"])
+
+    def test_redacts_connector_failure_from_the_training_worker_result(self):
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"connector-failure": ConnectorFailingBackend()},
+            environment="test",
+        )
+        self.addCleanup(runtime.close)
+
+        failed = self._wait_for_job(
+            runtime,
+            runtime.submit(
+                backend="connector-failure", max_updates=8, max_seconds=5
+            )["id"],
+        )
+
+        self.assertEqual(failed["error"]["code"], "provider_unavailable")
+        self.assertEqual(failed["error"]["message"], "Connector operation failed.")
+        self.assertNotIn("connector-token", failed["error"]["message"])
+
+    def test_redacts_unexpected_inference_worker_failure(self):
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"inference-failure": FailingInferenceBackend()},
+            environment="test",
+        )
+        self.addCleanup(runtime.close)
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(
+                backend="inference-failure", max_updates=8, max_seconds=5
+            )["id"],
+        )
+        runtime.promote(finished["candidateId"], promoted_by="test-operator")
+
+        with self.assertRaises(RuntimeFailure) as failed:
+            runtime.evaluate(self._request())
+
+        self.assertEqual(failed.exception.code, "inference_failed")
+        self.assertEqual(str(failed.exception), "Inference operation failed.")
+        self.assertNotIn("inference-token", str(failed.exception))
 
     def test_detects_a_candidate_changed_to_claim_production_eligibility(self):
         runtime = self._runtime()
@@ -1065,7 +1162,7 @@ class LocalRuntimeTest(unittest.TestCase):
                     f"http://127.0.0.1:{server.server_address[1]}/health"
                 )
                 break
-            except error.URLError:
+            except (error.URLError, ConnectionError):
                 if time.monotonic() >= deadline:
                     raise
                 time.sleep(0.01)

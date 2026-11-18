@@ -591,9 +591,18 @@ class LocalRuntime:
                 if isinstance(error, (RuntimeFailure, ConnectorError))
                 else "backend_failed"
             )
+            message = (
+                "Connector operation failed."
+                if isinstance(error, ConnectorError)
+                else (
+                    str(error)
+                    if isinstance(error, RuntimeFailure)
+                    else "Backend operation failed."
+                )
+            )
             job.update(
                 state="failed",
-                error={"code": code, "message": str(error)},
+                error={"code": code, "message": message},
                 completedAt=_now(),
                 updatedAt=_now(),
             )
@@ -616,7 +625,7 @@ class LocalRuntime:
                 except ConnectorError as usage_error:
                     job["usageError"] = {
                         "code": usage_error.code,
-                        "message": str(usage_error),
+                        "message": "Connector operation failed.",
                     }
         finally:
             _write_json_atomic(self._job_path(job_id), job)
@@ -1325,10 +1334,15 @@ def _backend_process(
         elif isinstance(error, ConnectorError):
             outcome = (
                 "connector_error",
-                (error.code, str(error), error.category, error.retryable),
+                (
+                    error.code,
+                    "Connector operation failed.",
+                    error.category,
+                    error.retryable,
+                ),
             )
         else:
-            outcome = ("error", str(error))
+            outcome = ("error", "Backend operation failed.")
     temporary = Path(result_path).with_name(f".{Path(result_path).name}.{uuid.uuid4().hex}")
     try:
         with temporary.open("xb") as handle:
@@ -1470,10 +1484,15 @@ def _inference_process(
         elif isinstance(error, ConnectorError):
             outcome = (
                 "connector_error",
-                (error.code, str(error), error.category, error.retryable),
+                (
+                    error.code,
+                    "Connector operation failed.",
+                    error.category,
+                    error.retryable,
+                ),
             )
         else:
-            outcome = ("error", str(error))
+            outcome = ("error", "Inference operation failed.")
     result = Path(result_path)
     temporary = result.with_name(f".{result.name}.{uuid.uuid4().hex}")
     try:
