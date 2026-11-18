@@ -57,7 +57,12 @@ export async function configurePostSetup(
       return choice
     },
   }
-  const progress = await postSetupProgress({ ...context, ui: recoveryUI }, action, inputs)
+  const progress = await postSetupProgress(
+    { ...context, ui: recoveryUI },
+    action,
+    inputs,
+    deployment.image,
+  )
   if (progress.pending || Object.keys(progress.references).length) context.onMutation?.()
   let resume = false
   if (progress.hasSaved) {

@@ -33,12 +33,18 @@ interface Progress {
   pending?: string
   complete: boolean
   inputs: string
+  secretOrigin?: {
+    inputs: string
+    normalizedInputs?: string
+    references: Record<string, Reference>
+  }
 }
 
 export async function postSetupProgress(
   context: Pick<AzureInstallation, "config" | "directory" | "ui" | "signal">,
   action: "sign-in" | "github",
   inputs?: PostInputs,
+  verifiedImage?: string,
 ) {
   const path = join(context.directory, `post-${action}-progress.json`)
   const target = JSON.stringify(context.config)
@@ -48,6 +54,13 @@ export async function postSetupProgress(
   const fingerprint = createHash("sha256")
     .update(JSON.stringify(inputs ?? {}))
     .digest("hex")
+  function retainedFingerprint(value: PostInputs | undefined) {
+    const { runtime_environment_variables, runtime_secret_references, ...retained } = value ?? {}
+    const { HUB_TRUSTED_PROXY_HOPS, ...environment } = runtime_environment_variables ?? {}
+    return createHash("sha256")
+      .update(JSON.stringify({ ...retained, runtime_environment_variables: environment }))
+      .digest("hex")
+  }
   const empty = (): Progress => ({
     version: 1,
     target,
@@ -56,8 +69,26 @@ export async function postSetupProgress(
     answers: {},
     references: {},
     complete: false,
+    ...(action === "sign-in" &&
+      inputs?.runtime_secret_references?.HUB_APPLICATION_ORIGIN && {
+        secretOrigin: {
+          inputs: retainedFingerprint(inputs),
+          ...(verifiedImage && {
+            normalizedInputs: retainedFingerprint({
+              ...inputs,
+              image: verifiedImage,
+              deploy_hub: true,
+            }),
+          }),
+          references: Object.fromEntries(
+            Object.entries(inputs.runtime_secret_references).map(([key, value]) => [
+              key,
+              reference(key, value, true),
+            ]),
+          ),
+        },
+      }),
   })
-  let data = empty()
   function invalid(): never {
     throw new Error(
       "Post-setup answers are invalid or belong to another installation/action. The private progress file was preserved.",
@@ -68,6 +99,8 @@ export async function postSetupProgress(
     return value as Record<string, unknown>
   }
   const keys: readonly string[] = action === "github" ? credentialKeys : sharedKeys
+  const pinned = (secretId: string) =>
+    /\/secrets\/[a-z0-9-]{1,127}\/[a-f0-9]{32}$/i.test(secretId)
   function answer(key: string, value: unknown): string {
     if (typeof value !== "string" || value.length > 4096 || /[\u0000-\u001f\u007f]/.test(value))
       invalid()
@@ -89,26 +122,28 @@ export async function postSetupProgress(
       invalid()
     return value
   }
-  function reference(key: string, value: unknown): Reference {
-    if (!keys.includes(key)) invalid()
+  function reference(key: string, value: unknown, retained = false): Reference {
+    if (retained ? !/^[A-Z][A-Z0-9_]{0,40}$/.test(key) : !keys.includes(key)) invalid()
     const raw = record(value)
     if (
       Object.keys(raw).some((key) => !["key_vault_id", "secret_id"].includes(key)) ||
       typeof raw.key_vault_id !== "string" ||
       typeof raw.secret_id !== "string" ||
-      raw.key_vault_id.toLowerCase() !== vaultId.toLowerCase() ||
+      (!retained && raw.key_vault_id.toLowerCase() !== vaultId.toLowerCase()) ||
       !/^\/subscriptions\/[a-f0-9-]{36}\/resourceGroups\/[^/]+\/providers\/Microsoft.KeyVault\/vaults\/[a-z0-9-]{1,24}$/i.test(
         raw.key_vault_id,
       ) ||
-      !/^https:\/\/[a-z0-9-]{1,24}\.vault\.azure\.net\/secrets\/[a-z0-9-]{1,127}\/[a-f0-9]{32}$/i.test(
+      !/^https:\/\/[a-z0-9-]{1,24}\.vault\.azure\.net\/secrets\/[a-z0-9-]{1,127}(\/[a-f0-9]{32})?$/i.test(
         raw.secret_id,
       ) ||
+      (!retained && !pinned(raw.secret_id)) ||
       new URL(raw.secret_id).hostname.toLowerCase() !==
         `${raw.key_vault_id.split("/").at(-1)?.toLowerCase()}.vault.azure.net`
     )
       invalid()
     return { key_vault_id: raw.key_vault_id, secret_id: raw.secret_id }
   }
+  let data = empty()
   if (original !== undefined) {
     let value: unknown
     try {
@@ -135,12 +170,42 @@ export async function postSetupProgress(
             "references",
             "pending",
             "complete",
+            "secretOrigin",
           ].includes(key),
       ) ||
       (raw.pending !== undefined &&
         (typeof raw.pending !== "string" || !keys.includes(raw.pending)))
     )
       invalid()
+    let secretOrigin: Progress["secretOrigin"]
+    if (raw.secretOrigin !== undefined) {
+      const saved = record(raw.secretOrigin)
+      if (
+        action !== "sign-in" ||
+        Object.keys(saved).some(
+          (key) => !["inputs", "normalizedInputs", "references"].includes(key),
+        ) ||
+        typeof saved.inputs !== "string" ||
+        !/^[a-f0-9]{64}$/.test(saved.inputs) ||
+        (saved.normalizedInputs !== undefined &&
+          (typeof saved.normalizedInputs !== "string" ||
+            !/^[a-f0-9]{64}$/.test(saved.normalizedInputs)))
+      )
+        invalid()
+      secretOrigin = {
+        inputs: saved.inputs,
+        ...(typeof saved.normalizedInputs === "string" && {
+          normalizedInputs: saved.normalizedInputs,
+        }),
+        references: Object.fromEntries(
+          Object.entries(record(saved.references)).map(([key, value]) => [
+            key,
+            reference(key, value, true),
+          ]),
+        ),
+      }
+      if (!secretOrigin.references.HUB_APPLICATION_ORIGIN) invalid()
+    }
     data = {
       version: 1,
       target,
@@ -154,6 +219,7 @@ export async function postSetupProgress(
         Object.entries(record(raw.references)).map(([key, value]) => [key, reference(key, value)]),
       ),
       ...(raw.pending !== undefined && { pending: String(raw.pending) }),
+      ...(secretOrigin && { secretOrigin }),
     }
     if (data.complete) data = empty()
     else if (data.inputs !== fingerprint) {
@@ -167,11 +233,41 @@ export async function postSetupProgress(
         github_app_installation_id: inputs?.github_app_installation_id,
         github_provider_revision: inputs?.github_provider_revision,
       }
+      const retainedReferences = { ...data.secretOrigin?.references, ...data.references }
+      const currentReferences = inputs?.runtime_secret_references ?? {}
+      const secretOriginMatches =
+        desired.origin === undefined &&
+        (data.secretOrigin?.inputs === retainedFingerprint(inputs) ||
+          (verifiedImage !== undefined &&
+            inputs?.image === verifiedImage &&
+            inputs.deploy_hub === true &&
+            data.secretOrigin?.normalizedInputs === retainedFingerprint(inputs))) &&
+        Object.keys(retainedReferences).length === Object.keys(currentReferences).length &&
+        Object.entries(retainedReferences).every(([key, saved]) => {
+          const current = currentReferences[key]
+          if (!current) return false
+          const checked = reference(key, current, true)
+          return (
+            checked.key_vault_id.toLowerCase() === saved.key_vault_id.toLowerCase() &&
+            (checked.secret_id.toLowerCase() === saved.secret_id.toLowerCase() ||
+              ((key === "HUB_APPLICATION_ORIGIN" || sharedKeys.some((name) => name === key)) &&
+                !pinned(saved.secret_id) &&
+                checked.secret_id.toLowerCase().replace(/\/[a-f0-9]{32}$/i, "") ===
+                  saved.secret_id.toLowerCase()))
+          )
+        })
       if (
         data.pending === undefined &&
+        (!data.secretOrigin ||
+          (data.answers.origin !== undefined &&
+            data.answers.proxyHops !== undefined &&
+            secretOriginMatches)) &&
         Object.entries(data.answers).every(
           ([key, value]) =>
-            key.endsWith("_FILE") || String(desired[key as keyof typeof desired]) === value,
+            key.endsWith("_FILE") ||
+            (key === "origin" && data.secretOrigin
+              ? secretOriginMatches
+              : String(desired[key as keyof typeof desired]) === value),
         ) &&
         Object.entries(data.references).every(
           ([key, ref]) =>
