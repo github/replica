@@ -11,7 +11,7 @@ import {
 } from "node:fs"
 import { dirname, join } from "node:path"
 import { test } from "node:test"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const script = join(root, "starters/shared/scripts/setup-replica-plugin.mjs")
@@ -31,10 +31,10 @@ function run(
   steps,
   { missingCli = false, missingNpm = false, cliMode = 0o755, startup = false, repeat = 1 } = {},
 ) {
-  const directory = mkdtempSync(join(root, ".replica-plugin-test-"))
+  const directory = mkdtempSync(join(root, ".replica plugin & test-"))
   t.after(() => rmSync(directory, { recursive: true, force: true }))
   const state = join(directory, "state.json")
-  const prefix = join(directory, "npm global")
+  const prefix = join(directory, "npm global & tools")
   writeFileSync(state, JSON.stringify(steps))
   const executable = `#!${process.execPath}
 const assert = require("node:assert/strict")
@@ -44,7 +44,7 @@ assert.equal(process.env.PATH, path.dirname(process.env.REPLICA_TEST_STATE))
 const steps = JSON.parse(fs.readFileSync(process.env.REPLICA_TEST_STATE, "utf8"))
 const step = steps.shift()
 assert.ok(step, "Unexpected extra CLI call")
-assert.equal(path.basename(process.argv[1]), step.command ?? "copilot")
+assert.equal(path.basename(process.argv[1]).replace("npm-cli.js", "npm").replace("npm-loader.cjs", "copilot"), step.command ?? "copilot")
 assert.deepEqual(process.argv.slice(2), step.args)
 fs.writeFileSync(process.env.REPLICA_TEST_STATE, JSON.stringify(steps))
 if (step.error) {
@@ -52,9 +52,16 @@ if (step.error) {
   process.exit(1)
 }
 if (step.installCli) {
-  const bin = path.join(process.env.REPLICA_TEST_PREFIX, "bin")
-  fs.mkdirSync(bin, { recursive: true })
-  fs.copyFileSync(__filename, path.join(bin, "copilot"))
+  if (process.platform === "win32") {
+    const directory = path.join(process.env.REPLICA_TEST_PREFIX, "node_modules", "@github", "copilot")
+    fs.mkdirSync(directory, { recursive: true })
+    fs.copyFileSync(__filename, path.join(directory, "npm-loader.cjs"))
+    fs.writeFileSync(path.join(directory, "package.json"), JSON.stringify({ bin: { copilot: "npm-loader.cjs" } }))
+  } else {
+    const bin = path.join(process.env.REPLICA_TEST_PREFIX, "bin")
+    fs.mkdirSync(bin, { recursive: true })
+    fs.copyFileSync(__filename, path.join(bin, "copilot"))
+  }
 }
 console.log(step.raw ?? (step.command === "npm" && step.args[0] === "prefix"
   ? process.env.REPLICA_TEST_PREFIX
@@ -62,19 +69,44 @@ console.log(step.raw ?? (step.command === "npm" && step.args[0] === "prefix"
 `
   for (const command of ["copilot", "npm"]) {
     if ((command === "copilot" && missingCli) || (command === "npm" && missingNpm)) continue
-    writeFileSync(join(directory, command), executable, {
+    writeFileSync(join(directory, command === "npm" && process.platform === "win32" ? "npm-cli.js" : command), executable, {
       mode: command === "copilot" ? cliMode : 0o755,
     })
   }
   let command = process.execPath
   let args = [script]
+  let nodeOptions
+  if (process.platform === "win32") {
+    const preload = join(directory, "cli-preload.mjs")
+    writeFileSync(preload, `
+import childProcess from "node:child_process"
+import { syncBuiltinESMExports } from "node:module"
+const original = childProcess.execFileSync
+childProcess.execFileSync = (command, args, options) => {
+  if (command !== "copilot.exe") return original(command, args, options)
+  if (${missingCli} || ${cliMode !== 0o755}) {
+    const error = new Error(${JSON.stringify(missingCli ? "spawnSync copilot ENOENT" : "spawnSync copilot EACCES")})
+    error.code = ${JSON.stringify(missingCli ? "ENOENT" : "EACCES")}
+    error.path = command
+    throw error
+  }
+  return original(process.execPath, [${JSON.stringify(join(directory, "copilot"))}, ...args], options)
+}
+syncBuiltinESMExports()
+`)
+    nodeOptions = `--import=${pathToFileURL(preload).href}`
+  }
   if (startup) {
     mkdirSync(join(directory, "scripts"))
     copyFileSync(script, join(directory, "scripts/setup-replica-plugin.mjs"))
-    symlinkSync(process.execPath, join(directory, "node"))
     const config = readFileSync(join(root, "starters/shared/.github/github-app.yml"), "utf8").replaceAll("\r\n", "\n")
-    command = "/bin/sh"
-    args = ["-c", config.match(/^\s+command: (.+)$/m)[1]]
+    if (process.platform === "win32") {
+      args = [join(directory, "scripts/setup-replica-plugin.mjs"), "--startup"]
+    } else {
+      symlinkSync(process.execPath, join(directory, "node"))
+      command = "/bin/sh"
+      args = ["-c", config.match(/^\s+command: (.+)$/m)[1]]
+    }
   }
   let result
   for (let attempt = 0; attempt < repeat; attempt++) {
@@ -82,7 +114,14 @@ console.log(step.raw ?? (step.command === "npm" && step.args[0] === "prefix"
       cwd: directory,
       encoding: "utf8",
       timeout: 10_000,
-      env: { PATH: directory, REPLICA_TEST_STATE: state, REPLICA_TEST_PREFIX: prefix },
+      env: {
+        ...process.env,
+        PATH: directory,
+        npm_execpath: join(directory, "npm-cli.js"),
+        NODE_OPTIONS: nodeOptions ?? "",
+        REPLICA_TEST_STATE: state,
+        REPLICA_TEST_PREFIX: prefix,
+      },
     })
     assert.ifError(result.error)
     if (attempt < repeat - 1) assert.equal(result.status, 0, result.stderr)

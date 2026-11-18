@@ -1,7 +1,6 @@
 import assert from "node:assert/strict"
 import { execFileSync, spawnSync } from "node:child_process"
 import {
-  chmodSync,
   copyFileSync,
   cpSync,
   existsSync,
@@ -17,14 +16,14 @@ import {
 } from "node:fs"
 import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { test } from "node:test"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { gunzipSync, gzipSync } from "node:zlib"
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
-const script = join(root, "scripts/create-prototype-repo.sh")
-const installer = join(root, "scripts/install-starter.sh")
-const bash = process.platform === "win32" ? "C:\\Program Files\\Git\\bin\\bash.exe" : "bash"
+const script = join(root, "scripts/create-prototype-repo.mjs")
+const installer = join(root, "scripts/install-starter.mjs")
 const shellPath = path => path.replaceAll("\\", "/").replace(/^([A-Za-z]):\//, (_, drive) => `/${drive.toLowerCase()}/`)
+const directoryLinkType = process.platform === "win32" ? "junction" : "dir"
 const shellEnvironment = {
   ...process.env,
   GIT_AUTHOR_NAME: "Starter test",
@@ -278,16 +277,16 @@ function assertContextBundle(repository) {
 }
 
 function workspace(t) {
-  const directory = mkdtempSync(resolve(root, "..", ".replica-bootstrap-"))
+  const directory = mkdtempSync(join(root, ".replica-bootstrap-"))
   t.after(() => rmSync(directory, { recursive: true, force: true }))
   return directory
 }
 
 function run(destination, cwd, bootstrap = script, flags = [], environment = {}) {
-  return spawnSync(bash, [shellPath(bootstrap), ...flags, ...(destination ? [shellPath(destination)] : [])], {
+  return spawnSync(process.execPath, [bootstrap, ...flags, ...(destination ? [destination] : [])], {
     cwd,
     encoding: "utf8",
-    env: { ...shellEnvironment, TMPDIR: shellPath(cwd), ...environment },
+    env: { ...shellEnvironment, ...environment },
   })
 }
 
@@ -302,11 +301,11 @@ function starterPaths(checkout, source = "starters/minimal") {
 
 function checkoutFixture(t) {
   const directory = workspace(t)
-  const checkout = join(directory, "checkout")
+  const checkout = join(directory, "checkout with spaces # %")
   mkdirSync(join(checkout, "scripts"), { recursive: true })
-  const bootstrap = join(checkout, "scripts/create-prototype-repo.sh")
+  const bootstrap = join(checkout, "scripts/create-prototype-repo.mjs")
   copyFileSync(script, bootstrap)
-  copyFileSync(join(root, "scripts/starter-catalog.sh"), join(checkout, "scripts/starter-catalog.sh"))
+  copyFileSync(join(root, "scripts/starter-catalog.mjs"), join(checkout, "scripts/starter-catalog.mjs"))
   mkdirSync(join(checkout, "starters"))
   writeFileSync(join(checkout, "starters/catalog.tsv"), catalog)
   const files = [
@@ -336,7 +335,7 @@ function checkoutFixture(t) {
 
 function archiveFixture(
   t,
-  { gitMetadata, missing, symlink, traversal, unrelatedSymlink, unrelatedTraversal, invalidCatalog } = {},
+  { gitMetadata, missing, symlink, traversal, unrelatedSymlink, unrelatedTraversal, invalidCatalog, unsafePath } = {},
 ) {
   const { directory, checkout } = checkoutFixture(t)
   const source = join(directory, "source")
@@ -347,7 +346,7 @@ function archiveFixture(
     mkdirSync(dirname(target), { recursive: true })
     copyFileSync(join(checkout, path), target)
   }
-  const bootstrap = join(archiveRoot, "scripts/create-prototype-repo.sh")
+  const bootstrap = join(archiveRoot, "scripts/create-prototype-repo.mjs")
   mkdirSync(dirname(bootstrap), { recursive: true })
   copyFileSync(script, bootstrap)
   if (invalidCatalog) writeFileSync(join(archiveRoot, "starters/catalog.tsv"), invalidCatalog)
@@ -356,7 +355,7 @@ function archiveFixture(
   if (symlink && !existsSync(join(archiveRoot, linkedEntry))) {
     writeFileSync(join(archiveRoot, linkedEntry), "link fixture")
   }
-  if (traversal) writeFileSync(join(archiveRoot, "starters/minimal/src/unsafe.txt"), "unsafe")
+  if (traversal || unsafePath) writeFileSync(join(archiveRoot, "starters/minimal/src/unsafe.txt"), "unsafe")
   if (unrelatedSymlink || unrelatedTraversal) mkdirSync(join(archiveRoot, "hub"))
   if (unrelatedSymlink) writeFileSync(join(archiveRoot, "hub/linked"), "link fixture")
   if (unrelatedTraversal) writeFileSync(join(archiveRoot, "hub/unsafe.txt"), "unsafe")
@@ -368,11 +367,11 @@ function archiveFixture(
 
   const archive = join(directory, "replica.tar.gz")
   execFileSync("tar", ["-czf", archive, "-C", source, "replica-main"])
-  if (traversal || unrelatedTraversal || symlink || unrelatedSymlink) {
+  if (traversal || unrelatedTraversal || symlink || unrelatedSymlink || unsafePath) {
     let bytes = gunzipSync(readFileSync(archive))
     const unsafeEntry = symlink ? (linkedEntry === "." ? "replica-main" : `replica-main/${linkedEntry}`)
       : unrelatedSymlink ? "replica-main/hub/linked"
-      : traversal ? "replica-main/starters/minimal/src/unsafe.txt" : "replica-main/hub/unsafe.txt"
+      : traversal || unsafePath ? "replica-main/starters/minimal/src/unsafe.txt" : "replica-main/hub/unsafe.txt"
     let found = false
     for (let offset = 0; offset < bytes.length; ) {
       const header = bytes.subarray(offset, offset + 512)
@@ -391,7 +390,7 @@ function archiveFixture(
           ])
         } else {
           header.fill(0, 0, 100)
-          header.write("replica-main/../unsafe.txt")
+          header.write(unsafePath ?? "replica-main/../unsafe.txt")
         }
         header.fill(0x20, 148, 156)
         const checksum = header.reduce((sum, byte) => sum + byte, 0)
@@ -409,39 +408,36 @@ function archiveFixture(
 
   const bin = join(directory, "bin")
   mkdirSync(bin)
-  const curl = join(bin, "curl")
+  const download = join(bin, "download.mjs")
   writeFileSync(
-    curl,
-    `#!/bin/sh
-set -eu
-[ "$1" = "-q" ] && [ "$2" = "-fLSs" ] && [ "$3" = "--output" ] &&
-  [ "$5" = "https://github.com/github/replica/archive/refs/heads/main.tar.gz" ]
-cp "$REPLICA_TEST_ARCHIVE" "$4"
+    download,
+    `import assert from "node:assert/strict"
+import { readFileSync } from "node:fs"
+globalThis.fetch = async url => {
+  assert.equal(url, "https://github.com/github/replica/archive/refs/heads/main.tar.gz")
+  return new Response(readFileSync(process.env.REPLICA_TEST_ARCHIVE))
+}
 `,
   )
-  chmodSync(curl, 0o755)
-  return { directory, archive, bin, checkout }
+  return { directory, archive, download, checkout }
 }
 
-function runInstaller(destination, { directory, archive, bin }, flags = []) {
-  return spawnSync(bash, [
-    "-c", 'export PATH="$REPLICA_TEST_BIN:$PATH"; exec bash "$@"', "replica-installer",
-    shellPath(installer), ...flags, ...(destination ? [shellPath(destination)] : []),
+function runInstaller(destination, { directory, archive, download }, flags = []) {
+  return spawnSync(process.execPath, [
+    "--import", pathToFileURL(download).href,
+    installer, ...flags, ...(destination ? [destination] : []),
   ], {
     cwd: directory,
     encoding: "utf8",
     env: {
       ...shellEnvironment,
-      PATH: `${bin}${delimiter}${shellEnvironment.PATH}`,
-      TMPDIR: shellPath(directory),
-      REPLICA_TEST_ARCHIVE: shellPath(archive),
-      REPLICA_TEST_BIN: shellPath(bin),
+      REPLICA_TEST_ARCHIVE: archive,
     },
   })
 }
 
 function assertNoTemporaryFiles(directory) {
-  assert.ok(!readdirSync(directory).some(name => name.startsWith("replica-download.")))
+  assert.ok(!readdirSync(directory).some(name => name.startsWith(".replica-download.")))
   assert.ok(!readdirSync(directory).some(name => name.startsWith(".replica-starter.")))
 }
 
@@ -489,7 +485,7 @@ test("commit failure reports recovery guidance and removes the incomplete destin
     GIT_COMMITTER_NAME: "",
     GIT_COMMITTER_EMAIL: "",
     GIT_CONFIG_NOSYSTEM: "1",
-    GIT_CONFIG_GLOBAL: shellPath(join(directory, "missing-gitconfig")),
+    GIT_CONFIG_GLOBAL: join(directory, "missing-gitconfig"),
   })
   assert.notEqual(result.status, 0)
   assert.match(result.stderr, /initial commit/i)
@@ -508,6 +504,15 @@ test("creates an independent Minimal repository with exactly the tracked app and
   assert.doesNotMatch(result.stdout, /run \/setup-skills/)
   assertCopiedFiles(destination, checkout)
   assert.ok(!existsSync(join(destination, ".agents/context")))
+  assertNoTemporaryFiles(directory)
+})
+
+test("creation treats destination spaces and shell metacharacters as literal path characters", t => {
+  const { directory, checkout, bootstrap } = checkoutFixture(t)
+  const destination = join(directory, "prototype & echo injected")
+  const result = run(destination, directory, bootstrap)
+  assert.equal(result.status, 0, result.stderr)
+  assertCopiedFiles(destination, checkout)
   assertNoTemporaryFiles(directory)
 })
 
@@ -560,6 +565,19 @@ test("local and archive lists show catalog metadata without a destination", t =>
   }
   assertNoTemporaryFiles(local.directory)
   assertNoTemporaryFiles(downloaded.directory)
+})
+
+test("the CI matrix reads catalog IDs and directories from a path containing spaces and URL characters", t => {
+  const { checkout } = checkoutFixture(t)
+  const matrix = join(checkout, "scripts/starter-ci-matrix.mjs")
+  copyFileSync(join(root, "scripts/starter-ci-matrix.mjs"), matrix)
+  const result = spawnSync(process.execPath, [matrix], { encoding: "utf8" })
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(JSON.parse(result.stdout), [
+    { id: "minimal", directory: "starters/minimal" },
+    { id: "coreai", directory: "starters/coreai" },
+    { id: "sample-team", directory: "starters/sample-team" },
+  ])
 })
 
 test("both entry points accept help and option terminators and reject invalid arguments", t => {
@@ -670,13 +688,13 @@ test("ignores an unrelated symlink in the archive", t => {
 
 test("rejects missing, linked, and unsafe archive members before writing the destination", t => {
   for (const [options, error] of [
-    [{ missing: "scripts/create-prototype-repo.sh" }, /missing/i],
-    [{ missing: "scripts/starter-catalog.sh" }, /missing/i],
+    [{ missing: "scripts/create-prototype-repo.mjs" }, /missing/i],
+    [{ missing: "scripts/starter-catalog.mjs" }, /missing/i],
     [{ missing: "starters/catalog.tsv" }, /missing/i],
     [{ missing: "starters/shared/.agents/context-templates/SKILL.md" }, /missing/i],
     [{ missing: "starters/shared/.agents/skills/setup-skills/SKILL.md" }, /missing/i],
     [{ symlink: true }, /linked or unsupported file/],
-    [{ symlink: "scripts/starter-catalog.sh" }, /linked|unsupported/i],
+    [{ symlink: "scripts/starter-catalog.mjs" }, /linked|unsupported/i],
     [{ symlink: "starters/catalog.tsv" }, /linked|unsupported/i],
     [{ symlink: "starters" }, /linked|unsupported/i],
     [{ symlink: "." }, /linked|unsupported/i],
@@ -685,6 +703,10 @@ test("rejects missing, linked, and unsafe archive members before writing the des
     [{ invalidCatalog: catalog + "minimal\tstarters/extra\tDuplicate\tDuplicate ID\n" }, /duplicate|catalog|invalid/i],
     [{ traversal: true }, /unsafe path/],
     [{ unrelatedTraversal: true }, /unsafe path/],
+    [{ unsafePath: "replica-main/starters/minimal/src/file:stream" }, /unsafe path/],
+    [{ unsafePath: "replica-main/starters/minimal/src/NUL.txt" }, /unsafe path/],
+    [{ unsafePath: "replica-main/starters/minimal/src/alias." }, /unsafe path/],
+    [{ unsafePath: "replica-main/starters/minimal/.Git/config" }, /contains Git metadata/],
     [{ gitMetadata: true }, /contains Git metadata/],
     [{ gitMetadata: "starters/.git" }, /contains Git metadata/],
   ]) {
@@ -747,7 +769,7 @@ test("refuses to create a repository inside the Replica checkout", t => {
   assert.ok(!existsSync(destination))
 
   const linkedParent = join(directory, "linked-starter")
-  symlinkSync(join(root, "starters/minimal"), linkedParent)
+  symlinkSync(join(root, "starters/minimal"), linkedParent, directoryLinkType)
   const linkedDestination = join(linkedParent, "nested-prototype")
   const linkedResult = run(linkedDestination, directory)
   assert.equal(linkedResult.status, 1)
@@ -780,7 +802,7 @@ test("refuses linked starter directories even when indexed files look regular", 
   mkdirSync(outside)
   writeFileSync(join(outside, "example.txt"), "outside content")
   rmSync(source, { recursive: true })
-  symlinkSync(outside, source)
+  symlinkSync(outside, source, directoryLinkType)
   const destination = join(directory, "prototype")
   const result = run(destination, directory, bootstrap)
   assert.equal(result.status, 1)
@@ -795,7 +817,7 @@ test("refuses linked starter source roots and their shared parent before copying
     const source = join(checkout, path)
     const outside = join(directory, "outside")
     renameSync(source, outside)
-    symlinkSync(outside, source)
+    symlinkSync(outside, source, directoryLinkType)
     const destination = join(directory, "prototype")
     const result = run(destination, directory, bootstrap)
     assert.equal(result.status, 1, `Accepted linked source: ${path}\n${result.stderr}`)
@@ -852,8 +874,19 @@ for (const [source, extraSkills, activeContext] of [
 ]) {
   test(`${source} composes with shared guidance without collisions or broken links`, t => {
     const directory = workspace(t)
+    const checkout = join(directory, "source")
+    mkdirSync(join(checkout, "scripts"), { recursive: true })
+    for (const name of ["create-prototype-repo.mjs", "starter-catalog.mjs"]) {
+      copyFileSync(join(root, "scripts", name), join(checkout, "scripts", name))
+    }
+    const paths = execFileSync("git", ["ls-files", "-z", "--", "starters/"], { cwd: root })
+      .toString().split("\0").filter(Boolean)
+    for (const path of paths) {
+      mkdirSync(dirname(join(checkout, path)), { recursive: true })
+      copyFileSync(join(root, path), join(checkout, path))
+    }
     const consumer = join(directory, "consumer")
-    const result = run(consumer, directory, script, ["--starter", source.split("/").at(-1)])
+    const result = run(consumer, directory, join(checkout, "scripts/create-prototype-repo.mjs"), ["--starter", source.split("/").at(-1)])
     assert.equal(result.status, 0, result.stderr)
     assertContextBundle(consumer)
     assertBrowserSetup(consumer)

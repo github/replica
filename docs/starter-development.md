@@ -10,8 +10,8 @@ Replica assembles one app with a shared tooling bundle. Installed repositories a
 | `starters/minimal/` | Minimal, its TanStack Router app and route scaffold |
 | `starters/coreai/` | CoreAI Sandbox, its React Router app, design-system skills and baseline context |
 | `starters/shared/` | Replica skills and context templates, plugin startup, browser configuration and workflow guides |
-| `scripts/create-prototype-repo.sh` | Selection, safe assembly and independent Git initialization |
-| `scripts/install-starter.sh` | Download and archive validation before calling the same creator |
+| `scripts/create-prototype-repo.mjs` | Selection, safe assembly and independent Git initialization |
+| `scripts/install-starter.mjs` | Download and archive validation before calling the same creator |
 
 Shared files keep their installed relative paths. For example, `starters/shared/.agents/skills/` becomes `.agents/skills/`. The selected app uses the same destination root. Shared and app-owned files may share directories, but may not overwrite files or replace a file with a directory. Creation rejects collisions.
 
@@ -26,14 +26,16 @@ Each app owns its README and `AGENTS.md`; both refer to the copied `REPLICA.md` 
 5. Link app instructions to the copied shared instructions. Include baseline active context for preconfigured examples when shared authoring skills need it. Keep unknown consuming-team policy explicit; do not manufacture product requirements or silently activate setup drafts.
 6. Stage the new source files for local-checkout creation, then run the checks below. Both installers and the CI matrix discover entries from the catalog; do not add starter-specific branches to them.
 
-The catalog is data, not executable shell. Bash reads it without adding a Node.js prerequisite to repository creation. Selection happens only during creation; there is no in-place app switch or automatic update of installed repositories.
+The catalog is data, not executable code. The Node.js creator and CI matrix share its parser. Selection happens only during creation; there is no in-place app switch or automatic update of installed repositories.
+
+Creation runs on Windows, macOS and Linux with Node.js and Git. Downloaded installation also needs tar and a writable current directory for temporary downloads. Paths with spaces are supported. The old shell entrypoints forward to the Node.js implementation; the standalone shell downloader also needs curl. These commands do not make Hub's Linux-only artifact storage portable.
 
 ## Check changes
 
 Use a new destination outside Replica whose parent already exists:
 
 ```sh
-bash scripts/create-prototype-repo.sh --list
+node scripts/create-prototype-repo.mjs --list
 bash scripts/check-starter.sh minimal ../check-minimal
 bash scripts/check-starter.sh coreai ../check-coreai
 node --test scripts/create-prototype-repo.test.mjs scripts/setup-replica-plugin.test.mjs scripts/select-ci-suites.test.mjs

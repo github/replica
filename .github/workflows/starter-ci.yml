@@ -7,12 +7,16 @@ on:
       - "starters/**"
       - "scripts/check-starter.sh"
       - "scripts/starter-catalog.sh"
+      - "scripts/starter-catalog.mjs"
       - "scripts/starter-catalog.test.mjs"
       - "scripts/starter-ci-matrix.sh"
+      - "scripts/starter-ci-matrix.mjs"
       - "scripts/create-prototype-repo.sh"
+      - "scripts/create-prototype-repo.mjs"
       - "scripts/create-prototype-repo.test.mjs"
       - "scripts/setup-replica-plugin.test.mjs"
       - "scripts/install-starter.sh"
+      - "scripts/install-starter.mjs"
   push:
     branches: [main]
     paths:
@@ -20,12 +24,16 @@ on:
       - "starters/**"
       - "scripts/check-starter.sh"
       - "scripts/starter-catalog.sh"
+      - "scripts/starter-catalog.mjs"
       - "scripts/starter-catalog.test.mjs"
       - "scripts/starter-ci-matrix.sh"
+      - "scripts/starter-ci-matrix.mjs"
       - "scripts/create-prototype-repo.sh"
+      - "scripts/create-prototype-repo.mjs"
       - "scripts/create-prototype-repo.test.mjs"
       - "scripts/setup-replica-plugin.test.mjs"
       - "scripts/install-starter.sh"
+      - "scripts/install-starter.mjs"
 
 permissions:
   contents: read
@@ -37,9 +45,12 @@ jobs:
       starters: ${{ steps.catalog.outputs.starters }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
       - id: catalog
         run: |
-          starters="$(bash scripts/starter-ci-matrix.sh)"
+          starters="$(node scripts/starter-ci-matrix.mjs)"
           echo "starters=$starters" >> "$GITHUB_OUTPUT"
   tooling:
     name: Starter tooling (Node ${{ matrix.node }})

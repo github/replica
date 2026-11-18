@@ -18,7 +18,7 @@ Check that your local development environment has:
 - **The [GitHub Copilot app](https://github.com/features/ai/github-app)**, installed and signed in.
 - **[Git](https://git-scm.com/)**, with `user.name` and `user.email` configured for the installer's initial local commit.
 - **[Node.js](https://nodejs.org/) and npm**, with a Node.js version matching `engines.node` in your repository's `package.json`, or the selected app's `package.json` in the [starter catalog](../starters/catalog.tsv) for a new repository. npm comes with Node.js.
-- **Bash, curl, and tar**, for downloading and running the starter installer.
+- **curl and tar**, for downloading the installer and reading the source archive. The installer runs with Node.js, without Bash.
 - **macOS or Linux**, the supported systems for local canvas previews.
 - **`lsof`**, which the canvas uses to find running local servers.
 
@@ -47,13 +47,13 @@ The new folder is an independent local Git repository with the copied files save
 1. In a terminal, go to the directory where you want the new folder created, then download the installer:
 
    ```sh
-   curl -fLSs https://raw.githubusercontent.com/github/replica/main/scripts/install-starter.sh -o install-starter.sh
+   curl -fLSs https://raw.githubusercontent.com/github/replica/main/scripts/install-starter.mjs -o install-starter.mjs
    ```
 
 2. Review the installer, then list the available apps:
 
    ```sh
-   bash install-starter.sh --list
+   node install-starter.mjs --list
    ```
 
 3. Choose an app from the [starter catalog](../starters/catalog.tsv):
@@ -66,7 +66,7 @@ The new folder is an independent local Git repository with the copied files save
 4. Run the installer with your choice and new folder name. This example selects Minimal; replace `minimal` with your chosen catalog ID:
 
    ```sh
-   bash install-starter.sh --starter minimal my-prototype
+   node install-starter.mjs --starter minimal my-prototype
    ```
 
 5. In Copilot, choose **Sessions → + → Open folder** and open the new folder.

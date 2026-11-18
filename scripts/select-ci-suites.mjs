@@ -18,11 +18,15 @@ const starterScripts = new Set([
   "starters/catalog.tsv",
   "scripts/check-starter.sh",
   "scripts/starter-catalog.sh",
+  "scripts/starter-catalog.mjs",
   "scripts/starter-ci-matrix.sh",
+  "scripts/starter-ci-matrix.mjs",
   "scripts/starter-catalog.test.mjs",
   "scripts/create-prototype-repo.sh",
+  "scripts/create-prototype-repo.mjs",
   "scripts/create-prototype-repo.test.mjs",
   "scripts/install-starter.sh",
+  "scripts/install-starter.mjs",
   "scripts/setup-replica-plugin.test.mjs",
 ])
 

@@ -6,7 +6,7 @@ if [[ $# -ne 2 ]]; then
   exit 2
 fi
 source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-bash "$source_root/scripts/create-prototype-repo.sh" --starter "$1" "$2"
+node "$source_root/scripts/create-prototype-repo.mjs" --starter "$1" "$2"
 destination="$(cd "$2" && pwd -P)"
 node "$source_root/actions/build/scripts/validate-repository/index.ts" --root "$destination"
 cd "$destination"

@@ -18,6 +18,8 @@ Setup enables a disabled marketplace installation or installs a missing one from
 
 Outside automatic session setup, run `node scripts/setup-replica-plugin.mjs` manually. The script requires Node.js and npm and uses no agent. Installation commands run without interactive input and have bounded timeouts; approval or policy failures need user action.
 
+On Windows, setup runs npm's JavaScript entrypoint through Node.js instead of a command-shell shim. Use a Node.js installation that includes npm, or run setup from npm so it supplies `npm_execpath`. Setup reuses `copilot.exe` on `PATH` or the executable entrypoint declared by the globally installed Copilot package.
+
 Session startup runs `node scripts/setup-replica-plugin.mjs --startup`. It always attempts `npm ci`, even if CLI installation or plugin setup fails. If dependencies install successfully, startup completes without a hard error, but the Replica canvas remains unavailable until plugin setup succeeds. Dependency installation failures still fail startup.
 
 After `npm ci` finishes, the script prints a final summary of dependency installation and Replica plugin setup, including failure reasons and recovery commands. Plugin installation success does not prove that the current session loaded the canvas; the summary includes the separate activation steps.

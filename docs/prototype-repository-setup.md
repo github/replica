@@ -36,28 +36,28 @@ Create the starter only when a new repository is needed, using the destination a
 Download the installer:
 
 ```sh
-curl -fLSs https://raw.githubusercontent.com/github/replica/main/scripts/install-starter.sh -o install-starter.sh
+curl -fLSs https://raw.githubusercontent.com/github/replica/main/scripts/install-starter.mjs -o install-starter.mjs
 ```
 
 Review the installer, then run it with a new project folder name. The destination must not exist, and its parent folder must exist:
 
 ```sh
-bash install-starter.sh --list
-bash install-starter.sh --starter coreai my-prototype
+node install-starter.mjs --list
+node install-starter.mjs --starter coreai my-prototype
 ```
 
 If working from a local Replica checkout, use its script instead of downloading the installer:
 
 ```sh
-bash scripts/create-prototype-repo.sh --list
-bash scripts/create-prototype-repo.sh --starter coreai ../my-prototype
+node scripts/create-prototype-repo.mjs --list
+node scripts/create-prototype-repo.mjs --starter coreai ../my-prototype
 ```
 
 Replace `coreai` with the chosen catalog ID. Both paths use the same creation implementation and assemble shared Replica tooling with only the selected app:
 
 - They create an independent Git repository with all copied files in an initial commit on `main`, no remote, and nothing published. This gives worktrees and branch-based tools a starting commit.
-- Downloaded installation requires Bash, curl, tar, and Git. Creation from a checkout requires Bash and Git.
-- Copying requires no GitHub credentials or Node.js. The installer does not install Node.js or app dependencies.
+- Downloaded installation requires Node.js, tar, and Git. Creation from a checkout requires Node.js and Git. Use a Node.js version supported by the selected app.
+- Copying requires no GitHub credentials. The installer does not install Node.js or app dependencies.
 
 Git must have an author identity configured through `user.name` and `user.email` or its standard environment variables. The installer uses the existing Git configuration without changing it.
 

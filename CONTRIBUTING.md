@@ -62,7 +62,7 @@ Each app requires npm and a Node.js version matching its `engines.node`. [Starte
 
 ```sh
 node --version
-bash scripts/create-prototype-repo.sh --list
+node scripts/create-prototype-repo.mjs --list
 bash scripts/check-starter.sh minimal ../check-minimal
 bash scripts/check-starter.sh coreai ../check-coreai
 ```
