@@ -153,13 +153,15 @@ variable "runtime_environment_variables" {
   }
 
   validation {
-    condition = alltrue([
+    condition = !alltrue([
       for name, value in var.runtime_environment_variables :
-      !can(regex("^[A-Z][A-Z0-9_]{0,40}$", name)) ||
-      contains(local.runtime_reserved_environment_names, name) ||
-      contains(keys(local.github_environment), name) ||
-      contains(keys(var.runtime_secret_references), name) ||
-      value == null ||
+      can(regex("^[A-Z][A-Z0-9_]{0,40}$", name)) &&
+      !contains(local.runtime_reserved_environment_names, name) &&
+      !contains(keys(local.github_environment), name) &&
+      !contains(keys(var.runtime_secret_references), name) &&
+      value != null
+      ]) || alltrue([
+      for name in keys(var.runtime_environment_variables) :
       !can(regex("(^|_)(SECRET|TOKEN|PASSWORD|PASSWD|PASSPHRASE|CREDENTIAL|APIKEY|KEY)S?(_|$)", name))
     ])
     error_message = "Credential-named settings, such as names containing a SECRET, TOKEN, PASSWORD, CREDENTIAL, or KEY word, cannot be stored in Terraform state. Move each to runtime_secret_references as a Key Vault secret reference."

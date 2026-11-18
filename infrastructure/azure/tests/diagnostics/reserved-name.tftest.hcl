@@ -19,7 +19,4 @@ variables {
 
 run "reserved_metadata" {
   command = plan
-  variables {
-    runtime_environment_variables = { AZURE_KEY_VAULT_SECRET_REFERENCES = "synthetic-value" }
-  }
 }
