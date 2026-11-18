@@ -47,6 +47,7 @@ from .evaluate import EvaluationError, evaluate
 from .local_connectors import (
     LocalConnectorBundle,
     create_local_connector_bundle,
+    taskset_digest,
 )
 from .taskset import Taskset, load_taskset
 
@@ -1253,7 +1254,7 @@ def _backend_process(
     """Load task data afresh and run one serializable connector in a spawned child process."""
     try:
         taskset = load_taskset(taskset_directory)
-        if _taskset_digest(taskset) != expected_taskset_digest:
+        if str(taskset_digest(taskset)) != expected_taskset_digest:
             raise RuntimeFailure(
                 "taskset_changed",
                 "The taskset changed after this job was submitted.",
