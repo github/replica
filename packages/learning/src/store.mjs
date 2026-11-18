@@ -2367,20 +2367,24 @@ class LearningStore {
       })
       .map((episode) => episode.id)
     const views = new Map()
-    for (const episode of observations.episodes) {
-      const key = hubViewKey(episode, observations.events)
-      if (key) views.set(key, [...(views.get(key) ?? []), episode])
-    }
+    if (!learningsOnly)
+      for (const episode of observations.episodes) {
+        const key = hubViewKey(episode, observations.events)
+        if (key) views.set(key, [...(views.get(key) ?? []), episode])
+      }
     const uncertainPrototypes = new Set()
-    for (const episode of observations.episodes) {
-      if (episode.source.kind !== HUB_SOURCE) continue
-      const sourceEvents = currentSourceEvents(new Set([episode.id]))
-      if (
-        hubViewKey(episode, observations.events) === null &&
-        sourceEvents.some((event) => event.payload === undefined || !exportedEventIds.has(event.id))
-      )
-        uncertainPrototypes.add(hubPrototypeKey(episode.source))
-    }
+    if (!learningsOnly)
+      for (const episode of observations.episodes) {
+        if (episode.source.kind !== HUB_SOURCE) continue
+        const sourceEvents = currentSourceEvents(new Set([episode.id]))
+        if (
+          hubViewKey(episode, observations.events) === null &&
+          sourceEvents.some(
+            (event) => event.payload === undefined || !exportedEventIds.has(event.id),
+          )
+        )
+          uncertainPrototypes.add(hubPrototypeKey(episode.source))
+      }
     const completeViews = [...views]
       .filter(([, viewEpisodes]) => {
         const source = viewEpisodes[0].source
@@ -2409,11 +2413,12 @@ class LearningStore {
       })
       .map(([key]) => key)
     const prototypes = new Map()
-    for (const episode of observations.episodes) {
-      if (episode.source.kind !== HUB_SOURCE) continue
-      const key = hubPrototypeKey(episode.source)
-      prototypes.set(key, [...(prototypes.get(key) ?? []), episode])
-    }
+    if (!learningsOnly)
+      for (const episode of observations.episodes) {
+        if (episode.source.kind !== HUB_SOURCE) continue
+        const key = hubPrototypeKey(episode.source)
+        prototypes.set(key, [...(prototypes.get(key) ?? []), episode])
+      }
     const completePrototypes = [...prototypes]
       .filter(([, prototypeEpisodes]) => {
         const source = prototypeEpisodes[0].source

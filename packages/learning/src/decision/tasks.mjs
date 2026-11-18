@@ -468,6 +468,17 @@ function latestStatus(episode) {
   if (statuses.length < 2) return statuses[0]
   const sequenced = statuses.filter((event) => positive(event.payload?.sequence))
   if (sequenced.length) {
+    const unsequenced = statuses.filter((event) => !positive(event.payload?.sequence))
+    const unexplained = unsequenced.filter(
+      (event) =>
+        !sequenced.some(
+          (candidate) =>
+            candidate.payload.status === event.payload.status &&
+            candidate.at === event.at &&
+            sameReviewer(candidate.payload.by, event.payload.by, episode.scope, episode.source),
+        ),
+    )
+    if (unexplained.length) return null
     const latestSequence = Math.max(...sequenced.map((event) => event.payload.sequence))
     const latest = sequenced.filter((event) => event.payload.sequence === latestSequence)
     return latest.length === 1 ? latest[0] : null

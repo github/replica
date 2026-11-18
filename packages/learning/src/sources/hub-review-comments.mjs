@@ -430,7 +430,9 @@ export function hubThreadEvents({ meta, thread, scope, episodeId, existing }) {
     })
   }
 
-  const statuses = known.filter((event) => event.type === "status_change")
+  const statuses = known.filter(
+    (event) => event.type === "status_change" && !retracted.has(event.id),
+  )
   let recorded = statuses.at(-1)?.payload?.status ?? "unresolved"
   if (thread.root.resolutionHistory.length > 0) {
     for (const change of thread.root.resolutionHistory) {
@@ -488,6 +490,65 @@ export function hubThreadEvents({ meta, thread, scope, episodeId, existing }) {
           meta,
         )
       : undefined
+    const adoptsStableResolver =
+      current === "resolved" &&
+      recorded === "resolved" &&
+      last.at === thread.root.resolvedAt &&
+      by &&
+      stableReviewer(by, scope, meta) &&
+      last.payload.by &&
+      !stableReviewer(last.payload.by, scope, meta) &&
+      loginOf(last.payload.by) === by.login
+    if (adoptsStableResolver) {
+      const retracts = derivedId("ev", {
+        episodeId,
+        identityCorrects: last.id,
+        actor: by.id,
+      })
+      if (!ids.has(retracts)) {
+        ids.add(retracts)
+        retracted.add(last.id)
+        add({
+          schemaVersion: SCHEMA_VERSIONS.event,
+          id: retracts,
+          episodeId,
+          scope,
+          type: "retraction",
+          at: meta.capturedAt,
+          parentEventId: last.id,
+          actor: by,
+          payload: {
+            target: { eventId: last.id },
+            reason: "identity_corrected",
+            at: meta.capturedAt,
+          },
+        })
+      }
+      const corrected = derivedId("ev", {
+        episodeId,
+        status: current,
+        at: thread.root.resolvedAt,
+        identityCorrects: last.id,
+        actor: by.id,
+      })
+      if (!ids.has(corrected))
+        add({
+          schemaVersion: SCHEMA_VERSIONS.event,
+          id: corrected,
+          episodeId,
+          scope,
+          type: "status_change",
+          at: thread.root.resolvedAt,
+          actor: by,
+          payload: {
+            subject: { kind: "thread", id: thread.root.id },
+            status: current,
+            at: thread.root.resolvedAt,
+            by,
+          },
+        })
+      return added
+    }
     // Without durable history, a changed resolution time or resolver is the only evidence that a
     // thread was reopened and resolved again between snapshots.
     const resolvedAgain =

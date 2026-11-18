@@ -50,6 +50,7 @@ import io
 import json
 import os
 import random
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -169,15 +170,62 @@ def private_output_directory(value: str) -> Path:
 
 
 def save_private(state: dict[str, Any], path: Path) -> None:
-    """Save model state and restrict the resulting file to this account."""
-    torch.save(state, path)
-    path.chmod(0o600)
+    """Atomically save model state without following an existing destination link."""
+    handle, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    os.close(handle)
+    temporary_path = Path(temporary)
+    try:
+        temporary_path.chmod(0o600)
+        torch.save(state, temporary_path)
+        os.replace(temporary_path, path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
 
 
 def write_private(path: Path, content: str) -> None:
-    """Write text and restrict the resulting file to this account."""
-    path.write_text(content, encoding="utf-8")
-    path.chmod(0o600)
+    """Atomically write text without following an existing destination link."""
+    handle, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent, text=True)
+    temporary_path = Path(temporary)
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as output:
+            output.write(content)
+        temporary_path.chmod(0o600)
+        os.replace(temporary_path, path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def open_private(path: Path):
+    """Open a new private text output and refuse any existing entry, including a link."""
+    return open(path, "x", encoding="utf-8", opener=lambda name, flags: os.open(name, flags, 0o600))
+
+
+def preflight_task_images(taskset, task_ids: list[str]) -> None:
+    """Check decoded pixel budgets before loading the model or starting training."""
+    tasks_by_id = getattr(
+        taskset,
+        "by_id",
+        {task.id: task for tasks in taskset.by_split.values() for task in tasks},
+    )
+    for task_id in task_ids:
+        task = tasks_by_id[task_id]
+        dimensions = []
+        total = 0
+        for item in getattr(task, "images", ()):
+            with Image.open(item.path) as image:
+                pixels = image.width * image.height
+            dimensions.append((item, pixels))
+            total += pixels
+        if total > MAX_TASK_PIXELS:
+            raise ValueError(
+                f"Task {task_id} images have {total} pixels, over the {MAX_TASK_PIXELS} limit."
+            )
+        for item, pixels in dimensions:
+            if pixels > MAX_IMAGE_PIXELS:
+                raise ValueError(
+                    f"Task {task_id} image {item.name} has {pixels} pixels, "
+                    f"over the {MAX_IMAGE_PIXELS} limit."
+                )
 
 
 class Policy:
@@ -426,6 +474,7 @@ def train(args: argparse.Namespace) -> None:
     taskset = load_taskset(args.taskset)
     train_ids = required_split(taskset, "train", "Training")
     dev_ids = required_split(taskset, "dev", "Training")
+    preflight_task_images(taskset, [*train_ids, *dev_ids])
     out = private_output_directory(args.out)
     torch.manual_seed(args.seed)
     rng = random.Random(args.seed)
@@ -436,8 +485,7 @@ def train(args: argparse.Namespace) -> None:
         lr=lr if args.lr is None else args.lr,
         weight_decay=decay if args.weight_decay is None else args.weight_decay,
     )
-    log = (out / "train.jsonl").open("w", encoding="utf-8")
-    (out / "train.jsonl").chmod(0o600)
+    log = open_private(out / "train.jsonl")
     started = time.time()
     with BrandCheckEnv(
         base_url=args.url, allow_insecure_loopback=args.allow_insecure_loopback
@@ -484,7 +532,7 @@ def train(args: argparse.Namespace) -> None:
                 )
                 advantage = r - r.mean(0, keepdim=True)
                 direction = (advantage * noise[:, columns]).mean(0) / sigma
-                surrogate = (direction * policy.yes_logits(features, labeled)).sum()
+                surrogate = (direction * policy.yes_logits(features, labeled)).mean()
                 (-surrogate / args.tasks_per_update).backward()
                 sampled.append(r.mean().item())
             torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
@@ -515,8 +563,11 @@ def run_evaluate(args: argparse.Namespace) -> None:
 
     taskset = load_taskset(args.taskset)
     task_ids = required_split(taskset, args.split, "Evaluation")
+    preflight_task_images(taskset, task_ids)
     out = private_output_directory(args.out)
-    state = torch.load(args.trained, map_location="cpu") if args.trained else None
+    state = (
+        torch.load(args.trained, map_location="cpu", weights_only=True) if args.trained else None
+    )
     policy = Policy(args.model, state["part"] if state else "head")
     if state:
         policy.load(state)
@@ -525,8 +576,7 @@ def run_evaluate(args: argparse.Namespace) -> None:
     ).sync() as env:
         reward, predictions = split_reward(policy, env, task_ids)
     name = f"{args.name}-{args.split}"
-    with (out / f"{name}-predictions.jsonl").open("w", encoding="utf-8") as handle:
-        (out / f"{name}-predictions.jsonl").chmod(0o600)
+    with open_private(out / f"{name}-predictions.jsonl") as handle:
         for task_id, answers in predictions.items():
             handle.write(json.dumps({"taskId": task_id, "answers": answers}) + "\n")
     report = evaluate(taskset, predictions, args.split)
