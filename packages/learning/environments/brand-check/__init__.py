@@ -5,7 +5,15 @@ from typing import Any
 
 from .taskset import question_options
 
-__all__ = ["BrandCheckAction", "BrandCheckEnv", "BrandCheckObservation", "question_options"]
+__all__ = [
+    "BrandCheckAction",
+    "BrandCheckEnv",
+    "BrandCheckObservation",
+    "FixtureBackend",
+    "LocalRuntime",
+    "RuntimeFailure",
+    "question_options",
+]
 
 # The scoring modules use only the standard library. Importing the OpenEnv classes on first use
 # lets them, and their tests, run where openenv-core is not installed.
@@ -13,6 +21,9 @@ _OPENENV_EXPORTS = {
     "BrandCheckAction": ".models",
     "BrandCheckObservation": ".models",
     "BrandCheckEnv": ".client",
+    "FixtureBackend": ".runtime",
+    "LocalRuntime": ".runtime",
+    "RuntimeFailure": ".runtime",
 }
 
 

@@ -159,6 +159,106 @@ The command prints a JSON report:
 
 A missing or invalid answer counts as wrong for accuracy and as `invalid`, and it is left out of the other scores. A metric without data is `null`.
 
+## Run the single-node reference runtime
+
+The single-node reference Replica decision runtime proves one complete customer-operated lifecycle on the new-Hub package foundation. It keeps mutable job records under `jobs/`, writes each completed candidate once under `candidates/`, keeps immutable promotion generations under `promotions/`, and serves only the candidate an operator explicitly promotes or restores. Replica does not receive the taskset, adapter, reports, token, or requests.
+
+The only backend in this first reference is deterministic and ignores image content. It uses the real taskset loader, proper-scoring evaluation, candidate store, promotion gate, rollback, and inference contract without a GPU or model download. Its candidates are for development and tests only; the runtime refuses to promote them when `--environment production`.
+
+```sh
+cd packages/learning/environments/brand-check
+python3 examples/runtime_demo.py --out /tmp/replica-runtime-demo
+```
+
+The output shows two bounded jobs, immutable candidates, baseline and candidate test reports, two promotions, an explicit rollback, and one structured Build evaluation from the restored candidate. `candidate.evaluation.evidence.meanRewardDelta` states the fixture's measured gain over the 50% baseline, not real visual-model quality. The demo leaves its state in `/tmp/replica-runtime-demo/runtime` so an operator can inspect it.
+
+For a taskset created by `replica-learning decision taskset`, make a runtime token, install the package, and start the service:
+
+```sh
+(umask 077 && python3 -c 'import secrets; print(secrets.token_urlsafe(32))' > ~/.replica-runtime-token)
+export REPLICA_RUNTIME_TOKEN="$(cat ~/.replica-runtime-token)"
+uv venv --python 3.12
+uv pip install -e .
+.venv/bin/replica-decision-runtime \
+  --environment development \
+  --taskset /path/to/taskset --state /path/to/runtime-state --port 8010
+```
+
+Submit and track a bounded fixture job, then promote its candidate:
+
+```sh
+curl -sS -H "Authorization: Bearer $REPLICA_RUNTIME_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"backend":"fixture","maxUpdates":12,"maxSeconds":30}' \
+  http://127.0.0.1:8010/v1/jobs
+
+curl -sS -H "Authorization: Bearer $REPLICA_RUNTIME_TOKEN" \
+  http://127.0.0.1:8010/v1/jobs/<job id>
+
+curl -sS -H "Authorization: Bearer $REPLICA_RUNTIME_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"candidateId":"<candidate id>","promotedBy":"<operator>"}' \
+  http://127.0.0.1:8010/v1/promotions
+
+curl -sS -H "Authorization: Bearer $REPLICA_RUNTIME_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"rolledBackBy":"<operator>"}' \
+  http://127.0.0.1:8010/v1/rollbacks
+```
+
+`POST /score` and `POST /v1/evaluations` accept a task-shaped request with `state`, image data URIs, and `questions`. Send the runtime token as a bearer token. The fixture ignores the screenshots, so do not use its answers to judge a Build or guide authoring. The response includes probability `answers`, the promoted candidate ID, promotion generation, and one `followsProbability` and `breaksProbability` pair per learning. Inference returns `409 candidate_not_promoted` until an operator promotes a candidate.
+
+```sh
+curl -sS -H "Authorization: Bearer $REPLICA_RUNTIME_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data-binary @request.json \
+  http://127.0.0.1:8010/score
+```
+
+The HTTP contract stays independent of the local store and trainer implementation:
+
+| Route | Result |
+| --- | --- |
+| `GET /health` | Process liveness; no token required |
+| `GET /ready` | Returns 200 only when an intact promoted candidate has a configured backend; no token required |
+| `POST /v1/jobs` | Enqueues one job bounded by `maxUpdates` and `maxSeconds` |
+| `GET /v1/jobs/<id>` | Returns `queued`, `running`, `succeeded`, or `failed` |
+| `GET /v1/candidates/<id>` | Returns the immutable manifest and evaluation report |
+| `POST /v1/promotions` | Moves the explicit promotion pointer to one candidate |
+| `POST /v1/rollbacks` | Restores the immediately previous candidate as a new promotion generation |
+| `GET /v1/promotion` | Returns the promoted candidate and generation |
+| `POST /score`, `POST /v1/evaluations` | Evaluates one page with the promoted candidate |
+
+### Run the fixture runtime in a container
+
+Build the runtime image, mount the taskset read-only, and mount a separate durable directory read-write:
+
+```sh
+docker build -f server/runtime.Dockerfile -t replica-decision-runtime:dev .
+mkdir -p /path/to/runtime-state
+docker run --rm \
+  -e REPLICA_RUNTIME_TOKEN \
+  -v /path/to/taskset:/data/taskset:ro \
+  -v /path/to/runtime-state:/data/runtime \
+  -p 127.0.0.1:8010:8010 \
+  replica-decision-runtime:dev
+```
+
+The image contains no taskset, candidate, model, or credential. It runs as user 10001, which needs read access to the taskset and write access to the runtime-state directory. Add `--user "$(id -u):$(id -g)"` when the mounted directories allow only your account; rootless Podman also needs `--userns=keep-id`.
+
+### Add another backend later
+
+`TrainingBackend` is the extension seam. A backend can run in a separate terminable process, declares its name and whether its candidates may be promoted in production, implements one bounded `train` call that returns an adapter plus baseline and candidate reports, and implements `predict` for that adapter. Installed runtimes use a spawned worker process, so a backend and its configuration must be serializable. The runtime owns job state, candidate integrity, promotion, rollback, and HTTP authentication. This first reference does not connect the existing d1 trainer to that interface.
+
+### Trust, data, and credential boundaries
+
+- The operator chooses the host. The reference runtime never calls Replica or a cloud service. A later cloud implementation can keep the same job, candidate, promotion, and inference contracts.
+- The taskset contains private screenshots, learning text, and labels. Mount it read-only. A training-consent withdrawal still requires the operator to delete the taskset and every candidate derived from that export.
+- The runtime state contains adapters, evaluation reports, job errors, and the promotion pointer. Back it up or delete it under the customer's retention rules. Candidate files are created read-only and never updated in place.
+- The runtime token authorizes training, promotion, candidate reads, and inference. Keep it in a protected file or secret store and pass it through the environment, not the command line or image.
+- The service uses plain HTTP. Bind it to localhost as shown, or put customer-operated TLS and authentication in front of it before another host can connect.
+- A backend is trusted code. The reference runtime checks the taskset first and bounds time and updates, but a later model backend can read the screenshots and return candidate artifacts.
+
 ## Train d1-omni-600M
 
 [examples/train_d1_omni.py](examples/train_d1_omni.py) trains Liquid AI's d1-omni-600M against this environment with reinforcement learning. It keeps the released model frozen and, by default, trains a small readout of 1,025 numbers on top of it. The readout reads the model's internal state at each yes-or-no question's answer options and corrects the released model's answer. `--part head` trains the whole decision head instead, about 26 million of the model's 587 million parameters. On a synthetic taskset of 518 practice pages, the head's dev score rose from 0.685 to at best 0.753, barely above the 0.750 that answering 50% to every question earns, while its practice score rose much more. The readout raised the dev score to 0.807. Either way, the trainer learns from the rewards alone. Every 10 updates it scores the dev split and keeps the weights with the best dev reward, because a small taskset is easy to memorize.
