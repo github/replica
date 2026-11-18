@@ -170,6 +170,20 @@ def _cleanup_resources():
 
 
 class LocalConnectorPersistenceTest(unittest.TestCase):
+    def test_refuses_to_mint_credentials_for_another_scope(self):
+        bundle, _, scope = _new_bundle(self)
+
+        with self.assertRaises(ConnectorError) as refused:
+            bundle.connectors.credentials.acquire(
+                "training",
+                _context(
+                    RuntimeScope("another-tenant", scope.repository),
+                    "cross-scope-credential",
+                ),
+            )
+
+        self.assertEqual(refused.exception.category, "unauthorized")
+
     def test_refuses_identifiers_that_escape_private_storage(self):
         bundle, state_directory, scope = _new_bundle(self)
         context = _context(scope, "unsafe-identifiers")

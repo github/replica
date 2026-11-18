@@ -1323,7 +1323,7 @@ class LocalCredentialConnector(_ScopedConnector):
         audience: str,
         context: OperationContext,
     ) -> Credential:
-        check_context(context)
+        self._check(context)
         if not audience.strip():
             raise ConnectorError(
                 "credential_audience_invalid",
