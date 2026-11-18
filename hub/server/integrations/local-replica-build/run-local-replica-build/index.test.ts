@@ -104,6 +104,7 @@ await writeFile(source + "/dist/index.html", content)
       commitSha: stdout.trim(),
       actionRoot,
       temporaryRoot: root,
+      executionTimeoutMs: 60_000,
     })
     onTestFinished(() => result.cleanup())
 

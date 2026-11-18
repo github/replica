@@ -123,10 +123,11 @@ export const seededBuildArtifactBytes = new Map([
     ),
   ],
   [
-    "seed_navigation_controls",
+    "seed_navigation_controls_v2",
     new TextEncoder().encode(
       JSON.stringify({
         version: 1,
+        scope: "page",
         controls: [
           {
             id: "heading",
@@ -140,16 +141,16 @@ export const seededBuildArtifactBytes = new Map([
     ),
   ],
   [
-    "seed_navigation_desktop",
+    "seed_navigation_desktop_v2",
     Buffer.from(
-      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+X2NDWQAAAABJRU5ErkJggg==",
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4AWP4DwQACfsD/c8LaHIAAAAASUVORK5CYII=",
       "base64",
     ),
   ],
   [
-    "seed_navigation_narrow",
+    "seed_navigation_narrow_v2",
     Buffer.from(
-      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+X2NDWQAAAABJRU5ErkJggg==",
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4AWP4DwQACfsD/c8LaHIAAAAASUVORK5CYII=",
       "base64",
     ),
   ],
@@ -167,22 +168,22 @@ export const seededBuildArtifacts = [
     buildId: "00000000-0000-4000-8000-000000000302",
     kind: "dist",
     path: "dist/controls.replica.json",
-    storageKey: "seed_navigation_controls",
-    byteLength: seededBuildArtifactBytes.get("seed_navigation_controls")!.byteLength,
+    storageKey: "seed_navigation_controls_v2",
+    byteLength: seededBuildArtifactBytes.get("seed_navigation_controls_v2")!.byteLength,
   },
   {
     buildId: "00000000-0000-4000-8000-000000000302",
     kind: "screenshot",
     path: "screenshots/desktop.png",
-    storageKey: "seed_navigation_desktop",
-    byteLength: seededBuildArtifactBytes.get("seed_navigation_desktop")!.byteLength,
+    storageKey: "seed_navigation_desktop_v2",
+    byteLength: seededBuildArtifactBytes.get("seed_navigation_desktop_v2")!.byteLength,
   },
   {
     buildId: "00000000-0000-4000-8000-000000000302",
     kind: "screenshot",
     path: "screenshots/narrow.png",
-    storageKey: "seed_navigation_narrow",
-    byteLength: seededBuildArtifactBytes.get("seed_navigation_narrow")!.byteLength,
+    storageKey: "seed_navigation_narrow_v2",
+    byteLength: seededBuildArtifactBytes.get("seed_navigation_narrow_v2")!.byteLength,
   },
 ] as const
 

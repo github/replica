@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { localBuildExecutionTimeoutMs, localBuildStaleAfterMs } from "../constants.ts"
 
 import { discoverLocalRepositories } from "../../../integrations/git/discover-local-repositories/index.ts"
 import { readLocalBuildPackage } from "../../../integrations/local-replica-build/read-local-build-package/index.ts"
@@ -84,7 +85,11 @@ export async function synchronizeLocalBuilds({
       let leaseId: string | null = null
       const newlyWrittenKeys: string[] = []
       try {
-        leaseId = await markLocalBuildRunning(database, prepared.buildId)
+        leaseId = await markLocalBuildRunning(
+          database,
+          prepared.buildId,
+          new Date(Date.now() + localBuildStaleAfterMs),
+        )
         if (!leaseId) {
           summary.queued -= 1
           summary.unchanged += 1
@@ -95,6 +100,7 @@ export async function synchronizeLocalBuilds({
           commitSha: branch.commitSha,
           actionRoot,
           temporaryRoot,
+          executionTimeoutMs: localBuildExecutionTimeoutMs,
         })
         const files = await readLocalBuildPackage(result.packageDirectory)
         const artifacts = []

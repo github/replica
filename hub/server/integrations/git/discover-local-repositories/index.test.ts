@@ -101,6 +101,20 @@ describe("discoverLocalRepositories()", () => {
     }
   })
 
+  it("keeps branch names stable when a tag has the same short name", async () => {
+    const root = createRoot()
+    const repository = `${root}/prototype`
+    await createRepository(repository)
+    await git(repository, "tag", "main", "prototype/alternate")
+
+    const result = await discoverLocalRepositories(root)
+
+    expect(result.repositories[0]!.branches.map(({ name }) => name)).toEqual([
+      "main",
+      "prototype/alternate",
+    ])
+  })
+
   it("does not change observed branch heads for uncommitted work", async () => {
     const root = createRoot()
     const repository = `${root}/prototype`

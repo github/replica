@@ -3,7 +3,7 @@ export interface LocalReplicaBuildInput {
   commitSha: string
   actionRoot: string
   temporaryRoot: string
-  executionTimeoutMs?: number
+  executionTimeoutMs: number
 }
 
 export interface LocalReplicaBuildResult {

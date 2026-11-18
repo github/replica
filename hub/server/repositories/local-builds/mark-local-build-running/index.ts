@@ -1,8 +1,11 @@
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
 import { randomUUID } from "node:crypto"
-import { localBuildStaleAfterMs } from "../../../domains/local-builds/constants.ts"
 
-export async function markLocalBuildRunning(database: PrismaClient, buildId: string) {
+export async function markLocalBuildRunning(
+  database: PrismaClient,
+  buildId: string,
+  leaseExpiresAt: Date,
+) {
   const leaseId = randomUUID()
   const startedAt = new Date()
   const claimed = await database.build.updateMany({
@@ -11,7 +14,7 @@ export async function markLocalBuildRunning(database: PrismaClient, buildId: str
       state: "running",
       startedAt,
       localLeaseId: leaseId,
-      localLeaseExpiresAt: new Date(startedAt.getTime() + localBuildStaleAfterMs),
+      localLeaseExpiresAt: leaseExpiresAt,
     },
   })
   return claimed.count === 1 ? leaseId : null

@@ -23,7 +23,7 @@ async function readRepository(repositoryPath: string, name: string): Promise<Loc
 
   const output = await git(canonicalPath, [
     "for-each-ref",
-    "--format=%(refname:short)%00%(objectname)%00%(authorname)%00%(authoremail)%00%(authordate:iso-strict)",
+    "--format=%(refname:lstrip=2)%00%(objectname)%00%(authorname)%00%(authoremail)%00%(authordate:iso-strict)",
     "refs/heads",
   ])
   const branches: LocalBranchHead[] = output

@@ -3,7 +3,6 @@ import { cp, mkdir, mkdtemp, rm } from "node:fs/promises"
 import path from "node:path"
 
 import type { LocalReplicaBuildInput, LocalReplicaBuildResult } from "./types.ts"
-import { localBuildExecutionTimeoutMs } from "../../../domains/local-builds/constants.ts"
 
 const nodeImage =
   "node:24-bookworm@sha256:6dac556d980b7f0e5498d08f08cee0ca67798b4ad6c23964a9214920e67758d0"
@@ -68,7 +67,7 @@ export async function runLocalReplicaBuild({
   commitSha,
   actionRoot,
   temporaryRoot,
-  executionTimeoutMs = localBuildExecutionTimeoutMs,
+  executionTimeoutMs,
 }: LocalReplicaBuildInput): Promise<LocalReplicaBuildResult> {
   await mkdir(temporaryRoot, { recursive: true })
   const directory = await mkdtemp(path.join(temporaryRoot, "replica-local-build-"))

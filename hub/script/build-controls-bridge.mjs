@@ -65,8 +65,10 @@ const hosted = await build({
     write: false,
     minify: true,
     lib: {
-      entry: new URL("../client/application/prototype-preview-bridge/index.ts", import.meta.url)
-        .pathname,
+      entry: new URL(
+        "../client/application/prototype-preview-bridge/install-hosted-bridge/index.ts",
+        import.meta.url,
+      ).pathname,
       formats: ["iife"],
       name: "ReplicaHostedPreviewBridge",
       fileName: () => "preview-bridge.js",

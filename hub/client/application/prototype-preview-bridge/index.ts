@@ -968,22 +968,23 @@ function install(origin: string) {
   }
 }
 
-export function installBridge(origin: string) {
-  if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) throw new Error("Invalid Replica canvas parent.")
-  install(origin)
-}
-
-export function installHostedBridge(origin: string) {
-  const parsed = URL.parse(origin)
-  if (
-    !parsed ||
-    parsed.origin !== origin ||
-    parsed.pathname !== "/" ||
-    parsed.search ||
-    parsed.hash ||
-    !["http:", "https:"].includes(parsed.protocol)
-  ) {
-    throw new Error("Invalid Replica Hub parent.")
+export function installBridge(origin: string, environment: "canvas" | "hosted" = "canvas") {
+  if (environment === "canvas") {
+    if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) {
+      throw new Error("Invalid Replica canvas parent.")
+    }
+  } else {
+    const parsed = URL.parse(origin)
+    if (
+      !parsed ||
+      parsed.origin !== origin ||
+      parsed.pathname !== "/" ||
+      parsed.search ||
+      parsed.hash ||
+      !["http:", "https:"].includes(parsed.protocol)
+    ) {
+      throw new Error("Invalid Replica Hub parent.")
+    }
   }
   install(origin)
 }
