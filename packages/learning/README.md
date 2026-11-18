@@ -216,6 +216,8 @@ A task shows every screenshot of its page, desktop before narrow and light befor
 
 Hub names each screenshot by the address the build action was asked to capture. The build action follows redirects and Controls URL defaults without recording where the page ended up, so a comment made at the address a page redirects to finds no screenshot.
 
+The [single-node reference Replica decision runtime](environments/brand-check/README.md#run-the-single-node-reference-runtime) is customer-operated on the new-Hub package foundation. It accepts that taskset, tracks a bounded deterministic fixture job, stores an immutable candidate and proper-scoring evaluation report, requires explicit promotion or rollback, and serves the promoted result through an authenticated scoring endpoint. The fixture proves the lifecycle without a GPU or model download, but its candidates are development/test-only and cannot be promoted in production. The runtime keeps a small backend interface for later real-model work.
+
 The output directory must be new and, inside a checkout, under `.replica/`. It holds:
 
 | File | Contents |
