@@ -1,0 +1,31 @@
+services:
+  decision-runtime:
+    build:
+      context: .
+      dockerfile: server/runtime.Dockerfile
+    environment:
+      REPLICA_RUNTIME_TOKEN: ${REPLICA_RUNTIME_TOKEN:?set REPLICA_RUNTIME_TOKEN}
+    command:
+      - python
+      - -m
+      - replica_brand_check.runtime_server
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8010"
+      - --environment
+      - ${REPLICA_RUNTIME_ENVIRONMENT:-development}
+      - --tenant
+      - ${REPLICA_RUNTIME_TENANT:-local}
+      - --repository
+      - ${REPLICA_RUNTIME_REPOSITORY:-local/runtime}
+      - --state
+      - /data/runtime
+      - --taskset
+      - /data/taskset
+    ports:
+      - 127.0.0.1:${REPLICA_RUNTIME_PORT:-8010}:8010
+    user: ${REPLICA_RUNTIME_USER:-10001:10001}
+    volumes:
+      - ${REPLICA_TASKSET_DIR:?set REPLICA_TASKSET_DIR}:/data/taskset:ro
+      - ${REPLICA_RUNTIME_STATE_DIR:?set REPLICA_RUNTIME_STATE_DIR}:/data/runtime

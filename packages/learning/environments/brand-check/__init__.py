@@ -13,12 +13,14 @@ __all__ = [
     "ConnectorConformanceFixture",
     "ConnectorError",
     "FixtureBackend",
+    "LocalConnectorBundle",
     "LocalRuntime",
     "RuntimeConnectors",
     "RuntimeScope",
     "RuntimeFailure",
     "TrainingResult",
     "connector_conformance",
+    "create_local_connector_bundle",
     "question_options",
 ]
 
@@ -30,11 +32,13 @@ _OPENENV_EXPORTS = {
     "BrandCheckEnv": ".client",
     "ConnectorError": ".connectors",
     "FixtureBackend": ".runtime",
+    "LocalConnectorBundle": ".local_connectors",
     "LocalRuntime": ".runtime",
     "RuntimeConnectors": ".connectors",
     "RuntimeScope": ".connectors",
     "TrainingResult": ".connectors",
     "RuntimeFailure": ".runtime",
+    "create_local_connector_bundle": ".local_connectors",
 }
 
 

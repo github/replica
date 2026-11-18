@@ -623,7 +623,7 @@ class LocalRuntimeTest(unittest.TestCase):
                     self.state_dir / "candidates" / finished["candidateId"]
                 ).iterdir()
             ),
-            ["adapter.json", "evaluation.json", "manifest.json"],
+            [".candidate.json", "adapter.json", "evaluation.json", "manifest.json"],
         )
 
     def test_bounds_a_worker_that_returns_but_does_not_exit(self):
@@ -654,8 +654,7 @@ class LocalRuntimeTest(unittest.TestCase):
         failed = self._wait_for_job(runtime, submitted["id"])
 
         self.assertEqual(failed["error"]["code"], "backend_failed")
-        self.assertIn("without a result", failed["error"]["message"])
-        self.assertIn("exit code 7", failed["error"]["message"])
+        self.assertEqual(failed["error"]["message"], "Backend operation failed.")
 
     def test_close_cancels_queued_jobs_instead_of_starting_them(self):
         started = self.taskset_dir.parent / "blocking-started"
@@ -749,6 +748,8 @@ class LocalRuntimeTest(unittest.TestCase):
 
         self.assertEqual(failed["state"], "failed")
         self.assertNotIn("candidateId", failed)
+        self.assertEqual(failed["error"]["message"], "Backend operation failed.")
+        self.assertNotIn("backend-token", json.dumps(failed))
         self.assertEqual(list((self.state_dir / "candidates").iterdir()), [])
         self.assertIsNone(runtime.promotion(required=False))
         runtime.close()
@@ -886,16 +887,17 @@ class LocalRuntimeTest(unittest.TestCase):
             runtime,
             runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
         )
-        original = runtime._write_promotion
+        candidates = runtime.local_connectors.candidates
+        original = candidates._write_promotion
 
         def fail_pointer(promotion):
             with mock.patch(
-                "replica_brand_check.runtime._write_json_atomic",
+                "replica_brand_check.local_connectors._write_json_atomic",
                 side_effect=OSError("pointer unavailable"),
             ):
                 original(promotion)
 
-        with mock.patch.object(runtime, "_write_promotion", side_effect=fail_pointer):
+        with mock.patch.object(candidates, "_write_promotion", side_effect=fail_pointer):
             with self.assertRaises(OSError):
                 runtime.promote(finished["candidateId"], promoted_by="test-operator")
 
@@ -917,16 +919,17 @@ class LocalRuntimeTest(unittest.TestCase):
         )
         runtime.promote(first["candidateId"], promoted_by="test-operator")
         runtime.promote(second["candidateId"], promoted_by="test-operator")
-        original = runtime._write_promotion
+        candidates = runtime.local_connectors.candidates
+        original = candidates._write_promotion
 
         def fail_pointer(promotion):
             with mock.patch(
-                "replica_brand_check.runtime._write_json_atomic",
+                "replica_brand_check.local_connectors._write_json_atomic",
                 side_effect=OSError("pointer unavailable"),
             ):
                 original(promotion)
 
-        with mock.patch.object(runtime, "_write_promotion", side_effect=fail_pointer):
+        with mock.patch.object(candidates, "_write_promotion", side_effect=fail_pointer):
             with self.assertRaises(OSError):
                 runtime.rollback(rolled_back_by="test-operator")
 
@@ -946,16 +949,17 @@ class LocalRuntimeTest(unittest.TestCase):
             runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
         )
         runtime.promote(first["candidateId"], promoted_by="first-operator")
-        original = runtime._write_promotion
+        candidates = runtime.local_connectors.candidates
+        original = candidates._write_promotion
 
         def fail_pointer(promotion):
             with mock.patch(
-                "replica_brand_check.runtime._write_json_atomic",
+                "replica_brand_check.local_connectors._write_json_atomic",
                 side_effect=OSError("pointer unavailable"),
             ):
                 original(promotion)
 
-        with mock.patch.object(runtime, "_write_promotion", side_effect=fail_pointer):
+        with mock.patch.object(candidates, "_write_promotion", side_effect=fail_pointer):
             with self.assertRaises(OSError):
                 runtime.promote(second["candidateId"], promoted_by="second-operator")
 
@@ -965,6 +969,38 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(rollback["candidateId"], first["candidateId"])
         self.assertEqual(rollback["previousCandidateId"], second["candidateId"])
         self.assertEqual(rollback["operation"], "rollback")
+
+    def test_promotion_read_does_not_consume_a_pending_rollback_recovery(self):
+        runtime = self._runtime()
+        first = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=4, max_seconds=5)["id"],
+        )
+        second = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=8, max_seconds=5)["id"],
+        )
+        runtime.promote(first["candidateId"], promoted_by="test-operator")
+        runtime.promote(second["candidateId"], promoted_by="test-operator")
+        candidates = runtime.local_connectors.candidates
+        original = candidates._write_promotion
+
+        def fail_pointer(promotion):
+            with mock.patch(
+                "replica_brand_check.local_connectors._write_json_atomic",
+                side_effect=OSError("pointer unavailable"),
+            ):
+                original(promotion)
+
+        with mock.patch.object(candidates, "_write_promotion", side_effect=fail_pointer):
+            with self.assertRaises(OSError):
+                runtime.rollback(rolled_back_by="test-operator")
+
+        self.assertEqual(runtime.promotion()["generation"], 2)
+        recovered = runtime.rollback(rolled_back_by="retrying-operator")
+
+        self.assertEqual(recovered["generation"], 3)
+        self.assertEqual(recovered["candidateId"], first["candidateId"])
 
     def test_production_rejects_fixture_promotion_without_changing_the_current_generation(self):
         runtime = self._runtime()
