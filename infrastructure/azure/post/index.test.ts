@@ -6,6 +6,7 @@ import { afterEach, expect, it, vi } from "vitest"
 import { CommandExecutionError } from "../../installer/command/index.ts"
 import { withDefaultSignal } from "../../installer/command/default-signal/index.ts"
 import { retryReadOnly } from "../../installer/command/retry-read-only/index.ts"
+import * as privateFiles from "../../installer/private-files/index.ts"
 import type { DeploymentConfig, RunCommand, WizardUI } from "../../installer/types.ts"
 import { installationWorkspace } from "../../installer/workspace/index.ts"
 import * as installationInputs from "../install/inputs/index.ts"
@@ -521,6 +522,81 @@ it("announces the operation before awaiting a post-confirmation command without 
     work.resolve()
     await pending
   }
+})
+
+it("records completion before releasing the installation leases", async () => {
+  const test = await scenario()
+  const phasesAtRelease: unknown[] = []
+  const run: RunCommand = async (executable, args, options) => {
+    if (args.slice(0, 4).join(" ") === "storage blob lease release")
+      phasesAtRelease.push(
+        JSON.parse(await readFile(join(test.directory, "post-desired.json"), "utf8")).phase,
+      )
+    return test.run(executable, args, options)
+  }
+
+  await postSetupAzure(test.target, {
+    action: "sign-in",
+    run,
+    ui: test.ui,
+    request: test.request,
+  })
+
+  expect(phasesAtRelease).toEqual(["complete", "complete"])
+  expect(test.leases.size).toBe(0)
+})
+
+it("retains leases and resumes when the completion marker cannot be saved", async () => {
+  const test = await scenario()
+  const journal = join(test.directory, "post-desired.json")
+  const write = privateFiles.writePrivateFile
+  const markerWrite = vi
+    .spyOn(privateFiles, "writePrivateFile")
+    .mockImplementation(async (path, content, options) => {
+      if (path === journal && JSON.parse(content).phase === "complete")
+        throw new Error("Synthetic completion marker failure")
+      return write(path, content, options)
+    })
+
+  try {
+    await expect(
+      postSetupAzure(test.target, {
+        action: "sign-in",
+        run: test.run,
+        ui: test.ui,
+        request: test.request,
+      }),
+    ).rejects.toThrow("Synthetic completion marker failure")
+  } finally {
+    markerWrite.mockRestore()
+  }
+
+  const savedInputs = await readFile(test.inputsPath, "utf8")
+  expect(JSON.parse(await readFile(journal, "utf8"))).toMatchObject({
+    action: "sign-in",
+    phase: "pending",
+    hash: createHash("sha256").update(savedInputs).digest("hex"),
+  })
+  expect(test.applies).toBe(1)
+  expect(test.leases.size).toBe(2)
+  expect(test.ui.complete).not.toHaveBeenCalled()
+  expect(test.ui.notice).toHaveBeenCalledWith(
+    "error",
+    expect.stringMatching(/rerun the same post-setup action/i),
+  )
+
+  await postSetupAzure(test.target, {
+    action: "sign-in",
+    run: test.run,
+    ui: test.ui,
+    request: test.request,
+  })
+
+  expect(await readFile(test.inputsPath, "utf8")).toBe(savedInputs)
+  expect(JSON.parse(await readFile(journal, "utf8"))).toMatchObject({ phase: "complete" })
+  expect(test.plans).toHaveLength(2)
+  expect(test.leases.size).toBe(0)
+  expect(test.ui.complete).toHaveBeenCalledOnce()
 })
 
 it("uses the deployed digest despite stale deploy_hub=false and preserves settings across verification and configuration reruns", async () => {
