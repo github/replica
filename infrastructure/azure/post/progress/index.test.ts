@@ -164,6 +164,24 @@ it.each([
   },
 )
 
+it("rejects pinning an unrelated unversioned reference and preserves sign-in progress", async () => {
+  const test = await signInScenario(false)
+  test.inputs.runtime_secret_references!.RETAINED_SECRET = {
+    ...test.reference,
+    secret_id: test.reference.secret_id.slice(0, -33),
+  }
+  const progress = await postSetupProgress(test.context, "sign-in", test.inputs)
+  await progress.saveAnswer("origin", "https://sample.example.com")
+  await progress.saveAnswer("proxyHops", "2")
+  for (const [key, reference] of Object.entries(test.sharedReferences))
+    await progress.saveReference(key, reference)
+  const saved = await readFile(progress.path)
+
+  await expect(postSetupProgress(test.context, "sign-in", test.desired)).rejects.toThrow()
+
+  expect(await readFile(progress.path)).toEqual(saved)
+})
+
 it("preserves an unresolved sign-in upload instead of accepting written desired inputs", async () => {
   const test = await signInScenario()
   const progress = await postSetupProgress(test.context, "sign-in", test.inputs)

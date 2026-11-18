@@ -227,7 +227,8 @@ export async function postSetupProgress(
           return (
             checked.key_vault_id.toLowerCase() === saved.key_vault_id.toLowerCase() &&
             (checked.secret_id.toLowerCase() === saved.secret_id.toLowerCase() ||
-              (!/\/[a-f0-9]{32}$/i.test(saved.secret_id) &&
+              ((key === "HUB_APPLICATION_ORIGIN" || sharedKeys.some((name) => name === key)) &&
+                !/\/[a-f0-9]{32}$/i.test(saved.secret_id) &&
                 checked.secret_id.toLowerCase().replace(/\/[a-f0-9]{32}$/i, "") ===
                   saved.secret_id.toLowerCase()))
           )
