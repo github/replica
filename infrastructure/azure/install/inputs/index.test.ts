@@ -66,7 +66,7 @@ describe("readInstallationInputs()", () => {
   })
 
   it("retains public runtime values, empty strings, and boundary names without a secret-reference count limit", async () => {
-    const { config, inputs } = boundaryInputs()
+    const { config, inputs, reference } = boundaryInputs()
     const environment = {
       ...Object.fromEntries(Array.from({ length: 61 }, (_, index) => [`PUBLIC_${index}`, "public"])),
       GITHUB_CLIENT_ID: "synthetic-public-client",
@@ -75,7 +75,14 @@ describe("readInstallationInputs()", () => {
       [`A${"B".repeat(40)}`]: "maximum-length-name",
     }
     vi.mocked(readPrivateFile).mockResolvedValue(
-      JSON.stringify({ ...inputs, runtime_environment_variables: environment }),
+      JSON.stringify({
+        ...inputs,
+        runtime_environment_variables: environment,
+        runtime_secret_references: {
+          HUB_AUTHENTICATION_ENCRYPTION_KEY: reference(6, 24, "encryption"),
+          HUB_BOOTSTRAP_SECRET: reference(6, 24, "bootstrap"),
+        },
+      }),
     )
 
     await expect(readInstallationInputs("synthetic-installation", config)).resolves.toMatchObject({
@@ -95,6 +102,8 @@ describe("readInstallationInputs()", () => {
         PUBLIC_SETTING: "public",
       },
       runtime_secret_references: {
+        HUB_AUTHENTICATION_ENCRYPTION_KEY: reference(6, 24, "encryption"),
+        HUB_BOOTSTRAP_SECRET: reference(6, 24, "bootstrap"),
         GITHUB_CLIENT_SECRET: reference(6, 24, "client"),
         GITHUB_APP_PRIVATE_KEY_BASE64: reference(6, 24, "private"),
       },
@@ -116,14 +125,22 @@ describe("readInstallationInputs()", () => {
       origin: `https://${Array(7).fill("a".repeat(61)).join(".")}.${"a".repeat(58)}`,
     },
   ])("retains an exact HTTPS application origin with $form", async ({ origin }) => {
-    const { config, inputs } = boundaryInputs()
+    const { config, inputs, reference } = boundaryInputs()
+    const secrets = {
+      HUB_AUTHENTICATION_ENCRYPTION_KEY: reference(6, 24, "encryption"),
+      HUB_BOOTSTRAP_SECRET: reference(6, 24, "bootstrap"),
+    }
     vi.mocked(readPrivateFile).mockResolvedValue(
-      JSON.stringify({ ...inputs, hub_application_origin: origin }),
+      JSON.stringify({
+        ...inputs,
+        hub_application_origin: origin,
+        runtime_secret_references: secrets,
+      }),
     )
 
     await expect(readInstallationInputs("synthetic-installation", config)).resolves.toEqual({
       hub_application_origin: origin,
-      runtime_secret_references: {},
+      runtime_secret_references: secrets,
     })
   })
 
@@ -203,9 +220,11 @@ describe("readInstallationInputs()", () => {
         ...(source === "environment" && {
           runtime_environment_variables: { HUB_APPLICATION_ORIGIN: origin },
         }),
-        ...(source === "secret" && {
-          runtime_secret_references: { HUB_APPLICATION_ORIGIN: reference(6, 24, "origin") },
-        }),
+        runtime_secret_references: {
+          HUB_AUTHENTICATION_ENCRYPTION_KEY: reference(6, 24, "encryption"),
+          HUB_BOOTSTRAP_SECRET: reference(6, 24, "bootstrap"),
+          ...(source === "secret" && { HUB_APPLICATION_ORIGIN: reference(6, 24, "origin") }),
+        },
       }
       vi.mocked(readPrivateFile).mockResolvedValue(JSON.stringify({ ...inputs, ...settings }))
 
@@ -265,6 +284,8 @@ describe("readInstallationInputs()", () => {
         GITHUB_PROVIDER_REVISION: "2",
       },
       runtime_secret_references: {
+        HUB_AUTHENTICATION_ENCRYPTION_KEY: reference(6, 24, "encryption"),
+        HUB_BOOTSTRAP_SECRET: reference(6, 24, "bootstrap"),
         GITHUB_CLIENT_SECRET: reference(6, 24, "client"),
         GITHUB_APP_PRIVATE_KEY_BASE64: reference(6, 24, "private"),
       },
@@ -275,9 +296,19 @@ describe("readInstallationInputs()", () => {
   })
 
   it.each([
-    { source: "a named App ID", appId: { github_app_id: "123456" }, environment: {} },
-    { source: "a generic App ID", appId: {}, environment: { GITHUB_APP_ID: "123456" } },
-  ])("accepts a Copilot-only App private key with $source", async ({ appId, environment }) => {
+    {
+      source: "a named App ID and encoded key",
+      appId: { github_app_id: "123456" },
+      environment: {},
+      key: "GITHUB_APP_PRIVATE_KEY_BASE64",
+    },
+    {
+      source: "a generic App ID and PEM key",
+      appId: {},
+      environment: { GITHUB_APP_ID: "123456" },
+      key: "GITHUB_APP_PRIVATE_KEY",
+    },
+  ])("accepts a Copilot-only App private key with $source", async ({ appId, environment, key }) => {
     const { config, inputs, reference } = boundaryInputs()
     const settings = {
       ...appId,
@@ -285,8 +316,27 @@ describe("readInstallationInputs()", () => {
         ...environment,
         REPLICA_COPILOT_AUTHENTICATION: "github-app-installation",
         REPLICA_COPILOT_GITHUB_INSTALLATION_ID: "7890123",
+        REPLICA_COPILOT_GITHUB_ORGANIZATION: "fixture-org",
       },
       runtime_secret_references: {
+        [key]: reference(6, 24, "private"),
+      },
+    }
+    vi.mocked(readPrivateFile).mockResolvedValue(JSON.stringify({ ...inputs, ...settings }))
+
+    await expect(readInstallationInputs("synthetic-installation", config)).resolves.toEqual(settings)
+  })
+
+  it("accepts Copilot identity values supplied by secret references without sign-in settings", async () => {
+    const { config, inputs, reference } = boundaryInputs()
+    const settings = {
+      github_app_id: "123456",
+      runtime_environment_variables: {
+        REPLICA_COPILOT_AUTHENTICATION: "github-app-installation",
+      },
+      runtime_secret_references: {
+        REPLICA_COPILOT_GITHUB_INSTALLATION_ID: reference(6, 24, "installation"),
+        REPLICA_COPILOT_GITHUB_ORGANIZATION: reference(6, 24, "organization"),
         GITHUB_APP_PRIVATE_KEY_BASE64: reference(6, 24, "private"),
       },
     }
@@ -295,10 +345,119 @@ describe("readInstallationInputs()", () => {
     await expect(readInstallationInputs("synthetic-installation", config)).resolves.toEqual(settings)
   })
 
+  it.each([
+    { missing: "GITHUB_APP_ID", value: undefined },
+    { missing: "REPLICA_COPILOT_GITHUB_INSTALLATION_ID", value: undefined },
+    { missing: "REPLICA_COPILOT_GITHUB_ORGANIZATION", value: undefined },
+    { missing: "GITHUB_APP_PRIVATE_KEY_BASE64", value: undefined },
+    { missing: "REPLICA_COPILOT_GITHUB_INSTALLATION_ID", value: "  " },
+    { missing: "REPLICA_COPILOT_GITHUB_INSTALLATION_ID", value: "0" },
+    { missing: "REPLICA_COPILOT_GITHUB_ORGANIZATION", value: "  " },
+    { missing: "REPLICA_COPILOT_GITHUB_ORGANIZATION", value: "-invalid" },
+  ])("rejects a missing or invalid $missing partner for Copilot ($value)", async ({
+    missing,
+    value,
+  }) => {
+    const { config, inputs, reference } = boundaryInputs()
+    const environment: Record<string, string | undefined> = {
+      REPLICA_COPILOT_AUTHENTICATION: "github-app-installation",
+      GITHUB_APP_ID: "123456",
+      REPLICA_COPILOT_GITHUB_INSTALLATION_ID: "7890123",
+      REPLICA_COPILOT_GITHUB_ORGANIZATION: "fixture-org",
+    }
+    if (missing !== "GITHUB_APP_PRIVATE_KEY_BASE64") environment[missing] = value
+    vi.mocked(readPrivateFile).mockResolvedValue(
+      JSON.stringify({
+        ...inputs,
+        runtime_environment_variables: environment,
+        runtime_secret_references:
+          missing === "GITHUB_APP_PRIVATE_KEY_BASE64"
+            ? {}
+            : { GITHUB_APP_PRIVATE_KEY_BASE64: reference(6, 24, "private") },
+      }),
+    )
+
+    const failure = await readInstallationInputs("synthetic-installation", config).catch(
+      (error: unknown) => error,
+    )
+
+    expect(failure).toBeInstanceOf(Error)
+    expect(String(failure)).toContain(missing)
+    expect(String(failure)).not.toMatch(/7890123|fixture-org|vault\.azure\.net|-invalid/)
+  })
+
+  it.each([
+    { configured: ["HUB_APPLICATION_ORIGIN"], missing: "HUB_AUTHENTICATION_ENCRYPTION_KEY" },
+    {
+      configured: ["HUB_APPLICATION_ORIGIN", "HUB_AUTHENTICATION_ENCRYPTION_KEY"],
+      missing: "HUB_BOOTSTRAP_SECRET",
+    },
+    {
+      configured: ["HUB_APPLICATION_ORIGIN", "HUB_BOOTSTRAP_SECRET"],
+      missing: "HUB_AUTHENTICATION_ENCRYPTION_KEY",
+    },
+    {
+      configured: ["HUB_AUTHENTICATION_ENCRYPTION_KEY", "HUB_BOOTSTRAP_SECRET"],
+      missing: "HUB_APPLICATION_ORIGIN",
+    },
+  ])("rejects shared authentication without $missing", async ({ configured, missing }) => {
+    const { config, inputs, reference } = boundaryInputs()
+    vi.mocked(readPrivateFile).mockResolvedValue(
+      JSON.stringify({
+        ...inputs,
+        runtime_secret_references: Object.fromEntries(
+          configured.map((name) => [name, reference(6, 24, "auth")]),
+        ),
+      }),
+    )
+
+    const failure = await readInstallationInputs("synthetic-installation", config).catch(
+      (error: unknown) => error,
+    )
+
+    expect(failure).toBeInstanceOf(Error)
+    expect(String(failure)).toContain(missing)
+    expect(String(failure)).not.toContain("vault.azure.net")
+  })
+
+  it("allows sign-in setup to repair only a missing origin, not a missing shared key", async () => {
+    const { config, inputs, reference } = boundaryInputs()
+    const settings = {
+      ...inputs,
+      runtime_secret_references: {
+        HUB_AUTHENTICATION_ENCRYPTION_KEY: reference(6, 24, "encryption"),
+        HUB_BOOTSTRAP_SECRET: reference(6, 24, "bootstrap"),
+      },
+    }
+    vi.mocked(readPrivateFile).mockResolvedValue(JSON.stringify(settings))
+
+    await expect(
+      readInstallationInputs("synthetic-installation", config, {
+        allowMissingAuthenticationOrigin: true,
+      }),
+    ).resolves.toMatchObject({ runtime_secret_references: settings.runtime_secret_references })
+
+    vi.mocked(readPrivateFile).mockResolvedValue(
+      JSON.stringify({
+        ...settings,
+        runtime_secret_references: {
+          HUB_AUTHENTICATION_ENCRYPTION_KEY:
+            settings.runtime_secret_references.HUB_AUTHENTICATION_ENCRYPTION_KEY,
+        },
+      }),
+    )
+
+    await expect(
+      readInstallationInputs("synthetic-installation", config, {
+        allowMissingAuthenticationOrigin: true,
+      }),
+    ).rejects.toThrow("HUB_BOOTSTRAP_SECRET")
+  })
+
   it.each(["named", "environment"] as const)(
     "accepts the minimum and maximum GitHub input limits through %s",
     async (source) => {
-      const { config, inputs } = boundaryInputs()
+      const { config, inputs, reference } = boundaryInputs()
       for (const [id, client, revision] of [
         ["1", "c", 1],
         ["9007199254740991", "c".repeat(200), 2_147_483_647],
@@ -324,6 +483,10 @@ describe("readInstallationInputs()", () => {
           JSON.stringify({
             ...inputs,
             hub_application_origin: "https://hub.example.com",
+            runtime_secret_references: {
+              HUB_AUTHENTICATION_ENCRYPTION_KEY: reference(6, 24, "encryption"),
+              HUB_BOOTSTRAP_SECRET: reference(6, 24, "bootstrap"),
+            },
             ...settings,
           }),
         )

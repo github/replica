@@ -854,15 +854,8 @@ it("blocks an origin change with Entra configured before creating shared secrets
     ENTRA_OIDC_CLIENT_AUTHENTICATION: "managed-identity",
     ENTRA_OIDC_MANAGED_IDENTITY_CLIENT_ID: "33333333-3333-4333-8333-333333333333",
   })
-  delete test.inputs.runtime_secret_references!.HUB_AUTHENTICATION_ENCRYPTION_KEY
-  delete test.inputs.runtime_secret_references!.HUB_BOOTSTRAP_SECRET
-  test.secretValues.clear()
   Object.assign(test.state.environment, test.inputs.runtime_environment_variables, {
     HUB_APPLICATION_ORIGIN: test.origin,
-    AZURE_KEY_VAULT_SECRET_REFERENCES: JSON.stringify({
-      DATABASE_URL: test.reference("database-runtime").secret_id,
-      SERVICE_API_KEY: test.reference("service-api-key").secret_id,
-    }),
   })
   test.state.customHosts = ["bound.example.com"]
   const saved = JSON.stringify(test.inputs)
@@ -1226,6 +1219,8 @@ it("retains desired inputs and owned leases after a failed apply and resumes the
 
 it("prints the final partial-change recovery summary and generated bootstrap path after a command failure", async () => {
   const test = await scenario()
+  delete test.inputs.hub_application_origin
+  delete test.state.environment.HUB_APPLICATION_ORIGIN
   delete test.inputs.runtime_secret_references!.HUB_AUTHENTICATION_ENCRYPTION_KEY
   delete test.inputs.runtime_secret_references!.HUB_BOOTSTRAP_SECRET
   test.secretValues.clear()
@@ -1320,6 +1315,8 @@ it.each([
   const terminal = await import("../../installer/terminal/index.tsx")
   const command = await import("../../installer/command/index.ts")
   if (partial) {
+    delete test.inputs.hub_application_origin
+    delete test.state.environment.HUB_APPLICATION_ORIGIN
     delete test.inputs.runtime_secret_references!.HUB_AUTHENTICATION_ENCRYPTION_KEY
     delete test.inputs.runtime_secret_references!.HUB_BOOTSTRAP_SECRET
     test.secretValues.clear()

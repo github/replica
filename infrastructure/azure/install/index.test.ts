@@ -426,6 +426,14 @@ it("preserves supported GitHub, runtime, database and TLS customization in priva
     github_app_installation_id: "456",
     github_provider_revision: 2,
     runtime_secret_references: {
+      HUB_AUTHENTICATION_ENCRYPTION_KEY: {
+        key_vault_id: `/subscriptions/${s.config.azure.subscriptionId}/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service`,
+        secret_id: "https://service.vault.azure.net/secrets/authentication-encryption-key",
+      },
+      HUB_BOOTSTRAP_SECRET: {
+        key_vault_id: `/subscriptions/${s.config.azure.subscriptionId}/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service`,
+        secret_id: "https://service.vault.azure.net/secrets/bootstrap-secret",
+      },
       GITHUB_APP_PRIVATE_KEY_BASE64: {
         key_vault_id: `/subscriptions/${s.config.azure.subscriptionId}/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service`,
         secret_id: `https://service.vault.azure.net/secrets/github-app-private-key/${"d".repeat(32)}`,
