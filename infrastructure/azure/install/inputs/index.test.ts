@@ -43,6 +43,430 @@ describe("readInstallationInputs()", () => {
     })
   })
 
+  it("retains named GitHub settings alongside generic client configuration and Key Vault references", async () => {
+    const { config, inputs, reference } = boundaryInputs()
+    const settings = {
+      hub_application_origin: "https://hub.example.com",
+      github_app_id: "123456",
+      github_app_installation_id: "7890123",
+      github_provider_revision: 2,
+      runtime_environment_variables: {
+        GITHUB_CLIENT_ID: "Iv23liExampleClient",
+        PUBLIC_SETTING: "public",
+      },
+      runtime_secret_references: {
+        GITHUB_CLIENT_SECRET: reference(6, 24, "client"),
+        GITHUB_APP_PRIVATE_KEY_BASE64: reference(6, 24, "private"),
+      },
+    }
+    vi.mocked(readPrivateFile).mockResolvedValue(JSON.stringify({ ...inputs, ...settings }))
+
+    await expect(readInstallationInputs("synthetic-installation", config)).resolves.toEqual(settings)
+  })
+
+  it.each([
+    { form: "a hostname", origin: "https://hub.example.com" },
+    { form: "a non-default port", origin: "https://hub.example.com:8443" },
+    { form: "a single-label hostname", origin: "https://localhost" },
+    { form: "an IPv4 address and the lowest port", origin: "https://127.0.0.1:0" },
+    { form: "an IPv6 address and the highest port", origin: "https://[::1]:65535" },
+    { form: "a mapped IPv6 address", origin: "https://[::ffff:c000:280]" },
+    {
+      form: "the maximum length",
+      origin: `https://${Array(7).fill("a".repeat(61)).join(".")}.${"a".repeat(58)}`,
+    },
+  ])("retains an exact HTTPS application origin with $form", async ({ origin }) => {
+    const { config, inputs } = boundaryInputs()
+    vi.mocked(readPrivateFile).mockResolvedValue(
+      JSON.stringify({ ...inputs, hub_application_origin: origin }),
+    )
+
+    await expect(readInstallationInputs("synthetic-installation", config)).resolves.toEqual({
+      hub_application_origin: origin,
+      runtime_secret_references: {},
+    })
+  })
+
+  it.each([
+    { form: "omitted", origin: undefined },
+    { form: "null", origin: null },
+  ])("keeps the application origin optional when $form", async ({ origin }) => {
+    const { config, inputs } = boundaryInputs()
+    vi.mocked(readPrivateFile).mockResolvedValue(
+      JSON.stringify({ ...inputs, hub_application_origin: origin }),
+    )
+
+    await expect(readInstallationInputs("synthetic-installation", config)).resolves.toEqual({
+      runtime_secret_references: {},
+    })
+  })
+
+  it.each([
+    {
+      trigger: "a named GitHub client ID",
+      named: { github_client_id: "synthetic-client" },
+      environment: {},
+      secret: undefined,
+    },
+    {
+      trigger: "a generic GitHub client ID",
+      named: {},
+      environment: { GITHUB_CLIENT_ID: "synthetic-client" },
+      secret: undefined,
+    },
+    {
+      trigger: "an Entra setting",
+      named: {},
+      environment: { ENTRA_OIDC_CLIENT_ID: "synthetic-client" },
+      secret: undefined,
+    },
+    {
+      trigger: "local sign-in",
+      named: {},
+      environment: { HUB_LOCAL_SIGN_IN: "true" },
+      secret: undefined,
+    },
+    {
+      trigger: "a shared authentication secret",
+      named: {},
+      environment: {},
+      secret: "HUB_BOOTSTRAP_SECRET",
+    },
+  ])("rejects $trigger without an explicit application origin", async ({
+    named,
+    environment,
+    secret,
+  }) => {
+    const { config, inputs, reference } = boundaryInputs()
+    vi.mocked(readPrivateFile).mockResolvedValue(
+      JSON.stringify({
+        ...inputs,
+        ...named,
+        runtime_environment_variables: environment,
+        runtime_secret_references: secret ? { [secret]: reference(6, 24, "auth") } : {},
+      }),
+    )
+
+    await expect(readInstallationInputs("synthetic-installation", config)).rejects.toBeInstanceOf(
+      Error,
+    )
+  })
+
+  it.each(["named", "environment", "secret"] as const)(
+    "accepts an explicit application origin supplied through %s for authentication",
+    async (source) => {
+      const { config, inputs, reference } = boundaryInputs()
+      const origin = "https://hub.example.com"
+      const settings = {
+        github_client_id: "synthetic-client",
+        ...(source === "named" && { hub_application_origin: origin }),
+        ...(source === "environment" && {
+          runtime_environment_variables: { HUB_APPLICATION_ORIGIN: origin },
+        }),
+        ...(source === "secret" && {
+          runtime_secret_references: { HUB_APPLICATION_ORIGIN: reference(6, 24, "origin") },
+        }),
+      }
+      vi.mocked(readPrivateFile).mockResolvedValue(JSON.stringify({ ...inputs, ...settings }))
+
+      await expect(readInstallationInputs("synthetic-installation", config)).resolves.toMatchObject(
+        settings,
+      )
+    },
+  )
+
+  it.each([
+    { form: "an uppercase host", origin: "https://HUB.example.com" },
+    { form: "a shortened IPv4 address", origin: "https://127.1" },
+    { form: "a dotted mapped IPv6 address", origin: "https://[::ffff:192.0.2.128]" },
+    { form: "an explicit default port", origin: "https://hub.example.com:443" },
+    { form: "a zero-padded port", origin: "https://hub.example.com:08443" },
+    { form: "a non-numeric port", origin: "https://hub.example.com:not-a-port" },
+    { form: "an out-of-range port", origin: "https://hub.example.com:65536" },
+    {
+      form: "an origin longer than the maximum",
+      origin: `https://${Array(7).fill("a".repeat(61)).join(".")}.${"a".repeat(59)}`,
+    },
+    { form: "a trailing slash", origin: "https://hub.example.com/" },
+    { form: "a path", origin: "https://hub.example.com/path" },
+    { form: "a query", origin: "https://hub.example.com?synthetic-query" },
+    { form: "a fragment", origin: "https://hub.example.com#synthetic-fragment" },
+    {
+      form: "credentials",
+      origin: "https://synthetic-user:synthetic-password@hub.example.com",
+    },
+    { form: "an HTTP URL", origin: "http://hub.example.com" },
+  ])("rejects $form as an application origin with a safe diagnostic", async ({ origin }) => {
+    const { config, inputs } = boundaryInputs()
+    vi.mocked(readPrivateFile).mockResolvedValue(
+      JSON.stringify({ ...inputs, hub_application_origin: origin }),
+    )
+
+    const failure = await readInstallationInputs("synthetic-installation", config).catch(
+      (error: unknown) => error,
+    )
+
+    expect(failure).toBeInstanceOf(Error)
+    expect(String(failure)).toMatch(/exact|canonical/i)
+    expect(String(failure)).toMatch(/origin/i)
+    expect(String(failure)).toContain("https://hub.example.com")
+    expect(String(failure)).not.toContain(origin)
+    expect(String(failure)).not.toMatch(/synthetic-(user|password|query|fragment)/)
+  })
+
+  it("uses generic GitHub identifiers to satisfy client-secret and private-key requirements", async () => {
+    const { config, inputs, reference } = boundaryInputs()
+    const settings = {
+      runtime_environment_variables: {
+        HUB_APPLICATION_ORIGIN: "https://hub.example.com",
+        GITHUB_APP_ID: "123456",
+        GITHUB_CLIENT_ID: "Iv23liExampleClient",
+        GITHUB_APP_INSTALLATION_ID: "7890123",
+        GITHUB_PROVIDER_REVISION: "2",
+      },
+      runtime_secret_references: {
+        GITHUB_CLIENT_SECRET: reference(6, 24, "client"),
+        GITHUB_APP_PRIVATE_KEY_BASE64: reference(6, 24, "private"),
+      },
+    }
+    vi.mocked(readPrivateFile).mockResolvedValue(JSON.stringify({ ...inputs, ...settings }))
+
+    await expect(readInstallationInputs("synthetic-installation", config)).resolves.toEqual(settings)
+  })
+
+  it.each([
+    { source: "a named App ID", appId: { github_app_id: "123456" }, environment: {} },
+    { source: "a generic App ID", appId: {}, environment: { GITHUB_APP_ID: "123456" } },
+  ])("accepts a Copilot-only App private key with $source", async ({ appId, environment }) => {
+    const { config, inputs, reference } = boundaryInputs()
+    const settings = {
+      ...appId,
+      runtime_environment_variables: {
+        ...environment,
+        REPLICA_COPILOT_AUTHENTICATION: "github-app-installation",
+        REPLICA_COPILOT_GITHUB_INSTALLATION_ID: "7890123",
+      },
+      runtime_secret_references: {
+        GITHUB_APP_PRIVATE_KEY_BASE64: reference(6, 24, "private"),
+      },
+    }
+    vi.mocked(readPrivateFile).mockResolvedValue(JSON.stringify({ ...inputs, ...settings }))
+
+    await expect(readInstallationInputs("synthetic-installation", config)).resolves.toEqual(settings)
+  })
+
+  it.each(["named", "environment"] as const)(
+    "accepts the minimum and maximum GitHub input limits through %s",
+    async (source) => {
+      const { config, inputs } = boundaryInputs()
+      for (const [id, client, revision] of [
+        ["1", "c", 1],
+        ["9007199254740991", "c".repeat(200), 2_147_483_647],
+        ["1", "🔑".repeat(100), 1],
+      ] as const) {
+        const settings =
+          source === "named"
+            ? {
+                github_app_id: id,
+                github_client_id: client,
+                github_app_installation_id: id,
+                github_provider_revision: revision,
+              }
+            : {
+                runtime_environment_variables: {
+                  GITHUB_APP_ID: id,
+                  GITHUB_CLIENT_ID: client,
+                  GITHUB_APP_INSTALLATION_ID: id,
+                  GITHUB_PROVIDER_REVISION: String(revision),
+                },
+              }
+        vi.mocked(readPrivateFile).mockResolvedValue(
+          JSON.stringify({
+            ...inputs,
+            hub_application_origin: "https://hub.example.com",
+            ...settings,
+          }),
+        )
+
+        await expect(readInstallationInputs("synthetic-installation", config)).resolves.toMatchObject(
+          settings,
+        )
+      }
+    },
+  )
+
+  it.each([
+    {
+      setting: "an empty client ID",
+      named: "github_client_id",
+      generic: "GITHUB_CLIENT_ID",
+      value: "",
+    },
+    {
+      setting: "a client ID with whitespace",
+      named: "github_client_id",
+      generic: "GITHUB_CLIENT_ID",
+      value: "client id",
+    },
+    {
+      setting: "a client ID with Unicode whitespace",
+      named: "github_client_id",
+      generic: "GITHUB_CLIENT_ID",
+      value: "client\u00a0id",
+    },
+    {
+      setting: "a client ID over 200 characters",
+      named: "github_client_id",
+      generic: "GITHUB_CLIENT_ID",
+      value: "c".repeat(201),
+    },
+    {
+      setting: "a client ID over 200 UTF-16 code units",
+      named: "github_client_id",
+      generic: "GITHUB_CLIENT_ID",
+      value: "🔑".repeat(101),
+    },
+    { setting: "a zero App ID", named: "github_app_id", generic: "GITHUB_APP_ID", value: "0" },
+    {
+      setting: "an unsafe App ID",
+      named: "github_app_id",
+      generic: "GITHUB_APP_ID",
+      value: "9007199254740992",
+    },
+    {
+      setting: "a zero installation ID",
+      named: "github_app_installation_id",
+      generic: "GITHUB_APP_INSTALLATION_ID",
+      value: "0",
+    },
+    {
+      setting: "an unsafe installation ID",
+      named: "github_app_installation_id",
+      generic: "GITHUB_APP_INSTALLATION_ID",
+      value: "9007199254740992",
+    },
+    {
+      setting: "a zero provider revision",
+      named: "github_provider_revision",
+      generic: "GITHUB_PROVIDER_REVISION",
+      value: 0,
+    },
+    {
+      setting: "a fractional provider revision",
+      named: "github_provider_revision",
+      generic: "GITHUB_PROVIDER_REVISION",
+      value: 1.5,
+    },
+    {
+      setting: "a provider revision above PostgreSQL's integer limit",
+      named: "github_provider_revision",
+      generic: "GITHUB_PROVIDER_REVISION",
+      value: 2_147_483_648,
+    },
+    {
+      setting: "an unsafe provider revision",
+      named: "github_provider_revision",
+      generic: "GITHUB_PROVIDER_REVISION",
+      value: 9_007_199_254_740_992,
+    },
+  ])("rejects $setting from named and generic inputs before deployment", async ({
+    named,
+    generic,
+    value,
+  }) => {
+    const { config, inputs } = boundaryInputs()
+    for (const setting of [
+      { [named]: value },
+      { runtime_environment_variables: { [generic]: String(value) } },
+    ]) {
+      vi.mocked(readPrivateFile).mockResolvedValue(
+        JSON.stringify({
+          ...inputs,
+          hub_application_origin: "https://hub.example.com",
+          ...setting,
+        }),
+      )
+
+      await expect(readInstallationInputs("synthetic-installation", config)).rejects.toBeInstanceOf(
+        Error,
+      )
+    }
+  })
+
+  it.each([
+    { setting: "no App ID", environment: {}, secret: undefined },
+    {
+      setting: "a sign-in client ID",
+      environment: { GITHUB_APP_ID: "123456", GITHUB_CLIENT_ID: "Iv23liExampleClient" },
+      secret: undefined,
+    },
+    {
+      setting: "an installation ID",
+      environment: { GITHUB_APP_ID: "123456", GITHUB_APP_INSTALLATION_ID: "7890123" },
+      secret: undefined,
+    },
+    {
+      setting: "a webhook secret",
+      environment: { GITHUB_APP_ID: "123456" },
+      secret: "GITHUB_WEBHOOK_SECRET",
+    },
+  ])("rejects a Copilot private key with $setting and incomplete App identifiers", async ({
+    environment,
+    secret,
+  }) => {
+    const { config, inputs, reference } = boundaryInputs()
+    vi.mocked(readPrivateFile).mockResolvedValue(
+      JSON.stringify({
+        ...inputs,
+        runtime_environment_variables: {
+          ...environment,
+          REPLICA_COPILOT_AUTHENTICATION: "github-app-installation",
+        },
+        runtime_secret_references: {
+          GITHUB_APP_PRIVATE_KEY_BASE64: reference(6, 24, "private"),
+          ...(secret && { [secret]: reference(6, 24, "webhook") }),
+        },
+      }),
+    )
+
+    await expect(readInstallationInputs("synthetic-installation", config)).rejects.toBeInstanceOf(
+      Error,
+    )
+  })
+
+  it.each([
+    {
+      named: "hub_application_origin",
+      environment: "HUB_APPLICATION_ORIGIN",
+      value: "https://hub.example.com",
+    },
+    { named: "github_app_id", environment: "GITHUB_APP_ID", value: "123456" },
+    { named: "github_client_id", environment: "GITHUB_CLIENT_ID", value: "Iv23liExampleClient" },
+    {
+      named: "github_app_installation_id",
+      environment: "GITHUB_APP_INSTALLATION_ID",
+      value: "7890123",
+    },
+    { named: "github_provider_revision", environment: "GITHUB_PROVIDER_REVISION", value: 2 },
+  ])("rejects $named supplied again through generic configuration even when equal", async ({
+    named,
+    environment,
+    value,
+  }) => {
+    const { config, inputs } = boundaryInputs()
+    vi.mocked(readPrivateFile).mockResolvedValue(
+      JSON.stringify({
+        ...inputs,
+        [named]: value,
+        runtime_environment_variables: { [environment]: String(value) },
+      }),
+    )
+
+    await expect(readInstallationInputs("synthetic-installation", config)).rejects.toBeInstanceOf(
+      Error,
+    )
+  })
+
   it.each([
     { reason: "a null map", environment: null },
     { reason: "an array map", environment: [] },

@@ -75,7 +75,9 @@ Keep the configuration directory private and owned by the current user (0700). E
 
 An existing name-only workspace such as `.local/INSTALLATION_NAME/` blocks deployment before cloud changes. Do not delete it or start with empty state. After stopping prior local installer processes, independently verify the saved subscription, tenant, installation, owner, and backend state keys against the intended configuration. Preserve a private backup and move that verified workspace to the target-specific path printed by setup. Review its private inputs and Terraform backend before rerunning. A mismatch or ambiguous workspace needs manual recovery rather than automatic adoption. This local migration does not clear any cloud leases.
 
-Updates preserve validated optional inputs already stored in the workspace's `installation.tfvars.json`: `runtime_environment_variables`, `runtime_secret_references`, PostgreSQL SKU and major version, backup retention, and the custom hostname/certificate pair. Runtime environment values must be strings with valid names and cannot override deployment-owned settings or share names with secret references. Runtime references must match the main module's environment-name and Key Vault rules and must not reference the migration credential. Other customizations or invalid inputs stop setup before cloud changes or input rewrites. Review changes to immutable infrastructure through the existing Terraform guards; retaining a setting is not approval to replace resources.
+Updates preserve validated optional inputs already stored in the workspace's `installation.tfvars.json`: Hub's public origin, GitHub App identifiers and provider revision, `runtime_environment_variables`, `runtime_secret_references`, PostgreSQL SKU and major version, backup retention, and the custom hostname/certificate pair. Runtime environment values must be strings with valid names and cannot override deployment-owned settings or share names with secret references or named GitHub settings. Runtime references must match the main module's environment-name and Key Vault rules and must not reference the migration credential. Other customizations or invalid inputs stop setup before cloud changes or input rewrites. Review changes to immutable infrastructure through the existing Terraform guards; retaining a setting is not approval to replace resources.
+
+Set `hub_application_origin` to an exact HTTPS origin such as `https://hub.example.com`, with a lowercase host and no default `:443` port, path, query, fragment, credentials, or trailing slash. A non-default port is allowed. Hub authentication requires this origin, including when using the default Container Apps hostname. An unauthenticated or Copilot-only installation can leave it unset.
 
 ```sh
 # Collect and save configuration without creating cloud resources.
@@ -270,11 +272,13 @@ The [installer terminal design guide](docs/terminal-design.md) records the worki
 
 ## Manual reference
 
+Optional `hub_application_origin`, `github_app_id`, `github_client_id`, `github_app_installation_id`, and `github_provider_revision` become their corresponding uppercase runtime variables only when set. Existing installations may instead supply these public settings through `runtime_environment_variables`; do not supply the same setting through both inputs.
+
 Operators can provision a durable Hub, run setup before every release, and replace the image without replacing its database or artifacts. This reference chooses Terraform with AzureRM to follow the team's Terraform experience; it is an implementation choice, not an application dependency. The main installation is flat under [`azure/`](azure/) rather than split into one-resource modules.
 
 Definitions are grouped by responsibility: [`networking.tf`](azure/networking.tf), [`database.tf`](azure/database.tf), [`storage.tf`](azure/storage.tf), [`roles.tf`](azure/roles.tf), [`environment.tf`](azure/environment.tf), [`application.tf`](azure/application.tf), and [`setup.tf`](azure/setup.tf). Shared tags and the resource group remain in [`main.tf`](azure/main.tf). These files form one Terraform module; moving declarations between them does not change resource addresses or require state migration.
 
-The current Hub supports GitHub sign-in and reusable administrator enrollment when configured. This reference does not configure those optional authentication settings by default, and hosted previews and review collaboration are not built yet. Supply the protected settings from [Hub deployment](../hub/docs/deployment.md#image-and-runtime), including the exact protected proxy-chain length, before enabling authentication. A public HTTPS endpoint does not authorize users or isolate prototype previews.
+This installs the current Hub and, when configured, passes it the [GitHub App](#github-app) settings it uses for sign-in, reusable administrator enrollment, and repository access. It does not create the GitHub App, and hosted previews and review collaboration are not built yet. Supply the protected settings from [Hub deployment](../hub/docs/deployment.md#image-and-runtime), including the exact protected proxy-chain length, before enabling authentication. A public HTTPS endpoint does not authorize users or isolate prototype previews. Confirm product access requirements before exposing sensitive data.
 
 ## What is created
 
@@ -380,6 +384,39 @@ The operator must approve the maintenance window and inspect intended configurat
 6. Only after success, plans/applies the complete configuration with `deploy_hub=true` and the same image digest. It checks the latest revision's activation state and activates it only if inactive. It then waits for Azure's ready-revision signal and an HTTPS `/api/ready` response before releasing the lease.
 
 Terraform owns the image in both resources. Neither resource uses `ignore_changes` for the image, and the orchestrator never uses out-of-band `az containerapp update --image`. A later infrastructure apply cannot silently use a stale image. Provisioning and rollout are separated by the two phases above. Never run a full Terraform apply directly on an installed Hub, start a setup job manually, or change revisions in the portal outside this serialized procedure. Terraform state locking alone does not protect setup-to-rollout ordering. The app's `prevent_destroy` guard rejects accidental `deploy_hub=false` on later full plans.
+
+## GitHub App
+
+The setup page needs the public HTTPS origin, database, and shared authentication secrets before GitHub is configured. Set `hub_application_origin` to the exact public origin without a trailing slash. If the Azure-generated hostname is not yet known, first release the Hub without authentication settings, obtain that hostname, then add the origin and shared secrets and run another release. Existing installations may retain a `HUB_APPLICATION_ORIGIN` Key Vault reference instead of the plain variable; do not set both.
+
+For a new installation, generate the shared encryption key and bootstrap secret using the commands in [`installation.tfvars.example`](azure/installation.tfvars.example), store them in Key Vault, and add their versioned references to `runtime_secret_references`. Preserve existing shared secrets when updating a Hub. After the release, open `/settings/github/setup` and use the bootstrap secret until the first administrator has enrolled; afterward, setup requires an administrator session.
+
+Create the GitHub App in GitHub through your authorized process, or reuse an existing App by adding this Hub's callback URL to it. `/settings/github/setup` lists every URL and value with copy buttons. Use `https://YOUR_HUB_HOST/api/auth/github/callback` as its callback URL and `https://YOUR_HUB_HOST/api/github/webhooks` as its webhook URL, then install it on the intended account. Terraform passes the App ID, client ID, installation ID, and provider revision as plain environment variables. Credentials are never Terraform values.
+
+Store these secrets in an existing RBAC-enabled Key Vault and map them through `runtime_secret_references`:
+
+| Environment variable                | Key Vault secret                    | Contents                                                         |
+| ----------------------------------- | ----------------------------------- | ---------------------------------------------------------------- |
+| `GITHUB_CLIENT_SECRET`              | `github-client-secret`              | The App's client secret.                                         |
+| `GITHUB_APP_PRIVATE_KEY_BASE64`     | `github-app-private-key`            | The single-line base64 encoding of the App's `.pem` private key. |
+| `GITHUB_WEBHOOK_SECRET`             | `github-webhook-secret`             | The App's webhook secret.                                        |
+| `HUB_AUTHENTICATION_ENCRYPTION_KEY` | `hub-authentication-encryption-key` | Hub's authentication encryption key.                             |
+| `HUB_BOOTSTRAP_SECRET`              | `hub-bootstrap-secret`              | Hub's bootstrap secret.                                          |
+
+[`installation.tfvars.example`](azure/installation.tfvars.example) shows the variables, references, and `az keyvault secret set` commands. Use `--file` rather than `--value` so secrets do not appear in process lists or shell history, and `--query id --output tsv` so the commands print only the versioned IDs, not secret values. Work in a new private directory to avoid overwriting files and delete local copies afterward. Keep these secrets out of `runtime_environment_variables`; the plain GitHub identifiers and revision cannot be supplied as references. Terraform also requires the client ID when the client secret or private key is referenced, and the App ID and installation ID when the private key is referenced. A Copilot-only App, with `REPLICA_COPILOT_AUTHENTICATION=github-app-installation` and no sign-in, installation, or webhook settings, needs only the App ID. Supply each public setting through its named variable or the non-secret environment map, not both.
+
+The vault must have soft delete and purge protection enabled so a deleted credential can be recovered. Limit secret writes to administrators. Hub's identity receives only `Key Vault Secrets User` on each referenced secret, not on the vault, and the setup job receives none of them.
+
+Prefer versioned secret URLs. The Azure startup entrypoint retrieves the selected version once before starting Hub. Versionless URLs select the latest value at that startup; they do not enable background refresh or automatic revision restarts. Load changed references through a serialized release.
+
+To rotate a GitHub App credential:
+
+1. Add a new client secret or private key in the GitHub App settings. Keep the old one.
+2. Store the new value as a new version of the Key Vault secret.
+3. Update the versioned reference in `installation.tfvars` and increase `github_provider_revision`.
+4. Run the release command, which applies Terraform.
+5. Test the App on `/settings/github/setup` and sign in with GitHub. The connection test cannot verify the client secret or callback URL.
+6. Delete the old credential in GitHub.
 
 Azure can activate the revision during Terraform rollout. Requesting activation again can return `RevisionAlreadyInRequestedState`; the release script checks that exact revision rather than treating an already-active revision as a failed release. Unknown or mismatched activation state still blocks completion. An active revision alone is not success: readiness checks must pass before the lease is released.
 

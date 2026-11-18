@@ -18,7 +18,11 @@ import { installationWorkspace } from "../../installer/workspace/index.ts"
 import type { DeploymentConfig, InstallerUI, RunCommand } from "../../installer/types.ts"
 import { installAzure } from "./index.ts"
 import { installationNames } from "./settings.ts"
-import { guidedPostgresProfile, type PostgresAvailability, type PostgresProfile } from "./profile.ts"
+import {
+  guidedPostgresProfile,
+  type PostgresAvailability,
+  type PostgresProfile,
+} from "./profile.ts"
 import type { DeploymentResult } from "./types.ts"
 
 vi.mock("node:timers/promises", async (importOriginal) => {
@@ -26,7 +30,11 @@ vi.mock("node:timers/promises", async (importOriginal) => {
   return {
     ...timers,
     // Bridge promise timers to the fake clock so cooldown tests never wait in real time.
-    setTimeout: (milliseconds: number, value?: unknown, { signal }: { signal?: AbortSignal } = {}) =>
+    setTimeout: (
+      milliseconds: number,
+      value?: unknown,
+      { signal }: { signal?: AbortSignal } = {},
+    ) =>
       new Promise((resolve, reject) => {
         signal?.throwIfAborted()
         const abort = () => {
@@ -141,15 +149,30 @@ async function scenario({
     if (executable !== "az") throw new Error(`Unexpected executable ${executable}`)
     const operation = args.slice(0, 3).join(" ")
     if (operation === "postgres flexible-server list-skus")
-      return JSON.stringify([{
-        status: null, reason: null, restricted: null,
-        supportedServerVersions: ["16", "17"].map((name) => ({ name, status: null, reason: null })),
-        supportedServerEditions: [{
-          name: "Burstable", status: null, reason: null,
-          supportedServerSkus: ["Standard_B1ms", "Standard_B2s"].map((name) =>
-            ({ name, status: null, reason: null })),
-        }],
-      }])
+      return JSON.stringify([
+        {
+          status: null,
+          reason: null,
+          restricted: null,
+          supportedServerVersions: ["16", "17"].map((name) => ({
+            name,
+            status: null,
+            reason: null,
+          })),
+          supportedServerEditions: [
+            {
+              name: "Burstable",
+              status: null,
+              reason: null,
+              supportedServerSkus: ["Standard_B1ms", "Standard_B2s"].map((name) => ({
+                name,
+                status: null,
+                reason: null,
+              })),
+            },
+          ],
+        },
+      ])
     if (operation.startsWith("account show"))
       return JSON.stringify({
         id: config.azure.subscriptionId,
@@ -357,7 +380,9 @@ it("stops after cancellation during compatibility lookup before approval or clou
   })
   s.ui.confirm = vi.fn(async () => true)
   const installing = installAzure(s.config, {
-    ...s, availability, signal: controller.signal,
+    ...s,
+    availability,
+    signal: controller.signal,
   }).catch((failure: unknown) => failure)
 
   await entered.promise
@@ -369,7 +394,7 @@ it("stops after cancellation during compatibility lookup before approval or clou
   expect(installationChanges(s.events)).toEqual([])
 })
 
-it("preserves supported runtime, database and TLS customization in privately replaced installation inputs", async () => {
+it("preserves supported GitHub, runtime, database and TLS customization in privately replaced installation inputs", async () => {
   const s = await scenario({ existing: true })
   const checked: PostgresProfile[] = []
   const availability = vi.fn<PostgresAvailability>(async (subscription, region, profile) => {
@@ -392,11 +417,19 @@ it("preserves supported runtime, database and TLS customization in privately rep
   )
   const customization = {
     runtime_environment_variables: {
-      GITHUB_CLIENT_ID: "synthetic-public-client",
-      HUB_APPLICATION_ORIGIN: "https://synthetic-public-hub.example.com",
+      HUB_TRUSTED_PROXY_HOPS: "1",
       EMPTY_SETTING: "",
     },
+    hub_application_origin: "https://hub.example.com",
+    github_app_id: "123",
+    github_client_id: "Iv1.synthetic-client",
+    github_app_installation_id: "456",
+    github_provider_revision: 2,
     runtime_secret_references: {
+      GITHUB_APP_PRIVATE_KEY_BASE64: {
+        key_vault_id: `/subscriptions/${s.config.azure.subscriptionId}/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service`,
+        secret_id: `https://service.vault.azure.net/secrets/github-app-private-key/${"d".repeat(32)}`,
+      },
       SERVICE_API_KEY: {
         key_vault_id: `/subscriptions/${s.config.azure.subscriptionId}/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service`,
         secret_id: `https://service.vault.azure.net/secrets/api-key/${"c".repeat(32)}`,
@@ -416,20 +449,27 @@ it("preserves supported runtime, database and TLS customization in privately rep
   vi.mocked(s.ui.confirm).mockClear()
 
   try {
-    await expect(installAzure(s.config, { ...s, availability })).resolves.toEqual(s.expectedResult())
+    await expect(installAzure(s.config, { ...s, availability })).resolves.toEqual(
+      s.expectedResult(),
+    )
 
     const replacement = await readFile(filename, "utf8")
     expect(checked).toEqual([
       guidedPostgresProfile,
-      { postgres_sku: customization.postgres_sku, postgres_version: customization.postgres_version },
+      {
+        postgres_sku: customization.postgres_sku,
+        postgres_version: customization.postgres_version,
+      },
     ])
     expect(JSON.parse(replacement)).toMatchObject(customization)
     expect(JSON.parse(replacement)).toMatchObject(checked[1]!)
     const review = vi.mocked(s.ui.confirm).mock.calls[0]![0]
-    expect(review).toContain(`${customization.postgres_sku}, version ${customization.postgres_version}`)
+    expect(review).toContain(
+      `${customization.postgres_sku}, version ${customization.postgres_version}`,
+    )
     expect(review).not.toContain(guidedPostgresProfile.postgres_sku)
     const diagnostics = JSON.stringify([s.events, s.messages, vi.mocked(s.ui.confirm).mock.calls])
-    expect(diagnostics).not.toMatch(/synthetic-public-client|synthetic-public-hub/)
+    expect(diagnostics).not.toMatch(/Iv1\.synthetic-client|EMPTY_SETTING/)
     expect(replacement).not.toBe(previous)
     expect(await reader.readFile("utf8")).toBe(previous)
     expect((await stat(filename)).mode & 0o777).toBe(0o600)
@@ -446,10 +486,14 @@ it("refuses an unsupported retained PostgreSQL profile before approval, writes, 
   const workspace = installationWorkspace(s.config, s.directory)
   const filename = join(workspace, "installation.tfvars.json")
   const retained = { postgres_sku: "B_Standard_B2s", postgres_version: "16" }
-  const previous = `${JSON.stringify({
-    ...JSON.parse(await readFile(filename, "utf8")),
-    ...retained,
-  }, null, 2)}\n`
+  const previous = `${JSON.stringify(
+    {
+      ...JSON.parse(await readFile(filename, "utf8")),
+      ...retained,
+    },
+    null,
+    2,
+  )}\n`
   await writeFile(filename, previous, { mode: 0o600 })
   const files = await readdir(workspace)
   const originalConfig = structuredClone(s.config)
@@ -457,10 +501,14 @@ it("refuses an unsupported retained PostgreSQL profile before approval, writes, 
   s.ui.confirm = vi.fn(async () => true)
   const availability = vi.fn<PostgresAvailability>(async () => false)
 
-  await expect(installAzure(s.config, { ...s, availability })).rejects.toThrow(/region.*not advertise|not.*support/i)
+  await expect(installAzure(s.config, { ...s, availability })).rejects.toThrow(
+    /region.*not advertise|not.*support/i,
+  )
 
   expect(availability).toHaveBeenCalledExactlyOnceWith(
-    s.config.azure.subscriptionId, "eastus2", retained,
+    s.config.azure.subscriptionId,
+    "eastus2",
+    retained,
   )
   expect(s.ui.confirm).not.toHaveBeenCalled()
   expect(installationChanges(s.events)).toEqual([])
@@ -482,6 +530,51 @@ it.each([
   {
     reason: "a deployment-owned runtime environment override",
     change: { runtime_environment_variables: { NODE_ENV: "synthetic-invalid-runtime-value" } },
+  },
+  { reason: "invalid GitHub App ID", change: { github_app_id: "not-an-id" } },
+  { reason: "invalid GitHub client ID", change: { github_client_id: "has whitespace" } },
+  { reason: "invalid GitHub installation ID", change: { github_app_installation_id: "0" } },
+  { reason: "invalid GitHub provider revision", change: { github_provider_revision: 1.5 } },
+  {
+    reason: "invalid Hub origin",
+    change: { hub_application_origin: "https://hub.example.com/path" },
+  },
+  {
+    reason: "GitHub private key without App identifiers",
+    change: {
+      runtime_secret_references: {
+        GITHUB_APP_PRIVATE_KEY_BASE64: {
+          key_vault_id:
+            "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service",
+          secret_id: "https://service.vault.azure.net/secrets/github-app-private-key",
+        },
+      },
+    },
+  },
+  {
+    reason: "GitHub identifier stored as a secret reference",
+    change: {
+      runtime_secret_references: {
+        GITHUB_APP_ID: {
+          key_vault_id:
+            "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service",
+          secret_id: "https://service.vault.azure.net/secrets/github-app-id",
+        },
+      },
+    },
+  },
+  {
+    reason: "conflicting Hub origin sources",
+    change: {
+      hub_application_origin: "https://hub.example.com",
+      runtime_secret_references: {
+        HUB_APPLICATION_ORIGIN: {
+          key_vault_id:
+            "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service",
+          secret_id: "https://service.vault.azure.net/secrets/hub-origin",
+        },
+      },
+    },
   },
   { reason: "different stored installation name", change: { name: "another-hub" } },
   { reason: "different stored ownership", change: { owner: "another-team" } },
@@ -552,8 +645,7 @@ it.each(["parent", "workspace"] as const)(
   "refuses a precreated shared %s directory without silently changing its permissions",
   async (path) => {
     const s = await scenario()
-    const directory =
-      path === "parent" ? s.directory : installationWorkspace(s.config, s.directory)
+    const directory = path === "parent" ? s.directory : installationWorkspace(s.config, s.directory)
     if (path === "workspace") await mkdir(directory, { mode: 0o700 })
     await chmod(directory, 0o777)
 
@@ -630,9 +722,9 @@ it("rejects another local writer for the same target even when configuration obj
   try {
     await entered.promise
 
-    await expect(
-      installAzure(structuredClone(s.config), { ...s, run: secondRun }),
-    ).rejects.toThrow(/workspace|writer|lock/i)
+    await expect(installAzure(structuredClone(s.config), { ...s, run: secondRun })).rejects.toThrow(
+      /workspace|writer|lock/i,
+    )
 
     const secondEvents = secondRun.mock.calls.map(([executable, args]) => ({
       command: [executable, ...args],
@@ -713,11 +805,20 @@ it("uses one deployment approval for dirty-source publication, nonempty plans, t
             }))
           : args[0]!.endsWith("/foundation")
             ? [
-                { address: "azurerm_container_registry.hub", change: { actions: ["create"] } },
-                { address: "azurerm_key_vault.hub", change: { actions: ["update"] } },
+                {
+                  address: "azurerm_container_registry.hub",
+                  change: { actions: ["create"] },
+                },
+                {
+                  address: "azurerm_key_vault.hub",
+                  change: { actions: ["update"] },
+                },
               ]
             : [
-                { address: "azurerm_storage_blob.release_lock", change: { actions: ["create"] } },
+                {
+                  address: "azurerm_storage_blob.release_lock",
+                  change: { actions: ["create"] },
+                },
               ]
         return JSON.stringify({ resource_changes: changes })
       }
@@ -868,7 +969,9 @@ it("refuses unattended dirty source at the initial review before cloud changes",
     return executable === "git" && args[0] === "status" ? " M hub/server/index.ts" : result
   }
 
-  await expect(installAzure(s.config, { ...s, run })).rejects.toThrow(/clean.*source|source.*clean/i)
+  await expect(installAzure(s.config, { ...s, run })).rejects.toThrow(
+    /clean.*source|source.*clean/i,
+  )
 
   expect(s.ui.confirm).not.toHaveBeenCalled()
   expect(installationChanges(s.events)).toEqual([])
@@ -1083,13 +1186,18 @@ it.each(["application", "provisioning"] as const)(
     expect(s.ui.confirm).toHaveBeenCalledOnce()
     expect(s.ui.select).not.toHaveBeenCalled()
     const commands = s.events.map(({ command }) => command)
-    expect(
-      commands.slice(failedAt + 1, succeededAt + 1).map((command) => command[2]),
-    ).toEqual(["plan", "show", "apply"])
+    expect(commands.slice(failedAt + 1, succeededAt + 1).map((command) => command[2])).toEqual([
+      "plan",
+      "show",
+      "apply",
+    ])
     expect(commands.filter((command) => command[0] === "docker")).toHaveLength(1)
     expect(
-      commands.filter((command) =>
-        command[0] === "terraform" && command[1]!.endsWith("/foundation") && command[2] === "apply",
+      commands.filter(
+        (command) =>
+          command[0] === "terraform" &&
+          command[1]!.endsWith("/foundation") &&
+          command[2] === "apply",
       ),
     ).toHaveLength(1)
     const jobs = commands.filter(
@@ -1109,9 +1217,9 @@ it.each(["application", "provisioning"] as const)(
       (command) => command.slice(0, 5).join(" ") === "az storage blob lease acquire",
     )
     expect(leases).toHaveLength(2)
-    expect(
-      new Set(leases.map((command) => command[command.indexOf("--blob-name") + 1])).size,
-    ).toBe(2)
+    expect(new Set(leases.map((command) => command[command.indexOf("--blob-name") + 1])).size).toBe(
+      2,
+    )
     expect(
       commands.some((command) => command.slice(0, 5).join(" ") === "az storage blob lease break"),
     ).toBe(false)
@@ -1141,7 +1249,9 @@ it("cancels the installation retry cooldown without starting database work or re
       })
     if (args[1] === "apply")
       throw new CommandExecutionError(
-        "Synthetic apply failure", false, 1,
+        "Synthetic apply failure",
+        false,
+        1,
         "Error: unexpected status 403 (not authorized)\n  with azurerm_storage_blob.release_lock,",
       )
     return result
@@ -1160,10 +1270,11 @@ it("cancels the installation retry cooldown without starting database work or re
   expect(s.events).toHaveLength(commandsAtCancellation)
   expect(s.ui.select).not.toHaveBeenCalled()
   expect(
-    s.events.some(({ command }) =>
-      command.slice(0, 5).join(" ") === "az storage blob lease release" ||
-      command.slice(0, 4).join(" ") === "az containerapp job start" ||
-      command[0] === process.execPath,
+    s.events.some(
+      ({ command }) =>
+        command.slice(0, 5).join(" ") === "az storage blob lease release" ||
+        command.slice(0, 4).join(" ") === "az containerapp job start" ||
+        command[0] === process.execPath,
     ),
   ).toBe(false)
   expect(s.released()).toBe(false)
@@ -1366,7 +1477,9 @@ it("requires separate lock-recovery consent after deployment approval when datab
   )
   const release = commands.findIndex((command) => command[0] === process.execPath)
   expect(s.ui.confirm).toHaveBeenCalledTimes(2)
-  expect(vi.mocked(s.ui.confirm).mock.calls[1]![0]).toContain("artifactstore/releases/deployment.lock")
+  expect(vi.mocked(s.ui.confirm).mock.calls[1]![0]).toContain(
+    "artifactstore/releases/deployment.lock",
+  )
   expect(inspectRelease).toBeGreaterThanOrEqual(approvals[0]!)
   expect(approvals[1]).toBeGreaterThan(inspectRelease)
   expect(breakRelease).toBeGreaterThan(inspectRelease)
