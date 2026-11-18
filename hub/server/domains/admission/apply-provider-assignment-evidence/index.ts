@@ -30,13 +30,20 @@ async function endMembershipSessions(
   membershipId: string,
   dependencies: ApplyProviderAssignmentEvidenceDependencies,
   noRepositoryAccess: boolean,
+  preservedSessionDigest?: string,
 ) {
-  const endedSessions = noRepositoryAccess
+  const endedSessions = preservedSessionDigest
     ? await dependencies.repositories.endOpenHubSessionsForMembership(
         membershipId,
-        "GITHUB_REPOSITORY_ACCESS_REVOKED",
+        undefined,
+        preservedSessionDigest,
       )
-    : await dependencies.repositories.endOpenHubSessionsForMembership(membershipId)
+    : noRepositoryAccess
+      ? await dependencies.repositories.endOpenHubSessionsForMembership(
+          membershipId,
+          "GITHUB_REPOSITORY_ACCESS_REVOKED",
+        )
+      : await dependencies.repositories.endOpenHubSessionsForMembership(membershipId)
   for (const endedSession of endedSessions) {
     await dependencies.repositories.createSecurityAudit({
       id: dependencies.createId(),
@@ -131,6 +138,7 @@ export async function applyProviderAssignmentEvidence(
     sessionsMustEnd = Boolean(existingMembership)
   }
   const assignments = await dependencies.repositories.lockActiveAssignments(membershipId)
+  const administrator = assignments.some((assignment) => assignment.role === "ADMINISTRATOR")
   if (sessionsMustEnd) {
     await endMembershipSessions(
       membershipId,
@@ -141,6 +149,9 @@ export async function applyProviderAssignmentEvidence(
         existingMembership?.lifecycle === "ACTIVE" &&
         !assignments.some((assignment) => assignment.role === "ADMINISTRATOR"),
       ),
+      existingMembership?.lifecycle === "ACTIVE" && administrator
+        ? await dependencies.preserveAdministratorSession?.()
+        : undefined,
     )
   }
   if (existingMembership && existingMembership.lifecycle !== "ACTIVE") {
@@ -149,7 +160,6 @@ export async function applyProviderAssignmentEvidence(
       reason: "membership_inactive",
     }
   }
-  const administrator = assignments.some((assignment) => assignment.role === "ADMINISTRATOR")
   const disconnected = administrator
     ? null
     : await dependencies.repositories.disconnectCopilotConnection(membershipId)

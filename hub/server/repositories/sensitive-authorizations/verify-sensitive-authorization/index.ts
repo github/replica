@@ -1,4 +1,4 @@
-import type { Prisma } from "../../../generated/prisma/client.ts"
+import { Prisma } from "../../../generated/prisma/client.ts"
 
 export async function verifySensitiveAuthorization(
   database: Pick<Prisma.TransactionClient, "$queryRaw">,
@@ -8,23 +8,12 @@ export async function verifySensitiveAuthorization(
     sessionDigest: string
     sensitiveAuthorizationId: string
   },
+  mode: "check" | "verify" = "verify",
 ) {
-  const rows = await database.$queryRaw<
-    Array<{
-      actorMembershipId: string
-      id: string
-      operation:
-        | "CONNECT_COPILOT"
-        | "DESIGNATE_ADMINISTRATORS"
-        | "DISCONNECT_COPILOT"
-        | "END_ALL_HUB_SESSIONS"
-        | "REVOKE_ADMINISTRATOR"
-      targetCount: number
-    }>
-  >`
-    UPDATE "sensitive_authorizations" sensitive_authorization
-    SET "verified_at" = clock_timestamp(), "updated_at" = clock_timestamp()
+  const eligible = Prisma.sql`
+    SELECT sensitive_authorization."id"
     FROM
+      "sensitive_authorizations" sensitive_authorization,
       "authorization_attempts" attempt,
       "hub_sessions" session,
       "memberships" membership,
@@ -74,11 +63,38 @@ export async function verifySensitiveAuthorization(
             )
           )
       )
-    RETURNING
-      sensitive_authorization."id",
-      sensitive_authorization."actor_membership_id" AS "actorMembershipId",
-      sensitive_authorization."operation",
-      cardinality(sensitive_authorization."target_membership_ids") AS "targetCount"
   `
+  const fields = Prisma.sql`
+    sensitive_authorization."id",
+    sensitive_authorization."actor_membership_id" AS "actorMembershipId",
+    sensitive_authorization."operation",
+    cardinality(sensitive_authorization."target_membership_ids") AS "targetCount"
+  `
+  const query =
+    mode === "check"
+      ? Prisma.sql`
+          SELECT ${fields}
+          FROM "sensitive_authorizations" sensitive_authorization
+          WHERE sensitive_authorization."id" IN (${eligible})
+        `
+      : Prisma.sql`
+          UPDATE "sensitive_authorizations" sensitive_authorization
+          SET "verified_at" = clock_timestamp(), "updated_at" = clock_timestamp()
+          WHERE sensitive_authorization."id" IN (${eligible})
+          RETURNING ${fields}
+        `
+  const rows = await database.$queryRaw<
+    Array<{
+      actorMembershipId: string
+      id: string
+      operation:
+        | "CONNECT_COPILOT"
+        | "DESIGNATE_ADMINISTRATORS"
+        | "DISCONNECT_COPILOT"
+        | "END_ALL_HUB_SESSIONS"
+        | "REVOKE_ADMINISTRATOR"
+      targetCount: number
+    }>
+  >(query)
   return rows[0] ?? null
 }

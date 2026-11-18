@@ -2,6 +2,7 @@ import { Prisma } from "../../../generated/prisma/client.ts"
 
 import { classifyPrismaTransactionError } from "../../../integrations/prisma/classify-transaction-error/index.ts"
 import { getSensitiveAuthorizationAuditData } from "../../../repositories/sensitive-authorizations/get-sensitive-authorization-audit-data/index.ts"
+import { lockSensitiveAuthorization } from "../../../repositories/sensitive-authorizations/lock-sensitive-authorization/index.ts"
 import { verifySensitiveAuthorization } from "../../../repositories/sensitive-authorizations/verify-sensitive-authorization/index.ts"
 import { createAdmissionRepositories } from "../../admission/create-admission-repositories/index.ts"
 import { AdmissionTransactionConflictError } from "../../admission/errors.ts"
@@ -19,6 +20,8 @@ export function runAdministratorAuthorizationVerificationTransaction<Result>(
       (transaction) =>
         operation({
           ...createAdmissionRepositories(transaction),
+          canVerifySensitiveAuthorization: async (input) =>
+            Boolean(await verifySensitiveAuthorization(transaction, input, "check")),
           createHubSession: () => {
             throw new Error("Administrator authorization verification cannot create a session.")
           },
@@ -29,7 +32,10 @@ export function runAdministratorAuthorizationVerificationTransaction<Result>(
           },
           getSensitiveAuthorizationAuditData: (id) =>
             getSensitiveAuthorizationAuditData(transaction, id),
-          verifySensitiveAuthorization: (input) => verifySensitiveAuthorization(transaction, input),
+          verifySensitiveAuthorization: async (input) => {
+            await lockSensitiveAuthorization(transaction, input.sensitiveAuthorizationId)
+            return verifySensitiveAuthorization(transaction, input)
+          },
         }),
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     )

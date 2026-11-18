@@ -48,8 +48,8 @@ export function createAdmissionRepositories(
       })
     },
     endProviderAssignment: (input) => endProviderAssignment(transaction, input),
-    endOpenHubSessionsForMembership: (membershipId, reason) =>
-      endOpenHubSessionsForMembership(transaction, membershipId, reason),
+    endOpenHubSessionsForMembership: (membershipId, reason, preservedSessionDigest) =>
+      endOpenHubSessionsForMembership(transaction, membershipId, reason, preservedSessionDigest),
     lockActiveAssignments: (membershipId) =>
       lockActiveMembershipAssignments(transaction, membershipId),
     lockActiveProviderAssignment: (externalIdentityId) =>

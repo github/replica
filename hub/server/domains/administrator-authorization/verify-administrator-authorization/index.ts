@@ -82,6 +82,14 @@ export async function verifyAdministratorAuthorization(
           if (input.requiresProviderAssignmentEvidence && !input.providerAssignment) {
             throw new AdmissionDeniedError("provider_evidence_missing", input.externalIdentityId)
           }
+          const verificationInput = {
+            authorizationAttemptId: input.authorizationAttemptId,
+            externalIdentityId: input.externalIdentityId,
+            sessionDigest: input.sessionDigest,
+            sensitiveAuthorizationId: input.sensitiveAuthorizationId,
+          }
+          let preservedMembershipId: string | undefined
+          let preserveSession = false
           if (input.providerAssignment) {
             if (input.providerAssignment.providerRevisionId !== attempt.providerRevisionId) {
               throw new AdmissionDeniedError("configuration_changed", input.externalIdentityId)
@@ -113,7 +121,15 @@ export async function verifyAdministratorAuthorization(
                 role: input.providerAssignment.role,
                 userId: identity.userId,
               },
-              { createId: () => dependencies.createId(), repositories },
+              {
+                createId: () => dependencies.createId(),
+                preserveAdministratorSession: async () => {
+                  preserveSession =
+                    await repositories.canVerifySensitiveAuthorization(verificationInput)
+                  return preserveSession ? input.sessionDigest : undefined
+                },
+                repositories,
+              },
             )
             if (applied.denied) {
               const authorization = await repositories.getSensitiveAuthorizationAuditData(
@@ -133,14 +149,22 @@ export async function verifyAdministratorAuthorization(
               }
               return null
             }
+            if (preserveSession) preservedMembershipId = applied.membershipId
           }
-          const verified = await repositories.verifySensitiveAuthorization({
-            authorizationAttemptId: input.authorizationAttemptId,
-            externalIdentityId: input.externalIdentityId,
-            sessionDigest: input.sessionDigest,
-            sensitiveAuthorizationId: input.sensitiveAuthorizationId,
-          })
+          const verified = await repositories.verifySensitiveAuthorization(verificationInput)
           if (!verified) {
+            if (preservedMembershipId) {
+              const endedSessions =
+                await repositories.endOpenHubSessionsForMembership(preservedMembershipId)
+              for (const session of endedSessions) {
+                await repositories.createSecurityAudit({
+                  id: dependencies.createId(),
+                  type: "session_ended",
+                  sessionId: session.id,
+                  membershipId: preservedMembershipId,
+                })
+              }
+            }
             const authorization = await repositories.getSensitiveAuthorizationAuditData(
               input.sensitiveAuthorizationId,
             )
