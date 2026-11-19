@@ -2513,6 +2513,31 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(terminal["state"], "cancelled")
         self.assertTrue(cancelled.exists())
 
+    def test_deadline_cleanup_remains_a_timeout_after_worker_cancellation(self):
+        started = self.taskset_dir / ".deadline-cancel-started"
+        cancelled = self.taskset_dir / ".deadline-cancel-received"
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={
+                "cooperative": CooperativeCancellationBackend(started, cancelled)
+            },
+            environment="test",
+        )
+        self.addCleanup(runtime.close)
+        submitted = runtime.submit(
+            backend="cooperative",
+            max_updates=1,
+            max_seconds=1,
+            max_credits=1,
+        )
+
+        terminal = self._wait_for_job(runtime, submitted["id"])
+
+        self.assertEqual(terminal["state"], "failed")
+        self.assertEqual(terminal["error"]["code"], "job_timed_out")
+        self.assertTrue(cancelled.exists())
+
     def test_http_cancellation_is_safe_for_queued_retries_and_terminal_jobs(self):
         started = self.taskset_dir / ".queued-cancel-started"
         release = self.taskset_dir / ".queued-cancel-release"

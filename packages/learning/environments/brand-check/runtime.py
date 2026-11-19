@@ -1787,6 +1787,7 @@ def _run_backend(
         name=f"replica-{connector.name}-job",
     )
     process.start()
+    timed_out = False
     try:
         while process.is_alive():
             if context.cancellation.requested:
@@ -1795,13 +1796,15 @@ def _run_backend(
                 context.cancellation.raise_if_requested()
             remaining = context.deadline - time.monotonic()
             if remaining <= 0:
+                timed_out = True
                 break
             process.join(min(0.05, remaining))
         if process.is_alive():
             cancellation_event.set()
             process.join(1)
-        if process.is_alive():
-            _stop_process(process)
+        if timed_out:
+            if process.is_alive():
+                _stop_process(process)
             raise RuntimeFailure(
                 "job_timed_out", "The bounded training job reached maxSeconds."
             )
