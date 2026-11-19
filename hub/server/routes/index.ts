@@ -473,7 +473,10 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
         handleAuthenticationCallbackGet(authentication.local.callback),
       )
     }
-    app.get("/api/auth/session", handleCurrentSessionGet(authentication.currentSession))
+    app.get(
+      "/api/auth/session",
+      handleCurrentSessionGet(authentication.currentSession, Boolean(product?.reviewInbox)),
+    )
     app.post(
       "/api/auth/session/sign-out",
       requireOrigin(authentication.signOut.applicationOrigin),

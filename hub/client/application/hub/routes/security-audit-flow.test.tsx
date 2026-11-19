@@ -1,58 +1,20 @@
-import type { RouteConfigEntry } from "@react-router/dev/routes"
 import { act, render, screen } from "@testing-library/react"
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
-import type { ComponentType } from "react"
-import {
-  createBrowserRouter,
-  RouterProvider,
-  useLoaderData,
-  type ActionFunction,
-  type LoaderFunction,
-  type RouteObject,
-} from "react-router"
+import { createBrowserRouter, RouterProvider, useLoaderData } from "react-router"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
-type RouteModule = {
-  default?: ComponentType<{ loaderData: unknown }>
-  clientLoader?: LoaderFunction
-  clientAction?: ActionFunction
-  ErrorBoundary?: ComponentType
-  HydrateFallback?: ComponentType
-}
+import { HubThemeProvider } from "@hooks/use-hub-theme"
 
-const routeModules = import.meta.glob<RouteModule>([
-  "../root.tsx",
-  "./**/index.tsx",
-  "!./fixtures/**",
-])
+import HubRoot, { clientLoader as loadHub, ErrorBoundary, HydrateFallback } from "../root"
+
+import SecurityAudit, {
+  clientAction as changeAudit,
+  clientLoader as loadAudit,
+} from "./settings-audit"
+import Workspace, { clientLoader as loadWorkspace } from "./workspace"
 
 const membershipId = "11111111-1111-4111-8111-111111111111"
-
-function applicationRoute(entry: RouteConfigEntry): RouteObject {
-  const modulePath =
-    entry.file === "root.tsx" ? "../root.tsx" : `./${entry.file.replace(/^routes\//, "")}`
-  const loadModule = routeModules[modulePath]
-  if (!loadModule) throw new Error(`Missing application route module: ${entry.file}`)
-  const common = {
-    id: entry.id ?? entry.file.replace(/\.tsx$/, ""),
-    path: entry.path,
-    lazy: async () => {
-      const module = await loadModule()
-      const Page = module.default
-      return {
-        loader: module.clientLoader,
-        action: module.clientAction,
-        ErrorBoundary: module.ErrorBoundary,
-        HydrateFallback: module.HydrateFallback,
-        Component: Page ? () => <Page loaderData={useLoaderData()} /> : undefined,
-      }
-    },
-  }
-  return entry.index
-    ? { ...common, index: true }
-    : { ...common, children: entry.children?.map(applicationRoute) }
-}
 
 function session(role = "ADMINISTRATOR") {
   return {
@@ -66,35 +28,50 @@ function session(role = "ADMINISTRATOR") {
   }
 }
 
+function unavailableServerRoute(): Promise<never> {
+  return Promise.reject(new Error("The audit frontend must use the audit API directly."))
+}
+
 async function renderApplication(path: string, handlers: Parameters<typeof setupServer>) {
   vi.stubEnv("MODE", "development")
   vi.stubEnv("DEV", true)
   const requests: string[] = []
-  const server = setupServer(
-    http.get(`${window.location.origin}/api/notifications/inbox`, () =>
-      HttpResponse.json({ notifications: [], nextBefore: null, unreadCount: 0 }),
-    ),
-    ...handlers,
-  )
+  const server = setupServer(...handlers)
   server.events.on("request:start", ({ request }) => {
     const url = new URL(request.url)
     requests.push(`${request.method} ${url.pathname}${url.search}`)
   })
   server.listen({ onUnhandledRequest: "error" })
   onTestFinished(() => server.close())
-  const [{ default: routes }, { HubThemeProvider }] = await Promise.all([
-    import("../routes"),
-    import("@hooks/use-hub-theme"),
-  ])
   window.history.replaceState(null, "", path)
   const router = createBrowserRouter(
-    [applicationRoute({ id: "root", file: "root.tsx", children: routes })],
+    [
+      {
+        id: "root",
+        loader: loadHub,
+        Component: () => <HubRoot loaderData={useLoaderData<typeof loadHub>()} />,
+        ErrorBoundary,
+        HydrateFallback,
+        children: [
+          {
+            loader: loadWorkspace,
+            Component: () => <Workspace loaderData={useLoaderData<typeof loadWorkspace>()} />,
+            children: [
+              {
+                path: "settings/audit",
+                loader: (args) => loadAudit({ ...args, serverLoader: unavailableServerRoute }),
+                action: (args) => changeAudit({ ...args, serverAction: unavailableServerRoute }),
+                Component: () => <SecurityAudit loaderData={useLoaderData<typeof loadAudit>()} />,
+              },
+            ],
+          },
+        ],
+      },
+    ],
     { window },
   )
   onTestFinished(() => router.dispose())
-  await act(async () => {
-    await vi.waitFor(() => expect(router.state.initialized).toBe(true), { timeout: 10_000 })
-  })
+  await vi.waitFor(() => expect(router.state.initialized).toBe(true), { timeout: 10_000 })
   render(
     <HubThemeProvider>
       <RouterProvider router={router} />
@@ -111,9 +88,7 @@ function expectOnlyRealAuditRequests(requests: string[]) {
   expect(
     requests.every(
       (request) =>
-        request === "GET /api/auth/session" ||
-        request === "GET /api/notifications/inbox?limit=1&unread=true" ||
-        request.startsWith("GET /api/security-audits?"),
+        request === "GET /api/auth/session" || request.startsWith("GET /api/security-audits?"),
     ),
   ).toBe(true)
 }

@@ -24,8 +24,10 @@ export function administratorWorkspace(
     repositoriesLabel: "Repositories",
     repositoriesPath: "/repositories",
     notificationsLabel: "Inbox",
-    notificationsPath: "/notifications",
-    notificationInbox: { ...notificationInboxConfiguration, connected: true },
+    notificationsPath: session.reviewInboxAvailable ? "/notifications" : undefined,
+    notificationInbox: session.reviewInboxAvailable
+      ? { ...notificationInboxConfiguration, connected: true }
+      : undefined,
     selectedSection,
     settingsNavigationLabel: "Security and settings",
     signOutLabel: "Sign out",
