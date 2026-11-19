@@ -50,7 +50,10 @@ export function createConfiguredDecisionModelJobProcessors(
       logger,
       dependencies: {
         authorization: {
-          requireRepositoryAdministrator: () => Promise.resolve(),
+          requireRepositoryAdministrator: () =>
+            Promise.reject(
+              new Error("Background decision work requires pre-established repository authority."),
+            ),
         },
         now: () => new Date(),
         prepareTaskset: (input) =>

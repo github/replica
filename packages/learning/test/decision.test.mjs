@@ -445,9 +445,7 @@ describe("replica-learning decision", () => {
         .sort(),
       bundle.collections.map((collection) => collection.id).sort(),
     )
-    const tasksetManifest = JSON.parse(
-      readFileSync(path.join(directory, "taskset.json"), "utf8"),
-    )
+    const tasksetManifest = JSON.parse(readFileSync(path.join(directory, "taskset.json"), "utf8"))
     assert.deepEqual(tasksetManifest.counts, result.counts)
     assert.equal(tasksetManifest.provenance.exportDigest, bundle.manifest.digest)
     assert.deepEqual(
