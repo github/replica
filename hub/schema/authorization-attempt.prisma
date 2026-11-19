@@ -7,6 +7,7 @@ model AuthorizationAttempt {
   // Relations
   providerRevision AuthenticationProviderRevision @relation(fields: [providerRevisionId], references: [id], onDelete: Restrict)
   sensitiveAuthorization SensitiveAuthorization? @relation(fields: [sensitiveAuthorizationId], references: [id], onDelete: Restrict)
+  analyticsAuthorization AnalyticsDestinationAuthorization?
 
   // Attribute columns
   purpose                   AuthorizationAttemptPurpose

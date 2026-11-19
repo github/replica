@@ -1,4 +1,6 @@
 import type { AuthenticationProofResult } from "../../../domains/authentication/types.ts"
+import type { AuthorizationAttemptPurpose } from "../../../generated/prisma/enums.ts"
+import type { RepositoryAnalyticsProof } from "../../../domains/analytics/hosted-authorization/types.ts"
 import type { SecurityAuditListResult } from "../../../repositories/security-audits/list-security-audits/types.ts"
 
 export interface RateLimitDependencies {
@@ -28,7 +30,7 @@ export interface AuthenticationCallbackDependencies extends RateLimitDependencie
   createGitHubRepositoryDenialNotice?(login: string): { expiresAt: Date; value: string }
   secureCookie: boolean
   complete(input: { browserBinding: string; code: string; state: string }): Promise<{
-    purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
+    purpose: AuthorizationAttemptPurpose
     sensitiveAuthorizationId?: string
     githubLogin?: string
     proof: AuthenticationProofResult
@@ -89,6 +91,7 @@ export interface CurrentSessionDependencies {
   findGitHubRepositoryAccessDenial?(sessionDigest: string): Promise<{ login: string | null } | null>
   readGitHubRepositoryDenialNotice?(value: string): { login: string } | null
   restore(sessionDigest: string): Promise<{
+    externalIdentityId?: string | null
     membershipId: string
     userId: string
     provider: string
@@ -116,6 +119,7 @@ export interface AuthenticationRouteDependencies {
 }
 
 export interface ProviderAuthenticationRouteDependencies {
+  repositoryAnalyticsProof?: RepositoryAnalyticsProof
   administratorAuthorization?: StartAdministratorAuthorizationDependencies
   administratorEnrollment: StartAdministratorEnrollmentDependencies
   callback: AuthenticationCallbackDependencies

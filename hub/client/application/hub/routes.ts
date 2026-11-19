@@ -10,6 +10,8 @@ export default [
   route("sign-in", "routes/sign-in/index.tsx"),
   route("session", "routes/session/index.tsx"),
   route("repositories", "routes/repositories/index.tsx"),
+  route("canvas/pair/:userCode", "routes/canvas-pairing/index.tsx"),
+  route("canvas/connections", "routes/canvas-connections/index.tsx"),
   route("settings/administrators", "routes/settings-administrators/index.tsx"),
   route("settings/administrators/confirm", "routes/settings-administrator-authorization/index.tsx"),
   route("settings/sessions/confirm", "routes/settings-session-revocation-authorization/index.tsx"),

@@ -1,6 +1,6 @@
 import type { RouteConfigEntry } from "@react-router/dev/routes"
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import { http, HttpResponse } from "msw"
+import { http, HttpResponse, ws } from "msw"
 import { setupServer } from "msw/node"
 import type { ComponentType } from "react"
 import {
@@ -182,7 +182,10 @@ describe("real local review flow", () => {
     function mutationResponse(changed: ReviewComment, root?: ReviewRootComment) {
       return { comments: root && changed.id !== root.id ? [changed, root] : [changed] }
     }
+    const realtime = new URL("/api/realtime", window.location.href)
+    realtime.protocol = realtime.protocol === "https:" ? "wss:" : "ws:"
     const server = setupServer(
+      ws.link(realtime.href).addEventListener("connection", () => undefined),
       http.get(`${window.location.origin}/api/auth/session`, () =>
         HttpResponse.json({
           authenticated: true,
@@ -201,6 +204,7 @@ describe("real local review flow", () => {
         HttpResponse.json({
           viewer: { id: userId, provider: "local", ...author },
           repositories: [repository],
+          reviewInboxAvailable: true,
           capabilities: {
             createPrototypes: false,
             reviewPrototypes: false,
@@ -218,6 +222,17 @@ describe("real local review flow", () => {
         }),
       ),
       http.get(`${window.location.origin}${reviewPath}`, () => HttpResponse.json(listResponse())),
+      http.get(`${window.location.origin}/api/notifications/inbox`, () =>
+        HttpResponse.json({ notifications: [], nextBefore: null, unreadCount: 0 }),
+      ),
+      http.post(`${window.location.origin}${reviewPath}/:rootId/read`, ({ params }) => {
+        const root = comments.find(
+          (comment) => comment.kind === "root" && comment.id === Number(params.rootId),
+        )
+        return root
+          ? HttpResponse.json(mutationResponse(root))
+          : new HttpResponse(null, { status: 404 })
+      }),
       http.post(`${window.location.origin}${reviewPath}`, async ({ request }) => {
         const input = (await request.json()) as {
           review_comment: { body: string; anchor: typeof anchor }
@@ -322,13 +337,13 @@ describe("real local review flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /Persisted conversation/ }))
     let conversation = await screen.findByRole("dialog", { name: "Conversation" })
     expect(within(conversation).getByText("Persisted conversation")).toBeVisible()
-    expect(within(conversation).queryByRole("button", { name: "Add reaction" })).toBeNull()
+    expect(within(conversation).getByRole("button", { name: "Add reaction" })).toBeVisible()
     fireEvent.click(
       within(conversation).getByRole("button", {
         name: `Actions for comment by @${author.login}`,
       }),
     )
-    expect(screen.queryByRole("menuitem", { name: "Mark as unread" })).toBeNull()
+    expect(screen.getByRole("menuitem", { name: "Mark as unread" })).toBeVisible()
     fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" })
 
     const frame = screen.getByTitle("Local review prototype, Build 3 preview")

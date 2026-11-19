@@ -16,6 +16,7 @@ model Membership {
   rejectedDecisionCandidates DecisionCandidate[]
   decisionRuntimeDeletions   DecisionRuntimeDeletion[]
   learningDecisionOperations LearningDecisionOperation[]
+  canvasGrants            CanvasGrant[]
 
   // Attribute columns
   lifecycle MembershipLifecycle @default(ACTIVE)

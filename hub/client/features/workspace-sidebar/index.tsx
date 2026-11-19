@@ -77,12 +77,25 @@ export function WorkspaceSidebar({
           icon: LightBulbIcon,
         },
       ]
-    : [{ label: data.repositoriesLabel, path: data.repositoriesPath, icon: RepoIcon }]
+    : [
+        {
+          label: data.repositoriesLabel,
+          path: data.repositoriesPath,
+          section: data.emptyRepositoryLabel ? "prototypes" : "repositories",
+          icon: data.emptyRepositoryLabel ? BeakerIcon : RepoIcon,
+        },
+      ]
   const primaryLinks = [
     { label: data.welcomeLabel, path: data.welcomePath, section: "welcome", icon: HomeIcon },
     ...repositoryLinks,
   ]
   const settingsLinks = [
+    {
+      label: "Canvas connections",
+      path: data.canvasConnectionsPath,
+      section: "canvas",
+      icon: LinkIcon,
+    },
     ...(data.administrationLinks ?? []).map((link) => ({
       ...link,
       icon: administrationIcons[link.section],
@@ -111,6 +124,15 @@ export function WorkspaceSidebar({
             repositories={repository.repositories}
             selectedRepositoryId={repository.selectedRepositoryId}
             status={repositoryChoices}
+          />
+        ) : data.emptyRepositoryLabel ? (
+          <RepositorySelector
+            ariaLabel={data.emptyRepositoryLabel}
+            emptyLabel={data.emptyRepositoryLabel}
+            collapsed={collapsed}
+            menuLabel="Repositories"
+            repositories={[]}
+            selectedRepositoryId={null}
           />
         ) : null
       }
@@ -157,11 +179,11 @@ export function WorkspaceSidebar({
                 href={link.path}
                 icon={link.icon}
                 label={link.label}
-                selected={"section" in link && selectedSection === link.section}
+                selected={selectedSection === link.section}
               />
             )
             return (
-              <Fragment key={"section" in link ? link.section : link.path}>
+              <Fragment key={link.section}>
                 <li>
                   {collapsed ? (
                     <Tooltip text={link.label} type="label" direction="e">
@@ -171,7 +193,7 @@ export function WorkspaceSidebar({
                     item
                   )}
                 </li>
-                {"section" in link && link.section === "prototypes" ? (
+                {repository && link.section === "prototypes" ? (
                   <WorkspaceInbox
                     collapsed={collapsed}
                     data={data}

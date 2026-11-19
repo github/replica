@@ -7,7 +7,11 @@ export function RepositoriesIndexPage({ data }: { data: HubWorkspaceData }) {
     <HubWorkspace data={data}>
       <HubEmptyState
         heading="No repositories available"
-        description="No repositories are available to this viewer."
+        description={
+          data.currentUser.provider === "local"
+            ? "Run local Builds to discover your prototype repositories, then refresh this page."
+            : "No repositories are available to this viewer."
+        }
       />
     </HubWorkspace>
   )

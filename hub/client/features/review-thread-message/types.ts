@@ -3,6 +3,7 @@ import type { ReviewComment, ReviewCommentsCopy } from "@utils/review-comment/ty
 import type { ReviewReactionContent } from "@utils/review-comment/types"
 
 export interface ReviewThreadMessageProps {
+  notificationTarget?: boolean
   comment: ReviewComment
   mutation: ReviewCommentMutation | null
   copy: ReviewCommentsCopy

@@ -115,7 +115,14 @@ async function createFixture() {
       include: { artifacts: { orderBy: { path: "asc" } }, prototype: true },
     })
   }
-  return { run, packages, hooks, importRun, findBuild, storage, client }
+  function findAnalyticsEvents() {
+    return prisma.analyticsEvent.findMany({
+      where: { repository: { githubRepositoryId } },
+      select: { eventName: true, prototypeId: true, buildId: true },
+      orderBy: { id: "asc" },
+    })
+  }
+  return { run, packages, hooks, importRun, findBuild, findAnalyticsEvents, storage, client }
 }
 
 describe("importGitHubWorkflowRun", () => {
@@ -274,7 +281,21 @@ describe("importGitHubWorkflowRun", () => {
       throw new Error("GitHub is unavailable")
     }
     await expect(fixture.importRun()).rejects.toThrow("GitHub is unavailable")
-    expect((await fixture.findBuild()).workflowCompletedAt).toBeNull()
+    const build = await fixture.findBuild()
+    expect(build.workflowCompletedAt).toBeNull()
+    const events = await fixture.findAnalyticsEvents()
+    expect(events).toHaveLength(2)
+    expect(events).toContainEqual({
+      eventName: "prototype_first_published",
+      prototypeId: build.prototypeId,
+      buildId: build.id,
+    })
+    expect(events).toContainEqual({
+      eventName: "prototype_registered",
+      prototypeId: build.prototypeId,
+      buildId: null,
+    })
+
     const jobs = await discoverGitHubWorkflowRuns(
       {
         database: prisma,
@@ -296,6 +317,7 @@ describe("importGitHubWorkflowRun", () => {
       screenshots: "attached",
     })
     expect((await fixture.findBuild()).workflowCompletedAt).toEqual(fixture.run.updatedAt)
+    await expect(fixture.findAnalyticsEvents()).resolves.toEqual(events)
   })
 
   it("retries a newer screenshot attempt without reopening or rewriting a successful dist", async () => {
@@ -399,6 +421,7 @@ describe("importGitHubWorkflowRun", () => {
       failureSummary: "The GitHub Actions workflow run ended with failure.",
       prototype: { registeredAt: null },
     })
+    await expect(fixture.findAnalyticsEvents()).resolves.toEqual([])
 
     fixture.run.runAttempt = 2
     fixture.run.startedAt = new Date("2026-01-01T00:02:00Z")
@@ -409,17 +432,24 @@ describe("importGitHubWorkflowRun", () => {
       artifacts: [],
       prototype: { registeredAt: null },
     })
+    await expect(fixture.findAnalyticsEvents()).resolves.toEqual([])
 
     fixture.run.runAttempt = 3
     fixture.run.startedAt = new Date("2026-01-01T00:03:00Z")
     fixture.packages.set(distArtifactName, distPackage())
     await expect(fixture.importRun()).resolves.toMatchObject({ dist: "imported" })
-    expect(await fixture.findBuild()).toMatchObject({
+    const build = await fixture.findBuild()
+    expect(build).toMatchObject({
       state: "successful",
       number: 1,
       failureSummary: null,
     })
-    expect((await fixture.findBuild()).prototype.registeredAt).toBeInstanceOf(Date)
+    expect(build.prototype.registeredAt).toBeInstanceOf(Date)
+    expect(await fixture.findAnalyticsEvents()).toContainEqual({
+      eventName: "prototype_first_published",
+      prototypeId: build.prototypeId,
+      buildId: build.id,
+    })
   })
 
   it("recovers registration on repeated imports without rewriting a successful Build", async () => {
@@ -499,6 +529,7 @@ describe("importGitHubWorkflowRun", () => {
       state: "successful",
       prototype: { replica: true, registeredAt: null },
     })
+    await expect(fixture.findAnalyticsEvents()).resolves.toEqual([])
   })
 
   it.each(["delete", "push"])(
@@ -740,6 +771,19 @@ describe("importGitHubWorkflowRun", () => {
     })
     expect(prototype.currentBuildId).toBe(newer.id)
     expect(prototype.builds.map((build) => build.number)).toEqual([1, 2])
+    expect(prototype.registeredAt).toBeNull()
+    const events = await fixture.findAnalyticsEvents()
+    expect(events).toHaveLength(2)
+    expect(events).toContainEqual({
+      eventName: "prototype_first_published",
+      prototypeId: prototype.id,
+      buildId: newer.id,
+    })
+    expect(events).toContainEqual({
+      eventName: "build_published",
+      prototypeId: prototype.id,
+      buildId: prototype.builds[1]?.id,
+    })
   })
 
   it("keeps the higher run ID selected when a lower ID arrives at the same timestamp", async () => {

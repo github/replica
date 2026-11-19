@@ -73,7 +73,7 @@ export interface AdmissionRepositories {
     consumedAt: Date | null
     createdAt: Date
     providerRevisionId: string
-    purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
+    purpose: AuthorizationAttemptPurpose
     sessionRevocationRevision: number
   } | null>
   getExternalIdentity(id: string): Promise<{ provider: string; userId: string } | null>
@@ -97,3 +97,4 @@ export interface AdmissionDatabaseClient {
     options: { isolationLevel: Prisma.TransactionIsolationLevel },
   ): Promise<Result>
 }
+import type { AuthorizationAttemptPurpose } from "../../../generated/prisma/enums.ts"

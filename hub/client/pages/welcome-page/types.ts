@@ -6,6 +6,7 @@ export interface WelcomePageData {
   description: string
   videoUrl: string | null
   videoEmbedUrl: string | null
+  videoWatchUrl?: string
   videoPosterUrl: string | null
   videoLabel: string
   videoDescription: string
@@ -18,6 +19,7 @@ export interface WelcomePageData {
   setupDescription: string
   setupPath: string
   createLabel: string
+  createPath?: string | null
   createDescription: string
   createUnavailable: string
   hideLabel: string

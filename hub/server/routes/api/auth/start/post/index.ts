@@ -1,10 +1,16 @@
 import type { RequestHandler } from "express"
 import { z } from "zod"
 
+import { canvasSignInReturnPattern } from "../../../../../integrations/express/canvas-sign-in-return/index.ts"
 import { redirectAuthenticationStart } from "../../../../../integrations/express/redirect-authentication-start/index.ts"
 import type { StartAuthenticationDependencies } from "../../types.ts"
 
-const bodySchema = z.object({ switch_account: z.literal("true").optional() }).strict()
+const bodySchema = z
+  .object({
+    switch_account: z.literal("true").optional(),
+    return_to: z.string().regex(canvasSignInReturnPattern).optional(),
+  })
+  .strict()
 
 export function post(dependencies: StartAuthenticationDependencies): RequestHandler {
   return async (request, response, next) => {
@@ -29,6 +35,7 @@ export function post(dependencies: StartAuthenticationDependencies): RequestHand
         response,
         dependencies.secureCookie,
         await dependencies.start({ switchAccount: body.data.switch_account === "true" }),
+        body.data.return_to,
       )
     } catch (error) {
       next(error)

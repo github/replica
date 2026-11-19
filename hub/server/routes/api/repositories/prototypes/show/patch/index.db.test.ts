@@ -1,4 +1,4 @@
-import { createHash, generateKeyPairSync, randomBytes, randomUUID } from "node:crypto"
+import { createHash, generateKeyPairSync, randomBytes, randomInt, randomUUID } from "node:crypto"
 import { once } from "node:events"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
@@ -19,16 +19,80 @@ import { createProductRouteDependencies } from "../../../../product/create-produ
 
 const origin = "http://127.0.0.1:5173"
 
+interface HostedDraftProof {
+  githubRepositoryId: number
+  nameWithOwner: string
+  branchName: string
+  writers: { login: string; githubUserId: number }[]
+}
+
 async function openServer(
   options: { scopeGitHubMembers: boolean } = { scopeGitHubMembers: false },
 ) {
   const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+  const installationId = "456"
+  const installationToken = "synthetic-draft-access"
+  let proof: HostedDraftProof | null = null
+
+  function allowHostedDraft(
+    repository: { githubRepositoryId: bigint | null; nameWithOwner: string },
+    prototype: { branchName: string },
+    ...writers: HostedDraftProof["writers"]
+  ) {
+    if (!repository.githubRepositoryId) throw new Error("The draft needs a GitHub repository ID.")
+    proof = {
+      githubRepositoryId: Number(repository.githubRepositoryId),
+      nameWithOwner: repository.nameWithOwner,
+      branchName: prototype.branchName,
+      writers,
+    }
+  }
+
+  function requestGitHub(input: Parameters<typeof fetch>[0], init?: RequestInit) {
+    const url = new URL(input instanceof Request ? input.url : input)
+    if (proof && url.origin === "https://api.github.com") {
+      const { githubRepositoryId, nameWithOwner, branchName, writers } = proof
+      if (
+        init?.method === "POST" &&
+        url.pathname === `/app/installations/${installationId}/access_tokens`
+      ) {
+        if (typeof init.body !== "string") throw new Error("Missing GitHub repository IDs.")
+        const payload: unknown = JSON.parse(init.body)
+        expect(payload).toEqual({ repository_ids: [githubRepositoryId] })
+        return Promise.resolve(Response.json({ token: installationToken }))
+      }
+      if (
+        init?.method === "GET" &&
+        new Headers(init.headers).get("authorization") === `Bearer ${installationToken}`
+      ) {
+        if (url.pathname === `/repositories/${githubRepositoryId}`) {
+          return Promise.resolve(
+            Response.json({ id: githubRepositoryId, full_name: nameWithOwner }),
+          )
+        }
+        if (url.pathname === `/repos/${nameWithOwner}/branches/${encodeURIComponent(branchName)}`) {
+          return Promise.resolve(Response.json({ name: branchName }))
+        }
+        const writer = writers.find(
+          ({ login }) =>
+            url.pathname === `/repos/${nameWithOwner}/collaborators/${login}/permission`,
+        )
+        if (writer) {
+          return Promise.resolve(
+            Response.json({ permission: "write", user: { id: writer.githubUserId } }),
+          )
+        }
+      }
+    }
+    return Promise.resolve(new Response(null, { status: 404 }))
+  }
+
   const authentication = await createAuthenticationRouteDependencies({
     GITHUB_CLIENT_ID: "test-client",
     GITHUB_CLIENT_SECRET: "test-secret",
     GITHUB_PROVIDER_REVISION: "1",
     GITHUB_APP_ID: "123",
-    GITHUB_APP_INSTALLATION_ID: "456",
+    GITHUB_APP_INSTALLATION_ID: installationId,
     GITHUB_APP_PRIVATE_KEY_BASE64: Buffer.from(
       privateKey.export({ format: "pem", type: "pkcs8" }).toString(),
     ).toString("base64"),
@@ -38,7 +102,14 @@ async function openServer(
     HUB_BOOTSTRAP_SECRET: "test-bootstrap-secret-at-least-32-characters",
   })
   const server = createServer(
-    createApp({ authentication, product: createProductRouteDependencies(options) }),
+    createApp({
+      authentication,
+      product: createProductRouteDependencies({
+        ...options,
+        githubRepositoryCredentials: { appId: "123", installationId, privateKey },
+        requestGitHub,
+      }),
+    }),
   )
   server.listen(0, "127.0.0.1")
   await once(server, "listening")
@@ -49,7 +120,7 @@ async function openServer(
       }),
   )
   const { port } = server.address() as AddressInfo
-  return { authentication, url: `http://127.0.0.1:${port}` }
+  return { allowHostedDraft, authentication, url: `http://127.0.0.1:${port}` }
 }
 
 async function createMember(
@@ -58,13 +129,20 @@ async function createMember(
   const provider = await prisma.authenticationProvider.findUniqueOrThrow({
     where: { key: "github" },
   })
+  const login = randomUUID()
+  const githubUserId = randomInt(1, 2 ** 47)
   const user = await prisma.user.create({
     data: {
-      profile: { create: { provider: options.profileProvider ?? "github", login: randomUUID() } },
+      profile: { create: { provider: options.profileProvider ?? "github", login } },
     },
   })
   const identity = await prisma.externalIdentity.create({
-    data: { userId: user.id, provider: "github", issuer: "https://github.com", subject: user.id },
+    data: {
+      userId: user.id,
+      provider: "github",
+      issuer: "https://github.com",
+      subject: String(githubUserId),
+    },
   })
   const membership = await prisma.membership.create({ data: { userId: user.id } })
   const assignment = await prisma.membershipAssignment.create({
@@ -95,7 +173,7 @@ async function createMember(
           : new Date(Date.now() + options.sessionExpiresInMs),
     },
   })
-  return { user, membership, assignment, session, token }
+  return { user, membership, assignment, session, token, login, githubUserId }
 }
 
 async function createPrototype(
@@ -420,6 +498,7 @@ describe("prototype PATCH API", () => {
     const draft = await prisma.prototype.create({
       data: { repositoryId: repository.id, branchName: "prototype/draft-rollback" },
     })
+    server.allowHostedDraft(repository, draft, member)
     const draftUrl = `${server.url}/api/repositories/${repository.id}/prototypes/${draft.id}`
     const database = new pg.Client({ connectionString: getDatabaseUrl() })
     await database.connect()
@@ -681,65 +760,34 @@ describe("prototype PATCH API", () => {
     expect(await readPrototype(prototype.id)).toEqual(prototype)
   })
 
-  it("registers a visible retired draft with its first author and Builds", async () => {
+  it("does not register a retired hosted draft or change its history", async () => {
     const server = await openServer()
-    const first = await createMember()
-    const second = await createMember()
+    const member = await createMember()
     const { repository, prototype, url } = await createPrototype(server.url, "prototype/draft", {
       draft: true,
     })
-    const profile = await prisma.userProfile.findUniqueOrThrow({ where: { userId: first.user.id } })
+    server.allowHostedDraft(repository, prototype, member)
     const branchDeletedAt = new Date("2026-10-02T00:00:00Z")
     const build = await prisma.build.create({
       data: { prototypeId: prototype.id, number: 1, state: "successful" },
     })
-    await prisma.prototype.update({
+    const retired = await prisma.prototype.update({
       where: { id: prototype.id },
       data: { currentBuildId: build.id, branchDeletedAt },
     })
 
-    const registered = await patch(url, first.token, { name: " \u2003Welcome\u00a0 " })
-    expect(registered.status).toBe(200)
-    expect(await registered.json()).toMatchObject({
-      prototype: {
-        id: prototype.id,
-        repositoryId: repository.id,
-        name: "Welcome",
-        branchName: prototype.branchName,
-        authorLogin: profile.login,
-        description: null,
-        canEdit: true,
-      },
-      selectedBuild: { number: 1, prototypeId: prototype.id },
-    })
-    const saved = await readPrototype(prototype.id)
-    expect(saved).toMatchObject({
-      id: prototype.id,
-      authorId: first.user.id,
-      name: "Welcome",
-      currentBuildId: build.id,
-      createdAt: prototype.createdAt,
-      branchDeletedAt,
-    })
-    expect(saved.registeredAt).toBeInstanceOf(Date)
-
-    expect((await patch(url, second.token, { name: "Updated" })).status).toBe(200)
-    expect(await readPrototype(prototype.id)).toMatchObject({
-      id: prototype.id,
-      name: "Updated",
-      authorId: first.user.id,
-      registeredAt: saved.registeredAt,
-      currentBuildId: build.id,
-    })
+    expect((await patch(url, member.token, { name: "Welcome" })).status).toBe(404)
+    expect(await readPrototype(prototype.id)).toEqual(retired)
     expect(await prisma.build.findUniqueOrThrow({ where: { id: build.id } })).toEqual(build)
   })
 
   it("does not register a hidden replica draft", async () => {
     const server = await openServer()
     const member = await createMember()
-    const { prototype, url } = await createPrototype(server.url, "prototype/internal", {
+    const { repository, prototype, url } = await createPrototype(server.url, "prototype/internal", {
       draft: true,
     })
+    server.allowHostedDraft(repository, prototype, member)
     const hidden = await prisma.prototype.update({
       where: { id: prototype.id },
       data: { replica: true },
@@ -752,9 +800,14 @@ describe("prototype PATCH API", () => {
     const server = await openServer()
     const first = await createMember()
     const second = await createMember()
-    const { prototype, url } = await createPrototype(server.url, "prototype/concurrent", {
-      draft: true,
-    })
+    const { repository, prototype, url } = await createPrototype(
+      server.url,
+      "prototype/concurrent",
+      {
+        draft: true,
+      },
+    )
+    server.allowHostedDraft(repository, prototype, first, second)
     const blocker = new pg.Client({ connectionString: getDatabaseUrl() })
     const inspector = new pg.Client({ connectionString: getDatabaseUrl() })
     await Promise.all([blocker.connect(), inspector.connect()])
@@ -896,9 +949,14 @@ describe("prototype descriptions", () => {
     const server = await openServer()
     const first = await createMember()
     const second = await createMember()
-    const { prototype, url } = await createPrototype(server.url, "prototype/description", {
-      draft: true,
-    })
+    const { repository, prototype, url } = await createPrototype(
+      server.url,
+      "prototype/description",
+      {
+        draft: true,
+      },
+    )
+    server.allowHostedDraft(repository, prototype, first)
     const build = await prisma.build.create({
       data: { prototypeId: prototype.id, number: 1, state: "successful" },
     })
@@ -943,9 +1001,10 @@ describe("prototype descriptions", () => {
   it("uses the branch name when a description registers an unnamed draft", async () => {
     const server = await openServer()
     const member = await createMember()
-    const { prototype, url } = await createPrototype(server.url, "prototype/unnamed", {
+    const { repository, prototype, url } = await createPrototype(server.url, "prototype/unnamed", {
       draft: true,
     })
+    server.allowHostedDraft(repository, prototype, member)
 
     expect((await patch(url, member.token, { description: "First description" })).status).toBe(200)
     const registered = await readPrototype(prototype.id)
@@ -1052,9 +1111,14 @@ describe("prototype start pages", () => {
   it("registers a draft through a start page with encoded spaces and percent signs", async () => {
     const server = await openServer()
     const member = await createMember()
-    const { prototype, url } = await createPrototype(server.url, "prototype/start-page", {
-      draft: true,
-    })
+    const { repository, prototype, url } = await createPrototype(
+      server.url,
+      "prototype/start-page",
+      {
+        draft: true,
+      },
+    )
+    server.allowHostedDraft(repository, prototype, member)
     const startPage = "/welcome%20back/100%25?tab=first#/details"
 
     const response = await patch(url, member.token, { startPage })

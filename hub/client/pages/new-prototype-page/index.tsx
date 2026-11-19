@@ -11,6 +11,7 @@ import { PrototypeBriefComposer } from "@components/prototype-brief-composer"
 import { TemplatePicker } from "@components/template-picker"
 import { RepositoryWorkspace } from "@features/repository-workspace"
 import { TemplateCatalog } from "@features/template-catalog"
+import { useCopilotHandoff } from "@hooks/use-copilot-handoff"
 import { createPrototypeSubmission } from "@utils/create-prototype-submission"
 
 import type { NewPrototypePageData } from "./types"
@@ -24,10 +25,12 @@ const EMPTY_DETAILS: PrototypeDetails = { change: "", audience: "", outcome: "" 
 export function NewPrototypePage({
   data,
   onOpenApp,
+  authorizeHandoff,
   submissionDisabled = false,
 }: {
   data: NewPrototypePageData
   onOpenApp?: (url: string) => void
+  authorizeHandoff?: () => Promise<boolean>
   submissionDisabled?: boolean
 }) {
   const headingId = useId()
@@ -48,6 +51,7 @@ export function NewPrototypePage({
     status: "copied" | "error"
   } | null>(null)
   const submissionId = useRef(0)
+  const handoff = useCopilotHandoff(authorizeHandoff)
   const { copy } = data
   const hasSavedDetails = Object.values(details).some((value) => value.trim())
   const fields = (
@@ -146,10 +150,12 @@ export function NewPrototypePage({
       return
     }
 
-    submissionId.current += 1
-    setSubmission({
-      id: submissionId.current,
-      ...createPrototypeSubmission({ repositoryName: data.repositoryName, prompt }),
+    await handoff.prepare(() => {
+      submissionId.current += 1
+      setSubmission({
+        id: submissionId.current,
+        ...createPrototypeSubmission({ repositoryName: data.repositoryName, prompt }),
+      })
     })
   }
 
@@ -175,6 +181,7 @@ export function NewPrototypePage({
             className="new-prototype__form"
             onSubmit={(event) => void submit(event)}
             inert={submissionDisabled}
+            aria-busy={handoff.pending}
           >
             <PrototypeBriefComposer
               label={copy.heading}
@@ -203,6 +210,7 @@ export function NewPrototypePage({
             />
           </form>
 
+          {handoff.error ? <HubAlert title={handoff.error} variant="critical" /> : null}
           {data.submissionMode === "copy" && copyStatus === "copied" ? (
             <HubToast title={copy.copiedLabel} />
           ) : null}
@@ -215,7 +223,7 @@ export function NewPrototypePage({
             />
           ) : null}
 
-          {submission ? (
+          {submission && !submissionDisabled ? (
             <CopilotAppContinuationDialog
               key={submission.id}
               submission={submission}

@@ -18,6 +18,7 @@ export interface RepositoryNavigationContext {
 }
 
 export interface WorkspaceSidebarData extends WorkspaceAccountData, RepositoryInboxData {
+  emptyRepositoryLabel?: string
   welcomeLabel?: string
   welcomePath?: string | null
   notificationsPath?: string
@@ -50,4 +51,5 @@ export interface WorkspaceSidebarData extends WorkspaceAccountData, RepositoryIn
   }>
   securityAuditLabel?: string
   securityAuditPath?: string | null
+  canvasConnectionsPath?: string
 }

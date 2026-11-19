@@ -72,12 +72,39 @@ export async function upsertConnectedRepositories(
       existing && hasChanged(existing, data) ? [{ ...data, id: existing.id }] : [],
     ),
   )
+  await retainRenamedDefaultBranches(database, plans)
   return repositories.map((repository) => {
     const githubRepositoryId = githubIdOf(repository)
     const id = planned.get(githubRepositoryId)?.existing?.id ?? createdIds.get(githubRepositoryId)
     if (!id) throw new Error("A connected repository was not saved.")
     return id
   })
+}
+
+async function retainRenamedDefaultBranches(
+  database: Pick<Prisma.TransactionClient, "$executeRaw">,
+  plans: PlannedRepository[],
+) {
+  const branches = plans.flatMap(({ existing, data }) =>
+    existing && existing.defaultBranch !== data.defaultBranch
+      ? [...new Set([existing.defaultBranch, data.defaultBranch])]
+          .filter((name) => name !== "replica/install-workflow")
+          .map((name) => ({ repositoryId: existing.id, name }))
+      : [],
+  )
+  if (!branches.length) return
+  // Both names remain internal even if the rename is observed before the first Build scan.
+  await database.$executeRaw`
+    INSERT INTO "prototypes" ("id", "repository_id", "branch_name", "replica")
+    SELECT gen_random_uuid(), branch.repository_id::uuid, branch.name, TRUE
+    FROM unnest(
+      ${branches.map(({ repositoryId }) => repositoryId)}::text[],
+      ${branches.map(({ name }) => name)}::text[]
+    ) AS branch(repository_id, name)
+    ON CONFLICT ("repository_id", "branch_name") WHERE "branch_deleted_at" IS NULL
+    DO UPDATE SET "replica" = TRUE, "registered_at" = NULL, "updated_at" = clock_timestamp()
+    WHERE NOT "prototypes"."replica"
+  `
 }
 
 function githubIdOf(repository: ConnectedRepositoryEvidence): bigint {

@@ -82,7 +82,7 @@ const data: AnalyticsPageData = {
     description:
       "Hub records repository activity for 90 days, even without a destination. Send selected events to your analytics provider.",
     privacy:
-      "Events contain identifiers and timestamps, never comment text or prototype content. Opaque person identifiers are consistent across this Hub. No offline or local editing activity is tracked.",
+      "Events contain timestamps and Hub object identifiers, never people’s identities, comment text, or prototype content. Hub does not track local editing or activity inside previews.",
     destinations: "Destinations",
     empty: "No destinations configured. Hub is still recording events.",
     add: "Add destination",
@@ -158,13 +158,47 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Empty: Story = {}
+export const LocalOutboundDisabled: Story = {
+  args: {
+    data: {
+      ...data,
+      destinations: [customDestination],
+      historyAvailable: false,
+      exportNotice: "Outbound analytics delivery is disabled on this Hub.",
+    },
+  },
+}
+export const WaitingForGitHub: Story = {
+  args: {
+    data: {
+      ...data,
+      historyAvailable: false,
+      authorization: {
+        id: "00000000-0000-4000-8000-000000000001",
+        authorizationUrl: "https://github.com/login/oauth/authorize",
+      },
+    },
+  },
+}
+export const VerifiedGitHubChange: Story = {
+  args: {
+    data: {
+      ...data,
+      destinations: [destination],
+      historyAvailable: false,
+      authorization: { id: "00000000-0000-4000-8000-000000000001" },
+    },
+  },
+}
 export const ReadOnly: Story = {
   args: {
     data: {
       ...data,
       destinations: [destination, customDestination],
       readOnly: true,
-      notice: "You can view analytics destinations, but you do not have permission to change them.",
+      historyAvailable: false,
+      notice:
+        "Hosted destination changes are unavailable until Hub can verify fresh GitHub repository authorization.",
     },
   },
 }

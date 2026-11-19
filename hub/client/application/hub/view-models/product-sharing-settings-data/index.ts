@@ -4,6 +4,7 @@ import { recordIdentifierSchema } from "@application/hub/contracts"
 import type { ProductSharingSettings } from "@application/hub/product-contracts/types"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
 
+import { hubWorkspace } from "../hub-workspace"
 import { resourcePath } from "../resource-path"
 import { settingsWorkspace } from "../settings-workspace"
 
@@ -11,38 +12,40 @@ export function productSharingSettingsData(
   workspace: WorkspaceResponse,
   response: ProductSharingSettings,
   search: URLSearchParams,
+  real = false,
 ): SharingSettingsPageData {
-  const context = search.get("repositoryId")
-  const parsed = context === null ? null : recordIdentifierSchema.safeParse(context)
-  if (parsed && !parsed.success) {
-    throw new ApiRequestError(400, "Invalid repository context.")
-  }
-  const repository = parsed?.success
-    ? workspace.repositories.find(({ id }) => id === parsed.data)
-    : workspace.repositories[0]
-  if (context !== null && !repository) {
-    throw new ApiRequestError(404, "Repository context not found.")
-  }
-  const navigation = settingsWorkspace(
-    workspace,
-    {
-      repository: repository ?? null,
-      session: {
-        capabilities: workspace.capabilities
-          ? {
-              ...workspace.capabilities,
-              administerHub: workspace.capabilities.administerHub && response.canAdminister,
-            }
-          : undefined,
+  const capabilities = workspace.capabilities
+    ? {
+        ...workspace.capabilities,
+        administerHub: workspace.capabilities.administerHub && response.canAdminister,
+      }
+    : undefined
+  function mockNavigation() {
+    const context = search.get("repositoryId")
+    const parsed = context === null ? null : recordIdentifierSchema.safeParse(context)
+    if (parsed && !parsed.success) throw new ApiRequestError(400, "Invalid repository context.")
+    const repository = parsed?.success
+      ? workspace.repositories.find(({ id }) => id === parsed.data)
+      : workspace.repositories[0]
+    if (context !== null && !repository)
+      throw new ApiRequestError(404, "Repository context not found.")
+    return settingsWorkspace(
+      workspace,
+      {
+        repository: repository ?? null,
+        session: { capabilities },
+        welcomeHidden: workspace.navigation?.welcomeHidden ?? false,
+        notifications: { unreadCount: workspace.navigation?.notificationsUnreadCount ?? 0 },
       },
-      welcomeHidden: workspace.navigation?.welcomeHidden ?? false,
-      notifications: { unreadCount: workspace.navigation?.notificationsUnreadCount ?? 0 },
-    },
-    search,
-    "sharing",
-  )
+      search,
+      "sharing",
+    )
+  }
+  const navigation = real
+    ? hubWorkspace({ ...workspace, capabilities }, search, "sharing")
+    : mockNavigation()
   const sharingPath = resourcePath("/settings/sharing", search, {
-    repositoryId: repository?.id ?? null,
+    repositoryId: navigation.repository?.selectedRepositoryId ?? null,
   })
   const common = {
     heading: "Public sharing",
@@ -55,7 +58,7 @@ export function productSharingSettingsData(
     repositoriesLabel: "Repositories",
     repositoriesPath: "/repositories",
     signOutLabel: "Sign out",
-    signOutPath: "/session",
+    signOutPath: real ? "/api/auth/session/sign-out" : "/session",
     authenticityToken: "",
     notice: null,
     alert: null,

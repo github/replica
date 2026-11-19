@@ -1,0 +1,18 @@
+model CanvasPairing {
+  id           String  @id @default(uuid()) @db.Uuid
+  repositoryId String  @map("repository_id") @db.Uuid
+  sessionId    String? @map("session_id") @db.Uuid
+
+  repository Repository  @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  session    HubSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  userCode      String    @unique @map("user_code") @db.VarChar(10)
+  deviceDigest  String    @unique @map("device_digest") @db.VarChar(64)
+  refreshDigest String?   @unique @map("refresh_digest") @db.VarChar(64)
+  expiresAt     DateTime  @map("expires_at") @db.Timestamptz(3)
+  approvedAt    DateTime? @map("approved_at") @db.Timestamptz(3)
+  consumedAt    DateTime? @map("consumed_at") @db.Timestamptz(3)
+
+  @@index([expiresAt])
+  @@map("canvas_pairings")
+}

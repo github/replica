@@ -205,7 +205,7 @@ export function createProductStore(context: MockFlowContext) {
             void _repositoryId
             return { ...candidate }
           }),
-        canCreate: session.read().capabilities.createPrototypes,
+        canManage: session.read().capabilities.createPrototypes,
       }
     },
 

@@ -5,6 +5,10 @@ import type { PrepareLocalBuildInput, PreparedLocalBuild } from "./types.ts"
 export async function prepareLocalBuild(
   database: PrismaClient,
   input: PrepareLocalBuildInput,
+  recordRegistration?: (
+    tx: Prisma.TransactionClient,
+    activity: { repositoryId: string; prototypeId: string },
+  ) => Promise<unknown>,
 ): Promise<PreparedLocalBuild> {
   const nameWithOwner = `local/${input.repositoryName}`.slice(0, 255)
   for (let attempt = 0; ; attempt += 1) {
@@ -33,16 +37,22 @@ export async function prepareLocalBuild(
             },
             select: { id: true },
           })
-          prototype ??= await transaction.prototype.create({
-            data: {
+          if (!prototype) {
+            prototype = await transaction.prototype.create({
+              data: {
+                repositoryId: repository.id,
+                authorId: input.localUserId,
+                branchName: input.branchName,
+                name: input.branchName,
+                registeredAt: new Date(),
+              },
+              select: { id: true },
+            })
+            await recordRegistration?.(transaction, {
               repositoryId: repository.id,
-              authorId: input.localUserId,
-              branchName: input.branchName,
-              name: input.branchName,
-              registeredAt: new Date(),
-            },
-            select: { id: true },
-          })
+              prototypeId: prototype.id,
+            })
+          }
           const existingBuild = await transaction.build.findUnique({
             where: {
               prototypeId_commitSha: {

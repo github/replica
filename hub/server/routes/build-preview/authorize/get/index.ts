@@ -27,7 +27,10 @@ export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler
         return
       }
       const target = await dependencies.findTargetById(buildId, grant.target)
-      if (!target) {
+      if (
+        !target ||
+        (grant.screenshotPath && !(await dependencies.findArtifact(buildId, grant.screenshotPath)))
+      ) {
         response.status(404).end()
         return
       }
@@ -40,6 +43,7 @@ export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler
             grant.sessionDigest,
             expiresAt,
             dependencies.encryptionKey,
+            grant.target === "template",
           ),
           expiresAt,
           secure:
@@ -49,8 +53,9 @@ export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler
       )
       response.setHeader("Cache-Control", "no-store")
       response.setHeader("Referrer-Policy", "no-referrer")
-      const destination =
-        grant.target === "preview"
+      const destination = grant.screenshotPath
+        ? `/__replica/${grant.screenshotPath}`
+        : grant.target === "preview" || grant.target === "template"
           ? (normalizedRoute ?? normalizeStartPage(target.startPage) ?? "/")
           : `/__replica/screenshots/${grant.target}.png`
       response.redirect(303, destination)

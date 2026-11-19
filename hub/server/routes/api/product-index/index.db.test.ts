@@ -310,7 +310,7 @@ describe("real product index", () => {
     }
     const entraSession = {
       membershipId: randomUUID(),
-      userId: randomUUID(),
+      userId: (await prisma.user.create({ data: {} })).id,
       provider: "entra",
       sessionProvider: "entra",
       login: "member",
@@ -604,7 +604,7 @@ describe("real product index", () => {
     })
     const activeSession = {
       membershipId: randomUUID(),
-      userId: randomUUID(),
+      userId: (await prisma.user.create({ data: {} })).id,
       provider: "github",
       sessionProvider: "github",
       login: "mona",
@@ -662,7 +662,7 @@ describe("real product index", () => {
   it("uses the current role after reading the workspace", async () => {
     const session = {
       membershipId: randomUUID(),
-      userId: randomUUID(),
+      userId: (await prisma.user.create({ data: {} })).id,
       provider: "entra",
       sessionProvider: "entra",
       login: "member",
@@ -1571,20 +1571,30 @@ describe("real product index", () => {
       role: "MEMBER" as const,
     }
     const headers = { cookie: "hub_session=member-session" }
-    const product = createProductRouteDependencies({ scopeGitHubMembers: true })
+    const getRepositoryPermission = vi.fn(() => Promise.resolve("write" as const))
+    const product = createProductRouteDependencies({
+      scopeGitHubMembers: true,
+      getRepositoryPermission,
+    })
 
     await withServer(vi.fn().mockResolvedValue(viewer), product, async (baseUrl) => {
-      const workspace = (await (await fetch(`${baseUrl}/api/workspace`, { headers })).json()) as {
-        repositories: { id: string }[]
-      }
+      const workspace = await fetch(`${baseUrl}/api/workspace?repositoryId=${hiddenId}`, {
+        headers,
+      })
+      expect(workspace.status).toBe(200)
+      expect(await workspace.json()).toMatchObject({
+        repositories: [{ id: readableId, capabilities: { managePrototypeListings: true } }],
+      })
+      expect(getRepositoryPermission).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ userId }),
+        readableId,
+      )
       const readable = await fetch(`${baseUrl}/api/repositories/${readableId}`, { headers })
       const hidden = await fetch(`${baseUrl}/api/repositories/${hiddenId}`, { headers })
       const hiddenUsers = await fetch(`${baseUrl}/api/repositories/${hiddenId}/authors`, {
         headers,
       })
 
-      expect(workspace.repositories.map(({ id }) => id)).toContain(readableId)
-      expect(workspace.repositories.map(({ id }) => id)).not.toContain(hiddenId)
       expect(readable.status).toBe(200)
       expect(hidden.status).toBe(404)
       const hiddenDetail = await fetch(`${baseUrl}${hiddenDetailPath}`, { headers })

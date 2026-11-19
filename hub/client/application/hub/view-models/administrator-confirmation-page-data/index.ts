@@ -1,11 +1,11 @@
 import type { HubAdminConfirmationPageData } from "@pages/hub-admin-confirmation-page/types"
-import type { CurrentHubSession } from "@application/hub/administrator-contracts/types"
+import type { HubAdministrationWorkspaceData } from "@features/hub-administration-workspace/types"
 
-import { administratorWorkspace } from "../administrator-workspace"
 import { administratorProviderLabel } from "../administrator-provider-label"
+import { resourcePath } from "../resource-path"
 
 export function administratorConfirmationPageData(
-  session: CurrentHubSession,
+  workspace: HubAdministrationWorkspaceData,
   target: {
     membershipId: string
     provider: string | null
@@ -17,7 +17,7 @@ export function administratorConfirmationPageData(
 ): HubAdminConfirmationPageData {
   const designating = operation === "designate"
   return {
-    administrationWorkspace: administratorWorkspace(session),
+    administrationWorkspace: workspace,
     heading: designating ? "Designate Hub administrator?" : "Remove Hub administrator?",
     description: designating
       ? "This user will be able to designate and remove Hub administrators and read deployment security records. Their repository permissions will not change."
@@ -44,7 +44,9 @@ export function administratorConfirmationPageData(
     submitLabel: designating ? "Designate administrator" : "Remove administrator",
     confirmLabel: "I confirm this Hub administrator role change.",
     cancelLabel: "Cancel",
-    cancelPath: "/settings/administrators",
+    cancelPath: resourcePath("/settings/administrators", new URLSearchParams(), {
+      repositoryId: workspace.repository?.selectedRepositoryId ?? null,
+    }),
     verification:
       "Hub will ask the provider for this session to verify the same account before continuing the confirmed role change.",
     blockedLabel,

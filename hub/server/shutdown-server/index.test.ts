@@ -22,6 +22,7 @@ describe("shutdownServer()", () => {
       }
       const realtime: RealtimeServer = {
         broadcast: vi.fn(),
+        resynchronize: vi.fn(),
         close: vi.fn(
           () =>
             new Promise<void>((resolve, reject) => {

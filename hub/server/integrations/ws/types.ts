@@ -36,10 +36,12 @@ export interface RealtimeOptions<Identity> {
     channel: string,
     signal: AbortSignal,
   ) => boolean | Promise<boolean>
+  revalidateSubscriptions?: boolean
 }
 
 export interface RealtimeServer {
   broadcast: Broadcast
+  resynchronize: () => void
   close: () => Promise<void>
 }
 
@@ -57,6 +59,8 @@ export interface Connection {
   messages: number
   windowEndsAt: number
   check?: AbortController
+  revalidate?: (channel: string, signal: AbortSignal) => boolean | Promise<boolean>
+  rechecks: Map<string, { controller: AbortController; message?: string }>
 }
 
 export interface RealtimeState {

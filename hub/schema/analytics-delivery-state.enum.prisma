@@ -1,0 +1,8 @@
+enum AnalyticsDeliveryState {
+  pending
+  delivering
+  retryable
+  succeeded
+  failed
+  canceled
+}

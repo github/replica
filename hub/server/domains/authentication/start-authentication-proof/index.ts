@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import { z } from "zod"
 
+import { AuthorizationAttemptPurpose } from "../../../generated/prisma/enums.ts"
 import { hashAuthenticationValue } from "../hash-authentication-value/index.ts"
 import { AuthenticationProofError } from "../errors.ts"
 import { recordAuthenticationDenial } from "../record-authentication-denial/index.ts"
@@ -12,7 +13,7 @@ import type {
 
 const inputSchema = z
   .object({
-    purpose: z.enum(["SIGN_IN", "ADMIN_ENROLLMENT", "ADMINISTRATOR_MANAGEMENT"]),
+    purpose: z.enum(AuthorizationAttemptPurpose),
     sensitiveAuthorizationId: z.uuid().optional(),
     switchAccount: z.boolean().optional(),
   })

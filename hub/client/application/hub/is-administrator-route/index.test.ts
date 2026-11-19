@@ -14,13 +14,12 @@ describe("isAdministratorRoute()", () => {
     "/settings/copilot",
     "/settings/copilot/",
     "/Settings/Copilot",
+    "/settings/copilot/confirm",
   ])("classifies %s as an administrator route", (pathname) => {
-    expect(isAdministratorRoute(new Request(`https://hub.example.test${pathname}`))).toBe(true)
+    expect(isAdministratorRoute(new URL(`https://hub.example.test${pathname}`))).toBe(true)
   })
 
   it("does not classify ordinary settings routes as administrator routes", () => {
-    expect(isAdministratorRoute(new Request("https://hub.example.test/settings/sharing"))).toBe(
-      false,
-    )
+    expect(isAdministratorRoute(new URL("https://hub.example.test/settings/sharing"))).toBe(false)
   })
 })

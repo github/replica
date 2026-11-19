@@ -3,6 +3,7 @@ import type { RequestHandler } from "express"
 import { readBuildPreviewFile } from "../../../../domains/build-preview/read-build-preview-file/index.ts"
 import { readPreviewBuildId } from "../../../../domains/build-preview/read-preview-build-id/index.ts"
 import { readPreviewSession } from "../../../../domains/build-preview/read-preview-session/index.ts"
+import { readTemplateScreenshotPath } from "../../../../domains/build-preview/template-screenshot-path/index.ts"
 import { readSharePreviewSession } from "../../../../domains/public-sharing/read-share-preview-session/index.ts"
 import { readCookie } from "../../../../integrations/express/read-cookie/index.ts"
 import type { BuildPreviewRouteDependencies } from "../../types.ts"
@@ -35,7 +36,27 @@ function setSecurityHeaders(
   response.setHeader("X-Content-Type-Options", "nosniff")
 }
 
-export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler {
+export function get(
+  dependencies: BuildPreviewRouteDependencies,
+  canReadTemplate?: (
+    sessionDigest: string,
+    repository: { id: string; local: boolean },
+  ) => Promise<boolean>,
+): RequestHandler {
+  async function authorizePrivate(
+    session: NonNullable<ReturnType<typeof readPreviewSession>>,
+    buildId: string,
+  ) {
+    if (!session.t && !(await dependencies.restoreSession?.(session.s))) return false
+    const target = await dependencies.findTargetById(buildId, session.t ? "template" : "preview")
+    return session.t
+      ? Boolean(
+          target?.templateRepository &&
+          (await canReadTemplate?.(session.s, target.templateRepository)),
+        )
+      : Boolean(target)
+  }
+
   return async (request, response, next) => {
     try {
       const buildId = readPreviewBuildId(request.get("host"), dependencies.previewBaseOrigin)
@@ -49,11 +70,7 @@ export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler
       const shareValue = readCookie(request, "replica_share_preview")
       const shareSession =
         shareValue && readSharePreviewSession(shareValue, buildId, dependencies.encryptionKey)
-      const privateAuthorized =
-        authenticated &&
-        dependencies.restoreSession &&
-        (await dependencies.restoreSession(authenticated.s)) &&
-        (await dependencies.findTargetById(buildId, "preview"))
+      const privateAuthorized = authenticated && (await authorizePrivate(authenticated, buildId))
       const publicLink =
         !privateAuthorized && shareSession && dependencies.readAvailableShareLink
           ? await dependencies.readAvailableShareLink(shareSession.s, buildId)
@@ -62,7 +79,17 @@ export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler
         response.status(404).end()
         return
       }
+      const templateScreenshot = readTemplateScreenshotPath(request.path)
+      if (
+        templateScreenshot &&
+        templateScreenshot !== "screenshots/desktop.png" &&
+        !(privateAuthorized && authenticated && authenticated.t)
+      ) {
+        response.status(404).end()
+        return
+      }
       const screenshot =
+        templateScreenshot ||
         request.path === "/__replica/screenshots/desktop.png" ||
         request.path === "/__replica/screenshots/narrow.png"
       setSecurityHeaders(
@@ -76,7 +103,7 @@ export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler
           .replace('"__REPLICA_HUB_ORIGIN__"', JSON.stringify(dependencies.applicationOrigin))
           .replace(
             '"__REPLICA_REVIEW_ENABLED__"',
-            JSON.stringify(String(Boolean(privateAuthorized))),
+            JSON.stringify(String(Boolean(privateAuthorized && authenticated && !authenticated.t))),
           )
         const source = `${reviewSource}\n${dependencies.bridgeSource};ReplicaHostedPreviewBridge.installHostedBridge(${JSON.stringify(dependencies.applicationOrigin)});`
         response.setHeader(
@@ -91,6 +118,7 @@ export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler
         {
           acceptsHtml: Boolean(request.accepts("html")),
           buildId,
+          distOnly: publicLink?.hosted,
           requestPath: request.path,
         },
         dependencies,
@@ -110,17 +138,14 @@ export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler
       }
       if (
         privateAuthorized &&
-        (!authenticated ||
-          !dependencies.restoreSession ||
-          !(await dependencies.restoreSession(authenticated.s)) ||
-          !(await dependencies.findTargetById(buildId, "preview")))
+        (!authenticated || !(await authorizePrivate(authenticated, buildId)))
       ) {
         response.status(404).end()
         return
       }
       response.setHeader(
         "Cache-Control",
-        publicLink
+        publicLink || (templateScreenshot && authenticated && authenticated.t)
           ? "private, no-store"
           : file.html
             ? "private, no-cache"

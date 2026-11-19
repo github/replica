@@ -168,6 +168,7 @@ async function admitWithinTransaction(
     throw new AdmissionDeniedError("identity_mismatch", input.proof.externalIdentityId)
   }
   if (
+    (attempt.purpose !== "SIGN_IN" && attempt.purpose !== "ADMIN_ENROLLMENT") ||
     !attempt.consumedAt ||
     provider.selectedRevisionId !== attempt.providerRevisionId ||
     revocation.revision !== attempt.sessionRevocationRevision

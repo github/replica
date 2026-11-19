@@ -28,6 +28,49 @@ const nodeTests = [
   "client/utils/resolve-prototype-share-readiness/index.test.ts",
 ]
 
+const databaseSetupFile = "./test/database/setup.ts"
+const databaseSetup = {
+  globalSetup: ["./test/database/global-setup/index.ts"],
+  hookTimeout: 30_000,
+}
+
+const standardProjects = [
+  {
+    name: "node",
+    environment: "node",
+    include: [...nodeTests, "server/**/*.test.{ts,tsx}", "test/**/*.test.{ts,tsx}"],
+    exclude: [],
+    setupFiles: [],
+  },
+  {
+    name: "browser",
+    environment: "jsdom",
+    include: ["client/**/*.test.{ts,tsx}", ".storybook/**/*.test.{ts,tsx}"],
+    exclude: nodeTests,
+    setupFiles: ["./client/test/setup.ts"],
+  },
+].flatMap(({ name, ...environment }) =>
+  [false, true].map((database) => ({
+    extends: true as const,
+    test: {
+      ...environment,
+      name: database ? `${name}-database` : name,
+      include: environment.include.map((pattern) =>
+        database ? pattern.replace(".test.", ".db.test.") : pattern,
+      ),
+      exclude: [
+        ...configDefaults.exclude,
+        ...environment.exclude.map((pattern) =>
+          database ? pattern.replace(".test.", ".db.test.") : pattern,
+        ),
+        ...(database ? [] : ["**/*.db.test.{ts,tsx}"]),
+      ],
+      setupFiles: [...environment.setupFiles, ...(database ? [databaseSetupFile] : [])],
+      ...(database ? databaseSetup : {}),
+    },
+  })),
+)
+
 export default defineConfig({
   plugins: [react()],
   resolve: { alias: viteAliases, dedupe: ["react", "react-dom"] },
@@ -46,48 +89,18 @@ export default defineConfig({
     setupFiles: ["./test/setup.ts"],
     server: { deps: { inline: [/@primer\//] } },
     projects: [
+      ...standardProjects,
       {
-        name: "node",
-        environment: "node",
-        include: [...nodeTests, "server/**/*.test.{ts,tsx}", "test/**/*.test.{ts,tsx}"],
-        exclude: [],
-        setupFiles: [],
-      },
-      {
-        name: "browser",
-        environment: "jsdom",
-        include: ["client/**/*.test.{ts,tsx}", ".storybook/**/*.test.{ts,tsx}"],
-        exclude: nodeTests,
-        setupFiles: ["./client/test/setup.ts"],
-      },
-    ].flatMap(({ name, ...environment }) =>
-      [false, true].map((database) => ({
         extends: true,
         test: {
-          ...environment,
-          name: database ? `${name}-database` : name,
-          include: environment.include.map((pattern) =>
-            database ? pattern.replace(".test.", ".db.test.") : pattern,
-          ),
-          exclude: [
-            ...configDefaults.exclude,
-            ...environment.exclude.map((pattern) =>
-              database ? pattern.replace(".test.", ".db.test.") : pattern,
-            ),
-            ...(database ? [] : ["**/*.db.test.{ts,tsx}"]),
-          ],
-          setupFiles: [
-            ...environment.setupFiles,
-            ...(database ? ["./test/database/setup.ts"] : []),
-          ],
-          ...(database
-            ? {
-                globalSetup: ["./test/database/global-setup/index.ts"],
-                hookTimeout: 30_000,
-              }
-            : {}),
+          name: "local-smoke",
+          environment: "node",
+          include: ["test/local-smoke/index.smoke.ts"],
+          exclude: configDefaults.exclude,
+          setupFiles: [databaseSetupFile],
+          ...databaseSetup,
         },
-      })),
-    ),
+      },
+    ],
   },
 })

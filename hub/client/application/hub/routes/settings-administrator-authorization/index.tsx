@@ -9,8 +9,9 @@ import { cancelAdministratorAuthorization } from "@application/hub/requests/canc
 import { continueAdministratorAuthorization } from "@application/hub/requests/continue-administrator-authorization"
 import { getAdministratorAuthorization } from "@application/hub/requests/get-administrator-authorization"
 import { getCurrentHubSession } from "@application/hub/requests/get-current-hub-session"
-import { administratorWorkspace } from "@application/hub/view-models/administrator-workspace"
+import { loadAdministratorWorkspace } from "@application/hub/load-administrator-workspace"
 import { administratorProviderLabel } from "@application/hub/view-models/administrator-provider-label"
+import { resourcePath } from "@application/hub/view-models/resource-path"
 import { ApiContractError } from "@application/hub/requests/api-contract-error"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
 
@@ -29,12 +30,15 @@ export async function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "re
   if (session.role !== "ADMINISTRATOR") {
     throw new Response("Administrator access is required.", { status: 403 })
   }
-  const { authorization } = await getAdministratorAuthorization(request, authorizationId.data)
+  const [{ authorization }, workspace] = await Promise.all([
+    getAdministratorAuthorization(request, authorizationId.data),
+    loadAdministratorWorkspace(request, session, "admins"),
+  ])
   return {
     authorizationId: authorizationId.data,
     authorization,
     page: {
-      administrationWorkspace: administratorWorkspace(session),
+      administrationWorkspace: workspace,
       productName: "Replica Hub",
       pageTitle: "Complete administrator role change",
       heading: "Complete administrator role change",
@@ -78,6 +82,14 @@ export default function SettingsAdministratorAuthorization({
     | { state: "access-removed"; notice: string; sessionEnded: boolean }
   >({ state: "idle" })
 
+  function administratorsPath(result: "cancelled" | "changed") {
+    return resourcePath("/settings/administrators", new URLSearchParams(), {
+      result,
+      repositoryId:
+        loaderData.page.administrationWorkspace.repository?.selectedRepositoryId ?? null,
+    })
+  }
+
   async function submit(formElement: HTMLFormElement) {
     if (result.state === "busy") return
     const form = new FormData(formElement)
@@ -86,7 +98,7 @@ export default function SettingsAdministratorAuthorization({
     try {
       if (form.get("_method") === "delete") {
         await cancelAdministratorAuthorization(request, loaderData.authorizationId)
-        void navigate("/settings/administrators?result=cancelled")
+        void navigate(administratorsPath("cancelled"))
         return
       }
       await continueAdministratorAuthorization(request, {
@@ -120,7 +132,7 @@ export default function SettingsAdministratorAuthorization({
         })
         return
       }
-      void navigate("/settings/administrators?result=changed")
+      void navigate(administratorsPath("changed"))
     } catch (error) {
       if (error instanceof ApiRequestError) {
         setResult({ state: "error", message: administratorErrorMessage(error.message) })

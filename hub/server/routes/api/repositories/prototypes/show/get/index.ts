@@ -5,10 +5,15 @@ import { hashAuthenticationValue } from "../../../../../../domains/authenticatio
 import { PrototypeViewError } from "../../../../../../domains/prototypes/read-prototype-with-introduction/index.ts"
 import { hubSessionCookieName } from "../../../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../../../../../integrations/express/read-cookie/index.ts"
+import { GitHubProviderRequestError } from "../../../../../../integrations/github/errors.ts"
 import type { CurrentSessionDependencies } from "../../../../auth/types.ts"
 import { readProductSession } from "../../../../product/read-product-session/index.ts"
 import { readProductWithCurrentAuthority } from "../../../../product/read-product-with-current-authority/index.ts"
-import type { ProductRouteDependencies } from "../../../../product/types.ts"
+import { canHandOffToCopilot } from "../../../../product/template-repository-access/index.ts"
+import type { WorkspaceProductRouteDependencies } from "../../../../product/types.ts"
+import { readHostedSharingCapability } from "../../../../public-sharing/read-hosted-sharing-capability/index.ts"
+import type { PublicSharingRouteDependencies } from "../../../../public-sharing/types.ts"
+import { respondReviewError } from "../../../../review-comments/respond-review-error/index.ts"
 
 const querySchema = z
   .object({
@@ -17,12 +22,14 @@ const querySchema = z
       .regex(/^[1-9]\d*$/)
       .optional(),
     view: z.enum(["gallery", "list", "minimized"]).optional(),
+    from: z.literal("inbox").optional(),
   })
   .strict()
 
 export function get(
   session: CurrentSessionDependencies,
-  product: ProductRouteDependencies,
+  product: WorkspaceProductRouteDependencies,
+  hosted?: PublicSharingRouteDependencies["hosted"],
 ): RequestHandler {
   return async (request, response, next) => {
     try {
@@ -54,8 +61,45 @@ export function get(
         response.status(404).json({ error: "Successful Build not found." })
         return
       }
+      const sharing = await readHostedSharingCapability({
+        cookie,
+        initial,
+        session,
+        product,
+        hosted,
+        repositoryId: repositoryId.data,
+        prototypeId: prototypeId.data,
+      })
 
-      if (query.data.view !== "minimized" && request.method === "GET") {
+      const eligibility =
+        product.getRepositoryPermission && initial.sessionProvider === "github"
+          ? await readProductWithCurrentAuthority(initial, cookie, session, async (viewer) => {
+              if (!(await product.isRepositoryVisible(viewer, repositoryId.data))) return false
+              try {
+                return await canHandOffToCopilot(product, viewer, repositoryId.data)
+              } catch (error) {
+                if (error instanceof GitHubProviderRequestError) return false
+                throw error
+              }
+            })
+          : { result: false }
+      if (!eligibility) {
+        response.status(401).json({ error: "Sign in to continue." })
+        return
+      }
+      const branch = eligibility.result ? { canBranch: true } : {}
+      if (query.data.from && product.authorizeReviewAccess) {
+        const access = await product.authorizeReviewAccess(repositoryId.data, {
+          ...initial,
+          sessionDigest: hashAuthenticationValue(cookie),
+        })
+        if (!access.canView) {
+          response.status(404).json({ error: "Review access is not available." })
+          return
+        }
+      }
+
+      if (query.data.view !== "minimized" && !query.data.from && request.method === "GET") {
         const body = await product.readPrototypeWithIntroduction(
           {
             buildNumber,
@@ -68,8 +112,9 @@ export function get(
           (detail, showPrototypeInfo) =>
             JSON.stringify({
               ...detail,
-              prototype: { ...detail.prototype, canEdit: true },
+              prototype: { ...detail.prototype, canEdit: true, ...sharing },
               showPrototypeInfo,
+              ...branch,
             }),
         )
         // Avoid conditional 304 responses after the introduction has been recorded.
@@ -94,15 +139,20 @@ export function get(
 
       response.json({
         ...detail,
-        prototype: { ...detail.prototype, canEdit: true },
+        prototype: { ...detail.prototype, canEdit: true, ...sharing },
         showPrototypeInfo: false,
+        ...branch,
       })
     } catch (error) {
       if (error instanceof PrototypeViewError) {
         response.status(error.code === "not_signed_in" ? 401 : 404).json({ error: error.message })
         return
       }
-      next(error)
+      if (error instanceof GitHubProviderRequestError) {
+        response.status(503).json({ error: "Hub could not check GitHub repository permissions." })
+        return
+      }
+      if (!respondReviewError(error, response)) next(error)
     }
   }
 }

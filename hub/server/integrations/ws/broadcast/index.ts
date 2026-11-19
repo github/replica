@@ -1,5 +1,5 @@
 import { CHANNEL_SCHEMA, EVENT_SCHEMA } from "../constants.ts"
-import { sendMessage } from "../send-message/index.ts"
+import { revalidateSubscription } from "../revalidate-subscription/index.ts"
 import type { Broadcast, RealtimeState } from "../types.ts"
 
 export function broadcast(state: RealtimeState, channel: string, event: Parameters<Broadcast>[1]) {
@@ -12,6 +12,6 @@ export function broadcast(state: RealtimeState, channel: string, event: Paramete
   }
   for (const socket of state.channels.get(channel) ?? []) {
     const connection = state.connections.get(socket)
-    if (connection) sendMessage(state, socket, connection, message)
+    if (connection) revalidateSubscription(state, socket, connection, channel, message)
   }
 }

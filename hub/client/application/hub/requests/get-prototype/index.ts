@@ -10,6 +10,11 @@ export function getPrototype(request: Request, repositoryId: string, prototypeId
   if (query.view === "minimized") {
     url.searchParams.set("view", "minimized")
   }
+  if (
+    !(import.meta.env.DEV && import.meta.env.MODE === "mock") &&
+    new URL(request.url).searchParams.has("notification")
+  )
+    url.searchParams.set("from", "inbox")
 
   return requestJson(url, prototypeResponseSchema, {
     signal: request.signal,

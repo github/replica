@@ -4,6 +4,21 @@ import { currentHubSessionSchema } from "@application/hub/administrator-contract
 import { securityAuditResponseSchema } from "@application/hub/security-audit-contracts"
 
 import { securityAuditPageData } from "."
+import { hubWorkspace } from "../hub-workspace"
+
+const navigation = hubWorkspace(
+  {
+    viewer: {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      login: "octocat",
+      name: "The Octocat",
+      avatarUrl: null,
+    },
+    repositories: [],
+  },
+  new URLSearchParams(),
+  "audit",
+)
 
 describe("securityAuditPageData()", () => {
   it("retains supplied order and maps actors, outcomes, bounded context, and opaque pagination", () => {
@@ -73,7 +88,7 @@ describe("securityAuditPageData()", () => {
       nextCursor: cursor,
     })
 
-    const page = securityAuditPageData(session, response)
+    const page = securityAuditPageData(session, response, navigation)
 
     expect(page.nextPath).toBe(`/settings/audit?scope=hub&before=${encodeURIComponent(cursor)}`)
     expect(page.events).toEqual([
@@ -143,7 +158,7 @@ describe("securityAuditPageData()", () => {
       nextCursor: null,
     })
 
-    expect(securityAuditPageData(session, response).events[0]?.context).toEqual([
+    expect(securityAuditPageData(session, response, navigation).events[0]?.context).toEqual([
       { label: "GitHub App", value: "123" },
       { label: "Billed organization", value: "github" },
       { label: "Provider", value: "github_app_installation" },

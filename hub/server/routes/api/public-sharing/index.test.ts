@@ -219,6 +219,7 @@ describe("public sharing API", () => {
         repositoryId,
         prototypeId,
         publicId,
+        actorMembershipId: member.membershipId,
       })
     })
   })

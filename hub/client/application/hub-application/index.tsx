@@ -45,7 +45,7 @@ const signInLabels: Record<HomeSignInAction["provider"], string> = {
   local: "Sign in as local developer",
 }
 
-export function HubApplication() {
+export function HubApplication({ canvasReturnTo }: { canvasReturnTo?: string } = {}) {
   const { resolvedColorMode } = useHubTheme()
   const [session, setSession] = useState<SessionState>({ status: "loading" })
   const authentication = new URLSearchParams(window.location.search).get("authentication")
@@ -197,7 +197,9 @@ export function HubApplication() {
                 : null,
         badge: "Collaborative prototyping",
         badgeAlternate: "Built for feedback",
-        description: "Sign in with an active Replica Hub membership.",
+        description: canvasReturnTo
+          ? "Sign in to continue to your Replica canvas connection."
+          : "Sign in with an active Replica Hub membership.",
         footerNote: "\u00a9 2026 GitHub, Inc.",
         heading: "Build and review prototypes with your team.",
         notice: null,
@@ -205,6 +207,7 @@ export function HubApplication() {
         pauseAnimationLabel: "Pause animation",
         resumeAnimationLabel: "Resume animation",
         signInActions: providerActions,
+        signInReturnTo: canvasReturnTo,
       }}
     />
   )

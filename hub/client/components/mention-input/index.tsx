@@ -225,7 +225,7 @@ export function MentionInput({ value, onValueChange, onKeyDown, ref, ...props }:
                 <ul role="listbox" aria-label={source.copy.suggestions}>
                   {suggestions.map((candidate, index) => (
                     <li
-                      key={candidate.githubId}
+                      key={candidate.githubId ?? candidate.login}
                       id={`${listId}-${index}`}
                       role="option"
                       aria-selected={index === activeIndex}

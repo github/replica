@@ -4,6 +4,7 @@ import { z } from "zod"
 import { HubAdminConfirmationPage } from "@pages/hub-admin-confirmation-page"
 import { administratorErrorMessage } from "@application/hub/administrator-error-message"
 import { beginAdministratorAuthorization } from "@application/hub/begin-administrator-authorization"
+import { loadAdministratorWorkspace } from "@application/hub/load-administrator-workspace"
 import { ApiContractError } from "@application/hub/requests/api-contract-error"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
 import { getAdministrators } from "@application/hub/requests/get-administrators"
@@ -34,7 +35,10 @@ export async function clientLoader({
   if (session.role !== "ADMINISTRATOR") {
     throw new Response("Administrator access is required.", { status: 403 })
   }
-  const page = await getAdministrators(request, before)
+  const [page, workspace] = await Promise.all([
+    getAdministrators(request, before),
+    loadAdministratorWorkspace(request, session, "admins"),
+  ])
   const target = page.administrators.find(
     (administrator) => administrator.membershipId === parameters.data.membershipId,
   )
@@ -48,7 +52,7 @@ export async function clientLoader({
     page.administrators[0]?.membershipId === parameters.data.membershipId
   return {
     page: administratorConfirmationPageData(
-      session,
+      workspace,
       target,
       parameters.data.operation,
       finalAdministrator

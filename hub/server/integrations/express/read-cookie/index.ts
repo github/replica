@@ -1,6 +1,6 @@
 import type { Request } from "express"
 
-export function readCookie(request: Request, name: string): string | null {
+export function readCookie(request: Pick<Request, "headers">, name: string): string | null {
   const header = request.headers.cookie
   if (!header) return null
   for (const pair of header.split(";")) {

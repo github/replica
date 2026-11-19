@@ -1,11 +1,16 @@
-import type { KeyObject } from "node:crypto"
 import { z } from "zod"
 
-import { createGitHubAppJwt } from "../create-github-app-jwt/index.ts"
+import {
+  createGitHubInstallationClient,
+  type GitHubInstallationClient,
+} from "../create-installation-client/index.ts"
+import type {
+  GitHubInstallationCredentials,
+  GitHubInstallationTransport,
+} from "../create-installation-client/types.ts"
 import { GitHubProviderRequestError } from "../errors.ts"
 import type { GitHubRepositoryEvidence } from "../types.ts"
 
-const tokenSchema = z.looseObject({ token: z.string().min(1) })
 const repositoriesSchema = z.looseObject({
   total_count: z.number().int().nonnegative(),
   repositories: z.array(
@@ -24,56 +29,21 @@ const maxPages = 20
  * returning a partial list, so callers never disconnect repositories by mistake.
  */
 export async function listInstallationRepositories(
-  input: { appId: string; installationId: string; privateKey: KeyObject },
-  {
-    apiUrl = "https://api.github.com",
-    fetch: request = fetch,
-    now = () => new Date(),
-    timeoutMs = 10_000,
-  }: { apiUrl?: string; fetch?: typeof fetch; now?: () => Date; timeoutMs?: number } = {},
+  input: GitHubInstallationCredentials,
+  transport?: GitHubInstallationTransport,
 ): Promise<GitHubRepositoryEvidence[]> {
-  async function send<Schema extends z.ZodType>(
-    schema: Schema,
-    path: string,
-    token: string,
-    method = "GET",
-  ): Promise<z.infer<Schema>> {
-    let response: Response
-    try {
-      response = await request(new URL(path, apiUrl), {
-        headers: {
-          Accept: "application/vnd.github+json",
-          Authorization: `Bearer ${token}`,
-          "User-Agent": "Replica-Hub",
-          "X-GitHub-Api-Version": "2022-11-28",
-        },
-        method,
-        redirect: "error",
-        signal: AbortSignal.timeout(timeoutMs),
-      })
-    } catch (error) {
-      throw new GitHubProviderRequestError({ cause: error })
-    }
-    if (!response.ok) throw new GitHubProviderRequestError()
-    // A malformed response is a provider failure, not a Hub server error.
-    const body = schema.safeParse(await response.json().catch(() => undefined))
-    if (!body.success) throw new GitHubProviderRequestError({ cause: body.error })
-    return body.data
-  }
+  return readInstallationRepositories(await createGitHubInstallationClient(input, transport))
+}
 
-  const { token } = await send(
-    tokenSchema,
-    `/app/installations/${encodeURIComponent(input.installationId)}/access_tokens`,
-    await createGitHubAppJwt(input, now()),
-    "POST",
-  )
+export async function readInstallationRepositories(
+  client: GitHubInstallationClient,
+): Promise<GitHubRepositoryEvidence[]> {
   const repositories: GitHubRepositoryEvidence[] = []
   let totalCount: number | undefined
   for (let page = 1; page <= maxPages; page += 1) {
-    const body = await send(
-      repositoriesSchema,
+    const body = await client.get(
       `/installation/repositories?per_page=${pageSize}&page=${page}`,
-      token,
+      repositoriesSchema,
     )
     if (totalCount !== undefined && totalCount !== body.total_count) {
       throw new GitHubProviderRequestError()

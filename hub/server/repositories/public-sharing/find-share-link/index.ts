@@ -9,7 +9,7 @@ export function findShareLink(
     include: {
       build: {
         include: {
-          artifacts: { where: { path: "dist/index.html" }, select: { id: true } },
+          artifacts: { where: { path: "dist/index.html" }, select: { kind: true } },
           prototype: { include: { repository: true } },
         },
       },

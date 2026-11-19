@@ -1025,6 +1025,7 @@ describe("createAuthenticationRouteDependencies()", () => {
     )
 
     await expect(dependencies.currentSession.restore(entraDigest)).resolves.toEqual({
+      externalIdentityId: entraSession.externalIdentityId,
       membershipId: entraSession.membershipId,
       userId: entraSession.userId,
       provider: "entra",
@@ -1034,6 +1035,7 @@ describe("createAuthenticationRouteDependencies()", () => {
       role: "MEMBER",
     })
     await expect(dependencies.currentSession.restore(githubDigest)).resolves.toEqual({
+      externalIdentityId: githubSession.externalIdentityId,
       membershipId: githubSession.membershipId,
       userId: githubSession.userId,
       provider: "github",

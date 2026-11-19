@@ -1,16 +1,20 @@
 import type { RequestHandler } from "express"
+import { z } from "zod"
 
+import { authorizeRepositoryReview } from "../../../../domains/review-comments/authorize-repository-review/index.ts"
 import { hubSessionCookieName } from "../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../../../integrations/express/read-cookie/index.ts"
+import { GitHubProviderRequestError } from "../../../../integrations/github/errors.ts"
+import { canWriteRepository } from "../../../../utils/can-write-repository/index.ts"
 import type { CurrentSessionDependencies } from "../../auth/types.ts"
 import { readProductSession } from "../../product/read-product-session/index.ts"
 import { readProductWithCurrentAuthority } from "../../product/read-product-with-current-authority/index.ts"
-import type { ProductRouteDependencies } from "../../product/types.ts"
-import { authorizeRepositoryReview } from "../../../../domains/review-comments/authorize-repository-review/index.ts"
+import { canBrowseTemplates } from "../../product/template-repository-access/index.ts"
+import type { WorkspaceProductRouteDependencies } from "../../product/types.ts"
 
 export function get(
   session: CurrentSessionDependencies,
-  product: ProductRouteDependencies,
+  product: WorkspaceProductRouteDependencies,
   manageSharing = false,
 ): RequestHandler {
   return async (request, response, next) => {
@@ -21,19 +25,71 @@ export function get(
         response.status(401).json({ error: "Sign in to continue." })
         return
       }
-      const read = await readProductWithCurrentAuthority(initial, cookie, session, (viewer) =>
-        product.listRepositories(viewer),
+      const selectedRepository = z.uuid().safeParse(request.query.repositoryId)
+      const read = await readProductWithCurrentAuthority(
+        initial,
+        cookie,
+        session,
+        async (viewer) => {
+          const [repositories, welcomeHidden] = await Promise.all([
+            product.listRepositories(viewer),
+            product.welcome?.isHidden(viewer.userId),
+          ])
+          const requested = selectedRepository.success
+            ? selectedRepository.data.toLowerCase()
+            : null
+          const selected = repositories.find(({ id }) => id === requested) ?? repositories[0]
+          let permission = "none"
+          let permissionUnavailable = false
+          if (selected) {
+            try {
+              permission = (await product.getRepositoryPermission?.(viewer, selected.id)) ?? "none"
+            } catch (error) {
+              if (!(error instanceof GitHubProviderRequestError)) throw error
+              // Permission uncertainty must not hide an otherwise readable gallery.
+              permissionUnavailable = true
+            }
+          }
+          return { repositories, selected, permission, permissionUnavailable, welcomeHidden }
+        },
       )
       if (!read) {
         response.status(401).json({ error: "Sign in to continue." })
         return
       }
-      const { current, result: repositories } = read
+      const {
+        current,
+        result: { repositories, selected, permission, permissionUnavailable, welcomeHidden },
+      } = read
       const presentedRepositories = repositories.map(({ localPath, ...repository }) => ({
         ...repository,
         capabilities: {
           reviewPrototypes: authorizeRepositoryReview(current, { localPath }).canView,
           manageSharing: current.provider === "local" && Boolean(localPath) && manageSharing,
+          ...(product.templates && canBrowseTemplates(current, Boolean(localPath))
+            ? { browseTemplates: true, local: Boolean(localPath) }
+            : {}),
+          ...((product.findPrototypeManagement || product.findLocalPrototypeManagement) &&
+          ((repository.id === selected?.id && canWriteRepository(permission)) ||
+            (current.sessionProvider === "local" && current.role === "ADMINISTRATOR" && localPath))
+            ? { managePrototypeListings: true }
+            : {}),
+          ...(product.analytics &&
+          ((repository.id === selected?.id && permission === "admin") ||
+            (product.analytics.localAdministration &&
+              current.sessionProvider === "local" &&
+              current.role === "ADMINISTRATOR" &&
+              localPath))
+            ? { manageAnalytics: true }
+            : {}),
+          ...(repository.id === selected?.id
+            ? {
+                administerRepository: permission === "admin",
+                ...(permissionUnavailable ? { repositoryPermissionUnavailable: true } : {}),
+              }
+            : current.sessionProvider === "local" && current.role === "ADMINISTRATOR" && localPath
+              ? { administerRepository: true }
+              : {}),
         },
       }))
       response.json({
@@ -45,6 +101,9 @@ export function get(
           avatarUrl: null,
         },
         repositories: presentedRepositories,
+        ...(product.reviewInbox ? { reviewInboxAvailable: true } : {}),
+        ...(manageSharing ? { publicSharingSettingsAvailable: true } : {}),
+        ...(welcomeHidden !== undefined ? { welcomeHidden } : {}),
         capabilities: {
           createPrototypes: false,
           reviewPrototypes: false,

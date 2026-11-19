@@ -1,4 +1,5 @@
 import type { AuthenticationProviderAdapter } from "../types.ts"
+import type { AuthorizationAttemptPurpose } from "../../../generated/prisma/enums.ts"
 
 export interface SelectedProviderRevision {
   configurationDigest: string
@@ -17,7 +18,7 @@ export interface StartAuthenticationProofDependencies {
     id: string
     lifetimeSeconds: number
     nonceCiphertext: string
-    purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
+    purpose: AuthorizationAttemptPurpose
     providerRevisionId: string
     sensitiveAuthorizationId?: string
     sessionRevocationRevision: number
@@ -36,7 +37,7 @@ export interface StartAuthenticationProofDependencies {
 }
 
 export interface StartAuthenticationProofInput {
-  purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
+  purpose: AuthorizationAttemptPurpose
   sensitiveAuthorizationId?: string
   switchAccount?: boolean
 }

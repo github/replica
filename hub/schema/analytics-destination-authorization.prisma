@@ -1,0 +1,23 @@
+model AnalyticsDestinationAuthorization {
+  // ID columns
+  id                 String @id @db.Uuid
+  repositoryId       String @map("repository_id") @db.Uuid
+  hubSessionId       String @unique @map("hub_session_id") @db.Uuid
+  externalIdentityId String @map("external_identity_id") @db.Uuid
+
+  // Relations
+  attempt           AuthorizationAttempt @relation(fields: [id], references: [id], onDelete: Cascade)
+  repository        Repository           @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  hubSession        HubSession           @relation(fields: [hubSessionId], references: [id], onDelete: Cascade)
+
+  // Attribute columns
+  mutationCiphertext String @map("mutation_ciphertext")
+
+  // Timestamp columns
+  verifiedAt DateTime? @map("verified_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([repositoryId])
+  @@map("analytics_destination_authorizations")
+}

@@ -92,7 +92,7 @@ export function createGitHubUserAuthenticationAdapter(
       if (freshAuthentication) url.searchParams.set("prompt", "select_account")
       return url
     },
-    async completeAuthenticationProof({ callbackUri, code, codeVerifier }) {
+    async completeAuthenticationProof({ callbackUri, code, codeVerifier, identityOnly }) {
       if (callbackUri !== configuration.callbackUri) {
         throw new Error("GitHub callback URI does not match the configured callback URI.")
       }
@@ -142,7 +142,7 @@ export function createGitHubUserAuthenticationAdapter(
               },
             }
           : {}),
-        ...(input.installationId === undefined
+        ...(input.installationId === undefined || identityOnly
           ? {}
           : await repositoryAccessEvidence(input.installationId, token.access_token)),
       }

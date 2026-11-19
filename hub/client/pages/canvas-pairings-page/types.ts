@@ -3,7 +3,7 @@ type SharedData = {
   productName: string
   heading: string
   description: string
-  authenticityToken: string
+  authenticityToken?: string
 }
 
 export type CanvasPairingsPageData =
@@ -13,10 +13,11 @@ export type CanvasPairingsPageData =
       code: string
       codeLabel: string
       codeInstruction: string
+      codeExpiresLabel?: string
       repository: string
       repositoryLabel: string
       permissions: string
-      learningsConsentVersion: string
+      learningsConsentVersion?: string
       expiration: string
       connectionsLabel: string
       connectionsPath: string

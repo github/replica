@@ -10,6 +10,8 @@ model HubSession {
   externalIdentity ExternalIdentity? @relation(fields: [externalIdentityId], references: [id], onDelete: Restrict)
   providerRevision AuthenticationProviderRevision? @relation(fields: [providerRevisionId], references: [id], onDelete: Restrict)
   sensitiveAuthorizations SensitiveAuthorization[]
+  canvasPairings CanvasPairing[]
+  analyticsDestinationAuthorization AnalyticsDestinationAuthorization?
 
   // Attribute columns
   digest             String    @unique @db.VarChar(64)

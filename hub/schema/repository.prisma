@@ -1,6 +1,7 @@
 model Repository {
   // ID columns
   id String @id @default(uuid()) @db.Uuid
+  canvasId Int @unique @default(autoincrement()) @map("canvas_id")
 
   // Relations
   learningRuns               LearningRun[]
@@ -16,6 +17,13 @@ model Repository {
   branchHeadObservations     BranchHeadObservation[]
   reviewThreads              ReviewThread[]
   accessGrants               RepositoryAccessGrant[]
+  securityAudits             SecurityAudit[]
+  canvasPairings             CanvasPairing[]
+  canvasGrants               CanvasGrant[]
+  analyticsEvents            AnalyticsEvent[]
+  analyticsDestinations      AnalyticsDestination[]
+  analyticsState             AnalyticsRepositoryState?
+  analyticsDestinationAuthorizations AnalyticsDestinationAuthorization[]
 
   // Attribute columns
   githubRepositoryId BigInt?   @unique @map("github_repository_id")

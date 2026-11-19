@@ -6,9 +6,16 @@ export async function lockImportedPrototype(
   buildId: string,
 ) {
   const rows = await database.$queryRaw<
-    Array<{ id: string; branchName: string; name: string | null; registeredAt: Date | null }>
+    Array<{
+      id: string
+      repositoryId: string
+      branchName: string
+      name: string | null
+      registeredAt: Date | null
+    }>
   >`
-    SELECT prototype."id", prototype."branch_name" AS "branchName",
+    SELECT prototype."id", prototype."repository_id" AS "repositoryId",
+      prototype."branch_name" AS "branchName",
       prototype."name", prototype."registered_at" AS "registeredAt"
     FROM "prototypes" prototype
     JOIN "repositories" repository ON repository."id" = prototype."repository_id"

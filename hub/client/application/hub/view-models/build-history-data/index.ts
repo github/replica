@@ -31,7 +31,10 @@ export function buildHistoryData(
 
   return {
     ...workspaceData,
-    shareLinksPath: options.real ? undefined : workspaceData.shareLinksPath,
+    shareLinksPath:
+      options.real && !data.prototype.canManageShareLinks
+        ? undefined
+        : workspaceData.shareLinksPath,
     builds: data.builds.map((build) => {
       const githubAuthor =
         build.commitAuthorProvider === undefined || build.commitAuthorProvider === "github"

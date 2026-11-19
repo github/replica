@@ -6,6 +6,8 @@ import { readCookie } from "../../../../../integrations/express/read-cookie/inde
 import type { CurrentSessionDependencies } from "../../../auth/types.ts"
 import { readProductSession } from "../../../product/read-product-session/index.ts"
 import type { ProductRouteDependencies } from "../../../product/types.ts"
+import { authorizeHostedShareLinkRequest } from "../../authorize-hosted-share-link-request/index.ts"
+import { respondPublicSharingError } from "../../respond-public-sharing-error/index.ts"
 import type { PublicSharingRouteDependencies } from "../../types.ts"
 
 const querySchema = z.object({ build: z.coerce.number().int().positive().optional() }).strict()
@@ -17,6 +19,7 @@ export function get(
 ): RequestHandler {
   return async (request, response, next) => {
     try {
+      if (sharing.hosted) response.setHeader("Cache-Control", "private, no-store")
       const cookie = readCookie(request, hubSessionCookieName)
       const initial = await readProductSession(cookie, session)
       if (!cookie || !initial) {
@@ -30,16 +33,38 @@ export function get(
         response.status(400).json({ error: "Enter a valid share-link address." })
         return
       }
+      const hosted = sharing.hosted
+        ? await authorizeHostedShareLinkRequest({
+            cookie,
+            initial,
+            session,
+            product,
+            hosted: sharing.hosted,
+            repositoryId: repositoryId.data,
+            prototypeId: prototypeId.data,
+          })
+        : undefined
       const [resource, links, settings] = await Promise.all([
-        product.findPrototypeDetail(initial, repositoryId.data, prototypeId.data, query.data.build),
-        sharing.listLinks(prototypeId.data),
+        product.findPrototypeDetail(
+          hosted?.current ?? initial,
+          repositoryId.data,
+          prototypeId.data,
+          query.data.build,
+        ),
+        hosted
+          ? sharing.listLinks(prototypeId.data, hosted.approval)
+          : sharing.listLinks(prototypeId.data),
         sharing.getSettings(),
       ])
       const current = await readProductSession(cookie, session)
       if (
         !current ||
         current.membershipId !== initial.membershipId ||
-        current.userId !== initial.userId
+        current.userId !== initial.userId ||
+        (hosted &&
+          (current.sessionProvider !== "github" ||
+            current.externalIdentityId !== hosted.approval.identity.id ||
+            current.role !== hosted.current.role))
       ) {
         response.status(401).json({ error: "Sign in to continue." })
         return
@@ -51,7 +76,11 @@ export function get(
       response.json({
         resource: {
           ...resource,
-          prototype: { ...resource.prototype, canEdit: true },
+          prototype: {
+            ...resource.prototype,
+            canEdit: true,
+            ...(hosted ? { canManageShareLinks: true } : {}),
+          },
         },
         enabled: settings.enabled,
         canManage: true,
@@ -74,7 +103,7 @@ export function get(
         ],
       })
     } catch (error) {
-      next(error)
+      if (!respondPublicSharingError(response, error, Boolean(sharing.hosted))) next(error)
     }
   }
 }

@@ -5,6 +5,7 @@ import { LocalSignInConfigurationError } from "./domains/authentication/errors.t
 import { readLearningConfiguration } from "./domains/learning/read-learning-configuration/index.ts"
 import { readDecisionRuntimeConfiguration } from "./domains/decision-model/read-decision-runtime-configuration/index.ts"
 import { LearningConfigurationError } from "./domains/learning/errors.ts"
+import { PublicSharingConfigurationError } from "./domains/public-sharing/errors.ts"
 import {
   LocalDevelopmentConfigurationError,
   LocalDevelopmentPreparationError,
@@ -15,6 +16,7 @@ import { readAuthenticationConfigurationState } from "./domains/authentication/r
 import { createGitHubAuthenticationContext } from "./domains/authentication/create-github-authentication-context/index.ts"
 import { createSharedAuthenticationContext } from "./domains/authentication/create-shared-authentication-context/index.ts"
 import { readGitHubAppConfiguration } from "./domains/authentication/read-github-app-configuration/index.ts"
+import { createReviewDirectory } from "./integrations/github/create-review-directory/index.ts"
 import { resolveLocalSignInEnvironment } from "./domains/authentication/resolve-local-sign-in-environment/index.ts"
 import { startTelemetry } from "./integrations/opentelemetry/start-telemetry/index.ts"
 import { logger } from "./integrations/pino/index.ts"
@@ -130,18 +132,6 @@ try {
               preview.restoreSession = authentication.currentSession.restore.bind(
                 authentication.currentSession,
               )
-              if (authentication.local) {
-                const { createPublicSharingRouteDependencies } =
-                  await import("./routes/api/public-sharing/create-public-sharing-route-dependencies/index.ts")
-                const sharing =
-                  await createPublicSharingRouteDependencies(authenticationEnvironment)
-                publicSharing = sharing
-                preview = {
-                  ...preview,
-                  readAvailableShareLink: (shareLinkId, buildId) =>
-                    sharing.readAvailableLink(shareLinkId, buildId),
-                }
-              }
             }
             const { createCopilotConnectionRouteDependencies } =
               await import("./routes/api/copilot-connection/create-copilot-connection-route-dependencies/index.ts")
@@ -161,11 +151,30 @@ try {
             learnings = learningDependencies
             const { createProductRouteDependencies } =
               await import("./routes/api/product/create-product-route-dependencies/index.ts")
+            const { readAnalyticsSettings } =
+              await import("./domains/analytics/read-settings/index.ts")
+            const localAnalyticsAdministration = Boolean(
+              authentication.local &&
+              authenticationEnvironment.NODE_ENV === "development" &&
+              authenticationEnvironment.HUB_LOCAL_MODE === "true",
+            )
+            const repositoryCredentials = authentication.github
+              ? readGitHubAppConfiguration(authenticationEnvironment).appCredentials
+              : undefined
             product = createProductRouteDependencies({
+              analyticsSettings: readAnalyticsSettings(
+                authenticationEnvironment,
+                localAnalyticsAdministration,
+              ),
+              localAnalyticsAdministration,
               applicationOrigin: previewConfigured
                 ? authenticationEnvironment.HUB_APPLICATION_ORIGIN
                 : undefined,
               scopeGitHubMembers: authenticationConfiguration.githubConfigured,
+              githubRepositoryCredentials: repositoryCredentials,
+              githubReviewDirectory: repositoryCredentials
+                ? createReviewDirectory(repositoryCredentials)
+                : undefined,
               onReviewCommentDeleted: (input) => learningDependencies.redactComment(input),
               previewBaseOrigin: previewConfigured
                 ? authenticationEnvironment.HUB_PREVIEW_ORIGIN
@@ -175,6 +184,25 @@ try {
             })
           } else {
             await disableAuthenticationProviders()
+          }
+          if (preview || !authenticationConfiguration.localConfigured) {
+            const { createPublicSharingRouteDependencies } =
+              await import("./routes/api/public-sharing/create-public-sharing-route-dependencies/index.ts")
+            publicSharing = await createPublicSharingRouteDependencies(
+              authenticationEnvironment,
+              authenticationConfiguration.localConfigured
+                ? undefined
+                : {
+                    hostedReady: Boolean(
+                      preview &&
+                      authentication?.github &&
+                      typeof product?.getVerifiedRepositoryPermission === "function",
+                    ),
+                  },
+            )
+            if (preview && publicSharing) {
+              preview.readAvailableShareLink = publicSharing.readAvailableLink.bind(publicSharing)
+            }
           }
           // Local sign-in refuses GitHub settings, so GitHub setup would be a dead end there.
           if (
@@ -276,6 +304,7 @@ try {
 } catch (error) {
   logger.fatal(
     error instanceof AuthenticationConfigurationError ||
+      error instanceof PublicSharingConfigurationError ||
       error instanceof LocalSignInConfigurationError ||
       error instanceof LocalDevelopmentConfigurationError ||
       error instanceof LocalDevelopmentPreparationError
