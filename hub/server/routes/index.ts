@@ -3,6 +3,7 @@ import type { Express } from "express"
 
 import { rateLimit } from "../integrations/express/authentication-rate-limit/index.ts"
 import { requireOrigin } from "../integrations/express/require-origin/index.ts"
+import { canvasRoutes } from "./api/canvas/index.ts"
 import { post as handleAdministratorEnrollmentStartPost } from "./api/auth/admin-enrollment/start/post/index.ts"
 import { get as handleAuthenticationCallbackGet } from "./api/auth/callback/get/index.ts"
 import { get as handleCurrentSessionGet } from "./api/auth/session/get/index.ts"
@@ -118,6 +119,7 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
   }
   if (authentication) {
     if (product) {
+      app.use("/api/canvas", canvasRoutes(authentication.signOut.applicationOrigin, product))
       app.get(
         "/api/workspace",
         handleWorkspaceGet(authentication.currentSession, product, Boolean(publicSharing)),

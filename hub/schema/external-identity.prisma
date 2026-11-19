@@ -9,6 +9,7 @@ model ExternalIdentity {
   providerEvidenceState ProviderEvidenceState?
   hubSessions             HubSession[]
   sensitiveAuthorizations SensitiveAuthorization[]
+  canvasGrants            CanvasGrant[]
 
   // Attribute columns
   provider String @db.VarChar(100)

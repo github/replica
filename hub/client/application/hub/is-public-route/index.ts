@@ -6,6 +6,8 @@ export function isPublicRoute(request: Request): boolean {
     pathname === "/admin-enrollment" ||
     pathname === "/signed-in/no-access" ||
     pathname === "/settings/github/setup" ||
+    pathname === "/canvas/connections" ||
+    pathname.startsWith("/canvas/pair/") ||
     pathname.startsWith("/shared/")
   )
 }

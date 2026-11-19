@@ -2,9 +2,19 @@
 
 The Copilot prototype extension is kept while Hub is rebuilt. It opens a local prototype, shows Controls and Pick & polish, and asks Copilot to publish changes.
 
-The new Hub API has no pairing, identity, comments, sharing, discovery, or publishing routes yet. The sections below describe the existing extension and what it expects from a compatible Hub. They do not describe features that work in this new Hub.
+Hub pairs the retained extension and reports repository and Build status. Canvas review writes, sharing, automatic registration, Learnings, and the complete publishing workflow are not part of this connection.
 
 See the [extension guide](../../.github/extensions/replica-prototype/README.md) for installation and supported actions, and [Hub architecture](architecture.md) for the rebuild's scope.
+
+## Connect and revoke
+
+Select **Connect to the hub** in the Replica canvas. Sign in if Hub asks, then confirm that the repository and ten-character code match the canvas. The link returns to the same approval after sign-in; sign-in alone never approves it. The code expires after ten minutes and can be consumed only once.
+
+Hub checks that the approving identity can read the repository, and checks access again when the extension claims, uses, or renews the connection. In local development, sign in as the fixed local developer and start the canvas from its matching checkout under `.local/prototypes/`. Hub pairs the checkout as `local/<directory-name>`. A paired repository need not have a discovered branch.
+
+Open **Canvas connections** from the Hub navigation or at `/canvas/connections`. It lists your own active connections for the current identity. **Revoke** invalidates both the access and renewal credential without signing you out of Hub.
+
+The extension uses version `1` of `/api/canvas`. It keeps the device, access, and refresh secrets in its private Node store; Hub stores only their digests. No secret is included in the approval URL or browser responses. Access tokens last up to seven days. Renewing one rotates the access token without extending the connection's 30-day inactivity deadline. Only interactive use extends that deadline. Ending all Hub sessions also invalidates Canvas credentials.
 
 ## Pick & polish
 
@@ -36,7 +46,7 @@ Comments on unpublished changes stay on the author's device until a matching Bui
 
 The local preview never receives Hub credentials. Changing the repository, branch, account, or selected target must stop an old write from being sent to the new target.
 
-The old live-update connection has been removed. The sidebar keeps its existing periodic refresh and reports that live updates are unavailable. The new Hub has no review API.
+The old Canvas live-update connection has been removed. The sidebar keeps its existing periodic refresh and reports that live updates are unavailable. Canvas review endpoints are not part of this connection.
 
 ## Self-contained local preview
 

@@ -80,4 +80,4 @@ The application adapts retained internal links and GET forms to SPA navigation. 
 
 ## Other projects
 
-The starter, build action, learning package, and Copilot prototype extension remain separate projects. The extension and build action import or bundle shared canvas and Controls code from `client/`. Connecting the canvas to this Hub will require new API routes.
+The starter, build action, learning package, and Copilot prototype extension remain separate projects. The extension and build action import or bundle shared canvas and Controls code from `client/`. The [Canvas connection](prototype-canvas.md#connect-and-revoke) uses repository-scoped credentials independent of Hub's browser session.

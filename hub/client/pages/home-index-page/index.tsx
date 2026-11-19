@@ -127,7 +127,11 @@ export function HomeIndexPage({
                   method="post"
                   id={`${signInFormPrefix}-${action.provider}`}
                   key={action.provider}
-                />
+                >
+                  {data.signInReturnTo ? (
+                    <input type="hidden" name="return_to" value={data.signInReturnTo} />
+                  ) : null}
+                </form>
               ))}
 
               <Hero.ButtonGroup className="home__actions">

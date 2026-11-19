@@ -50,4 +50,5 @@ export interface WorkspaceSidebarData extends WorkspaceAccountData, RepositoryIn
   }>
   securityAuditLabel?: string
   securityAuditPath?: string | null
+  canvasConnectionsPath?: string
 }

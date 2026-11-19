@@ -7,6 +7,10 @@ import { AuthenticationProofError } from "../../../../../domains/authentication/
 import { createOpaqueValue } from "../../../../../domains/authentication/create-opaque-value/index.ts"
 import { hashAuthenticationValue } from "../../../../../domains/authentication/hash-authentication-value/index.ts"
 import { browserAuthenticationCookieName } from "../../../../../integrations/express/browser-authentication-cookie-name/index.ts"
+import {
+  canvasSignInReturnCookie,
+  readCanvasSignInReturn,
+} from "../../../../../integrations/express/canvas-sign-in-return/index.ts"
 import { clearAuthenticationCookie } from "../../../../../integrations/express/clear-authentication-cookie/index.ts"
 import { createAuthenticationCookie } from "../../../../../integrations/express/create-authentication-cookie/index.ts"
 import { githubRepositoryDenialCookieName } from "../../../../../integrations/express/github-repository-denial-cookie-name/index.ts"
@@ -97,8 +101,15 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
         sessionDigest: hashAuthenticationValue(sessionValue),
         sessionId: randomUUID(),
       })
+      const returnTo =
+        completed.purpose === "SIGN_IN"
+          ? readCanvasSignInReturn(request, browserBinding.data)
+          : null
       response.setHeader("Set-Cookie", [
         clearAuthenticationCookie(browserAuthenticationCookieName, dependencies.secureCookie),
+        ...(returnTo
+          ? [clearAuthenticationCookie(canvasSignInReturnCookie, dependencies.secureCookie)]
+          : []),
         createAuthenticationCookie({
           expiresAt: admitted.expiresAt,
           name: hubSessionCookieName,
@@ -106,7 +117,7 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
           value: sessionValue,
         }),
       ])
-      response.redirect(303, "/?authentication=success")
+      response.redirect(303, returnTo ?? "/?authentication=success")
     } catch (error) {
       if (error instanceof AdmissionDeniedError || error instanceof AuthenticationProofError) {
         const noAccess =

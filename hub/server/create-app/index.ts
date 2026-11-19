@@ -32,6 +32,8 @@ export function createApp({
   app.use(
     [
       "/api/auth",
+      "/api/canvas",
+      "/canvas/pair",
       "/api/administrators",
       "/api/copilot-connection",
       "/api/session-revocation",
@@ -46,7 +48,7 @@ export function createApp({
     authenticationSecurity(),
   )
   app.use(
-    /^(?!\/api\/copilot-connection(?:\/|$))(?!\/api\/product\/sharing-settings(?:\/|$))(?!\/api\/repositories\/[^/]+\/learnings(?:\/|$))(?!\/api\/(?:auth|administrators\/authorizations|session-revocation\/authorizations|github\/webhooks)(?:\/|$))(?!\/api\/repositories\/[^/]+\/prototypes\/[^/]+(?:\/review-comments(?:\/|$)|\/share-links(?:\/|$)|\/?$)).*/i,
+    /^(?!\/api\/copilot-connection(?:\/|$))(?!\/api\/product\/sharing-settings(?:\/|$))(?!\/api\/repositories\/[^/]+\/learnings(?:\/|$))(?!\/api\/(?:auth|canvas|administrators\/authorizations|session-revocation\/authorizations|github\/webhooks)(?:\/|$))(?!\/api\/repositories\/[^/]+\/prototypes\/[^/]+(?:\/review-comments(?:\/|$)|\/share-links(?:\/|$)|\/?$)).*/i,
     express.json(),
   )
 
@@ -80,7 +82,7 @@ export function createApp({
         next()
         return
       }
-      response.setHeader("Cache-Control", "no-cache")
+      if (!response.hasHeader("Cache-Control")) response.setHeader("Cache-Control", "no-cache")
       response.sendFile("index.html", { root: directory, dotfiles: "deny" })
     })
   }

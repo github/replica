@@ -83,6 +83,12 @@ export function WorkspaceSidebar({
     ...repositoryLinks,
   ]
   const settingsLinks = [
+    {
+      label: "Canvas connections",
+      path: data.canvasConnectionsPath,
+      section: "canvas",
+      icon: LinkIcon,
+    },
     ...(data.administrationLinks ?? []).map((link) => ({
       ...link,
       icon: administrationIcons[link.section],

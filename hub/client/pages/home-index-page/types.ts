@@ -16,4 +16,5 @@ export interface HomeIndexPageData {
   pauseAnimationLabel: string
   resumeAnimationLabel: string
   signInActions: HomeSignInAction[]
+  signInReturnTo?: string
 }

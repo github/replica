@@ -12,6 +12,7 @@ model Membership {
   copilotConnections      CopilotConnection[]
   learningRuns            LearningRun[]
   learningDecisionOperations LearningDecisionOperation[]
+  canvasGrants            CanvasGrant[]
 
   // Attribute columns
   lifecycle MembershipLifecycle @default(ACTIVE)

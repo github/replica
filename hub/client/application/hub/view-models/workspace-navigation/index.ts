@@ -32,6 +32,7 @@ export function workspaceNavigation(
     productName: "Replica Hub",
     navigationLabel: repositoryId === null ? "Hub navigation" : "Repository navigation",
     settingsNavigationLabel: "Security and settings",
+    canvasConnectionsPath: real ? "/canvas/connections" : undefined,
     repositoriesLabel: "Repositories",
     repositoriesPath: "/repositories",
     signOutLabel: "Sign out",

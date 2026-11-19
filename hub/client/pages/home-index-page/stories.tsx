@@ -69,6 +69,16 @@ type Story = StoryObj<typeof meta>
 
 export const Default: Story = {}
 
+export const CanvasSignIn: Story = {
+  args: {
+    data: {
+      ...data,
+      description: "Sign in to continue to your Replica canvas connection.",
+      signInReturnTo: "/canvas/pair/ABCDEF1234",
+    },
+  },
+}
+
 export const MicrosoftEntra: Story = {
   args: {
     data: {
