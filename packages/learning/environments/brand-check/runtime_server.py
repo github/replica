@@ -27,6 +27,9 @@ MAX_REQUEST_BYTES = 180 * 1024 * 1024
 MAX_CONNECTIONS = 16
 SOCKET_TIMEOUT_SECONDS = 10
 _SAFE_TOKEN = re.compile(r"^[\x21-\x7e]+$")
+_TASKSET_ROUTE = re.compile(r"^/v1/tasksets/([0-9a-f]{64})$")
+_CANCEL_ROUTE = re.compile(r"^/v1/jobs/(job_[A-Za-z0-9]+)/cancel$")
+_IDEMPOTENCY_KEY = re.compile(r"^[\x21-\x7e]{1,200}$")
 
 
 def _stop(_signum: int, _frame: Any) -> None:
@@ -145,11 +148,30 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             self._authorize()
             path = urlparse(self.path).path
             body = self._body()
+            cancellation = _CANCEL_ROUTE.fullmatch(path)
+            if cancellation:
+                if body:
+                    raise RuntimeFailure(
+                        "invalid_input", "Job cancellation accepts an empty JSON object."
+                    )
+                self._send(
+                    200,
+                    self.server.runtime.cancel(
+                        cancellation.group(1),
+                        idempotency_key=self._idempotency_key(
+                            f"cancel:{cancellation.group(1)}"
+                        ),
+                    ),
+                )
+                return
             if path == "/v1/jobs":
                 job = self.server.runtime.submit(
                     backend=body.get("backend", "fixture"),
                     max_updates=body.get("maxUpdates"),
                     max_seconds=body.get("maxSeconds"),
+                    max_credits=body.get("maxCredits"),
+                    budget_mode=body.get("budgetMode", "hard"),
+                    taskset_digest=body.get("tasksetDigest"),
                 )
                 self._send(202, job)
                 return
@@ -157,20 +179,58 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                 self._send(
                     200,
                     self.server.runtime.promote(
-                        body.get("candidateId"), promoted_by=body.get("promotedBy")
+                        body.get("candidateId"),
+                        promoted_by=body.get("promotedBy"),
+                        expected_generation=body.get("expectedGeneration"),
+                        idempotency_key=self._idempotency_key(
+                            "promote:"
+                            f"{body.get('candidateId')}:{body.get('expectedGeneration')}"
+                        ),
                     ),
                 )
                 return
             if path == "/v1/rollbacks":
                 self._send(
                     200,
-                    self.server.runtime.rollback(rolled_back_by=body.get("rolledBackBy")),
+                    self.server.runtime.rollback(
+                        rolled_back_by=body.get("rolledBackBy"),
+                        expected_generation=body.get("expectedGeneration"),
+                        idempotency_key=self._idempotency_key(
+                            f"rollback:{body.get('expectedGeneration')}"
+                        ),
+                    ),
                 )
                 return
             if path in ("/score", "/v1/evaluations"):
                 self._send(200, self.server.runtime.evaluate(body))
                 return
             raise RuntimeFailure("not_found", f"Route {path} was not found.", 404)
+        except RuntimeFailure as error:
+            self._failure(error)
+        except Exception as error:
+            self.log_error("Unhandled runtime error: %r", error)
+            self._failure(
+                RuntimeFailure("internal_error", "The runtime failed unexpectedly.", 500)
+            )
+
+    def do_PUT(self) -> None:
+        try:
+            self._authorize()
+            path = urlparse(self.path).path
+            match = _TASKSET_ROUTE.fullmatch(path)
+            if match is None:
+                raise RuntimeFailure("not_found", f"Route {path} was not found.", 404)
+            body = self._body()
+            self._send(
+                200,
+                self.server.runtime.register_taskset(
+                    match.group(1),
+                    body,
+                    idempotency_key=self._idempotency_key(
+                        f"taskset:{match.group(1)}"
+                    ),
+                ),
+            )
         except RuntimeFailure as error:
             self._failure(error)
         except Exception as error:
@@ -218,6 +278,15 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             raise RuntimeFailure("invalid_input", "The request body must be one JSON object.")
         return value
 
+    def _idempotency_key(self, default: str) -> str:
+        value = self.headers.get("Idempotency-Key", default)
+        if not _IDEMPOTENCY_KEY.fullmatch(value):
+            raise RuntimeFailure(
+                "idempotency_key_invalid",
+                "Idempotency-Key must contain 1 to 200 visible ASCII characters.",
+            )
+        return value
+
     def _failure(self, error: RuntimeFailure) -> None:
         self.close_connection = True
         headers = {"WWW-Authenticate": "Bearer"} if error.status == 401 else None
@@ -240,7 +309,11 @@ def main() -> None:
     """Run one runtime bound to one taskset and one durable state directory."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state", required=True, type=Path, help="durable runtime state directory")
-    parser.add_argument("--taskset", required=True, type=Path, help="read-only decision taskset")
+    parser.add_argument(
+        "--taskset",
+        type=Path,
+        help="optional read-only default taskset; tasksets may also be uploaded through the API",
+    )
     parser.add_argument("--host", default="127.0.0.1", help="address to listen on")
     parser.add_argument("--port", type=int, default=8010, help="port to listen on")
     parser.add_argument(

@@ -31,6 +31,8 @@ from .connectors import (
     RuntimeOwner,
     RuntimeScope,
     TasksetArtifact,
+    TasksetBundle,
+    TrainingResult,
     Usage,
     check_context,
 )
@@ -216,30 +218,325 @@ class _ScopedConnector:
 
 
 class LocalTasksetConnector(_ScopedConnector):
-    """Resolve the one read-only taskset mounted for a scoped runtime."""
+    """Register and resolve private immutable tasksets for one runtime scope."""
 
     def __init__(
         self,
-        taskset_directory: str | os.PathLike[str],
+        root: Path,
+        taskset_directory: str | os.PathLike[str] | None,
         scope: RuntimeScope,
     ):
         super().__init__(scope)
-        try:
+        self.root = root / "tasksets"
+        self.idempotency = self.root / ".idempotency"
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.idempotency.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(self.root, 0o700)
+        os.chmod(self.idempotency, 0o700)
+        self._lock = threading.RLock()
+        self.taskset = None
+        self.digest = None
+        self.reference = None
+        self._mounted: dict[str, Taskset] = {}
+        if taskset_directory is not None:
             self.taskset = load_taskset(taskset_directory)
-        except TasksetError:
-            raise
-        self.digest = taskset_digest(self.taskset)
-        self.reference = f"taskset:{self.digest.value}"
+            self.digest = taskset_digest(self.taskset)
+            self.reference = f"taskset:{self.digest.value}"
+            self._mounted[self.reference] = self.taskset
+
+    def register(
+        self, bundle: TasksetBundle, context: OperationContext
+    ) -> TasksetArtifact:
+        self._check(context)
+        claimed_digest = bundle.digest
+        ordered_images = sorted(bundle.images, key=lambda image: image.path)
+        request_identity = hashlib.sha256()
+        request_identity.update(
+            _json_bytes(
+                {
+                    "digest": str(claimed_digest) if claimed_digest else None,
+                    "manifest": bundle.manifest,
+                    "tasks": bundle.tasks,
+                    "images": [
+                        {
+                            "path": image.path,
+                            "mediaType": image.media_type,
+                            "digest": str(image.digest),
+                        }
+                        for image in ordered_images
+                    ],
+                }
+            )
+        )
+        for image in ordered_images:
+            request_identity.update(b"\0")
+            request_identity.update(image.data)
+        request_digest = ContentDigest("sha256", request_identity.hexdigest())
+        idempotency_path = self.idempotency / hashlib.sha256(
+            context.idempotency_key.encode()
+        ).hexdigest()
+        with self._lock:
+            if idempotency_path.exists():
+                saved = _read_object(
+                    idempotency_path,
+                    code="taskset_idempotency_not_found",
+                    message="The taskset retry record was not found.",
+                )
+                if saved.get("requestDigest") != str(request_digest):
+                    raise ConnectorError(
+                        "idempotency_conflict",
+                        "The idempotency key was reused with different input.",
+                        category="conflict",
+                    )
+            staging = self.root / f".register-{uuid.uuid4().hex}"
+            try:
+                check_context(context)
+                staging.mkdir(mode=0o700)
+                _materialize_taskset_bundle(staging, bundle, context)
+                taskset = load_taskset(staging)
+                check_context(context)
+                actual = taskset_digest(taskset)
+                if claimed_digest is not None and actual != claimed_digest:
+                    claimed_reference = f"taskset:{claimed_digest.value}"
+                    immutable = (
+                        claimed_reference in self._mounted
+                        or (self.root / claimed_digest.value).exists()
+                    )
+                    raise ConnectorError(
+                        "taskset_immutable" if immutable else "taskset_digest_mismatch",
+                        "The taskset digest already identifies different content."
+                        if immutable
+                        else "The taskset contents do not match the claimed digest.",
+                        category="conflict" if immutable else "invalid_input",
+                    )
+                reference = f"taskset:{actual.value}"
+                destination = self.root / actual.value
+                if destination.exists():
+                    existing = self.resolve(reference, context)
+                    if not idempotency_path.exists():
+                        check_context(context)
+                        _write_immutable(
+                            idempotency_path,
+                            _json_bytes(
+                                {
+                                    "reference": reference,
+                                    "requestDigest": str(request_digest),
+                                }
+                            ),
+                        )
+                    return existing
+                check_context(context)
+                os.replace(staging, destination)
+                _sync_directory(self.root)
+                if not idempotency_path.exists():
+                    _write_immutable(
+                        idempotency_path,
+                        _json_bytes(
+                            {
+                                "reference": reference,
+                                "requestDigest": str(request_digest),
+                            }
+                        ),
+                    )
+            except TasksetError as error:
+                raise ConnectorError(
+                    "taskset_invalid",
+                    str(error),
+                    category="invalid_input",
+                ) from None
+            finally:
+                shutil.rmtree(staging, ignore_errors=True)
+        return TasksetArtifact(reference, actual, load_taskset(destination))
 
     def resolve(self, reference: str, context: OperationContext) -> TasksetArtifact:
         self._check(context, hide=True)
-        if reference != self.reference:
+        if reference.startswith("taskset:"):
+            value = reference.removeprefix("taskset:")
+            directory = self.root / value
+            try:
+                digest = ContentDigest("sha256", value)
+            except ValueError:
+                digest = None
+            if digest is not None and directory.is_dir():
+                try:
+                    taskset = load_taskset(directory)
+                except TasksetError:
+                    raise ConnectorError(
+                        "taskset_damaged",
+                        "The taskset no longer matches its immutable identity.",
+                        category="integrity",
+                    ) from None
+                if taskset_digest(taskset) != digest:
+                    raise ConnectorError(
+                        "taskset_damaged",
+                        "The taskset no longer matches its immutable identity.",
+                        category="integrity",
+                    )
+                return TasksetArtifact(reference, digest, taskset)
+        mounted = self._mounted.get(reference)
+        if mounted is not None:
+            try:
+                mounted = load_taskset(mounted.directory)
+            except TasksetError:
+                raise ConnectorError(
+                    "taskset_damaged",
+                    "The taskset no longer matches its immutable identity.",
+                    category="integrity",
+                ) from None
+            digest = taskset_digest(mounted)
+            if reference != f"taskset:{digest.value}":
+                raise ConnectorError(
+                    "taskset_damaged",
+                    "The taskset no longer matches its immutable identity.",
+                    category="integrity",
+                )
+            return TasksetArtifact(reference, digest, mounted)
+        if not reference.startswith("taskset:"):
             raise ConnectorError(
                 "taskset_not_found",
                 "The taskset was not found.",
                 category="not_found",
             )
-        return TasksetArtifact(reference, self.digest, self.taskset)
+        value = reference.removeprefix("taskset:")
+        directory = self.root / value
+        try:
+            digest = ContentDigest("sha256", value)
+        except ValueError:
+            raise ConnectorError(
+                "taskset_not_found",
+                "The taskset was not found.",
+                category="not_found",
+            ) from None
+        if not directory.is_dir():
+            raise ConnectorError(
+                "taskset_not_found",
+                "The taskset was not found.",
+                category="not_found",
+            )
+        try:
+            taskset = load_taskset(directory)
+        except TasksetError:
+            raise ConnectorError(
+                "taskset_damaged",
+                "The taskset no longer matches its immutable identity.",
+                category="integrity",
+            ) from None
+        if taskset_digest(taskset) != digest:
+            raise ConnectorError(
+                "taskset_damaged",
+                "The taskset no longer matches its immutable identity.",
+                category="integrity",
+            )
+        return TasksetArtifact(reference, digest, taskset)
+
+
+def _materialize_taskset_bundle(
+    directory: Path, bundle: TasksetBundle, context: OperationContext
+) -> None:
+    check_context(context)
+    paths = [_taskset_image_parts(image.path) for image in bundle.images]
+    reserved = {("taskset.json",), ("tasks.jsonl",)}
+    for parts in paths:
+        if parts in reserved:
+            raise ConnectorError(
+                "taskset_image_path_invalid",
+                "A taskset image path conflicts with a taskset data file.",
+                category="invalid_input",
+            )
+    path_set = set(paths)
+    if len(path_set) != len(paths) or any(
+        parts[:index] in path_set
+        for parts in path_set
+        for index in range(1, len(parts))
+    ):
+        raise ConnectorError(
+            "taskset_image_conflict",
+            "Taskset image paths must not repeat or collide as files and directories.",
+            category="invalid_input",
+        )
+    _write_immutable(directory / "taskset.json", _json_bytes(bundle.manifest))
+    check_context(context)
+    _write_immutable(
+        directory / "tasks.jsonl",
+        b"".join(_json_bytes(task) for task in bundle.tasks),
+    )
+    expected: dict[str, tuple[str, str]] = {}
+    for task in bundle.tasks:
+        images = task.get("images") if isinstance(task, Mapping) else None
+        if not isinstance(images, list):
+            continue
+        for image in images:
+            if not isinstance(image, Mapping):
+                continue
+            path = image.get("path")
+            media_type = image.get("mediaType")
+            digest = image.get("digest")
+            if not all(isinstance(value, str) for value in (path, media_type, digest)):
+                continue
+            identity = (media_type, digest)
+            prior = expected.get(path)
+            if prior is not None and prior != identity:
+                raise ConnectorError(
+                    "taskset_image_conflict",
+                    "A taskset image path has inconsistent metadata.",
+                    category="invalid_input",
+                )
+            expected[path] = identity
+    seen: dict[str, Any] = {}
+    for image, parts in zip(bundle.images, paths, strict=True):
+        check_context(context)
+        if _digest(image.data) != image.digest:
+            raise ConnectorError(
+                "taskset_image_digest_mismatch",
+                "A taskset image does not match its claimed digest.",
+                category="invalid_input",
+            )
+        prior = seen.get(image.path)
+        identity = (image.media_type, image.digest, image.data)
+        if expected.get(image.path) != (image.media_type, str(image.digest)):
+            raise ConnectorError(
+                "taskset_image_metadata_mismatch",
+                "A transferred image does not match the taskset image metadata.",
+                category="invalid_input",
+            )
+        if prior is not None:
+            raise ConnectorError(
+                "taskset_image_conflict",
+                "A taskset image path appears more than once.",
+                category="invalid_input",
+            )
+        _write_immutable(directory.joinpath(*parts), image.data)
+        seen[image.path] = identity
+    check_context(context)
+    if set(seen) != set(expected):
+        raise ConnectorError(
+            "taskset_images_incomplete",
+            "The transfer must contain every taskset image exactly once.",
+            category="invalid_input",
+        )
+
+
+def _taskset_image_parts(path: str) -> tuple[str, ...]:
+    if (
+        not isinstance(path, str)
+        or not path
+        or "\x00" in path
+        or "\\" in path
+        or path.startswith("/")
+    ):
+        raise ConnectorError(
+            "taskset_image_path_invalid",
+            "A taskset image path must stay inside the taskset.",
+            category="invalid_input",
+        )
+    parts = tuple(path.split("/"))
+    if any(part in ("", ".", "..") for part in parts):
+        raise ConnectorError(
+            "taskset_image_path_invalid",
+            "A taskset image path must use canonical relative segments.",
+            category="invalid_input",
+        )
+    return parts
 
 
 class LocalArtifactConnector(_ScopedConnector):
@@ -903,7 +1200,6 @@ class LocalCandidateConnector(_ScopedConnector):
                 "A promotion operation must be promote or rollback.",
                 category="invalid_input",
             )
-        self.get(candidate_id, context)
         with self._lock:
             request_digest = _digest(
                 _json_bytes(
@@ -911,6 +1207,10 @@ class LocalCandidateConnector(_ScopedConnector):
                         "candidateId": candidate_id,
                         "expectedGeneration": expected_generation,
                         "operation": operation,
+                        "owner": {
+                            "kind": context.owner.kind,
+                            "id": context.owner.id,
+                        },
                         "scope": _scope_key(context.scope),
                     }
                 )
@@ -937,14 +1237,44 @@ class LocalCandidateConnector(_ScopedConnector):
                         "The promotion retry record is invalid.",
                         category="integrity",
                     )
+                history_path = self.promotions / f"{generation:08d}.json"
+                if not history_path.exists():
+                    promotion_record = saved.get("promotion")
+                    owner_kind = saved.get("ownerKind")
+                    if not isinstance(promotion_record, dict) or not isinstance(
+                        owner_kind, str
+                    ):
+                        raise ConnectorError(
+                            "promotion_idempotency_damaged",
+                            "The promotion retry record is invalid.",
+                            category="integrity",
+                        )
+                    self._write_promotion_record(promotion_record, owner_kind)
+                elif (
+                    _read_object(
+                        history_path,
+                        code="promotion_not_found",
+                        message="The promotion generation was not found.",
+                    )
+                    != saved.get("promotion")
+                    or self._promotion_owner_kind(generation)
+                    != saved.get("ownerKind")
+                ):
+                    raise ConnectorError(
+                        "promotion_idempotency_damaged",
+                        "The promotion retry does not match its immutable generation.",
+                        category="integrity",
+                    )
+                self._recover_promotion()
                 return self._promotion_from_json(
                     _read_object(
-                        self.promotions / f"{generation:08d}.json",
+                        history_path,
                         code="promotion_not_found",
                         message="The promotion generation was not found.",
                     ),
                     self._promotion_owner_kind(generation),
                 )
+            self._recover_pending_promotions()
             current = self.current(context)
             generation = current.generation if current else 0
             if generation != expected_generation:
@@ -953,6 +1283,7 @@ class LocalCandidateConnector(_ScopedConnector):
                     "The promotion generation changed.",
                     category="conflict",
                 )
+            self.get(candidate_id, context)
             promotion = Promotion(
                 generation + 1,
                 candidate_id,
@@ -960,16 +1291,19 @@ class LocalCandidateConnector(_ScopedConnector):
                 operation,
                 context.owner,
             )
-            self._write_promotion(promotion)
+            saved = self._promotion_record(promotion)
             _write_immutable(
                 idempotency_path,
                 _json_bytes(
                     {
                         "generation": promotion.generation,
                         "requestDigest": str(request_digest),
+                        "ownerKind": promotion.owner.kind,
+                        "promotion": saved,
                     }
                 ),
             )
+            self._write_promotion_record(saved, promotion.owner.kind)
             return promotion
 
     def current(self, context: OperationContext) -> Promotion | None:
@@ -1024,12 +1358,22 @@ class LocalCandidateConnector(_ScopedConnector):
             )
         return self.candidates / candidate_id / name
 
-    def promotion_json(self, context: OperationContext) -> dict[str, Any] | None:
-        promotion = self.current(context)
-        if promotion is None:
-            return None
+    def promotion_json(
+        self,
+        context: OperationContext,
+        *,
+        generation: int | None = None,
+    ) -> dict[str, Any] | None:
+        self._check(context, hide=True)
+        if generation is None:
+            promotion = self.current(context)
+            if promotion is None:
+                return None
+            path = self.root / "promotion.json"
+        else:
+            path = self.promotions / f"{generation:08d}.json"
         return _read_object(
-            self.root / "promotion.json",
+            path,
             code="promotion_not_found",
             message="The promotion was not found.",
         )
@@ -1037,7 +1381,70 @@ class LocalCandidateConnector(_ScopedConnector):
     def recover_promotion(self, context: OperationContext) -> dict[str, Any] | None:
         self._check(context)
         with self._lock:
-            return self._recover_promotion()
+            before = self.current(context)
+            self._recover_pending_promotions()
+            after = self.current(context)
+            if after is None or after == before:
+                return None
+            return self.promotion_json(context)
+
+    def pending_promotions_json(
+        self, context: OperationContext
+    ) -> tuple[dict[str, Any], ...]:
+        self._check(context)
+        pending = []
+        for path in self.promotion_idempotency.glob("*.json"):
+            saved = _read_object(
+                path,
+                code="promotion_idempotency_not_found",
+                message="The promotion retry was not found.",
+            )
+            promotion = saved.get("promotion")
+            generation = saved.get("generation")
+            if (
+                isinstance(promotion, dict)
+                and isinstance(generation, int)
+                and not (self.promotions / f"{generation:08d}.json").exists()
+            ):
+                pending.append(promotion)
+        return tuple(sorted(pending, key=lambda item: item["generation"]))
+
+    def promotion_retry_json(
+        self,
+        context: OperationContext,
+        *,
+        expected_generation: int,
+        operation: str,
+    ) -> dict[str, Any] | None:
+        self._check(context)
+        path = self._promotion_idempotency_path(context.idempotency_key)
+        if not path.exists():
+            return None
+        saved = _read_object(
+            path,
+            code="promotion_idempotency_not_found",
+            message="The promotion retry was not found.",
+        )
+        promotion = saved.get("promotion")
+        owner_kind = saved.get("ownerKind")
+        if not isinstance(promotion, dict) or not isinstance(owner_kind, str):
+            raise ConnectorError(
+                "promotion_idempotency_damaged",
+                "The promotion retry record is invalid.",
+                category="integrity",
+            )
+        parsed = self._promotion_from_json(promotion, owner_kind)
+        if (
+            parsed.generation != expected_generation + 1
+            or parsed.operation != operation
+            or parsed.owner != context.owner
+        ):
+            raise ConnectorError(
+                "idempotency_conflict",
+                "The idempotency key was reused with different input.",
+                category="conflict",
+            )
+        return promotion
 
     def _validate_candidate(self, candidate: Candidate) -> None:
         for artifact in candidate.artifacts:
@@ -1056,8 +1463,8 @@ class LocalCandidateConnector(_ScopedConnector):
             and tuple(left.artifacts) == tuple(right.artifacts)
         )
 
-    def _write_promotion(self, promotion: Promotion) -> None:
-        saved = {
+    def _promotion_record(self, promotion: Promotion) -> dict[str, Any]:
+        return {
             "schemaVersion": "replica.decision-promotion/v1",
             "generation": promotion.generation,
             "candidateId": promotion.candidate_id,
@@ -1066,10 +1473,21 @@ class LocalCandidateConnector(_ScopedConnector):
             "promotedBy": promotion.owner.id,
             "promotedAt": _timestamp(),
         }
-        history = self.promotions / f"{promotion.generation:08d}.json"
+
+    def _write_promotion_record(
+        self, saved: Mapping[str, Any], owner_kind: str
+    ) -> None:
+        generation = saved.get("generation")
+        if not isinstance(generation, int):
+            raise ConnectorError(
+                "promotion_damaged",
+                "The promotion generation is invalid.",
+                category="integrity",
+            )
+        history = self.promotions / f"{generation:08d}.json"
         data = _json_bytes(saved)
-        owner_path = self.promotion_owners / f"{promotion.generation:08d}.json"
-        owner_data = _json_bytes({"kind": promotion.owner.kind})
+        owner_path = self.promotion_owners / f"{generation:08d}.json"
+        owner_data = _json_bytes({"kind": owner_kind})
         if owner_path.exists():
             if owner_path.read_bytes() != owner_data:
                 raise ConnectorError(
@@ -1141,6 +1559,107 @@ class LocalCandidateConnector(_ScopedConnector):
             "Promotion history is not one generation ahead of the current pointer.",
             category="integrity",
         )
+
+    def _recover_pending_promotions(self) -> None:
+        pending: dict[int, tuple[dict[str, Any], str]] = {}
+        for path in self.promotion_idempotency.glob("*.json"):
+            saved = _read_object(
+                path,
+                code="promotion_idempotency_not_found",
+                message="The promotion retry was not found.",
+            )
+            promotion = saved.get("promotion")
+            owner_kind = saved.get("ownerKind")
+            generation = saved.get("generation")
+            if promotion is None and owner_kind is None:
+                continue
+            if (
+                not isinstance(promotion, dict)
+                or not isinstance(owner_kind, str)
+                or not isinstance(generation, int)
+                or promotion.get("generation") != generation
+            ):
+                raise ConnectorError(
+                    "promotion_idempotency_damaged",
+                    "A promotion retry record is invalid.",
+                    category="integrity",
+                )
+            parsed = self._promotion_from_json(promotion, owner_kind)
+            expected_digest = _digest(
+                _json_bytes(
+                    {
+                        "candidateId": parsed.candidate_id,
+                        "expectedGeneration": parsed.generation - 1,
+                        "operation": parsed.operation,
+                        "owner": {
+                            "kind": parsed.owner.kind,
+                            "id": parsed.owner.id,
+                        },
+                        "scope": _scope_key(self.scope),
+                    }
+                )
+            )
+            if saved.get("requestDigest") != str(expected_digest):
+                raise ConnectorError(
+                    "promotion_idempotency_damaged",
+                    "A promotion retry record has invalid request identity.",
+                    category="integrity",
+                )
+            existing = pending.get(generation)
+            value = (promotion, owner_kind)
+            if existing is not None and existing != value:
+                raise ConnectorError(
+                    "promotion_idempotency_damaged",
+                    "Two promotion retries claim the same generation.",
+                    category="integrity",
+                )
+            pending[generation] = value
+        current_path = self.root / "promotion.json"
+        current = (
+            _read_object(
+                current_path,
+                code="promotion_not_found",
+                message="The promotion was not found.",
+            )
+            if current_path.exists()
+            else None
+        )
+        current_generation = current.get("generation", 0) if current else 0
+        current_candidate = current.get("candidateId") if current else None
+        for generation, (promotion, owner_kind) in sorted(pending.items()):
+            history = self.promotions / f"{generation:08d}.json"
+            if history.exists():
+                if (
+                    _read_object(
+                        history,
+                        code="promotion_not_found",
+                        message="The promotion generation was not found.",
+                    )
+                    != promotion
+                    or self._promotion_owner_kind(generation) != owner_kind
+                ):
+                    raise ConnectorError(
+                        "promotion_idempotency_damaged",
+                        "A promotion retry does not match its immutable generation.",
+                        category="integrity",
+                    )
+                if generation > current_generation:
+                    self._recover_promotion()
+                    current_generation = generation
+                    current_candidate = promotion.get("candidateId")
+                continue
+            if (
+                generation != current_generation + 1
+                or promotion.get("previousCandidateId") != current_candidate
+            ):
+                raise ConnectorError(
+                    "promotion_idempotency_damaged",
+                    "A pending promotion retry is not the next generation.",
+                    category="integrity",
+                )
+            self._write_promotion_record(promotion, owner_kind)
+            current_generation = generation
+            current_candidate = promotion.get("candidateId")
 
     def _migrate_existing_candidate(self, directory: Path, candidate_id: str) -> None:
         manifest = _read_object(
@@ -1262,6 +1781,9 @@ class LocalTrainingConnector:
         self.name = backend.name
         self.production_eligible = backend.production_eligible
         self.requires_credential = getattr(backend, "requires_credential", True)
+        self.supports_hard_credit_budget = bool(
+            getattr(backend, "supports_hard_credit_budget", False)
+        )
 
     def train(
         self,
@@ -1273,20 +1795,72 @@ class LocalTrainingConnector:
         credential: Credential | None,
     ) -> Any:
         check_context(context)
+        if context.budget_mode == "hard" and not self.supports_hard_credit_budget:
+            raise ConnectorError(
+                "hard_budget_unsupported",
+                "The training connector cannot enforce a hard credit budget.",
+                category="invalid_input",
+            )
+        bounded_updates = max_updates
+        if context.budget_mode == "hard":
+            assert context.max_credits is not None
+            bounded_updates = min(max_updates, math.floor(context.max_credits))
+            if bounded_updates < 1:
+                raise ConnectorError(
+                    "credit_budget_too_small",
+                    "The hard credit budget cannot fund one training update.",
+                    category="invalid_input",
+                )
         train_with_context = getattr(self.backend, "train_with_context", None)
         if train_with_context is not None:
-            return train_with_context(
+            result = train_with_context(
                 taskset,
                 work_directory,
-                max_updates=max_updates,
+                max_updates=bounded_updates,
                 context=context,
                 credential=credential,
             )
-        return self.backend.train(
-            taskset,
-            work_directory,
-            max_updates=max_updates,
-            deadline=context.deadline,
+        else:
+            result = self.backend.train(
+                taskset,
+                work_directory,
+                max_updates=bounded_updates,
+                deadline=context.deadline,
+            )
+        if not isinstance(result, TrainingResult):
+            return result
+        credits = float(result.updates_completed)
+        usage = tuple(result.usage)
+        if not any(
+            item.kind == "training_credits" and item.unit == "credits"
+            for item in usage
+        ):
+            usage += (
+                Usage(
+                    operation_id=context.operation_id,
+                    scope=context.scope,
+                    connector=self.name,
+                    kind="training_credits",
+                    quantity=credits,
+                    unit="credits",
+                    cost=0.0,
+                    currency="USD",
+                    metadata={
+                        "updatesCompleted": result.updates_completed,
+                        "requestedUpdates": max_updates,
+                        "budgetMode": context.budget_mode,
+                    },
+                    source="local-training-connector",
+                ),
+            )
+        return TrainingResult(
+            adapter_name=result.adapter_name,
+            adapter=result.adapter,
+            baseline_report=result.baseline_report,
+            candidate_report=result.candidate_report,
+            metadata=result.metadata,
+            updates_completed=result.updates_completed,
+            usage=usage,
         )
 
 
@@ -1438,6 +2012,7 @@ class LocalObservabilityConnector(_ScopedConnector):
             "cost": usage.cost,
             "currency": usage.currency,
             "metadata": usage.metadata,
+            "source": usage.source,
         }
         data = _json_bytes(record)
         with self._lock:
@@ -1478,6 +2053,7 @@ class LocalObservabilityConnector(_ScopedConnector):
                         record.get("cost"),
                         record.get("currency"),
                         record.get("metadata", {}),
+                        record.get("source", "connector"),
                     )
                 )
             except (KeyError, TypeError, ValueError, json.JSONDecodeError):
@@ -1496,8 +2072,8 @@ class LocalConnectorBundle:
     connectors: RuntimeConnectors
     scope: RuntimeScope
     state_directory: Path
-    taskset_reference: str
-    taskset_digest: ContentDigest
+    taskset_reference: str | None
+    taskset_digest: ContentDigest | None
     tasksets: LocalTasksetConnector
     candidates: LocalCandidateConnector
     observability: LocalObservabilityConnector
@@ -1511,7 +2087,7 @@ class LocalConnectorBundle:
 
 def create_local_connector_bundle(
     state_directory: str | os.PathLike[str],
-    taskset_directory: str | os.PathLike[str],
+    taskset_directory: str | os.PathLike[str] | None,
     backends: Mapping[str, Any],
     *,
     scope: RuntimeScope,
@@ -1565,7 +2141,7 @@ def create_local_connector_bundle(
                 )
         else:
             _write_immutable(scope_path, _json_bytes(expected_scope))
-        tasksets = LocalTasksetConnector(taskset_directory, scope)
+        tasksets = LocalTasksetConnector(root, taskset_directory, scope)
         artifacts = LocalArtifactConnector(root, scope)
         jobs = LocalJobConnector(root, scope)
         candidates = LocalCandidateConnector(root, scope)

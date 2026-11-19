@@ -175,6 +175,7 @@ class D1OmniBackend:
     name = "d1-omni"
     production_eligible = True
     requires_credential = False
+    supports_hard_credit_budget = True
     max_concurrent_inference = 1
 
     def __init__(

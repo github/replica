@@ -10,7 +10,9 @@ import tempfile
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
+from unittest import mock
 
 from replica_brand_check.connector_conformance import (
     ConnectorConformanceFixture,
@@ -29,7 +31,7 @@ from replica_brand_check.connectors import (
     Usage,
 )
 from replica_brand_check.local_connectors import create_local_connector_bundle
-from tests.support import make_task, write_taskset
+from tests.support import make_task, taskset_bundle, write_taskset
 
 
 _RESOURCES = []
@@ -46,6 +48,7 @@ class _CleanupSuite(unittest.TestSuite):
 class _FixtureBackend:
     name = "fixture"
     production_eligible = False
+    supports_hard_credit_budget = True
 
     def train(self, *args, **kwargs):
         return TrainingResult(
@@ -64,6 +67,24 @@ class _FixtureBackend:
         return {"operationId": kwargs["context"].operation_id}
 
 
+class _OverBudgetBackend(_FixtureBackend):
+    name = "over-budget"
+
+    def train(self, *args, **kwargs):
+        return replace(
+            super().train(*args, **kwargs),
+            updates_completed=kwargs["max_updates"] + 1,
+        )
+
+
+class _AuthoritativeUsageBackend(_FixtureBackend):
+    def __init__(self, usage):
+        self.usage = usage
+
+    def train(self, *args, **kwargs):
+        return replace(super().train(*args, **kwargs), usage=self.usage)
+
+
 def _digest(data: bytes) -> ContentDigest:
     return ContentDigest("sha256", hashlib.sha256(data).hexdigest())
 
@@ -71,6 +92,9 @@ def _digest(data: bytes) -> ContentDigest:
 def _context(
     scope: RuntimeScope,
     operation_id: str,
+    *,
+    max_credits: float | None = None,
+    budget_mode: str = "none",
 ) -> OperationContext:
     return OperationContext(
         operation_id=operation_id,
@@ -79,6 +103,8 @@ def _context(
         owner=RuntimeOwner("worker", "local-connector-test"),
         deadline=time.monotonic() + 5,
         cancellation=Cancellation(),
+        max_credits=max_credits,
+        budget_mode=budget_mode,
     )
 
 
@@ -100,6 +126,7 @@ def _new_bundle(
     case: unittest.TestCase,
     *,
     scope: RuntimeScope | None = None,
+    backends=None,
 ):
     taskset_directory = write_taskset(
         case,
@@ -114,7 +141,7 @@ def _new_bundle(
     bundle = create_local_connector_bundle(
         state_directory,
         taskset_directory,
-        {"fixture": _FixtureBackend()},
+        backends or {"fixture": _FixtureBackend()},
         scope=selected_scope,
     )
     case.addCleanup(bundle.close)
@@ -146,6 +173,8 @@ def _conformance_fixture() -> ConnectorConformanceFixture:
         scope=scope,
         other_repository_scope=other_repository_scope,
         other_tenant_scope=other_tenant_scope,
+        taskset_bundle=taskset_bundle(taskset_directory),
+        taskset_digest=bundle.taskset_digest,
         taskset_reference=bundle.taskset_reference,
         usage=bundle.observability.records,
     )
@@ -170,6 +199,45 @@ def _cleanup_resources():
 
 
 class LocalConnectorPersistenceTest(unittest.TestCase):
+    def test_identical_mounted_upload_persists_and_repairs_its_stored_copy(self):
+        bundle, state_directory, scope = _new_bundle(self)
+        startup_directory = bundle.tasksets.taskset.directory
+        uploaded = taskset_bundle(startup_directory)
+        registered = bundle.connectors.tasksets.register(
+            uploaded,
+            _context(scope, "register-taskset"),
+        )
+        self.assertNotEqual(registered.reference, "")
+        stored = state_directory / "tasksets" / registered.digest.value
+        self.assertTrue(stored.is_dir())
+
+        shutil.rmtree(stored)
+        repaired = bundle.connectors.tasksets.register(
+            uploaded,
+            _context(scope, "register-taskset"),
+        )
+        self.assertEqual(repaired, registered)
+        self.assertTrue(stored.is_dir())
+        bundle.close()
+
+        reopened = create_local_connector_bundle(
+            state_directory,
+            None,
+            {"fixture": _FixtureBackend()},
+            scope=scope,
+        )
+        self.addCleanup(reopened.close)
+
+        resolved = reopened.connectors.tasksets.resolve(
+            registered.reference,
+            _context(scope, "resolve-registered-taskset"),
+        )
+        self.assertEqual(resolved.digest, registered.digest)
+        self.assertEqual(
+            [task.id for task in resolved.taskset.tasks],
+            [task.id for task in registered.taskset.tasks],
+        )
+
     def test_refuses_to_mint_credentials_for_another_scope(self):
         bundle, _, scope = _new_bundle(self)
 
@@ -531,6 +599,210 @@ class LocalConnectorPersistenceTest(unittest.TestCase):
             promotion,
         )
         self.assertEqual(reopened.observability.records(), (usage,))
+
+    def test_promotion_cas_and_exact_retry_survive_restart_without_rewriting_history(self):
+        bundle, state_directory, scope = _new_bundle(self)
+        taskset_directory = bundle.tasksets.taskset.directory
+        first = bundle.connectors.candidates.put(
+            _candidate("cas-first"),
+            _context(scope, "store-cas-first"),
+        )
+        second = bundle.connectors.candidates.put(
+            _candidate("cas-second"),
+            _context(scope, "store-cas-second"),
+        )
+        first_context = _context(scope, "promote-cas-first")
+        generation_one = bundle.connectors.candidates.promote(
+            first.id,
+            expected_generation=0,
+            operation="promote",
+            context=first_context,
+        )
+        generation_two = bundle.connectors.candidates.promote(
+            second.id,
+            expected_generation=1,
+            operation="promote",
+            context=_context(scope, "promote-cas-second"),
+        )
+        history_before = tuple(
+            path.read_bytes()
+            for path in sorted((state_directory / "promotions").glob("*.json"))
+        )
+        pointer_before = (state_directory / "promotion.json").read_bytes()
+
+        with self.assertRaises(ConnectorError) as stale:
+            bundle.connectors.candidates.promote(
+                "candidate_missing",
+                expected_generation=0,
+                operation="promote",
+                context=_context(scope, "stale-cas-promotion"),
+            )
+        repeated = bundle.connectors.candidates.promote(
+            first.id,
+            expected_generation=0,
+            operation="promote",
+            context=first_context,
+        )
+
+        self.assertEqual(stale.exception.code, "promotion_generation_conflict")
+        self.assertEqual(repeated, generation_one)
+        self.assertEqual(
+            tuple(
+                path.read_bytes()
+                for path in sorted((state_directory / "promotions").glob("*.json"))
+            ),
+            history_before,
+        )
+        self.assertEqual((state_directory / "promotion.json").read_bytes(), pointer_before)
+        bundle.close()
+
+        reopened = create_local_connector_bundle(
+            state_directory,
+            taskset_directory,
+            {"fixture": _FixtureBackend()},
+            scope=scope,
+        )
+        self.addCleanup(reopened.close)
+        self.assertEqual(
+            reopened.connectors.candidates.current(
+                _context(scope, "current-after-cas-restart")
+            ),
+            generation_two,
+        )
+
+    def test_restart_recovers_idempotent_promotion_before_another_claims_its_generation(self):
+        bundle, state_directory, scope = _new_bundle(self)
+        taskset_directory = bundle.tasksets.taskset.directory
+        first = bundle.connectors.candidates.put(
+            _candidate("pending-first"),
+            _context(scope, "store-pending-first"),
+        )
+        second = bundle.connectors.candidates.put(
+            _candidate("pending-second"),
+            _context(scope, "store-pending-second"),
+        )
+        first_context = _context(scope, "pending-promotion")
+
+        with mock.patch.object(
+            bundle.connectors.candidates,
+            "_write_promotion_record",
+            side_effect=OSError("crashed before promotion history"),
+        ):
+            with self.assertRaises(OSError):
+                bundle.connectors.candidates.promote(
+                    first.id,
+                    expected_generation=0,
+                    operation="promote",
+                    context=first_context,
+                )
+
+        self.assertEqual(
+            tuple((state_directory / "promotions").glob("*.json")),
+            (),
+        )
+        self.assertFalse((state_directory / "promotion.json").exists())
+        bundle.close()
+
+        reopened = create_local_connector_bundle(
+            state_directory,
+            taskset_directory,
+            {"fixture": _FixtureBackend()},
+            scope=scope,
+        )
+        self.addCleanup(reopened.close)
+
+        with self.assertRaises(ConnectorError) as competing:
+            reopened.connectors.candidates.promote(
+                second.id,
+                expected_generation=0,
+                operation="promote",
+                context=_context(scope, "competing-promotion"),
+            )
+        retried = reopened.connectors.candidates.promote(
+            first.id,
+            expected_generation=0,
+            operation="promote",
+            context=first_context,
+        )
+
+        self.assertEqual(competing.exception.code, "promotion_generation_conflict")
+        self.assertEqual(retried.candidate_id, first.id)
+        self.assertEqual(retried.generation, 1)
+        self.assertEqual(
+            reopened.connectors.candidates.current(
+                _context(scope, "current-pending-promotion")
+            ),
+            retried,
+        )
+        self.assertEqual(
+            [
+                json.loads(path.read_text(encoding="utf-8"))["candidateId"]
+                for path in sorted((state_directory / "promotions").glob("*.json"))
+            ],
+            [first.id],
+        )
+
+    def test_hard_budget_violation_returns_authoritative_usage_for_runtime_enforcement(self):
+        bundle, _, scope = _new_bundle(
+            self,
+            backends={"over-budget": _OverBudgetBackend()},
+        )
+        context = _context(
+            scope,
+            "over-budget-training",
+            max_credits=1,
+            budget_mode="hard",
+        )
+        connector = bundle.connectors.training["over-budget"]
+        credential = bundle.connectors.credentials.acquire("training", context)
+
+        result = connector.train(
+            bundle.tasksets.taskset,
+            bundle.state_directory / "work",
+            max_updates=4,
+            context=context,
+            credential=credential,
+        )
+
+        self.assertEqual(result.usage[0].quantity, 2)
+        self.assertEqual(result.usage[0].unit, "credits")
+        self.assertEqual(bundle.observability.records(), ())
+
+    def test_preserves_backend_reported_credit_usage_without_double_counting(self):
+        scope = RuntimeScope("tenant-one", "github/example")
+        context = _context(
+            scope,
+            "authoritative-usage",
+            max_credits=2,
+            budget_mode="hard",
+        )
+        reported = Usage(
+            context.operation_id,
+            context.scope,
+            "fixture",
+            "training_credits",
+            2,
+            "credits",
+            0,
+            "USD",
+            {},
+            "backend",
+        )
+        bundle, _, _ = _new_bundle(
+            self,
+            scope=scope,
+            backends={"fixture": _AuthoritativeUsageBackend((reported,))},
+        )
+
+        result = bundle.connectors.training["fixture"].train(
+            bundle.tasksets.taskset,
+            bundle.state_directory / "work",
+            max_updates=2,
+            context=context,
+            credential=bundle.connectors.credentials.acquire("training", context),
+        )
+
+        self.assertEqual(result.usage, (reported,))
 
     def test_keeps_scoped_files_private_and_detects_artifact_tampering(self):
         bundle, state_directory, scope = _new_bundle(self)

@@ -1240,6 +1240,8 @@ class D1ConnectorTest(unittest.TestCase):
             backend="d1-omni",
             max_updates=1,
             max_seconds=5,
+            max_credits=1,
+            budget_mode="hard",
         )
         deadline = time.monotonic() + 10
         finished = runtime.job(submitted["id"])
@@ -1249,6 +1251,8 @@ class D1ConnectorTest(unittest.TestCase):
         runtime.promote(
             finished["candidateId"],
             promoted_by="production-operator",
+            expected_generation=0,
+            idempotency_key="promote-unavailable-d1",
         )
 
         with self.assertRaises(RuntimeFailure) as unavailable:
@@ -1296,6 +1300,8 @@ class D1ConnectorTest(unittest.TestCase):
             backend="d1-omni",
             max_updates=1,
             max_seconds=5,
+            max_credits=1,
+            budget_mode="hard",
         )
         deadline = time.monotonic() + 10
         finished = runtime.job(submitted["id"])
@@ -1305,6 +1311,8 @@ class D1ConnectorTest(unittest.TestCase):
         runtime.promote(
             finished["candidateId"],
             promoted_by="production-operator",
+            expected_generation=0,
+            idempotency_key="promote-blocking-d1",
         )
         request = {
             "state": {},
@@ -1479,6 +1487,8 @@ class D1ConnectorTest(unittest.TestCase):
             backend="d1-omni",
             max_updates=1,
             max_seconds=5,
+            max_credits=1,
+            budget_mode="hard",
         )
         deadline = time.monotonic() + 10
         finished = runtime.job(submitted["id"])
@@ -1490,6 +1500,8 @@ class D1ConnectorTest(unittest.TestCase):
         promoted = runtime.promote(
             finished["candidateId"],
             promoted_by="production-operator",
+            expected_generation=0,
+            idempotency_key="promote-production-d1",
         )
         readiness = runtime.ready()
         response = runtime.evaluate(
