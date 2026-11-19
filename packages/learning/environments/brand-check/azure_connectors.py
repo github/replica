@@ -125,8 +125,8 @@ class AzureTelemetrySink(Protocol):
 
 
 RetentionHook = Callable[[str, Mapping[str, str]], None]
-CancellationFailureHook = Callable[
-    [str, OperationContext, Exception],
+CancellationRecoveryHook = Callable[
+    [str, OperationContext],
     None,
 ]
 ConnectionFactory = Callable[[], Any]
@@ -1527,14 +1527,14 @@ class AzureContainerAppsTrainingConnector:
         supports_hard_credit_budget: bool = True,
         poll_interval_seconds: float = 2,
         sleep: Callable[[float], None] = time.sleep,
-        cancellation_failure_hook: CancellationFailureHook,
+        cancellation_recovery_hook: CancellationRecoveryHook,
     ):
         self.transport = transport
         self.job_name = job_name
         self.supports_hard_credit_budget = supports_hard_credit_budget
         self.poll_interval_seconds = poll_interval_seconds
         self.sleep = sleep
-        self.cancellation_failure_hook = cancellation_failure_hook
+        self.cancellation_recovery_hook = cancellation_recovery_hook
 
     def train(
         self,
@@ -1611,6 +1611,7 @@ class AzureContainerAppsTrainingConnector:
                 except ConnectorError:
                     self._cancel(execution_id, token, context)
                     raise
+                self._cancel(execution_id, token, context)
                 raise ConnectorError(
                     "azure_training_unavailable",
                     "The Azure training job status is unavailable.",
@@ -1651,24 +1652,21 @@ class AzureContainerAppsTrainingConnector:
         token: str | None,
         context: OperationContext,
     ) -> None:
-        failure: Exception | None = None
+        try:
+            self.cancellation_recovery_hook(execution_id, context)
+        except Exception as error:
+            raise ConnectorError(
+                "azure_training_cancellation_unrecorded",
+                "Azure training cancellation could not be scheduled for recovery.",
+                category="internal",
+            ) from error
         for attempt in range(3):
             try:
                 self.transport.cancel(execution_id, bearer_token=token)
                 return
-            except Exception as error:
-                failure = error
+            except Exception:
                 if attempt < 2:
                     self.sleep(0.1 * (attempt + 1))
-        assert failure is not None
-        try:
-            self.cancellation_failure_hook(execution_id, context, failure)
-        except Exception as error:
-            raise ConnectorError(
-                "azure_training_cancellation_unrecorded",
-                "Azure training cancellation failed and could not be scheduled for recovery.",
-                category="internal",
-            ) from error
 
 
 class AzureEndpointInferenceConnector:

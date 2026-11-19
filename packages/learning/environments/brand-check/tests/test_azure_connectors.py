@@ -790,6 +790,12 @@ class _TrainingClient:
             raise RuntimeError("cancel unavailable")
 
 
+class _StatusFailingTrainingClient(_TrainingClient):
+    def status(self, job_id, *, bearer_token):
+        del job_id, bearer_token
+        raise RuntimeError("status unavailable")
+
+
 class _InferenceClient:
     def __init__(self, readiness):
         self.readiness_value = readiness
@@ -1199,7 +1205,7 @@ class AzureExecutionConnectorTest(unittest.TestCase):
             "replica-training",
             poll_interval_seconds=0,
             sleep=lambda _: None,
-            cancellation_failure_hook=lambda *_: None,
+            cancellation_recovery_hook=lambda *_: None,
         )
         context = _context(
             self.scope,
@@ -1243,7 +1249,7 @@ class AzureExecutionConnectorTest(unittest.TestCase):
             "replica-training",
             poll_interval_seconds=0,
             sleep=lambda _: None,
-            cancellation_failure_hook=lambda *_: None,
+            cancellation_recovery_hook=lambda *_: None,
         )
         context = _context(
             self.scope,
@@ -1273,7 +1279,7 @@ class AzureExecutionConnectorTest(unittest.TestCase):
             "replica-training",
             poll_interval_seconds=0,
             sleep=lambda _: None,
-            cancellation_failure_hook=lambda *_: None,
+            cancellation_recovery_hook=lambda *_: None,
         )
         context = _context(
             self.scope,
@@ -1304,8 +1310,8 @@ class AzureExecutionConnectorTest(unittest.TestCase):
             "replica-training",
             poll_interval_seconds=0,
             sleep=lambda _: None,
-            cancellation_failure_hook=lambda execution_id, context, error: scheduled.append(
-                (execution_id, context.operation_id, type(error).__name__)
+            cancellation_recovery_hook=lambda execution_id, context: scheduled.append(
+                (execution_id, context.operation_id)
             ),
         )
         context = _context(
@@ -1329,8 +1335,40 @@ class AzureExecutionConnectorTest(unittest.TestCase):
         self.assertEqual(client.cancelled, ["training-1"] * 3)
         self.assertEqual(
             scheduled,
-            [("training-1", context.operation_id, "RuntimeError")],
+            [("training-1", context.operation_id)],
         )
+
+    def test_status_failure_schedules_recovery_before_abandoning_execution(self):
+        client = _StatusFailingTrainingClient()
+        scheduled = []
+        connector = AzureContainerAppsTrainingConnector(
+            client,
+            "replica-training",
+            poll_interval_seconds=0,
+            sleep=lambda _: None,
+            cancellation_recovery_hook=lambda execution_id, context: scheduled.append(
+                (execution_id, context.operation_id)
+            ),
+        )
+        context = _context(
+            self.scope,
+            "status-failure-recovery",
+            max_credits=7,
+            budget_mode="hard",
+        )
+
+        with self.assertRaises(ConnectorError) as unavailable:
+            connector.train(
+                SimpleNamespace(metadata={"digest": "taskset-one"}, tasks=()),
+                Path("unused-work-directory"),
+                max_updates=3,
+                context=context,
+                credential=None,
+            )
+
+        self.assertEqual(unavailable.exception.code, "azure_training_unavailable")
+        self.assertEqual(client.cancelled, ["training-1"])
+        self.assertEqual(scheduled, [("training-1", context.operation_id)])
 
     def test_inference_checks_generation_and_reports_cold_start_readiness(self):
         client = _InferenceClient(
@@ -1562,7 +1600,7 @@ def _conformance_fixture():
         "replica-training",
         poll_interval_seconds=0,
         sleep=lambda _: None,
-        cancellation_failure_hook=lambda *_: None,
+        cancellation_recovery_hook=lambda *_: None,
     )
     inference_client = _InferenceClient(
         {"state": "ready", "coldStart": False, "generation": 1}
