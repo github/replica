@@ -32,6 +32,7 @@ function dependencies(overrides: Partial<Dependencies> = {}) {
       collection: { kind: "replica.hub-review-collection/v1" },
       digest: "sha256:snapshot",
       capturedAt: new Date("2026-11-13T09:00:00Z"),
+      reviewActivitySnapshot: {},
     }),
     finish: vi.fn((id: string, input: Parameters<Dependencies["finish"]>[1]) => {
       finished.push({ id, input })
@@ -90,6 +91,9 @@ describe("processLearningRun()", () => {
     expect(deps.commands.find((arguments_) => arguments_[0] === "import")).toContain(
       "--redact-deleted",
     )
+    expect(
+      deps.commands.find((arguments_) => arguments_[0] === "grants" && arguments_[1] === "add"),
+    ).toEqual(expect.arrayContaining(["--by", "human:mona"]))
     expect(deps.progress.at(-1)).toEqual({
       id: "11111111-2222-4333-8444-555555555555",
       input: {
@@ -163,7 +167,7 @@ describe("processLearningRun()", () => {
     expect(deps.finished).toEqual([])
   })
 
-  it("processes a scheduled run without user authority and records a system actor", async () => {
+  it("fails a first scheduled run without creating consent", async () => {
     const deps = dependencies()
     deps.run.scheduled = true
     deps.run.requestedBy = null
@@ -174,8 +178,94 @@ describe("processLearningRun()", () => {
     expect(deps.isAdministrator).not.toHaveBeenCalled()
     expect(
       deps.commands.find((arguments_) => arguments_[0] === "grants" && arguments_[1] === "add"),
-    ).toEqual(expect.arrayContaining(["--by", "system:replica-hub"]))
+    ).toBeUndefined()
+    expect(deps.finished[0]).toMatchObject({
+      input: {
+        state: "FAILED",
+        failureCode: "grant_required",
+      },
+    })
+  })
+
+  it("uses an active human-approved grant for a scheduled run", async () => {
+    const deps = dependencies({
+      runCommand: vi.fn((arguments_: string[]) => {
+        if (arguments_[0] === "grants" && arguments_[1] === "list") {
+          return Promise.resolve([
+            {
+              grant: {
+                id: "grant-1",
+                sources: ["hub_review_comments"],
+                grantedBy: { kind: "human", id: "github:mona" },
+              },
+              activePurposes: ["review", "instruction"],
+              expired: false,
+            },
+          ])
+        }
+        if (arguments_[0] === "import") {
+          return Promise.resolve({ complete: true, problems: [] })
+        }
+        if (arguments_[0] === "label") {
+          return Promise.resolve({
+            considered: 4,
+            labeled: 3,
+            remaining: 1,
+            usage: { requests: 2, nanoAiu: 2_500_000 },
+          })
+        }
+        return Promise.resolve({
+          status: "complete",
+          proposals: [{ id: "proposal-1", updatedAt: "2026-11-13T10:00:00Z" }],
+          overBudget: 1,
+        })
+      }),
+    })
+    deps.run.scheduled = true
+    deps.run.requestedBy = null
+    deps.run.requestedByMembershipId = null
+
+    await processLearningRun("11111111-2222-4333-8444-555555555555", deps)
+
+    expect(
+      vi
+        .mocked(deps.runCommand)
+        .mock.calls.find(([arguments_]) => arguments_[0] === "grants" && arguments_[1] === "add"),
+    ).toBeUndefined()
     expect(deps.finished[0]).toMatchObject({ input: { state: "SUCCEEDED" } })
+  })
+
+  it("rejects an active grant that was not approved by a person", async () => {
+    const deps = dependencies({
+      runCommand: vi.fn((arguments_: string[]) => {
+        if (arguments_[0] === "grants" && arguments_[1] === "list") {
+          return Promise.resolve([
+            {
+              grant: {
+                id: "grant-1",
+                sources: ["hub_review_comments"],
+                grantedBy: { kind: "system", id: "system:replica-hub" },
+              },
+              activePurposes: ["review", "instruction"],
+              expired: false,
+            },
+          ])
+        }
+        return Promise.reject(new Error("No later command should run."))
+      }),
+    })
+    deps.run.scheduled = true
+    deps.run.requestedBy = null
+    deps.run.requestedByMembershipId = null
+
+    await processLearningRun("11111111-2222-4333-8444-555555555555", deps)
+
+    expect(deps.finished[0]).toMatchObject({
+      input: {
+        state: "FAILED",
+        failureCode: "grant_required",
+      },
+    })
   })
 
   it("fails a scheduled run visibly when evidence changes after scheduling", async () => {
@@ -184,6 +274,7 @@ describe("processLearningRun()", () => {
         collection: { kind: "replica.hub-review-collection/v1" },
         digest: "sha256:changed",
         capturedAt: new Date("2026-11-13T09:00:00Z"),
+        reviewActivitySnapshot: {},
       }),
     })
     deps.run.scheduled = true

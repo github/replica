@@ -152,6 +152,7 @@ export async function createLearningsRouteDependencies(
           requestedById,
           requestedByMembershipId: actorMembershipId,
           snapshotDigest: snapshot.digest,
+          reviewActivitySnapshot: snapshot.reviewActivitySnapshot,
         })
         if (result.created || result.promoted) {
           await createSecurityAudit(transaction, {

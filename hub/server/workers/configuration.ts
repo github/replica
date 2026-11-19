@@ -1,6 +1,7 @@
 import { z } from "zod"
 
 import { createLearningJobProcessors } from "../domains/learning/create-learning-job-processors/index.ts"
+import { scheduledMaintenancePriority } from "../domains/learning/jobs/priorities.ts"
 import { recoverLearningRunsJob } from "../domains/learning/jobs/recover-learning-runs.ts"
 import { scheduleLearningRunsJob } from "../domains/learning/jobs/schedule-learning-runs.ts"
 import { getLocalBuildJobDefinition } from "../domains/local-builds/get-local-build-job-definition/index.ts"
@@ -19,7 +20,11 @@ const learning = createLearningJobProcessors(process.env, logger)
 const githubInstallationReconciliation: JobDefinition<Record<string, never>> = {
   name: "reconcile-github-installation",
   schema: z.object({}).strict(),
-  options: { attempts: 3, backoff: { type: "exponential", delay: 60_000 } },
+  options: {
+    attempts: 3,
+    backoff: { type: "exponential", delay: 60_000 },
+    priority: scheduledMaintenancePriority,
+  },
 }
 
 export const jobProcessors: Record<JobQueueName, JobProcessor[]> = {

@@ -12,6 +12,7 @@ const grantListSchema = z.array(
         .object({
           id: z.string().min(1),
           sources: z.array(z.string()),
+          grantedBy: z.object({ kind: z.string(), id: z.string().min(1) }).loose(),
         })
         .loose(),
       activePurposes: z.array(z.string()),
@@ -60,6 +61,7 @@ export async function processLearningRun(
       collection: unknown
       digest: string
       capturedAt: Date
+      reviewActivitySnapshot: Record<string, number>
     }>
     finish(
       runId: string,
@@ -121,10 +123,8 @@ export async function processLearningRun(
       const current = await dependencies.getRun(runId)
       if (!current) throw new Error("The claimed learning run disappeared.")
       if (current.state !== "RUNNING") return
-      let actor: string
-      if (current.scheduled) {
-        actor = "system:replica-hub"
-      } else {
+      let actor: string | null = null
+      if (!current.scheduled) {
         const requester = current.requestedBy?.profile?.login
         if (
           !requester ||
@@ -153,7 +153,10 @@ export async function processLearningRun(
       const sourceGrants = grants.filter((entry) =>
         entry.grant.sources.includes("hub_review_comments"),
       )
-      let grantIds = sourceGrants
+      const humanSourceGrants = sourceGrants.filter(
+        (entry) => entry.grant.grantedBy.kind === "human",
+      )
+      let grantIds = humanSourceGrants
         .filter(
           (entry) =>
             !entry.expired &&
@@ -162,10 +165,16 @@ export async function processLearningRun(
         )
         .map((entry) => entry.grant.id)
       if (grantIds.length === 0) {
-        if (sourceGrants.length > 0) {
+        if (humanSourceGrants.length > 0) {
           throw new LearningCommandError(
             "grant_inactive",
             "Consent to use this repository's review comments ended.",
+          )
+        }
+        if (current.scheduled) {
+          throw new LearningCommandError(
+            "grant_required",
+            "A repository administrator must request the first learning run.",
           )
         }
         const grant = addedGrantSchema.parse(
@@ -180,11 +189,9 @@ export async function processLearningRun(
               "--source",
               "hub_review_comments",
               "--basis",
-              current.scheduled
-                ? "Replica Hub scheduled this repository's daily learning run."
-                : "A repository administrator explicitly requested this learning run.",
+              "A repository administrator explicitly requested this learning run.",
               "--by",
-              actor,
+              actor!,
               ...common,
             ],
             { signal },

@@ -47,4 +47,34 @@ describe("listQueuedLearningRuns()", () => {
       ]),
     )
   })
+
+  it("keeps a newer user run visible behind a full page of automatic runs", async () => {
+    const repositories = Array.from({ length: 101 }, (_, index) => ({
+      id: randomUUID(),
+      nameWithOwner: `team/recovery-${index}`,
+      defaultBranch: "main",
+    }))
+    await prisma.repository.createMany({ data: repositories })
+    await prisma.learningRun.createMany({
+      data: repositories.slice(0, 100).map((repository, index) => ({
+        repositoryId: repository.id,
+        scheduled: true,
+        snapshotDigest: `sha256:${index.toString(16).padStart(64, "0")}`,
+        createdAt: new Date(Date.UTC(2026, 10, 18, 8, index)),
+      })),
+    })
+    const userRun = await prisma.learningRun.create({
+      data: {
+        repositoryId: repositories[100]!.id,
+        snapshotDigest: `sha256:${"f".repeat(64)}`,
+        createdAt: new Date("2026-11-18T12:00:00Z"),
+      },
+    })
+
+    const recoverable = await listQueuedLearningRuns(prisma)
+
+    expect(recoverable).toHaveLength(100)
+    expect(recoverable[0]).toEqual({ id: userRun.id, scheduled: false })
+    expect(recoverable.filter((run) => run.scheduled)).toHaveLength(99)
+  })
 })

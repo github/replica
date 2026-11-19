@@ -6,6 +6,7 @@ import { getCopilotConnectionStatus } from "../../copilot-connection/get-copilot
 import { ReviewCommentError } from "../../review-comments/errors.ts"
 import { createReviewCommentLearningSource } from "../create-review-comment-learning-source/index.ts"
 import { learningRunJob } from "../jobs/learning-run.ts"
+import { automaticLearningRunPriority } from "../jobs/priorities.ts"
 import { recoverLearningRunsJob } from "../jobs/recover-learning-runs.ts"
 import { redactReviewCommentJob } from "../jobs/redact-review-comment.ts"
 import { scheduleLearningRunsJob } from "../jobs/schedule-learning-runs.ts"
@@ -14,6 +15,7 @@ import { processLearningRun } from "../process-learning-run/index.ts"
 import { processReviewCommentRedaction } from "../process-review-comment-redaction/index.ts"
 import { recoverLearningRunJobs } from "../recover-learning-run-jobs/index.ts"
 import { reconcileLearningDecisionOperation } from "../reconcile-learning-decision-operation/index.ts"
+import { readAutomaticLearningRunsEnabled } from "../read-automatic-learning-runs-enabled/index.ts"
 import { readLearningConfiguration } from "../read-learning-configuration/index.ts"
 import { scheduleLearningRuns } from "../schedule-learning-runs/index.ts"
 import { createJobProcessor } from "../../../integrations/bullmq/create-job-processor/index.ts"
@@ -252,7 +254,13 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
         enqueueOnDemand: (runId) =>
           enqueueRecoverableJob(onDemandQueue, learningRunJob, { runId }, `learning-run-${runId}`),
         enqueueScheduled: (runId) =>
-          enqueueRecoverableJob(scheduledQueue, learningRunJob, { runId }, `learning-run-${runId}`),
+          enqueueRecoverableJob(
+            scheduledQueue,
+            learningRunJob,
+            { runId },
+            `learning-run-${runId}`,
+            { priority: automaticLearningRunPriority },
+          ),
       })
       let redactionCursor: { deletedAt: Date; id: string } | undefined
       do {
@@ -332,17 +340,20 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
   })
 
   const schedule = createJobProcessor(scheduleLearningRunsJob, async () => {
-    const automaticRuns = environment.REPLICA_LEARNING_AUTOMATIC_RUNS?.trim().toLowerCase()
-    if (automaticRuns === undefined || automaticRuns === "false") {
+    const automaticEnabled = readAutomaticLearningRunsEnabled(environment)
+    if (!automaticEnabled) {
       const { prisma } = await databaseDependencies()
-      await deleteExpiredLearningRuns(prisma, new Date(Date.now() - 90 * 24 * 60 * 60 * 1_000))
-      return { scheduled: 0 }
+      return await scheduleLearningRuns({
+        automaticEnabled,
+        deleteExpired: (cutoff) => deleteExpiredLearningRuns(prisma, cutoff),
+        now: () => new Date(),
+      })
     }
-    const { configuration, databaseUrl, prisma, source } = await dependencies()
+    const { databaseUrl, prisma, source } = await dependencies()
     const queue = createJobQueue({ name: "scheduled", databaseUrl, logger })
     try {
       return await scheduleLearningRuns({
-        automaticEnabled: configuration.automaticRuns,
+        automaticEnabled: true,
         copilotUsable,
         deleteExpired: (cutoff) => deleteExpiredLearningRuns(prisma, cutoff),
         listDue: () =>
@@ -375,7 +386,9 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
             return createLearningRun(transaction, input)
           }),
         enqueue: (runId) =>
-          enqueueRecoverableJob(queue, learningRunJob, { runId }, `learning-run-${runId}`),
+          enqueueRecoverableJob(queue, learningRunJob, { runId }, `learning-run-${runId}`, {
+            priority: automaticLearningRunPriority,
+          }),
         fail: async (runId, error) => {
           const failed = await failScheduledLearningRunEnqueue(prisma, runId, new Date())
           if (failed.count === 0) return

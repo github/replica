@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto"
+import pg from "pg"
 import { describe, expect, it } from "vitest"
 
+import { createReviewCommentLearningSource } from "../../../domains/learning/create-review-comment-learning-source"
 import { prisma } from "../../../integrations/prisma"
 import { listDueLearningRepositories } from "."
 
@@ -21,12 +23,23 @@ async function createReviewEvidence(input: { repositoryId: string; updatedAt: Da
       finishedAt: input.updatedAt,
     },
   })
-  await prisma.reviewThread.create({
+  return prisma.reviewThread.create({
     data: {
       repositoryId: input.repositoryId,
       prototypeId: prototype.id,
       buildId: build.id,
-      anchor: { schemaVersion: 1, kind: "element", selector: "#content" },
+      anchor: {
+        schemaVersion: 1,
+        kind: "element",
+        route: { pathname: "/", search: "", hash: "" },
+        selector: "#content",
+        accessibleName: "Content",
+        tagName: "main",
+        selectedText: "",
+        rect: { x: 0, y: 0, width: 100, height: 100 },
+        viewport: { width: 1_000, height: 800, scrollX: 0, scrollY: 0 },
+        elementOffset: { x: 0, y: 0 },
+      },
       createdAt: input.updatedAt,
       updatedAt: input.updatedAt,
       comments: {
@@ -176,6 +189,7 @@ describe("listDueLearningRepositories()", () => {
           repositoryId: completeId,
           state: "SUCCEEDED",
           snapshotDigest: `sha256:${"c".repeat(64)}`,
+          reviewActivitySnapshot: {},
           startedAt: new Date("2026-11-18T07:00:00Z"),
           finishedAt: new Date("2026-11-18T08:00:00Z"),
         },
@@ -209,24 +223,53 @@ describe("listDueLearningRepositories()", () => {
     )
   })
 
-  it("finds review evidence added after the successful run snapshot but before completion", async () => {
+  it("finds review evidence committed after snapshot capture with an earlier timestamp", async () => {
     const repositoryId = randomUUID()
     await prisma.repository.create({
       data: { id: repositoryId, nameWithOwner: "team/during-run", defaultBranch: "main" },
     })
-    await createReviewEvidence({
+    const thread = await createReviewEvidence({
       repositoryId,
-      updatedAt: new Date("2026-11-18T09:30:00Z"),
+      updatedAt: new Date("2026-11-18T08:00:00Z"),
     })
-    await prisma.learningRun.create({
-      data: {
-        repositoryId,
-        state: "SUCCEEDED",
-        snapshotDigest: `sha256:${"f".repeat(64)}`,
-        startedAt: new Date("2026-11-18T09:00:00Z"),
-        finishedAt: new Date("2026-11-18T10:00:00Z"),
-      },
-    })
+    const databaseUrl = process.env.DATABASE_URL
+    if (!databaseUrl) throw new Error("DATABASE_URL is required.")
+    const reviewDatabase = new pg.Client({ connectionString: databaseUrl })
+    await reviewDatabase.connect()
+    let committed = false
+    try {
+      await reviewDatabase.query("BEGIN")
+      await reviewDatabase.query(
+        `UPDATE review_threads
+         SET activity_version = activity_version + 1, updated_at = $2
+         WHERE id = $1`,
+        [thread.id, new Date("2026-11-18T08:30:00Z")],
+      )
+      await reviewDatabase.query(
+        `UPDATE review_comments
+         SET body = 'Review evidence committed after learning', updated_at = $2
+         WHERE thread_id = $1`,
+        [thread.id, new Date("2026-11-18T08:30:00Z")],
+      )
+
+      const source = createReviewCommentLearningSource(prisma, "https://hub.example.com")
+      const snapshot = await source.captureCompleteSnapshot({ repositoryId })
+      await prisma.learningRun.create({
+        data: {
+          repositoryId,
+          state: "SUCCEEDED",
+          snapshotDigest: snapshot.digest,
+          reviewActivitySnapshot: snapshot.reviewActivitySnapshot,
+          startedAt: new Date("2026-11-18T09:00:00Z"),
+          finishedAt: new Date("2026-11-18T10:00:00Z"),
+        },
+      })
+      await reviewDatabase.query("COMMIT")
+      committed = true
+    } finally {
+      if (!committed) await reviewDatabase.query("ROLLBACK")
+      await reviewDatabase.end()
+    }
 
     await expect(listDueLearningRepositories(prisma, { requireGitHubId: false })).resolves.toEqual([
       { id: repositoryId },

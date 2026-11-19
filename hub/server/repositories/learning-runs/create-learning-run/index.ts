@@ -10,6 +10,7 @@ export async function createLearningRun(
         requestedByMembershipId: string
         scheduled?: false
         snapshotDigest: string
+        reviewActivitySnapshot: Prisma.InputJsonValue
       }
     | {
         repositoryId: string
@@ -17,6 +18,7 @@ export async function createLearningRun(
         requestedByMembershipId?: never
         scheduled: true
         snapshotDigest: string
+        reviewActivitySnapshot: Prisma.InputJsonValue
       },
 ) {
   const id = randomUUID()
@@ -43,6 +45,7 @@ export async function createLearningRun(
         requestedByMembershipId: input.requestedByMembershipId,
         scheduled: false,
         snapshotDigest: input.snapshotDigest,
+        reviewActivitySnapshot: input.reviewActivitySnapshot,
       },
     })
     if (promotion.count === 1) {

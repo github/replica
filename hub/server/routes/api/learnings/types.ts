@@ -54,7 +54,7 @@ export interface LearningsRouteDependencies {
   listRuns(repositoryId: string): Promise<{
     runs: LearningRun[]
     usageCredits: string
-    active: boolean
+    active: { scheduled: boolean; state: "QUEUED" | "RUNNING" } | null
   }>
   requestRun?: (input: {
     actorMembershipId: string

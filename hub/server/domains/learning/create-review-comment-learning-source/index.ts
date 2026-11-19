@@ -18,7 +18,14 @@ export function createReviewCommentLearningSource(
     async captureCompleteSnapshot({ repositoryId }) {
       const snapshot = await captureRepositoryReviewSnapshot(database, repositoryId)
       const { collection, digest } = createHubReviewCollection(snapshot, hubOrigin)
-      return { collection, digest, capturedAt: snapshot.capturedAt }
+      return {
+        collection,
+        digest,
+        capturedAt: snapshot.capturedAt,
+        reviewActivitySnapshot: Object.fromEntries(
+          snapshot.threads.map((thread) => [thread.storageId, thread.activityVersion]),
+        ),
+      }
     },
     async resolveEvidence({ repositoryId, references, events }) {
       const snapshot = await captureRepositoryReviewSnapshot(database, repositoryId)

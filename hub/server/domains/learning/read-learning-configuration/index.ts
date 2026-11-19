@@ -3,19 +3,13 @@ import { resolve } from "node:path"
 import { validatePrivateStorageRoot } from "../../../utils/validate-private-storage-root/index.ts"
 import { createCopilotCredentialProvider } from "../../copilot-credentials/create-copilot-credential-provider/index.ts"
 import { LearningConfigurationError } from "../errors.ts"
+import { readAutomaticLearningRunsEnabled } from "../read-automatic-learning-runs-enabled/index.ts"
 
 export async function readLearningConfiguration(
   environment: NodeJS.ProcessEnv,
   applicationRoot = process.cwd(),
 ) {
-  const automaticRunsValue = environment.REPLICA_LEARNING_AUTOMATIC_RUNS?.trim().toLowerCase()
-  if (
-    automaticRunsValue !== undefined &&
-    automaticRunsValue !== "true" &&
-    automaticRunsValue !== "false"
-  ) {
-    throw new LearningConfigurationError("REPLICA_LEARNING_AUTOMATIC_RUNS must be true or false.")
-  }
+  const automaticRuns = readAutomaticLearningRunsEnabled(environment)
   const clientDirectory = environment.CLIENT_DIRECTORY?.trim()
   let root: string
   try {
@@ -49,7 +43,7 @@ export async function readLearningConfiguration(
     )
   }
   return {
-    automaticRuns: automaticRunsValue === "true",
+    automaticRuns,
     cliPath,
     copilotCredentialProvider,
     nodePath,

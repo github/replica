@@ -64,7 +64,10 @@ export function get(dependencies: LearningsRouteDependencies): RequestHandler {
         return
       }
       const runAvailable =
-        dependencies.requestRun !== undefined && copilot.state === "connected" && !runSummary.active
+        dependencies.requestRun !== undefined &&
+        copilot.state === "connected" &&
+        (runSummary.active === null ||
+          (runSummary.active.scheduled && runSummary.active.state === "QUEUED"))
       response.json({
         accessDenied: false,
         repository,

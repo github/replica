@@ -238,6 +238,53 @@ describe("job processing with PostgreSQL", () => {
     }
   }, 15_000)
 
+  it("runs scheduled maintenance before a waiting automatic backlog", async () => {
+    const queue = openQueue("scheduled")
+    const definition = { name: "prioritized", schema: z.object({ label: z.string() }) }
+    const processed: string[] = []
+    let release: (() => void) | undefined
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const process = vi.fn(async ({ label }: { label: string }) => {
+      processed.push(label)
+      if (label === "automatic-active") await gate
+    })
+    const { start } = await openWorker("scheduled", [createJobProcessor(definition, process)])
+    const active = await enqueueJob(
+      queue,
+      definition,
+      { label: "automatic-active" },
+      { priority: 10 },
+    )
+    const waiting = await enqueueJob(
+      queue,
+      definition,
+      { label: "automatic-waiting" },
+      { priority: 10 },
+    )
+    start()
+
+    await vi.waitFor(() => expect(process).toHaveBeenCalledTimes(1), { timeout: 5_000 })
+    const maintenance = await enqueueJob(
+      queue,
+      definition,
+      { label: "maintenance" },
+      { priority: 1 },
+    )
+    release?.()
+    await vi.waitFor(
+      async () => {
+        expect(await active.getState()).toBe("completed")
+        expect(await waiting.getState()).toBe("completed")
+        expect(await maintenance.getState()).toBe("completed")
+      },
+      { timeout: 5_000 },
+    )
+
+    expect(processed).toEqual(["automatic-active", "maintenance", "automatic-waiting"])
+  }, 15_000)
+
   it("validates producer data and honors per-job overrides alongside definition defaults", async () => {
     const queue = openQueue("on-demand")
     const definition = {

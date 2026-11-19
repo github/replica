@@ -33,5 +33,6 @@ export interface ReviewCommentLearningSource {
     collection: unknown
     digest: `sha256:${string}`
     capturedAt: Date
+    reviewActivitySnapshot: Record<string, number>
   }>
 }

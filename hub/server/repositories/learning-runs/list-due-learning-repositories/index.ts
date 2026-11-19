@@ -18,7 +18,7 @@ export function listDueLearningRepositories(
     latest_successes AS (
       SELECT DISTINCT ON (repository_id)
         repository_id,
-        started_at,
+        review_activity_snapshot,
         comments_remaining,
         suggestions_remaining
       FROM learning_runs
@@ -31,6 +31,11 @@ export function listDueLearningRepositories(
       ON latest_runs.repository_id = repositories.id
     LEFT JOIN latest_successes
       ON latest_successes.repository_id = repositories.id
+    LEFT JOIN LATERAL (
+      SELECT jsonb_object_agg(id::text, activity_version) AS snapshot
+      FROM review_threads
+      WHERE review_threads.repository_id = repositories.id
+    ) review_activity ON true
     WHERE repositories.removed_at IS NULL
       AND (${input.requireGitHubId} = false OR repositories.github_repository_id IS NOT NULL)
       AND NOT EXISTS (
@@ -44,34 +49,9 @@ export function listDueLearningRepositories(
         OR COALESCE(latest_runs.suggestions_remaining, 0) > 0
         OR COALESCE(latest_successes.comments_remaining, 0) > 0
         OR COALESCE(latest_successes.suggestions_remaining, 0) > 0
-        OR EXISTS (
-          SELECT 1
-          FROM review_threads
-          WHERE review_threads.repository_id = repositories.id
-            AND (
-              review_threads.updated_at > COALESCE(
-                latest_successes.started_at,
-                '-infinity'::timestamptz
-              )
-              OR EXISTS (
-                SELECT 1
-                FROM review_comments
-                WHERE review_comments.thread_id = review_threads.id
-                  AND review_comments.updated_at > COALESCE(
-                    latest_successes.started_at,
-                    '-infinity'::timestamptz
-                  )
-              )
-              OR EXISTS (
-                SELECT 1
-                FROM review_thread_resolution_events
-                WHERE review_thread_resolution_events.thread_id = review_threads.id
-                  AND review_thread_resolution_events.occurred_at > COALESCE(
-                    latest_successes.started_at,
-                    '-infinity'::timestamptz
-                  )
-              )
-            )
+        OR (
+          review_activity.snapshot IS NOT NULL
+          AND review_activity.snapshot IS DISTINCT FROM latest_successes.review_activity_snapshot
         )
       )
     ORDER BY latest_runs.created_at ASC NULLS FIRST, repositories.id ASC

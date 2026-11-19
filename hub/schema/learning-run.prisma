@@ -22,6 +22,7 @@ model LearningRun {
   copilotRequests      Int              @default(0) @map("copilot_requests")
   aiCredits            Decimal          @default(0) @map("ai_credits") @db.Decimal(20, 9)
   snapshotDigest       String           @map("snapshot_digest") @db.VarChar(71)
+  reviewActivitySnapshot Json?           @map("review_activity_snapshot")
   failureCode          String?          @map("failure_code") @db.VarChar(60)
   failureSummary       String?          @map("failure_summary") @db.VarChar(1000)
   startedAt            DateTime?        @map("started_at") @db.Timestamptz(3)

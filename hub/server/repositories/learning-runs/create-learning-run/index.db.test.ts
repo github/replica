@@ -19,6 +19,7 @@ describe("createLearningRun()", () => {
       requestedById: userId,
       requestedByMembershipId: membershipId,
       snapshotDigest: `sha256:${"a".repeat(64)}`,
+      reviewActivitySnapshot: {},
     }
 
     const results = await Promise.all([
@@ -47,6 +48,7 @@ describe("createLearningRun()", () => {
           repositoryId,
           scheduled: true,
           snapshotDigest: `sha256:${"a".repeat(64)}`,
+          reviewActivitySnapshot: { scheduled: 1 },
         }),
       ),
       prisma.$transaction((transaction) =>
@@ -55,6 +57,7 @@ describe("createLearningRun()", () => {
           requestedById: userId,
           requestedByMembershipId: membershipId,
           snapshotDigest: `sha256:${"b".repeat(64)}`,
+          reviewActivitySnapshot: { requested: 2 },
         }),
       ),
     ])
@@ -69,6 +72,49 @@ describe("createLearningRun()", () => {
       requestedById: userId,
       requestedByMembershipId: membershipId,
       snapshotDigest: `sha256:${"b".repeat(64)}`,
+      reviewActivitySnapshot: { requested: 2 },
+    })
+  })
+
+  it("promotes a queued scheduled run when an administrator requests it", async () => {
+    const repositoryId = randomUUID()
+    const userId = randomUUID()
+    const membershipId = randomUUID()
+    await prisma.repository.create({
+      data: { id: repositoryId, nameWithOwner: "team/promotion", defaultBranch: "main" },
+    })
+    await prisma.user.create({ data: { id: userId } })
+    await prisma.membership.create({ data: { id: membershipId, userId } })
+    const scheduled = await prisma.$transaction((transaction) =>
+      createLearningRun(transaction, {
+        repositoryId,
+        scheduled: true,
+        snapshotDigest: `sha256:${"a".repeat(64)}`,
+        reviewActivitySnapshot: { scheduled: 1 },
+      }),
+    )
+
+    const requested = await prisma.$transaction((transaction) =>
+      createLearningRun(transaction, {
+        repositoryId,
+        requestedById: userId,
+        requestedByMembershipId: membershipId,
+        snapshotDigest: `sha256:${"b".repeat(64)}`,
+        reviewActivitySnapshot: { requested: 2 },
+      }),
+    )
+
+    expect(requested).toMatchObject({
+      created: false,
+      promoted: true,
+      run: {
+        id: scheduled.run.id,
+        scheduled: false,
+        requestedById: userId,
+        requestedByMembershipId: membershipId,
+        snapshotDigest: `sha256:${"b".repeat(64)}`,
+        reviewActivitySnapshot: { requested: 2 },
+      },
     })
   })
 })

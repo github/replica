@@ -2,9 +2,14 @@ import { describe, expect, it, vi } from "vitest"
 
 import { scheduleLearningRuns } from "."
 
-function dependencies(overrides: Partial<Parameters<typeof scheduleLearningRuns>[0]> = {}) {
+type EnabledDependencies = Extract<
+  Parameters<typeof scheduleLearningRuns>[0],
+  { automaticEnabled: true }
+>
+
+function dependencies(overrides: Partial<EnabledDependencies> = {}): EnabledDependencies {
   return {
-    automaticEnabled: true,
+    automaticEnabled: true as const,
     copilotUsable: vi.fn().mockResolvedValue(true),
     deleteExpired: vi.fn().mockResolvedValue(undefined),
     listDue: vi
@@ -13,11 +18,12 @@ function dependencies(overrides: Partial<Parameters<typeof scheduleLearningRuns>
         { id: "11111111-1111-4111-8111-111111111111" },
         { id: "22222222-2222-4222-8222-222222222222" },
       ]),
-    capture: vi
-      .fn()
-      .mockImplementation((repositoryId: string) =>
-        Promise.resolve({ digest: `sha256:${repositoryId}` }),
-      ),
+    capture: vi.fn().mockImplementation((repositoryId: string) =>
+      Promise.resolve({
+        digest: `sha256:${repositoryId}`,
+        reviewActivitySnapshot: { [repositoryId]: 1 },
+      }),
+    ),
     create: vi
       .fn()
       .mockImplementation(({ repositoryId }: { repositoryId: string }) =>
@@ -32,14 +38,15 @@ function dependencies(overrides: Partial<Parameters<typeof scheduleLearningRuns>
 
 describe("scheduleLearningRuns()", () => {
   it("does not inspect or create runs when automatic scheduling is disabled", async () => {
-    const deps = dependencies({ automaticEnabled: false })
+    const deps = {
+      automaticEnabled: false as const,
+      deleteExpired: vi.fn().mockResolvedValue(undefined),
+      now: vi.fn(() => new Date("2026-11-18T10:00:00Z")),
+    }
 
     await expect(scheduleLearningRuns(deps)).resolves.toEqual({ scheduled: 0 })
 
-    expect(deps.deleteExpired).toHaveBeenCalledOnce()
-    expect(deps.copilotUsable).not.toHaveBeenCalled()
-    expect(deps.listDue).not.toHaveBeenCalled()
-    expect(deps.create).not.toHaveBeenCalled()
+    expect(deps.deleteExpired).toHaveBeenCalledWith(new Date("2026-08-20T10:00:00Z"))
   })
 
   it("does not create runs when Copilot is unavailable", async () => {
@@ -74,6 +81,7 @@ describe("scheduleLearningRuns()", () => {
       repositoryId: "11111111-1111-4111-8111-111111111111",
       scheduled: true,
       snapshotDigest: "sha256:11111111-1111-4111-8111-111111111111",
+      reviewActivitySnapshot: { "11111111-1111-4111-8111-111111111111": 1 },
     })
     expect(deps.enqueue).toHaveBeenCalledTimes(1)
     expect(deps.enqueue).toHaveBeenCalledWith("run-11111111-1111-4111-8111-111111111111")
@@ -99,7 +107,10 @@ describe("scheduleLearningRuns()", () => {
       capture: vi
         .fn()
         .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({ digest: "sha256:available" }),
+        .mockResolvedValueOnce({
+          digest: "sha256:available",
+          reviewActivitySnapshot: { available: 1 },
+        }),
     })
 
     await expect(scheduleLearningRuns(deps)).resolves.toEqual({ scheduled: 1 })
@@ -109,6 +120,7 @@ describe("scheduleLearningRuns()", () => {
       repositoryId: "22222222-2222-4222-8222-222222222222",
       scheduled: true,
       snapshotDigest: "sha256:available",
+      reviewActivitySnapshot: { available: 1 },
     })
   })
 
@@ -128,5 +140,19 @@ describe("scheduleLearningRuns()", () => {
     expect(deps.capture).toHaveBeenCalledTimes(2)
     expect(deps.enqueue).toHaveBeenCalledOnce()
     expect(deps.enqueue).toHaveBeenCalledWith("run-22222222-2222-4222-8222-222222222222")
+  })
+
+  it("bounds each automatic dispatch while preserving repository order", async () => {
+    const repositories = Array.from({ length: 101 }, (_, index) => ({ id: `repository-${index}` }))
+    const deps = dependencies({
+      listDue: vi.fn().mockResolvedValue(repositories),
+    })
+
+    await expect(scheduleLearningRuns(deps)).resolves.toEqual({ scheduled: 100 })
+
+    expect(deps.capture).toHaveBeenCalledTimes(100)
+    expect(deps.capture).toHaveBeenNthCalledWith(1, "repository-0")
+    expect(deps.capture).toHaveBeenNthCalledWith(100, "repository-99")
+    expect(deps.capture).not.toHaveBeenCalledWith("repository-100")
   })
 })

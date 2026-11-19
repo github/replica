@@ -211,6 +211,38 @@ describe("Learnings frontend integration", () => {
     expect(await screen.findByText("Hub will look for learnings shortly.")).toBeVisible()
   })
 
+  it("keeps the explicit run action for a queued automatic run", async () => {
+    const store = createMockStore({ origin: window.location.origin })
+    const server = setupServer(...createMockHandlers(store))
+    const response = learningsResponse()
+    server.use(
+      http.get(`${store.origin}/api/repositories/2001/learnings`, () =>
+        HttpResponse.json({
+          ...response,
+          runAvailable: true,
+          runs: [
+            {
+              id: 9,
+              startedAt: "2026-11-11T12:00:00.000Z",
+              startedBy: { type: "daily" },
+              state: "queued",
+              result: null,
+              usage: null,
+            },
+            ...response.runs,
+          ],
+        }),
+      ),
+    )
+    await renderHubFlow(server, "/repositories/2001/learnings", { workspaceRoutes })
+
+    expect(await screen.findByRole("button", { name: "Find learnings now" })).toBeVisible()
+    expect(screen.getByText("Hub will look for learnings shortly.")).toHaveAttribute(
+      "role",
+      "status",
+    )
+  })
+
   it("uses the local contract endpoints to accept a learning and refresh recall", async () => {
     const store = createMockStore({ origin: window.location.origin })
     const server = setupServer(...createMockHandlers(store))
