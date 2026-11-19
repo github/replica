@@ -42,6 +42,7 @@ export function createConfiguredDecisionModelJobProcessors(
       learningRoot: learning.root,
       nodePath: learning.nodePath,
       staticDirectories: learning.staticDirectories,
+      logger,
     })
     return createDecisionModelJobProcessors({
       databaseUrl,

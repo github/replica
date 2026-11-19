@@ -134,6 +134,44 @@ function decodeArchive(bytes: Uint8Array) {
 }
 
 describe("createHubDecisionTasksetSource()", () => {
+  it("continues withdrawal discovery after one repository store fails", async () => {
+    vi.mocked(listDecisionWithdrawalSources).mockResolvedValue([
+      { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", decisionTrainingJobs: [], accessGrants: [] },
+      {
+        id: repositoryId,
+        decisionTrainingJobs: [
+          {
+            consentGrantId: "grant-training",
+            trainingExportId: "export-1",
+            evidenceDigest: `sha256:${"e".repeat(64)}`,
+            tasksetDigest: `sha256:${"t".repeat(64)}`,
+            requestedByMembershipId: "44444444-4444-4444-8444-444444444444",
+            requestedByMembership: {
+              user: { profile: { login: "mona" } },
+            },
+          },
+        ],
+        accessGrants: [],
+      },
+    ] as never)
+    vi.mocked(prepareLearningStore)
+      .mockRejectedValueOnce(new Error("damaged store"))
+      .mockResolvedValueOnce({
+        directory: "/private/learning/repository",
+        repositoryScope: `github.com/repositories/${repositoryId}`,
+      })
+    vi.mocked(runLearningCommand).mockResolvedValue([
+      {
+        id: "withdrawal-1",
+        grantId: "grant-secondary",
+        purposes: ["training"],
+        withdrawnBy: { id: "github:mona" },
+      },
+    ])
+
+    await expect(source(storage({})).listTrainingWithdrawals()).resolves.toHaveLength(1)
+  })
+
   it("maps training grant withdrawals to idempotent runtime deletion selectors", async () => {
     vi.mocked(listDecisionWithdrawalSources).mockResolvedValue([
       {
@@ -165,7 +203,7 @@ describe("createHubDecisionTasksetSource()", () => {
     vi.mocked(runLearningCommand).mockResolvedValue([
       {
         id: "withdrawal-1",
-        grantId: "grant-training",
+        grantId: "grant-secondary",
         purposes: ["training"],
         withdrawnBy: { id: "github:mona" },
         reason: "The repository administrator withdrew training consent.",
@@ -179,7 +217,7 @@ describe("createHubDecisionTasksetSource()", () => {
         actorLogin: "mona",
         selectors: {
           exportId: "export-1",
-          grantId: "grant-training",
+          grantId: "grant-secondary",
           evidenceDigest: `sha256:${"e".repeat(64)}`,
           tasksetDigest: `sha256:${"t".repeat(64)}`,
         },

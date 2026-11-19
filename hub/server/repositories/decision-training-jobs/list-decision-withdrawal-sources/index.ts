@@ -3,7 +3,6 @@ import type { PrismaClient } from "../../../generated/prisma/client.ts"
 export function listDecisionWithdrawalSources(database: PrismaClient) {
   return database.repository.findMany({
     where: {
-      removedAt: null,
       decisionTrainingJobs: { some: {} },
     },
     select: {

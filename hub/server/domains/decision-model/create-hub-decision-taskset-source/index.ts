@@ -14,6 +14,7 @@ import {
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { z } from "zod"
+import type { Logger } from "pino"
 
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
 import { runLearningCommand } from "../../../integrations/learning/run-learning-command/index.ts"
@@ -117,6 +118,7 @@ interface HubDecisionTasksetSourceOptions {
   learningRoot: string
   nodePath?: string
   staticDirectories: string[]
+  logger?: Pick<Logger, "warn">
   stabilizeSnapshot?: (
     directory: string,
     digest: string,
@@ -724,23 +726,33 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
       async listTrainingWithdrawals() {
         const pending = []
         for (const repository of await listDecisionWithdrawalSources(options.database)) {
-          const store = await learningStore(repository.id)
-          const withdrawals = withdrawalsSchema.parse(
-            await command([
-              "grants",
-              "withdrawals",
-              "--dir",
-              store.directory,
-              "--repository",
-              store.repositoryScope,
-            ]),
-          )
+          let withdrawals: z.infer<typeof withdrawalsSchema>
+          try {
+            const store = await learningStore(repository.id)
+            withdrawals = withdrawalsSchema.parse(
+              await command([
+                "grants",
+                "withdrawals",
+                "--dir",
+                store.directory,
+                "--repository",
+                store.repositoryScope,
+              ]),
+            )
+          } catch (error) {
+            options.logger?.warn(
+              {
+                repositoryId: repository.id,
+                errorType: error instanceof Error ? error.name : "UnknownError",
+              },
+              "Decision training withdrawal discovery failed",
+            )
+            continue
+          }
           for (const withdrawal of withdrawals) {
             if (!withdrawal.purposes.includes("training")) continue
             const login = withdrawal.withdrawnBy.id.replace(/^(?:github|human):/, "")
-            const matchingJobs = repository.decisionTrainingJobs.filter(
-              (candidate) => candidate.consentGrantId === withdrawal.grantId,
-            )
+            const matchingJobs = repository.decisionTrainingJobs
             const matchingActorJob = repository.decisionTrainingJobs.find(
               (candidate) => candidate.requestedByMembership?.user.profile?.login === login,
             )
@@ -754,18 +766,6 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
               actorJob?.requestedByMembershipId ??
               repository.accessGrants[0]?.membershipId
             if (!actorMembershipId) continue
-            if (!matchingJobs.length) {
-              pending.push({
-                repositoryId: repository.id,
-                actorMembershipId,
-                actorLogin: login,
-                selectors: { grantId: withdrawal.grantId },
-                reason: withdrawal.reason ?? "Training consent was withdrawn.",
-                idempotencyKey: `withdrawal:${withdrawal.id}:grant`,
-                authorizationAlreadyEstablished: true,
-              })
-              continue
-            }
             for (const job of matchingJobs) {
               pending.push({
                 repositoryId: repository.id,

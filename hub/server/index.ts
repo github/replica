@@ -175,6 +175,7 @@ try {
                 learningRoot: learningConfiguration.root,
                 nodePath: learningConfiguration.nodePath,
                 staticDirectories: learningConfiguration.staticDirectories,
+                logger,
               })
               decisionModels = createDecisionModelRouteDependencies({
                 applicationOrigin,
