@@ -8,3 +8,6 @@ ADD COLUMN "dist_digest" VARCHAR(71);
 ALTER TABLE "builds"
 ADD CONSTRAINT "builds_dist_digest_check"
 CHECK ("dist_digest" IS NULL OR "dist_digest" ~ '^sha256:[0-9a-f]{64}$');
+
+ALTER TABLE "prototypes"
+ADD COLUMN "current_build_run_created_at" TIMESTAMPTZ(3);

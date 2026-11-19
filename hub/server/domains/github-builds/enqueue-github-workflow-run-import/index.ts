@@ -1,7 +1,7 @@
 import type { Logger } from "pino"
 
 import { createJobQueue } from "../../../integrations/bullmq/create-job-queue/index.ts"
-import { enqueueJob } from "../../../integrations/bullmq/enqueue-job/index.ts"
+import { enqueueRecoverableJob } from "../../../integrations/bullmq/enqueue-recoverable-job/index.ts"
 import {
   getGitHubWorkflowRunJobDefinition,
   type GitHubWorkflowRunJob,
@@ -9,7 +9,8 @@ import {
 
 /**
  * Each delivery gets its own job, so an event arriving while an earlier import of the
- * same run is active still triggers a later pass. Imports are idempotent per run.
+ * same run is active still triggers a later pass. A manual redelivery reuses the delivery
+ * ID, so a finished or exhausted job for it is replaced. Imports are idempotent per run.
  */
 export async function enqueueGitHubWorkflowRunImport(
   connection: { databaseUrl: string; logger: Logger },
@@ -18,9 +19,12 @@ export async function enqueueGitHubWorkflowRunImport(
 ) {
   const queue = createJobQueue({ name: "on-demand", ...connection })
   try {
-    await enqueueJob(queue, getGitHubWorkflowRunJobDefinition(), job, {
-      jobId: `github-workflow-run-${deliveryId}`,
-    })
+    await enqueueRecoverableJob(
+      queue,
+      getGitHubWorkflowRunJobDefinition(),
+      job,
+      `github-workflow-run-${deliveryId}`,
+    )
   } finally {
     await queue.close()
   }

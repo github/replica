@@ -24,10 +24,7 @@ export async function completeGitHubBuildSuccess(
   return database.$transaction(async (transaction) => {
     const active = await transaction.build.findFirst({ where: owned, select: { startedAt: true } })
     if (!active) return false
-    await transaction.buildArtifact.createMany({
-      data: input.artifacts.map((artifact) => ({ ...artifact, buildId: input.buildId })),
-      skipDuplicates: true,
-    })
+    // Completing first locks the row, so a run that lost ownership cannot add artifacts.
     const result = await transaction.build.updateMany({
       where: owned,
       data: {
@@ -39,6 +36,11 @@ export async function completeGitHubBuildSuccess(
         failureSummary: null,
       },
     })
-    return result.count === 1
+    if (result.count !== 1) return false
+    // An unfinished Build has no artifact rows, so any conflict aborts the whole import.
+    await transaction.buildArtifact.createMany({
+      data: input.artifacts.map((artifact) => ({ ...artifact, buildId: input.buildId })),
+    })
+    return true
   })
 }

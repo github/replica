@@ -3,19 +3,43 @@ import type { PrepareGitHubBuildInput, PreparedGitHubBuild } from "./types.ts"
 
 const transientErrorCodes = new Set(["P2002", "P2034"])
 
-function isNewerRun(
-  existing: { githubWorkflowRunId: bigint | null; githubWorkflowRunAttempt: number | null },
+/**
+ * Later events for the owning attempt keep its unfinished Build. A failed Build reopens
+ * only for a newer attempt, so a repeated event cannot discard its recorded failure.
+ */
+function ownsExistingBuild(
+  existing: {
+    state: BuildState
+    githubWorkflowRunId: bigint | null
+    githubWorkflowRunAttempt: number | null
+  },
   run: PrepareGitHubBuildInput["run"],
 ) {
+  if (existing.state === "successful" || existing.state === "superseded") return false
   if (existing.githubWorkflowRunId === null) return true
   if (existing.githubWorkflowRunId !== run.runId) return run.runId > existing.githubWorkflowRunId
-  return run.runAttempt >= (existing.githubWorkflowRunAttempt ?? 0)
+  const attempt = existing.githubWorkflowRunAttempt ?? 0
+  return existing.state === "failed" ? run.runAttempt > attempt : run.runAttempt >= attempt
+}
+
+/**
+ * A reused Build keeps its original run time, so the run that selected it is tracked
+ * separately. Local Builds have no run time and use their creation time.
+ */
+function currentSelectedAt(prototype: {
+  currentBuildRunCreatedAt: Date | null
+  currentBuild: { createdAt: Date; workflowCreatedAt: Date | null } | null
+}) {
+  const { currentBuild, currentBuildRunCreatedAt } = prototype
+  const buildCreatedAt = currentBuild?.workflowCreatedAt ?? currentBuild?.createdAt
+  return Math.max(currentBuildRunCreatedAt?.getTime() ?? 0, buildCreatedAt?.getTime() ?? 0)
 }
 
 /**
  * Finds or creates the Build for a pushed commit on an existing, active repository. A
  * newer workflow run may take over a Build that has not succeeded; successful Builds and
- * their artifacts are never reopened.
+ * their artifacts are never reopened. The run's Build becomes current unless a newer run
+ * already selected another Build, including when a branch returns to an earlier commit.
  */
 export async function prepareGitHubBuild(
   database: PrismaClient,
@@ -46,6 +70,8 @@ export async function prepareGitHubBuild(
             },
             select: {
               id: true,
+              currentBuildId: true,
+              currentBuildRunCreatedAt: true,
               currentBuild: { select: { createdAt: true, workflowCreatedAt: true } },
             },
           })
@@ -57,7 +83,7 @@ export async function prepareGitHubBuild(
                 name: input.branchName,
                 registeredAt: new Date(),
               },
-              select: { id: true },
+              select: { id: true, currentBuildId: true, currentBuildRunCreatedAt: true },
             })),
             currentBuild: null,
           }
@@ -77,8 +103,7 @@ export async function prepareGitHubBuild(
           let build: { id: string; state: BuildState; distDigest: string | null }
           let ownsBuild = true
           if (existing) {
-            const reopenable = existing.state !== "successful" && existing.state !== "superseded"
-            ownsBuild = reopenable && isNewerRun(existing, run)
+            ownsBuild = ownsExistingBuild(existing, run)
             build = existing
             if (ownsBuild) {
               build = await transaction.build.update({
@@ -115,15 +140,21 @@ export async function prepareGitHubBuild(
               },
               select: { id: true, state: true, distDigest: true },
             })
-            const current = prototype.currentBuild
-            const currentCreatedAt = current?.workflowCreatedAt ?? current?.createdAt
-            // A late event for an older run must not replace a newer current Build.
-            if (!currentCreatedAt || currentCreatedAt <= run.createdAt) {
-              await transaction.prototype.update({
-                where: { id: prototype.id },
-                data: { currentBuildId: build.id },
-              })
-            }
+          }
+
+          // A late event for an older run must not replace a newer current Build.
+          const alreadyCurrent =
+            prototype.currentBuildId === build.id &&
+            prototype.currentBuildRunCreatedAt?.getTime() === run.createdAt.getTime()
+          if (
+            build.state !== "superseded" &&
+            !alreadyCurrent &&
+            run.createdAt.getTime() >= currentSelectedAt(prototype)
+          ) {
+            await transaction.prototype.update({
+              where: { id: prototype.id },
+              data: { currentBuildId: build.id, currentBuildRunCreatedAt: run.createdAt },
+            })
           }
 
           await transaction.branchHeadObservation.upsert({

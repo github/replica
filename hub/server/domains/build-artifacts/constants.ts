@@ -3,7 +3,9 @@ export const maximumDistFiles = 2_000
 export const maximumDistFileBytes = 25 * 1024 * 1024
 export const maximumDistPathDepth = 20
 export const maximumScreenshotBytes = 25 * 1024 * 1024
-export const maximumExtractedBytes = 100 * 1024 * 1024
+// Matches the build action: dist output is capped separately from the whole package.
+export const maximumDistBytes = 100 * 1024 * 1024
+export const maximumExtractedBytes = 150 * 1024 * 1024
 export const maximumTemplateManifestBytes = 16 * 1024
 export const screenshotPathPattern =
   /^screenshots\/(?:templates\/[a-z0-9]+(?:-[a-z0-9]+)*\/)?(?:desktop|narrow)(?:-dark)?\.png$/

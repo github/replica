@@ -22,6 +22,8 @@ model Prototype {
   registeredAt    DateTime? @map("registered_at") @db.Timestamptz(3)
   branchDeletedAt DateTime? @map("branch_deleted_at") @db.Timestamptz(3)
   replica         Boolean   @default(false)
+  // Creation time of the workflow run that last selected the current Build.
+  currentBuildRunCreatedAt DateTime? @map("current_build_run_created_at") @db.Timestamptz(3)
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

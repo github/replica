@@ -15,7 +15,10 @@ const templates = JSON.stringify({
     { id: "home", name: "Home", category: "Pages", description: "Home page.", path: "/home" },
   ],
 })
-const digestModule = new URL("../../../../../actions/build/scripts/digest-dist-package/index.mjs", import.meta.url).href
+const digestModule = new URL(
+  "../../../../../actions/build/scripts/digest-dist-package/index.mjs",
+  import.meta.url,
+).href
 const { digestDistPackage } = (await import(digestModule)) as {
   digestDistPackage: (root: string) => Promise<string>
 }
@@ -65,11 +68,50 @@ describe("extractDistPackage", () => {
       "screenshots that are not PNG images",
       [{ name: "dist/index.html" }, { name: "screenshots/desktop.png", bytes: "x" }],
     ],
-    [
-      "deep paths",
-      [{ name: "dist/index.html" }, { name: `dist/${"a/".repeat(20)}index.html` }],
-    ],
+    ["deep paths", [{ name: "dist/index.html" }, { name: `dist/${"a/".repeat(20)}index.html` }]],
   ])("rejects %s", (_label, entries) => {
     expect(() => extractDistPackage(createZipArchive(entries))).toThrow(BuildPackageError)
+  })
+
+  describe("size limits shared with the build action", () => {
+    const mebibyte = 1024 * 1024
+    const dist = () =>
+      [0, 1, 2, 3].map((index) => ({
+        name: index === 0 ? "dist/index.html" : `dist/chunk-${index}.js`,
+        bytes: Buffer.alloc(25 * mebibyte),
+      }))
+    const screenshot = (name: string, bytes: number) => ({
+      name: `screenshots/${name}.png`,
+      bytes: Buffer.concat([png, Buffer.alloc(bytes - png.length)]),
+    })
+
+    it("accepts a legacy package with full dist output and screenshots", () => {
+      const archive = createZipArchive([
+        ...dist(),
+        screenshot("desktop", 25 * mebibyte),
+        screenshot("narrow", 25 * mebibyte),
+      ])
+
+      expect(extractDistPackage(archive).files).toHaveLength(6)
+    })
+
+    it("rejects dist output larger than the build action allows", () => {
+      expect(() =>
+        extractDistPackage(createZipArchive([...dist(), { name: "dist/extra.js", bytes: "1" }])),
+      ).toThrow("The dist files exceed their size limit.")
+    })
+
+    it("rejects a package larger than the build action allows", () => {
+      const archive = createZipArchive([
+        ...dist(),
+        screenshot("desktop", 25 * mebibyte),
+        screenshot("narrow", 25 * mebibyte - png.length + 1),
+        screenshot("desktop-dark", png.length),
+      ])
+
+      expect(() => extractDistPackage(archive)).toThrow(
+        "The extracted package exceeds its size limit.",
+      )
+    })
   })
 })

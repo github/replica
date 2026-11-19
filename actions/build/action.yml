@@ -1,5 +1,5 @@
 name: Replica build
-description: Build a Replica prototype, upload its dist package, then capture screenshots
+description: Build a Replica prototype and upload its package, with screenshots inline or in a later job
 
 inputs:
   skip-build:
@@ -11,7 +11,7 @@ inputs:
     required: false
     default: dist
   screenshots:
-    description: Capture screenshots in this job (inline) or in a later job that uses actions/build/screenshots (separate)
+    description: Upload one package after capturing screenshots in this job (inline), or upload the dist package immediately for a later actions/build/screenshots job (separate)
     required: false
     default: inline
 
@@ -47,11 +47,6 @@ runs:
       run: node "$GITHUB_ACTION_PATH/scripts/validate-repository/index.mjs" --root "$GITHUB_WORKSPACE"
       shell: bash
 
-    - name: Install browser-check dependencies
-      run: npm ci --ignore-scripts --omit=dev
-      shell: bash
-      working-directory: ${{ github.action_path }}
-
     - name: Build prototype as a non-root user in a Node container
       if: inputs.skip-build != 'true'
       run: |
@@ -78,10 +73,12 @@ runs:
       shell: bash
 
     - name: Create Replica dist package
+      if: inputs.screenshots == 'separate'
       run: node "$GITHUB_ACTION_PATH/scripts/create-dist-package/index.mjs" --root "$RUNNER_TEMP/replica-build-root" --config-root "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/replica-build-v1"
       shell: bash
 
     - name: Upload Replica dist package
+      if: inputs.screenshots == 'separate'
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: replica-build-v1
@@ -90,6 +87,12 @@ runs:
         retention-days: 3
         include-hidden-files: true
 
+    - name: Install browser-check dependencies
+      if: inputs.screenshots == 'inline'
+      run: npm ci --ignore-scripts --omit=dev
+      shell: bash
+      working-directory: ${{ github.action_path }}
+
     - name: Install Chromium
       if: inputs.screenshots == 'inline'
       run: '"$GITHUB_ACTION_PATH/node_modules/.bin/playwright" install --with-deps chromium'
@@ -97,19 +100,20 @@ runs:
 
     - name: Capture screenshots
       if: inputs.screenshots == 'inline'
-      run: node "$GITHUB_ACTION_PATH/scripts/capture-screenshots/index.mjs" --root "$RUNNER_TEMP/replica-build-v1" --config-root "$RUNNER_TEMP/replica-build-v1" --config-file templates.json --screenshots "$RUNNER_TEMP/replica-screenshots"
+      run: node "$GITHUB_ACTION_PATH/scripts/capture-screenshots/index.mjs" --root "$RUNNER_TEMP/replica-build-root" --config-root "$GITHUB_WORKSPACE" --screenshots "$RUNNER_TEMP/replica-screenshots"
       shell: bash
 
-    - name: Create Replica screenshot package
+    - name: Create Replica package
       if: inputs.screenshots == 'inline'
-      run: node "$GITHUB_ACTION_PATH/scripts/create-screenshot-package/index.mjs" --screenshots "$RUNNER_TEMP/replica-screenshots" --dist-package "$RUNNER_TEMP/replica-build-v1" --output "$RUNNER_TEMP/replica-screenshots-v1"
+      run: node "$GITHUB_ACTION_PATH/scripts/create-package/index.mjs" --root "$RUNNER_TEMP/replica-build-root" --screenshots "$RUNNER_TEMP/replica-screenshots" --output "$RUNNER_TEMP/replica-build-v1"
       shell: bash
 
-    - name: Upload Replica screenshot package
+    - name: Upload Replica package
       if: inputs.screenshots == 'inline'
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
-        name: replica-screenshots-v1
-        path: ${{ runner.temp }}/replica-screenshots-v1/
+        name: replica-build-v1
+        path: ${{ runner.temp }}/replica-build-v1/
         if-no-files-found: error
         retention-days: 3
+        include-hidden-files: true

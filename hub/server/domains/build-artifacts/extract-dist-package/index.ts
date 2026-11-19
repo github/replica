@@ -1,4 +1,10 @@
-import { maximumDistFiles, maximumDistPathDepth, pngSignature, screenshotPathPattern } from "../constants.ts"
+import {
+  maximumDistBytes,
+  maximumDistFiles,
+  maximumDistPathDepth,
+  pngSignature,
+  screenshotPathPattern,
+} from "../constants.ts"
 import { digestDistFiles } from "../digest-dist-files/index.ts"
 import { BuildPackageError } from "../errors.ts"
 import { readZipPackage } from "../read-zip-package/index.ts"
@@ -35,8 +41,12 @@ function classify(path: string, bytes: Buffer): BuildPackageFile {
 /** Validates a replica-build-v1 ZIP and returns its files and dist digest. */
 export function extractDistPackage(archive: Buffer) {
   const files = readZipPackage(archive).map(({ path, bytes }) => classify(path, bytes))
-  if (files.filter((file) => file.kind === "dist").length > maximumDistFiles) {
+  const distFiles = files.filter((file) => file.kind === "dist")
+  if (distFiles.length > maximumDistFiles) {
     throw new BuildPackageError(`The package contains more than ${maximumDistFiles} dist files.`)
+  }
+  if (distFiles.reduce((total, file) => total + file.bytes.length, 0) > maximumDistBytes) {
+    throw new BuildPackageError("The dist files exceed their size limit.")
   }
   if (!files.some((file) => file.path === "dist/index.html")) {
     throw new BuildPackageError("The package does not contain dist/index.html.")

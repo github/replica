@@ -79,6 +79,7 @@ async function createFixture() {
     actor: { id: 9, login: "octocat", avatarUrl: null },
   }
   const packages = new Map<string, Buffer>()
+  const hooks: { beforeDownload?: () => Promise<void> } = {}
   const client = {
     getWorkflowRun: () => Promise.resolve({ ...run }),
     listRunArtifacts: (_runId: number, name: string) =>
@@ -87,11 +88,12 @@ async function createFixture() {
           ? [{ id: name === distArtifactName ? 1 : 2, name, sizeInBytes: 1, expired: false }]
           : [],
       ),
-    downloadArtifact: (id: number) => {
+    downloadArtifact: async (id: number) => {
+      await hooks.beforeDownload?.()
       const bytes = packages.get(id === 1 ? distArtifactName : screenshotArtifactName)
-      return Promise.resolve(
-        bytes ? { status: "ok" as const, bytes: Buffer.from(bytes) } : { status: "gone" as const },
-      )
+      return bytes
+        ? { status: "ok" as const, bytes: Buffer.from(bytes) }
+        : { status: "gone" as const }
     },
   }
   function importRun(job = { githubRepositoryId, runId: run.id }) {
@@ -103,7 +105,7 @@ async function createFixture() {
       include: { artifacts: { orderBy: { path: "asc" } }, prototype: true },
     })
   }
-  return { run, packages, importRun, findBuild, storage }
+  return { run, packages, hooks, importRun, findBuild, storage }
 }
 
 describe("importGitHubWorkflowRun", () => {
@@ -273,5 +275,65 @@ describe("importGitHubWorkflowRun", () => {
     })
     expect(prototype.currentBuildId).toBe(newer.id)
     expect(prototype.builds.map((build) => build.number)).toEqual([1, 2])
+  })
+
+  it("records no artifacts when a newer attempt takes over during the download", async () => {
+    const fixture = await createFixture()
+    await fixture.importRun()
+    const { id } = await fixture.findBuild()
+    fixture.packages.set(distArtifactName, distPackage())
+    fixture.hooks.beforeDownload = async () => {
+      await prisma.build.update({ where: { id }, data: { githubWorkflowRunAttempt: 2 } })
+    }
+
+    await expect(fixture.importRun()).resolves.toMatchObject({ dist: "unchanged" })
+    expect(await fixture.findBuild()).toMatchObject({ state: "running", distDigest: null })
+    await expect(prisma.buildArtifact.count({ where: { buildId: id } })).resolves.toBe(0)
+  })
+
+  it("makes a reused Build current when the branch returns to its commit", async () => {
+    const fixture = await createFixture()
+    fixture.packages.set(distArtifactName, distPackage())
+    await fixture.importRun()
+    const first = await fixture.findBuild()
+    const firstRunId = fixture.run.id
+
+    fixture.run.id += 1
+    fixture.run.headSha = "b".repeat(40)
+    fixture.run.createdAt = new Date("2026-01-02T00:00:00Z")
+    await fixture.importRun()
+    const secondRunId = fixture.run.id
+
+    fixture.run.id += 1
+    fixture.run.headSha = "a".repeat(40)
+    fixture.run.createdAt = new Date("2026-01-03T00:00:00Z")
+    await fixture.importRun()
+    const current = () =>
+      prisma.prototype
+        .findUniqueOrThrow({ where: { id: first.prototypeId } })
+        .then((p) => p.currentBuildId)
+    await expect(current()).resolves.toBe(first.id)
+
+    fixture.run.id = secondRunId
+    fixture.run.headSha = "b".repeat(40)
+    fixture.run.createdAt = new Date("2026-01-02T00:00:00Z")
+    await fixture.importRun()
+    await expect(current()).resolves.toBe(first.id)
+    expect(firstRunId).toBeLessThan(secondRunId)
+  })
+
+  it("keeps a failed Build failed when the same attempt is delivered again", async () => {
+    const fixture = await createFixture()
+    fixture.run.status = "completed"
+    fixture.run.conclusion = "failure"
+    await fixture.importRun()
+
+    fixture.packages.set(distArtifactName, distPackage())
+    await expect(fixture.importRun()).resolves.toMatchObject({ dist: "unchanged" })
+    expect(await fixture.findBuild()).toMatchObject({
+      state: "failed",
+      failureSummary: "The GitHub Actions workflow run ended with failure.",
+      artifacts: [],
+    })
   })
 })

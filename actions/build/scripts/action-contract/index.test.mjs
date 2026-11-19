@@ -42,6 +42,7 @@ function enabled(condition, inputs) {
   const conditions = {
     "inputs.skip-build != 'true'": inputs.skipBuild !== "true",
     "inputs.screenshots == 'inline'": inputs.screenshots === "inline",
+    "inputs.screenshots == 'separate'": inputs.screenshots === "separate",
   }
   assert.ok(condition in conditions, `Unexpected step condition: ${condition}`)
   return conditions[condition]
@@ -124,7 +125,9 @@ describe("Replica composite action", () => {
       )
       assert.deepEqual(
         calls.filter((call) => call.command === "npm"),
-        [{ command: "npm", args: ["ci", "--ignore-scripts", "--omit=dev"], cwd: actionPath }],
+        options.captures
+          ? [{ command: "npm", args: ["ci", "--ignore-scripts", "--omit=dev"], cwd: actionPath }]
+          : [],
       )
       assert.deepEqual(called("prepare-build-output").args.slice(1), [
         "--root",
@@ -134,36 +137,60 @@ describe("Replica composite action", () => {
         "--output",
         path.join(runner, "replica-build-root"),
       ])
-      assert.deepEqual(called("create-dist-package").args.slice(1), [
-        "--root",
-        path.join(runner, "replica-build-root"),
-        "--config-root",
-        workspace,
-        "--output",
-        path.join(runner, "replica-build-v1"),
-      ])
       assert.equal(
         calls.some((call) => call.command === "playwright"),
         options.captures,
       )
-      assert.equal(Boolean(called("capture-screenshots")), options.captures)
-      assert.equal(Boolean(called("create-screenshot-package")), options.captures)
-      assert.equal(called("create-package"), undefined)
+      if (options.captures) {
+        // Inline mode keeps the earlier single-package contract: dist, screenshots, and templates.
+        assert.equal(called("create-dist-package"), undefined)
+        assert.deepEqual(called("capture-screenshots").args.slice(1), [
+          "--root",
+          path.join(runner, "replica-build-root"),
+          "--config-root",
+          workspace,
+          "--screenshots",
+          path.join(runner, "replica-screenshots"),
+        ])
+        assert.deepEqual(called("create-package").args.slice(1), [
+          "--root",
+          path.join(runner, "replica-build-root"),
+          "--screenshots",
+          path.join(runner, "replica-screenshots"),
+          "--output",
+          path.join(runner, "replica-build-v1"),
+        ])
+      } else {
+        assert.deepEqual(called("create-dist-package").args.slice(1), [
+          "--root",
+          path.join(runner, "replica-build-root"),
+          "--config-root",
+          workspace,
+          "--output",
+          path.join(runner, "replica-build-v1"),
+        ])
+        assert.equal(called("capture-screenshots"), undefined)
+        assert.equal(called("create-package"), undefined)
+      }
+      assert.equal(called("create-screenshot-package"), undefined)
     })
   }
 
-  it("uploads the dist package before any screenshot work starts", async () => {
+  it("uploads one replica-build-v1 package per mode, with separate mode first", async () => {
     const list = steps(await readFile(actionFile, "utf8"))
-    const upload = list.findIndex((step) => step.uses?.startsWith("actions/upload-artifact@"))
-    assert.match(list[upload].body, /name: replica-build-v1\n/)
-    assert.match(list[upload].body, /path: \$\{\{ runner\.temp \}\}\/replica-build-v1\//)
-    assert.equal(list[upload].condition, undefined)
-    for (const step of list.slice(0, upload)) {
-      assert.doesNotMatch(step.body, /playwright|capture-screenshots/)
+    const uploads = list.filter((step) => step.uses?.startsWith("actions/upload-artifact@"))
+    assert.deepEqual(
+      uploads.map((step) => step.condition),
+      ["inputs.screenshots == 'separate'", "inputs.screenshots == 'inline'"],
+    )
+    for (const upload of uploads) {
+      assert.match(upload.body, /name: replica-build-v1\n/)
+      assert.match(upload.body, /path: \$\{\{ runner\.temp \}\}\/replica-build-v1\//)
     }
-    const screenshots = list.slice(upload + 1)
-    assert.ok(screenshots.every((step) => step.condition === "inputs.screenshots == 'inline'"))
-    assert.match(screenshots.at(-1).body, /name: replica-screenshots-v1\n/)
+    const separateUpload = list.indexOf(uploads[0])
+    for (const step of list.slice(0, separateUpload)) {
+      assert.doesNotMatch(step.body, /npm ci --ignore-scripts|playwright|capture-screenshots/)
+    }
   })
 
   it("captures separate screenshots from the downloaded dist package", async () => {

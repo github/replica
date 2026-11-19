@@ -6,6 +6,8 @@ Hub imports Builds that prototype repositories produce with the shared [build ac
 
 The GitHub App needs **Actions: read** and must subscribe to the **Workflow runs** and **Workflow jobs** webhook events. Hub imports only repositories that installation reconciliation has already connected; imports never create repositories.
 
+Hub's App creation flow requests these settings for new Apps. An App created before Workflow jobs was required does not gain it automatically: in the App's **Permissions & events** settings, confirm **Actions: read**, select **Workflow job** under **Subscribe to events**, and save. If the Actions permission was added too, each installation must accept the updated permissions. Without it, Hub imports the dist only when `workflow_run.completed` arrives after screenshots finish.
+
 ## Configure the prototype workflow
 
 Save this as `.github/workflows/replica.yml` in a connected prototype repository. It requires a Linux runner with Docker, a committed `package-lock.json`, and an npm `build` script that writes `dist/index.html`.
