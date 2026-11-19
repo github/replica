@@ -991,7 +991,6 @@ class LocalCandidateConnector(_ScopedConnector):
         os.chmod(self.promotion_owners.parent, 0o700)
         self._lock = threading.RLock()
         self._recover_promotion()
-        self._recover_pending_promotions()
 
     def put(self, candidate: Candidate, context: OperationContext) -> Candidate:
         self._check(context)
@@ -1359,12 +1358,22 @@ class LocalCandidateConnector(_ScopedConnector):
             )
         return self.candidates / candidate_id / name
 
-    def promotion_json(self, context: OperationContext) -> dict[str, Any] | None:
-        promotion = self.current(context)
-        if promotion is None:
-            return None
+    def promotion_json(
+        self,
+        context: OperationContext,
+        *,
+        generation: int | None = None,
+    ) -> dict[str, Any] | None:
+        self._check(context, hide=True)
+        if generation is None:
+            promotion = self.current(context)
+            if promotion is None:
+                return None
+            path = self.root / "promotion.json"
+        else:
+            path = self.promotions / f"{generation:08d}.json"
         return _read_object(
-            self.root / "promotion.json",
+            path,
             code="promotion_not_found",
             message="The promotion was not found.",
         )
@@ -1372,7 +1381,70 @@ class LocalCandidateConnector(_ScopedConnector):
     def recover_promotion(self, context: OperationContext) -> dict[str, Any] | None:
         self._check(context)
         with self._lock:
-            return self._recover_promotion()
+            before = self.current(context)
+            self._recover_pending_promotions()
+            after = self.current(context)
+            if after is None or after == before:
+                return None
+            return self.promotion_json(context)
+
+    def pending_promotions_json(
+        self, context: OperationContext
+    ) -> tuple[dict[str, Any], ...]:
+        self._check(context)
+        pending = []
+        for path in self.promotion_idempotency.glob("*.json"):
+            saved = _read_object(
+                path,
+                code="promotion_idempotency_not_found",
+                message="The promotion retry was not found.",
+            )
+            promotion = saved.get("promotion")
+            generation = saved.get("generation")
+            if (
+                isinstance(promotion, dict)
+                and isinstance(generation, int)
+                and not (self.promotions / f"{generation:08d}.json").exists()
+            ):
+                pending.append(promotion)
+        return tuple(sorted(pending, key=lambda item: item["generation"]))
+
+    def promotion_retry_json(
+        self,
+        context: OperationContext,
+        *,
+        expected_generation: int,
+        operation: str,
+    ) -> dict[str, Any] | None:
+        self._check(context)
+        path = self._promotion_idempotency_path(context.idempotency_key)
+        if not path.exists():
+            return None
+        saved = _read_object(
+            path,
+            code="promotion_idempotency_not_found",
+            message="The promotion retry was not found.",
+        )
+        promotion = saved.get("promotion")
+        owner_kind = saved.get("ownerKind")
+        if not isinstance(promotion, dict) or not isinstance(owner_kind, str):
+            raise ConnectorError(
+                "promotion_idempotency_damaged",
+                "The promotion retry record is invalid.",
+                category="integrity",
+            )
+        parsed = self._promotion_from_json(promotion, owner_kind)
+        if (
+            parsed.generation != expected_generation + 1
+            or parsed.operation != operation
+            or parsed.owner != context.owner
+        ):
+            raise ConnectorError(
+                "idempotency_conflict",
+                "The idempotency key was reused with different input.",
+                category="conflict",
+            )
+        return promotion
 
     def _validate_candidate(self, candidate: Candidate) -> None:
         for artifact in candidate.artifacts:
@@ -1748,14 +1820,6 @@ class LocalTrainingConnector:
         if not isinstance(result, TrainingResult):
             return result
         credits = float(result.updates_completed)
-        if context.budget_mode == "hard" and (
-            context.max_credits is None or credits > context.max_credits
-        ):
-            raise ConnectorError(
-                "credit_budget_exceeded",
-                "The training connector exceeded its hard credit budget.",
-                category="conflict",
-            )
         usage = Usage(
             operation_id=context.operation_id,
             scope=context.scope,

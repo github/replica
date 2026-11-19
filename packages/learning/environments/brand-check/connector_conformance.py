@@ -91,6 +91,10 @@ def connector_conformance(
                 "propagates context through training and inference",
                 _execution_context(create_fixture),
             ),
+            case(
+                "enforces hard training budgets and returns authoritative usage",
+                _training_budget(create_fixture),
+            ),
             case("restricts credentials to scope and operation", _credentials(create_fixture)),
             case("attributes usage and cost to the operation", _usage(create_fixture)),
         ]
@@ -482,7 +486,7 @@ def _promotion_generations(create_fixture):
         )
         with case.assertRaises(ConnectorError) as current_stale:
             fixture.connectors.candidates.promote(
-                second.id,
+                "candidate_missing",
                 expected_generation=0,
                 operation="promote",
                 context=_context(fixture.scope, "current-candidate-stale"),
@@ -496,6 +500,60 @@ def _promotion_generations(create_fixture):
                 context=_context(fixture.scope, "stale-promotion"),
             )
         case.assertEqual(stale.exception.category, "conflict")
+
+    return run
+
+
+def _training_budget(create_fixture):
+    def run(case):
+        fixture = create_fixture()
+        connector = next(iter(fixture.connectors.training.values()))
+        context = _context(
+            fixture.scope,
+            "training-budget",
+            max_credits=1,
+            budget_mode="hard",
+        )
+        credential = fixture.connectors.credentials.acquire("training", context)
+        with TemporaryDirectory() as work:
+            if connector.supports_hard_credit_budget:
+                result = connector.train(
+                    fixture.connectors.tasksets.resolve(
+                        fixture.taskset_reference,
+                        context,
+                    ).taskset,
+                    Path(work),
+                    max_updates=2,
+                    context=context,
+                    credential=credential,
+                )
+                case.assertTrue(result.usage)
+                credits = [
+                    item
+                    for item in result.usage
+                    if item.kind == "training_credits" and item.unit == "credits"
+                ]
+                case.assertTrue(credits)
+                case.assertLessEqual(sum(item.quantity for item in credits), 1)
+                for item in result.usage:
+                    case.assertEqual(item.operation_id, context.operation_id)
+                    case.assertEqual(item.scope, context.scope)
+                    case.assertEqual(item.connector, connector.name)
+                    case.assertNotEqual(item.source, "estimate")
+                    case.assertEqual(item.cost is None, item.currency is None)
+            else:
+                with case.assertRaises(ConnectorError) as unsupported:
+                    connector.train(
+                        fixture.connectors.tasksets.resolve(
+                            fixture.taskset_reference,
+                            context,
+                        ).taskset,
+                        Path(work),
+                        max_updates=2,
+                        context=context,
+                        credential=credential,
+                    )
+                case.assertEqual(unsupported.exception.code, "hard_budget_unsupported")
 
     return run
 
@@ -870,6 +928,8 @@ def _context(
     idempotency_key: str | None = None,
     deadline: float | None = None,
     cancellation: Cancellation | None = None,
+    max_credits: float | None = None,
+    budget_mode: str = "none",
 ) -> OperationContext:
     return OperationContext(
         operation_id=operation_id,
@@ -878,6 +938,8 @@ def _context(
         owner=RuntimeOwner("worker", "conformance"),
         deadline=deadline if deadline is not None else time.monotonic() + 5,
         cancellation=cancellation or Cancellation(),
+        max_credits=max_credits,
+        budget_mode=budget_mode,
     )
 
 

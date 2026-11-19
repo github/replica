@@ -19,11 +19,13 @@ from pathlib import Path
 from unittest import mock
 from urllib import error, request
 
+import replica_brand_check.runtime as runtime_module
 from replica_brand_check.connectors import (
     ConnectorError,
     Credential,
     RuntimeScope,
     TrainingResult,
+    Usage,
 )
 from replica_brand_check.runtime import (
     TASKSET_CACHE_LIMIT,
@@ -141,21 +143,6 @@ class CancellableBackend(FixtureBackend):
         while not self.release.exists():
             time.sleep(0.01)
         return super().train(*args, **kwargs)
-
-
-class BudgetRaceBackend(CancellableBackend):
-    """Return over-budget usage while completion is blocked past its deadline."""
-
-    name = "budget-race"
-
-    def __init__(self, started: Path, release: Path, finished: Path):
-        super().__init__(started, release)
-        self.finished = finished
-
-    def train(self, *args, **kwargs):
-        result = super().train(*args, **kwargs)
-        self.finished.write_text("finished", encoding="utf-8")
-        return replace(result, updates_completed=result.updates_completed + 1)
 
 
 class CapturingBackend(FixtureBackend):
@@ -490,6 +477,44 @@ class LocalRuntimeTest(unittest.TestCase):
             finished["usage"],
         )
 
+    def test_usage_records_of_the_same_kind_have_distinct_retry_keys(self):
+        observability = CapturingObservability()
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            environment="test",
+            observability=observability,
+        )
+        self.addCleanup(runtime.close)
+        context = runtime._operation_context(
+            "usage-key-test",
+            max_seconds=5,
+            owner=runtime_module.RuntimeOwner("worker", "usage-test"),
+        )
+        usage = Usage(
+            context.operation_id,
+            context.scope,
+            "fixture",
+            "training_credits",
+            1,
+            "credits",
+            0,
+            "USD",
+            {},
+            "test",
+        )
+
+        runtime._record_connector_usage(context, usage, index=0)
+        runtime._record_connector_usage(context, usage, index=1)
+
+        self.assertEqual(
+            [record_context.idempotency_key for _, record_context in observability.records],
+            [
+                "usage-key-test:usage:0:training_credits",
+                "usage-key-test:usage:1:training_credits",
+            ],
+        )
+
     def test_rejects_unsupported_hard_budget_before_creating_a_job(self):
         runtime = LocalRuntime(
             self.state_dir,
@@ -545,9 +570,32 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(failed["state"], "failed")
         self.assertEqual(failed["error"]["code"], "credit_budget_exceeded")
         self.assertNotIn("candidateId", failed)
-        self.assertNotIn("usage", failed)
+        self.assertEqual(failed["usage"][0]["quantity"], 2)
+        self.assertEqual(failed["usage"][0]["unit"], "credits")
         self.assertEqual(list((self.state_dir / "candidates").iterdir()), [])
         self.assertIsNone(runtime.promotion(required=False))
+
+    def test_production_rejects_unmetered_training_before_creating_a_job(self):
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"unsupported-budget": UnsupportedBudgetBackend()},
+            environment="production",
+        )
+        self.addCleanup(runtime.close)
+
+        with self.assertRaises(RuntimeFailure) as forbidden:
+            runtime.submit(
+                backend="unsupported-budget",
+                max_updates=2,
+                max_seconds=5,
+                max_credits=2,
+                budget_mode="unmetered_local",
+            )
+
+        self.assertEqual(forbidden.exception.code, "unmetered_budget_forbidden")
+        self.assertEqual(forbidden.exception.status, 409)
+        self.assertEqual(list((self.state_dir / "jobs").glob("*.json")), [])
 
     def test_preserves_job_failure_when_usage_reporting_also_fails(self):
         runtime = LocalRuntime(
@@ -652,6 +700,52 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(finished["error"]["code"], "usage_missing")
         self.assertNotIn("candidateId", finished)
         self.assertEqual(list((self.state_dir / "candidates").iterdir()), [])
+
+    def test_persists_success_when_connector_usage_arrives_at_the_training_deadline(self):
+        runtime = self._runtime()
+        result = FixtureBackend().train(
+            runtime.taskset,
+            self.state_dir,
+            max_updates=2,
+            deadline=time.monotonic() + 5,
+        )
+
+        def finish_at_deadline(*args, context, **kwargs):
+            del args, kwargs
+            while time.monotonic() < context.deadline:
+                time.sleep(0.001)
+            return replace(
+                result,
+                usage=(
+                    Usage(
+                        context.operation_id,
+                        context.scope,
+                        "fixture",
+                        "training_credits",
+                        2,
+                        "credits",
+                        0,
+                        "USD",
+                        {},
+                        "fixture-deadline-test",
+                    ),
+                ),
+            )
+
+        with mock.patch(
+            "replica_brand_check.runtime._run_backend",
+            side_effect=finish_at_deadline,
+        ):
+            finished = self._wait_for_job(
+                runtime,
+                runtime.submit(
+                    backend="fixture", max_updates=2, max_seconds=1, max_credits=2
+                )["id"],
+            )
+
+        self.assertEqual(finished["state"], "succeeded")
+        self.assertEqual(finished["usage"][0]["source"], "fixture-deadline-test")
+        self.assertIn("candidateId", finished)
 
     def test_maps_runtime_credential_failure_to_service_unavailable(self):
         runtime = LocalRuntime(
@@ -796,6 +890,15 @@ class LocalRuntimeTest(unittest.TestCase):
                     runtime.submit(backend="fixture", max_credits=8, **limits)
 
         self.assertEqual(self._tree_snapshot(self.state_dir), before)
+
+        with self.assertRaises(RuntimeFailure) as oversized_credits:
+            runtime.submit(
+                backend="fixture",
+                max_updates=1,
+                max_seconds=1,
+                max_credits=10**1000,
+            )
+        self.assertEqual(oversized_credits.exception.code, "invalid_limit")
 
     def test_refuses_an_empty_backend_configuration(self):
         with self.assertRaises(RuntimeFailure) as missing:
@@ -1287,6 +1390,53 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(recovered["candidateId"], first["candidateId"])
         self.assertEqual(recovered["operation"], "rollback")
 
+    def test_rollback_retry_returns_its_original_generation_after_a_later_promotion(self):
+        runtime = self._runtime()
+        jobs = [
+            self._wait_for_job(
+                runtime,
+                runtime.submit(
+                    backend="fixture",
+                    max_updates=updates,
+                    max_seconds=5,
+                    max_credits=updates,
+                )["id"],
+            )
+            for updates in (2, 4, 8)
+        ]
+        runtime.promote(
+            jobs[0]["candidateId"],
+            promoted_by="test-operator",
+            expected_generation=0,
+            idempotency_key="late-rollback-first",
+        )
+        runtime.promote(
+            jobs[1]["candidateId"],
+            promoted_by="test-operator",
+            expected_generation=1,
+            idempotency_key="late-rollback-second",
+        )
+        rollback = runtime.rollback(
+            rolled_back_by="test-operator",
+            expected_generation=2,
+            idempotency_key="late-rollback",
+        )
+        later = runtime.promote(
+            jobs[2]["candidateId"],
+            promoted_by="test-operator",
+            expected_generation=3,
+            idempotency_key="late-rollback-third",
+        )
+
+        repeated = runtime.rollback(
+            rolled_back_by="test-operator",
+            expected_generation=2,
+            idempotency_key="late-rollback",
+        )
+
+        self.assertEqual(repeated, rollback)
+        self.assertEqual(runtime.promotion(), later)
+
     def test_rollback_continues_after_recovering_an_interrupted_promotion(self):
         runtime = self._runtime()
         first = self._wait_for_job(
@@ -1447,6 +1597,42 @@ class LocalRuntimeTest(unittest.TestCase):
         with self.assertRaises(RuntimeFailure) as not_served:
             production.evaluate(self._request())
         self.assertEqual(not_served.exception.code, "candidate_not_production_eligible")
+
+    def test_restart_revalidates_a_pending_promotion_before_recovery(self):
+        runtime = self._runtime()
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(
+                backend="fixture",
+                max_updates=2,
+                max_seconds=5,
+                max_credits=2,
+            )["id"],
+        )
+        with mock.patch.object(
+            runtime.local_connectors.candidates,
+            "_write_promotion_record",
+            side_effect=OSError("history unavailable"),
+        ):
+            with self.assertRaises(OSError):
+                runtime.promote(
+                    finished["candidateId"],
+                    promoted_by="test-operator",
+                    expected_generation=0,
+                    idempotency_key="pending-production-promotion",
+                )
+        runtime.close()
+
+        with self.assertRaises(RuntimeFailure) as ineligible:
+            LocalRuntime(
+                self.state_dir,
+                self.taskset_dir,
+                environment="production",
+            )
+
+        self.assertEqual(ineligible.exception.code, "candidate_not_production_eligible")
+        self.assertFalse((self.state_dir / "promotion.json").exists())
+        self.assertEqual(list((self.state_dir / "promotions").glob("*.json")), [])
 
     def test_production_rejects_rollback_to_a_fixture_candidate(self):
         runtime = self._runtime()
@@ -1971,6 +2157,9 @@ class LocalRuntimeTest(unittest.TestCase):
                 headers={**headers, "Idempotency-Key": "promote-http-second"},
             )
         )
+        late_exact_retry = self._http_json(
+            request.Request(url, data=body, headers=headers)
+        )
         rollback_url = f"{base_url}/v1/rollbacks"
         missing_rollback_generation = self._http_error(
             request.Request(
@@ -1992,6 +2181,7 @@ class LocalRuntimeTest(unittest.TestCase):
             )
         )
         self.assertEqual(second_promotion["generation"], 2)
+        self.assertEqual(late_exact_retry, first_promotion)
         self.assertEqual(missing_rollback_generation[0], 400)
         self.assertEqual(
             missing_rollback_generation[1]["error"]["code"],
@@ -2004,49 +2194,60 @@ class LocalRuntimeTest(unittest.TestCase):
         )
         self.assertEqual(runtime.promotion(), second_promotion)
 
-    def test_budget_violation_wins_a_cancellation_and_deadline_race(self):
-        started = self.taskset_dir / ".budget-race-started"
-        release = self.taskset_dir / ".budget-race-release"
-        finished_backend = self.taskset_dir / ".budget-race-finished"
+    def test_budget_violation_wins_a_concurrent_public_cancellation(self):
+        validation_started = threading.Event()
+        release_validation = threading.Event()
+        cancellation_started = threading.Event()
+        cancellation_result = {}
         runtime = LocalRuntime(
             self.state_dir,
             self.taskset_dir,
-            backends={
-                "budget-race": BudgetRaceBackend(
-                    started,
-                    release,
-                    finished_backend,
-                )
-            },
+            backends={"over-budget": OverBudgetBackend()},
             environment="test",
         )
         self.addCleanup(runtime.close)
-        submitted = runtime.submit(
-            backend="budget-race",
-            max_updates=1,
-            max_seconds=1,
-            max_credits=1,
-        )
-        deadline = time.monotonic() + 5
-        while not started.exists() and time.monotonic() < deadline:
-            time.sleep(0.01)
-        self.assertTrue(started.exists())
+        original = runtime_module._validated_training_usage
 
-        with runtime._lock:
-            release.write_text("release", encoding="utf-8")
-            while not finished_backend.exists() and time.monotonic() < deadline:
-                time.sleep(0.01)
-            self.assertTrue(finished_backend.exists())
-            time.sleep(1.05)
-            runtime._job_cancellations[submitted["id"]].cancel()
+        def pause_validation(result, context, connector):
+            validation_started.set()
+            self.assertTrue(release_validation.wait(5))
+            return original(result, context, connector)
 
-        terminal = self._wait_for_job(runtime, submitted["id"])
+        def cancel(job_id):
+            cancellation_started.set()
+            try:
+                cancellation_result["job"] = runtime.cancel(
+                    job_id,
+                    idempotency_key="cancel-budget-race",
+                )
+            except RuntimeFailure as failure:
+                cancellation_result["error"] = failure
+
+        with mock.patch(
+            "replica_brand_check.runtime._validated_training_usage",
+            side_effect=pause_validation,
+        ):
+            submitted = runtime.submit(
+                backend="over-budget",
+                max_updates=1,
+                max_seconds=5,
+                max_credits=1,
+            )
+            self.assertTrue(validation_started.wait(5))
+            cancellation = threading.Thread(target=cancel, args=(submitted["id"],))
+            cancellation.start()
+            self.assertTrue(cancellation_started.wait(5))
+            release_validation.set()
+            terminal = self._wait_for_job(runtime, submitted["id"])
+            cancellation.join(5)
+
         self.assertEqual(terminal["state"], "failed")
         self.assertEqual(terminal["error"]["code"], "credit_budget_exceeded")
         self.assertNotIn("candidateId", terminal)
-        self.assertNotIn("usage", terminal)
+        self.assertEqual(terminal["usage"][0]["quantity"], 2)
         self.assertEqual(list((self.state_dir / "candidates").iterdir()), [])
         self.assertIsNone(runtime.promotion(required=False))
+        self.assertEqual(cancellation_result["error"].code, "job_terminal")
 
     def test_http_cancels_a_running_job_without_publishing_a_stale_candidate(self):
         started = self.taskset_dir / ".cancel-started"

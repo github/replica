@@ -734,7 +734,7 @@ class LocalConnectorPersistenceTest(unittest.TestCase):
             [first.id],
         )
 
-    def test_hard_budget_violation_returns_no_training_result_or_usage(self):
+    def test_hard_budget_violation_returns_authoritative_usage_for_runtime_enforcement(self):
         bundle, _, scope = _new_bundle(
             self,
             backends={"over-budget": _OverBudgetBackend()},
@@ -748,16 +748,16 @@ class LocalConnectorPersistenceTest(unittest.TestCase):
         connector = bundle.connectors.training["over-budget"]
         credential = bundle.connectors.credentials.acquire("training", context)
 
-        with self.assertRaises(ConnectorError) as exceeded:
-            connector.train(
-                bundle.tasksets.taskset,
-                bundle.state_directory / "work",
-                max_updates=4,
-                context=context,
-                credential=credential,
-            )
+        result = connector.train(
+            bundle.tasksets.taskset,
+            bundle.state_directory / "work",
+            max_updates=4,
+            context=context,
+            credential=credential,
+        )
 
-        self.assertEqual(exceeded.exception.code, "credit_budget_exceeded")
+        self.assertEqual(result.usage[0].quantity, 2)
+        self.assertEqual(result.usage[0].unit, "credits")
         self.assertEqual(bundle.observability.records(), ())
 
     def test_keeps_scoped_files_private_and_detects_artifact_tampering(self):

@@ -555,22 +555,27 @@ class _MemoryExecution:
         _check_context(context)
         _check_credential(credential, "training", context)
         self.training_contexts.append(context)
+        completed = (
+            min(max_updates, int(context.max_credits))
+            if context.budget_mode == "hard"
+            else max_updates
+        )
         return TrainingResult(
             adapter_name="adapter.bin",
             adapter=b"adapter",
             baseline_report={"meanReward": 0.5},
             candidate_report={"meanReward": 0.75},
             metadata={"operationId": context.operation_id},
-            updates_completed=max_updates,
+            updates_completed=completed,
             usage=(
                 Usage(
                     operation_id=context.operation_id,
                     scope=context.scope,
                     connector=self.name,
                     kind="training_credits",
-                    quantity=float(max_updates),
+                    quantity=float(completed),
                     unit="credits",
-                    cost=float(max_updates) / 10,
+                    cost=float(completed) / 10,
                     currency="USD",
                     source="contract-connector",
                 ),
@@ -886,6 +891,32 @@ class _DeadlineBlindExecution(_MemoryExecution):
             max_updates,
         )
 
+
+class _BudgetBlindExecution(_MemoryExecution):
+    def train(self, *args, max_updates, context, **kwargs):
+        result = super().train(
+            *args,
+            max_updates=max_updates,
+            context=replace(context, max_credits=None, budget_mode="none"),
+            **kwargs,
+        )
+        return replace(
+            result,
+            usage=(
+                replace(
+                    result.usage[0],
+                    operation_id=context.operation_id,
+                    scope=context.scope,
+                    quantity=float(max_updates),
+                ),
+            ),
+        )
+
+
+class _MissingUsageExecution(_MemoryExecution):
+    def train(self, *args, **kwargs):
+        return replace(super().train(*args, **kwargs), usage=())
+
     def predict(self, adapter, request, *, context, credential):
         del adapter, request, credential
         return {"operationId": context.operation_id}
@@ -1005,6 +1036,18 @@ class ConnectorConformanceTest(unittest.TestCase):
         self._assert_suite_rejects(
             bundle,
             "taskset registration that trusts an incorrect claimed digest",
+        )
+
+    def test_shared_suite_rejects_training_that_ignores_a_hard_budget(self):
+        self._assert_suite_rejects(
+            lambda: _bundle_with(execution=_BudgetBlindExecution()),
+            "a training connector that exceeds a hard credit budget",
+        )
+
+    def test_shared_suite_rejects_training_without_authoritative_usage(self):
+        self._assert_suite_rejects(
+            lambda: _bundle_with(execution=_MissingUsageExecution()),
+            "a training connector that omits authoritative usage",
         )
 
     def test_shared_suite_rejects_unrelated_registered_taskset_content(self):
