@@ -7,6 +7,7 @@ import { createDecisionModelStore } from "../create-decision-model-store/index.t
 import { createHubDecisionTasksetSource } from "../create-hub-decision-taskset-source/index.ts"
 import { decisionTrainingJob } from "../jobs/decision-training.ts"
 import { recoverDecisionTrainingJobs } from "../jobs/recover-decision-training.ts"
+import { reconcileRuntimeDeletionsJob } from "../jobs/reconcile-runtime-deletions.ts"
 import { readDecisionRuntimeConfiguration } from "../read-decision-runtime-configuration/index.ts"
 import { createDecisionRuntimeClient } from "../../../integrations/decision-runtime/create-decision-runtime-client/index.ts"
 import { createDecisionModelJobProcessors } from "../create-decision-model-job-processors/index.ts"
@@ -84,6 +85,13 @@ export function createConfiguredDecisionModelJobProcessors(
       process: async (job: unknown) => {
         if (!readDecisionRuntimeConfiguration(resolveLocalSignInEnvironment(environment))) return
         return (await processors()).recover.process(job)
+      },
+    },
+    reconcileDeletions: {
+      name: reconcileRuntimeDeletionsJob.name,
+      process: async (job: unknown) => {
+        if (!readDecisionRuntimeConfiguration(resolveLocalSignInEnvironment(environment))) return
+        return (await processors()).reconcileDeletions.process(job)
       },
     },
   }

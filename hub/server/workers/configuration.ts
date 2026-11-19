@@ -8,6 +8,10 @@ import {
 import { getGitHubWorkflowRunJobDefinition } from "../domains/github-builds/get-github-workflow-run-job-definition/index.ts"
 import { createConfiguredDecisionModelJobProcessors } from "../domains/decision-model/create-configured-decision-model-job-processors/index.ts"
 import { recoverDecisionTrainingJobs } from "../domains/decision-model/jobs/recover-decision-training.ts"
+import {
+  reconcileRuntimeDeletionsJob,
+  reconcileRuntimeDeletionsSchedule,
+} from "../domains/decision-model/jobs/reconcile-runtime-deletions.ts"
 import { createLearningJobProcessors } from "../domains/learning/create-learning-job-processors/index.ts"
 import { scheduledMaintenancePriority } from "../domains/learning/jobs/priorities.ts"
 import { recoverLearningRunsJob } from "../domains/learning/jobs/recover-learning-runs.ts"
@@ -81,6 +85,7 @@ export const jobProcessors: Record<JobQueueName, JobProcessor[]> = {
     analytics.clear,
     learning.scheduledRun,
     decision.recover,
+    decision.reconcileDeletions,
     learning.recover,
     learning.schedule,
     createJobProcessor(githubInstallationReconciliation, reconcileGitHubInstallation),
@@ -113,6 +118,10 @@ export const jobSchedules: {
     definition: clearAnalyticsJob,
     payload: {},
     repeat: { every: 60 * 60_000 },
+  },
+  {
+    ...reconcileRuntimeDeletionsSchedule,
+    definition: reconcileRuntimeDeletionsJob,
   },
   {
     id: "learning-run-recovery",
