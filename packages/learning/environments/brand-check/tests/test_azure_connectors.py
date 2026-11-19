@@ -738,6 +738,8 @@ class _TrainingClient:
                             or self.requests[-1]["payload"]["limits"]["maxUpdates"],
                         ),
                         "unit": "credits",
+                        "cost": 0,
+                        "currency": "USD",
                     },
                 ],
             },
