@@ -17,7 +17,12 @@ resource "azurerm_postgresql_flexible_server" "database" {
 
   lifecycle {
     # Azure selects the zone because this module does not pin one.
-    ignore_changes = [zone]
+    ignore_changes = [administrator_password, zone]
+
+    precondition {
+      condition     = var.postgres_admin_password != null || var.reuse_existing_postgres_admin_password
+      error_message = "Bootstrap requires postgres_admin_password. Only the serialized release path may reuse the existing password without receiving its value."
+    }
   }
 }
 

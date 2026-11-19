@@ -1,0 +1,424 @@
+name: Deploy Hub to Azure development
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: hub-azure-development
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Hub
+    runs-on: ubuntu-latest
+    environment: hub-azure-development
+    timeout-minutes: 60
+    env:
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ARM_USE_OIDC: "true"
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      AZURE_INSTALLATION_NAME: ${{ vars.AZURE_INSTALLATION_NAME }}
+      AZURE_INSTALLATION_OWNER: ${{ vars.AZURE_INSTALLATION_OWNER }}
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      AZURE_ACR_ID: ${{ vars.AZURE_ACR_ID }}
+      AZURE_KEY_VAULT_ID: ${{ vars.AZURE_KEY_VAULT_ID }}
+      AZURE_DEPLOYMENT_STORAGE_PRINCIPAL_ID: ${{ vars.AZURE_DEPLOYMENT_STORAGE_PRINCIPAL_ID }}
+      AZURE_RUNTIME_DATABASE_SECRET_URL: ${{ vars.AZURE_RUNTIME_DATABASE_SECRET_URL }}
+      AZURE_SETUP_DATABASE_SECRET_URL: ${{ vars.AZURE_SETUP_DATABASE_SECRET_URL }}
+      AZURE_HUB_APPLICATION_ORIGIN: ${{ vars.AZURE_HUB_APPLICATION_ORIGIN }}
+      AZURE_GITHUB_APP_ID: ${{ vars.AZURE_GITHUB_APP_ID }}
+      AZURE_GITHUB_CLIENT_ID: ${{ vars.AZURE_GITHUB_CLIENT_ID }}
+      AZURE_GITHUB_APP_INSTALLATION_ID: ${{ vars.AZURE_GITHUB_APP_INSTALLATION_ID }}
+      AZURE_GITHUB_PROVIDER_REVISION: ${{ vars.AZURE_GITHUB_PROVIDER_REVISION }}
+      AZURE_INSTALLATION_SETTINGS_JSON: ${{ vars.AZURE_INSTALLATION_SETTINGS_JSON }}
+      AZURE_RUNTIME_ENVIRONMENT_JSON: ${{ vars.AZURE_RUNTIME_ENVIRONMENT_JSON }}
+      AZURE_RUNTIME_SECRET_REFERENCES_JSON: ${{ vars.AZURE_RUNTIME_SECRET_REFERENCES_JSON }}
+      AZURE_STATE_RESOURCE_GROUP: ${{ vars.AZURE_STATE_RESOURCE_GROUP }}
+      AZURE_STATE_STORAGE_ACCOUNT: ${{ vars.AZURE_STATE_STORAGE_ACCOUNT }}
+      AZURE_STATE_CONTAINER: ${{ vars.AZURE_STATE_CONTAINER }}
+      AZURE_STATE_KEY: ${{ vars.AZURE_STATE_KEY }}
+      NPM_REGISTRY: ${{ vars.NPM_REGISTRY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: 1.17.1
+          terraform_wrapper: false
+      - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Verify the deployment target
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          for name in \
+            ARM_CLIENT_ID ARM_TENANT_ID ARM_SUBSCRIPTION_ID \
+            AZURE_LOCATION AZURE_INSTALLATION_NAME AZURE_INSTALLATION_OWNER \
+            AZURE_RESOURCE_GROUP AZURE_ACR_ID AZURE_KEY_VAULT_ID \
+            AZURE_DEPLOYMENT_STORAGE_PRINCIPAL_ID \
+            AZURE_RUNTIME_DATABASE_SECRET_URL AZURE_SETUP_DATABASE_SECRET_URL \
+            AZURE_STATE_RESOURCE_GROUP AZURE_STATE_STORAGE_ACCOUNT \
+            AZURE_STATE_CONTAINER AZURE_STATE_KEY
+          do
+            test -n "${!name}"
+          done
+          test "$(az account show --query id --output tsv)" = "$ARM_SUBSCRIPTION_ID"
+          test "${AZURE_ACR_ID%%/resourceGroups/*}" = "/subscriptions/$ARM_SUBSCRIPTION_ID"
+          test "${AZURE_KEY_VAULT_ID%%/resourceGroups/*}" = "/subscriptions/$ARM_SUBSCRIPTION_ID"
+          test "$(
+            az group show \
+              --name "$AZURE_RESOURCE_GROUP" \
+              --query "tags.installation" \
+              --output tsv \
+              --only-show-errors
+          )" = "$AZURE_INSTALLATION_NAME"
+          test "$(
+            az acr show \
+              --ids "$AZURE_ACR_ID" \
+              --query "tags.installation" \
+              --output tsv \
+              --only-show-errors
+          )" = "$AZURE_INSTALLATION_NAME"
+          test "$(
+            az resource show \
+              --ids "$AZURE_KEY_VAULT_ID" \
+              --query "tags.installation" \
+              --output tsv \
+              --only-show-errors
+          )" = "$AZURE_INSTALLATION_NAME"
+      - name: Build and publish the checked-out commit
+        id: image
+        run: |
+          set -euo pipefail
+          ACR_NAME="${AZURE_ACR_ID##*/}"
+          ACR_LOGIN_SERVER="$(
+            az acr show --ids "$AZURE_ACR_ID" --query loginServer --output tsv --only-show-errors
+          )"
+          az acr login --name "$ACR_NAME" --only-show-errors
+          BUILD_ARGUMENTS=()
+          if [ -n "${NPM_REGISTRY:-}" ]; then
+            BUILD_ARGUMENTS+=(--build-arg "NPM_REGISTRY=$NPM_REGISTRY")
+          fi
+          docker buildx build \
+            --file hub/Dockerfile \
+            --platform linux/amd64 \
+            --tag "$ACR_LOGIN_SERVER/replica-hub:$GITHUB_SHA" \
+            --metadata-file "$RUNNER_TEMP/image-metadata.json" \
+            --push \
+            "${BUILD_ARGUMENTS[@]}" \
+            .
+          DIGEST="$(
+            node -e \
+              'const value=require(process.argv[1])["containerimage.digest"]; if(!/^sha256:[a-f0-9]{64}$/.test(value)) process.exit(1); process.stdout.write(value)' \
+              "$RUNNER_TEMP/image-metadata.json"
+          )"
+          printf 'reference=%s@%s\n' "$ACR_LOGIN_SERVER/replica-hub" "$DIGEST" >> "$GITHUB_OUTPUT"
+      - name: Prepare non-secret deployment configuration
+        env:
+          HUB_IMAGE: ${{ steps.image.outputs.reference }}
+        run: |
+          set -euo pipefail
+          umask 077
+          node --input-type=module <<'NODE'
+          import { writeFileSync } from "node:fs"
+          import { join } from "node:path"
+
+          const required = (name) => {
+            const value = process.env[name]
+            if (!value) throw new Error(`Missing required GitHub Environment variable: ${name}`)
+            return value
+          }
+          const record = (name, required = false) => {
+            const source = process.env[name]?.trim()
+            if (!source) {
+              if (required) throw new Error(`${name} must be configured as a JSON object.`)
+              return {}
+            }
+            const value = JSON.parse(source)
+            if (
+              typeof value !== "object" ||
+              value === null ||
+              Array.isArray(value) ||
+              Object.getPrototypeOf(value) !== Object.prototype
+            ) {
+              throw new Error(`${name} must be a JSON object.`)
+            }
+            return value
+          }
+          const environment = record("AZURE_RUNTIME_ENVIRONMENT_JSON", true)
+          const installationSettings = record("AZURE_INSTALLATION_SETTINGS_JSON", true)
+          const installationKeys = [
+            "postgres_sku",
+            "postgres_version",
+            "backup_retention_days",
+            "custom_hostname",
+            "certificate_id",
+          ]
+          if (
+            Object.keys(installationSettings).length !== installationKeys.length ||
+            installationKeys.some((name) => !Object.hasOwn(installationSettings, name))
+          ) {
+            throw new Error(
+              "AZURE_INSTALLATION_SETTINGS_JSON must explicitly contain every supported installation setting.",
+            )
+          }
+          const sku =
+            /^(?:B_Standard_B(?:(?:1|2|4|8|12|16|20)ms|2s)|GP_Standard_D(?:(?:2|4|8|16|32|48|64)s_v3|(?:2|4|8|16|32|48|64)ds_v4|(?:2|4|8|16|32|48|64|96)(?:ds|ads)_v5)|MO_Standard_E(?:(?:2|4|8|16|20|32|48|64)s_v3|(?:2|4|6|8|16|20|32|48|64)ds_v4|(?:2|4|8|16|20|32|48|64|96)ds_v5|(?:2|4|8|16|32|48|64|96)ads_v5))$/
+          if (
+            typeof installationSettings.postgres_sku !== "string" ||
+            !sku.test(installationSettings.postgres_sku) ||
+            typeof installationSettings.postgres_version !== "string" ||
+            !/^(?:11|12|13|14|15|16|17)$/.test(installationSettings.postgres_version) ||
+            !Number.isInteger(installationSettings.backup_retention_days) ||
+            installationSettings.backup_retention_days < 7 ||
+            installationSettings.backup_retention_days > 35
+          ) {
+            throw new Error("AZURE_INSTALLATION_SETTINGS_JSON contains invalid PostgreSQL settings.")
+          }
+          const { custom_hostname: customHostname, certificate_id: certificateId } =
+            installationSettings
+          if (
+            (customHostname === null) !== (certificateId === null) ||
+            (customHostname !== null &&
+              (typeof customHostname !== "string" ||
+                !/^(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}$/.test(
+                  customHostname,
+                ) ||
+                typeof certificateId !== "string" ||
+                !/^\/subscriptions\/[A-Fa-f0-9-]{36}\/resourceGroups\/[^/]+\/providers\/Microsoft\.App\/managedEnvironments\/[^/]+\/certificates\/[^/]+$/.test(
+                  certificateId,
+                )))
+          ) {
+            throw new Error(
+              "AZURE_INSTALLATION_SETTINGS_JSON must supply both custom_hostname and certificate_id, or null for both.",
+            )
+          }
+          const optional = (name) => process.env[name]?.trim() || undefined
+          const positiveInteger = (name, maximum) => {
+            const value = optional(name)
+            if (value === undefined) return undefined
+            if (!/^[1-9][0-9]*$/.test(value) || BigInt(value) > BigInt(maximum)) {
+              throw new Error(`${name} must be a positive integer no greater than ${maximum}.`)
+            }
+            return value
+          }
+          const reserved = new Set([
+            "DATABASE_URL",
+            "DATABASE_RUNTIME_ROLE",
+            "NODE_ENV",
+            "RUNTIME_MODE",
+            "HOST",
+            "PORT",
+            "CLIENT_DIRECTORY",
+            "SHUTDOWN_TIMEOUT_MS",
+            "ARTIFACT_STORAGE_PROVIDER",
+            "ARTIFACT_STORAGE_DIRECTORY",
+            "AZURE_STORAGE_ACCOUNT",
+            "AZURE_STORAGE_CONTAINER",
+            "AZURE_CLIENT_ID",
+            "AZURE_KEY_VAULT_SECRET_REFERENCES",
+            "HUB_APPLICATION_ORIGIN",
+            "GITHUB_APP_ID",
+            "GITHUB_CLIENT_ID",
+            "GITHUB_APP_INSTALLATION_ID",
+            "GITHUB_PROVIDER_REVISION",
+          ])
+          for (const [name, value] of Object.entries(environment)) {
+            if (
+              !/^[A-Z][A-Z0-9_]{0,40}$/.test(name) ||
+              reserved.has(name) ||
+              /(^|_)(SECRET|TOKEN|PASSWORD|PASSWD|PASSPHRASE|CREDENTIAL|APIKEY|KEY)S?(_|$)/.test(
+                name,
+              ) ||
+              typeof value !== "string"
+            ) {
+              throw new Error(
+                "AZURE_RUNTIME_ENVIRONMENT_JSON contains an invalid or reserved setting.",
+              )
+            }
+          }
+          const runnerTemp = required("RUNNER_TEMP")
+          const keyVaultId = required("AZURE_KEY_VAULT_ID")
+          const references = record("AZURE_RUNTIME_SECRET_REFERENCES_JSON", true)
+          if (Object.keys(references).some((name) => Object.hasOwn(environment, name))) {
+            throw new Error("Runtime environment settings and secret references cannot share names.")
+          }
+          if (Object.keys(references).length > 63) {
+            throw new Error("AZURE_RUNTIME_SECRET_REFERENCES_JSON supports at most 63 references.")
+          }
+          const referenceIdentity = (reference) => {
+            if (
+              typeof reference !== "object" ||
+              reference === null ||
+              Array.isArray(reference) ||
+              Object.keys(reference).some((key) => !["key_vault_id", "secret_id"].includes(key)) ||
+              typeof reference.key_vault_id !== "string" ||
+              typeof reference.secret_id !== "string" ||
+              !/^\/subscriptions\/[^/]+\/resourceGroups\/[^/]+\/providers\/Microsoft\.KeyVault\/vaults\/[A-Za-z0-9-]{1,24}$/.test(
+                reference.key_vault_id,
+              ) ||
+              !/^https:\/\/[A-Za-z0-9-]{1,24}\.vault\.azure\.net\/secrets\/[A-Za-z0-9-]{1,127}(\/[A-Fa-f0-9]{32})?$/.test(
+                reference.secret_id,
+              )
+            ) {
+              throw new Error(
+                "AZURE_RUNTIME_SECRET_REFERENCES_JSON contains an invalid Key Vault reference.",
+              )
+            }
+            const vault = reference.key_vault_id.split("/").at(-1).toLowerCase()
+            const url = new URL(reference.secret_id)
+            if (url.hostname.toLowerCase() !== `${vault}.vault.azure.net`) {
+              throw new Error(
+                "AZURE_RUNTIME_SECRET_REFERENCES_JSON contains a mismatched Key Vault reference.",
+              )
+            }
+            return `${reference.key_vault_id}/secrets/${url.pathname.split("/")[2]}`.toLowerCase()
+          }
+          const referenceNames = new Set()
+          for (const [name, reference] of Object.entries(references)) {
+            if (
+              !/^[A-Z][A-Z0-9_]{0,40}$/.test(name) ||
+              reserved.has(name) ||
+              ["GITHUB_APP_ID", "GITHUB_CLIENT_ID", "GITHUB_APP_INSTALLATION_ID", "GITHUB_PROVIDER_REVISION"].includes(
+                name,
+              )
+            ) {
+              throw new Error(
+                "AZURE_RUNTIME_SECRET_REFERENCES_JSON contains an invalid or reserved setting.",
+              )
+            }
+            referenceNames.add(referenceIdentity(reference))
+          }
+          if (
+            referenceNames.has(
+              referenceIdentity({
+                key_vault_id: keyVaultId,
+                secret_id: required("AZURE_SETUP_DATABASE_SECRET_URL"),
+              }),
+            )
+          ) {
+            throw new Error("Runtime secret references cannot use the setup database secret.")
+          }
+          const hubOrigin = optional("AZURE_HUB_APPLICATION_ORIGIN")
+          if (hubOrigin !== undefined) {
+            let parsed
+            try {
+              parsed = new URL(hubOrigin)
+            } catch {
+              throw new Error("AZURE_HUB_APPLICATION_ORIGIN must be an exact HTTPS origin.")
+            }
+            if (
+              parsed.protocol !== "https:" ||
+              parsed.username ||
+              parsed.password ||
+              parsed.pathname !== "/" ||
+              parsed.search ||
+              parsed.hash ||
+              parsed.hostname !== parsed.hostname.toLowerCase() ||
+              parsed.origin !== hubOrigin
+            ) {
+              throw new Error("AZURE_HUB_APPLICATION_ORIGIN must be an exact HTTPS origin.")
+            }
+          }
+          const githubAppId = positiveInteger("AZURE_GITHUB_APP_ID", Number.MAX_SAFE_INTEGER)
+          const githubInstallationId = positiveInteger(
+            "AZURE_GITHUB_APP_INSTALLATION_ID",
+            Number.MAX_SAFE_INTEGER,
+          )
+          const githubRevisionText = positiveInteger(
+            "AZURE_GITHUB_PROVIDER_REVISION",
+            2147483647,
+          )
+          const githubClientId = optional("AZURE_GITHUB_CLIENT_ID")
+          if (
+            githubClientId !== undefined &&
+            (githubClientId.length > 200 || /\s/u.test(githubClientId))
+          ) {
+            throw new Error(
+              "AZURE_GITHUB_CLIENT_ID must contain 1–200 non-whitespace characters.",
+            )
+          }
+          if (
+            (Object.hasOwn(references, "GITHUB_APP_PRIVATE_KEY_BASE64") ||
+              Object.hasOwn(references, "GITHUB_APP_PRIVATE_KEY")) &&
+            !githubAppId
+          ) {
+            throw new Error("A GitHub App private-key reference requires AZURE_GITHUB_APP_ID.")
+          }
+          if (Object.hasOwn(references, "GITHUB_CLIENT_SECRET") && !githubClientId) {
+            throw new Error("A GitHub client-secret reference requires AZURE_GITHUB_CLIENT_ID.")
+          }
+          writeFileSync(
+            join(runnerTemp, "installation.tfvars.json"),
+            JSON.stringify({
+              subscription_id: required("ARM_SUBSCRIPTION_ID"),
+              name: required("AZURE_INSTALLATION_NAME"),
+              owner: required("AZURE_INSTALLATION_OWNER"),
+              location: required("AZURE_LOCATION"),
+              resource_group_name: required("AZURE_RESOURCE_GROUP"),
+              image: required("HUB_IMAGE"),
+              deploy_hub: true,
+              acr_id: required("AZURE_ACR_ID"),
+              grant_deployment_storage_access: true,
+              deployment_storage_principal_id: required(
+                "AZURE_DEPLOYMENT_STORAGE_PRINCIPAL_ID",
+              ),
+              runtime_database_secret: {
+                key_vault_id: keyVaultId,
+                secret_id: required("AZURE_RUNTIME_DATABASE_SECRET_URL"),
+              },
+              setup_database_secret: {
+                key_vault_id: keyVaultId,
+                secret_id: required("AZURE_SETUP_DATABASE_SECRET_URL"),
+              },
+              ...(hubOrigin ? { hub_application_origin: hubOrigin } : {}),
+              ...(githubAppId ? { github_app_id: githubAppId } : {}),
+              ...(githubClientId ? { github_client_id: githubClientId } : {}),
+              ...(githubInstallationId
+                ? { github_app_installation_id: githubInstallationId }
+                : {}),
+              ...(githubRevisionText
+                ? { github_provider_revision: Number(githubRevisionText) }
+                : {}),
+              postgres_sku: installationSettings.postgres_sku,
+              postgres_version: installationSettings.postgres_version,
+              backup_retention_days: installationSettings.backup_retention_days,
+              custom_hostname: customHostname,
+              certificate_id: certificateId,
+              runtime_environment_variables: environment,
+              runtime_secret_references: references,
+            }),
+          )
+          const backend = [
+            `resource_group_name = ${JSON.stringify(required("AZURE_STATE_RESOURCE_GROUP"))}`,
+            `storage_account_name = ${JSON.stringify(required("AZURE_STATE_STORAGE_ACCOUNT"))}`,
+            `container_name = ${JSON.stringify(required("AZURE_STATE_CONTAINER"))}`,
+            `key = ${JSON.stringify(required("AZURE_STATE_KEY"))}`,
+            "use_azuread_auth = true",
+            "use_oidc = true",
+            "",
+          ].join("\n")
+          writeFileSync(join(runnerTemp, "backend.hcl"), backend)
+          NODE
+      - name: Run the serialized maintenance-window release
+        env:
+          TF_DATA_DIR: ${{ runner.temp }}/terraform
+          HUB_IMAGE: ${{ steps.image.outputs.reference }}
+        run: |
+          node infrastructure/azure/deploy-hub/index.ts release \
+            --subscription "$ARM_SUBSCRIPTION_ID" \
+            --backend "$RUNNER_TEMP/backend.hcl" \
+            --variables "$RUNNER_TEMP/installation.tfvars.json" \
+            --image "$HUB_IMAGE" \
+            --accept-maintenance

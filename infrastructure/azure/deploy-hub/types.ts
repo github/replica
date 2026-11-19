@@ -13,13 +13,16 @@ export interface Installation {
 }
 
 export interface DeploymentPlan {
-  variables: Record<string, { value: string }>
+  variables: Record<string, { value: unknown }>
   resource_changes?: { change: { actions: string[] } }[]
 }
 
 export interface Revision {
   name: string
-  properties: { active: boolean }
+  properties: {
+    active: boolean
+    template: { containers: { image: string }[] }
+  }
 }
 
 export interface JobExecution {

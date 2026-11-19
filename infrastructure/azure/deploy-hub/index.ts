@@ -153,7 +153,7 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
     deploy: boolean,
     installation?: Installation,
     target?: string,
-  ): void {
+  ): DeploymentPlan {
     const arguments_ = [
       "plan",
       "-input=false",
@@ -164,6 +164,8 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
       `-out=${planPath}`,
     ]
     if (target) arguments_.push(`-target=${target}`)
+    if (operation === "release")
+      arguments_.push("-var=reuse_existing_postgres_admin_password=true")
     terraform(arguments_)
     const planned = parseOutput<DeploymentPlan>(
       terraform(["show", "-json", planPath], true),
@@ -180,6 +182,7 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
     if (installation && planned.variables.name?.value !== installation.name) {
       throw new Error("The variable file selects a different installation.")
     }
+    return planned
   }
   function apply(): void {
     terraform(["apply", "-input=false", "-lock-timeout=60s", planPath])
@@ -210,7 +213,34 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
     }
     throw new Error("Setup timed out. Check or stop the execution before releasing the lock.")
   }
-  async function waitReady(installation: Installation): Promise<void> {
+  function authenticationConfigured(planned: DeploymentPlan): boolean {
+    const environment = planned.variables.runtime_environment_variables?.value
+    const references = planned.variables.runtime_secret_references?.value
+    const publicSettings =
+      typeof environment === "object" && environment !== null
+        ? (environment as Record<string, unknown>)
+        : {}
+    const secretReferences =
+      typeof references === "object" && references !== null
+        ? (references as Record<string, unknown>)
+        : {}
+    const githubClientId =
+      planned.variables.github_client_id?.value ?? publicSettings.GITHUB_CLIENT_ID
+    const githubConfigured =
+      typeof githubClientId === "string" &&
+      githubClientId.length > 0 &&
+      Object.hasOwn(secretReferences, "GITHUB_CLIENT_SECRET")
+    const entraConfigured =
+      typeof publicSettings.ENTRA_OIDC_ISSUER === "string" &&
+      publicSettings.ENTRA_OIDC_ISSUER.length > 0 &&
+      typeof publicSettings.ENTRA_OIDC_CLIENT_ID === "string" &&
+      publicSettings.ENTRA_OIDC_CLIENT_ID.length > 0
+    return githubConfigured || entraConfigured
+  }
+  async function waitReady(
+    installation: Installation,
+    expectsAuthenticationProviders: boolean,
+  ): Promise<void> {
     const app = azure<ContainerApp>("containerapp", "show", ...appArguments(installation))
     const revision = app?.properties?.latestRevisionName
     if (typeof revision !== "string" || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(revision)) {
@@ -231,6 +261,15 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
         "Azure did not confirm the latest Hub revision's activation state. Keep the release lock and investigate.",
       )
     }
+    if (
+      !Array.isArray(current.properties.template?.containers) ||
+      current.properties.template.containers.length !== 1 ||
+      current.properties.template.containers[0]?.image !== image
+    ) {
+      throw new Error(
+        "Azure did not confirm the latest Hub revision uses the released image digest. Keep the release lock and investigate.",
+      )
+    }
     if (!current.properties.active) {
       azureCommand(
         "containerapp",
@@ -242,6 +281,7 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
       )
     }
     const deadline = performance.now() + 300_000
+    let ready = false
     while (performance.now() < deadline) {
       const latest = azure<ContainerApp>("containerapp", "show", ...appArguments(installation))
       if (latest.properties.latestReadyRevisionName === revision) {
@@ -250,7 +290,10 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
             signal: AbortSignal.timeout(10_000),
           })
           await response.body?.cancel()
-          if (response.status === 200) return
+          if (response.status === 200) {
+            ready = true
+            break
+          }
           console.warn(`Hub readiness returned HTTP ${response.status}; retrying.`)
         } catch (error) {
           if (
@@ -261,9 +304,53 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
           console.warn("Hub readiness request failed; retrying.")
         }
       }
+      if (ready) break
       await timers.setTimeout(5_000)
     }
-    throw new Error("Hub did not become ready. Keep the release lock and investigate.")
+    if (!ready)
+      throw new Error("Hub did not become ready. Keep the release lock and investigate.")
+
+    for (const [path, validate] of [
+      ["/api/health", async (response: Response) => response.status === 200],
+      [
+        "/api/auth/providers",
+        async (response: Response) => {
+          if (response.status === 404) return !expectsAuthenticationProviders
+          if (response.status !== 200) return false
+          const value: unknown = await response.json()
+          return (
+            typeof value === "object" &&
+            value !== null &&
+            "providers" in value &&
+            Array.isArray(value.providers) &&
+            value.providers.every((provider) => provider === "github" || provider === "entra")
+          )
+        },
+      ],
+    ] as const) {
+      let response: Response
+      try {
+        response = await fetch(`${installation.url}${path}`, {
+          signal: AbortSignal.timeout(10_000),
+        })
+      } catch {
+        throw new Error(
+          `Hub post-deployment check ${path} failed before receiving an HTTP response. Keep the release lock and investigate.`,
+        )
+      }
+      let valid = false
+      try {
+        valid = await validate(response)
+      } catch {
+        valid = false
+      } finally {
+        if (!response.bodyUsed) await response.body?.cancel()
+      }
+      if (!valid)
+        throw new Error(
+          `Hub post-deployment check ${path} returned HTTP ${response.status} with an invalid response. Keep the release lock and investigate.`,
+        )
+    }
   }
 
   try {
@@ -326,10 +413,10 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
     plan(installation.app_created, installation, "azurerm_container_app_job.setup")
     apply()
     await setup(installation)
-    plan(true, installation)
+    const rollout = plan(true, installation)
     apply()
     installation = readInstallation()
-    await waitReady(installation)
+    await waitReady(installation, authenticationConfigured(rollout))
     azureCommand(
       "storage",
       "blob",

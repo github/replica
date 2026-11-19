@@ -88,6 +88,12 @@ Builds created before commit metadata was stored retain `NULL` for unknown value
 
 Review threads bind one non-removed repository, one reviewable prototype, and one successful Build. The root and replies keep stable Hub user UUIDs plus presentation snapshots. Soft deletion records when the author deleted a message but retains its source body; product reads and learning snapshots replace that body with `null`. Resolution events are immutable and uniquely ordered by their thread activity sequence, so resolve, reopen, and resolved-again transitions remain distinguishable for product reads and learning snapshots.
 
+Decision-model tables store repository settings, pinned input digests, runtime job and candidate references, promotion generations, Build evaluation references, and decimal usage or cost metadata. They do not store credentials, screenshots, tasksets, adapters, evaluation reports, or model weights. Database checks enforce training bounds, positive promotion generations, nonnegative usage and cost, and complete quantity/unit and amount/currency pairs.
+
+Candidate rows also store the runtime's held-out baseline and candidate metrics, per-learning metric changes, and an optional administrator rejection. Rejection fields must be absent together or include a time and reason. Build evaluation rows keep typed page-level findings in their bounded summary rather than copying screenshot bytes.
+
+Runtime copy rows keep content-free provider references and provenance selectors. Runtime deletion rows keep selectors, pending and failure counts, safe receipt metadata, and completion times. They never store evidence bodies, screenshots, labels, prompts, adapters, or model artifacts.
+
 PostgreSQL `CHECK` expressions accept `NULL` unless the expression explicitly rejects it. Write nullable-branch checks so every invalid `NULL` combination evaluates to false. Design indexes from the real equality, range, ordering, and partial predicates used by lock, restore, and lookup queries.
 
 Validate schema changes on both a fresh database and an upgrade from the exact base. Migration tests should seed representative base records and prove required data, backfills, relationships, and constraints after deployment. Do not enumerate the complete migration, table, column, or index inventory. Split PostgreSQL enum additions from statements that use the new values when transactional enum visibility requires a committed boundary.

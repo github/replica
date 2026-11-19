@@ -11,6 +11,7 @@ import { describeCommand } from "../../installer/command/describe/index.ts"
 import { deployHub } from "./index.ts"
 
 const terraformRoot = resolve(import.meta.dirname, "..")
+const deploymentImage = `example.azurecr.io/hub@sha256:${"a".repeat(64)}`
 let fixtureDirectory: string
 let previousDataDirectory: string | undefined
 let previousMask: number
@@ -49,8 +50,19 @@ function installationScenario({
       latestReadyRevisionName: "test-hub--latest",
     },
   },
-  revisionResponse = { name: "test-hub--latest", properties: { active: true } },
+  revisionResponse = {
+    name: "test-hub--latest",
+    properties: {
+      active: true,
+      template: { containers: [{ image: deploymentImage }] },
+    },
+  },
   httpStatuses = [200],
+  healthStatus = 200,
+  healthBody = null,
+  authenticationStatus = 200,
+  authenticationBody = { providers: ["github", "entra"] },
+  authenticationConfigured = false,
   commandFailure,
   commandOutput,
   onPlan,
@@ -62,6 +74,11 @@ function installationScenario({
   appResponse?: unknown
   revisionResponse?: unknown
   httpStatuses?: number[]
+  healthStatus?: number
+  healthBody?: string | null
+  authenticationStatus?: number
+  authenticationBody?: unknown
+  authenticationConfigured?: boolean
   commandFailure?: { args: string[]; error: Error; occurrence?: number }
   commandOutput?: { args: string[]; stdout: string }
   onPlan?: (path: string) => void
@@ -80,6 +97,7 @@ function installationScenario({
     url: "https://hub.example.com",
   }
   const events: string[][] = []
+  const httpRequests: { url: string; init?: RequestInit }[] = []
   const commandOptions: childProcess.ExecFileSyncOptions[] = []
   const replicaReads = new Map<string, number>()
   let matchingCommands = 0
@@ -113,6 +131,14 @@ function installationScenario({
             variables: {
               name: { value: installation.name },
               subscription_id: { value: installation.subscription_id },
+              ...(authenticationConfigured
+                ? {
+                    github_client_id: { value: "synthetic-client" },
+                    runtime_secret_references: {
+                      value: { GITHUB_CLIENT_SECRET: { secret_id: "synthetic-reference" } },
+                    },
+                  }
+                : {}),
             },
             resource_changes: [],
           })
@@ -184,12 +210,27 @@ function installationScenario({
   mock.method(childProcess, "execFileSync", execute)
   mock.method(timers, "setTimeout", async () => undefined)
   let readinessRequests = 0
-  mock.method(globalThis, "fetch", async (url: Parameters<typeof fetch>[0]) => {
-    events.push(["HTTPS", String(url)])
-    const status = httpStatuses[Math.min(readinessRequests, httpStatuses.length - 1)]
-    readinessRequests += 1
-    return new Response(null, { status })
-  })
+  mock.method(
+    globalThis,
+    "fetch",
+    async (url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      httpRequests.push({ url: String(url), init })
+      events.push(["HTTPS", String(url)])
+      if (String(url).endsWith("/api/health"))
+        return new Response(healthBody, { status: healthStatus })
+      if (String(url).endsWith("/api/auth/providers")) {
+        if (typeof authenticationBody === "string")
+          return new Response(authenticationBody, {
+            status: authenticationStatus,
+            headers: { "content-type": "application/json" },
+          })
+        return Response.json(authenticationBody, { status: authenticationStatus })
+      }
+      const status = httpStatuses[Math.min(readinessRequests, httpStatuses.length - 1)]
+      readinessRequests += 1
+      return new Response(null, { status })
+    },
+  )
   const args = [
     "release",
     "--subscription",
@@ -199,10 +240,10 @@ function installationScenario({
     "--variables",
     "installation.tfvars",
     "--image",
-    `example.azurecr.io/hub@sha256:${"a".repeat(64)}`,
+    deploymentImage,
     "--accept-maintenance",
   ]
-  return { args, events, replicaReads, commandOptions }
+  return { args, events, httpRequests, replicaReads, commandOptions }
 }
 
 describe("deployHub()", () => {
@@ -273,7 +314,7 @@ describe("deployHub()", () => {
   })
 
   it("drains all old revisions and completes setup before rollout, readiness, and lease release", async () => {
-    const { args, events, replicaReads, commandOptions } = installationScenario()
+    const { args, events, httpRequests, replicaReads, commandOptions } = installationScenario()
     const output: unknown[][] = []
     mock.method(console, "error", (...args: unknown[]) => output.push(args))
     const completion = mock.method(console, "log", () => events.push(["complete"]))
@@ -306,6 +347,14 @@ describe("deployHub()", () => {
     )
     assert.ok(setupSucceeded > setup)
     assert.ok(rollout > setupSucceeded)
+    const releasePlans = events.filter(
+      (event) => event[0] === "terraform" && event[2] === "plan",
+    )
+    assert.ok(
+      releasePlans.every((event) =>
+        event.includes("-var=reuse_existing_postgres_admin_password=true"),
+      ),
+    )
     const rolloutApplied = events.findIndex(
       (event, index) => index > rollout && event[0] === "terraform" && event[2] === "apply",
     )
@@ -330,6 +379,20 @@ describe("deployHub()", () => {
           event.slice(0, 3).join(" ") === "az containerapp show",
       ),
     )
+    const health = events.findIndex(
+      (event) => event[0] === "HTTPS" && event[1].endsWith("/api/health"),
+    )
+    const providers = events.findIndex(
+      (event) => event[0] === "HTTPS" && event[1].endsWith("/api/auth/providers"),
+    )
+    assert.ok(health > ready)
+    assert.ok(providers > health)
+    for (const request of httpRequests.filter(({ url }) =>
+      ["/api/health", "/api/auth/providers"].some((path) => url.endsWith(path)),
+    )) {
+      assert.equal(request.init?.method ?? "GET", "GET")
+      assert.equal(request.init?.headers, undefined)
+    }
     assert.ok(release > ready)
     assert.equal(completion.mock.callCount(), 1)
     assert.ok(events.findIndex((event) => event[0] === "complete") > release)
@@ -356,8 +419,13 @@ describe("deployHub()", () => {
     assert.ok(!events.some((event) => event[0] === "HTTPS"))
   })
 
-  it("runs setup before the first Hub app and verifies its already-active revision without activating it again", async () => {
-    const { args, events } = installationScenario({ appCreated: false, httpStatuses: [503, 200] })
+  it("completes the first release when provider discovery returns 404", async () => {
+    const { args, events } = installationScenario({
+      appCreated: false,
+      httpStatuses: [503, 200],
+      authenticationStatus: 404,
+      authenticationBody: "synthetic-private-provider-response",
+    })
     mock.method(console, "warn", () => undefined)
 
     await deployHub(args)
@@ -379,19 +447,34 @@ describe("deployHub()", () => {
     assert.equal(inspected.length, 1)
     assert.equal(inspected[0][inspected[0].indexOf("--revision") + 1], "test-hub--latest")
     assert.ok(!events.some((event) => event.includes("activate")))
-    const ready = events.findIndex((event) => event[0] === "HTTPS")
-    const readinessRequests = events.filter((event) => event[0] === "HTTPS")
+    const ready = events.findIndex(
+      (event) => event[0] === "HTTPS" && event[1].endsWith("/api/ready"),
+    )
+    const readinessRequests = events.filter(
+      (event) => event[0] === "HTTPS" && event[1].endsWith("/api/ready"),
+    )
     const release = events.findIndex(
       (event) => event.slice(0, 5).join(" ") === "az storage blob lease release",
     )
     assert.ok(ready > events.indexOf(inspected[0]))
     assert.equal(readinessRequests.length, 2)
-    assert.ok(release > events.indexOf(readinessRequests[1]))
+    assert.ok(
+      release >
+        events.findIndex(
+          (event) => event[0] === "HTTPS" && event[1].endsWith("/api/auth/providers"),
+        ),
+    )
   })
 
   it("activates an inactive latest revision only after successful setup and the full rollout apply", async () => {
     const { args, events } = installationScenario({
-      revisionResponse: { name: "test-hub--latest", properties: { active: false } },
+      revisionResponse: {
+        name: "test-hub--latest",
+        properties: {
+          active: false,
+          template: { containers: [{ image: deploymentImage }] },
+        },
+      },
     })
 
     await deployHub(args)
@@ -545,7 +628,13 @@ describe("deployHub()", () => {
         cause: new Error(privateOutput),
       })
       const { args, events } = installationScenario({
-        revisionResponse: { name: "test-hub--latest", properties: { active: failure.active } },
+        revisionResponse: {
+          name: "test-hub--latest",
+          properties: {
+            active: failure.active,
+            template: { containers: [{ image: deploymentImage }] },
+          },
+        },
         commandFailure: { ...failure, error: childError },
       })
       const output: unknown[][] = []
@@ -720,6 +809,126 @@ describe("deployHub()", () => {
     )
     assert.ok(!events.some((event) => event[0] === "terraform" && event[2] === "apply"))
   })
+
+  it("does not grant bootstrap permission to reuse an existing PostgreSQL password", async () => {
+    const { args, events } = installationScenario({ appCreated: false })
+    args[0] = "bootstrap"
+
+    await deployHub(args)
+
+    const plans = events.filter((event) => event[0] === "terraform" && event[2] === "plan")
+    assert.equal(plans.length, 1)
+    assert.ok(!plans[0].includes("-var=reuse_existing_postgres_admin_password=true"))
+  })
+
+  it("does not grant password reuse permission before ownership verification succeeds", async () => {
+    const { args, events } = installationScenario({
+      commandFailure: {
+        args: ["group", "show"],
+        error: new Error("Synthetic ownership verification failure"),
+      },
+    })
+
+    await assert.rejects(deployHub(args), /Azure command failed/)
+
+    assert.ok(!events.some((event) => event[0] === "terraform" && event[2] === "plan"))
+  })
+
+  for (const {
+    name,
+    scenario,
+  } of [
+    {
+      name: "the released revision uses a different image digest",
+      scenario: {
+        revisionResponse: {
+          name: "test-hub--latest",
+          properties: {
+            active: true,
+            template: {
+              containers: [
+                {
+                  image: `example.azurecr.io/hub@sha256:${"b".repeat(64)}`,
+                },
+              ],
+            },
+          },
+        },
+      },
+    },
+    {
+      name: "provider discovery is not JSON",
+      scenario: { authenticationBody: "not-json" },
+    },
+    {
+      name: "provider discovery exposes an unsupported provider",
+      scenario: { authenticationBody: { providers: ["github", "local"] } },
+    },
+  ]) {
+    it(`retains the lease when ${name}`, async () => {
+      const { args, events } = installationScenario(scenario)
+      const output: unknown[][] = []
+      mock.method(console, "error", (...args: unknown[]) => output.push(args))
+
+      await assert.rejects(deployHub(args))
+
+      assert.ok(!events.some((event) => event.includes("release")))
+      assert.match(JSON.stringify(output), /lease is retained/)
+    })
+  }
+
+  for (const {
+    name,
+    path,
+    status,
+    scenario,
+  } of [
+    {
+      name: "health check",
+      path: "/api/health",
+      status: 503,
+      scenario: {
+        healthStatus: 503,
+        healthBody: "synthetic-private-health-response",
+      },
+    },
+    {
+      name: "provider discovery",
+      path: "/api/auth/providers",
+      status: 502,
+      scenario: {
+        authenticationStatus: 502,
+        authenticationBody: "synthetic-private-provider-response",
+      },
+    },
+    {
+      name: "configured provider discovery",
+      path: "/api/auth/providers",
+      status: 404,
+      scenario: {
+        authenticationConfigured: true,
+        authenticationStatus: 404,
+        authenticationBody: "synthetic-private-provider-response",
+      },
+    },
+  ]) {
+    it(`reports the failed ${name} endpoint and status without its response body`, async () => {
+      const { args, events } = installationScenario(scenario)
+      const output: unknown[][] = []
+      mock.method(console, "error", (...args: unknown[]) => output.push(args))
+
+      await assert.rejects(deployHub(args), (error: unknown) => {
+        assert.ok(error instanceof Error)
+        assert.match(error.message, new RegExp(`${path}.*HTTP ${status}`))
+        assert.doesNotMatch(error.message, /synthetic-private/)
+        return true
+      })
+
+      assert.ok(!events.some((event) => event.includes("release")))
+      assert.match(JSON.stringify(output), /lease is retained/)
+      assert.doesNotMatch(JSON.stringify(output), /synthetic-private/)
+    })
+  }
 
   it("rejects the removed destroy operation before running commands", async () => {
     const { args, events } = installationScenario()

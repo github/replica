@@ -1,0 +1,33 @@
+model DecisionBuildEvaluation {
+  // ID columns
+  id           String @id @default(uuid()) @db.Uuid
+  repositoryId String @map("repository_id") @db.Uuid
+  buildId      String @map("build_id") @db.Uuid
+  candidateId  String @map("candidate_id") @db.Uuid
+
+  // Relations
+  repository Repository        @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  build      Build             @relation(fields: [buildId], references: [id], onDelete: Cascade)
+  candidate  DecisionCandidate @relation(fields: [candidateId], references: [id], onDelete: Restrict)
+
+  // Attribute columns
+  runtimeEvaluationId String?  @map("runtime_evaluation_id") @db.VarChar(100)
+  promotionGeneration BigInt   @map("promotion_generation")
+  questionDigest      String   @map("question_digest") @db.VarChar(71)
+  screenshotSetDigest String   @map("screenshot_set_digest") @db.VarChar(71)
+  responseDigest      String   @map("response_digest") @db.VarChar(71)
+  summary             Json     @db.JsonB
+  usageQuantity       Decimal? @map("usage_quantity") @db.Decimal(20, 9)
+  usageUnit           String?  @map("usage_unit") @db.VarChar(50)
+  costAmount          Decimal? @map("cost_amount") @db.Decimal(20, 9)
+  costCurrency        String?  @map("cost_currency") @db.VarChar(3)
+  usageRecords        Json     @default("[]") @map("usage_records") @db.JsonB
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([buildId, promotionGeneration, questionDigest, screenshotSetDigest], map: "decision_build_evaluation_identity")
+  @@index([repositoryId, createdAt])
+  @@map("decision_build_evaluations")
+}

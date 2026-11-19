@@ -253,6 +253,41 @@ export interface RepositoryAdministrationDeniedAudit extends SecurityAuditEvent 
   repositoryId: string
 }
 
+export interface DecisionTrainingAudit extends SecurityAuditEvent {
+  type: "decision_training"
+  actorMembershipId: string
+  outcome: "requested" | "cancelled" | "failed" | "succeeded"
+  reason?: string
+  repositoryId: string
+  jobId: string
+}
+
+export interface DecisionPromotionAudit extends SecurityAuditEvent {
+  type: "decision_promotion"
+  actorMembershipId: string
+  operation: "promote" | "rollback"
+  outcome: "succeeded" | "failed"
+  reason?: string
+  repositoryId: string
+  candidateId?: string
+  generation: number
+}
+
+export interface DecisionCandidateRejectionAudit extends SecurityAuditEvent {
+  type: "decision_candidate_rejection"
+  actorMembershipId: string
+  repositoryId: string
+  candidateId: string
+}
+
+export interface DecisionRuntimeDeletionAudit extends SecurityAuditEvent {
+  type: "decision_runtime_deletion"
+  actorMembershipId: string
+  repositoryId: string
+  deletionId: string
+  outcome: "completed" | "failed"
+}
+
 export type CreateSecurityAuditEvent =
   | AuthenticationAttemptDeniedAudit
   | BootstrapAttemptDeniedAudit
@@ -284,4 +319,8 @@ export type CreateSecurityAuditEvent =
   | LearningDecisionAudit
   | LearningRunAudit
   | RepositoryAdministrationDeniedAudit
+  | DecisionTrainingAudit
+  | DecisionPromotionAudit
+  | DecisionCandidateRejectionAudit
+  | DecisionRuntimeDeletionAudit
   | GitHubAppConnectionTestedAudit

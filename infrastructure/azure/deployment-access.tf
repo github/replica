@@ -5,12 +5,16 @@ variable "grant_deployment_storage_access" {
 }
 
 data "azurerm_client_config" "deployment" {
-  count = var.grant_deployment_storage_access ? 1 : 0
+  count = var.grant_deployment_storage_access && var.deployment_storage_principal_id == null ? 1 : 0
 }
 
 resource "azurerm_role_assignment" "deployment_storage" {
   count                = var.grant_deployment_storage_access ? 1 : 0
   scope                = azurerm_storage_account.artifacts.id
   role_definition_name = "Storage Blob Data Contributor"
-  principal_id         = data.azurerm_client_config.deployment[0].object_id
+  principal_id = (
+    var.deployment_storage_principal_id == null
+    ? data.azurerm_client_config.deployment[0].object_id
+    : var.deployment_storage_principal_id
+  )
 }

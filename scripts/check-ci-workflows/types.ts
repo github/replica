@@ -12,6 +12,13 @@ interface Job {
   uses?: string
   needs?: string | string[]
   if?: string
+  env?: Record<string, string>
+  environment?: string
+  permissions?: Record<string, string>
+  concurrency?: {
+    group?: string
+    "cancel-in-progress"?: boolean
+  }
   steps?: Step[]
   strategy?: {
     matrix: Record<string, (string | number)[]>
@@ -23,6 +30,12 @@ export interface Workflow {
   on?: {
     pull_request?: null | Record<string, unknown>
     push?: Record<string, unknown>
+    workflow_dispatch?: null | Record<string, unknown>
+  }
+  permissions?: Record<string, string>
+  concurrency?: {
+    group?: string
+    "cancel-in-progress"?: boolean
   }
   jobs: Record<string, Job>
 }

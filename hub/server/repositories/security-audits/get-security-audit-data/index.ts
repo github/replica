@@ -368,5 +368,61 @@ export function getSecurityAuditData(
           reason: event.reason,
         },
       }
+    case "decision_training":
+      return {
+        id: event.id,
+        action: `decision.training.${event.outcome}`,
+        outcome:
+          event.outcome === "failed" ? SecurityAuditOutcome.FAILURE : SecurityAuditOutcome.SUCCESS,
+        targetType: "decision_training_job",
+        targetId: event.jobId,
+        context: {
+          actorMembershipId: event.actorMembershipId,
+          repositoryId: event.repositoryId,
+          ...(event.reason ? { reason: event.reason } : {}),
+        },
+      }
+    case "decision_promotion":
+      return {
+        id: event.id,
+        action: `decision.${event.operation}.${event.outcome}`,
+        outcome:
+          event.outcome === "failed" ? SecurityAuditOutcome.FAILURE : SecurityAuditOutcome.SUCCESS,
+        targetType: "decision_candidate",
+        targetId: event.candidateId,
+        context: {
+          actorMembershipId: event.actorMembershipId,
+          repositoryId: event.repositoryId,
+          generation: event.generation,
+          ...(event.reason ? { reason: event.reason } : {}),
+        },
+      }
+    case "decision_candidate_rejection":
+      return {
+        id: event.id,
+        action: "decision.candidate.rejected",
+        outcome: SecurityAuditOutcome.SUCCESS,
+        targetType: "decision_candidate",
+        targetId: event.candidateId,
+        context: {
+          actorMembershipId: event.actorMembershipId,
+          repositoryId: event.repositoryId,
+        },
+      }
+    case "decision_runtime_deletion":
+      return {
+        id: event.id,
+        action: `decision.runtime_deletion.${event.outcome}`,
+        outcome:
+          event.outcome === "completed"
+            ? SecurityAuditOutcome.SUCCESS
+            : SecurityAuditOutcome.FAILURE,
+        targetType: "decision_runtime_deletion",
+        targetId: event.deletionId,
+        context: {
+          actorMembershipId: event.actorMembershipId,
+          repositoryId: event.repositoryId,
+        },
+      }
   }
 }

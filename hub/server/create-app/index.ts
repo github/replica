@@ -17,6 +17,7 @@ export function createApp({
   githubWebhooks,
   clientDirectory,
   copilotConnection,
+  decisionModels,
   isReady,
   learnings,
   logger,
@@ -49,7 +50,7 @@ export function createApp({
     authenticationSecurity(),
   )
   app.use(
-    /^(?!\/api\/(?:copilot-connection|notifications)(?:\/|$))(?!\/api\/product\/sharing-settings(?:\/|$))(?!\/api\/repositories\/[^/]+\/(?:learnings|analytics|prototype-management)(?:\/|$))(?!\/api\/(?:auth|canvas|administrators\/authorizations|session-revocation\/authorizations|github\/webhooks)(?:\/|$))(?!\/api\/repositories\/[^/]+\/prototypes\/[^/]+(?:\/review-comments(?:\/|$)|\/share-links(?:\/|$)|\/?$)).*/i,
+    /^(?!\/api\/(?:copilot-connection|notifications)(?:\/|$))(?!\/api\/product\/sharing-settings(?:\/|$))(?!\/api\/repositories\/[^/]+\/(?:learnings|decision-model|analytics|prototype-management)(?:\/|$))(?!\/api\/(?:auth|canvas|administrators\/authorizations|session-revocation\/authorizations|github\/webhooks)(?:\/|$))(?!\/api\/repositories\/[^/]+\/prototypes\/[^/]+(?:\/review-comments(?:\/|$)|\/share-links(?:\/|$)|\/?$)).*/i,
     express.json(),
   )
 
@@ -57,6 +58,7 @@ export function createApp({
     authentication,
     broadcast,
     copilotConnection,
+    decisionModels,
     githubSetup,
     githubWebhooks,
     isReady,

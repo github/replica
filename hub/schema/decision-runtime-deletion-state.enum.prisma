@@ -1,0 +1,5 @@
+enum DecisionRuntimeDeletionState {
+  PENDING
+  COMPLETED
+  FAILED
+}

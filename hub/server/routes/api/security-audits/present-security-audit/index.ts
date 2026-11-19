@@ -95,7 +95,21 @@ function actorFor(record: SecurityAuditListRecord) {
     case "learning.run.failed":
     case "repository.administration.learning_overview.denied":
     case "repository.administration.learning_run.denied":
-    case "repository.administration.learning_decision.denied": {
+    case "repository.administration.learning_decision.denied":
+    case "decision.training.requested":
+    case "decision.training.cancelled":
+    case "decision.training.failed":
+    case "decision.training.succeeded":
+    case "decision.promote.succeeded":
+    case "decision.promote.failed":
+    case "decision.rollback.succeeded":
+    case "decision.rollback.failed":
+    case "decision.candidate.rejected": {
+      const parsed = actorContextSchema.safeParse(record.context)
+      return parsed.success ? { membershipId: parsed.data.actorMembershipId } : null
+    }
+    case "decision.runtime_deletion.completed":
+    case "decision.runtime_deletion.failed": {
       const parsed = actorContextSchema.safeParse(record.context)
       return parsed.success ? { membershipId: parsed.data.actorMembershipId } : null
     }
@@ -167,6 +181,22 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
             source: parsed.data.source,
             targetMembershipId: parsed.data.targetMembershipId,
             ...(targetId ? { targetId } : {}),
+          }
+        : {}
+    }
+    case "decision.runtime_deletion.completed":
+    case "decision.runtime_deletion.failed": {
+      const parsed = z
+        .object({
+          actorMembershipId: z.uuid(),
+          repositoryId: z.uuid(),
+        })
+        .strict()
+        .safeParse(record.context)
+      return parsed.success
+        ? {
+            repositoryId: parsed.data.repositoryId,
+            ...(record.targetId ? { deletionId: record.targetId } : {}),
           }
         : {}
     }
@@ -409,6 +439,63 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
             operation: parsed.data.operation,
             reason: parsed.data.reason,
             repositoryId: targetId,
+          }
+        : {}
+    }
+    case "decision.training.requested":
+    case "decision.training.cancelled":
+    case "decision.training.failed":
+    case "decision.training.succeeded": {
+      const parsed = z
+        .object({
+          actorMembershipId: z.uuid(),
+          repositoryId: z.uuid(),
+          reason: reasonSchema.optional(),
+        })
+        .strict()
+        .safeParse(record.context)
+      return parsed.success
+        ? {
+            repositoryId: parsed.data.repositoryId,
+            ...(record.targetId ? { jobId: record.targetId } : {}),
+            ...(parsed.data.reason ? { reason: parsed.data.reason } : {}),
+          }
+        : {}
+    }
+    case "decision.promote.succeeded":
+    case "decision.promote.failed":
+    case "decision.rollback.succeeded":
+    case "decision.rollback.failed": {
+      const parsed = z
+        .object({
+          actorMembershipId: z.uuid(),
+          repositoryId: z.uuid(),
+          generation: z.number().int().positive(),
+          reason: reasonSchema.optional(),
+        })
+        .strict()
+        .safeParse(record.context)
+      return parsed.success
+        ? {
+            repositoryId: parsed.data.repositoryId,
+            generation: parsed.data.generation,
+            ...(record.targetId ? { candidateId: record.targetId } : {}),
+            ...(parsed.data.reason ? { reason: parsed.data.reason } : {}),
+          }
+        : {}
+    }
+    case "decision.candidate.rejected": {
+      const parsed = z
+        .object({
+          actorMembershipId: z.uuid(),
+          repositoryId: z.uuid(),
+        })
+        .strict()
+        .safeParse(record.context)
+      return parsed.success
+        ? {
+            repositoryId: parsed.data.repositoryId,
+            ...(record.targetId ? { candidateId: record.targetId } : {}),
           }
         : {}
     }

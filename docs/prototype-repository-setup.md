@@ -69,7 +69,7 @@ This milestone checks the existing starter page without building product UI. Rep
 | Product or design-system setup | Run the new repository's `/setup-skills` with the supplied sources. Reuse prior answers. Follow its source intake, installation approval, draft review, and separate activation steps. |
 | Reference-based starting UI | Complete the applicable guidance setup, then use the local `create-prototype` skill to build the requested shell or page. Establish whether components come from an installable package, permitted source reuse, or newly authored components. Verify the rendered result against the authorized reference. |
 | Shared team baseline | Complete the applicable guidance setup, [prepare useful starting pages](prototype-environment.md#3-prepare-useful-starting-pages), and review them together. Then [share the baseline on GitHub](#share-the-baseline-on-github). |
-| Hosted publishing and comments | Explain that the new Hub cannot publish prototypes or accept comments yet, and has no deployment workflow. Do not infer setup steps from old releases. Local previews and a shared repository remain available. |
+| Hosted publishing and comments | Explain that the new Hub cannot publish prototypes or accept comments yet. Its protected Azure installation workflow does not add these product features. Do not infer setup steps from old releases. Local previews and a shared repository remain available. |
 
 Guidance drafts are not active guidance. Installed tokens or packages are not proof that reference components are usable or that a shell resembles the reference. Keep those outcomes distinct.
 

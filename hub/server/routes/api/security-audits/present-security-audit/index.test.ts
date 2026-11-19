@@ -452,6 +452,90 @@ describe("presentSecurityAudit()", () => {
         outcome: "success",
       }),
     },
+    {
+      label: "decision training failure",
+      event: {
+        actorMembershipId,
+        id: auditId,
+        jobId: sessionId,
+        outcome: "failed",
+        reason: "runtime_unavailable",
+        repositoryId: providerId,
+        type: "decision_training",
+      },
+      expected: expectedRecord({
+        action: "decision.training.failed",
+        actor: { membershipId: actorMembershipId },
+        context: {
+          repositoryId: providerId,
+          jobId: sessionId,
+          reason: "runtime_unavailable",
+        },
+        outcome: "failure",
+      }),
+    },
+    {
+      label: "decision promotion",
+      event: {
+        actorMembershipId,
+        candidateId: sessionId,
+        generation: 3,
+        id: auditId,
+        operation: "promote",
+        outcome: "succeeded",
+        repositoryId: providerId,
+        type: "decision_promotion",
+      },
+      expected: expectedRecord({
+        action: "decision.promote.succeeded",
+        actor: { membershipId: actorMembershipId },
+        context: {
+          repositoryId: providerId,
+          candidateId: sessionId,
+          generation: 3,
+        },
+        outcome: "success",
+      }),
+    },
+    {
+      label: "decision candidate rejection",
+      event: {
+        actorMembershipId,
+        candidateId: sessionId,
+        id: auditId,
+        repositoryId: providerId,
+        type: "decision_candidate_rejection",
+      },
+      expected: expectedRecord({
+        action: "decision.candidate.rejected",
+        actor: { membershipId: actorMembershipId },
+        context: {
+          repositoryId: providerId,
+          candidateId: sessionId,
+        },
+        outcome: "success",
+      }),
+    },
+    {
+      label: "decision runtime deletion completion",
+      event: {
+        actorMembershipId,
+        deletionId: sessionId,
+        id: auditId,
+        outcome: "completed",
+        repositoryId: providerId,
+        type: "decision_runtime_deletion",
+      },
+      expected: expectedRecord({
+        action: "decision.runtime_deletion.completed",
+        actor: { membershipId: actorMembershipId },
+        context: {
+          repositoryId: providerId,
+          deletionId: sessionId,
+        },
+        outcome: "success",
+      }),
+    },
     ...(["learning_overview", "learning_run", "learning_decision"] as const).map((operation) => ({
       label: `repository administration ${operation} denial`,
       event: {

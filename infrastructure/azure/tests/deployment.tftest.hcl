@@ -170,6 +170,35 @@ run "deployment_blob_access_is_an_explicit_account_scoped_grant" {
   }
 }
 
+run "deployment_blob_access_uses_the_explicit_account_principal" {
+  command = plan
+
+  variables {
+    grant_deployment_storage_access = true
+    deployment_storage_principal_id = "00000000-0000-0000-0000-000000000006"
+  }
+
+  assert {
+    condition = (
+      length(data.azurerm_client_config.deployment) == 0 &&
+      length(azurerm_role_assignment.deployment_storage) == 1 &&
+      azurerm_role_assignment.deployment_storage[0].scope == azurerm_storage_account.artifacts.id &&
+      azurerm_role_assignment.deployment_storage[0].principal_id == "00000000-0000-0000-0000-000000000006"
+    )
+    error_message = "An explicit deployment principal must receive the one account-scoped grant without reading the current principal."
+  }
+}
+
+run "invalid_deployment_storage_principal_is_rejected" {
+  command = plan
+
+  variables {
+    deployment_storage_principal_id = "not-an-object-id"
+  }
+
+  expect_failures = [var.deployment_storage_principal_id]
+}
+
 run "durable_state_requires_private_authenticated_access" {
   command = plan
 
@@ -625,6 +654,16 @@ run "hostname_without_certificate_is_rejected" {
   expect_failures = [var.certificate_id]
 }
 
+run "bootstrap_requires_a_postgres_administrator_password" {
+  command = plan
+
+  variables {
+    postgres_admin_password = null
+  }
+
+  expect_failures = [azurerm_postgresql_flexible_server.database]
+}
+
 run "azure_assigned_resource_state" {
   command   = apply
   state_key = "azure-assigned"
@@ -645,6 +684,25 @@ run "azure_assigned_resource_state" {
       azurerm_postgresql_flexible_server.database.zone == "2"
     )
     error_message = "The mock apply must retain Azure-assigned properties before testing a rerun."
+  }
+}
+
+run "release_reuses_the_existing_postgres_administrator_password" {
+  command   = plan
+  state_key = "azure-assigned"
+
+  providers = {
+    azurerm = azurerm.rerun
+  }
+
+  variables {
+    postgres_admin_password                = null
+    reuse_existing_postgres_admin_password = true
+  }
+
+  assert {
+    condition     = azurerm_postgresql_flexible_server.database.administrator_password == "NotARealPassword-12345"
+    error_message = "A release without the password must retain the administrator password already stored in state."
   }
 }
 
