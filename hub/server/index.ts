@@ -173,12 +173,14 @@ try {
                 ? undefined
                 : {
                     hostedReady: Boolean(
-                      preview && authentication?.github && product?.getRepositoryPermission,
+                      preview &&
+                      authentication?.github &&
+                      typeof product?.getRepositoryPermission === "function",
                     ),
                   },
             )
             if (preview && publicSharing) {
-              preview.readAvailableShareLink = publicSharing.readAvailableLink
+              preview.readAvailableShareLink = publicSharing.readAvailableLink.bind(publicSharing)
             }
           }
           // Local sign-in refuses GitHub settings, so GitHub setup would be a dead end there.

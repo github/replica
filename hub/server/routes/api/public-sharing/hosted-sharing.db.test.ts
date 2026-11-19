@@ -106,17 +106,19 @@ async function startHub(
   getRepositoryPermission: Permission,
 ) {
   const preview = createBuildPreviewRouteDependencies(environment, {
-    isReady: async () => true,
-    read: async (key) =>
-      key.endsWith("/dist")
-        ? { status: "ok", bytes: Buffer.from("<main>Saved Build</main>") }
-        : key.endsWith("/screenshot")
-          ? { status: "ok", bytes: Buffer.from("screenshot") }
-          : { status: "not-found" },
-    write: async () => ({ status: "unavailable" }),
-    delete: async () => ({ status: "unavailable" }),
+    isReady: () => Promise.resolve(true),
+    read: (key) =>
+      Promise.resolve(
+        key.endsWith("/dist")
+          ? { status: "ok", bytes: Buffer.from("<main>Saved Build</main>") }
+          : key.endsWith("/screenshot")
+            ? { status: "ok", bytes: Buffer.from("screenshot") }
+            : { status: "not-found" },
+      ),
+    write: () => Promise.resolve({ status: "unavailable" }),
+    delete: () => Promise.resolve({ status: "unavailable" }),
   })
-  preview.readAvailableShareLink = sharing.readAvailableLink
+  preview.readAvailableShareLink = sharing.readAvailableLink.bind(sharing)
   const sessions = new Map(
     Object.entries(viewers).map(([name, viewer]) => [hashAuthenticationValue(name), viewer]),
   )
@@ -131,7 +133,7 @@ async function startHub(
     createApp({
       logger: pino({ enabled: false }),
       authentication: {
-        currentSession: { restore: async (digest) => sessions.get(digest) ?? null },
+        currentSession: { restore: (digest) => Promise.resolve(sessions.get(digest) ?? null) },
         signOut: { applicationOrigin: preview.applicationOrigin, secureCookie: true, end: vi.fn() },
       },
       preview,
@@ -226,18 +228,20 @@ describe("hosted public sharing", () => {
   it("binds browser management to repository admin or a successful immutable author on that prototype", async () => {
     const target = await createTarget(100, "51")
     const other = await createTarget(200, "99")
-    await createBuild(target.prototype.id, 2, "99")
+    const selectedBuild = await createBuild(target.prototype.id, 2, "99")
     await createBuild(other.prototype.id, 2, "51", false)
     const author = await createActor("51")
     const hubAdmin = await createActor("52", "ADMINISTRATOR")
     const repoAdmin = await createActor("53")
     const entra = { ...author, sessionProvider: "entra", role: "ADMINISTRATOR" as const }
-    const lookup = vi.fn<Permission>(async (viewer) =>
-      viewer.externalIdentityId === repoAdmin.externalIdentityId
-        ? "admin"
-        : viewer.externalIdentityId === hubAdmin.externalIdentityId
-          ? "write"
-          : "read",
+    const lookup = vi.fn<Permission>((viewer) =>
+      Promise.resolve(
+        viewer.externalIdentityId === repoAdmin.externalIdentityId
+          ? "admin"
+          : viewer.externalIdentityId === hubAdmin.externalIdentityId
+            ? "write"
+            : "read",
+      ),
     )
     const sharing = await createPublicSharingService(prisma, enabledEnvironment, { mode: "hosted" })
     const hub = await startHub(sharing, { author, hubAdmin, repoAdmin, entra }, lookup)
@@ -250,7 +254,8 @@ describe("hosted public sharing", () => {
       expect((await hub.request(target.links, "entra", "POST", linkForm)).status).toBe(403)
 
       const publicPath = await createLink(hub, target.links, "author", 2)
-      const shareId = publicPath.split("/").at(-1)
+      const shareId = publicPath.split("/").at(-1)!
+      const saved = await prisma.shareLink.findUniqueOrThrow({ where: { publicId: shareId } })
       await createBuild(target.prototype.id, 3, "99")
       const metadata = await hub.request(publicPath)
       expect(await metadata.json()).toEqual({
@@ -259,9 +264,9 @@ describe("hosted public sharing", () => {
         label: linkForm.label,
         buildNumber: 2,
         previewUrl: `${environment.HUB_APPLICATION_ORIGIN}${publicPath}/preview`,
-        expiresAt: expect.any(String),
+        expiresAt: saved.expiresAt.toISOString(),
         controlsIdentity: `share:${shareId}`,
-        controlsOrigin: expect.any(String),
+        controlsOrigin: `https://${selectedBuild.id}.preview.example.net`,
       })
       expect((await hub.request(target.links, "hubAdmin")).status).toBe(403)
       expect((await hub.request(`${target.links}/${shareId}`, "hubAdmin", "DELETE")).status).toBe(
@@ -283,8 +288,10 @@ describe("hosted public sharing", () => {
     const other = await createTarget(200, "51")
     const author = await createActor("51")
     const repoAdmin = await createActor("52")
-    const lookup = vi.fn<Permission>(async (viewer) =>
-      viewer.externalIdentityId === repoAdmin.externalIdentityId ? "admin" : "read",
+    const lookup = vi.fn<Permission>((viewer) =>
+      Promise.resolve(
+        viewer.externalIdentityId === repoAdmin.externalIdentityId ? "admin" : "read",
+      ),
     )
     const sharing = await createPublicSharingService(prisma, enabledEnvironment, { mode: "hosted" })
     const hub = await startHub(sharing, { author, repoAdmin }, lookup)
@@ -338,10 +345,9 @@ describe("hosted public sharing", () => {
       expect(authorized.status).toBe(303)
       expect(authorized.cookie).toMatch(/^replica_share_preview=/)
       const previewUrl = new URL("/", handoff)
-      expect(await hub.preview(previewUrl, authorized.cookie)).toMatchObject({
-        status: 200,
-        text: expect.stringContaining("Saved Build"),
-      })
+      const saved = await hub.preview(previewUrl, authorized.cookie)
+      expect(saved.status).toBe(200)
+      expect(saved.text).toContain("Saved Build")
       const screenshot = new URL("/__replica/screenshots/desktop.png", handoff)
       expect((await hub.preview(screenshot, authorized.cookie)).status).toBe(404)
 
@@ -393,13 +399,14 @@ describe("hosted public sharing", () => {
       expect((await hub.request(path)).status).toBe(404)
       await syncGitHubInstallationRepositories(
         prisma,
-        async () => [
-          {
-            githubRepositoryId: 100,
-            defaultBranch: "main",
-            nameWithOwner: "private/repository",
-          },
-        ],
+        () =>
+          Promise.resolve([
+            {
+              githubRepositoryId: 100,
+              defaultBranch: "main",
+              nameWithOwner: "private/repository",
+            },
+          ]),
         provider,
       )
       expect((await hub.request(await createLink(hub, target.links, "author"))).status).toBe(200)

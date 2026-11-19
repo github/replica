@@ -12,8 +12,8 @@ it("uses the per-prototype sharing decision rather than repository or edit acces
       { ...repository, capabilities: { manageSharing: false, reviewPrototypes: true } },
     ],
   }
-  const data = (id: string, canManageShareLinks: boolean) =>
-    prototypeResponseSchema.parse({
+  function data(id: string, canManageShareLinks: boolean) {
+    return prototypeResponseSchema.parse({
       repository,
       prototype: {
         id,
@@ -28,6 +28,7 @@ it("uses the per-prototype sharing decision rather than repository or edit acces
       },
       selectedBuild: null,
     })
+  }
   expect(
     prototypeShowData(workspace, data("1", true), new URLSearchParams(), { real: true })
       .shareLinksPath,
