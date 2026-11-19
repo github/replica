@@ -74,6 +74,42 @@ const withdrawalsSchema = z.array(
     })
     .loose(),
 )
+const questionText = z.string().min(1).max(10_000)
+const decisionQuestionSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("noul"),
+      instructions: z.string().min(1).max(1_000),
+      learning_text: questionText,
+      criteria: z
+        .object({ true: z.string().min(1).max(1_000), false: z.string().min(1).max(1_000) })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("choice"),
+      instructions: z.string().min(1).max(1_000),
+      criteria: z
+        .record(z.string().min(1).max(64), z.string().min(1).max(200))
+        .refine((value) => Object.keys(value).length <= 65),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("score"),
+      instructions: z.string().min(1).max(1_000),
+      criteria: z.array(z.string().min(1).max(200)).min(1).max(16),
+    })
+    .strict(),
+])
+const decisionQuestionsSchema = z
+  .object({
+    questions: z
+      .record(z.string().min(1).max(64), decisionQuestionSchema)
+      .refine((value) => Object.keys(value).length <= 66),
+  })
+  .loose()
 const exportManifestSchema = z
   .object({
     id: z.string(),
@@ -755,18 +791,11 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
             const matchingJobs = repository.decisionTrainingJobs.filter(
               (candidate) => candidate.consentGrantId === withdrawal.grantId,
             )
-            const matchingActorJob = repository.decisionTrainingJobs.find(
-              (candidate) => candidate.requestedByMembership?.user.profile?.login === login,
-            )
             const matchingActorGrant = repository.accessGrants.find(
               (grant) => grant.membership.user.profile?.login === login,
             )
-            const actorJob = matchingJobs[0] ?? repository.decisionTrainingJobs[0]
             const actorMembershipId =
-              matchingActorJob?.requestedByMembershipId ??
-              matchingActorGrant?.membershipId ??
-              actorJob?.requestedByMembershipId ??
-              repository.accessGrants[0]?.membershipId
+              matchingActorGrant?.membershipId ?? repository.accessGrants[0]?.membershipId
             if (!actorMembershipId) continue
             if (!matchingJobs.length) {
               pending.push({
@@ -776,7 +805,6 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
                 selectors: { grantId: withdrawal.grantId },
                 reason: withdrawal.reason ?? "Training consent was withdrawn.",
                 idempotencyKey: `withdrawal:${withdrawal.id}:grant`,
-                authorizationAlreadyEstablished: true,
               })
               continue
             }
@@ -793,7 +821,6 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
                 },
                 reason: withdrawal.reason ?? "Training consent was withdrawn.",
                 idempotencyKey: `withdrawal:${withdrawal.id}:${job.tasksetDigest}`,
-                authorizationAlreadyEstablished: true,
               })
             }
           }
@@ -1156,16 +1183,27 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
         )
       }
       const store = await learningStore(repositoryId)
-      const questions = (await command([
-        "decision",
-        "questions",
-        "--by",
-        `human:${actorMembershipId}`,
-        "--dir",
-        store.directory,
-        "--repository",
-        store.repositoryScope,
-      ])) as { questions: Record<string, unknown> }
+      const questionResult = decisionQuestionsSchema.safeParse(
+        await command([
+          "decision",
+          "questions",
+          "--by",
+          `human:${actorMembershipId}`,
+          "--dir",
+          store.directory,
+          "--repository",
+          store.repositoryScope,
+        ]),
+      )
+      if (!questionResult.success) {
+        throw new DecisionModelError(
+          422,
+          "invalid_questions_payload",
+          "The learning store returned an invalid decision question set.",
+          { cause: questionResult.error },
+        )
+      }
+      const questions = questionResult.data.questions
       const build = buildSet.builds.builds[0]!
       const route = build.screenshots.some((screenshot) => screenshot.route === "/")
         ? "/"
@@ -1183,10 +1221,10 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
             .join(" "),
         },
         images: orderedFiles.map((file) => `data:${file.mediaType};base64,${file.bytes}`),
-        questions: questions.questions,
+        questions,
         route,
         views: screenshots.map(({ size, theme }) => ({ viewport: size, theme })),
-        questionDigest: digestJson(questions.questions),
+        questionDigest: digestJson(questions),
         screenshotSetDigest: digestJson({
           build: { ...build, screenshots },
           files: orderedFiles.map(({ path, digest, mediaType }) => ({

@@ -27,7 +27,6 @@ export interface DecisionTasksetPreparationSource {
       }
       reason: string
       idempotencyKey: string
-      authorizationAlreadyEstablished?: boolean
     }[]
   >
   exportTrainingEvidence(input: { repositoryId: string; actorMembershipId: string }): Promise<{

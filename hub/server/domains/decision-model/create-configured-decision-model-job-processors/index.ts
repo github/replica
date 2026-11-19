@@ -10,6 +10,7 @@ import { recoverDecisionTrainingJobs } from "../jobs/recover-decision-training.t
 import { reconcileRuntimeDeletionsJob } from "../jobs/reconcile-runtime-deletions.ts"
 import { readDecisionRuntimeConfiguration } from "../read-decision-runtime-configuration/index.ts"
 import { createDecisionRuntimeClient } from "../../../integrations/decision-runtime/create-decision-runtime-client/index.ts"
+import { lockRepositoryAdministratorAuthority } from "../../../repositories/repository-access/lock-repository-administrator-authority/index.ts"
 import { createDecisionModelJobProcessors } from "../create-decision-model-job-processors/index.ts"
 
 export function createConfiguredDecisionModelJobProcessors(
@@ -50,10 +51,12 @@ export function createConfiguredDecisionModelJobProcessors(
       logger,
       dependencies: {
         authorization: {
-          requireRepositoryAdministrator: () =>
-            Promise.reject(
-              new Error("Background decision work requires pre-established repository authority."),
-            ),
+          requireRepositoryAdministrator: async (input) => {
+            const authorized = await prisma.$transaction((transaction) =>
+              lockRepositoryAdministratorAuthority(transaction, input),
+            )
+            if (!authorized) throw new Error("Repository administrator access is required.")
+          },
         },
         now: () => new Date(),
         prepareTaskset: (input) =>

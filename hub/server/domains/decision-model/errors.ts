@@ -11,6 +11,7 @@ export type DecisionModelErrorCode =
   | "deletion_revoked"
   | "consent_required"
   | "job_not_found"
+  | "invalid_questions_payload"
   | "invalid_request"
   | "promotion_stale"
   | "repository_not_found"

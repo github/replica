@@ -151,7 +151,12 @@ describe("createHubDecisionTasksetSource()", () => {
             },
           },
         ],
-        accessGrants: [],
+        accessGrants: [
+          {
+            membershipId: "99999999-9999-4999-8999-999999999999",
+            membership: { user: { profile: { login: "active-admin" } } },
+          },
+        ],
       },
     ] as never)
     vi.mocked(prepareLearningStore)
@@ -213,12 +218,11 @@ describe("createHubDecisionTasksetSource()", () => {
     await expect(source(storage({})).listTrainingWithdrawals()).resolves.toEqual([
       {
         repositoryId,
-        actorMembershipId: "44444444-4444-4444-8444-444444444444",
+        actorMembershipId: "99999999-9999-4999-8999-999999999999",
         actorLogin: "mona",
         selectors: { grantId: "grant-secondary" },
         reason: "The repository administrator withdrew training consent.",
         idempotencyKey: "withdrawal:withdrawal-1:grant",
-        authorizationAlreadyEstablished: true,
       },
     ])
   })
@@ -738,7 +742,9 @@ describe("createHubDecisionTasksetSource()", () => {
       questions: {
         [learningId]: {
           type: "noul",
+          instructions: "Does the candidate follow this learning?",
           learning_text: "Use the approved account heading.",
+          criteria: { true: "It follows.", false: "It breaks." },
         },
       },
       rules: [{ id: learningId, text: "Use the approved account heading." }],
