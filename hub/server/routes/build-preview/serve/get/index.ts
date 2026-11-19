@@ -118,6 +118,7 @@ export function get(
         {
           acceptsHtml: Boolean(request.accepts("html")),
           buildId,
+          distOnly: publicLink?.hosted,
           requestPath: request.path,
         },
         dependencies,

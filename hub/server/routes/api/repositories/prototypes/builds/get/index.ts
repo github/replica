@@ -7,6 +7,8 @@ import type { CurrentSessionDependencies } from "../../../../auth/types.ts"
 import { readProductSession } from "../../../../product/read-product-session/index.ts"
 import { readProductWithCurrentAuthority } from "../../../../product/read-product-with-current-authority/index.ts"
 import type { ProductRouteDependencies } from "../../../../product/types.ts"
+import { readHostedSharingCapability } from "../../../../public-sharing/read-hosted-sharing-capability/index.ts"
+import type { PublicSharingRouteDependencies } from "../../../../public-sharing/types.ts"
 
 const pageSize = 25
 const querySchema = z
@@ -27,12 +29,13 @@ const querySchema = z
 export function get(
   session: CurrentSessionDependencies,
   product: ProductRouteDependencies,
+  hosted?: PublicSharingRouteDependencies["hosted"],
 ): RequestHandler {
   return async (request, response, next) => {
     try {
       const cookie = readCookie(request, hubSessionCookieName)
       const initial = await readProductSession(cookie, session)
-      if (!initial) {
+      if (!cookie || !initial) {
         response.status(401).json({ error: "Sign in to continue." })
         return
       }
@@ -48,6 +51,15 @@ export function get(
         response.status(400).json({ error: "The Build history request is invalid." })
         return
       }
+      const sharing = await readHostedSharingCapability({
+        cookie,
+        initial,
+        session,
+        product,
+        hosted,
+        repositoryId: repositoryId.data,
+        prototypeId: prototypeId.data,
+      })
 
       const page = Number(query.data.page ?? "1")
       const read = await readProductWithCurrentAuthority(initial, cookie, session, (viewer) =>
@@ -75,7 +87,7 @@ export function get(
       }
       response.json({
         repository: detail.repository,
-        prototype: { ...detail.prototype, canEdit: true },
+        prototype: { ...detail.prototype, canEdit: true, ...sharing },
         builds,
         pagination: { page, pageSize, totalCount, pageCount },
       })

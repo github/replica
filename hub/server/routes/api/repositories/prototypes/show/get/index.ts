@@ -11,6 +11,8 @@ import { readProductSession } from "../../../../product/read-product-session/ind
 import { readProductWithCurrentAuthority } from "../../../../product/read-product-with-current-authority/index.ts"
 import { canHandOffToCopilot } from "../../../../product/template-repository-access/index.ts"
 import type { WorkspaceProductRouteDependencies } from "../../../../product/types.ts"
+import { readHostedSharingCapability } from "../../../../public-sharing/read-hosted-sharing-capability/index.ts"
+import type { PublicSharingRouteDependencies } from "../../../../public-sharing/types.ts"
 
 const querySchema = z
   .object({
@@ -25,6 +27,7 @@ const querySchema = z
 export function get(
   session: CurrentSessionDependencies,
   product: WorkspaceProductRouteDependencies,
+  hosted?: PublicSharingRouteDependencies["hosted"],
 ): RequestHandler {
   return async (request, response, next) => {
     try {
@@ -56,6 +59,15 @@ export function get(
         response.status(404).json({ error: "Successful Build not found." })
         return
       }
+      const sharing = await readHostedSharingCapability({
+        cookie,
+        initial,
+        session,
+        product,
+        hosted,
+        repositoryId: repositoryId.data,
+        prototypeId: prototypeId.data,
+      })
 
       const eligibility =
         product.getRepositoryPermission && initial.sessionProvider === "github"
@@ -87,7 +99,7 @@ export function get(
           (detail, showPrototypeInfo) =>
             JSON.stringify({
               ...detail,
-              prototype: { ...detail.prototype, canEdit: true },
+              prototype: { ...detail.prototype, canEdit: true, ...sharing },
               showPrototypeInfo,
               ...branch,
             }),
@@ -114,7 +126,7 @@ export function get(
 
       response.json({
         ...detail,
-        prototype: { ...detail.prototype, canEdit: true },
+        prototype: { ...detail.prototype, canEdit: true, ...sharing },
         showPrototypeInfo: false,
         ...branch,
       })

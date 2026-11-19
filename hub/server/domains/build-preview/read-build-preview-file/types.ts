@@ -3,6 +3,7 @@ import type { ArtifactStorage } from "../../artifacts/create-artifact-storage/ty
 export interface ReadBuildPreviewFileInput {
   acceptsHtml: boolean
   buildId: string
+  distOnly?: boolean
   requestPath: string
 }
 

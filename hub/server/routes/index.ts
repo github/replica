@@ -171,11 +171,11 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
       }
       app.get(
         "/api/repositories/:repositoryId/prototypes/:prototypeId",
-        handlePrototypeGet(authentication.currentSession, product),
+        handlePrototypeGet(authentication.currentSession, product, publicSharing?.hosted),
       )
       app.get(
         "/api/repositories/:repositoryId/prototypes/:prototypeId/builds",
-        handleBuildHistoryGet(authentication.currentSession, product),
+        handleBuildHistoryGet(authentication.currentSession, product, publicSharing?.hosted),
       )
       if (preview) {
         app.get(
@@ -238,16 +238,18 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
         )
       }
       if (publicSharing) {
-        app.get(
-          "/api/product/sharing-settings",
-          handleSharingSettingsGet(authentication.currentSession, publicSharing),
-        )
-        app.patch(
-          "/api/product/sharing-settings",
-          requireOrigin(authentication.signOut.applicationOrigin),
-          express.json({ limit: "4kb", strict: true }),
-          handleSharingSettingsPatch(authentication.currentSession, publicSharing),
-        )
+        if (!publicSharing.hosted) {
+          app.get(
+            "/api/product/sharing-settings",
+            handleSharingSettingsGet(authentication.currentSession, publicSharing),
+          )
+          app.patch(
+            "/api/product/sharing-settings",
+            requireOrigin(authentication.signOut.applicationOrigin),
+            express.json({ limit: "4kb", strict: true }),
+            handleSharingSettingsPatch(authentication.currentSession, publicSharing),
+          )
+        }
         app.get(
           "/api/repositories/:repositoryId/prototypes/:prototypeId/share-links",
           handleShareLinksGet(authentication.currentSession, product, publicSharing),
@@ -256,12 +258,12 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
           "/api/repositories/:repositoryId/prototypes/:prototypeId/share-links",
           requireOrigin(authentication.signOut.applicationOrigin),
           express.json({ limit: "4kb", strict: true }),
-          handleShareLinksPost(authentication.currentSession, publicSharing),
+          handleShareLinksPost(authentication.currentSession, publicSharing, product),
         )
         app.delete(
           "/api/repositories/:repositoryId/prototypes/:prototypeId/share-links/:shareId",
           requireOrigin(authentication.signOut.applicationOrigin),
-          handleShareLinksDelete(authentication.currentSession, publicSharing),
+          handleShareLinksDelete(authentication.currentSession, publicSharing, product),
         )
       }
     }

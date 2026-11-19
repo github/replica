@@ -31,7 +31,7 @@ export function prototypeShowData(
   return {
     ...workspaceData,
     shareLinksPath:
-      options.real && !repositoryCapabilities?.manageSharing
+      options.real && !(data.prototype.canManageShareLinks ?? repositoryCapabilities?.manageSharing)
         ? undefined
         : workspaceData.shareLinksPath,
     buildPinned: search.has("build"),

@@ -44,6 +44,7 @@ export interface ProductViewer {
 }
 
 export interface ProductRouteDependencies {
+  /** Fresh, installation-bound permission for the viewer's immutable GitHub identity. */
   getRepositoryPermission?(
     viewer: ProductViewer,
     repositoryId: string,

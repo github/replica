@@ -13,8 +13,16 @@ import { revokeAllShareLinks } from "../../../repositories/public-sharing/revoke
 import { revokeShareLink } from "../../../repositories/public-sharing/revoke-share-link/index.ts"
 import { updateShareLinkExpirations } from "../../../repositories/public-sharing/update-share-link-expirations/index.ts"
 import { updateSharingSetting } from "../../../repositories/public-sharing/update-sharing-setting/index.ts"
+import {
+  hostedPublicSharingSettingKey,
+  publicSharingSettingKey,
+} from "../../../utils/public-sharing-setting-key/index.ts"
+import { authorizeHostedSharing } from "../authorize-hosted-sharing/index.ts"
+import { configureHostedSharingPolicy } from "../configure-hosted-sharing-policy/index.ts"
 import { PublicSharingError } from "../errors.ts"
+import { lockHostedSharingApproval } from "../lock-hosted-sharing-approval/index.ts"
 import { parseShareLinkMaximumDays } from "../parse-share-link-maximum-days/index.ts"
+import { readHostedPublicSharingEnabled } from "../read-hosted-public-sharing-enabled/index.ts"
 import type { PublicSharingService, ShareLinkExpiration } from "../types.ts"
 
 const durationDays: Record<ShareLinkExpiration, 1 | 7 | 30> = {
@@ -27,6 +35,7 @@ function isAvailableLink(
   link: Awaited<ReturnType<typeof findShareLink>>,
   setting: Awaited<ReturnType<typeof getSharingSetting>>,
   now: Date,
+  hosted: boolean,
 ) {
   const prototype = link?.build.prototype
   return Boolean(
@@ -40,7 +49,12 @@ function isAvailableLink(
     !prototype.replica &&
     !prototype.branchDeletedAt &&
     !prototype.repository.removedAt &&
-    prototype.repository.localPath &&
+    (hosted
+      ? link.createdByExternalIdentityId &&
+        prototype.repository.githubRepositoryId !== null &&
+        prototype.repository.localPath === null &&
+        link.build.artifacts.some(({ kind }) => kind === "dist")
+      : !link.createdByExternalIdentityId && prototype.repository.localPath) &&
     prototype.branchName !== prototype.repository.defaultBranch &&
     prototype.branchName !== "replica/install-workflow",
   )
@@ -49,14 +63,23 @@ function isAvailableLink(
 export async function createPublicSharingService(
   database: PrismaClient,
   environment: NodeJS.ProcessEnv,
+  { mode = "local" }: { mode?: "local" | "hosted" } = {},
 ): Promise<PublicSharingService> {
   const applicationOrigin = new URL(environment.HUB_APPLICATION_ORIGIN ?? "")
   const previewBaseOrigin = new URL(environment.HUB_PREVIEW_ORIGIN ?? "")
   const maximumDays = parseShareLinkMaximumDays(environment.HUB_SHARE_LINK_MAX_DAYS)
-  const setting = await initializeSharingSetting(database)
+  const hosted = mode === "hosted"
+  const allowedByDeployment =
+    !hosted || readHostedPublicSharingEnabled(environment.HUB_HOSTED_PUBLIC_SHARING_ENABLED)
+  const key = hosted ? hostedPublicSharingSettingKey : publicSharingSettingKey
+  const setting = await initializeSharingSetting(database, key)
+  if (hosted) await configureHostedSharingPolicy(database, allowedByDeployment)
+  const isolationLevel = hosted
+    ? Prisma.TransactionIsolationLevel.ReadCommitted
+    : Prisma.TransactionIsolationLevel.Serializable
 
   const maximumMilliseconds = maximumDays * 24 * 60 * 60_000
-  const links = await listShareLinkExpirations(database)
+  const links = await listShareLinkExpirations(database, hosted)
   const shortened = links
     .map((link) => ({
       id: link.id,
@@ -72,15 +95,25 @@ export async function createPublicSharingService(
     applicationOrigin: applicationOrigin.origin,
     previewBaseOrigin: previewBaseOrigin.origin,
     maximumDays,
+    ...(hosted
+      ? {
+          hosted: {
+            authorize: (input) => authorizeHostedSharing(database, allowedByDeployment, input),
+          },
+        }
+      : {}),
     async getSettings() {
-      const current = (await getSharingSetting(database)) ?? setting
+      const current = (await getSharingSetting(database, key)) ?? setting
       return {
-        enabled: current.publicSharingEnabled,
+        enabled: allowedByDeployment && current.publicSharingEnabled,
         revision: current.revision,
-        activeLinkCount: await countActiveShareLinks(database, new Date()),
+        activeLinkCount: await countActiveShareLinks(database, new Date(), hosted),
       }
     },
     async changeSettings(operation) {
+      if (hosted) {
+        throw new PublicSharingError("forbidden", "The deployment controls public sharing.")
+      }
       return database.$transaction(
         async (transaction) => {
           const current = await getSharingSetting(transaction)
@@ -98,8 +131,16 @@ export async function createPublicSharingService(
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       )
     },
-    async listLinks(prototypeId) {
-      const records = await listShareLinks(database, prototypeId)
+    async listLinks(prototypeId, approval) {
+      const records = hosted
+        ? await database.$transaction(async (transaction) => {
+            if (!allowedByDeployment) {
+              throw new PublicSharingError("disabled", "Public sharing is disabled.")
+            }
+            await lockHostedSharingApproval(transaction, approval, { prototypeId })
+            return listShareLinks(transaction, prototypeId, true)
+          })
+        : await listShareLinks(database, prototypeId)
       return records.map(({ build, ...link }) => ({ ...link, buildNumber: build.number }))
     },
     async createLink(input) {
@@ -117,23 +158,29 @@ export async function createPublicSharingService(
           "Choose an expiration allowed by this Hub.",
         )
       }
-      const initialSetting = await getSharingSetting(database)
-      if (!initialSetting?.publicSharingEnabled) {
+      const initialSetting = await getSharingSetting(database, key)
+      if (!allowedByDeployment || !initialSetting?.publicSharingEnabled) {
         throw new PublicSharingError("disabled", "Public sharing is disabled.")
       }
-      const initialBuild = await findShareableBuild(database, input)
+      if (hosted && input.approval?.userId !== input.createdById) {
+        throw new PublicSharingError("forbidden", "Current GitHub sharing permission is required.")
+      }
+      const initialBuild = await findShareableBuild(database, input, hosted)
+      const buildError = hosted
+        ? "Choose a successful Build with an available preview."
+        : "Choose a successful local Build with an available preview."
       if (
         !initialBuild ||
         initialBuild.prototype.branchName === initialBuild.prototype.repository.defaultBranch
       ) {
-        throw new PublicSharingError(
-          "unavailable_build",
-          "Choose a successful local Build with an available preview.",
-        )
+        throw new PublicSharingError("unavailable_build", buildError)
       }
       return database.$transaction(
         async (transaction) => {
-          const currentSetting = await getSharingSetting(transaction)
+          const approval = hosted
+            ? await lockHostedSharingApproval(transaction, input.approval, input)
+            : undefined
+          const currentSetting = await getSharingSetting(transaction, key)
           if (!currentSetting?.publicSharingEnabled) {
             throw new PublicSharingError("disabled", "Public sharing is disabled.")
           }
@@ -143,21 +190,19 @@ export async function createPublicSharingService(
               "Public sharing changed while this link was being created.",
             )
           }
-          const build = await findShareableBuild(transaction, input)
+          const build = await findShareableBuild(transaction, input, hosted)
           if (
             !build ||
             build.id !== initialBuild.id ||
             build.prototype.branchName === build.prototype.repository.defaultBranch
           ) {
-            throw new PublicSharingError(
-              "unavailable_build",
-              "Choose a successful local Build with an available preview.",
-            )
+            throw new PublicSharingError("unavailable_build", buildError)
           }
           const createdAt = new Date()
           const link = await createShareLink(transaction, {
             buildId: build.id,
             createdAt,
+            ...(approval ? { createdByExternalIdentityId: approval.identity.id } : {}),
             createdById: input.createdById,
             createdByLogin: input.createdByLogin,
             expiresAt: new Date(createdAt.getTime() + selectedDays * 24 * 60 * 60_000),
@@ -167,17 +212,18 @@ export async function createPublicSharingService(
           })
           return { ...link, buildNumber: input.buildNumber }
         },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        { isolationLevel },
       )
     },
     async revokeLink(input) {
-      const initialSetting = await getSharingSetting(database)
-      if (!initialSetting?.publicSharingEnabled) {
+      const initialSetting = await getSharingSetting(database, key)
+      if (!allowedByDeployment || !initialSetting?.publicSharingEnabled) {
         throw new PublicSharingError("disabled", "Public sharing is disabled.")
       }
       return database.$transaction(
         async (transaction) => {
-          const currentSetting = await getSharingSetting(transaction)
+          if (hosted) await lockHostedSharingApproval(transaction, input.approval, input)
+          const currentSetting = await getSharingSetting(transaction, key)
           if (!currentSetting?.publicSharingEnabled) {
             throw new PublicSharingError("disabled", "Public sharing is disabled.")
           }
@@ -187,21 +233,25 @@ export async function createPublicSharingService(
               "Public sharing changed while this link was being revoked.",
             )
           }
-          return revokeShareLink(transaction, { ...input, revokedAt: new Date() })
+          return revokeShareLink(transaction, { ...input, revokedAt: new Date() }, hosted)
         },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        { isolationLevel },
       )
     },
     async readPublicLink(publicId) {
+      if (!allowedByDeployment) return null
       const [current, link] = await Promise.all([
-        getSharingSetting(database),
+        getSharingSetting(database, key),
         findShareLink(database, { publicId }),
       ])
-      if (!link) return null
+      if (!link || hosted !== (link.createdByExternalIdentityId !== null)) return null
+      const now = new Date()
+      const available = isAvailableLink(link, current, now, hosted)
+      if (hosted && !available) return null
       if (!current?.publicSharingEnabled) return { state: "disabled" }
       if (link.revokedAt) return { state: "revoked" }
-      if (link.expiresAt <= new Date()) return { state: "expired" }
-      if (!isAvailableLink(link, current, new Date())) return { state: "unavailable" }
+      if (link.expiresAt <= now) return { state: "expired" }
+      if (!available) return { state: "unavailable" }
       return {
         state: "active",
         id: link.id,
@@ -209,17 +259,24 @@ export async function createPublicSharingService(
         buildNumber: link.build.number,
         expiresAt: link.expiresAt,
         label: link.label,
-        prototypeName: link.build.prototype.name ?? link.build.prototype.branchName,
+        prototypeName:
+          link.build.prototype.name ??
+          (hosted ? "Shared prototype" : link.build.prototype.branchName),
         startPage: link.build.prototype.startPage ?? "/",
       }
     },
     async readAvailableLink(shareLinkId, buildId) {
+      if (!allowedByDeployment) return null
       const [current, link] = await Promise.all([
-        getSharingSetting(database),
+        getSharingSetting(database, key),
         findShareLink(database, { id: shareLinkId }),
       ])
-      return link?.buildId === buildId && isAvailableLink(link, current, new Date())
-        ? { expiresAt: link.expiresAt, startPage: link.build.prototype.startPage ?? "/" }
+      return link?.buildId === buildId && isAvailableLink(link, current, new Date(), hosted)
+        ? {
+            expiresAt: link.expiresAt,
+            startPage: link.build.prototype.startPage ?? "/",
+            ...(hosted ? { hosted: true } : {}),
+          }
         : null
     },
   }

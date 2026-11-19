@@ -4,6 +4,7 @@ import { createConfiguredArtifactStorage } from "./domains/artifacts/create-conf
 import { LocalSignInConfigurationError } from "./domains/authentication/errors.ts"
 import { readLearningConfiguration } from "./domains/learning/read-learning-configuration/index.ts"
 import { LearningConfigurationError } from "./domains/learning/errors.ts"
+import { PublicSharingConfigurationError } from "./domains/public-sharing/errors.ts"
 import {
   LocalDevelopmentConfigurationError,
   LocalDevelopmentPreparationError,
@@ -126,18 +127,6 @@ try {
               preview.restoreSession = authentication.currentSession.restore.bind(
                 authentication.currentSession,
               )
-              if (authentication.local) {
-                const { createPublicSharingRouteDependencies } =
-                  await import("./routes/api/public-sharing/create-public-sharing-route-dependencies/index.ts")
-                const sharing =
-                  await createPublicSharingRouteDependencies(authenticationEnvironment)
-                publicSharing = sharing
-                preview = {
-                  ...preview,
-                  readAvailableShareLink: (shareLinkId, buildId) =>
-                    sharing.readAvailableLink(shareLinkId, buildId),
-                }
-              }
             }
             const { createCopilotConnectionRouteDependencies } =
               await import("./routes/api/copilot-connection/create-copilot-connection-route-dependencies/index.ts")
@@ -174,6 +163,23 @@ try {
             })
           } else {
             await disableAuthenticationProviders()
+          }
+          if (preview || !authenticationConfiguration.localConfigured) {
+            const { createPublicSharingRouteDependencies } =
+              await import("./routes/api/public-sharing/create-public-sharing-route-dependencies/index.ts")
+            publicSharing = await createPublicSharingRouteDependencies(
+              authenticationEnvironment,
+              authenticationConfiguration.localConfigured
+                ? undefined
+                : {
+                    hostedReady: Boolean(
+                      preview && authentication?.github && product?.getRepositoryPermission,
+                    ),
+                  },
+            )
+            if (preview && publicSharing) {
+              preview.readAvailableShareLink = publicSharing.readAvailableLink
+            }
           }
           // Local sign-in refuses GitHub settings, so GitHub setup would be a dead end there.
           if (
@@ -266,6 +272,7 @@ try {
 } catch (error) {
   logger.fatal(
     error instanceof AuthenticationConfigurationError ||
+      error instanceof PublicSharingConfigurationError ||
       error instanceof LocalSignInConfigurationError ||
       error instanceof LocalDevelopmentConfigurationError ||
       error instanceof LocalDevelopmentPreparationError

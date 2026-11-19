@@ -10,6 +10,7 @@ model ExternalIdentity {
   hubSessions             HubSession[]
   sensitiveAuthorizations SensitiveAuthorization[]
   canvasGrants            CanvasGrant[]
+  shareLinks               ShareLink[]
 
   // Attribute columns
   provider String @db.VarChar(100)

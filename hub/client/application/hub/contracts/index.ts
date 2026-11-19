@@ -78,6 +78,7 @@ export const prototypeSchema = z.object({
   authorName: z.string().nullable().optional(),
   authorProvider: z.string().min(1).nullable().optional(),
   canEdit: z.boolean(),
+  canManageShareLinks: z.boolean().optional(),
   latestBuild: z.object({ number: identifier, state: buildStateSchema }).nullable().optional(),
   builds: z.array(buildSchema),
 })

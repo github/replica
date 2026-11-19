@@ -39,6 +39,13 @@ export async function readBuildPreviewFile(
   } catch {
     return { status: "not-found" }
   }
+  if (
+    input.distOnly &&
+    (requestPath === "/__replica/screenshots/desktop.png" ||
+      requestPath === "/__replica/screenshots/narrow.png")
+  ) {
+    return { status: "not-found" }
+  }
   let path =
     readTemplateScreenshotPath(input.requestPath) ??
     (requestPath === "/__replica/screenshots/narrow.png"

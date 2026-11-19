@@ -1,18 +1,35 @@
-# Local Build share links
+# Build share links
 
-Local-mode sharing lets a signed-in local developer create an opaque public URL for one successful immutable Build. It does not require a GitHub App, discover hosted repositories, or grant access to repository pages, Build history, reviews, or Hub navigation.
+Public share links open one successful, immutable Build without sign-in. They do not grant access to repository pages, Build history, reviews, or Hub navigation.
 
-## Deployment setting
+## Local mode
 
 Public sharing is disabled by default. The local developer is a Hub administrator and can enable it from **Public sharing** at `/settings/sharing`. The API checks the live administrator session again before changing the setting.
 
-Disabling sharing increments the saved policy revision and permanently revokes every existing link in the same database transaction. Public pages, pending preview grants, existing public preview cookies, files, browser routes, and Controls stop working when they next check the saved link. Enabling sharing later permits new links only.
+Local mode does not require a GitHub App. Its policy and links are separate from hosted sharing.
 
-Creation captures the current policy revision before it validates the Build, then verifies that same enabled revision in the creation transaction. A disable and re-enable cycle cannot authorize a request that began under the earlier policy. Public preview authorization checks the link again, and artifact serving checks it before and after reading saved bytes. Bytes already returned cannot be recalled.
+## Hosted opt-in
+
+Hosted public sharing is off by default. It requires configured Build storage and an isolated preview origin, GitHub sign-in, and a fresh GitHub repository-permission lookup. To opt in, set `HUB_HOSTED_PUBLIC_SHARING_ENABLED=true` on every API instance before starting them. To turn sharing off, restart the API instances with the setting unset or set to `false`. A hosted deployment has no browser switch: a live Hub administrator session alone is not fresh authorization to make this change.
+
+The prototype's **Share links** action requires a GitHub session and one of these permissions:
+
+- GitHub currently reports repository administrator permission.
+- At least one successful Build for this prototype records the signed-in GitHub identity as its commit author, and GitHub currently reports at least read access.
+
+Hub matches the recorded provider, issuer, and immutable GitHub user ID, not the login. Repository write access, a Hub administrator role, or an Entra session does not substitute for either rule. The API rechecks permission for each list, create, and revoke request. The browser lists only active hosted links.
+
+An explicit `none` result for the expected GitHub identity permanently revokes only that creator's links in that repository. Confirmed GitHub App disconnection revokes all hosted links for the affected repositories. Unavailable or ambiguous evidence denies management without revoking links. Public visits do not call GitHub, and some webhook events narrow signed-in access without proving a creator lost all access. Sharing does not promise immediate detection of creator access loss.
+
+## Permanent revocation
+
+Disabling a policy advances its revision and permanently revokes its links in one database transaction. Public pages, pending preview grants, existing public preview cookies, files, browser routes, and Controls stop working when they next check the saved link. Enabling sharing later permits new links only.
+
+Creation verifies the policy again before saving. Hosted creation also checks that no confirmed access change invalidated the earlier GitHub lookup. A disable and re-enable cycle cannot authorize a request that began under the earlier policy. Bytes already returned cannot be recalled.
 
 ## Link lifecycle
 
-A signed-in local-mode user can manage links from a prototype's **Share links** page. Only successful Builds with a saved `dist/index.html` artifact are available. Each link:
+An authorized user can manage links from a prototype's **Share links** page. Only successful Builds with a saved `dist/index.html` artifact are available. Each link:
 
 - uses a random UUID that reveals no repository or Build identity;
 - remains pinned to the selected Build when newer Builds arrive;
@@ -22,7 +39,7 @@ A signed-in local-mode user can manage links from a prototype's **Share links** 
 
 The default maximum lifetime is seven days. Set `HUB_SHARE_LINK_MAX_DAYS` to `1`, `7`, or `30` before startup to change the allowed choices. Invalid values stop startup. Startup permanently shortens saved deadlines that exceed the configured maximum, measured from the original creation time; a later increase never extends them.
 
-Known links can report expired, revoked, or disabled presentation states. Unknown opaque IDs and unavailable saved Builds return not found. While sharing is enabled, the management page keeps expired and revoked rows for local visibility. Disabled sharing removes creation controls and remembered public URLs.
+Expired, revoked, disabled, or unavailable hosted links return not found. Local mode keeps its expired, revoked, and disabled presentation states and lists inactive rows while sharing is enabled.
 
 ## Public preview boundary
 
@@ -34,4 +51,4 @@ Public previews reuse the same artifact lookup, path validation, content types, 
 
 ## Not included
 
-This local flow does not implement GitHub authorization, creator permission monitoring, review comments, Canvas share APIs, notifications, repository discovery, or hosted deployment sharing.
+This flow does not add GitHub account monitoring, Canvas share APIs, notifications, or new deployment infrastructure. Publishing a Build can expose sensitive content included in its files; check the Build itself before creating a public link.

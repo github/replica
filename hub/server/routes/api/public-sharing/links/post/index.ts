@@ -5,6 +5,8 @@ import { hubSessionCookieName } from "../../../../../integrations/express/hub-se
 import { readCookie } from "../../../../../integrations/express/read-cookie/index.ts"
 import type { CurrentSessionDependencies } from "../../../auth/types.ts"
 import { readProductSession } from "../../../product/read-product-session/index.ts"
+import type { ProductRouteDependencies } from "../../../product/types.ts"
+import { authorizeHostedShareLinkRequest } from "../../authorize-hosted-share-link-request/index.ts"
 import { respondPublicSharingError } from "../../respond-public-sharing-error/index.ts"
 import type { PublicSharingRouteDependencies } from "../../types.ts"
 
@@ -19,9 +21,11 @@ const bodySchema = z
 export function post(
   session: CurrentSessionDependencies,
   sharing: PublicSharingRouteDependencies,
+  product?: ProductRouteDependencies,
 ): RequestHandler {
   return async (request, response, next) => {
     try {
+      if (sharing.hosted) response.setHeader("Cache-Control", "private, no-store")
       const cookie = readCookie(request, hubSessionCookieName)
       const initial = await readProductSession(cookie, session)
       if (!cookie || !initial) {
@@ -44,7 +48,18 @@ export function post(
         response.status(422).json({ error: "Choose an expiration allowed by this Hub." })
         return
       }
-      const current = await readProductSession(cookie, session)
+      const hosted = sharing.hosted
+        ? await authorizeHostedShareLinkRequest({
+            cookie,
+            initial,
+            session,
+            product,
+            hosted: sharing.hosted,
+            repositoryId: repositoryId.data,
+            prototypeId: prototypeId.data,
+          })
+        : undefined
+      const current = hosted?.current ?? (await readProductSession(cookie, session))
       if (
         !current ||
         current.membershipId !== initial.membershipId ||
@@ -58,6 +73,7 @@ export function post(
         prototypeId: prototypeId.data,
         createdById: current.userId,
         createdByLogin: current.login,
+        ...(hosted ? { approval: hosted.approval } : {}),
         ...body.data,
       })
       response.status(201).json({
@@ -76,7 +92,7 @@ export function post(
         },
       })
     } catch (error) {
-      if (!respondPublicSharingError(response, error)) next(error)
+      if (!respondPublicSharingError(response, error, Boolean(sharing.hosted))) next(error)
     }
   }
 }
