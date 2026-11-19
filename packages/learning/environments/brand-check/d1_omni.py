@@ -106,6 +106,10 @@ def decode_image(uri: str) -> Image.Image:
 
 def decode_images(uris: list[str]) -> list[Image.Image]:
     """Decode bounded images after checking every image and the task's total pixel count."""
+    from replica_brand_check.taskset import MAX_IMAGES
+
+    if len(uris) > MAX_IMAGES:
+        raise ValueError(f"expected at most {MAX_IMAGES} images")
     opened = []
     total_pixels = 0
     for uri in uris:

@@ -117,6 +117,12 @@ def load_trainer(auto_model):
 
 
 class TrainerTest(unittest.TestCase):
+    def test_image_decoder_rejects_too_many_images_before_opening_them(self):
+        trainer = load_trainer(object())
+
+        with self.assertRaisesRegex(ValueError, "at most 5 images"):
+            trainer.decode_images(["data:image/png;base64,AA=="] * 6)
+
     def test_training_averages_each_task_surrogate_over_its_labeled_questions(self):
         source = Path(__file__).parent.parent / "d1_omni.py"
         tree = ast.parse(source.read_text(encoding="utf-8"))

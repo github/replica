@@ -101,6 +101,13 @@ class Episodes:
             },
         )
 
+    def reopen(self, task_id: str) -> None:
+        """Reopen a known task for scoring without rebuilding its observation."""
+        task = self._select(None, "train", task_id)
+        self._task = task
+        self._episode_id = str(uuid.uuid4())
+        self._step_count = 0
+
     def state(self) -> dict[str, Any]:
         """Return the episode id, step count, task id, and split.
 

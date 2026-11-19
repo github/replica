@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .connectors import (
     Cancellation,
+    ConnectorError,
     OperationContext,
     RuntimeOwner,
     RuntimeScope,
@@ -189,8 +190,13 @@ def _smoke_process(
                 ),
             )
         outcome = ("ok", result)
-    except Exception:
-        outcome = ("error", "d1-omni smoke model execution failed.")
+    except ConnectorError as error:
+        outcome = ("error", f"{error.code}: {error}")
+    except Exception as error:
+        outcome = (
+            "error",
+            f"{type(error).__name__}: {error}",
+        )
     destination = Path(result_path)
     temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}")
     try:

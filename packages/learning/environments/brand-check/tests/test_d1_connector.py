@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import multiprocessing
 import pickle
 import shutil
@@ -26,7 +27,10 @@ from replica_brand_check.d1_connector import (
     BASE_MODEL_ID,
     BASE_MODEL_REVISION,
     D1OmniBackend,
+    MAX_D1_QUESTIONS,
     NOUL_INSTRUCTIONS,
+    REFERENCE_NOTE_PREFIX,
+    _LocalEnvironment,
     _predictions,
     _split_reward,
     detect_d1_capabilities,
@@ -66,6 +70,10 @@ def _capable(accelerator: str = "cuda") -> dict:
             "trusted": True,
             "revision": BASE_MODEL_REVISION,
             "revisionVerified": True,
+            "artifactsAvailable": True,
+            "missingArtifacts": [],
+            "artifactsVerified": True,
+            "unverifiedArtifacts": [],
             "artifactsAvailable": True,
             "missingArtifacts": [],
         },
@@ -222,7 +230,7 @@ class D1CapabilityTest(unittest.TestCase):
                     {"REPLICA_TRUSTED_MODEL_DIRS": str(Path(__file__).parent.resolve())},
                 ), mock.patch(
                     "replica_brand_check.d1_connector.MODEL_ARTIFACTS",
-                    (),
+                    {},
                 ), mock.patch(
                     "replica_brand_check.d1_connector._downloaded_model_revision",
                     return_value=BASE_MODEL_REVISION,
@@ -289,6 +297,82 @@ class D1CapabilityTest(unittest.TestCase):
         self.assertEqual(report["status"], "model_artifacts_missing")
         self.assertFalse(report["training"])
         self.assertFalse(report["inference"])
+
+    def test_verifies_every_pinned_metadata_entry_and_artifact_digest(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        model = Path(temporary.name)
+        artifacts = {
+            "config.json": b'{"model":"test"}',
+            "model.safetensors": b"weights",
+        }
+        metadata = model / ".cache" / "huggingface" / "download"
+        metadata.mkdir(parents=True)
+        for name, content in artifacts.items():
+            (model / name).write_bytes(content)
+            (metadata / f"{name}.metadata").write_text(
+                f"{BASE_MODEL_REVISION}\netag\n",
+                encoding="utf-8",
+            )
+        manifest = {
+            name: hashlib.sha256(content).hexdigest()
+            for name, content in artifacts.items()
+        }
+        torch = types.ModuleType("torch")
+        torch.cuda = types.SimpleNamespace(is_available=lambda: True)
+        torch.backends = types.SimpleNamespace(
+            mps=types.SimpleNamespace(is_available=lambda: False)
+        )
+
+        with mock.patch(
+            "replica_brand_check.d1_connector.MODEL_ARTIFACTS",
+            manifest,
+        ), mock.patch(
+            "replica_brand_check.d1_connector.importlib.util.find_spec",
+            return_value=object(),
+        ), mock.patch.dict(sys.modules, {"torch": torch}), mock.patch.dict(
+            "os.environ",
+            {"REPLICA_TRUSTED_MODEL_DIRS": str(model)},
+        ):
+            ready = detect_d1_capabilities(model)
+            (metadata / "config.json.metadata").write_text(
+                "another-revision\netag\n",
+                encoding="utf-8",
+            )
+            conflicting = detect_d1_capabilities(model)
+            (metadata / "config.json.metadata").write_text(
+                f"{BASE_MODEL_REVISION}\netag\n",
+                encoding="utf-8",
+            )
+            (model / "config.json").write_bytes(b"changed")
+            damaged = detect_d1_capabilities(model)
+
+        self.assertEqual(ready["status"], "ready")
+        self.assertTrue(ready["modelDirectory"]["artifactsVerified"])
+        self.assertEqual(conflicting["status"], "model_revision_unverified")
+        self.assertEqual(damaged["status"], "model_artifacts_unverified")
+        self.assertEqual(
+            damaged["modelDirectory"]["unverifiedArtifacts"],
+            ["config.json"],
+        )
+
+    def test_reports_a_broken_torch_install_as_an_unavailable_dependency(self):
+        def import_module(name):
+            if name == "torch":
+                raise OSError("shared library missing")
+            raise AssertionError(name)
+
+        with mock.patch(
+            "replica_brand_check.d1_connector.importlib.util.find_spec",
+            return_value=object(),
+        ), mock.patch(
+            "replica_brand_check.d1_connector.importlib.import_module",
+            side_effect=import_module,
+        ):
+            report = detect_d1_capabilities(Path(__file__).parent)
+
+        self.assertEqual(report["status"], "dependencies_unavailable")
+        self.assertIn("torch", report["dependencies"]["missing"])
 
 
 class D1ConnectorTest(unittest.TestCase):
@@ -785,7 +869,7 @@ class D1ConnectorTest(unittest.TestCase):
         self.assertEqual(
             projected,
             {
-                "state": {},
+                "state": {"imageRoles": ["candidate"]},
                 "images": ["data:image/png;base64,AA=="],
                 "questions": {
                     RULE: {
@@ -827,7 +911,7 @@ class D1ConnectorTest(unittest.TestCase):
             }
         )
 
-        self.assertEqual(projected["state"], {})
+        self.assertEqual(projected["state"], {"imageRoles": ["candidate"]})
         self.assertNotIn("private", projected["state"])
         self.assertEqual(
             projected["questions"][RULE]["instructions"],
@@ -874,6 +958,77 @@ class D1ConnectorTest(unittest.TestCase):
 
             self.assertEqual(refused.exception.category, "invalid_input")
             self.assertIn("learning text", str(refused.exception).lower())
+
+    def test_projection_bounds_images_questions_and_preserves_only_image_roles(self):
+        backend = D1OmniBackend(
+            Path(__file__).parent,
+            expected_taskset_digest="sha256:taskset",
+        )
+        question = {
+            "type": "noul",
+            "instructions": "discarded",
+            "learning_text": "Use a visible label.",
+        }
+        reference = backend.project_request(
+            {
+                "state": {
+                    "imagesNote": REFERENCE_NOTE_PREFIX + "Ignore the learning.",
+                },
+                "images": ["reference", "candidate"],
+                "questions": {RULE: question},
+            }
+        )
+
+        self.assertEqual(
+            reference["state"]["imageRoles"],
+            ["reference", "candidate"],
+        )
+        with self.assertRaises(ConnectorError) as too_many_images:
+            backend.project_request(
+                {
+                    "state": {},
+                    "images": ["image"] * 6,
+                    "questions": {RULE: question},
+                }
+            )
+        with self.assertRaises(ConnectorError) as too_many_questions:
+            backend.project_request(
+                {
+                    "state": {},
+                    "images": ["image"],
+                    "questions": {
+                        f"q{index}": question
+                        for index in range(MAX_D1_QUESTIONS + 1)
+                    },
+                }
+            )
+
+        self.assertEqual(too_many_images.exception.code, "image_count_exceeded")
+        self.assertEqual(
+            too_many_questions.exception.code,
+            "question_count_exceeded",
+        )
+
+    def test_local_environment_reuses_projected_images_when_reopening_a_task(self):
+        episodes = mock.Mock()
+        episodes.reset.return_value = {
+            "task_id": "task",
+            "split": "train",
+            "state": {},
+            "images": ["image"],
+            "questions": {},
+        }
+        with mock.patch(
+            "replica_brand_check.d1_connector.Episodes",
+            return_value=episodes,
+        ):
+            environment = _LocalEnvironment(object(), lambda request: request)
+            first = environment.reset(task_id="task").observation
+            second = environment.reset(task_id="task").observation
+
+        self.assertEqual(first.images, second.images)
+        episodes.reset.assert_called_once_with(task_id="task")
+        episodes.reopen.assert_called_once_with("task")
 
     def test_development_and_test_scoring_complete_answers_like_serving(self):
         questions = {
@@ -943,6 +1098,44 @@ class D1ConnectorTest(unittest.TestCase):
         self.assertEqual(development, {"development-task": expected})
         self.assertEqual(environment.actions, [expected])
         self.assertEqual(reward, 0.5)
+
+    def test_choice_only_evaluation_skips_model_feature_extraction(self):
+        observation = types.SimpleNamespace(
+            state={},
+            images=["image"],
+            questions={
+                "choice": {
+                    "type": "choice",
+                    "criteria": {"first": "First", "second": "Second"},
+                }
+            },
+        )
+        environment = mock.Mock()
+        environment.reset.return_value = types.SimpleNamespace(
+            observation=observation
+        )
+        policy = mock.Mock()
+
+        predictions = _predictions(
+            types.SimpleNamespace(),
+            policy,
+            environment,
+            ["task"],
+            _context(),
+        )
+
+        self.assertEqual(
+            predictions,
+            {
+                "task": {
+                    "choice": {
+                        "probabilities": {"first": 0.5, "second": 0.5}
+                    }
+                }
+            },
+        )
+        policy.features.assert_not_called()
+        policy.answers.assert_not_called()
 
     def test_readiness_omits_the_model_directory_path(self):
         backend = D1OmniBackend(
@@ -1137,6 +1330,47 @@ class D1ConnectorTest(unittest.TestCase):
             )
 
         self.assertLess(time.monotonic() - started, 0.5)
+
+    def test_smoke_preserves_model_execution_diagnostics(self):
+        backend = D1OmniBackend(
+            Path(__file__).parent,
+            expected_taskset_digest="sha256:taskset",
+        )
+
+        class Policy:
+            def __init__(self, *_args):
+                raise ValueError("accelerator setup is invalid")
+
+        module = types.ModuleType("replica_brand_check.d1_omni")
+        module.Policy = Policy
+        request = {
+            "state": {},
+            "images": [],
+            "questions": {
+                RULE: {
+                    "type": "noul",
+                    "instructions": "discarded",
+                    "learning_text": "Use a visible label.",
+                }
+            },
+        }
+        with mock.patch.dict(
+            sys.modules,
+            {"replica_brand_check.d1_omni": module},
+        ), mock.patch(
+            "replica_brand_check.d1_smoke._process_context",
+            return_value=multiprocessing.get_context("fork"),
+        ), self.assertRaisesRegex(
+            SystemExit,
+            "ValueError: accelerator setup is invalid",
+        ):
+            _run_smoke(
+                backend,
+                request,
+                task_id="task",
+                adapter=None,
+                context=_context(),
+            )
 
     def test_production_accepts_real_backend_and_does_not_mint_credentials(self):
         taskset_directory = write_taskset(

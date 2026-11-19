@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import importlib
 import importlib.util
 import io
 import os
@@ -23,25 +25,27 @@ from .connectors import (
 from .episode import Episodes
 from .evaluate import evaluate
 from .local_connectors import taskset_digest
-from .taskset import Taskset
+from .taskset import MAX_IMAGES, Taskset
 
 BASE_MODEL_ID = "LiquidAI/d1-omni-600M"
 BASE_MODEL_REVISION = "02b55d7076f15129e59ab3f94783f32c4b088674"
 ADAPTER_SCHEMA = "replica.decision-d1-omni-adapter/v1"
 MODEL_DEPENDENCIES = ("torch", "transformers", "PIL")
-MODEL_ARTIFACTS = (
-    "audio.py",
-    "config.json",
-    "encoder.py",
-    "model.safetensors",
-    "modeling_d1.py",
-    "prompt.py",
-    "tokenizer.json",
-    "tokenizer_config.json",
-    "vision.py",
-)
+MODEL_ARTIFACTS = {
+    "audio.py": "c5ff09d52d6a079e79d0505c89dbd0582ba2bc9abf2b26595d8d5b1d0c347bdf",
+    "config.json": "dfccae241822f81752426629c88c8b8d7efdd03dd19418b6645c604fad43d619",
+    "encoder.py": "5f2e20319ee42a7367febf06c7653d7b3f9b28ef99a64cb9ec7739563dcfcffe",
+    "model.safetensors": "0713bb05270c2685ad106522f4092bceeeb3a93cf79b401f399a712296c911e1",
+    "modeling_d1.py": "2b71a5c909ec5d3aa6307378a41a0fd24af1e17d5c1c1f8d510582147051a686",
+    "prompt.py": "a6b29a55ec8345f1fc1fdbfcc4b64d80d473dc4316f095a62c51cb6cce1194cf",
+    "tokenizer.json": "1efc3a6609abf6b63b1f47188d139f3b59973a6a434dffe970a7261a51ed2711",
+    "tokenizer_config.json": "03efc74b752b899b6292ff7e607738be59e6f206fec9aca32bbc05e9184090fc",
+    "vision.py": "43ad71029f82e20fd26b97574627773d47639d7a3742c8b04fe5bf55f41c4c28",
+}
 NOUL_INSTRUCTIONS = "Does this page follow the team learning in every screenshot?"
 MAX_PROMPT_TEXT = 4096
+MAX_D1_QUESTIONS = 64
+REFERENCE_NOTE_PREFIX = "Image 1 is the team's brand reference sheet. "
 
 
 class _LocalEnvironment:
@@ -50,9 +54,16 @@ class _LocalEnvironment:
     def __init__(self, taskset: Taskset, project_request: Any):
         self._episodes = Episodes(taskset)
         self._project_request = project_request
+        self._observations: dict[str, dict[str, Any]] = {}
 
     def reset(self, **options: Any) -> SimpleNamespace:
-        observation = self._project_request(self._episodes.reset(**options))
+        task_id = options.get("task_id")
+        if task_id in self._observations:
+            self._episodes.reopen(task_id)
+            observation = self._observations[task_id]
+        else:
+            observation = self._project_request(self._episodes.reset(**options))
+            self._observations[observation["task_id"]] = observation
         return SimpleNamespace(
             observation=SimpleNamespace(**observation)
         )
@@ -68,11 +79,16 @@ class _LocalEnvironment:
 
 def detect_d1_capabilities(model_directory: str | Path) -> dict[str, Any]:
     """Report dependencies, local model availability, and usable PyTorch acceleration."""
-    missing = [
-        dependency
-        for dependency in MODEL_DEPENDENCIES
-        if importlib.util.find_spec(dependency) is None
-    ]
+    missing = []
+    for dependency in MODEL_DEPENDENCIES:
+        if importlib.util.find_spec(dependency) is None:
+            missing.append(dependency)
+    torch = None
+    if "torch" not in missing:
+        try:
+            torch = importlib.import_module("torch")
+        except (ImportError, OSError):
+            missing.append("torch")
     model_path = Path(model_directory).expanduser().resolve()
     trusted_directories = {
         Path(entry).expanduser().resolve()
@@ -85,9 +101,7 @@ def detect_d1_capabilities(model_directory: str | Path) -> dict[str, Any]:
     trusted = model_path in trusted_directories
     downloaded_revision = _downloaded_model_revision(model_path)
     revision_verified = downloaded_revision == BASE_MODEL_REVISION
-    missing_artifacts = [
-        artifact for artifact in MODEL_ARTIFACTS if not (model_path / artifact).is_file()
-    ]
+    artifact_status = _model_artifact_status(model_path)
     report: dict[str, Any] = {
         "backend": "d1-omni",
         "baseModel": {
@@ -104,8 +118,7 @@ def detect_d1_capabilities(model_directory: str | Path) -> dict[str, Any]:
             "trusted": trusted,
             "revision": downloaded_revision,
             "revisionVerified": revision_verified,
-            "artifactsAvailable": not missing_artifacts,
-            "missingArtifacts": missing_artifacts,
+            **artifact_status,
         },
         "accelerator": "unavailable",
         "training": False,
@@ -117,7 +130,7 @@ def detect_d1_capabilities(model_directory: str | Path) -> dict[str, Any]:
     if missing:
         report["status"] = "dependencies_unavailable"
         return report
-    import torch
+    assert torch is not None
 
     if torch.cuda.is_available():
         accelerator = "cuda"
@@ -130,13 +143,13 @@ def detect_d1_capabilities(model_directory: str | Path) -> dict[str, Any]:
         model_path.is_dir()
         and trusted
         and revision_verified
-        and not missing_artifacts
+        and artifact_status["artifactsVerified"]
     )
     report["training"] = (
         model_path.is_dir()
         and trusted
         and revision_verified
-        and not missing_artifacts
+        and artifact_status["artifactsVerified"]
         and accelerator in ("cuda", "mps")
     )
     report["evaluationCapable"] = report["training"]
@@ -146,8 +159,10 @@ def detect_d1_capabilities(model_directory: str | Path) -> dict[str, Any]:
         report["status"] = "model_untrusted"
     elif not revision_verified:
         report["status"] = "model_revision_unverified"
-    elif missing_artifacts:
+    elif not artifact_status["artifactsAvailable"]:
         report["status"] = "model_artifacts_missing"
+    elif not artifact_status["artifactsVerified"]:
+        report["status"] = "model_artifacts_unverified"
     elif accelerator == "cpu":
         report["status"] = "cpu_inference_only"
     else:
@@ -195,6 +210,18 @@ class D1OmniBackend:
 
     def project_request(self, request: Mapping[str, Any]) -> dict[str, Any]:
         """Keep only the model input and retain learning text inside its data field."""
+        if len(request["images"]) > MAX_IMAGES:
+            raise ConnectorError(
+                "image_count_exceeded",
+                f"d1-omni accepts at most {MAX_IMAGES} images per request.",
+                category="invalid_input",
+            )
+        if len(request["questions"]) > MAX_D1_QUESTIONS:
+            raise ConnectorError(
+                "question_count_exceeded",
+                f"d1-omni accepts at most {MAX_D1_QUESTIONS} questions per request.",
+                category="invalid_input",
+            )
         questions = {}
         for key, question in request["questions"].items():
             question_type = question.get("type")
@@ -215,7 +242,15 @@ class D1OmniBackend:
                 projected["instructions"] = NOUL_INSTRUCTIONS
             questions[key] = projected
         projected_request = {
-            "state": {},
+            "state": {
+                "imageRoles": (
+                    ["reference", *(["candidate"] * (len(request["images"]) - 1))]
+                    if str(request["state"].get("imagesNote", "")).startswith(
+                        REFERENCE_NOTE_PREFIX
+                    )
+                    else ["candidate"] * len(request["images"])
+                )
+            },
             "images": list(request["images"]),
             "questions": questions,
         }
@@ -261,6 +296,7 @@ class D1OmniBackend:
             [*train_ids, *dev_ids, *test_ids],
             self.project_request,
         )
+        _validate_training_questions(taskset, train_ids)
         work_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         work_directory.chmod(0o700)
         started = time.monotonic()
@@ -509,6 +545,13 @@ class D1OmniBackend:
                 "and keep its Hugging Face metadata.",
                 category="integrity",
             )
+        if not capability["modelDirectory"]["artifactsVerified"]:
+            damaged = ", ".join(capability["modelDirectory"]["unverifiedArtifacts"])
+            raise ConnectorError(
+                "base_model_artifacts_unverified",
+                f"The pinned d1-omni model artifacts do not match: {damaged}.",
+                category="integrity",
+            )
         if not capability["modelDirectory"]["artifactsAvailable"]:
             missing = ", ".join(capability["modelDirectory"]["missingArtifacts"])
             raise ConnectorError(
@@ -524,6 +567,19 @@ class D1OmniBackend:
             )
 
 
+def _validate_training_questions(taskset: Taskset, task_ids: list[str]) -> None:
+    for task_id in task_ids:
+        if not any(
+            question.type == "noul"
+            for question in taskset.by_id[task_id].questions.values()
+        ):
+            raise ConnectorError(
+                "training_questions_missing",
+                f"Training task {task_id} has no yes-or-no question for d1-omni.",
+                category="invalid_input",
+            )
+
+
 def _model_module() -> Any:
     from . import d1_omni
 
@@ -534,17 +590,44 @@ def _downloaded_model_revision(model_path: Path) -> str | None:
     metadata_root = model_path / ".cache" / "huggingface" / "download"
     if not metadata_root.is_dir():
         return None
-    revisions = set()
     try:
-        for metadata in metadata_root.rglob("*.metadata"):
-            first_line = metadata.read_text(encoding="utf-8").splitlines()[0]
-            if first_line:
-                revisions.add(first_line)
+        revisions = {
+            (metadata_root / f"{artifact}.metadata")
+            .read_text(encoding="utf-8")
+            .splitlines()[0]
+            for artifact in MODEL_ARTIFACTS
+        }
     except (IndexError, OSError, UnicodeError):
         return None
     if len(revisions) != 1:
         return None
     return revisions.pop()
+
+
+def _model_artifact_status(model_path: Path) -> dict[str, Any]:
+    missing = []
+    unverified = []
+    for artifact, expected_digest in MODEL_ARTIFACTS.items():
+        path = model_path / artifact
+        if not path.is_file() or path.is_symlink():
+            missing.append(artifact)
+            continue
+        digest = hashlib.sha256()
+        try:
+            with path.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1 << 20), b""):
+                    digest.update(chunk)
+        except OSError:
+            unverified.append(artifact)
+            continue
+        if digest.hexdigest() != expected_digest:
+            unverified.append(artifact)
+    return {
+        "artifactsAvailable": not missing,
+        "missingArtifacts": missing,
+        "artifactsVerified": not missing and not unverified,
+        "unverifiedArtifacts": unverified,
+    }
 
 
 def _check_operation(context: OperationContext) -> None:
@@ -594,6 +677,11 @@ def _policy_observation(
     task_id: str,
 ) -> tuple[Any, Any]:
     observation = environment.reset(task_id=task_id).observation
+    if not any(
+        question.get("type") == "noul"
+        for question in observation.questions.values()
+    ):
+        return observation, None
     features = policy.features(
         task_id,
         observation.state,
@@ -645,7 +733,7 @@ def _predictions(
         _check_operation(context)
         observation, features = _policy_observation(policy, environment, task_id)
         predictions[task_id] = _completed_answers(
-            policy.answers(features),
+            policy.answers(features) if features is not None else {},
             observation.questions,
         )
     return predictions
@@ -664,7 +752,7 @@ def _split_reward(
         _check_operation(context)
         observation, features = _policy_observation(policy, environment, task_id)
         answers = _completed_answers(
-            policy.answers(features),
+            policy.answers(features) if features is not None else {},
             observation.questions,
         )
         predictions[task_id] = answers
