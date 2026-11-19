@@ -1,4 +1,5 @@
 export const ARTIFACT_NAME = "replica-build-v1"
+export const SCREENSHOTS_ARTIFACT_NAME = "replica-screenshots-v1"
 export const CONTENT_TYPES = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",

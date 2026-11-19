@@ -44,9 +44,14 @@ async function createCaptureProxy(allowedOrigin) {
 }
 
 /** Captures the root and declared templates in both color schemes at each width. */
-export async function captureScreenshots(root, screenshots, configRoot = root) {
+export async function captureScreenshots(
+  root,
+  screenshots,
+  configRoot = root,
+  configFile = ".github/replica.json",
+) {
   await validateBuildOutput(root)
-  const manifest = await readTemplates(configRoot)
+  const manifest = await readTemplates(configRoot, configFile)
   const controlsAdapter = await readFile(
     new URL("../../../../hub/client/utils/prototype-controls/browser.js", import.meta.url),
     "utf8",
@@ -168,6 +173,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     requiredPathArgument("root"),
     requiredPathArgument("screenshots"),
     process.argv.includes("--config-root") ? requiredPathArgument("config-root") : undefined,
+    process.argv.includes("--config-file")
+      ? requiredPathArgument("config-file", { resolve: false })
+      : undefined,
   )
   console.log(
     "Captured light and dark desktop and narrow screenshots for the root page and declared templates.",
