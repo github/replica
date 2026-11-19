@@ -7,7 +7,7 @@ export interface MentionCandidate {
 }
 
 export interface MentionSource {
-  load: () => Promise<MentionCandidate[]>
+  load: (query: string, signal: AbortSignal) => Promise<MentionCandidate[]>
   copy: {
     suggestions: string
     error: string

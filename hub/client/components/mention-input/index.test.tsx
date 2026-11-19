@@ -1,9 +1,9 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { useState } from "react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { useMemo, useState } from "react"
 import { describe, expect, it, vi } from "vitest"
 
 import { MentionProvider } from "@components/mention-provider"
-import type { MentionSource } from "@hooks/use-mention-source/context"
+import type { MentionCandidate, MentionSource } from "@hooks/use-mention-source/context"
 
 import { MentionInput } from "."
 
@@ -18,8 +18,9 @@ const copy = {
 
 function Composer({ load, submit }: { load: MentionSource["load"]; submit: () => void }) {
   const [value, setValue] = useState("")
+  const source = useMemo(() => ({ load, copy }), [load])
   return (
-    <MentionProvider source={{ load, copy }}>
+    <MentionProvider source={source}>
       <form
         onSubmit={(event) => {
           event.preventDefault()
@@ -53,11 +54,26 @@ describe("MentionInput()", () => {
     fireEvent.change(input, { target: { value: `${ten} ` } })
     expect(input).toBeValid()
   })
-  it("inserts a selected login without submitting and preserves surrounding text", async () => {
+  it("finds and inserts a login outside the default list without submitting", async () => {
     const submit = vi.fn()
-    const load = vi.fn().mockResolvedValue([{ githubId: 1002, login: "mona", avatarUrl: null }])
+    const collaborators = [
+      ...Array.from({ length: 20 }, (_, index) => ({
+        githubId: index + 1,
+        login: `reviewer-${index}`,
+        avatarUrl: null,
+      })),
+      { githubId: 1002, login: "mona", avatarUrl: null },
+    ]
+    function load(query = "") {
+      return Promise.resolve(
+        collaborators.filter(({ login }) => login.includes(query)).slice(0, 20),
+      )
+    }
     render(<Composer load={load} submit={submit} />)
     const input = screen.getByRole("textbox")
+    fireEvent.change(input, { target: { value: "Please @" } })
+    await screen.findByRole("option", { name: "@reviewer-0" })
+    expect(screen.queryByRole("option", { name: "@mona" })).not.toBeInTheDocument()
     fireEvent.change(input, { target: { value: "Please @mo" } })
     await screen.findByRole("option", { name: "@mona" })
     fireEvent.keyDown(input, { key: "Enter" })
@@ -65,6 +81,31 @@ describe("MentionInput()", () => {
     expect(submit).not.toHaveBeenCalled()
     fireEvent.keyDown(input, { key: "Enter" })
     expect(submit).toHaveBeenCalledOnce()
+  })
+
+  it("keeps suggestions scoped to the current query when an earlier lookup settles late", async () => {
+    let finishEarlier!: (people: MentionCandidate[]) => void
+    let finishCurrent!: (people: MentionCandidate[]) => void
+    const earlier = new Promise<MentionCandidate[]>((resolve) => (finishEarlier = resolve))
+    const current = new Promise<MentionCandidate[]>((resolve) => (finishCurrent = resolve))
+    const load = vi.fn((query?: string) => (query === "mon" ? current : earlier))
+    render(<Composer load={load} submit={vi.fn()} />)
+    const input = screen.getByRole("textbox")
+    fireEvent.change(input, { target: { value: "@mo" } })
+    await waitFor(() => expect(load).toHaveBeenCalledOnce())
+    fireEvent.change(input, { target: { value: "@mon" } })
+    finishCurrent([{ login: "mona-current", avatarUrl: null }])
+    await screen.findByRole("option", { name: "@mona-current" })
+
+    await act(async () => {
+      finishEarlier([{ login: "mona-old", avatarUrl: null }])
+      await earlier
+    })
+    expect(screen.getByRole("option", { name: "@mona-current" })).toBeVisible()
+    expect(screen.queryByRole("option", { name: "@mona-old" })).not.toBeInTheDocument()
+
+    fireEvent.change(input, { target: { value: "@mona" } })
+    expect(screen.queryByRole("option")).not.toBeInTheDocument()
   })
 
   it("reports lookup failure and supports retry without discarding text", async () => {
