@@ -25,9 +25,15 @@ from replica_brand_check.connectors import (
     RuntimeScope,
     TrainingResult,
 )
-from replica_brand_check.runtime import FixtureBackend, LocalRuntime, RuntimeFailure
+from replica_brand_check.runtime import (
+    TASKSET_CACHE_LIMIT,
+    FixtureBackend,
+    LocalRuntime,
+    RuntimeFailure,
+)
 from replica_brand_check.runtime_server import RuntimeHTTPServer, runtime_token
-from tests.support import PNG, RULE, make_task, write_taskset
+from replica_brand_check.taskset import MAX_IMAGE_BYTES
+from tests.support import PNG, RULE, make_task, taskset_upload, write_taskset
 
 TOKEN = "runtime-test-token-with-32-characters"
 
@@ -119,6 +125,20 @@ class BlockingBackend(FixtureBackend):
         self.started.write_text("started", encoding="utf-8")
         deadline = time.monotonic() + 5
         while not self.release.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        return super().train(*args, **kwargs)
+
+
+class CancellableBackend(FixtureBackend):
+    """A backend that stays alive until cancellation terminates its worker."""
+
+    def __init__(self, started: Path, release: Path):
+        self.started = started
+        self.release = release
+
+    def train(self, *args, **kwargs):
+        self.started.write_text("started", encoding="utf-8")
+        while not self.release.exists():
             time.sleep(0.01)
         return super().train(*args, **kwargs)
 
@@ -430,6 +450,36 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(usage.quantity, 0)
         self.assertFalse(reporting_context.cancellation.requested)
         self.assertGreater(reporting_context.deadline, time.monotonic())
+
+    def test_persists_success_when_backend_returns_at_the_training_deadline(self):
+        runtime = self._runtime()
+        result = FixtureBackend().train(
+            runtime.taskset,
+            self.state_dir,
+            max_updates=2,
+            deadline=time.monotonic() + 5,
+        )
+
+        def finish_at_deadline(*args, context, **kwargs):
+            del args, kwargs
+            while time.monotonic() < context.deadline:
+                time.sleep(0.001)
+            return result
+
+        with mock.patch(
+            "replica_brand_check.runtime._run_backend",
+            side_effect=finish_at_deadline,
+        ):
+            finished = self._wait_for_job(
+                runtime,
+                runtime.submit(backend="fixture", max_updates=2, max_seconds=1)["id"],
+            )
+
+        self.assertEqual(finished["state"], "succeeded")
+        self.assertEqual(
+            runtime.candidate(finished["candidateId"])["manifest"]["id"],
+            finished["candidateId"],
+        )
 
     def test_maps_runtime_credential_failure_to_service_unavailable(self):
         runtime = LocalRuntime(
@@ -1100,6 +1150,468 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(not_served.exception.code, "candidate_mismatch")
         self.assertEqual(not_rolled_back.exception.code, "candidate_mismatch")
 
+    def test_candidate_taskset_connector_failures_keep_service_status(self):
+        runtime = self._runtime()
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=4, max_seconds=5)["id"],
+        )
+        runtime.promote(finished["candidateId"], promoted_by="test-operator")
+        runtime.close()
+        reopened = self._runtime()
+
+        for category, code, status in (
+            ("unavailable", "tasksets_unavailable", 503),
+            ("deadline_exceeded", "tasksets_deadline", 504),
+        ):
+            with self.subTest(category=category), mock.patch.object(
+                reopened.connectors.tasksets,
+                "resolve",
+                side_effect=ConnectorError(
+                    code,
+                    "provider detail",
+                    category=category,
+                ),
+            ):
+                with self.assertRaises(RuntimeFailure) as failure:
+                    reopened.ready()
+
+                self.assertEqual(failure.exception.code, code)
+                self.assertEqual(failure.exception.status, status)
+                self.assertEqual(str(failure.exception), "Connector operation failed.")
+
+    def test_ready_and_evaluate_use_the_loaded_taskset_identity(self):
+        runtime = self._runtime()
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=4, max_seconds=5)["id"],
+        )
+        runtime.promote(finished["candidateId"], promoted_by="test-operator")
+        image_path = self.taskset_dir / "images" / "screen.png"
+        image_path.write_bytes(b"changed after activation")
+
+        runtime.ready()
+        response = runtime.evaluate(self._request())
+
+        self.assertEqual(response["candidateId"], finished["candidateId"])
+
+    def test_bounds_parsed_tasksets_without_rehashing_the_promoted_taskset(self):
+        runtime = self._runtime()
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=4, max_seconds=5)["id"],
+        )
+        runtime.promote(finished["candidateId"], promoted_by="test-operator")
+        uploaded_digests = []
+        for index in range(TASKSET_CACHE_LIMIT + 1):
+            task = make_task(100 + index, answer=True)
+            task["questions"][RULE]["instructions"] = f"Uploaded taskset {index}"
+            directory = write_taskset(
+                self,
+                [task, make_task(200 + index, split="test", answer=True)],
+            )
+            digest, upload = taskset_upload(directory)
+            registered = runtime.register_taskset(
+                digest,
+                upload,
+                idempotency_key=f"upload-{index}",
+            )
+            uploaded_digests.append(registered["digest"])
+
+        (self.taskset_dir / "images" / "screen.png").write_bytes(
+            b"changed after activation"
+        )
+        runtime.ready()
+        response = runtime.evaluate(self._request())
+
+        self.assertLessEqual(len(runtime._tasksets), TASKSET_CACHE_LIMIT)
+        self.assertNotIn(uploaded_digests[0], runtime._tasksets)
+        self.assertIn(uploaded_digests[-1], runtime._tasksets)
+        self.assertEqual(response["candidateId"], finished["candidateId"])
+
+    def test_http_upload_registers_a_private_taskset_for_jobs_and_restart(self):
+        uploaded_directory = write_taskset(
+            self,
+            [
+                make_task(21, answer=True),
+                make_task(22, split="test", answer=True),
+            ],
+        )
+        digest, upload = taskset_upload(uploaded_directory)
+        runtime = self._runtime()
+        server, thread, base_url = self._serve(runtime)
+        encoded = json.dumps(upload).encode()
+        url = f"{base_url}/v1/tasksets/{digest}"
+
+        with self.assertRaises(error.HTTPError) as refused:
+            request.urlopen(
+                request.Request(
+                    url,
+                    data=encoded,
+                    headers={"Content-Type": "application/json"},
+                    method="PUT",
+                )
+            )
+        self.assertEqual(refused.exception.code, 401)
+        refused.exception.close()
+
+        headers = {
+            "Authorization": f"Bearer {TOKEN}",
+            "Content-Type": "application/json",
+        }
+        with mock.patch.object(
+            runtime.connectors.tasksets,
+            "register",
+            wraps=runtime.connectors.tasksets.register,
+        ) as register:
+            first_status, first = self._http_json_response(
+                request.Request(url, data=encoded, headers=headers, method="PUT")
+            )
+        register.assert_called_once()
+        retry_status, retried = self._http_json_response(
+            request.Request(url, data=encoded, headers=headers, method="PUT")
+        )
+
+        self.assertIn(first_status, (200, 201))
+        self.assertIn(retry_status, (200, 201))
+        self.assertEqual(retried, first)
+        self.assertEqual(first["digest"], f"sha256:{digest}")
+        self.assertEqual(first["reference"], f"taskset:{digest}")
+        self.assertIn(
+            "taskset_bytes",
+            [usage.kind for usage in runtime.local_connectors.observability.records()],
+        )
+
+        changed = json.loads(json.dumps(upload))
+        changed["tasks"][0]["questions"][RULE]["instructions"] = "Different content"
+        with self.assertRaises(error.HTTPError) as conflict:
+            request.urlopen(
+                request.Request(
+                    url,
+                    data=json.dumps(changed).encode(),
+                    headers={**headers, "Idempotency-Key": "changed-upload"},
+                    method="PUT",
+                )
+            )
+        self.assertEqual(conflict.exception.code, 409)
+        with conflict.exception as response:
+            self.assertNotIn("Different content", response.read().decode())
+
+        server.shutdown()
+        server.server_close()
+        thread.join(1)
+        runtime.close()
+        reopened = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"fixture": FixtureBackend()},
+            environment="test",
+        )
+        self.addCleanup(reopened.close)
+        _server, _thread, reopened_url = self._serve(reopened)
+        submitted = self._http_json(
+            request.Request(
+                f"{reopened_url}/v1/jobs",
+                data=json.dumps(
+                    {
+                        "backend": "fixture",
+                        "maxUpdates": 2,
+                        "maxSeconds": 5,
+                        "tasksetDigest": first["digest"],
+                    }
+                ).encode(),
+                headers={
+                    "Authorization": f"Bearer {TOKEN}",
+                    "Content-Type": "application/json",
+                },
+            )
+        )
+        finished = self._wait_for_http_job(reopened_url, submitted["id"])
+
+        self.assertEqual(finished["state"], "succeeded")
+        self.assertEqual(finished["tasksetDigest"], first["digest"])
+        promotion = reopened.promote(
+            finished["candidateId"],
+            promoted_by="test-operator",
+        )
+        self.assertEqual(promotion["candidateId"], finished["candidateId"])
+
+        shutil.rmtree(self.state_dir / "tasksets" / digest)
+        with self.assertRaises(RuntimeFailure) as missing_taskset:
+            reopened.promote(
+                finished["candidateId"],
+                promoted_by="test-operator",
+            )
+        self.assertEqual(missing_taskset.exception.code, "candidate_mismatch")
+
+    def test_http_taskset_upload_rejects_invalid_bundles_with_stable_safe_errors(self):
+        uploaded_directory = write_taskset(
+            self,
+            [
+                make_task(31, answer=True),
+                make_task(32, split="test", answer=True),
+            ],
+        )
+        digest, valid = taskset_upload(uploaded_directory)
+        runtime = self._runtime()
+        _server, _thread, base_url = self._serve(runtime)
+        headers = {
+            "Authorization": f"Bearer {TOKEN}",
+            "Content-Type": "application/json",
+        }
+
+        cases = {}
+        wrong_digest = json.loads(json.dumps(valid))
+        cases["claimed digest"] = ("0" * 64, wrong_digest, None)
+        traversal = json.loads(json.dumps(valid))
+        traversal["tasks"][0]["images"][0]["path"] = "../screen.png"
+        traversal["images"][0]["path"] = "../screen.png"
+        cases["path containment"] = (digest, traversal, None)
+        reserved = json.loads(json.dumps(valid))
+        reserved["tasks"][0]["images"][0]["path"] = "taskset.json"
+        reserved["images"][0]["path"] = "taskset.json"
+        cases["reserved taskset path"] = (digest, reserved, None)
+        nul_path = json.loads(json.dumps(valid))
+        nul_path["tasks"][0]["images"][0]["path"] = "images/\x00screen.png"
+        nul_path["images"][0]["path"] = "images/\x00screen.png"
+        cases["NUL path"] = (digest, nul_path, None)
+        normalized_collision = json.loads(json.dumps(valid))
+        normalized_collision["images"].append(
+            {
+                **normalized_collision["images"][0],
+                "path": "images/./screen.png",
+            }
+        )
+        cases["normalized path collision"] = (digest, normalized_collision, None)
+        file_directory_collision = json.loads(json.dumps(valid))
+        file_directory_collision["images"].append(
+            {
+                **file_directory_collision["images"][0],
+                "path": "images/screen.png/detail.png",
+            }
+        )
+        cases["file and directory collision"] = (
+            digest,
+            file_directory_collision,
+            None,
+        )
+        invalid_path_type = json.loads(json.dumps(valid))
+        invalid_path_type["images"][0]["path"] = 7
+        cases["non-string image path"] = (digest, invalid_path_type, "invalid_input")
+        invalid_media_type = json.loads(json.dumps(valid))
+        invalid_media_type["images"][0]["mediaType"] = 7
+        cases["non-string image media type"] = (
+            digest,
+            invalid_media_type,
+            "invalid_input",
+        )
+        image_mismatch = json.loads(json.dumps(valid))
+        image_mismatch["images"][0]["dataBase64"] = base64.b64encode(b"changed").decode()
+        cases["image digest"] = (digest, image_mismatch, None)
+        media_type_mismatch = json.loads(json.dumps(valid))
+        media_type_mismatch["images"][0]["mediaType"] = "image/jpeg"
+        cases["image media type"] = (digest, media_type_mismatch, None)
+        extra_image = json.loads(json.dumps(valid))
+        extra_image["images"].append(
+            {
+                **extra_image["images"][0],
+                "path": "images/extra.png",
+            }
+        )
+        cases["extra image"] = (digest, extra_image, None)
+        too_many = json.loads(json.dumps(valid))
+        too_many["tasks"][0]["images"] = [
+            dict(too_many["tasks"][0]["images"][0]) for _ in range(6)
+        ]
+        cases["image count"] = (digest, too_many, None)
+        oversized = json.loads(json.dumps(valid))
+        oversized["images"][0]["dataBase64"] = base64.b64encode(
+            b"x" * (MAX_IMAGE_BYTES + 1)
+        ).decode()
+        cases["image size"] = (digest, oversized, None)
+        invalid_manifest = json.loads(json.dumps(valid))
+        invalid_manifest["manifest"]["schemaVersion"] = "unsupported"
+        cases["manifest contract"] = (digest, invalid_manifest, None)
+
+        for name, (claimed_digest, body, expected_code) in cases.items():
+            with self.subTest(name=name):
+                http_request = request.Request(
+                    f"{base_url}/v1/tasksets/{claimed_digest}",
+                    data=json.dumps(body).encode(),
+                    headers=headers,
+                    method="PUT",
+                )
+                first = self._http_error(http_request)
+                repeated = self._http_error(http_request)
+
+                self.assertEqual(first[0], 400)
+                self.assertEqual(repeated, first)
+                self.assertEqual(set(first[1]["error"]), {"code", "message"})
+                self.assertTrue(first[1]["error"]["code"])
+                if expected_code is not None:
+                    self.assertEqual(first[1]["error"]["code"], expected_code)
+                self.assertNotIn("dataBase64", first[1]["error"]["message"])
+                self.assertNotIn(str(self.state_dir), first[1]["error"]["message"])
+
+    def test_http_cancels_a_running_job_without_publishing_a_stale_candidate(self):
+        started = self.taskset_dir / ".cancel-started"
+        release = self.taskset_dir / ".cancel-release"
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"cancellable": CancellableBackend(started, release)},
+            environment="test",
+        )
+        self.addCleanup(runtime.close)
+        _server, _thread, base_url = self._serve(runtime)
+        submitted = self._http_json(
+            request.Request(
+                f"{base_url}/v1/jobs",
+                data=json.dumps(
+                    {
+                        "backend": "cancellable",
+                        "maxUpdates": 2,
+                        "maxSeconds": 30,
+                    }
+                ).encode(),
+                headers={
+                    "Authorization": f"Bearer {TOKEN}",
+                    "Content-Type": "application/json",
+                },
+            )
+        )
+        deadline = time.monotonic() + 5
+        while not started.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(started.exists())
+
+        cancel_request = request.Request(
+            f"{base_url}/v1/jobs/{submitted['id']}/cancel",
+            data=b"{}",
+            headers={
+                "Authorization": f"Bearer {TOKEN}",
+                "Content-Type": "application/json",
+                "Idempotency-Key": "cancel-running",
+            },
+        )
+        before = time.monotonic()
+        try:
+            cancelled = self._http_json(cancel_request)
+        except Exception:
+            release.write_text("release", encoding="utf-8")
+            raise
+
+        self.assertLess(time.monotonic() - before, 2)
+        self.assertEqual(cancelled["state"], "cancelled")
+        self.assertNotIn("candidateId", cancelled)
+        deadline = time.monotonic() + 2
+        training_usage = []
+        while time.monotonic() < deadline:
+            usage = runtime.local_connectors.observability.records()
+            training_usage = [
+                record for record in usage if record.kind == "training_updates"
+            ]
+            if training_usage:
+                break
+            time.sleep(0.01)
+        self.assertEqual(runtime.job(submitted["id"])["state"], "cancelled")
+        self.assertEqual(list((self.state_dir / "candidates").iterdir()), [])
+        self.assertFalse(release.exists())
+        self.assertEqual(len(training_usage), 1)
+        self.assertEqual(training_usage[0].metadata["state"], "cancelled")
+        self.assertIn(
+            "job_cancellations",
+            [
+                record.kind
+                for record in runtime.local_connectors.observability.records()
+            ],
+        )
+
+        runtime.close()
+        reopened = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"cancellable": CancellableBackend(started, release)},
+            environment="test",
+        )
+        self.addCleanup(reopened.close)
+        self.assertEqual(reopened.job(submitted["id"])["state"], "cancelled")
+
+    def test_http_cancellation_is_safe_for_queued_retries_and_terminal_jobs(self):
+        started = self.taskset_dir / ".queued-cancel-started"
+        release = self.taskset_dir / ".queued-cancel-release"
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={
+                "blocking": BlockingBackend(started, release),
+                "fixture": FixtureBackend(),
+                "failing": FailingBackend(),
+            },
+            environment="test",
+        )
+        self.addCleanup(runtime.close)
+        _server, _thread, base_url = self._serve(runtime)
+        running = runtime.submit(backend="blocking", max_updates=1, max_seconds=10)
+        deadline = time.monotonic() + 5
+        while not started.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(started.exists())
+        queued = runtime.submit(backend="fixture", max_updates=1, max_seconds=5)
+
+        with self.assertRaises(error.HTTPError) as unauthorized:
+            request.urlopen(
+                request.Request(
+                    f"{base_url}/v1/jobs/{queued['id']}/cancel",
+                    data=b"{}",
+                    headers={"Content-Type": "application/json"},
+                )
+            )
+        self.assertEqual(unauthorized.exception.code, 401)
+        unauthorized.exception.close()
+
+        def cancel(job_id, key):
+            return self._http_json(
+                request.Request(
+                    f"{base_url}/v1/jobs/{job_id}/cancel",
+                    data=b"{}",
+                    headers={
+                        "Authorization": f"Bearer {TOKEN}",
+                        "Content-Type": "application/json",
+                        "Idempotency-Key": key,
+                    },
+                )
+            )
+
+        first = cancel(queued["id"], "cancel-queued")
+        same_retry = cancel(queued["id"], "cancel-queued")
+        other_retry = cancel(queued["id"], "cancel-queued-again")
+        self.assertEqual(first["state"], "cancelled")
+        self.assertEqual(same_retry, first)
+        self.assertEqual(other_retry, first)
+
+        release.write_text("release", encoding="utf-8")
+        self.assertEqual(self._wait_for_job(runtime, running["id"])["state"], "succeeded")
+        failed = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="failing", max_updates=1, max_seconds=5)["id"],
+        )
+        for job_id in (running["id"], failed["id"]):
+            with self.subTest(job_id=job_id):
+                terminal = self._http_error(
+                    request.Request(
+                        f"{base_url}/v1/jobs/{job_id}/cancel",
+                        data=b"{}",
+                        headers={
+                            "Authorization": f"Bearer {TOKEN}",
+                            "Content-Type": "application/json",
+                        },
+                    )
+                )
+                self.assertEqual(terminal[0], 409)
+                self.assertEqual(terminal[1]["error"]["code"], "job_terminal")
+                self.assertNotIn("backend-token", json.dumps(terminal[1]))
+
     def test_http_routes_require_the_token_and_track_an_authorized_job(self):
         runtime = self._runtime()
         server = RuntimeHTTPServer(("127.0.0.1", 0), runtime, TOKEN)
@@ -1317,6 +1829,15 @@ class LocalRuntimeTest(unittest.TestCase):
         self.addCleanup(runtime.close)
         return runtime
 
+    def _serve(self, runtime):
+        server = RuntimeHTTPServer(("127.0.0.1", 0), runtime, TOKEN)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 1)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return server, thread, f"http://127.0.0.1:{server.server_address[1]}"
+
     def _request(self):
         task = make_task(99, split="test", answer=True)
         return {
@@ -1353,6 +1874,16 @@ class LocalRuntimeTest(unittest.TestCase):
     def _http_json(self, http_request):
         with request.urlopen(http_request) as response:
             return json.load(response)
+
+    def _http_json_response(self, http_request):
+        with request.urlopen(http_request) as response:
+            return response.status, json.load(response)
+
+    def _http_error(self, http_request):
+        with self.assertRaises(error.HTTPError) as failed:
+            request.urlopen(http_request)
+        with failed.exception as response:
+            return response.code, json.load(response)
 
     def _candidate_documents(self, candidate):
         self.assertIsInstance(candidate, Mapping)

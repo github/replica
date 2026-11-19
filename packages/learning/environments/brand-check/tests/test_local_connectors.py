@@ -29,7 +29,7 @@ from replica_brand_check.connectors import (
     Usage,
 )
 from replica_brand_check.local_connectors import create_local_connector_bundle
-from tests.support import make_task, write_taskset
+from tests.support import make_task, taskset_bundle, write_taskset
 
 
 _RESOURCES = []
@@ -146,6 +146,8 @@ def _conformance_fixture() -> ConnectorConformanceFixture:
         scope=scope,
         other_repository_scope=other_repository_scope,
         other_tenant_scope=other_tenant_scope,
+        taskset_bundle=taskset_bundle(taskset_directory),
+        taskset_digest=bundle.taskset_digest,
         taskset_reference=bundle.taskset_reference,
         usage=bundle.observability.records,
     )
@@ -170,6 +172,45 @@ def _cleanup_resources():
 
 
 class LocalConnectorPersistenceTest(unittest.TestCase):
+    def test_identical_mounted_upload_persists_and_repairs_its_stored_copy(self):
+        bundle, state_directory, scope = _new_bundle(self)
+        startup_directory = bundle.tasksets.taskset.directory
+        uploaded = taskset_bundle(startup_directory)
+        registered = bundle.connectors.tasksets.register(
+            uploaded,
+            _context(scope, "register-taskset"),
+        )
+        self.assertNotEqual(registered.reference, "")
+        stored = state_directory / "tasksets" / registered.digest.value
+        self.assertTrue(stored.is_dir())
+
+        shutil.rmtree(stored)
+        repaired = bundle.connectors.tasksets.register(
+            uploaded,
+            _context(scope, "register-taskset"),
+        )
+        self.assertEqual(repaired, registered)
+        self.assertTrue(stored.is_dir())
+        bundle.close()
+
+        reopened = create_local_connector_bundle(
+            state_directory,
+            None,
+            {"fixture": _FixtureBackend()},
+            scope=scope,
+        )
+        self.addCleanup(reopened.close)
+
+        resolved = reopened.connectors.tasksets.resolve(
+            registered.reference,
+            _context(scope, "resolve-registered-taskset"),
+        )
+        self.assertEqual(resolved.digest, registered.digest)
+        self.assertEqual(
+            [task.id for task in resolved.taskset.tasks],
+            [task.id for task in registered.taskset.tasks],
+        )
+
     def test_refuses_to_mint_credentials_for_another_scope(self):
         bundle, _, scope = _new_bundle(self)
 

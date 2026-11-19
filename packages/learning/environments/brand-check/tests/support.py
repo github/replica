@@ -7,6 +7,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from replica_brand_check.connectors import ContentDigest, TasksetBundle, TasksetImage
+from replica_brand_check.taskset import load_taskset
+
 # A valid 1x1 PNG.
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
@@ -76,3 +79,55 @@ def write_taskset(case: unittest.TestCase, tasks: list) -> Path:
     lines = "".join(json.dumps(task) + "\n" for task in tasks)
     (directory / "tasks.jsonl").write_text(lines, encoding="utf-8")
     return directory
+
+
+def taskset_upload(directory: Path) -> tuple[str, dict]:
+    """Return the semantic digest and versioned upload document for a taskset."""
+    from replica_brand_check.local_connectors import taskset_digest
+
+    manifest = json.loads((directory / "taskset.json").read_text(encoding="utf-8"))
+    tasks = [
+        json.loads(line)
+        for line in (directory / "tasks.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    images = {}
+    for task in tasks:
+        for image in task["images"]:
+            path = image["path"]
+            images.setdefault(
+                path,
+                {
+                    "path": path,
+                    "mediaType": image["mediaType"],
+                    "digest": image["digest"],
+                    "dataBase64": base64.b64encode((directory / path).read_bytes()).decode(
+                        "ascii"
+                    ),
+                },
+            )
+    digest_value = taskset_digest(load_taskset(directory)).value
+    return digest_value, {
+        "schemaVersion": "replica.decision-taskset-upload/v1",
+        "manifest": manifest,
+        "tasks": tasks,
+        "images": list(images.values()),
+    }
+
+
+def taskset_bundle(directory: Path) -> TasksetBundle:
+    """Build the provider-neutral registration value from a local taskset."""
+    _digest_value, upload = taskset_upload(directory)
+    images = tuple(
+        TasksetImage(
+            path=image["path"],
+            media_type=image["mediaType"],
+            digest=ContentDigest("sha256", image["digest"].removeprefix("sha256:")),
+            data=base64.b64decode(image["dataBase64"]),
+        )
+        for image in upload["images"]
+    )
+    return TasksetBundle(
+        manifest=upload["manifest"],
+        tasks=tuple(upload["tasks"]),
+        images=images,
+    )

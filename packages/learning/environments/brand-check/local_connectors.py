@@ -31,6 +31,7 @@ from .connectors import (
     RuntimeOwner,
     RuntimeScope,
     TasksetArtifact,
+    TasksetBundle,
     Usage,
     check_context,
 )
@@ -216,30 +217,325 @@ class _ScopedConnector:
 
 
 class LocalTasksetConnector(_ScopedConnector):
-    """Resolve the one read-only taskset mounted for a scoped runtime."""
+    """Register and resolve private immutable tasksets for one runtime scope."""
 
     def __init__(
         self,
-        taskset_directory: str | os.PathLike[str],
+        root: Path,
+        taskset_directory: str | os.PathLike[str] | None,
         scope: RuntimeScope,
     ):
         super().__init__(scope)
-        try:
+        self.root = root / "tasksets"
+        self.idempotency = self.root / ".idempotency"
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.idempotency.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(self.root, 0o700)
+        os.chmod(self.idempotency, 0o700)
+        self._lock = threading.RLock()
+        self.taskset = None
+        self.digest = None
+        self.reference = None
+        self._mounted: dict[str, Taskset] = {}
+        if taskset_directory is not None:
             self.taskset = load_taskset(taskset_directory)
-        except TasksetError:
-            raise
-        self.digest = taskset_digest(self.taskset)
-        self.reference = f"taskset:{self.digest.value}"
+            self.digest = taskset_digest(self.taskset)
+            self.reference = f"taskset:{self.digest.value}"
+            self._mounted[self.reference] = self.taskset
+
+    def register(
+        self, bundle: TasksetBundle, context: OperationContext
+    ) -> TasksetArtifact:
+        self._check(context)
+        claimed_digest = bundle.digest
+        ordered_images = sorted(bundle.images, key=lambda image: image.path)
+        request_identity = hashlib.sha256()
+        request_identity.update(
+            _json_bytes(
+                {
+                    "digest": str(claimed_digest) if claimed_digest else None,
+                    "manifest": bundle.manifest,
+                    "tasks": bundle.tasks,
+                    "images": [
+                        {
+                            "path": image.path,
+                            "mediaType": image.media_type,
+                            "digest": str(image.digest),
+                        }
+                        for image in ordered_images
+                    ],
+                }
+            )
+        )
+        for image in ordered_images:
+            request_identity.update(b"\0")
+            request_identity.update(image.data)
+        request_digest = ContentDigest("sha256", request_identity.hexdigest())
+        idempotency_path = self.idempotency / hashlib.sha256(
+            context.idempotency_key.encode()
+        ).hexdigest()
+        with self._lock:
+            if idempotency_path.exists():
+                saved = _read_object(
+                    idempotency_path,
+                    code="taskset_idempotency_not_found",
+                    message="The taskset retry record was not found.",
+                )
+                if saved.get("requestDigest") != str(request_digest):
+                    raise ConnectorError(
+                        "idempotency_conflict",
+                        "The idempotency key was reused with different input.",
+                        category="conflict",
+                    )
+            staging = self.root / f".register-{uuid.uuid4().hex}"
+            try:
+                check_context(context)
+                staging.mkdir(mode=0o700)
+                _materialize_taskset_bundle(staging, bundle, context)
+                taskset = load_taskset(staging)
+                check_context(context)
+                actual = taskset_digest(taskset)
+                if claimed_digest is not None and actual != claimed_digest:
+                    claimed_reference = f"taskset:{claimed_digest.value}"
+                    immutable = (
+                        claimed_reference in self._mounted
+                        or (self.root / claimed_digest.value).exists()
+                    )
+                    raise ConnectorError(
+                        "taskset_immutable" if immutable else "taskset_digest_mismatch",
+                        "The taskset digest already identifies different content."
+                        if immutable
+                        else "The taskset contents do not match the claimed digest.",
+                        category="conflict" if immutable else "invalid_input",
+                    )
+                reference = f"taskset:{actual.value}"
+                destination = self.root / actual.value
+                if destination.exists():
+                    existing = self.resolve(reference, context)
+                    if not idempotency_path.exists():
+                        check_context(context)
+                        _write_immutable(
+                            idempotency_path,
+                            _json_bytes(
+                                {
+                                    "reference": reference,
+                                    "requestDigest": str(request_digest),
+                                }
+                            ),
+                        )
+                    return existing
+                check_context(context)
+                os.replace(staging, destination)
+                _sync_directory(self.root)
+                if not idempotency_path.exists():
+                    _write_immutable(
+                        idempotency_path,
+                        _json_bytes(
+                            {
+                                "reference": reference,
+                                "requestDigest": str(request_digest),
+                            }
+                        ),
+                    )
+            except TasksetError as error:
+                raise ConnectorError(
+                    "taskset_invalid",
+                    str(error),
+                    category="invalid_input",
+                ) from None
+            finally:
+                shutil.rmtree(staging, ignore_errors=True)
+        return TasksetArtifact(reference, actual, load_taskset(destination))
 
     def resolve(self, reference: str, context: OperationContext) -> TasksetArtifact:
         self._check(context, hide=True)
-        if reference != self.reference:
+        if reference.startswith("taskset:"):
+            value = reference.removeprefix("taskset:")
+            directory = self.root / value
+            try:
+                digest = ContentDigest("sha256", value)
+            except ValueError:
+                digest = None
+            if digest is not None and directory.is_dir():
+                try:
+                    taskset = load_taskset(directory)
+                except TasksetError:
+                    raise ConnectorError(
+                        "taskset_damaged",
+                        "The taskset no longer matches its immutable identity.",
+                        category="integrity",
+                    ) from None
+                if taskset_digest(taskset) != digest:
+                    raise ConnectorError(
+                        "taskset_damaged",
+                        "The taskset no longer matches its immutable identity.",
+                        category="integrity",
+                    )
+                return TasksetArtifact(reference, digest, taskset)
+        mounted = self._mounted.get(reference)
+        if mounted is not None:
+            try:
+                mounted = load_taskset(mounted.directory)
+            except TasksetError:
+                raise ConnectorError(
+                    "taskset_damaged",
+                    "The taskset no longer matches its immutable identity.",
+                    category="integrity",
+                ) from None
+            digest = taskset_digest(mounted)
+            if reference != f"taskset:{digest.value}":
+                raise ConnectorError(
+                    "taskset_damaged",
+                    "The taskset no longer matches its immutable identity.",
+                    category="integrity",
+                )
+            return TasksetArtifact(reference, digest, mounted)
+        if not reference.startswith("taskset:"):
             raise ConnectorError(
                 "taskset_not_found",
                 "The taskset was not found.",
                 category="not_found",
             )
-        return TasksetArtifact(reference, self.digest, self.taskset)
+        value = reference.removeprefix("taskset:")
+        directory = self.root / value
+        try:
+            digest = ContentDigest("sha256", value)
+        except ValueError:
+            raise ConnectorError(
+                "taskset_not_found",
+                "The taskset was not found.",
+                category="not_found",
+            ) from None
+        if not directory.is_dir():
+            raise ConnectorError(
+                "taskset_not_found",
+                "The taskset was not found.",
+                category="not_found",
+            )
+        try:
+            taskset = load_taskset(directory)
+        except TasksetError:
+            raise ConnectorError(
+                "taskset_damaged",
+                "The taskset no longer matches its immutable identity.",
+                category="integrity",
+            ) from None
+        if taskset_digest(taskset) != digest:
+            raise ConnectorError(
+                "taskset_damaged",
+                "The taskset no longer matches its immutable identity.",
+                category="integrity",
+            )
+        return TasksetArtifact(reference, digest, taskset)
+
+
+def _materialize_taskset_bundle(
+    directory: Path, bundle: TasksetBundle, context: OperationContext
+) -> None:
+    check_context(context)
+    paths = [_taskset_image_parts(image.path) for image in bundle.images]
+    reserved = {("taskset.json",), ("tasks.jsonl",)}
+    for parts in paths:
+        if parts in reserved:
+            raise ConnectorError(
+                "taskset_image_path_invalid",
+                "A taskset image path conflicts with a taskset data file.",
+                category="invalid_input",
+            )
+    path_set = set(paths)
+    if len(path_set) != len(paths) or any(
+        parts[:index] in path_set
+        for parts in path_set
+        for index in range(1, len(parts))
+    ):
+        raise ConnectorError(
+            "taskset_image_conflict",
+            "Taskset image paths must not repeat or collide as files and directories.",
+            category="invalid_input",
+        )
+    _write_immutable(directory / "taskset.json", _json_bytes(bundle.manifest))
+    check_context(context)
+    _write_immutable(
+        directory / "tasks.jsonl",
+        b"".join(_json_bytes(task) for task in bundle.tasks),
+    )
+    expected: dict[str, tuple[str, str]] = {}
+    for task in bundle.tasks:
+        images = task.get("images") if isinstance(task, Mapping) else None
+        if not isinstance(images, list):
+            continue
+        for image in images:
+            if not isinstance(image, Mapping):
+                continue
+            path = image.get("path")
+            media_type = image.get("mediaType")
+            digest = image.get("digest")
+            if not all(isinstance(value, str) for value in (path, media_type, digest)):
+                continue
+            identity = (media_type, digest)
+            prior = expected.get(path)
+            if prior is not None and prior != identity:
+                raise ConnectorError(
+                    "taskset_image_conflict",
+                    "A taskset image path has inconsistent metadata.",
+                    category="invalid_input",
+                )
+            expected[path] = identity
+    seen: dict[str, Any] = {}
+    for image, parts in zip(bundle.images, paths, strict=True):
+        check_context(context)
+        if _digest(image.data) != image.digest:
+            raise ConnectorError(
+                "taskset_image_digest_mismatch",
+                "A taskset image does not match its claimed digest.",
+                category="invalid_input",
+            )
+        prior = seen.get(image.path)
+        identity = (image.media_type, image.digest, image.data)
+        if expected.get(image.path) != (image.media_type, str(image.digest)):
+            raise ConnectorError(
+                "taskset_image_metadata_mismatch",
+                "A transferred image does not match the taskset image metadata.",
+                category="invalid_input",
+            )
+        if prior is not None:
+            raise ConnectorError(
+                "taskset_image_conflict",
+                "A taskset image path appears more than once.",
+                category="invalid_input",
+            )
+        _write_immutable(directory.joinpath(*parts), image.data)
+        seen[image.path] = identity
+    check_context(context)
+    if set(seen) != set(expected):
+        raise ConnectorError(
+            "taskset_images_incomplete",
+            "The transfer must contain every taskset image exactly once.",
+            category="invalid_input",
+        )
+
+
+def _taskset_image_parts(path: str) -> tuple[str, ...]:
+    if (
+        not isinstance(path, str)
+        or not path
+        or "\x00" in path
+        or "\\" in path
+        or path.startswith("/")
+    ):
+        raise ConnectorError(
+            "taskset_image_path_invalid",
+            "A taskset image path must stay inside the taskset.",
+            category="invalid_input",
+        )
+    parts = tuple(path.split("/"))
+    if any(part in ("", ".", "..") for part in parts):
+        raise ConnectorError(
+            "taskset_image_path_invalid",
+            "A taskset image path must use canonical relative segments.",
+            category="invalid_input",
+        )
+    return parts
 
 
 class LocalArtifactConnector(_ScopedConnector):
@@ -1454,8 +1750,8 @@ class LocalConnectorBundle:
     connectors: RuntimeConnectors
     scope: RuntimeScope
     state_directory: Path
-    taskset_reference: str
-    taskset_digest: ContentDigest
+    taskset_reference: str | None
+    taskset_digest: ContentDigest | None
     tasksets: LocalTasksetConnector
     candidates: LocalCandidateConnector
     observability: LocalObservabilityConnector
@@ -1469,7 +1765,7 @@ class LocalConnectorBundle:
 
 def create_local_connector_bundle(
     state_directory: str | os.PathLike[str],
-    taskset_directory: str | os.PathLike[str],
+    taskset_directory: str | os.PathLike[str] | None,
     backends: Mapping[str, Any],
     *,
     scope: RuntimeScope,
@@ -1523,7 +1819,7 @@ def create_local_connector_bundle(
                 )
         else:
             _write_immutable(scope_path, _json_bytes(expected_scope))
-        tasksets = LocalTasksetConnector(taskset_directory, scope)
+        tasksets = LocalTasksetConnector(root, taskset_directory, scope)
         artifacts = LocalArtifactConnector(root, scope)
         jobs = LocalJobConnector(root, scope)
         candidates = LocalCandidateConnector(root, scope)
