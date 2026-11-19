@@ -62,7 +62,10 @@ const evaluationSummarySchema = z
     findings: z.array(
       z
         .object({
-          learning: z.object({ id: z.string() }).strict(),
+          learning: z
+            .object({ id: z.string(), text: z.string().nullable().optional() })
+            .strict()
+            .transform(({ id }) => ({ id })),
           route: z.string(),
           views: z.array(
             z

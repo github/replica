@@ -741,20 +741,18 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
             const matchingJobs = repository.decisionTrainingJobs.filter(
               (candidate) => candidate.consentGrantId === withdrawal.grantId,
             )
-            const actorGrant =
-              repository.accessGrants.find(
-                (grant) => grant.membership.user.profile?.login === login,
-              ) ?? repository.accessGrants[0]
-            const actorJob =
-              matchingJobs.find(
-                (candidate) => candidate.requestedByMembership?.user.profile?.login === login,
-              ) ??
-              matchingJobs[0] ??
-              repository.decisionTrainingJobs.find(
-                (candidate) => candidate.requestedByMembership?.user.profile?.login === login,
-              ) ??
-              repository.decisionTrainingJobs[0]
-            const actorMembershipId = actorGrant?.membershipId ?? actorJob?.requestedByMembershipId
+            const matchingActorJob = repository.decisionTrainingJobs.find(
+              (candidate) => candidate.requestedByMembership?.user.profile?.login === login,
+            )
+            const matchingActorGrant = repository.accessGrants.find(
+              (grant) => grant.membership.user.profile?.login === login,
+            )
+            const actorJob = matchingJobs[0] ?? repository.decisionTrainingJobs[0]
+            const actorMembershipId =
+              matchingActorJob?.requestedByMembershipId ??
+              matchingActorGrant?.membershipId ??
+              actorJob?.requestedByMembershipId ??
+              repository.accessGrants[0]?.membershipId
             if (!actorMembershipId) continue
             if (!matchingJobs.length) {
               pending.push({
