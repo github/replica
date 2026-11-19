@@ -30,3 +30,10 @@ export class SessionRevocationPersistenceError extends Error {
     this.name = "SessionRevocationPersistenceError"
   }
 }
+
+export class SessionRevocationUnavailableError extends Error {
+  constructor(options?: ErrorOptions) {
+    super("Session revocation is temporarily unavailable.", options)
+    this.name = "SessionRevocationUnavailableError"
+  }
+}

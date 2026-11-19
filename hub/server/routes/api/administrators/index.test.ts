@@ -5,6 +5,7 @@ import type { AddressInfo } from "node:net"
 import { describe, expect, it, vi } from "vitest"
 
 import { AdministratorAuthorizationDeniedError } from "../../../domains/administrator-authorization/errors"
+import { AdministratorManagementUnavailableError } from "../../../domains/administrator-management/errors"
 import { createApp } from "../../../create-app"
 import type {
   AdministratorRouteDependencies,
@@ -328,6 +329,32 @@ describe("administratorRoutes()", () => {
 
       expect(response.status).toBe(409)
       expect(await response.json()).toEqual({ error: "used" })
+    })
+  })
+
+  it("returns retryable feedback when continuation coordination is busy", async () => {
+    const { authentication, continueAuthorization } = routeDependencies()
+    continueAuthorization.mockRejectedValueOnce(new AdministratorManagementUnavailableError())
+
+    await withServer(authentication, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/administrators/authorizations/continue`, {
+        method: "POST",
+        headers: sessionHeaders({
+          "content-type": "application/json",
+          origin: applicationOrigin,
+        }),
+        body: JSON.stringify({
+          authorizationId: randomUUID(),
+          operation: "REVOKE_ADMINISTRATOR",
+          targetMembershipIds: [randomUUID()],
+        }),
+      })
+
+      expect(response.status).toBe(503)
+      expect(response.headers.get("retry-after")).toBe("1")
+      expect(await response.json()).toEqual({
+        error: "Administrator changes are temporarily unavailable. Try again.",
+      })
     })
   })
 

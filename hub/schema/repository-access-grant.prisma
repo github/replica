@@ -1,5 +1,5 @@
-// A GitHub member's read access to a connected repository, refreshed at each
-// sign-in and narrowed by GitHub webhooks.
+// A GitHub member's current access to a connected repository, refreshed at
+// each sign-in and narrowed by GitHub webhooks.
 model RepositoryAccessGrant {
   // ID columns
   id           String @id @default(uuid()) @db.Uuid
@@ -9,6 +9,9 @@ model RepositoryAccessGrant {
   // Relations
   membership Membership @relation(fields: [membershipId], references: [id], onDelete: Restrict)
   repository Repository @relation(fields: [repositoryId], references: [id], onDelete: Restrict)
+
+  // Attribute columns
+  accessLevel RepositoryAccessLevel @default(READ) @map("access_level")
 
   // Timestamp columns
   observedAt DateTime @map("observed_at") @db.Timestamptz(3)

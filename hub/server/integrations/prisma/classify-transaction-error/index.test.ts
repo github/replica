@@ -14,6 +14,10 @@ describe("classifyPrismaTransactionError()", () => {
     ).toBe("retryable")
   })
 
+  it.each(["40P01", "55P03"])("classifies PostgreSQL %s failures as retryable", (code) => {
+    expect(classifyPrismaTransactionError({ code })).toBe("retryable")
+  })
+
   it("classifies driver adapter serialization failures as retryable", () => {
     expect(
       classifyPrismaTransactionError({

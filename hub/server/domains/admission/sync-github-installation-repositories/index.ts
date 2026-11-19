@@ -3,9 +3,11 @@ import type { Prisma } from "../../../generated/prisma/client.ts"
 import { classifyPrismaTransactionError } from "../../../integrations/prisma/classify-transaction-error/index.ts"
 import { advanceGitHubRepositoryAccessState } from "../../../repositories/github-repository-access-states/advance-github-repository-access-state/index.ts"
 import { lockGitHubRepositoryAccessState } from "../../../repositories/github-repository-access-states/lock-github-repository-access-state/index.ts"
+import { lockSessionAuthorityChanges } from "../../../repositories/hub-sessions/lock-session-authority-changes/index.ts"
 import { readGitHubRepositoryAccessState } from "../../../repositories/github-repository-access-states/read-github-repository-access-state/index.ts"
 import { listConnectedGitHubRepositories } from "../../../repositories/repository-access/list-connected-github-repositories/index.ts"
 import { listDisconnectedGitHubRepositoriesWithGrants } from "../../../repositories/repository-access/list-disconnected-github-repositories-with-grants/index.ts"
+import { lockRepositoryAdministrationChanges } from "../../../repositories/repository-access/lock-repository-administration-changes/index.ts"
 import { markRepositoriesDisconnected } from "../../../repositories/repository-access/mark-repositories-disconnected/index.ts"
 import { removeRepositoryAccessGrants } from "../../../repositories/repository-access/remove-repository-access-grants/index.ts"
 import { upsertConnectedRepositories } from "../../../repositories/repository-access/upsert-connected-repositories/index.ts"
@@ -39,6 +41,8 @@ export async function syncGitHubInstallationRepositories<T extends ConnectedRepo
         throw new Error("The GitHub installation repository list contains duplicate IDs.")
       }
       await database.$transaction(async (transaction) => {
+        await lockRepositoryAdministrationChanges(transaction)
+        await lockSessionAuthorityChanges(transaction)
         if (authorize && !(await authorize(transaction))) {
           throw new AdmissionAuthorityChangedError()
         }

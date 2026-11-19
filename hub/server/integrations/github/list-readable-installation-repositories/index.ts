@@ -2,7 +2,7 @@ import { z } from "zod"
 
 import { GitHubProviderRequestError } from "../errors.ts"
 import { requestGitHubUser } from "../request-github-user/index.ts"
-import type { GitHubRepositoryEvidence } from "../types.ts"
+import type { GitHubRepositoryAccessEvidence, GitHubRepositoryAccessLevel } from "../types.ts"
 
 const repositoriesSchema = z.looseObject({
   total_count: z.number().int().nonnegative(),
@@ -11,6 +11,13 @@ const repositoriesSchema = z.looseObject({
       default_branch: z.string().min(1).max(255),
       full_name: z.string().min(3).max(255),
       id: z.number().int().positive(),
+      permissions: z.looseObject({
+        admin: z.boolean(),
+        maintain: z.boolean().optional(),
+        pull: z.boolean(),
+        push: z.boolean(),
+        triage: z.boolean().optional(),
+      }),
     }),
   ),
 })
@@ -25,8 +32,8 @@ export async function listReadableInstallationRepositories(
   request: typeof globalThis.fetch,
   installationId: number,
   accessToken: string,
-): Promise<GitHubRepositoryEvidence[]> {
-  const repositories: GitHubRepositoryEvidence[] = []
+): Promise<GitHubRepositoryAccessEvidence[]> {
+  const repositories: GitHubRepositoryAccessEvidence[] = []
   let totalCount: number | undefined
   for (let page = 1; page <= maxPages; page += 1) {
     const url = new URL(`https://api.github.com/user/installations/${installationId}/repositories`)
@@ -37,13 +44,15 @@ export async function listReadableInstallationRepositories(
     const response = await requestGitHubUser(request, url.toString(), accessToken)
     if (response.status === 404 && page === 1) return []
     if (!response.ok) throw new GitHubProviderRequestError()
-    const body = repositoriesSchema.parse(await response.json())
-    if (totalCount !== undefined && totalCount !== body.total_count) {
+    const body = repositoriesSchema.safeParse(await response.json().catch(() => undefined))
+    if (!body.success) throw new GitHubProviderRequestError({ cause: body.error })
+    if (totalCount !== undefined && totalCount !== body.data.total_count) {
       throw new GitHubProviderRequestError()
     }
-    totalCount = body.total_count
+    totalCount = body.data.total_count
     repositories.push(
-      ...body.repositories.map((repository) => ({
+      ...body.data.repositories.map((repository) => ({
+        accessLevel: accessLevel(repository.permissions),
         defaultBranch: repository.default_branch,
         githubRepositoryId: repository.id,
         nameWithOwner: repository.full_name,
@@ -57,9 +66,20 @@ export async function listReadableInstallationRepositories(
       }
       return repositories
     }
-    if (repositories.length > totalCount || body.repositories.length < pageSize) {
+    if (repositories.length > totalCount || body.data.repositories.length < pageSize) {
       throw new GitHubProviderRequestError()
     }
   }
+  throw new GitHubProviderRequestError()
+}
+
+function accessLevel(
+  permissions: z.infer<typeof repositoriesSchema>["repositories"][number]["permissions"],
+): GitHubRepositoryAccessLevel {
+  if (permissions.admin) return "ADMIN"
+  if (permissions.maintain) return "MAINTAIN"
+  if (permissions.push) return "WRITE"
+  if (permissions.triage) return "TRIAGE"
+  if (permissions.pull) return "READ"
   throw new GitHubProviderRequestError()
 }

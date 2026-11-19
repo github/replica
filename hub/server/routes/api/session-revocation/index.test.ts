@@ -5,7 +5,10 @@ import type { AddressInfo } from "node:net"
 import { describe, expect, it, vi } from "vitest"
 
 import { createApp } from "../../../create-app"
-import { SessionRevocationDeniedError } from "../../../domains/session-revocation/errors"
+import {
+  SessionRevocationDeniedError,
+  SessionRevocationUnavailableError,
+} from "../../../domains/session-revocation/errors"
 import type {
   AuthenticationRouteDependencies,
   SessionRevocationRouteDependencies,
@@ -220,6 +223,19 @@ describe("sessionRevocationRoutes()", () => {
       expect(denied.status).toBe(409)
       expect(await denied.json()).toEqual({ error: "expired" })
       expect(denied.headers.get("set-cookie")).toBeNull()
+
+      continueRevocation.mockRejectedValueOnce(new SessionRevocationUnavailableError())
+      const unavailable = await fetch(`${baseUrl}/api/session-revocation/authorizations/continue`, {
+        method: "POST",
+        headers: sessionHeaders({
+          "content-type": "application/json",
+          origin: applicationOrigin,
+        }),
+        body: JSON.stringify({ authorizationId: randomUUID() }),
+      })
+      expect(unavailable.status).toBe(503)
+      expect(unavailable.headers.get("retry-after")).toBe("1")
+      expect(unavailable.headers.get("set-cookie")).toBeNull()
     })
   })
 })

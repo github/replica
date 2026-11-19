@@ -2,6 +2,7 @@ import type { Logger } from "pino"
 
 import { getCopilotConnectionStatus } from "../../copilot-connection/get-copilot-connection-status/index.ts"
 import { resolveLocalSignInEnvironment } from "../../authentication/resolve-local-sign-in-environment/index.ts"
+import { authorizeRepositoryAdministration } from "../authorize-repository-administration/index.ts"
 import { createReviewCommentLearningSource } from "../create-review-comment-learning-source/index.ts"
 import { learningRunJob } from "../jobs/learning-run.ts"
 import { recoverLearningRunsJob } from "../jobs/recover-learning-runs.ts"
@@ -73,7 +74,8 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
       finish: (id, input) => finishLearningRun(prisma, id, input),
       getRun: (id) => getLearningRun(prisma, id),
       now: () => new Date(),
-      isAdministrator: (membershipId) => isEffectiveAdministrator(prisma, membershipId),
+      authorizeRepositoryAdministration: (membershipId, repositoryId) =>
+        authorizeRepositoryAdministration(prisma, { membershipId, repositoryId }),
       prepare: (repositoryId) =>
         prepareLearningStore({
           applicationRoot: process.cwd(),

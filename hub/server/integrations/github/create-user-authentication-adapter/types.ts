@@ -1,4 +1,4 @@
-import type { GitHubRepositoryEvidence } from "../types.ts"
+import type { GitHubRepositoryAccessEvidence } from "../types.ts"
 
 export interface GitHubAuthenticationPublicConfiguration {
   authorizationEndpoint: string
@@ -46,6 +46,6 @@ export interface GitHubUserAuthenticationAdapter {
       issuedAt: Date
       role: "MEMBER" | null
     }
-    repositoryAccess?: GitHubRepositoryEvidence[]
+    repositoryAccess?: GitHubRepositoryAccessEvidence[]
   }>
 }

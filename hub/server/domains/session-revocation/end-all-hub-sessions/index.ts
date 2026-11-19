@@ -7,6 +7,7 @@ import { createSecurityAudit } from "../../../repositories/security-audits/creat
 import { getSensitiveAuthorizationAuditData } from "../../../repositories/sensitive-authorizations/get-sensitive-authorization-audit-data/index.ts"
 import { endAllOpenHubSessions } from "../../../repositories/hub-sessions/end-all-open-hub-sessions/index.ts"
 import { lockLiveHubSession } from "../../../repositories/hub-sessions/lock-live-hub-session/index.ts"
+import { lockSessionAuthorityChanges } from "../../../repositories/hub-sessions/lock-session-authority-changes/index.ts"
 import { lockEffectiveAdministrators } from "../../../repositories/memberships/lock-effective-administrators/index.ts"
 import { lockAuthenticationProvidersForSessionAuthority } from "../../../repositories/authentication-providers/lock-authentication-providers-for-session-authority/index.ts"
 import { incrementSessionRevocationState } from "../../../repositories/session-revocation-states/increment-session-revocation-state/index.ts"
@@ -18,8 +19,8 @@ import { markSensitiveAuthorizationContinued } from "../../../repositories/sensi
 import { runWithBoundedRetries } from "../../identity/run-with-bounded-retries/index.ts"
 import {
   SessionRevocationDeniedError,
-  SessionRevocationPersistenceError,
   SessionRevocationTransactionConflictError,
+  SessionRevocationUnavailableError,
 } from "../errors.ts"
 
 const inputSchema = z
@@ -34,7 +35,11 @@ interface SessionRevocationDatabase {
   securityAudit: Prisma.TransactionClient["securityAudit"]
   $transaction<Result>(
     operation: (transaction: Prisma.TransactionClient) => Promise<Result>,
-    options?: { isolationLevel?: Prisma.TransactionIsolationLevel },
+    options?: {
+      isolationLevel?: Prisma.TransactionIsolationLevel
+      maxWait?: number
+      timeout?: number
+    },
   ): Promise<Result>
 }
 
@@ -46,6 +51,7 @@ export async function endAllHubSessions(database: SessionRevocationDatabase, raw
         database
           .$transaction(
             async (transaction) => {
+              await lockSessionAuthorityChanges(transaction, { timeoutMs: 500 })
               // Lock providers before the global revision, as restoration and reconciliation do.
               await lockAuthenticationProvidersForSessionAuthority(transaction)
               await lockSessionRevocationStateForUpdate(transaction)
@@ -114,7 +120,11 @@ export async function endAllHubSessions(database: SessionRevocationDatabase, raw
                 revision: revocation.revision,
               }
             },
-            { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+            {
+              isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+              maxWait: 2_000,
+              timeout: 5_000,
+            },
           )
           .catch((error: unknown) => {
             if (classifyPrismaTransactionError(error) === "retryable") {
@@ -166,7 +176,7 @@ export async function endAllHubSessions(database: SessionRevocationDatabase, raw
       }
     }
     throw error instanceof SessionRevocationTransactionConflictError
-      ? new SessionRevocationPersistenceError({ cause: error })
+      ? new SessionRevocationUnavailableError({ cause: error })
       : error
   }
 }

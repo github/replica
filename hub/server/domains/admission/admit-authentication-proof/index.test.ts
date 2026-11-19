@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
-import { AdmissionPersistenceError, AdmissionTransactionConflictError } from "../errors"
+import {
+  AdmissionPersistenceError,
+  AdmissionTransactionConflictError,
+  AdmissionUnavailableError,
+} from "../errors"
 import type { AdmissionDeniedError } from "../errors"
 import type { AdmissionRepositories } from "../run-admission-transaction/types"
 import { admitAuthenticationProof } from "."
@@ -121,7 +125,7 @@ describe("admitAuthenticationProof()", () => {
         runTransaction,
         writeAudit,
       }),
-    ).rejects.toBeInstanceOf(AdmissionPersistenceError)
+    ).rejects.toBeInstanceOf(AdmissionUnavailableError)
 
     expect(runTransaction).toHaveBeenCalledTimes(3)
     expect(writeAudit).toHaveBeenCalledOnce()
@@ -246,7 +250,12 @@ describe("admitAuthenticationProof()", () => {
             role: "MEMBER",
           },
           repositoryAccess: [
-            { defaultBranch: "main", githubRepositoryId: 42, nameWithOwner: "octo/example" },
+            {
+              accessLevel: "ADMIN",
+              defaultBranch: "main",
+              githubRepositoryId: 42,
+              nameWithOwner: "octo/example",
+            },
           ],
         },
         {
@@ -288,7 +297,12 @@ describe("admitAuthenticationProof()", () => {
             role: "MEMBER",
           },
           repositoryAccess: [
-            { defaultBranch: "main", githubRepositoryId: 42, nameWithOwner: "octo/example" },
+            {
+              accessLevel: "ADMIN",
+              defaultBranch: "main",
+              githubRepositoryId: 42,
+              nameWithOwner: "octo/example",
+            },
           ],
         },
         {
@@ -972,6 +986,7 @@ describe("admitAuthenticationProof()", () => {
       writeAudit: vi.fn(),
     }
     const repository = {
+      accessLevel: "ADMIN" as const,
       defaultBranch: "main",
       githubRepositoryId: 42,
       nameWithOwner: "octo/prototypes",

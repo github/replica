@@ -240,7 +240,10 @@ describe("Hub sidebar consistency", () => {
       }),
       http.get(`${store.origin}/api/repositories/2002/learnings`, () => {
         const state = store.learnings.get("2002")
-        return HttpResponse.json({ ...state, canAdministerHub: false })
+        return HttpResponse.json({
+          ...state,
+          capabilities: { ...state.capabilities, administerHub: false },
+        })
       }),
     )
     const router = await renderHubFlow(server, "/repositories/2002/analytics", {
