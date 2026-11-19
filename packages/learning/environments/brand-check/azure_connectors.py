@@ -331,6 +331,7 @@ class AzureBlobArtifactConnector(_AzureScopedConnector):
                     "The artifact digest already identifies different content.",
                     category="integrity",
                 )
+            self._apply_retention(name, metadata)
             return existing
         try:
             self.container.upload_blob(
@@ -343,6 +344,7 @@ class AzureBlobArtifactConnector(_AzureScopedConnector):
             if _is_exists(error):
                 existing = self.get(artifact.digest, context)
                 if existing == artifact:
+                    self._apply_retention(name, metadata)
                     return existing
                 raise ConnectorError(
                     "artifact_immutable",
@@ -355,9 +357,21 @@ class AzureBlobArtifactConnector(_AzureScopedConnector):
                 category="unavailable",
                 retryable=True,
             ) from error
-        if self.retention_hook is not None:
-            self.retention_hook(name, metadata)
+        self._apply_retention(name, metadata)
         return artifact
+
+    def _apply_retention(self, name: str, metadata: Mapping[str, str]) -> None:
+        if self.retention_hook is None:
+            return
+        try:
+            self.retention_hook(name, metadata)
+        except Exception as error:
+            raise ConnectorError(
+                "retention_hook_failed",
+                "The artifact retention policy was not recorded.",
+                category="unavailable",
+                retryable=True,
+            ) from error
 
     def get(self, digest: ContentDigest, context: OperationContext) -> Artifact:
         self._check(context, hide=True)

@@ -894,6 +894,32 @@ class AzureBlobArtifactConnectorTest(unittest.TestCase):
         )
         self.assertEqual(len(blobs.blobs), 2)
 
+    def test_retry_reapplies_retention_after_a_hook_failure(self):
+        blobs = _BlobService()
+        scope = RuntimeScope("tenant-one", "github/acme/repo")
+        attempts = []
+
+        def retention(name, metadata):
+            attempts.append((name, metadata))
+            if len(attempts) == 1:
+                raise RuntimeError("retention service unavailable")
+
+        connector = AzureBlobArtifactConnector(
+            blobs,
+            scope,
+            retention_hook=retention,
+        )
+        artifact = _artifact(b"retained report", kind="candidate-report")
+        with self.assertRaises(ConnectorError) as failed:
+            connector.put(artifact, _context(scope, "retention-failed"))
+        self.assertEqual(failed.exception.code, "retention_hook_failed")
+
+        self.assertEqual(
+            connector.put(artifact, _context(scope, "retention-retry")),
+            artifact,
+        )
+        self.assertEqual(len(attempts), 2)
+
     def test_withdrawal_deletes_current_blobs_and_every_version(self):
         blobs = _BlobService()
         scope = RuntimeScope("tenant-one", "github/acme/repo")

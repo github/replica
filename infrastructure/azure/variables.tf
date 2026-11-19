@@ -106,6 +106,28 @@ variable "decision_training_principal_id" {
   }
 }
 
+variable "decision_runtime_storage_role_definition_id" {
+  type        = string
+  default     = null
+  description = "Customer-defined decision-container role for runtime read/create/write access without delete or permanent-delete actions."
+
+  validation {
+    condition     = !var.enable_decision_runtime || (var.decision_runtime_storage_role_definition_id != null && strcontains(var.decision_runtime_storage_role_definition_id, "/providers/Microsoft.Authorization/roleDefinitions/"))
+    error_message = "Enable the decision runtime only with a non-delete runtime storage role definition ID."
+  }
+}
+
+variable "decision_training_storage_role_definition_id" {
+  type        = string
+  default     = null
+  description = "Customer-defined decision-container role for training read/create/write access without delete or permanent-delete actions."
+
+  validation {
+    condition     = !var.enable_decision_runtime || (var.decision_training_storage_role_definition_id != null && strcontains(var.decision_training_storage_role_definition_id, "/providers/Microsoft.Authorization/roleDefinitions/"))
+    error_message = "Enable the decision runtime only with a non-delete training storage role definition ID."
+  }
+}
+
 variable "decision_training_broker_url" {
   type        = string
   default     = null

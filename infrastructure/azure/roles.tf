@@ -69,17 +69,17 @@ resource "azurerm_role_assignment" "setup_image_pull" {
 }
 
 resource "azurerm_role_assignment" "decision_runtime_artifacts" {
-  count                = var.enable_decision_runtime ? 1 : 0
-  scope                = "${azurerm_storage_account.artifacts.id}/blobServices/default/containers/${azurerm_storage_container.decision[0].name}"
-  role_definition_name = "Storage Blob Data Contributor"
-  principal_id         = azurerm_user_assigned_identity.decision_runtime[0].principal_id
+  count              = var.enable_decision_runtime ? 1 : 0
+  scope              = "${azurerm_storage_account.artifacts.id}/blobServices/default/containers/${azurerm_storage_container.decision[0].name}"
+  role_definition_id = var.decision_runtime_storage_role_definition_id
+  principal_id       = azurerm_user_assigned_identity.decision_runtime[0].principal_id
 }
 
 resource "azurerm_role_assignment" "decision_training_artifacts" {
-  count                = var.enable_decision_runtime ? 1 : 0
-  scope                = "${azurerm_storage_account.artifacts.id}/blobServices/default/containers/${azurerm_storage_container.decision[0].name}"
-  role_definition_name = "Storage Blob Data Contributor"
-  principal_id         = var.decision_training_principal_id
+  count              = var.enable_decision_runtime ? 1 : 0
+  scope              = "${azurerm_storage_account.artifacts.id}/blobServices/default/containers/${azurerm_storage_container.decision[0].name}"
+  role_definition_id = var.decision_training_storage_role_definition_id
+  principal_id       = var.decision_training_principal_id
 }
 
 resource "azurerm_role_assignment" "decision_training_control" {
