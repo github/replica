@@ -8,6 +8,7 @@ import io
 import os
 import random
 import time
+import unicodedata
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Mapping
@@ -28,18 +29,32 @@ BASE_MODEL_ID = "LiquidAI/d1-omni-600M"
 BASE_MODEL_REVISION = "02b55d7076f15129e59ab3f94783f32c4b088674"
 ADAPTER_SCHEMA = "replica.decision-d1-omni-adapter/v1"
 MODEL_DEPENDENCIES = ("torch", "transformers", "PIL")
+MODEL_ARTIFACTS = (
+    "audio.py",
+    "config.json",
+    "encoder.py",
+    "model.safetensors",
+    "modeling_d1.py",
+    "prompt.py",
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "vision.py",
+)
 NOUL_INSTRUCTIONS = "Does this page follow the team learning in every screenshot?"
+MAX_PROMPT_TEXT = 4096
 
 
 class _LocalEnvironment:
     """Use the same episode and proper-scoring path as OpenEnv without a network hop."""
 
-    def __init__(self, taskset: Taskset):
+    def __init__(self, taskset: Taskset, project_request: Any):
         self._episodes = Episodes(taskset)
+        self._project_request = project_request
 
     def reset(self, **options: Any) -> SimpleNamespace:
+        observation = self._project_request(self._episodes.reset(**options))
         return SimpleNamespace(
-            observation=SimpleNamespace(**self._episodes.reset(**options))
+            observation=SimpleNamespace(**observation)
         )
 
     def step(self, action: Any) -> SimpleNamespace:
@@ -70,6 +85,9 @@ def detect_d1_capabilities(model_directory: str | Path) -> dict[str, Any]:
     trusted = model_path in trusted_directories
     downloaded_revision = _downloaded_model_revision(model_path)
     revision_verified = downloaded_revision == BASE_MODEL_REVISION
+    missing_artifacts = [
+        artifact for artifact in MODEL_ARTIFACTS if not (model_path / artifact).is_file()
+    ]
     report: dict[str, Any] = {
         "backend": "d1-omni",
         "baseModel": {
@@ -86,6 +104,8 @@ def detect_d1_capabilities(model_directory: str | Path) -> dict[str, Any]:
             "trusted": trusted,
             "revision": downloaded_revision,
             "revisionVerified": revision_verified,
+            "artifactsAvailable": not missing_artifacts,
+            "missingArtifacts": missing_artifacts,
         },
         "accelerator": "unavailable",
         "training": False,
@@ -106,11 +126,17 @@ def detect_d1_capabilities(model_directory: str | Path) -> dict[str, Any]:
     else:
         accelerator = "cpu"
     report["accelerator"] = accelerator
-    report["inference"] = model_path.is_dir() and trusted and revision_verified
+    report["inference"] = (
+        model_path.is_dir()
+        and trusted
+        and revision_verified
+        and not missing_artifacts
+    )
     report["training"] = (
         model_path.is_dir()
         and trusted
         and revision_verified
+        and not missing_artifacts
         and accelerator in ("cuda", "mps")
     )
     report["evaluationCapable"] = report["training"]
@@ -120,6 +146,8 @@ def detect_d1_capabilities(model_directory: str | Path) -> dict[str, Any]:
         report["status"] = "model_untrusted"
     elif not revision_verified:
         report["status"] = "model_revision_unverified"
+    elif missing_artifacts:
+        report["status"] = "model_artifacts_missing"
     elif accelerator == "cpu":
         report["status"] = "cpu_inference_only"
     else:
@@ -133,6 +161,7 @@ class D1OmniBackend:
     name = "d1-omni"
     production_eligible = True
     requires_credential = False
+    max_concurrent_inference = 1
 
     def __init__(
         self,
@@ -166,27 +195,38 @@ class D1OmniBackend:
 
     def project_request(self, request: Mapping[str, Any]) -> dict[str, Any]:
         """Keep only the model input and retain learning text inside its data field."""
-        return {
+        questions = {}
+        for key, question in request["questions"].items():
+            question_type = question.get("type")
+            projected = {"type": question_type}
+            if "criteria" in question:
+                projected["criteria"] = _sanitize_prompt_value(question["criteria"])
+            if "learning_text" in question:
+                projected["learning_text"] = _sanitize_prompt_text(
+                    question["learning_text"]
+                )
+            if question_type == "noul":
+                if not projected.get("learning_text", "").strip():
+                    raise ConnectorError(
+                        "learning_text_missing",
+                        "Each d1-omni yes-or-no question needs non-empty learning text.",
+                        category="invalid_input",
+                    )
+                projected["instructions"] = NOUL_INSTRUCTIONS
+            questions[key] = projected
+        projected_request = {
             "state": {
-                "imagesNote": request["state"].get("imagesNote", ""),
+                "imagesNote": _sanitize_prompt_text(
+                    request["state"].get("imagesNote", "")
+                ),
             },
             "images": list(request["images"]),
-            "questions": {
-                key: dict(
-                    {
-                        member: value
-                        for member, value in question.items()
-                        if member in ("type", "criteria", "learning_text")
-                    },
-                    **(
-                        {"instructions": NOUL_INSTRUCTIONS}
-                        if question.get("type") == "noul"
-                        else {}
-                    ),
-                )
-                for key, question in request["questions"].items()
-            },
+            "questions": questions,
         }
+        for member in ("task_id", "split"):
+            if member in request:
+                projected_request[member] = request[member]
+        return projected_request
 
     def train_with_context(
         self,
@@ -209,17 +249,29 @@ class D1OmniBackend:
                 category="unauthorized",
             )
         d1 = _model_module()
-        train_ids = d1.required_split(taskset, "train", "Training")
-        dev_ids = d1.required_split(taskset, "dev", "Training")
-        test_ids = d1.required_split(taskset, "test", "Evaluation")
-        d1.preflight_task_images(taskset, [*train_ids, *dev_ids, *test_ids])
+        train_ids = _required_split(d1, taskset, "train", "Training")
+        dev_ids = _required_split(d1, taskset, "dev", "Training")
+        test_ids = _required_split(d1, taskset, "test", "Evaluation")
+        try:
+            d1.preflight_task_images(taskset, [*train_ids, *dev_ids, *test_ids])
+        except ValueError as error:
+            raise ConnectorError(
+                "task_image_invalid",
+                str(error),
+                category="invalid_input",
+            ) from None
+        _validate_task_requests(
+            taskset,
+            [*train_ids, *dev_ids, *test_ids],
+            self.project_request,
+        )
         work_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         work_directory.chmod(0o700)
         started = time.monotonic()
         torch = d1.torch
         torch.manual_seed(self.seed)
         rng = random.Random(self.seed)
-        environment = _LocalEnvironment(taskset)
+        environment = _LocalEnvironment(taskset, self.project_request)
         policy = d1.Policy(self.model_directory, self.part)
         baseline_predictions = _predictions(
             d1, policy, environment, test_ids, operation
@@ -461,6 +513,13 @@ class D1OmniBackend:
                 "and keep its Hugging Face metadata.",
                 category="integrity",
             )
+        if not capability["modelDirectory"]["artifactsAvailable"]:
+            missing = ", ".join(capability["modelDirectory"]["missingArtifacts"])
+            raise ConnectorError(
+                "base_model_artifacts_missing",
+                f"The pinned d1-omni model directory is incomplete: {missing}.",
+                category="integrity",
+            )
         if training and not capability["training"]:
             raise ConnectorError(
                 "training_accelerator_unavailable",
@@ -496,6 +555,88 @@ def _check_operation(context: OperationContext) -> None:
     check_context(context)
 
 
+def _sanitize_prompt_text(value: Any) -> str:
+    text = "" if value is None else str(value)
+    text = "".join(
+        character
+        for character in text
+        if character in ("\n", "\t") or unicodedata.category(character) != "Cc"
+    )
+    return text[:MAX_PROMPT_TEXT]
+
+
+def _sanitize_prompt_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            _sanitize_prompt_text(key): _sanitize_prompt_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_sanitize_prompt_value(item) for item in value]
+    return _sanitize_prompt_text(value)
+
+
+def _required_split(
+    d1: Any,
+    taskset: Taskset,
+    split: str,
+    operation: str,
+) -> list[str]:
+    try:
+        return d1.required_split(taskset, split, operation)
+    except ValueError as error:
+        raise ConnectorError(
+            f"{split}_split_missing",
+            str(error),
+            category="invalid_input",
+        ) from None
+
+
+def _policy_observation(
+    policy: Any,
+    environment: _LocalEnvironment,
+    task_id: str,
+) -> tuple[Any, Any]:
+    observation = environment.reset(task_id=task_id).observation
+    features = policy.features(
+        task_id,
+        observation.state,
+        observation.images,
+        observation.questions,
+    )
+    return observation, features
+
+
+def _validate_task_requests(
+    taskset: Taskset,
+    task_ids: list[str],
+    project_request: Any,
+) -> None:
+    for task_id in task_ids:
+        task = taskset.by_id[task_id]
+        project_request(
+            {
+                "state": dict(task.state),
+                "images": [],
+                "questions": {
+                    key: dict(question.spec)
+                    for key, question in task.questions.items()
+                },
+            }
+        )
+
+
+def _completed_answers(
+    answers: Mapping[str, Any],
+    questions: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    completed = dict(answers)
+    for key, question in questions.items():
+        if key not in completed:
+            completed[key] = _uniform_answer(question)
+    return completed
+
+
 def _predictions(
     _d1: Any,
     policy: Any,
@@ -506,8 +647,11 @@ def _predictions(
     predictions = {}
     for task_id in task_ids:
         _check_operation(context)
-        features = policy.observe(environment, task_id)
-        predictions[task_id] = policy.answers(features)
+        observation, features = _policy_observation(policy, environment, task_id)
+        predictions[task_id] = _completed_answers(
+            policy.answers(features),
+            observation.questions,
+        )
     return predictions
 
 
@@ -522,8 +666,11 @@ def _split_reward(
     predictions = {}
     for task_id in task_ids:
         _check_operation(context)
-        features = policy.observe(environment, task_id)
-        answers = policy.answers(features)
+        observation, features = _policy_observation(policy, environment, task_id)
+        answers = _completed_answers(
+            policy.answers(features),
+            observation.questions,
+        )
         predictions[task_id] = answers
         total += environment.step(
             SimpleNamespace(answers=answers)

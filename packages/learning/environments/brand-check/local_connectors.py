@@ -1297,6 +1297,11 @@ class LocalInferenceConnector:
         self.backend = backend
         self.name = backend.name
         self.requires_credential = getattr(backend, "requires_credential", True)
+        self.max_concurrent_inference = getattr(
+            backend,
+            "max_concurrent_inference",
+            None,
+        )
 
     def readiness(self) -> Mapping[str, Any] | None:
         readiness = getattr(self.backend, "readiness", None)

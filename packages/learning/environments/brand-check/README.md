@@ -213,7 +213,7 @@ Submit a real job with `"backend":"d1-omni"`. The runtime applies the same updat
 | CPU with model dependencies | Rejected | Supported for smoke and low-volume checks | Does not validate training quality or representative performance |
 | Default fixture-only install | Fixture only | Fixture only | Validates orchestration, not model quality |
 
-`GET /ready` reports backend capability, accelerator, dependency and model status, and `coldStart` without exposing the private model path, taskset digest, or promoted candidate ID. The single-node runtime intentionally starts a bounded child for every inference request, so the d1 backend reports `coldStart: "per-request"` and reloads the base model each time. This favors isolation and enforceable deadlines over latency; a hosted inference connector can keep a warm model without changing the lifecycle contracts.
+`GET /ready` reports backend capability, accelerator, dependency and model status, and `coldStart` without exposing the private model path, taskset digest, or promoted candidate ID. The single-node runtime intentionally starts a bounded child for every inference request, so the d1 backend reports `coldStart: "per-request"` and reloads the base model each time. It admits one d1 inference request at a time and returns `capacity_temporarily_unavailable` while that model load is active. This favors isolation, bounded memory use, and enforceable deadlines over latency; a hosted inference connector can keep a warm model without changing the lifecycle contracts.
 
 Before spending a training budget, run one opt-in real-model smoke check:
 

@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import pickle
+import tempfile
 import time
+import uuid
 from pathlib import Path
 
 from .connectors import (
@@ -13,9 +17,14 @@ from .connectors import (
     RuntimeOwner,
     RuntimeScope,
 )
-from .d1_connector import D1OmniBackend, detect_d1_capabilities
+from .d1_connector import (
+    D1OmniBackend,
+    _completed_answers,
+    detect_d1_capabilities,
+)
 from .episode import Episodes
 from .local_connectors import taskset_digest
+from .runtime import _process_context, _stop_process
 from .taskset import load_taskset
 
 
@@ -59,26 +68,13 @@ def main() -> None:
         cancellation=Cancellation(),
     )
     started = time.monotonic()
-    if args.adapter is not None:
-        answers = backend.predict_with_context(
-            args.adapter,
-            request,
-            context=context,
-            timeout_seconds=args.timeout,
-        )
-        mode = "promoted-adapter"
-    else:
-        from . import d1_omni
-
-        policy = d1_omni.Policy(str(args.model), "readout")
-        features = policy.features(
-            f"smoke:{task_id}",
-            request["state"],
-            request["images"],
-            request["questions"],
-        )
-        answers = policy.answers(features)
-        mode = "released-model"
+    mode, answers = _run_smoke(
+        backend,
+        request,
+        task_id=task_id,
+        adapter=args.adapter,
+        context=context,
+    )
     print(
         json.dumps(
             {
@@ -93,6 +89,118 @@ def main() -> None:
             sort_keys=True,
         )
     )
+
+
+def _run_smoke(
+    backend: D1OmniBackend,
+    request: dict,
+    *,
+    task_id: str,
+    adapter: Path | None,
+    context: OperationContext,
+) -> tuple[str, dict]:
+    """Run one smoke inference in a child that cannot outlive its deadline."""
+    process_context = _process_context()
+    with tempfile.TemporaryDirectory(prefix="replica-d1-smoke-") as directory:
+        result_path = Path(directory) / "result.pickle"
+        process = process_context.Process(
+            target=_smoke_process,
+            args=(
+                str(result_path),
+                backend,
+                dict(request),
+                task_id,
+                str(adapter) if adapter is not None else None,
+                context.operation_id,
+                context.idempotency_key,
+                context.scope,
+                context.owner,
+                context.deadline,
+            ),
+            name="replica-d1-smoke",
+        )
+        process.start()
+        try:
+            process.join(max(0.0, context.deadline - time.monotonic()))
+            if process.is_alive():
+                _stop_process(process)
+                raise SystemExit("d1-omni smoke timed out before model execution completed.")
+            try:
+                with result_path.open("rb") as handle:
+                    kind, payload = pickle.load(handle)
+            except (FileNotFoundError, EOFError, OSError, pickle.UnpicklingError):
+                raise SystemExit(
+                    f"d1-omni smoke worker exited without a result "
+                    f"(exit code {process.exitcode})."
+                ) from None
+            if kind == "error":
+                raise SystemExit(payload)
+            return payload
+        finally:
+            if process.is_alive():
+                _stop_process(process)
+
+
+def _smoke_process(
+    result_path: str,
+    backend: D1OmniBackend,
+    request: dict,
+    task_id: str,
+    adapter: str | None,
+    operation_id: str,
+    idempotency_key: str,
+    scope: RuntimeScope,
+    owner: RuntimeOwner,
+    deadline: float,
+) -> None:
+    try:
+        context = OperationContext(
+            operation_id=operation_id,
+            idempotency_key=idempotency_key,
+            scope=scope,
+            owner=owner,
+            deadline=deadline,
+            cancellation=Cancellation(),
+        )
+        projected = backend.project_request(request)
+        if adapter is not None:
+            answers = backend.predict_with_context(
+                Path(adapter),
+                projected,
+                context=context,
+                timeout_seconds=max(0.0, deadline - time.monotonic()),
+            )
+            result = ("promoted-adapter", dict(answers))
+        else:
+            from . import d1_omni
+
+            policy = d1_omni.Policy(backend.model_directory, "readout")
+            features = policy.features(
+                f"smoke:{task_id}",
+                projected["state"],
+                projected["images"],
+                projected["questions"],
+            )
+            result = (
+                "released-model",
+                _completed_answers(
+                    policy.answers(features),
+                    projected["questions"],
+                ),
+            )
+        outcome = ("ok", result)
+    except Exception:
+        outcome = ("error", "d1-omni smoke model execution failed.")
+    destination = Path(result_path)
+    temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}")
+    try:
+        with temporary.open("xb") as handle:
+            pickle.dump(outcome, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
