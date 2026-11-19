@@ -721,10 +721,11 @@ class _PostgresCursor:
 
 
 class _TrainingClient:
-    def __init__(self, cancellation=None):
+    def __init__(self, cancellation=None, fail_after_cancellation=False):
         self.requests = []
         self.cancelled = []
         self._cancellation = cancellation
+        self._fail_after_cancellation = fail_after_cancellation
         self._polls = 0
 
     def start(self, job_name, request, *, bearer_token):
@@ -738,6 +739,8 @@ class _TrainingClient:
         self._polls += 1
         if self._cancellation is not None and self._polls == 1:
             self._cancellation.cancel()
+            if self._fail_after_cancellation:
+                raise RuntimeError("status connection closed")
             return {"state": "running"}
         return {
             "state": "succeeded",
@@ -893,6 +896,26 @@ class AzureBlobArtifactConnectorTest(unittest.TestCase):
         self.assertTrue(any(blobs.versions.values()))
 
         connector.delete(artifact.digest, _context(scope, "delete-withdrawn"))
+
+        self.assertFalse(blobs.blobs)
+        self.assertFalse(any(blobs.versions.values()))
+
+    def test_withdrawal_continues_after_a_stale_version_listing(self):
+        blobs = _BlobService()
+        scope = RuntimeScope("tenant-one", "github/acme/repo")
+        connector = AzureBlobArtifactConnector(blobs, scope)
+        artifact = _artifact(b"withdrawn report", kind="candidate-report")
+        connector.put(artifact, _context(scope, "put-stale-version"))
+        for name in tuple(blobs.blobs):
+            blobs.upload_blob(
+                name,
+                blobs.blobs[name]["data"],
+                overwrite=True,
+                metadata=blobs.blobs[name]["metadata"],
+            )
+            blobs.versions[name].insert(0, {"id": "already-deleted"})
+
+        connector.delete(artifact.digest, _context(scope, "delete-stale-version"))
 
         self.assertFalse(blobs.blobs)
         self.assertFalse(any(blobs.versions.values()))
@@ -1158,6 +1181,35 @@ class AzureExecutionConnectorTest(unittest.TestCase):
         context = _context(
             self.scope,
             "cancel-training",
+            cancellation=cancellation,
+            max_credits=7,
+            budget_mode="hard",
+        )
+
+        with self.assertRaises(ConnectorError) as cancelled:
+            connector.train(
+                SimpleNamespace(metadata={"digest": "taskset-one"}, tasks=()),
+                Path("unused-work-directory"),
+                max_updates=3,
+                context=context,
+                credential=None,
+            )
+
+        self.assertEqual(cancelled.exception.category, "cancelled")
+        self.assertEqual(client.cancelled, ["training-1"])
+
+    def test_failed_status_poll_still_cancels_after_context_cancellation(self):
+        cancellation = Cancellation()
+        client = _TrainingClient(cancellation, fail_after_cancellation=True)
+        connector = AzureContainerAppsTrainingConnector(
+            client,
+            "replica-training",
+            poll_interval_seconds=0,
+            sleep=lambda _: None,
+        )
+        context = _context(
+            self.scope,
+            "cancel-failed-poll",
             cancellation=cancellation,
             max_credits=7,
             budget_mode="hard",

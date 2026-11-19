@@ -393,13 +393,33 @@ class AzureBlobArtifactConnector(_AzureScopedConnector):
         for target in (name, f"{name}.json"):
             try:
                 versions = tuple(self.container.list_blob_versions(target))
-                for version_id in versions:
-                    check_context(context)
+            except Exception as error:
+                if _is_missing(error):
+                    versions = ()
+                else:
+                    raise ConnectorError(
+                        "azure_blob_unavailable",
+                        "Azure Blob Storage is unavailable.",
+                        category="unavailable",
+                        retryable=True,
+                    ) from error
+            for version_id in versions:
+                check_context(context)
+                try:
                     self.container.delete_blob(
                         target,
                         version_id=version_id,
                         permanent=True,
                     )
+                except Exception as error:
+                    if not _is_missing(error):
+                        raise ConnectorError(
+                            "azure_blob_unavailable",
+                            "Azure Blob Storage is unavailable.",
+                            category="unavailable",
+                            retryable=True,
+                        ) from error
+            try:
                 self.container.delete_blob(target, permanent=True)
             except Exception as error:
                 if not _is_missing(error):
@@ -1535,6 +1555,11 @@ class AzureContainerAppsTrainingConnector:
                     bearer_token=token,
                 )
             except Exception as error:
+                try:
+                    check_context(context)
+                except ConnectorError:
+                    self._cancel(execution_id, token)
+                    raise
                 raise ConnectorError(
                     "azure_training_unavailable",
                     "The Azure training job status is unavailable.",
