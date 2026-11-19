@@ -16,6 +16,7 @@ import type {
 } from "../../../../integrations/github/read-repository-permission/types.ts"
 import { lockAuthenticationProvidersForPrototypeEdit } from "../../../../repositories/authentication-providers/lock-authentication-providers-for-prototype-edit/index.ts"
 import { findBuildPreviewTarget } from "../../../../repositories/build-artifacts/find-build-preview-target/index.ts"
+import { findDefaultTemplateBuild } from "../../../../repositories/build-artifacts/find-default-template-build/index.ts"
 import { lockGitHubRepositoryAccessState } from "../../../../repositories/github-repository-access-states/lock-github-repository-access-state/index.ts"
 import { readGitHubRepositoryAccessState } from "../../../../repositories/github-repository-access-states/read-github-repository-access-state/index.ts"
 import { findLocalPrototypeManagement } from "../../../../repositories/prototype-index/find-local-prototype-management/index.ts"
@@ -36,11 +37,15 @@ import { updatePrototypeMetadata } from "../../../../repositories/prototypes/upd
 import { recordRepositoryAudit } from "../../../../repositories/security-audits/record-repository-audit/index.ts"
 import { lockSessionRevocationState } from "../../../../repositories/session-revocation-states/lock-session-revocation-state/index.ts"
 import { findCurrentSessionProfile } from "../../../../repositories/user-profiles/find-current-session-profile/index.ts"
+import {
+  hideWelcome,
+  isWelcomeHidden,
+} from "../../../../repositories/users/welcome-preference/index.ts"
 import { canWriteRepository } from "../../../../utils/can-write-repository/index.ts"
 import { readWithPersistedRepositoryScope } from "../read-with-persisted-repository-scope/index.ts"
 import { resolvePersistedRepositoryScope } from "../resolve-persisted-repository-scope/index.ts"
 import type { resolveRepositoryScope } from "../resolve-repository-scope/index.ts"
-import type { ProductRouteDependencies, ProductViewer } from "../types.ts"
+import type { ProductViewer, WorkspaceProductRouteDependencies } from "../types.ts"
 
 interface CreateProductRouteDependenciesOptions {
   applicationOrigin?: string
@@ -59,6 +64,7 @@ interface CreateProductRouteDependenciesOptions {
     actorLogin: string
   }) => Promise<void>
   previewBaseOrigin?: string
+  getRepositoryPermission?: WorkspaceProductRouteDependencies["getRepositoryPermission"]
   withReviewCommentDeleteLock?: <T>(operation: () => Promise<T>) => Promise<T>
 }
 
@@ -70,8 +76,9 @@ export function createProductRouteDependencies({
   authorizeReviewMutation,
   onReviewCommentDeleted,
   previewBaseOrigin,
+  getRepositoryPermission: permissionOverride,
   withReviewCommentDeleteLock,
-}: CreateProductRouteDependenciesOptions = {}): ProductRouteDependencies {
+}: CreateProductRouteDependenciesOptions = {}): WorkspaceProductRouteDependencies {
   function scope(
     viewer: Parameters<typeof resolveRepositoryScope>[0],
     database: Pick<Prisma.TransactionClient, "gitHubRepositoryAccessState"> = prisma,
@@ -178,6 +185,7 @@ export function createProductRouteDependencies({
     return { permission, accessRevision: revision }
   }
   async function getRepositoryPermission(viewer: ProductViewer, repositoryId: string) {
+    if (permissionOverride) return permissionOverride(viewer, repositoryId)
     return (await getRepositoryPermissionEvidence(viewer, repositoryId)).permission
   }
   const authorizeReview =
@@ -224,6 +232,27 @@ export function createProductRouteDependencies({
       : undefined
   return {
     getRepositoryPermission,
+    templates: {
+      findBuild: (viewer, repositoryId, buildId) =>
+        readScoped(viewer, (repositoryScope) =>
+          findDefaultTemplateBuild(prisma, repositoryId, repositoryScope, buildId),
+        ),
+    },
+    welcome: {
+      isHidden: (userId) => isWelcomeHidden(prisma, userId),
+      hide: (sessionDigest, userId) =>
+        prisma.$transaction(async (transaction) => {
+          await lockAuthority(transaction)
+          const current = await restoreSession(
+            transaction,
+            joinTransaction(transaction),
+            sessionDigest,
+          )
+          if (current?.userId !== userId) return false
+          await hideWelcome(transaction, userId)
+          return true
+        }),
+    },
     reviewComments: createReviewCommentService(prisma, authorizeReview, {
       onDeleted: onReviewCommentDeleted,
       withDeleteLock: withReviewCommentDeleteLock,

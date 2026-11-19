@@ -25,10 +25,12 @@ export const productStartPageSchema = prototypeStartPageSchema.nullable()
 export const productTemplateSchema = z.object({
   id: productTemplateIdSchema,
   name: z.string().min(1),
+  category: z.string().min(1).optional(),
   description: z.string(),
   route: productStartPageSchema,
-  previewUrl: httpUrl,
+  previewUrl: httpUrl.nullable(),
   screenshotUrl: httpUrl.nullable(),
+  darkScreenshotUrl: httpUrl.nullable().optional(),
   buildNumber: identifier.nullable(),
 })
 
@@ -36,12 +38,15 @@ export const productCatalogResponseSchema = z.object({
   repository: repositorySchema,
   templates: z.array(productTemplateSchema),
   canCreate: z.boolean(),
+  submissionMode: z.enum(["copy", "copilot"]).optional(),
 })
 
 export const productTemplateResponseSchema = z.object({
   repository: repositorySchema,
   template: productTemplateSchema,
   canCreate: z.boolean(),
+  submissionMode: z.enum(["copy", "copilot"]).optional(),
+  initialRoute: z.string().optional(),
   controlsIdentity: z.string().min(1).max(128).optional(),
 })
 

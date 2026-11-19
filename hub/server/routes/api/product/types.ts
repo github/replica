@@ -21,6 +21,7 @@ import type {
 } from "../../../domains/review-comments/types.ts"
 import type { RepositoryReviewAccess } from "../../../domains/review-comments/authorize-repository-review/index.ts"
 import type { RepositoryPermission } from "../../../integrations/github/read-repository-permission/types.ts"
+import type { findDefaultTemplateBuild } from "../../../repositories/build-artifacts/find-default-template-build/index.ts"
 
 export interface ReviewAccessActor extends ReviewRouteActor {
   provider: string
@@ -97,4 +98,18 @@ export interface ProductRouteDependencies {
     buildNumber: number,
     target: BuildPreviewTarget,
   ): ReturnType<typeof findBuildPreviewTarget>
+}
+
+export interface WorkspaceProductRouteDependencies extends ProductRouteDependencies {
+  templates?: {
+    findBuild(
+      viewer: ProductViewer,
+      repositoryId: string,
+      buildId?: string,
+    ): ReturnType<typeof findDefaultTemplateBuild>
+  }
+  welcome?: {
+    isHidden(userId: string): Promise<boolean>
+    hide(sessionDigest: string, userId: string): Promise<boolean>
+  }
 }

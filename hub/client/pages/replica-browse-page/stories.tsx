@@ -162,5 +162,5 @@ export const TemplateHandoff: Story = {
 }
 
 export const ReadOnly: Story = {
-  args: { data: { ...data, newPrototypePath: null } },
+  args: { data: { ...data, canBranch: false } },
 }

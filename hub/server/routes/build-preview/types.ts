@@ -15,6 +15,7 @@ export interface BuildPreviewRouteDependencies {
     buildId: string
     startPage: string
     artifactPath: string
+    templateRepository?: { id: string; local: boolean }
   } | null>
   findArtifact(
     buildId: string,

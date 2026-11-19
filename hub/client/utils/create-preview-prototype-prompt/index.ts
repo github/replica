@@ -9,6 +9,7 @@ export function createPreviewPrototypePrompt({
   branchPageInstructions,
   templateLandingPageInstructions,
   previewUrl,
+  initialRoute,
   route,
 }: {
   brief: string
@@ -16,6 +17,7 @@ export function createPreviewPrototypePrompt({
   branchPageInstructions: string
   templateLandingPageInstructions?: string
   previewUrl?: string
+  initialRoute?: string
   route?: ReviewRoute | null
 }) {
   let pageContext = ""
@@ -23,13 +25,13 @@ export function createPreviewPrototypePrompt({
   if (previewUrl) {
     try {
       const url = new URL(previewUrl)
-      const initialRoute = `${url.pathname}${url.search}${url.hash}`
-      const reportedRoute = route ? `${route.pathname}${route.search}${route.hash}` : initialRoute
-      const viewedRoute = templateLandingPageInstructions
-        ? [reportedRoute, initialRoute].map(templateRoute).find((value) => value !== undefined)
-        : reportedRoute
-      const pathname = viewedRoute?.split(/[?#]/, 1)[0] ?? ""
-      const decodedPathname = decodeURIComponent(pathname)
+      const startingRoute = initialRoute ?? `${url.pathname}${url.search}${url.hash}`
+      const reportedRoute = route ? `${route.pathname}${route.search}${route.hash}` : startingRoute
+      const viewedRoute =
+        initialRoute !== undefined || templateLandingPageInstructions
+          ? [reportedRoute, startingRoute].map(templateRoute).find((value) => value !== undefined)
+          : reportedRoute
+      const decodedPathname = decodeURIComponent(viewedRoute?.split(/[?#]/, 1)[0] ?? "")
       if (
         viewedRoute &&
         ["http:", "https:"].includes(url.protocol) &&
@@ -38,7 +40,7 @@ export function createPreviewPrototypePrompt({
         decodedPathname.startsWith("/") &&
         !decodedPathname.startsWith("//") &&
         !decodedPathname.includes("\\") &&
-        !/^\/__replica(?:\/|$)/.test(decodedPathname)
+        !/^\/__replica(?:\/|$)/i.test(decodedPathname)
       ) {
         pageContext = branchPageInstructions.replace("%{route}", () => JSON.stringify(viewedRoute))
         if (templateLandingPageInstructions) {
@@ -77,7 +79,7 @@ function templateRoute(value: string) {
       pathname.startsWith("//") ||
       /[\s\\%]|\p{Cc}/u.test(pathname) ||
       pathname.split("/").some((segment) => [".", "..", ".replica-internal"].includes(segment)) ||
-      /^\/__replica(?:\/|$)/.test(pathname)
+      /^\/__replica(?:\/|$)/i.test(pathname)
     )
       return undefined
 

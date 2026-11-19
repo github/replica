@@ -8,6 +8,7 @@ const sessionSchema = z
     b: z.uuid(),
     s: z.string().regex(/^[a-f0-9]{64}$/),
     e: z.number().int().positive(),
+    t: z.literal(true).optional(),
   })
   .strict()
 

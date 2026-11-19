@@ -10,6 +10,7 @@ import { prototypeShowData } from "@application/hub/view-models/prototype-show-d
 import { createReviewTransport } from "@application/hub/create-review-transport"
 import type { SessionResponse } from "@application/hub/session-contracts/types"
 import { readReviewQuery } from "@application/hub/read-review-query"
+import { authorizeCopilotHandoff } from "@application/hub/requests/authorize-copilot-handoff"
 
 export function PrototypeScreen({
   workspace,
@@ -111,6 +112,7 @@ export function PrototypeScreen({
       savingDetails={savingDetails}
       detailsError={detailsError}
       detailsSaved={detailsSaved}
+      authorizeHandoff={mock ? undefined : () => authorizeCopilotHandoff(data.repository.id)}
     />
   )
 }

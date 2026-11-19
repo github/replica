@@ -18,6 +18,7 @@ export interface WelcomePageData {
   setupDescription: string
   setupPath: string
   createLabel: string
+  createPath?: string | null
   createDescription: string
   createUnavailable: string
   hideLabel: string

@@ -12,7 +12,8 @@ import "./styles.css"
 
 export function WelcomePage({ data }: { data: WelcomePageData }) {
   const [failedVideoUrl, setFailedVideoUrl] = useState<string | null>(null)
-  const createPath = data.workspace.repository?.newPrototypePath
+  const createPath =
+    data.createPath === undefined ? data.workspace.repository?.newPrototypePath : data.createPath
 
   return (
     <HubWorkspace data={data.workspace}>

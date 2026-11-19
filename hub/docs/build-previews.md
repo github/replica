@@ -14,6 +14,8 @@ The prototype response keeps Build selection on `/repositories/:repositoryId/pro
 
 `HUB_PREVIEW_ORIGIN` is the wildcard base. For example, `https://preview.example.net` serves one Build from `https://<build-uuid>.preview.example.net` while Hub runs on `https://hub.example.com`. Outside local development, the preview and Hub origins must use separate registrable domains so untrusted preview content cannot shadow Hub cookies through a parent domain. Operators must configure wildcard DNS and TLS. Local development uses `http://preview.localhost:3001`.
 
+The [template catalog](frontend.md#create-templates-and-welcome) selects one successful Build from the repository's current default branch. Its preview and declared desktop screenshots use `/api/repositories/:repositoryId/template-builds/:buildId/access` so each request stays on that snapshot. Hub rechecks repository visibility before granting access and on the Build origin. A template grant cannot open a prototype Build, and a template preview does not enable the review bridge. The dark theme uses the saved dark screenshot when present and falls back to the light one.
+
 ## File behavior
 
 Package paths remain relative and may not contain empty, dot, dot-dot, control, surrogate, absolute, or backslash segments. `/` serves `dist/index.html`, and directory-style requests first look for their nested `index.html`. A missing extensionless browser route falls back to the application entry point. A dotted route receives the same fallback only when the saved template manifest declares it; missing asset paths return 404. The prototype's normalized start page is used after grant exchange.

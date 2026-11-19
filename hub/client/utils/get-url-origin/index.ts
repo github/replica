@@ -4,7 +4,9 @@ export function getUrlOrigin(url: string | undefined) {
   try {
     const parsed = new URL(url)
     if (
-      /\/api\/repositories\/[^/]+\/prototypes\/[^/]+\/builds\/\d+\/access$/.test(parsed.pathname)
+      /^\/api\/repositories\/[^/]+\/(?:prototypes\/[^/]+\/builds\/\d+|template-builds\/[^/]+)\/access$/.test(
+        parsed.pathname,
+      )
     ) {
       const previewOrigin = parsed.searchParams.get("preview_origin")
       if (previewOrigin) {

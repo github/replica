@@ -39,6 +39,7 @@ export interface PrototypesShowPageData extends PrototypeWorkspaceData {
   branchPlaceholder: string
   branchSubmitLabel: string
   branchSubmissionMode: "copilot" | "disabled"
+  branchInitialRoute?: string
   branchInstructions: string
   branchPageInstructions: string
   branchContinuation: CopilotAppContinuationCopy
@@ -94,6 +95,7 @@ export interface PrototypesShowPageProps extends PrototypeDetailsControls {
   initialInfoOpen?: boolean
   initialComposerExpanded?: boolean
   onOpenApp?: (url: string) => void
+  authorizeHandoff?: () => Promise<boolean>
   viewerUrl?: string
   minimized?: boolean
   initialMinimized?: boolean

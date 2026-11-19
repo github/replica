@@ -9,11 +9,12 @@ import { canWriteRepository } from "../../../../utils/can-write-repository/index
 import type { CurrentSessionDependencies } from "../../auth/types.ts"
 import { readProductSession } from "../../product/read-product-session/index.ts"
 import { readProductWithCurrentAuthority } from "../../product/read-product-with-current-authority/index.ts"
-import type { ProductRouteDependencies } from "../../product/types.ts"
+import { canBrowseTemplates } from "../../product/template-repository-access/index.ts"
+import type { WorkspaceProductRouteDependencies } from "../../product/types.ts"
 
 export function get(
   session: CurrentSessionDependencies,
-  product: ProductRouteDependencies,
+  product: WorkspaceProductRouteDependencies,
   manageSharing = false,
 ): RequestHandler {
   return async (request, response, next) => {
@@ -30,7 +31,10 @@ export function get(
         cookie,
         session,
         async (viewer) => {
-          const repositories = await product.listRepositories(viewer)
+          const [repositories, welcomeHidden] = await Promise.all([
+            product.listRepositories(viewer),
+            product.welcome?.isHidden(viewer.userId),
+          ])
           const selected = selectedRepository.success
             ? repositories.find(({ id }) => id === selectedRepository.data)
             : undefined
@@ -45,7 +49,7 @@ export function get(
               permissionUnavailable = true
             }
           }
-          return { repositories, selected, permission, permissionUnavailable }
+          return { repositories, selected, permission, permissionUnavailable, welcomeHidden }
         },
       )
       if (!read) {
@@ -54,13 +58,16 @@ export function get(
       }
       const {
         current,
-        result: { repositories, selected, permission, permissionUnavailable },
+        result: { repositories, selected, permission, permissionUnavailable, welcomeHidden },
       } = read
       const presentedRepositories = repositories.map(({ localPath, ...repository }) => ({
         ...repository,
         capabilities: {
           reviewPrototypes: authorizeRepositoryReview(current, { localPath }).canView,
           manageSharing: current.provider === "local" && Boolean(localPath) && manageSharing,
+          ...(product.templates && canBrowseTemplates(current, Boolean(localPath))
+            ? { browseTemplates: true, local: Boolean(localPath) }
+            : {}),
           ...((product.findPrototypeManagement || product.findLocalPrototypeManagement) &&
           ((repository.id === selected?.id && canWriteRepository(permission)) ||
             (current.sessionProvider === "local" && current.role === "ADMINISTRATOR" && localPath))
@@ -85,6 +92,7 @@ export function get(
           avatarUrl: null,
         },
         repositories: presentedRepositories,
+        ...(welcomeHidden !== undefined ? { welcomeHidden } : {}),
         capabilities: {
           createPrototypes: false,
           reviewPrototypes: false,

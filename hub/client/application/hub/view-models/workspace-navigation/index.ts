@@ -13,6 +13,9 @@ export function workspaceNavigation(
   const repositoryAdmin = workspace.repositories.find(({ id }) => id === repositoryId)?.capabilities
     ?.administerRepository
   const unreadCount = workspace.navigation?.notificationsUnreadCount ?? 0
+  const welcomeVisible = real
+    ? workspace.welcomeHidden === false
+    : !workspace.navigation?.welcomeHidden
   return {
     accountMenuLabel: `Account menu for ${
       workspace.viewer.provider && workspace.viewer.provider !== "github"
@@ -35,10 +38,7 @@ export function workspaceNavigation(
     signOutPath: real ? "/api/auth/session/sign-out" : "/session",
     systemThemeLabel: "System",
     welcomeLabel: "Welcome",
-    welcomePath:
-      real || workspace.navigation?.welcomeHidden
-        ? null
-        : resourcePath("/welcome", search, { repositoryId }),
+    welcomePath: welcomeVisible ? resourcePath("/welcome", search, { repositoryId }) : null,
     notificationsLabel: "Notifications",
     notificationsPath: real ? undefined : resourcePath("/notifications", search, { repositoryId }),
     notificationsUnread: unreadCount > 0,

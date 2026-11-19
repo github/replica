@@ -9,6 +9,8 @@ export interface ReplicaBrowsePageData
   extends ReplicaWorkspaceData, Omit<PrototypePreviewCopy, "openInNewTabLabel"> {
   browseReplica: true
   templateId: string
+  initialRoute?: string
+  canBranch?: boolean
   pageTitle: string
   repositoryName: string
   minimizeHubLabel: string
@@ -44,4 +46,5 @@ export interface ReplicaBrowsePageProps {
   onMinimizedChange?: (minimized: boolean) => void
   onFrameLoad?: () => void
   onOpenApp?: (url: string) => void
+  authorizeHandoff?: () => Promise<boolean>
 }

@@ -16,6 +16,7 @@ import { ReviewCommentComposer } from "@features/review-comment-composer"
 import { ReviewCommentMarkers } from "@features/review-comment-markers"
 import { ReviewCommentsSidebar } from "@features/review-comments-sidebar"
 import { ReviewThreadConversation } from "@features/review-thread-conversation"
+import { useCopilotHandoff } from "@hooks/use-copilot-handoff"
 import { createPrototypeSubmission } from "@utils/create-prototype-submission"
 import { createPreviewPrototypePrompt } from "@utils/create-preview-prototype-prompt"
 
@@ -35,6 +36,7 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
     initialInfoOpen = data.showPrototypeInfo || Boolean(data.alert),
     initialComposerExpanded = false,
     onOpenApp,
+    authorizeHandoff,
     viewerUrl,
     minimized: controlledMinimized,
     initialMinimized = false,
@@ -59,6 +61,7 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
   const [branchBrief, setBranchBrief] = useState("")
   const branchInput = useRef<HTMLTextAreaElement>(null)
   const [submission, setSubmission] = useState<CopilotAppSubmission | null>(null)
+  const handoff = useCopilotHandoff(authorizeHandoff)
   const canBranch = data.branchSubmissionMode === "copilot" && Boolean(data.newPrototypePath)
   const modalOpen = infoOpen || Boolean(submission)
   const selectedThread = review?.selectedThread
@@ -134,7 +137,7 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
     if (composerExpanded) branchInput.current?.focus()
   }
 
-  function submitBranch(event: SubmitEvent<HTMLFormElement>) {
+  async function submitBranch(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!branchBrief.trim() || !canBranch) return
 
@@ -143,14 +146,17 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
       branchInstructions: data.branchInstructions,
       branchPageInstructions: data.branchPageInstructions,
       previewUrl: data.selectedBuild?.previewUrl,
+      initialRoute: data.branchInitialRoute,
       route: bridge.route,
     })
-    setSubmission(
-      createPrototypeSubmission({
-        repositoryName: data.repositoryName,
-        branchName: data.branchName,
-        prompt,
-      }),
+    await handoff.prepare(() =>
+      setSubmission(
+        createPrototypeSubmission({
+          repositoryName: data.repositoryName,
+          branchName: data.branchName,
+          prompt,
+        }),
+      ),
     )
   }
 
@@ -327,7 +333,7 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
             </Stack>
             {canBranch ? (
               <div className="review-branch-composer">
-                <form onSubmit={submitBranch}>
+                <form onSubmit={(event) => void submitBranch(event)} aria-busy={handoff.pending}>
                   <PrototypeBriefComposer
                     inputRef={branchInput}
                     variant="branch"
@@ -344,6 +350,7 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
                     branchFrom={data.branchFromLabel}
                   />
                 </form>
+                {handoff.error ? <HubAlert title={handoff.error} variant="critical" /> : null}
               </div>
             ) : null}
             {review && data.selectedBuild ? (
@@ -403,7 +410,7 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
           detailsSaved={detailsSaved}
         />
       ) : null}
-      {submission ? (
+      {submission && canBranch ? (
         <CopilotAppContinuationDialog
           submission={submission}
           copy={data.branchContinuation}

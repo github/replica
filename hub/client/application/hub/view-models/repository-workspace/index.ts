@@ -10,6 +10,9 @@ export function repositoryWorkspace(
   search: URLSearchParams,
   real = false,
 ): RepositoryWorkspaceData {
+  const browseTemplates = real
+    ? workspace.repositories.find(({ id }) => id === repository.id)?.capabilities?.browseTemplates
+    : workspace.capabilities?.createPrototypes
   return {
     ...workspaceNavigation(workspace, repository.id, search, real),
     analyticsLabel: "Analytics",
@@ -17,7 +20,7 @@ export function repositoryWorkspace(
     learningsLabel: "Learnings",
     learningsPath: real ? null : resourcePath(`/repositories/${repository.id}/learnings`, search),
     newPrototypeLabel: "Create",
-    newPrototypePath: workspace.capabilities?.createPrototypes
+    newPrototypePath: browseTemplates
       ? resourcePath(`/repositories/${repository.id}/new`, search)
       : null,
     prototypesLabel: "Prototypes",

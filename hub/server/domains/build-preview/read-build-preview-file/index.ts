@@ -1,6 +1,7 @@
 import { contentTypeForBuildPath } from "../../build-artifacts/content-type-for-build-path/index.ts"
 import { normalizeBuildArtifactPath } from "../../build-artifacts/normalize-build-artifact-path/index.ts"
 import { injectPreviewBridge } from "../inject-preview-bridge/index.ts"
+import { readTemplateScreenshotPath } from "../template-screenshot-path/index.ts"
 import type {
   BuildPreviewFileResult,
   ReadBuildPreviewFileDependencies,
@@ -39,17 +40,16 @@ export async function readBuildPreviewFile(
     return { status: "not-found" }
   }
   let path =
-    requestPath === "/__replica/screenshots/desktop.png"
-      ? "screenshots/desktop.png"
-      : requestPath === "/__replica/screenshots/narrow.png"
-        ? "screenshots/narrow.png"
-        : `dist${
-            requestPath === "/"
-              ? "/index.html"
-              : requestPath.endsWith("/")
-                ? `${requestPath}index.html`
-                : requestPath
-          }`
+    readTemplateScreenshotPath(input.requestPath) ??
+    (requestPath === "/__replica/screenshots/narrow.png"
+      ? "screenshots/narrow.png"
+      : `dist${
+          requestPath === "/"
+            ? "/index.html"
+            : requestPath.endsWith("/")
+              ? `${requestPath}index.html`
+              : requestPath
+        }`)
   const normalizedPath = normalizeBuildArtifactPath(path)
   if (!normalizedPath) return { status: "not-found" }
   path = normalizedPath

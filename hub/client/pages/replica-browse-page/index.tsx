@@ -12,6 +12,7 @@ import { PrototypeBriefComposer } from "@components/prototype-brief-composer"
 import { MinimizedReviewToolbar } from "@features/minimized-review-toolbar"
 import { PrototypePreview } from "@features/prototype-preview"
 import { PrototypeWorkspace } from "@features/prototype-workspace"
+import { useCopilotHandoff } from "@hooks/use-copilot-handoff"
 import { createPrototypeSubmission } from "@utils/create-prototype-submission"
 import { createPreviewPrototypePrompt } from "@utils/create-preview-prototype-prompt"
 
@@ -28,6 +29,7 @@ export function ReplicaBrowsePage({
   onMinimizedChange,
   onFrameLoad,
   onOpenApp,
+  authorizeHandoff,
 }: ReplicaBrowsePageProps) {
   const [localMinimized, setLocalMinimized] = useState(initialMinimized)
   const [controlsToolbar, setControlsToolbar] = useState<HTMLSpanElement | null>(null)
@@ -39,6 +41,7 @@ export function ReplicaBrowsePage({
   const [brief, setBrief] = useState("")
   const briefInput = useRef<HTMLTextAreaElement>(null)
   const [submission, setSubmission] = useState<CopilotAppSubmission | null>(null)
+  const handoff = useCopilotHandoff(authorizeHandoff)
   const [copyResult, setCopyResult] = useState<{
     prompt: string
     status: "copied" | "error"
@@ -50,10 +53,12 @@ export function ReplicaBrowsePage({
     templateLandingPageInstructions:
       data.templateId === "default" ? undefined : data.templateLandingPageInstructions,
     previewUrl: data.selectedBuild?.previewUrl,
+    initialRoute: data.initialRoute,
     route,
   })
   const copyStatus = copyResult?.prompt === prompt ? copyResult.status : null
   const copyPrompt = data.branchSubmissionMode === "copy"
+  const canBranch = data.canBranch ?? (copyPrompt || Boolean(data.newPrototypePath))
 
   function branchFromHere() {
     setExpanded(true)
@@ -83,7 +88,7 @@ export function ReplicaBrowsePage({
 
   async function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!brief.trim()) return
+    if (!brief.trim() || !canBranch) return
 
     if (copyPrompt) {
       setCopyResult(null)
@@ -96,14 +101,14 @@ export function ReplicaBrowsePage({
       return
     }
 
-    if (!data.newPrototypePath) return
-
-    setSubmission(
-      createPrototypeSubmission({
-        repositoryName: data.repositoryName,
-        branchName: data.branchName,
-        prompt,
-      }),
+    await handoff.prepare(() =>
+      setSubmission(
+        createPrototypeSubmission({
+          repositoryName: data.repositoryName,
+          branchName: data.branchName,
+          prompt,
+        }),
+      ),
     )
   }
 
@@ -114,11 +119,7 @@ export function ReplicaBrowsePage({
           data={data}
           preview
           onControlsToolbarMount={data.controlsIdentity ? setWorkspaceControlsToolbar : undefined}
-          fork={
-            copyPrompt || data.newPrototypePath
-              ? { label: data.forkLabel, onClick: branchFromHere }
-              : undefined
-          }
+          fork={canBranch ? { label: data.forkLabel, onClick: branchFromHere } : undefined}
         >
           <div className={`review-page${minimized ? " review-page--minimized" : ""}`}>
             <Stack gap="none" className="review-shell" padding="none">
@@ -149,9 +150,9 @@ export function ReplicaBrowsePage({
               )}
             </Stack>
 
-            {copyPrompt || data.newPrototypePath ? (
+            {canBranch ? (
               <div className="review-branch-composer">
-                <form onSubmit={(event) => void submit(event)}>
+                <form onSubmit={(event) => void submit(event)} aria-busy={handoff.pending}>
                   <PrototypeBriefComposer
                     inputRef={briefInput}
                     variant="branch"
@@ -167,6 +168,7 @@ export function ReplicaBrowsePage({
                   />
                 </form>
 
+                {handoff.error ? <HubAlert title={handoff.error} variant="critical" /> : null}
                 {copyPrompt && copyStatus === "copied" ? (
                   <HubToast title={data.branchContinuation.copiedLabel} />
                 ) : null}
@@ -192,7 +194,7 @@ export function ReplicaBrowsePage({
         />
       ) : null}
 
-      {submission ? (
+      {submission && canBranch ? (
         <CopilotAppContinuationDialog
           submission={submission}
           copy={data.branchContinuation}

@@ -37,6 +37,8 @@ export const repositorySchema = z.object({
       managePrototypeListings: z.boolean().optional(),
       administerRepository: z.boolean().optional(),
       repositoryPermissionUnavailable: z.boolean().optional(),
+      browseTemplates: z.boolean().optional(),
+      local: z.boolean().optional(),
     })
     .optional(),
 })
@@ -98,6 +100,7 @@ export const workspaceResponseSchema = z.object({
   viewer: userSchema,
   repositories: z.array(repositorySchema),
   capabilities: workspaceCapabilitiesSchema.optional(),
+  welcomeHidden: z.boolean().optional(),
   navigation: z
     .object({
       welcomeHidden: z.boolean(),
@@ -124,6 +127,7 @@ export const prototypeResponseSchema = z.object({
   selectedBuild: buildSchema.nullable(),
   controlsIdentity: z.string().min(1).max(128).optional(),
   showPrototypeInfo: z.boolean().optional(),
+  canBranch: z.boolean().optional(),
 })
 
 export const buildHistoryResponseSchema = z.object({

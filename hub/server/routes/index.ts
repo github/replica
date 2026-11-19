@@ -13,6 +13,9 @@ import { post as handleGitHubWebhookPost } from "./api/github/webhooks/post/inde
 import { get as handleApiHealthGet } from "./api/health/get/index.ts"
 import { get as handleApiReadyGet } from "./api/ready/get/index.ts"
 import { get as handleWorkspaceGet } from "./api/workspace/get/index.ts"
+import { patch as handleWelcomePatch } from "./api/workspace/welcome/patch/index.ts"
+import { templateRoutes } from "./api/repositories/templates/index.ts"
+import { canBrowseTemplates } from "./api/product/template-repository-access/index.ts"
 import { get as handleRepositoryAuthorsGet } from "./api/repositories/authors/get/index.ts"
 import { get as handleRepositoryGet } from "./api/repositories/show/get/index.ts"
 import { get as handlePrototypeGet } from "./api/repositories/prototypes/show/get/index.ts"
@@ -81,7 +84,18 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
     if (publicSharing) {
       app.get("/__replica/share/authorize", handleSharePreviewAuthorizeGet(preview, publicSharing))
     }
-    app.get("/{*path}", handleBuildPreviewServeGet(preview))
+    app.get(
+      "/{*path}",
+      handleBuildPreviewServeGet(preview, async (digest, repository) => {
+        const current = await authentication?.currentSession.restore(digest)
+        return Boolean(
+          current &&
+          product &&
+          canBrowseTemplates(current, repository.local) &&
+          (await product.isRepositoryVisible(current, repository.id)),
+        )
+      }),
+    )
   }
   app.get("/api/health", handleApiHealthGet)
   app.get("/api/ready", (request, response) =>
@@ -108,6 +122,29 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
         "/api/workspace",
         handleWorkspaceGet(authentication.currentSession, product, Boolean(publicSharing)),
       )
+      if (product.welcome) {
+        app.patch(
+          "/api/workspace/welcome",
+          requireOrigin(authentication.signOut.applicationOrigin),
+          handleWelcomePatch(authentication.currentSession, product.welcome),
+        )
+      }
+      if (product.templates) {
+        const templates = templateRoutes(
+          authentication.currentSession,
+          { ...product, templates: product.templates },
+          preview,
+        )
+        app.get("/api/repositories/:repositoryId/templates", templates.catalog)
+        app.get("/api/repositories/:repositoryId/templates/:templateId", templates.detail)
+        app.get("/api/repositories/:repositoryId/create/permission", templates.permission)
+        if (preview) {
+          app.get(
+            "/api/repositories/:repositoryId/template-builds/:buildId/access",
+            templates.access,
+          )
+        }
+      }
       app.get(
         "/api/repositories/:repositoryId",
         handleRepositoryGet(authentication.currentSession, product),

@@ -1,4 +1,5 @@
 import type { WelcomePageData } from "@pages/welcome-page/types"
+import type { HubWorkspaceData } from "@features/hub-workspace/types"
 import type { WorkspaceResponse } from "@application/hub/contracts/types"
 import type { SettingsWorkspaceResponse } from "@application/hub/settings-contracts/types"
 
@@ -10,15 +11,28 @@ export function settingsWelcome(
   state: SettingsWorkspaceResponse,
   search: URLSearchParams,
 ): WelcomePageData {
+  return welcomeData(
+    settingsWorkspace(workspace, state, search, "welcome"),
+    state.welcomeHidden,
+    search,
+  )
+}
+
+export function welcomeData(
+  workspace: HubWorkspaceData,
+  hidden: boolean,
+  search: URLSearchParams,
+  real = false,
+): WelcomePageData {
   const videoUrl: unknown = import.meta.env.VITE_WELCOME_VIDEO_URL
   const videoPosterUrl: unknown = import.meta.env.VITE_WELCOME_VIDEO_POSTER_URL
   return {
-    workspace: settingsWorkspace(workspace, state, search, "welcome"),
+    workspace,
     heading: "Getting started with Replica",
     description: "Turn an idea into an interactive prototype.",
     videoUrl: typeof videoUrl === "string" && videoUrl ? videoUrl : null,
     videoEmbedUrl:
-      typeof videoUrl === "string" && videoUrl
+      real || (typeof videoUrl === "string" && videoUrl)
         ? null
         : "https://www.youtube-nocookie.com/embed/J2Z28CwIfsA",
     videoPosterUrl: typeof videoPosterUrl === "string" && videoPosterUrl ? videoPosterUrl : null,
@@ -40,9 +54,13 @@ export function settingsWelcome(
     createUnavailable: "Creating a prototype here requires a connected GitHub repository.",
     hideLabel: "Hide welcome",
     hideDescription: "Hide Welcome from the sidebar. You can still visit /welcome.",
-    hidePath: state.welcomeHidden ? null : resourcePath("/welcome", search),
-    notice: state.welcomeHidden
-      ? "Welcome is hidden from your sidebar. You can still visit /welcome."
-      : null,
+    hidePath: hidden
+      ? null
+      : resourcePath(
+          "/welcome",
+          search,
+          real ? { repositoryId: workspace.repository?.selectedRepositoryId ?? null } : {},
+        ),
+    notice: hidden ? "Welcome is hidden from your sidebar. You can still visit /welcome." : null,
   }
 }

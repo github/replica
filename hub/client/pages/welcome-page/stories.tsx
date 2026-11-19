@@ -101,12 +101,10 @@ export const LocalRepository: Story = {
   args: {
     data: {
       ...meta.args.data,
+      createPath: null,
       workspace: {
         ...meta.args.data.workspace,
-        repository: {
-          ...prototypeWorkspaceData,
-          newPrototypePath: null,
-        },
+        repository: prototypeWorkspaceData,
       },
     },
   },

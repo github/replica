@@ -1,6 +1,6 @@
 # Routed frontend
 
-The Hub frontend uses React Router Framework Mode as a single-page application (SPA) rendered in the browser. In mock mode, it connects the retained pages to local product mocks. In real mode, the repository index, prototype details and Build history, persisted review conversations, administrator roster, and Hub-wide security audit have production APIs. Creation and branching open the original Copilot app handoff.
+The Hub frontend uses React Router Framework Mode as a single-page application (SPA) rendered in the browser. In mock mode, it connects the retained pages to local product mocks. In real mode, Create, template previews, and Welcome use Express alongside the repository index, prototype details and Build history, persisted review conversations, administrator roster, and Hub-wide security audit.
 
 This frontend does not restore the production Hub. Configured GitHub authentication, Hub admission, browser sessions, a repository index, and a prototype detail API are available. GitHub members are limited to their readable repositories; see [Authentication](authentication.md). The following remain separate backend work:
 
@@ -183,7 +183,7 @@ The shared JSON client awaits mock startup before sending any API request. It fo
 
 Unsupported actions show a visible failure without requiring development controls. Credential and file submissions remain unprocessed; their technical diagnostics stay in the test toolbar.
 
-These are frontend/mock contracts under [the application contracts](../client/application/hub/contracts/index.ts), not Prisma models or already-implemented Express endpoints. Repository and prototype identifiers are strings that accept UUIDs or positive whole numbers, so the server can issue UUIDs while mocks keep their numeric values. Template and share identifiers accept URL-safe opaque values rather than requiring the mock generator's format. Build commits accept full SHA-1 or SHA-256 object names. Coordinate real identifiers and contracts with backend work.
+These are frontend contracts under [the application contracts](../client/application/hub/contracts/index.ts), not Prisma models. Some endpoints are mock-only. Repository and prototype identifiers are strings that accept UUIDs or positive whole numbers, so the server can issue UUIDs while mocks keep their numeric values. Template and share identifiers accept URL-safe opaque values rather than requiring the mock generator's format. Build commits accept full SHA-1 or SHA-256 object names.
 
 | HTTP interface | Result |
 | --- | --- |
@@ -276,6 +276,16 @@ The worker and local preview assets are development-only and are not written int
 Vite bundles Primer's CommonJS entries for the framework's development and build-time rendering. Storybook uses its own Vite configuration so the Framework plugin does not take over its renderer. The separate Controls and prototype canvas entry points keep their existing source paths and build configuration.
 
 The `/` and `/repositories` entry points send signed-out viewers to sign-in and viewers with repositories to their first repository. When no repositories are available, the empty page keeps account access and permitted Hub navigation without inventing repository context.
+
+### Create, templates, and Welcome
+
+**Create** (`/repositories/:repositoryId/new`) lists Default and the layouts declared by the latest successful Build on the repository's current default branch. The picker adds the selected layout to the brief. Search matches names, categories, and descriptions without changing the brief. A later queued or failed Build does not displace a successful one. Without a successful Build, Default still opens and explains why no preview is available. If Hub cannot read a saved `templates.json` manifest, it shows an error rather than an incomplete catalog.
+
+`GET /api/repositories/:repositoryId/templates` returns the catalog. `GET /api/repositories/:repositoryId/templates/:templateId` returns a template and its initial route. The template detail page uses the [isolated Build preview](build-previews.md). It supports Controls and minimization, but not prototype review or Build selection. Its copied Hub link records the viewed path, query, and fragment as `return_path` and reopens them on the latest successful Build. Branch from here uses the viewed route as prompt context and makes it the landing page for a non-Default template.
+
+Local Create and template details use **Copy prompt** without contacting GitHub. Hosted handoffs require write access to the selected repository. `GET /api/repositories/:repositoryId/create/permission` rechecks access before opening the continuation dialog. Only **Open Copilot App** opens the GitHub launcher. A handoff from a template starts from the default branch; one from a prototype starts from its branch. Hub never creates a branch or Build in these flows.
+
+**Hide welcome** removes the sidebar link for the signed-in user and leaves `/welcome` available in every session. Express returns the preference as `welcomeHidden` in `GET /api/workspace`; `PATCH /api/workspace/welcome` hides the link for the current user without accepting a user ID. The `repositoryId` query parameter preserves readable repository context. The Create card links to a hosted repository; local Create remains available from that repository's sidebar. Set `VITE_WELCOME_VIDEO_URL` and, optionally, `VITE_WELCOME_VIDEO_POSTER_URL` when building the client to show the introduction video. Without a video, the page still offers the getting-started links.
 
 ## Retained-page inventory
 
