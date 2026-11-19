@@ -39,7 +39,7 @@ jobs:
           node-version: 24
       - run: npm ci
       - run: npm run build
-      - uses: github/replica/actions/build/publish@c63a34cfbffce9f55aec3bd1716fd92a1cefb7c0
+      - uses: github/replica/actions/build/publish@6ae58627d821eb6e8fb8047cc6a436cb9bb400d3
 
   screenshots:
     needs: publish
@@ -48,7 +48,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: github/replica/actions/build/screenshots@c63a34cfbffce9f55aec3bd1716fd92a1cefb7c0
+      - uses: github/replica/actions/build/screenshots@6ae58627d821eb6e8fb8047cc6a436cb9bb400d3
 ```
 
 The publish action validates and packages the output and uploads `replica-build-v1`. It installs no npm packages and no browser. Its completed-job event queues the Hub import while the dependent screenshot job downloads that exact artifact and uploads `replica-screenshots-v1`. The preview becomes available after webhook delivery, queue processing, and artifact import, not immediately on upload. If the build or artifact upload fails, GitHub skips screenshots and Hub records the failed Build.
