@@ -1,24 +1,11 @@
 name: Replica publish
-description: Package static output, retain its GitHub artifact, and optionally push it to Hub without npm or a browser
+description: Package static prototype output built by earlier steps and upload it as replica-build-v1, without npm or a browser
 
 inputs:
   output-directory:
     description: Workspace-relative directory containing the static website and index.html
     required: false
     default: dist
-  hub-url:
-    description: Hub origin to publish to; omit for artifact-only webhook and polling import
-    required: false
-    default: ""
-  hub-retries:
-    description: Additional upload attempts for transient failures (0 to 5)
-    default: "2"
-  hub-retry-delay:
-    description: Initial backoff in seconds, doubled up to 60 seconds (0 to 60)
-    default: "15"
-  hub-timeout:
-    description: Timeout in seconds for each upload attempt (1 to 300)
-    default: "180"
 
 runs:
   using: composite
@@ -54,13 +41,3 @@ runs:
         if-no-files-found: error
         retention-days: 3
         include-hidden-files: true
-
-    - name: Push dist package to Hub
-      if: inputs.hub-url != ''
-      env:
-        REPLICA_HUB_URL: ${{ inputs.hub-url }}
-        REPLICA_HUB_RETRIES: ${{ inputs.hub-retries }}
-        REPLICA_HUB_RETRY_DELAY: ${{ inputs.hub-retry-delay }}
-        REPLICA_HUB_TIMEOUT: ${{ inputs.hub-timeout }}
-      run: node "$GITHUB_ACTION_PATH/../scripts/push-to-hub/index.mjs" build "$RUNNER_TEMP/replica-build-v1"
-      shell: bash

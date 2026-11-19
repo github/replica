@@ -13,7 +13,6 @@ import type { CreateAppOptions } from "./types.ts"
 export function createApp({
   authentication,
   broadcast,
-  githubActions,
   githubSetup,
   githubWebhooks,
   clientDirectory,
@@ -47,7 +46,7 @@ export function createApp({
     authenticationSecurity(),
   )
   app.use(
-    /^(?!\/api\/copilot-connection(?:\/|$))(?!\/api\/product\/sharing-settings(?:\/|$))(?!\/api\/repositories\/[^/]+\/learnings(?:\/|$))(?!\/api\/(?:auth|administrators\/authorizations|session-revocation\/authorizations|github\/(?:webhooks|actions))(?:\/|$))(?!\/api\/repositories\/[^/]+\/prototypes\/[^/]+(?:\/review-comments(?:\/|$)|\/share-links(?:\/|$)|\/?$)).*/i,
+    /^(?!\/api\/copilot-connection(?:\/|$))(?!\/api\/product\/sharing-settings(?:\/|$))(?!\/api\/repositories\/[^/]+\/learnings(?:\/|$))(?!\/api\/(?:auth|administrators\/authorizations|session-revocation\/authorizations|github\/webhooks)(?:\/|$))(?!\/api\/repositories\/[^/]+\/prototypes\/[^/]+(?:\/review-comments(?:\/|$)|\/share-links(?:\/|$)|\/?$)).*/i,
     express.json(),
   )
 
@@ -55,7 +54,6 @@ export function createApp({
     authentication,
     broadcast,
     copilotConnection,
-    githubActions,
     githubSetup,
     githubWebhooks,
     isReady,

@@ -26,7 +26,6 @@ import { jobProcessors } from "./workers/configuration.ts"
 import { runJobWorker } from "./workers/run-job-worker/index.ts"
 import type { AuthenticationRouteDependencies } from "./routes/api/auth/types.ts"
 import type { CopilotConnectionRouteDependencies } from "./routes/api/copilot-connection/types.ts"
-import type { GitHubActionsRouteDependencies } from "./routes/api/github/actions/types.ts"
 import type { GitHubWebhookRouteDependencies } from "./routes/api/github/webhooks/types.ts"
 import type { LearningsRouteDependencies } from "./routes/api/learnings/types.ts"
 import type { ProductRouteDependencies } from "./routes/api/product/types.ts"
@@ -66,7 +65,6 @@ try {
     let preview: BuildPreviewRouteDependencies | undefined
     let publicSharing: PublicSharingRouteDependencies | undefined
     let githubSetup: GitHubSetupRouteDependencies | undefined
-    let githubActions: GitHubActionsRouteDependencies | undefined
     let githubWebhooks: GitHubWebhookRouteDependencies | undefined
     if (runsApi) {
       const authenticationEnvironment = resolveLocalSignInEnvironment(process.env)
@@ -206,19 +204,6 @@ try {
                   )
                 },
               })
-              if (storage) {
-                const [{ createGitHubActionsRouteDependencies }, { prisma }] = await Promise.all([
-                  import("./routes/api/github/actions/create-github-actions-route-dependencies/index.ts"),
-                  import("./integrations/prisma/index.ts"),
-                ])
-                githubActions = createGitHubActionsRouteDependencies({
-                  applicationOrigin: authenticationConfiguration.applicationOrigin,
-                  appCredentials,
-                  database: prisma,
-                  storage,
-                  logger,
-                })
-              }
             }
           }
         } catch (error) {
@@ -238,7 +223,6 @@ try {
         logger,
         isReady: isStorageReady,
         authentication,
-        githubActions,
         githubSetup,
         githubWebhooks,
         copilotConnection,
@@ -258,7 +242,6 @@ try {
           logger,
           isStorageReady,
           authentication,
-          githubActions,
           githubSetup,
           githubWebhooks,
           copilotConnection,

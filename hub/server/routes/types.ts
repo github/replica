@@ -2,7 +2,6 @@ import type { Logger } from "pino"
 
 import type { Broadcast } from "../integrations/ws/types.ts"
 import type { AuthenticationRouteDependencies } from "./api/auth/types.ts"
-import type { GitHubActionsRouteDependencies } from "./api/github/actions/types.ts"
 import type { GitHubWebhookRouteDependencies } from "./api/github/webhooks/types.ts"
 import type { CopilotConnectionRouteDependencies } from "./api/copilot-connection/types.ts"
 import type { LearningsRouteDependencies } from "./api/learnings/types.ts"
@@ -19,7 +18,6 @@ export interface RouteDependencies {
   publicSharing?: PublicSharingRouteDependencies
   preview?: BuildPreviewRouteDependencies
   githubSetup?: GitHubSetupRouteDependencies
-  githubActions?: GitHubActionsRouteDependencies
   githubWebhooks?: GitHubWebhookRouteDependencies
   broadcast?: Broadcast
   isReady?: () => Promise<boolean>
