@@ -74,6 +74,7 @@ const evaluationSummarySchema = z
           ),
           followsProbability: z.number().min(0).max(1),
           breaksProbability: z.number().min(0).max(1),
+          explanation: z.string().min(1).max(500).optional(),
         })
         .strict(),
     ),
@@ -322,7 +323,37 @@ export function createDecisionModelRouteDependencies(
           membershipId: promotion.promotedByMembershipId,
           createdAt: promotion.createdAt.toISOString(),
         })),
-        evaluations,
+        evaluations: overview.evaluations.map((evaluation) => {
+          const summary = evaluationSummarySchema.safeParse(evaluation.summary)
+          return {
+            id: evaluation.id,
+            build: {
+              id: evaluation.buildId,
+              number: evaluation.build.number,
+              prototypeId: evaluation.build.prototypeId,
+            },
+            model: {
+              id: evaluation.candidateId,
+              runtimeCandidateId: evaluation.candidate.runtimeCandidateId,
+              generation: Number(evaluation.promotionGeneration),
+            },
+            questionDigest: evaluation.questionDigest,
+            screenshotSetDigest: evaluation.screenshotSetDigest,
+            responseDigest: evaluation.responseDigest,
+            findingsAvailable: summary.success,
+            findings: summary.success
+              ? summary.data.findings.map((finding) => ({
+                  ...finding,
+                  explanation:
+                    finding.explanation ??
+                    (finding.breaksProbability > finding.followsProbability
+                      ? "Across the submitted captured views, the promoted decision model found the Build more likely to break the learning than follow it."
+                      : "Across the submitted captured views, the promoted decision model found the Build at least as likely to follow the learning as break it."),
+                }))
+              : [],
+            createdAt: evaluation.createdAt.toISOString(),
+          }
+        }),
         deletions: (overview.deletions ?? []).map((deletion) => ({
           id: deletion.id,
           state: deletion.state.toLowerCase() as "pending" | "completed" | "failed",
