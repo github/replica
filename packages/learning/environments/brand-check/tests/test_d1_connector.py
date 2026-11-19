@@ -785,7 +785,7 @@ class D1ConnectorTest(unittest.TestCase):
         self.assertEqual(
             projected,
             {
-                "state": {"imagesNote": "Image 1 is the candidate."},
+                "state": {},
                 "images": ["data:image/png;base64,AA=="],
                 "questions": {
                     RULE: {
@@ -797,7 +797,7 @@ class D1ConnectorTest(unittest.TestCase):
             },
         )
 
-    def test_projection_sanitizes_and_bounds_every_prompt_text_field(self):
+    def test_projection_drops_state_and_sanitizes_question_prompt_text(self):
         backend = D1OmniBackend(
             Path(__file__).parent,
             expected_taskset_digest="sha256:taskset",
@@ -827,10 +827,7 @@ class D1ConnectorTest(unittest.TestCase):
             }
         )
 
-        self.assertEqual(
-            projected["state"],
-            {"imagesNote": "candidate\nnext\tcolumn"},
-        )
+        self.assertEqual(projected["state"], {})
         self.assertNotIn("private", projected["state"])
         self.assertEqual(
             projected["questions"][RULE]["instructions"],

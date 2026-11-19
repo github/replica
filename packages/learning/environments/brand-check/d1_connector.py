@@ -215,11 +215,7 @@ class D1OmniBackend:
                 projected["instructions"] = NOUL_INSTRUCTIONS
             questions[key] = projected
         projected_request = {
-            "state": {
-                "imagesNote": _sanitize_prompt_text(
-                    request["state"].get("imagesNote", "")
-                ),
-            },
+            "state": {},
             "images": list(request["images"]),
             "questions": questions,
         }
