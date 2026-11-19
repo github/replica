@@ -6,6 +6,7 @@ import { InboxIcon } from "@primer/octicons-react"
 import { RepositoryNavigationItem } from "@components/repository-navigation-item"
 import { ConversationInbox } from "@features/conversation-inbox"
 import { useHoverPreview } from "@hooks/use-hover-preview"
+import { useNotificationInbox } from "@hooks/use-notification-inbox"
 
 import type { WorkspaceSidebarData } from "./types"
 import "./inbox.css"
@@ -21,7 +22,23 @@ export function WorkspaceInbox({
   inboxPreview?: (close: () => void) => ReactNode
   onInboxClick?: MouseEventHandler<HTMLAnchorElement>
 }) {
-  const liveInbox = data.liveInbox
+  const configuration =
+    data.liveInbox || inboxPreview || !data.notificationInbox?.connected
+      ? undefined
+      : data.notificationInbox
+  const managed = useNotificationInbox({
+    path: configuration?.path,
+    authenticityToken: data.authenticityToken,
+    initialUnreadCount: data.notificationsUnreadCount,
+    initialUnreadOnly: true,
+    autoLoad: false,
+    autoCount: data.selectedSection !== "notifications",
+    synchronize: Boolean(configuration),
+    limit: 10,
+  })
+  const liveInbox =
+    data.liveInbox ?? (configuration ? { ...managed, copy: configuration.copy } : undefined)
+  const count = liveInbox?.unreadCount ?? data.notificationsUnreadCount
   const { open, triggerRef, panelRef, enter, leave, close } = useHoverPreview(
     Boolean(inboxPreview || liveInbox),
   )
@@ -71,15 +88,23 @@ export function WorkspaceInbox({
         href={data.notificationsPath}
         icon={InboxIcon}
         label={data.notificationsLabel}
-        ariaLabel={data.notificationsUnread ? data.notificationsUnreadLabel : undefined}
-        count={data.notificationsUnreadCount}
+        ariaLabel={
+          configuration
+            ? count
+              ? `${data.notificationsLabel}, ${count} unread`
+              : undefined
+            : data.notificationsUnread
+              ? data.notificationsUnreadLabel
+              : undefined
+        }
+        count={count}
         selected={data.selectedSection === "notifications"}
         onClick={(event) => {
           close()
           onInboxClick?.(event)
         }}
       />
-      {data.notificationsUnread && data.notificationsUnreadCount === undefined ? (
+      {data.notificationsUnread && count === undefined ? (
         <span className="repository-navigation__unread" aria-hidden="true" />
       ) : null}
       {(inboxPreview || liveInbox) && open

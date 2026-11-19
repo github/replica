@@ -13,6 +13,7 @@ import { canHandOffToCopilot } from "../../../../product/template-repository-acc
 import type { WorkspaceProductRouteDependencies } from "../../../../product/types.ts"
 import { readHostedSharingCapability } from "../../../../public-sharing/read-hosted-sharing-capability/index.ts"
 import type { PublicSharingRouteDependencies } from "../../../../public-sharing/types.ts"
+import { respondReviewError } from "../../../../review-comments/respond-review-error/index.ts"
 
 const querySchema = z
   .object({
@@ -21,6 +22,7 @@ const querySchema = z
       .regex(/^[1-9]\d*$/)
       .optional(),
     view: z.enum(["gallery", "list", "minimized"]).optional(),
+    from: z.literal("inbox").optional(),
   })
   .strict()
 
@@ -86,8 +88,18 @@ export function get(
         return
       }
       const branch = eligibility.result ? { canBranch: true } : {}
+      if (query.data.from && product.authorizeReviewAccess) {
+        const access = await product.authorizeReviewAccess(repositoryId.data, {
+          ...initial,
+          sessionDigest: hashAuthenticationValue(cookie),
+        })
+        if (!access.canView) {
+          response.status(404).json({ error: "Review access is not available." })
+          return
+        }
+      }
 
-      if (query.data.view !== "minimized" && request.method === "GET") {
+      if (query.data.view !== "minimized" && !query.data.from && request.method === "GET") {
         const body = await product.readPrototypeWithIntroduction(
           {
             buildNumber,
@@ -140,7 +152,7 @@ export function get(
         response.status(503).json({ error: "Hub could not check GitHub repository permissions." })
         return
       }
-      next(error)
+      if (!respondReviewError(error, response)) next(error)
     }
   }
 }

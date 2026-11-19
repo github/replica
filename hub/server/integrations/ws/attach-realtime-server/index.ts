@@ -54,6 +54,11 @@ export function attachRealtimeServer<Identity>({
 
   return {
     broadcast: (channel, event) => broadcast(state, channel, event),
+    resynchronize: () => {
+      for (const [socket, connection] of state.connections) {
+        if (connection.subscriptions.size) socket.close(1012, "Reload current state")
+      }
+    },
     close: () => closeRealtimeServer(state, server, upgrade, heartbeat),
   }
 }

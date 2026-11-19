@@ -11,7 +11,13 @@ import { PrototypeMetadataError } from "../../../../domains/prototypes/errors.ts
 import { readPrototypeWithIntroduction } from "../../../../domains/prototypes/read-prototype-with-introduction/index.ts"
 import { authorizeRepositoryReview } from "../../../../domains/review-comments/authorize-repository-review/index.ts"
 import { createReviewCommentService } from "../../../../domains/review-comments/create-review-comment-service/index.ts"
+import { createReviewInbox } from "../../../../domains/review-comments/create-review-inbox/index.ts"
+import {
+  createReviewMentionDirectory,
+  githubReviewId,
+} from "../../../../domains/review-comments/create-review-mention-directory/index.ts"
 import { ReviewCommentError } from "../../../../domains/review-comments/errors.ts"
+import type { GitHubReviewDirectory } from "../../../../integrations/github/create-review-directory/types.ts"
 import { prisma } from "../../../../integrations/prisma/index.ts"
 import { readRepositoryPermission } from "../../../../integrations/github/read-repository-permission/index.ts"
 import type {
@@ -37,6 +43,8 @@ import { recordPrototypeIntroduction } from "../../../../repositories/prototype-
 import { lockEditablePrototype } from "../../../../repositories/prototypes/lock-editable-prototype/index.ts"
 import { lockVisiblePrototype } from "../../../../repositories/prototypes/lock-visible-prototype/index.ts"
 import { findRepositoryReviewAccess } from "../../../../repositories/review-comments/find-repository-review-access/index.ts"
+import { findReviewRepository } from "../../../../repositories/review-comments/collaboration-queries/index.ts"
+import { findSessionGitHubSubject } from "../../../../repositories/review-comments/inbox-queries/index.ts"
 import { updatePrototypeMetadata } from "../../../../repositories/prototypes/update-prototype-metadata/index.ts"
 import { recordRepositoryAudit } from "../../../../repositories/security-audits/record-repository-audit/index.ts"
 import { lockSessionRevocationState } from "../../../../repositories/session-revocation-states/lock-session-revocation-state/index.ts"
@@ -60,6 +68,7 @@ interface CreateProductRouteDependenciesOptions {
   githubRepositoryCredentials?: RepositoryPermissionInput["credentials"]
   requestGitHub?: typeof fetch
   scopeGitHubMembers?: boolean
+  githubReviewDirectory?: GitHubReviewDirectory
   authorizeReviewMutation?: (
     transaction: Prisma.TransactionClient,
     sessionDigest: string,
@@ -83,6 +92,7 @@ export function createProductRouteDependencies({
   githubRepositoryCredentials,
   requestGitHub,
   scopeGitHubMembers = false,
+  githubReviewDirectory,
   authorizeReviewMutation,
   onReviewCommentDeleted,
   previewBaseOrigin,
@@ -124,7 +134,7 @@ export function createProductRouteDependencies({
     })
     if (!session) return null
     const profile = await findCurrentSessionProfile(transaction, session)
-    return profile ? { ...session, sessionProvider: profile.sessionProvider } : null
+    return profile ? { ...session, ...profile } : null
   }
   async function repositoryIsVisible(
     database: Pick<Prisma.TransactionClient, "gitHubRepositoryAccessState" | "repository">,
@@ -245,7 +255,11 @@ export function createProductRouteDependencies({
       )
       if (restored?.userId !== userId) return false
       // Report a hidden repository as missing so members cannot probe for it.
-      if (!(await repositoryIsVisible(transaction, repositoryId, restored))) {
+      const repository = await findRepositoryReviewAccess(transaction, repositoryId)
+      if (
+        !authorizeRepositoryReview(restored, repository).canChange ||
+        !(await repositoryIsVisible(transaction, repositoryId, restored))
+      ) {
         throw new ReviewCommentError("not_found", "Repository not found.")
       }
       return true
@@ -271,6 +285,7 @@ export function createProductRouteDependencies({
           return url.toString()
         }
       : undefined
+  const mentions = createReviewMentionDirectory(prisma, githubReviewDirectory)
   return {
     getRepositoryPermission,
     async getVerifiedRepositoryPermission(viewer, repositoryId) {
@@ -304,7 +319,7 @@ export function createProductRouteDependencies({
             applicationOrigin: analyticsSettings.applicationOrigin,
             localAdministration: localAnalyticsAdministration,
             isLocalAdministrator: isLocalAnalyticsAdministrator,
-            hostedAuthorization: getRepositoryPermission
+            hostedAuthorization: githubRepositoryCredentials || permissionOverride
               ? createHostedAnalyticsAuthorization(
                   prisma,
                   analytics,
@@ -335,9 +350,57 @@ export function createProductRouteDependencies({
     reviewComments: createReviewCommentService(prisma, authorizeReview, {
       onDeleted: onReviewCommentDeleted,
       withDeleteLock: withReviewCommentDeleteLock,
+      resolveMentions: (input, logins) => mentions.resolve(input, logins),
     }),
-    authorizeReviewAccess: async (repositoryId, actor) =>
-      authorizeRepositoryReview(actor, await findRepositoryReviewAccess(prisma, repositoryId)),
+    searchReviewMentions: (...args) => mentions.search(...args),
+    isPrototypeReviewable: async (repositoryId, prototypeId) =>
+      Boolean(await findReviewRepository(prisma, repositoryId, prototypeId)),
+    reviewInbox: createReviewInbox(prisma, {
+      restore: async (transaction, digest) => {
+        await lockAuthority(transaction)
+        return restoreSession(transaction, joinTransaction(transaction), digest)
+      },
+      repositoryScope: async (database, viewer) =>
+        visibleRepositoryWhere(await scope(viewer, database)),
+      github: githubReviewDirectory,
+    }),
+    authorizeReviewAccess: async (repositoryId, actor, signal) => {
+      const repository = await findRepositoryReviewAccess(prisma, repositoryId)
+      const access = authorizeRepositoryReview(actor, repository)
+      const denied = { canView: false, canChange: false }
+      if (
+        !repository ||
+        !access.canView ||
+        !(await repositoryIsVisible(prisma, repositoryId, actor))
+      ) {
+        return denied
+      }
+      if (!repository.localPath && actor.sessionProvider === "github" && githubReviewDirectory) {
+        if (!actor.sessionDigest) return denied
+        const session = await findSessionGitHubSubject(prisma, actor.sessionDigest)
+        const identity = session?.externalIdentity
+        const githubId =
+          identity?.provider === "github" && identity.issuer === "https://github.com"
+            ? githubReviewId(`github:${identity.subject}`)
+            : undefined
+        if (!githubId) return denied
+        try {
+          const profile = await githubReviewDirectory.find(
+            repository.nameWithOwner,
+            actor.login,
+            githubId,
+            signal,
+          )
+          if (profile?.githubId !== githubId) return denied
+        } catch {
+          throw new ReviewCommentError(
+            "unavailable",
+            "GitHub could not check review access. Try again.",
+          )
+        }
+      }
+      return access
+    },
     isRepositoryVisible: (viewer, repositoryId) =>
       repositoryIsVisible(prisma, repositoryId, viewer),
     listRepositories: (viewer) =>

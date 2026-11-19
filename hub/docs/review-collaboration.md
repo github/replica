@@ -8,7 +8,7 @@ Resolution is thread state, not message state. Each real resolve or reopen trans
 
 ## Repository authorization
 
-Local sessions can view and change reviews only for active repositories with a configured local path. GitHub sessions can review only non-local repositories included in their current installation access. The route rechecks the live session, current repository visibility, and matching local or provider review mode before returning conversations. Other identities and inaccessible repositories receive the same not-found response.
+Local sessions can view and change reviews only for active repositories with a configured local path. The local sign-in still uses one fixed identity; collaborators in automated tests are separate saved identities, not another sign-in mode. GitHub sessions can review only non-local repositories included in their current installation access. Hub verifies the signed-in GitHub subject's current repository permission through the configured App. The route also rechecks the live session and persisted repository visibility. These checks do not grant any Hub or Entra role.
 
 Every query also binds prototype, Build, thread, and comment identifiers back to the requested repository, so an identifier from another repository or prototype is not usable through the route. The workspace advertises review and sharing capabilities on each repository instead of inferring them from the sign-in provider.
 
@@ -25,12 +25,33 @@ The product review surface uses these authenticated JSON routes:
 | `DELETE /api/repositories/:repositoryId/prototypes/:prototypeId/review-comments/:commentId` | Soft-deletes the author's message |
 | `POST /api/repositories/:repositoryId/prototypes/:prototypeId/review-comments/:threadId/resolution` | Resolves a thread |
 | `DELETE /api/repositories/:repositoryId/prototypes/:prototypeId/review-comments/:threadId/resolution` | Reopens a thread |
+| `POST …/review-comments/:commentId/reactions` | Adds a reaction using `{ review_comment_reaction: { content, activity_version } }` |
+| `DELETE …/review-comments/:commentId/reactions/:content` | Removes a reaction using `{ review_comment_reaction: { activity_version } }` |
+| `POST …/review-comments/:threadId/read` | Marks the displayed activity read using `{ review_thread_read: { activity_version } }` |
+| `DELETE …/review-comments/:threadId/read` | Marks the conversation unread for the signed-in member |
+| `GET …/review-comments/mention-candidates` | Lists eligible collaborators; accepts an optional `q` login filter |
 
 Reads and mutations retain the existing flat `comments` response contract used by the review client. Root records also carry ordered resolution history for backend consumers; the retained client ignores fields it does not present. Expected failures use `401` for no live session, `403` for another user's message, `404` for inaccessible or cross-scope records, `409` for concurrent changes, and `422` for invalid content or a thread state that rejects the requested change.
 
 The retained prototype screen loads this API directly. A conversation starts from an element or area anchor supplied by the preview bridge and records the selected successful Build number. Replies, edits, deletion, resolution, and reopening update the saved thread without changing Build artifacts. Ordinary failed writes keep the loaded conversation and draft available for retry. A refreshed `401`, `403`, `404`, or `503` clears comments that are no longer authorized.
 
-Reactions, mentions, inbox notifications, read or unread state, public sharing, Canvas pairing, and live updates are not part of this flow. Real mode does not present their controls.
+## Reactions, mentions, and unread state
+
+Members can react to both roots and replies. Each member can add a given reaction once. Repeating an add or removal does not create another activity. Reactions and read changes do not reorder conversations.
+
+Opening a conversation marks the displayed activity read. New activity remains unread while the conversation stays open. Marking unread leaves the conversation and draft open, and saving a review action marks the resulting activity read for its actor. These changes do not mark Inbox notices read.
+
+Members can type `@` to choose a collaborator while composing, replying, or editing. Each message accepts up to ten distinct case-insensitive logins. Hub checks GitHub identities and repository permissions at save time. Ineligible or unknown logins stay plain text; a provider failure stops the save. GitHub recipients do not need a Hub account. Local suggestions come only from saved identities with an active local membership assignment. The body remains exactly as entered; verified mentions are separate facts.
+
+## Inbox and live review
+
+New roots notify the recorded prototype owner. Replies notify the owner and participants. Participants include all authors and people still mentioned in a live message. Reactions notify only the message author; genuine resolution changes notify other participants. A direct mention takes precedence over a conversation notice, and members never receive notices for their own actions. Removing a reaction or mention withdraws its corresponding notice; deleting the source message removes notices attached to it. Earlier review activity is not backfilled.
+
+Inbox lists only the viewer's accessible activity and returns a total unread count independent of pagination. It rechecks repository access before listing, opening, or changing notice state. Inbox changes use a separate version check. Opening an activity loads the current successful Build and focuses the exact message. Hub acknowledges the notice only after that message opens. Missing messages or repositories are not acknowledged. These are in-app notices only; there is no external delivery or Canvas review endpoint.
+
+`GET /api/notifications/inbox` accepts `unread`, `limit`, and `before`. `GET /api/notifications/:notificationId` returns one authorized notice. `PATCH /api/notifications/:notificationId` accepts `{ notification: { read, version } }`.
+
+When a saved conversation changes, PostgreSQL sends a scoped [WebSocket invalidation](websockets.md#review-delivery). The browser reloads authorized conversation data without closing its current draft, and reloads again after reconnecting. Thread receipts and Inbox read changes do not send review invalidations.
 
 ## Learning snapshot seam
 
@@ -42,4 +63,4 @@ captureRepositoryReviewSnapshot(database, repositoryId, capturedAt?)
 
 from `server/domains/review-comments/capture-repository-review-snapshot/`. The function uses one repeatable-read transaction and returns a new snapshot UUID, capture time, repository UUID and name, and every repository thread in chronological order. Each thread includes its numeric public ID, UUID storage identity, prototype and Build identity, immutable anchor, root, all replies including deleted messages, stable author UUIDs, edit and deletion times, current resolution, and ordered resolution history.
 
-The snapshot is the complete Hub input for one future learning import. It does not prepare a learning store, run labeling or consolidation, make decisions, recall guidance, or perform redaction itself.
+The snapshot is the complete Hub input for one future learning import. Reactions, mention records, and receipt state are not part of it. Reaction-only updates use a separate collaboration version so they do not change the source snapshot or resolution event sequence.

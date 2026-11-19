@@ -10,6 +10,9 @@ model ReviewComment {
   root    ReviewComment?  @relation("ReviewCommentReplies", fields: [rootId, threadId], references: [id, threadId], onDelete: Restrict)
   replies ReviewComment[] @relation("ReviewCommentReplies")
   author  User            @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  mentions ReviewMention[]
+  reactions ReviewReaction[]
+  notifications ReviewNotification[]
 
   // Attribute columns
   publicId    Int       @unique @default(autoincrement()) @map("public_id")

@@ -1,0 +1,22 @@
+model ReviewReaction {
+  // ID columns
+  id        String @id @default(uuid()) @db.Uuid
+  commentId String @map("comment_id") @db.Uuid
+  userId    String @map("user_id") @db.Uuid
+
+  // Relations
+  comment ReviewComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  user    User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  notifications ReviewNotification[]
+
+  // Attribute columns
+  content String @db.VarChar(8)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([commentId, userId, content])
+  @@index([userId])
+  @@map("review_reactions")
+}

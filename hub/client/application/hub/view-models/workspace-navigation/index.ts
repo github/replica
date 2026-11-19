@@ -1,5 +1,6 @@
 import type { HubWorkspaceData } from "@features/hub-workspace/types"
 import type { WorkspaceResponse } from "@application/hub/contracts/types"
+import { notificationInboxConfiguration } from "@utils/notification/inbox-configuration"
 
 import { resourcePath } from "../resource-path"
 
@@ -40,11 +41,12 @@ export function workspaceNavigation(
     systemThemeLabel: "System",
     welcomeLabel: "Welcome",
     welcomePath: welcomeVisible ? resourcePath("/welcome", search, { repositoryId }) : null,
-    notificationsLabel: "Notifications",
-    notificationsPath: real ? undefined : resourcePath("/notifications", search, { repositoryId }),
+    notificationsLabel: real ? "Inbox" : "Notifications",
+    notificationsPath: resourcePath("/notifications", search, { repositoryId }),
+    notificationInbox: real ? { ...notificationInboxConfiguration, connected: true } : undefined,
     notificationsUnread: unreadCount > 0,
     notificationsUnreadCount: unreadCount,
-    notificationsUnreadLabel: `Notifications, ${unreadCount} unread`,
+    notificationsUnreadLabel: `${real ? "Inbox" : "Notifications"}, ${unreadCount} unread`,
     administrationLinks: admin
       ? real
         ? [{ section: "admins", label: "Hub administrators", path: "/settings/administrators" }]

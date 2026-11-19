@@ -5,6 +5,8 @@ import { ApiRequestError } from "../requests/api-request-error"
 const flag = z.enum(["0", "1"]).optional()
 const schema = z.object({
   comment: z.coerce.number().int().positive().optional(),
+  message: z.coerce.number().int().positive().optional(),
+  notification: z.coerce.number().int().positive().optional(),
   commentSearch: z.string().max(200).default(""),
   commentBuild: flag,
   commentPage: flag,
@@ -20,6 +22,8 @@ export function readReviewQuery(search: URLSearchParams) {
   const query = parsed.data
   return {
     commentId: query.comment ?? null,
+    messageId: query.message ?? query.comment ?? null,
+    notificationId: query.notification ?? null,
     filters: {
       search: query.commentSearch,
       currentBuildOnly: query.commentBuild === "1",

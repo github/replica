@@ -6,6 +6,6 @@ export async function findRepositoryReviewAccess(
 ) {
   return database.repository.findFirst({
     where: { id: repositoryId, removedAt: null },
-    select: { localPath: true },
+    select: { localPath: true, nameWithOwner: true },
   })
 }

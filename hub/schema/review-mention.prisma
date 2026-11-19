@@ -1,0 +1,20 @@
+model ReviewMention {
+  // ID columns
+  id        String @id @default(uuid()) @db.Uuid
+  commentId String @map("comment_id") @db.Uuid
+
+  // Relations
+  comment ReviewComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  notifications ReviewNotification[]
+
+  // Attribute columns
+  recipientKey String @map("recipient_key") @db.VarChar(64)
+  login        String @db.VarChar(39)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([commentId, recipientKey])
+  @@map("review_mentions")
+}

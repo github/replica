@@ -10,6 +10,8 @@ The API responds to a health check and gives signed-in members access to the rep
 
 Hub uses PostgreSQL and Prisma with provider-neutral identities, GitHub and single-tenant Microsoft Entra sign-in, and explicit administrator enrollment. Hub discovers repositories in the configured GitHub App installation and scopes GitHub member reads to their repository access. [Hosted Build import](github-actions-builds.md) polls GitHub Actions for the configured workflow's exact repository, commit, and run attempt, then stores validated artifacts for the same preview service used by local Builds.
 
+[Review collaboration](review-collaboration.md) includes persisted reactions, mentions, unread state, Inbox, and live review refreshes.
+
 The development API can explicitly enable local mode without a GitHub App. Startup prepares an ignored prototype root and the shared Build action dependencies, and seeds one deterministic Starter repository only while that root is empty. Local discovery and Build synchronization persist successful package artifacts, which the authenticated preview layer serves from Build-specific origins.
 
 The [production runtime](deployment.md) serves the built frontend and API and runs both workers in one image. Deployment runs database and job setup separately before starting that image. The Azure installation uses an explicit startup entrypoint to retrieve configured Key Vault values through each workload's managed identity before importing provisioning, setup, or runtime code. Local entrypoints and direct environment configuration remain unchanged.

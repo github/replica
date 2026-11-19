@@ -13,6 +13,9 @@ model User {
   reviewComments         ReviewComment[]
   resolvedReviewThreads  ReviewThread[]                @relation("ResolvedReviewThreads")
   reviewResolutionEvents ReviewThreadResolutionEvent[]
+  reviewReactions        ReviewReaction[]
+  reviewThreadReads      ReviewThreadRead[]
+  reviewNotifications    ReviewNotification[]
   shareLinks             ShareLink[]
 
   // Attribute columns

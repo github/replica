@@ -1,0 +1,37 @@
+model ReviewNotification {
+  // ID columns
+  id        String @id @default(uuid()) @db.Uuid
+  commentId String @map("comment_id") @db.Uuid
+  actorId   String @map("actor_id") @db.Uuid
+  mentionId String? @map("mention_id") @db.Uuid
+  reactionId String? @map("reaction_id") @db.Uuid
+
+  // Relations
+  comment ReviewComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  actor   User          @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  mention ReviewMention? @relation(fields: [mentionId], references: [id], onDelete: Cascade)
+  reaction ReviewReaction? @relation(fields: [reactionId], references: [id], onDelete: Cascade)
+
+  // Attribute columns
+  publicId        Int                    @unique @default(autoincrement()) @map("public_id")
+  recipientKey    String                 @map("recipient_key") @db.VarChar(64)
+  sourceKey       String                 @map("source_key") @db.VarChar(64)
+  kind            ReviewNotificationKind
+  actorLogin      String                 @map("actor_login") @db.VarChar(200)
+  actorName       String?                @map("actor_name") @db.VarChar(200)
+  reactionContent String?                @map("reaction_content") @db.VarChar(8)
+  readAt          DateTime?              @map("read_at") @db.Timestamptz(3)
+  version         Int                    @default(0)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([recipientKey, sourceKey])
+  @@index([recipientKey, publicId])
+  @@index([commentId])
+  @@index([actorId])
+  @@index([mentionId])
+  @@index([reactionId])
+  @@map("review_notifications")
+}

@@ -164,9 +164,10 @@ describe("createApp()", () => {
     const shareId = randomUUID()
     const buildId = randomUUID()
     const remoteRepositoryId = randomUUID()
+    const userId = randomUUID()
     const restore = vi.fn().mockResolvedValue({
       membershipId: randomUUID(),
-      userId: randomUUID(),
+      userId,
       provider: "local",
       login: "local-developer",
       name: "Local developer",
@@ -197,6 +198,8 @@ describe("createApp()", () => {
         editComment: vi.fn(),
         deleteComment: vi.fn(),
         setResolution: vi.fn(),
+        setReaction: vi.fn(),
+        markThreadRead: vi.fn(),
       },
       authorizeReviewAccess,
       isRepositoryVisible: vi.fn().mockResolvedValue(true),
@@ -275,7 +278,7 @@ describe("createApp()", () => {
       )
       expect(review.status).toBe(200)
       expect(await review.json()).toEqual({ comments: [], nextCursor: null, hasMore: false })
-      expect(listPrototypeThreads).toHaveBeenCalledWith(repositoryId, prototypeId)
+      expect(listPrototypeThreads).toHaveBeenCalledWith(repositoryId, prototypeId, userId)
       expect(readPublicLink).toHaveBeenCalledOnce()
 
       const workspace = await fetch(`${base}/api/workspace`, {

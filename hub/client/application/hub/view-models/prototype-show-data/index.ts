@@ -39,7 +39,7 @@ export function prototypeShowData(
     prototypeName: data.prototype.name,
     prototypeDescription: data.prototype.description,
     startPage: data.prototype.startPage ?? "/",
-    showPrototypeInfo: data.showPrototypeInfo ?? false,
+    showPrototypeInfo: !search.has("notification") && (data.showPrototypeInfo ?? false),
     editDetailsLabel: "Edit details",
     editDetailsHeading: "Edit prototype details",
     nameLabel: "Name",
@@ -91,8 +91,8 @@ export function prototypeShowData(
     reviewComments: {
       bodyMaximumBytes: 10_000,
       copy: reviewCommentsCopy,
-      supportsReactions: !options.real,
-      supportsReadState: !options.real,
+      supportsReactions: true,
+      supportsReadState: true,
     },
     latestBuild: selectedBuild && !previewBuild ? undefined : workspaceData.latestBuild,
     buildSelectionLabel:

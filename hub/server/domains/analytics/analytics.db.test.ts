@@ -61,6 +61,7 @@ describe("durable repository analytics", () => {
       })
     }
     const first = await publish(1)
+    if (!first) throw new Error("The prototype's first Build did not produce an analytics event.")
     expect(await prisma.analyticsEvent.findUnique({ where: first })).toMatchObject({
       eventName: "prototype_first_published",
     })
@@ -69,6 +70,7 @@ describe("durable repository analytics", () => {
     })
     expect(await clearExpiredAnalyticsEvents(prisma)).toBe(2)
     const next = await publish(2)
+    if (!next) throw new Error("The prototype's next Build did not produce an analytics event.")
     expect(await prisma.analyticsEvent.findUnique({ where: next })).toMatchObject({
       eventName: "build_published",
     })

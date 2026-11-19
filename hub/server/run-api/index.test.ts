@@ -96,7 +96,7 @@ describe("runApi()", () => {
         await realtime.close()
         await finished.promise
       })
-      return { broadcast: realtime.broadcast, close }
+      return { ...realtime, close }
     })
     const { server, running, signal } = await startApi({ port: 0 })
     await once(server, "listening")

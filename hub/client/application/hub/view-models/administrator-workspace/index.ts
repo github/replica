@@ -1,5 +1,6 @@
 import type { HubAdministrationWorkspaceData } from "@features/hub-administration-workspace/types"
 import type { CurrentHubSession } from "@application/hub/administrator-contracts/types"
+import { notificationInboxConfiguration } from "@utils/notification/inbox-configuration"
 
 export function administratorWorkspace(
   session: CurrentHubSession,
@@ -20,8 +21,11 @@ export function administratorWorkspace(
     lightThemeLabel: "Light",
     navigationLabel: "Hub navigation",
     productName: "Replica Hub",
-    repositoriesLabel: "Home",
-    repositoriesPath: "/",
+    repositoriesLabel: "Repositories",
+    repositoriesPath: "/repositories",
+    notificationsLabel: "Inbox",
+    notificationsPath: "/notifications",
+    notificationInbox: { ...notificationInboxConfiguration, connected: true },
     selectedSection,
     settingsNavigationLabel: "Security and settings",
     signOutLabel: "Sign out",

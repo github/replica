@@ -1,0 +1,8 @@
+enum ReviewNotificationKind {
+  comment
+  mention
+  reply
+  reaction
+  resolved
+  reopened
+}

@@ -11,7 +11,7 @@ Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The b
 - Explicit server-side [telemetry spans](docs/telemetry.md).
 - A [WebSocket foundation](docs/websockets.md) that rejects upgrades until application access checks are supplied.
 
-The index can show seeded prototype records and repositories connected through a GitHub App. Saving a draft registers it under the member who saves it. Build hosting and live multi-user reviews are not implemented.
+The index can show seeded prototype records and repositories connected through a GitHub App. Saving a draft registers it under the member who saves it. [Review collaboration](docs/review-collaboration.md) includes live review updates and an Inbox. Hosted Build importing is not implemented.
 
 The [production runtime](docs/deployment.md) packages the frontend, API, and workers in one image, with a separate release setup script.
 

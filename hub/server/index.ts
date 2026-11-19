@@ -15,6 +15,7 @@ import { readAuthenticationConfigurationState } from "./domains/authentication/r
 import { createGitHubAuthenticationContext } from "./domains/authentication/create-github-authentication-context/index.ts"
 import { createSharedAuthenticationContext } from "./domains/authentication/create-shared-authentication-context/index.ts"
 import { readGitHubAppConfiguration } from "./domains/authentication/read-github-app-configuration/index.ts"
+import { createReviewDirectory } from "./integrations/github/create-review-directory/index.ts"
 import { resolveLocalSignInEnvironment } from "./domains/authentication/resolve-local-sign-in-environment/index.ts"
 import { startTelemetry } from "./integrations/opentelemetry/start-telemetry/index.ts"
 import { logger } from "./integrations/pino/index.ts"
@@ -153,6 +154,9 @@ try {
               authenticationEnvironment.NODE_ENV === "development" &&
               authenticationEnvironment.HUB_LOCAL_MODE === "true",
             )
+            const repositoryCredentials = authentication.github
+              ? readGitHubAppConfiguration(authenticationEnvironment).appCredentials
+              : undefined
             product = createProductRouteDependencies({
               analyticsSettings: readAnalyticsSettings(
                 authenticationEnvironment,
@@ -163,8 +167,9 @@ try {
                 ? authenticationEnvironment.HUB_APPLICATION_ORIGIN
                 : undefined,
               scopeGitHubMembers: authenticationConfiguration.githubConfigured,
-              githubRepositoryCredentials: authentication.github
-                ? readGitHubAppConfiguration(authenticationEnvironment).appCredentials
+              githubRepositoryCredentials: repositoryCredentials,
+              githubReviewDirectory: repositoryCredentials
+                ? createReviewDirectory(repositoryCredentials)
                 : undefined,
               onReviewCommentDeleted: (input) => learningDependencies.redactComment(input),
               previewBaseOrigin: previewConfigured

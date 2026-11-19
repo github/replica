@@ -17,6 +17,7 @@ import "./styles.css"
 
 export function ReviewThreadMessage({
   comment,
+  notificationTarget,
   mutation,
   copy,
   editing,
@@ -67,7 +68,12 @@ export function ReviewThreadMessage({
   }, [confirmingEditDiscard])
 
   return (
-    <article className="review-thread-message" data-review-message-id={comment.id}>
+    <article
+      className="review-thread-message"
+      data-review-message-id={comment.id}
+      data-notification-target={notificationTarget || undefined}
+      tabIndex={notificationTarget ? -1 : undefined}
+    >
       <ReviewMessageHeading
         visual={<HubUserAvatar src={comment.author.avatarUrl} size={28} />}
         author={author}

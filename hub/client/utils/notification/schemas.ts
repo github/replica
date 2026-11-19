@@ -18,7 +18,7 @@ export const NOTIFICATION_SCHEMA = z.object({
   repository: z.string(),
   prototype: z.string(),
   path: z.string().startsWith("/repositories/"),
-  updatePath: z.string().startsWith("/notifications/"),
+  updatePath: z.string().regex(/^\/(?:api\/)?notifications\/[1-9]\d*$/),
   target: z.object({
     prototypeId: z.string().min(1),
     threadId: z.number().int().positive(),

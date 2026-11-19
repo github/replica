@@ -31,6 +31,8 @@ import { delete_ as handleReviewCommentDelete } from "./api/repositories/prototy
 import { post as handleReviewCommentReplyPost } from "./api/repositories/prototypes/review-comments/replies/post/index.ts"
 import { post as handleReviewThreadResolutionPost } from "./api/repositories/prototypes/review-comments/resolution/post/index.ts"
 import { delete_ as handleReviewThreadResolutionDelete } from "./api/repositories/prototypes/review-comments/resolution/delete/index.ts"
+import { createCollaborationHandlers } from "./api/review-comments/collaboration-handlers/index.ts"
+import { createInboxHandlers } from "./api/notifications/index.ts"
 import { get as handleBuildPreviewAccessGet } from "./api/repositories/prototypes/builds/access/get/index.ts"
 import { get as handlePrototypeManagementGet } from "./api/repositories/prototype-management/get/index.ts"
 import { get as handleBuildPreviewAuthorizeGet } from "./build-preview/authorize/get/index.ts"
@@ -204,6 +206,8 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
         const review = {
           reviewComments: product.reviewComments,
           authorizeReviewAccess,
+          searchReviewMentions: product.searchReviewMentions,
+          isPrototypeReviewable: product.isPrototypeReviewable,
         }
         const reviewCommentsPath =
           "/api/repositories/:repositoryId/prototypes/:prototypeId/review-comments"
@@ -245,6 +249,46 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
           `${reviewCommentsPath}/:threadId/resolution`,
           requireOrigin(authentication.signOut.applicationOrigin),
           handleReviewThreadResolutionDelete(authentication.currentSession, review),
+        )
+        const collaboration = createCollaborationHandlers(authentication.currentSession, review)
+        const requireReviewOrigin = requireOrigin(authentication.signOut.applicationOrigin)
+        const smallJson = express.json({ limit: "4kb", strict: true })
+        app.post(
+          `${reviewCommentsPath}/:commentId/reactions`,
+          requireReviewOrigin,
+          smallJson,
+          collaboration.addReaction,
+        )
+        app.delete(
+          `${reviewCommentsPath}/:commentId/reactions/:content`,
+          requireReviewOrigin,
+          smallJson,
+          collaboration.removeReaction,
+        )
+        app.post(
+          `${reviewCommentsPath}/:threadId/read`,
+          requireReviewOrigin,
+          smallJson,
+          collaboration.markRead,
+        )
+        app.delete(
+          `${reviewCommentsPath}/:threadId/read`,
+          requireReviewOrigin,
+          collaboration.markUnread,
+        )
+        if (product.searchReviewMentions) {
+          app.get(`${reviewCommentsPath}/mention-candidates`, collaboration.mentionCandidates)
+        }
+      }
+      if (product.reviewInbox) {
+        const inbox = createInboxHandlers(authentication.currentSession, product.reviewInbox)
+        app.get("/api/notifications/inbox", inbox.list)
+        app.get("/api/notifications/:notificationId", inbox.find)
+        app.patch(
+          "/api/notifications/:notificationId",
+          requireOrigin(authentication.signOut.applicationOrigin),
+          express.json({ limit: "4kb", strict: true }),
+          inbox.update,
         )
       }
       if (publicSharing) {

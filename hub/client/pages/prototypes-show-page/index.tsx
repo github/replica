@@ -35,6 +35,7 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
     reviewUnavailableLabel,
     initialInfoOpen = data.showPrototypeInfo || Boolean(data.alert),
     initialComposerExpanded = false,
+    onNotificationMessageOpened,
     onOpenApp,
     authorizeHandoff,
     viewerUrl,
@@ -165,6 +166,59 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
     setComposerExpanded(true)
   }
 
+  const conversation =
+    selectedThread && review ? (
+      <div className="review-thread-conversation-layer">
+        <ReviewThreadConversation
+          key={selectedThread.root.id}
+          thread={selectedThread}
+          anchorPoint={review.selectedThreadPoint}
+          bodyMaximumBytes={data.reviewComments.bodyMaximumBytes}
+          mutation={review.comments.mutation}
+          copy={data.reviewComments.copy}
+          readOnly={data.reviewReadOnly}
+          notificationMessageId={data.initialNotificationId ? data.initialCommentId : undefined}
+          onNotificationMessageOpened={onNotificationMessageOpened}
+          onClose={review.closeThread}
+          onDraftStateChange={review.setConversationDraftActive}
+          onReply={async (body) =>
+            Boolean(await review.comments.createReply(selectedThread.root.id, body))
+          }
+          onEdit={async (commentId, body) =>
+            Boolean(await review.comments.editComment(commentId, body))
+          }
+          onDelete={async (commentId) => Boolean(await review.comments.deleteComment(commentId))}
+          onResolve={async () =>
+            Boolean(await review.comments.resolveThread(selectedThread.root.id))
+          }
+          onReopen={async () => Boolean(await review.comments.reopenThread(selectedThread.root.id))}
+          onAddReaction={
+            data.reviewComments.supportsReactions
+              ? async (commentId, content) =>
+                  Boolean(await review.comments.addReaction(commentId, content))
+              : undefined
+          }
+          onRemoveReaction={
+            data.reviewComments.supportsReactions
+              ? async (commentId, content) =>
+                  Boolean(await review.comments.removeReaction(commentId, content))
+              : undefined
+          }
+          onMarkRead={
+            data.reviewComments.supportsReadState
+              ? async (version) =>
+                  Boolean(await review.comments.markThreadRead(selectedThread.root.id, version))
+              : undefined
+          }
+          onMarkUnread={
+            data.reviewComments.supportsReadState
+              ? async () => Boolean(await review.comments.markThreadUnread(selectedThread.root.id))
+              : undefined
+          }
+        />
+      </div>
+    ) : null
+
   return (
     <>
       <div className="review-workspace-layer" data-minimized={minimized}>
@@ -201,6 +255,9 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
                   layout="compact"
                 />
               ) : null}
+              {data.notificationErrorLabel ? (
+                <HubAlert variant="warning" title={data.notificationErrorLabel} layout="compact" />
+              ) : null}
 
               {data.selectedBuild ? (
                 <PrototypePreview
@@ -232,67 +289,7 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
                     />
                   ) : null}
 
-                  {selectedThread && review ? (
-                    <div className="review-thread-conversation-layer">
-                      <ReviewThreadConversation
-                        key={selectedThread.root.id}
-                        thread={selectedThread}
-                        anchorPoint={review.selectedThreadPoint}
-                        bodyMaximumBytes={data.reviewComments.bodyMaximumBytes}
-                        mutation={review.comments.mutation}
-                        copy={data.reviewComments.copy}
-                        readOnly={data.reviewReadOnly}
-                        onClose={review.closeThread}
-                        onDraftStateChange={review.setConversationDraftActive}
-                        onReply={async (body) =>
-                          Boolean(await review.comments.createReply(selectedThread.root.id, body))
-                        }
-                        onEdit={async (commentId, body) =>
-                          Boolean(await review.comments.editComment(commentId, body))
-                        }
-                        onDelete={async (commentId) =>
-                          Boolean(await review.comments.deleteComment(commentId))
-                        }
-                        onResolve={async () =>
-                          Boolean(await review.comments.resolveThread(selectedThread.root.id))
-                        }
-                        onReopen={async () =>
-                          Boolean(await review.comments.reopenThread(selectedThread.root.id))
-                        }
-                        onAddReaction={
-                          data.reviewComments.supportsReactions
-                            ? async (commentId, content) =>
-                                Boolean(await review.comments.addReaction(commentId, content))
-                            : undefined
-                        }
-                        onRemoveReaction={
-                          data.reviewComments.supportsReactions
-                            ? async (commentId, content) =>
-                                Boolean(await review.comments.removeReaction(commentId, content))
-                            : undefined
-                        }
-                        onMarkRead={
-                          data.reviewComments.supportsReadState
-                            ? async (activityVersion) =>
-                                Boolean(
-                                  await review.comments.markThreadRead(
-                                    selectedThread.root.id,
-                                    activityVersion,
-                                  ),
-                                )
-                            : undefined
-                        }
-                        onMarkUnread={
-                          data.reviewComments.supportsReadState
-                            ? async () =>
-                                Boolean(
-                                  await review.comments.markThreadUnread(selectedThread.root.id),
-                                )
-                            : undefined
-                        }
-                      />
-                    </div>
-                  ) : null}
+                  {conversation}
 
                   {bridge.selectionFailure ? (
                     <div className="review-shell__notice">
@@ -328,6 +325,7 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
                     heading={data.emptyHeading}
                     description={data.emptyLabel}
                   />
+                  {conversation}
                 </div>
               )}
             </Stack>

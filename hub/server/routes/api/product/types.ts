@@ -23,13 +23,18 @@ import type { RepositoryReviewAccess } from "../../../domains/review-comments/au
 import type { RepositoryPermission } from "../../../integrations/github/read-repository-permission/types.ts"
 import type { findDefaultTemplateBuild } from "../../../repositories/build-artifacts/find-default-template-build/index.ts"
 import type { AnalyticsRouteDependencies } from "../repositories/analytics/types.ts"
+import type { createReviewInbox } from "../../../domains/review-comments/create-review-inbox/index.ts"
+import type { createReviewMentionDirectory } from "../../../domains/review-comments/create-review-mention-directory/index.ts"
 
-export interface ReviewAccessActor extends ReviewRouteActor {
+export interface ReviewAccessActor extends ReviewRouteActor, ProductViewer {
   provider: string
+  sessionDigest?: string
 }
 
 export interface ReviewRouteDependencies {
   reviewComments: ReviewCommentService
+  searchReviewMentions?: ReturnType<typeof createReviewMentionDirectory>["search"]
+  isPrototypeReviewable?: (repositoryId: string, prototypeId: string) => Promise<boolean>
   authorizeReviewAccess(
     repositoryId: string,
     actor: ReviewAccessActor,
@@ -57,9 +62,13 @@ export interface ProductRouteDependencies {
     repositoryId: string,
   ): Promise<RepositoryPermission | null>
   reviewComments?: ReviewCommentService
+  searchReviewMentions?: ReviewRouteDependencies["searchReviewMentions"]
+  isPrototypeReviewable?: ReviewRouteDependencies["isPrototypeReviewable"]
+  reviewInbox?: ReturnType<typeof createReviewInbox>
   authorizeReviewAccess?(
     repositoryId: string,
     actor: ReviewAccessActor,
+    signal?: AbortSignal,
   ): Promise<RepositoryReviewAccess>
   isRepositoryVisible(viewer: ProductViewer, repositoryId: string): Promise<boolean>
   listRepositories(viewer: ProductViewer): ReturnType<typeof listRepositories>

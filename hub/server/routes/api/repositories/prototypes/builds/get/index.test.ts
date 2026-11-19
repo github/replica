@@ -20,6 +20,9 @@ type ProductMocks = {
       | "analytics"
       | "getRepositoryPermission"
       | "getVerifiedRepositoryPermission"
+      | "isPrototypeReviewable"
+      | "searchReviewMentions"
+      | "reviewInbox"
     >
   ]: Mock<ProductRouteDependencies[Key]>
 }

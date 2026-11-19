@@ -94,6 +94,7 @@ export interface PrototypesShowPageProps extends PrototypeDetailsControls {
   reviewUnavailableLabel?: never
   initialInfoOpen?: boolean
   initialComposerExpanded?: boolean
+  onNotificationMessageOpened?: (commentId: number) => void
   onOpenApp?: (url: string) => void
   authorizeHandoff?: () => Promise<boolean>
   viewerUrl?: string

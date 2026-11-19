@@ -13,6 +13,8 @@ export interface ReviewThreadConversationProps {
   mutation: ReviewCommentMutation | null
   copy: ReviewCommentsCopy
   readOnly?: boolean
+  notificationMessageId?: number
+  onNotificationMessageOpened?: (commentId: number) => void
   onClose: () => void
   onDraftStateChange: (active: boolean) => void
   onReply: (body: string) => Promise<boolean>

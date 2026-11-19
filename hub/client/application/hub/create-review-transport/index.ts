@@ -8,7 +8,16 @@ import { ApiContractError } from "../requests/api-contract-error"
 import { ApiRequestError } from "../requests/api-request-error"
 import { requestJson } from "../requests/request-json"
 
-function reviewAccessWasLost(error: unknown) {
+function reviewAccessWasLost(error: unknown, fromMutation = false) {
+  const body = error instanceof ApiRequestError ? error.body : null
+  if (
+    fromMutation &&
+    body &&
+    typeof body === "object" &&
+    "code" in body &&
+    body.code === "mention_unavailable"
+  )
+    return false
   return (
     (error instanceof ApiRequestError || error instanceof ApiContractError) &&
     [401, 403, 404, 503].includes(error.status)
@@ -43,7 +52,8 @@ export function createReviewTransport(routeUrl: string): ReviewCommentsTransport
         )
         return { kind: "success", comments: response.comments }
       } catch (error) {
-        if (reviewAccessWasLost(error)) {
+        // A provider outage while verifying mentions must leave the draft available.
+        if (reviewAccessWasLost(error, true)) {
           return { kind: "access-lost" }
         }
         throw error
