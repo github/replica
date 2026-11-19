@@ -14,6 +14,7 @@ describe("learning worker configuration", () => {
       "learning.run",
       "learning.redact-review-comment",
       "synchronize-local-builds",
+      "import-github-workflow-run",
     ])
     expect(jobProcessors.scheduled.map(({ name }) => name)).toContain("learning.recover-runs")
     expect(jobProcessors.scheduled.map(({ name }) => name)).toEqual(
@@ -40,11 +41,11 @@ describe("learning worker configuration", () => {
 })
 
 describe("GitHub installation reconciliation schedule", () => {
-  it("registers an hourly scheduled job with bounded retries", () => {
+  it("registers a 15-minute scheduled job with bounded retries", () => {
     const schedule = jobSchedules.find(
       (candidate) => candidate.id === "github-installation-reconciliation",
     )
-    expect(schedule?.repeat).toEqual({ every: 60 * 60 * 1_000 })
+    expect(schedule?.repeat).toEqual({ every: 15 * 60 * 1_000 })
     expect(schedule?.payload).toEqual({})
     expect(schedule?.definition.name).toBe("reconcile-github-installation")
     expect(schedule?.definition.options).toEqual({
@@ -66,5 +67,25 @@ describe("GitHub installation reconciliation schedule", () => {
     vi.mocked(reconcileGitHubInstallation).mockRejectedValueOnce(failure)
     await expect(processor.process({})).rejects.toBe(failure)
     await expect(processor.process({ unexpected: true })).rejects.toBeInstanceOf(UnrecoverableError)
+  })
+})
+
+describe("GitHub Build recovery schedules", () => {
+  it.each(["github-build-import-retry", "github-workflow-run-discovery"])(
+    "runs %s every five minutes",
+    (id) => {
+      const schedule = jobSchedules.find((candidate) => candidate.id === id)
+      expect(schedule?.repeat).toEqual({ every: 5 * 60 * 1_000 })
+      expect(jobProcessors.scheduled.map(({ name }) => name)).toContain(schedule?.definition.name)
+    },
+  )
+})
+
+describe("GitHub webhook recovery schedule", () => {
+  it("checks for missed deliveries every minute without stacking retries", () => {
+    const schedule = jobSchedules.find((candidate) => candidate.id === "github-webhook-recovery")
+    expect(schedule?.repeat).toEqual({ every: 60_000 })
+    expect(schedule?.definition.options).toEqual({ attempts: 1 })
+    expect(jobProcessors.scheduled.map(({ name }) => name)).toContain(schedule?.definition.name)
   })
 })

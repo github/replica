@@ -956,6 +956,163 @@ describe("createGitHubWebhookRouteDependencies()", () => {
     ).resolves.toEqual({ event: "membership", payloadDigest: delivery.payloadDigest })
   })
 
+  it.each(["delete", "push"])(
+    "retires a branch from a %s event without an action and preserves its history on redelivery",
+    async (event) => {
+      const repository = await createRepository(1001, "branch-deletion")
+      const history = await createHistory(repository.id)
+      const before = await prisma.prototype.update({
+        where: { id: history.prototypeId },
+        data: { branchName: "proto/history", description: "Retained description" },
+      })
+      await prisma.buildArtifact.create({
+        data: {
+          buildId: history.buildId,
+          kind: "dist",
+          path: "dist/index.html",
+          storageKey: "retained-branch-dist",
+          byteLength: 20,
+        },
+      })
+      const builds = await prisma.build.findMany({ include: { artifacts: true } })
+      const payload = {
+        repository: { id: 1001 },
+        ...(event === "delete"
+          ? { ref_type: "branch", ref: "proto/history" }
+          : { deleted: true, ref: "refs/heads/proto/history", before: null }),
+      }
+      const delivery = deliveryFor(payload)
+      const dependencies = webhook()
+
+      await expect(dependencies.handleEvent(event, payload, delivery)).resolves.toBe(true)
+      const retired = await prisma.prototype.findUniqueOrThrow({
+        where: { id: history.prototypeId },
+      })
+      expect(retired.branchDeletedAt).toBeInstanceOf(Date)
+      expect(retired.branchPresenceRevision).toBe(before.branchPresenceRevision + 1)
+      expect(retired.retiredHeadSha).toBeNull()
+      expect({
+        ...retired,
+        branchDeletedAt: before.branchDeletedAt,
+        branchPresenceRevision: before.branchPresenceRevision,
+        retiredHeadSha: before.retiredHeadSha,
+        updatedAt: before.updatedAt,
+      }).toEqual(before)
+      await expect(dependencies.handleEvent(event, payload, delivery)).resolves.toBe(true)
+      expect(
+        await prisma.prototype.findUniqueOrThrow({ where: { id: history.prototypeId } }),
+      ).toEqual(retired)
+      expect(await prisma.build.findMany({ include: { artifacts: true } })).toEqual(builds)
+      expect(await prisma.gitHubWebhookDelivery.count({ where: { id: delivery.id } })).toBe(1)
+    },
+  )
+
+  it("anchors retirement on the deleted head reported by a push event", async () => {
+    const repository = await createRepository(1001, "branch-deletion-anchor")
+    const history = await createHistory(repository.id)
+    const commitSha = "a".repeat(40)
+    await prisma.build.update({ where: { id: history.buildId }, data: { commitSha } })
+    await prisma.prototype.update({
+      where: { id: history.prototypeId },
+      data: { branchName: "proto/history" },
+    })
+
+    await expect(
+      handleWebhook("push", {
+        repository: { id: 1001 },
+        deleted: true,
+        ref: "refs/heads/proto/history",
+        before: commitSha,
+      }),
+    ).resolves.toBe(true)
+
+    expect(
+      await prisma.prototype.findUniqueOrThrow({ where: { id: history.prototypeId } }),
+    ).toMatchObject({ retiredHeadSha: commitSha })
+  })
+
+  it.each([
+    { event: "delete", payload: { ref_type: "tag", ref: "proto/history" } },
+    { event: "push", payload: { deleted: false, ref: "refs/heads/proto/history" } },
+    { event: "push", payload: { deleted: true, ref: "refs/tags/proto/history" } },
+  ])("does not retire a branch for unrelated $event evidence", async ({ event, payload }) => {
+    const repository = await createRepository(1001, "unrelated-branch-event")
+    const before = await prisma.prototype.create({
+      data: { repositoryId: repository.id, branchName: "proto/history" },
+    })
+    const body = { ...payload, repository: { id: 1001 } }
+
+    await expect(handleWebhook(event, body)).resolves.toBe(true)
+    expect(await prisma.prototype.findUniqueOrThrow({ where: { id: before.id } })).toEqual(before)
+    expect(await prisma.gitHubWebhookDelivery.count()).toBe(1)
+  })
+
+  it("queues a Replica workflow import before recording the delivery", async () => {
+    const enqueueWorkflowRunImport = vi.fn(() => Promise.resolve())
+    const dependencies = createGitHubWebhookRouteDependencies({
+      enqueueWorkflowRunImport,
+      installationId: "700",
+      provider: githubProvider,
+      syncRepositories: () => Promise.resolve(),
+      webhookSecret: "webhook-secret-for-tests",
+    })
+    const runPayload = {
+      action: "in_progress",
+      installation: { id: 700 },
+      repository: { id: 1001 },
+      workflow_run: { id: 55, path: ".github/workflows/replica.yml@refs/heads/feature" },
+    }
+    const jobPayload = {
+      action: "completed",
+      installation: { id: 700 },
+      repository: { id: 1001 },
+      workflow_job: { run_id: 55 },
+    }
+    const otherWorkflow = {
+      ...runPayload,
+      workflow_run: { id: 56, path: ".github/workflows/ci.yml" },
+    }
+    const runDelivery = deliveryFor(runPayload)
+    const jobDelivery = deliveryFor(jobPayload)
+
+    await expect(dependencies.handleEvent("workflow_run", runPayload, runDelivery)).resolves.toBe(
+      true,
+    )
+    await expect(dependencies.handleEvent("workflow_job", jobPayload, jobDelivery)).resolves.toBe(
+      true,
+    )
+    await expect(
+      dependencies.handleEvent("workflow_run", otherWorkflow, deliveryFor(otherWorkflow)),
+    ).resolves.toBe(false)
+
+    expect(enqueueWorkflowRunImport.mock.calls).toEqual([
+      [{ githubRepositoryId: 1001, runId: 55 }, runDelivery.id],
+      [{ githubRepositoryId: 1001, runId: 55 }, jobDelivery.id],
+    ])
+    expect(await prisma.gitHubWebhookDelivery.count()).toBe(2)
+  })
+
+  it("leaves a workflow delivery unrecorded when queueing fails so GitHub can redeliver it", async () => {
+    const dependencies = createGitHubWebhookRouteDependencies({
+      enqueueWorkflowRunImport: () => Promise.reject(new Error("Queue unavailable.")),
+      installationId: "700",
+      provider: githubProvider,
+      syncRepositories: () => Promise.resolve(),
+      webhookSecret: "webhook-secret-for-tests",
+    })
+    const payload = {
+      action: "completed",
+      installation: { id: 700 },
+      repository: { id: 1001 },
+      workflow_run: { id: 55, path: ".github/workflows/replica.yml" },
+    }
+
+    await expect(
+      dependencies.handleEvent("workflow_run", payload, deliveryFor(payload)),
+    ).rejects.toThrow("Queue unavailable.")
+    expect(await prisma.gitHubWebhookDelivery.count()).toBe(0)
+  })
+
   it("applies simultaneous copies of one delivery only once", async () => {
     const revisionId = await createProvider("github")
     const repository = await createRepository(1001, "accessible")

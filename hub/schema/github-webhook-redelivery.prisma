@@ -1,0 +1,20 @@
+model GitHubWebhookRedelivery {
+  // ID columns
+  id               String @id @db.Uuid
+  githubDeliveryId BigInt @map("github_delivery_id")
+
+  // Attribute columns
+  event       String                       @db.VarChar(50)
+  state       GitHubWebhookRedeliveryState @default(pending)
+  attempts    Int                          @default(0)
+  failureCode String?                      @map("failure_code") @db.VarChar(50)
+
+  // Timestamp columns
+  retryAt   DateTime @map("retry_at") @db.Timestamptz(3)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([state, retryAt])
+  @@map("github_webhook_redeliveries")
+}

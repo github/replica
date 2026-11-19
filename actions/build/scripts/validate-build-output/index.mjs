@@ -15,27 +15,29 @@ const DEFAULT_LIMITS = {
   maxTotalBytes: MAX_TOTAL_BYTES,
 }
 
-/** Checks dist paths and sizes, then returns the files that can be packaged. */
-export async function validateBuildOutput(root, limits = {}) {
+/** Checks output paths and sizes, then returns the files that can be packaged. */
+export async function validateBuildOutput(root, limits = {}, outputDirectory = "dist") {
   const appliedLimits = { ...DEFAULT_LIMITS, ...limits }
-  const dist = path.join(root, "dist")
+  const dist = path.join(root, outputDirectory)
   let distDetails
 
   try {
     distDetails = await lstat(dist)
   } catch (error) {
     if (error.code === "ENOENT" || error.code === "ENOTDIR") {
-      throw new Error("Build must contain a dist/ directory.", { cause: error })
+      throw new Error(`Build must contain a ${outputDirectory}/ directory.`, { cause: error })
     }
 
     throw error
   }
 
   if (!distDetails.isDirectory()) {
-    throw new Error("Build dist/ must be a directory. Symbolic links and files are not allowed.")
+    throw new Error(
+      `Build ${outputDirectory}/ must be a directory. Symbolic links and files are not allowed.`,
+    )
   }
 
-  await requireIndexFile(dist)
+  await requireIndexFile(dist, outputDirectory)
 
   const state = {
     entries: 0,

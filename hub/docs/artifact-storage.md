@@ -1,6 +1,6 @@
 # Artifact storage
 
-The artifact storage foundation saves immutable bytes behind a provider-neutral domain API. Development-only local Builds use it to save checked package files and record their `BuildArtifact` keys, paths, kinds, and byte lengths. Storage does not import Builds or extract archives; the separate [preview layer](build-previews.md) owns authorization and serving.
+The artifact storage foundation saves immutable bytes behind a provider-neutral domain API. Development-only local Builds and [GitHub Actions Build imports](github-actions-builds.md) use it to save checked package files and record their `BuildArtifact` keys, paths, kinds, and byte lengths. Storage itself does not import Builds or extract archives; the separate [preview layer](build-previews.md) owns authorization and serving.
 
 ## Composition
 
