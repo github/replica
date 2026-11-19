@@ -1885,9 +1885,19 @@ class LocalRuntimeTest(unittest.TestCase):
         runtime = self._runtime()
         finished = self._wait_for_job(
             runtime,
-            runtime.submit(backend="fixture", max_updates=4, max_seconds=5)["id"],
+            runtime.submit(
+                backend="fixture",
+                max_updates=4,
+                max_seconds=5,
+                max_credits=4,
+            )["id"],
         )
-        runtime.promote(finished["candidateId"], promoted_by="test-operator")
+        runtime.promote(
+            finished["candidateId"],
+            promoted_by="test-operator",
+            expected_generation=0,
+            idempotency_key="bounded-taskset-promotion",
+        )
         uploaded_digests = []
         for index in range(TASKSET_CACHE_LIMIT + 1):
             task = make_task(100 + index, answer=True)
