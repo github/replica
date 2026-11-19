@@ -1,7 +1,10 @@
 import { z } from "zod"
 
+import type { GitHubWorkflowRunJob } from "../../../../../domains/github-builds/get-github-workflow-run-job-definition/index.ts"
+import { replicaWorkflowPath } from "../../../../../domains/github-builds/constants.ts"
 import { revokeGitHubRepositoryAccess } from "../../../../../domains/admission/revoke-github-repository-access/index.ts"
 import { prisma } from "../../../../../integrations/prisma/index.ts"
+import { claimGitHubWebhookDelivery } from "../../../../../repositories/github-webhook-deliveries/claim-github-webhook-delivery/index.ts"
 import type { GitHubWebhookRouteDependencies } from "../types.ts"
 
 const githubId = z.number().int().positive()
@@ -34,6 +37,16 @@ const teamRepositoryEvent = z.looseObject({
   repository: z.looseObject({ id: githubId.nullish() }).nullish(),
   team,
 })
+const workflowRunEvent = z.looseObject({
+  action: z.enum(["requested", "in_progress", "completed"]),
+  repository: z.looseObject({ id: githubId }),
+  workflow_run: z.looseObject({ id: githubId, path: z.string() }),
+})
+const workflowJobEvent = z.looseObject({
+  action: z.literal("completed"),
+  repository: z.looseObject({ id: githubId }),
+  workflow_job: z.looseObject({ run_id: githubId }),
+})
 const teamDeletedEvent = z.looseObject({
   action: z.literal("deleted"),
   team,
@@ -48,6 +61,8 @@ export function createGitHubWebhookRouteDependencies(input: {
   installationId: string
   provider: { configurationDigest: string; revision: number }
   syncRepositories: () => Promise<unknown>
+  /** Enqueues idempotently by key, so a redelivered event cannot import twice. */
+  enqueueWorkflowRunImport?: (job: GitHubWorkflowRunJob, key: string) => Promise<unknown>
 }): GitHubWebhookRouteDependencies {
   async function syncRepositories() {
     await input.syncRepositories()
@@ -64,6 +79,32 @@ export function createGitHubWebhookRouteDependencies(input: {
           throw new Error("Invalid GitHub team webhook event.")
         }
         return false
+      }
+      if (name === "workflow_run" || name === "workflow_job") {
+        if (!input.enqueueWorkflowRunImport) return false
+        let job: GitHubWorkflowRunJob
+        if (name === "workflow_run") {
+          const event = workflowRunEvent.safeParse(payload)
+          if (
+            !event.success ||
+            event.data.workflow_run.path.split("@")[0] !== replicaWorkflowPath
+          ) {
+            return false
+          }
+          job = { githubRepositoryId: event.data.repository.id, runId: event.data.workflow_run.id }
+        } else {
+          // Job events let the dist import as soon as its job ends, before screenshots finish.
+          const event = workflowJobEvent.safeParse(payload)
+          if (!event.success) return false
+          job = {
+            githubRepositoryId: event.data.repository.id,
+            runId: event.data.workflow_job.run_id,
+          }
+        }
+        // Enqueue before recording receipt so a failed enqueue can be redelivered.
+        await input.enqueueWorkflowRunImport(job, delivery.id)
+        await claimGitHubWebhookDelivery(prisma, receipt)
+        return true
       }
       if (name === "installation") {
         const event = installationEvent.safeParse(payload)

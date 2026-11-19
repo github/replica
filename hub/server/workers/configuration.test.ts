@@ -14,6 +14,7 @@ describe("learning worker configuration", () => {
       "learning.run",
       "learning.redact-review-comment",
       "synchronize-local-builds",
+      "import-github-workflow-run",
     ])
     expect(jobProcessors.scheduled.map(({ name }) => name)).toContain("learning.recover-runs")
     expect(jobSchedules).toContainEqual(

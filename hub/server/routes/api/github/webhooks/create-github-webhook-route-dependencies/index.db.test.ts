@@ -902,6 +902,72 @@ describe("createGitHubWebhookRouteDependencies()", () => {
     ).resolves.toEqual({ event: "membership", payloadDigest: delivery.payloadDigest })
   })
 
+  it("queues a Replica workflow import before recording the delivery", async () => {
+    const enqueueWorkflowRunImport = vi.fn(() => Promise.resolve())
+    const dependencies = createGitHubWebhookRouteDependencies({
+      enqueueWorkflowRunImport,
+      installationId: "700",
+      provider: githubProvider,
+      syncRepositories: () => Promise.resolve(),
+      webhookSecret: "webhook-secret-for-tests",
+    })
+    const runPayload = {
+      action: "in_progress",
+      installation: { id: 700 },
+      repository: { id: 1001 },
+      workflow_run: { id: 55, path: ".github/workflows/replica.yml@refs/heads/feature" },
+    }
+    const jobPayload = {
+      action: "completed",
+      installation: { id: 700 },
+      repository: { id: 1001 },
+      workflow_job: { run_id: 55 },
+    }
+    const otherWorkflow = {
+      ...runPayload,
+      workflow_run: { id: 56, path: ".github/workflows/ci.yml" },
+    }
+    const runDelivery = deliveryFor(runPayload)
+    const jobDelivery = deliveryFor(jobPayload)
+
+    await expect(dependencies.handleEvent("workflow_run", runPayload, runDelivery)).resolves.toBe(
+      true,
+    )
+    await expect(dependencies.handleEvent("workflow_job", jobPayload, jobDelivery)).resolves.toBe(
+      true,
+    )
+    await expect(
+      dependencies.handleEvent("workflow_run", otherWorkflow, deliveryFor(otherWorkflow)),
+    ).resolves.toBe(false)
+
+    expect(enqueueWorkflowRunImport.mock.calls).toEqual([
+      [{ githubRepositoryId: 1001, runId: 55 }, runDelivery.id],
+      [{ githubRepositoryId: 1001, runId: 55 }, jobDelivery.id],
+    ])
+    expect(await prisma.gitHubWebhookDelivery.count()).toBe(2)
+  })
+
+  it("leaves a workflow delivery unrecorded when queueing fails so GitHub can redeliver it", async () => {
+    const dependencies = createGitHubWebhookRouteDependencies({
+      enqueueWorkflowRunImport: () => Promise.reject(new Error("Queue unavailable.")),
+      installationId: "700",
+      provider: githubProvider,
+      syncRepositories: () => Promise.resolve(),
+      webhookSecret: "webhook-secret-for-tests",
+    })
+    const payload = {
+      action: "completed",
+      installation: { id: 700 },
+      repository: { id: 1001 },
+      workflow_run: { id: 55, path: ".github/workflows/replica.yml" },
+    }
+
+    await expect(
+      dependencies.handleEvent("workflow_run", payload, deliveryFor(payload)),
+    ).rejects.toThrow("Queue unavailable.")
+    expect(await prisma.gitHubWebhookDelivery.count()).toBe(0)
+  })
+
   it("applies simultaneous copies of one delivery only once", async () => {
     const revisionId = await createProvider("github")
     const repository = await createRepository(1001, "accessible")
