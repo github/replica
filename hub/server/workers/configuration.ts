@@ -80,7 +80,7 @@ export const jobSchedules: {
     id: "github-installation-reconciliation",
     definition: githubInstallationReconciliation,
     payload: {},
-    repeat: { every: 60 * 60 * 1_000 },
+    repeat: { every: 15 * 60 * 1_000 },
   },
   {
     id: "github-build-import-retry",

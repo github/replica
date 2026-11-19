@@ -27,11 +27,11 @@ describe("learning worker configuration", () => {
 })
 
 describe("GitHub installation reconciliation schedule", () => {
-  it("registers an hourly scheduled job with bounded retries", () => {
+  it("registers a 15-minute scheduled job with bounded retries", () => {
     const schedule = jobSchedules.find(
       (candidate) => candidate.id === "github-installation-reconciliation",
     )
-    expect(schedule?.repeat).toEqual({ every: 60 * 60 * 1_000 })
+    expect(schedule?.repeat).toEqual({ every: 15 * 60 * 1_000 })
     expect(schedule?.payload).toEqual({})
     expect(schedule?.definition.name).toBe("reconcile-github-installation")
     expect(schedule?.definition.options).toEqual({
