@@ -1,20 +1,26 @@
 import { describe, expect, it } from "vitest"
 
 import { copilotConnectionPageData } from "."
+import { hubWorkspace } from "../hub-workspace"
 
-const session = {
-  authenticated: true as const,
-  membershipId: "9b96cae1-099f-474f-bb1f-6f8ef78a4575",
-  userId: "8745dcdf-7212-4108-9d26-e3735b32e940",
-  provider: "github",
-  login: "octocat",
-  name: "The Octocat",
-  role: "ADMINISTRATOR" as const,
-}
+const membershipId = "9b96cae1-099f-474f-bb1f-6f8ef78a4575"
+const workspace = hubWorkspace(
+  {
+    viewer: {
+      id: "8745dcdf-7212-4108-9d26-e3735b32e940",
+      login: "octocat",
+      name: "The Octocat",
+      avatarUrl: null,
+    },
+    repositories: [],
+  },
+  new URLSearchParams(),
+  "copilot",
+)
 
 describe("copilotConnectionPageData()", () => {
   it("does not offer connection until the operator configures a credential", () => {
-    const data = copilotConnectionPageData(session, {
+    const data = copilotConnectionPageData(workspace, {
       configured: false,
       connected: false,
       savedConnection: false,
@@ -31,7 +37,7 @@ describe("copilotConnectionPageData()", () => {
   })
 
   it("offers connection for a configured credential that is not verified", () => {
-    const data = copilotConnectionPageData(session, {
+    const data = copilotConnectionPageData(workspace, {
       configured: true,
       connected: false,
       savedConnection: false,
@@ -51,14 +57,14 @@ describe("copilotConnectionPageData()", () => {
   })
 
   it("offers an explicit recheck and disconnect for an active saved connection", () => {
-    const data = copilotConnectionPageData(session, {
+    const data = copilotConnectionPageData(workspace, {
       configured: true,
       connected: true,
       savedConnection: true,
       credentialIdentity: null,
       connectedBy: {
         login: "octocat",
-        membershipId: session.membershipId,
+        membershipId,
         name: "The Octocat",
       },
       refusedAt: null,
@@ -72,7 +78,7 @@ describe("copilotConnectionPageData()", () => {
   })
 
   it("keeps disconnect available when a saved connection is inactive", () => {
-    const data = copilotConnectionPageData(session, {
+    const data = copilotConnectionPageData(workspace, {
       configured: true,
       connected: false,
       savedConnection: true,
@@ -89,7 +95,7 @@ describe("copilotConnectionPageData()", () => {
   })
 
   it("names the billed organization and GitHub App for installation credentials", () => {
-    const data = copilotConnectionPageData(session, {
+    const data = copilotConnectionPageData(workspace, {
       configured: true,
       connected: false,
       savedConnection: false,

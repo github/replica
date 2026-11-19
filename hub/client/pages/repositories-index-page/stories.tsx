@@ -18,11 +18,27 @@ const data: HubWorkspaceData = {
 const realEmptyWorkspaceData: HubWorkspaceData = {
   ...data,
   authenticityToken: "",
-  currentUser: { ...data.currentUser, provider: "github", avatarUrl: null },
+  canvasConnectionsPath: "/canvas/connections",
+  currentUser: {
+    ...data.currentUser,
+    provider: "local",
+    login: "local-developer",
+    name: "Local developer",
+    avatarUrl: null,
+  },
+  accountMenuLabel: "Account menu for Local developer",
+  repositoriesLabel: "Prototypes",
+  emptyRepositoryLabel: "No repository selected",
+  selectedSection: "prototypes",
   signOutPath: "/api/auth/session/sign-out",
-  welcomePath: null,
-  notificationsPath: undefined,
-  administrationLinks: [],
+  notificationsLabel: "Inbox",
+  administrationLinks: [
+    { section: "admins", label: "Hub administrators", path: "/settings/administrators" },
+    { section: "sharing", label: "Public sharing", path: "/settings/sharing" },
+    { section: "sessions", label: "End all Hub sessions", path: "/settings/sessions" },
+    { section: "copilot", label: "Copilot connection", path: "/settings/copilot" },
+  ],
+  securityAuditPath: "/settings/audit?scope=hub",
 }
 
 const meta = {

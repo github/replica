@@ -14,13 +14,15 @@ export function RepositorySelector({
   menuLabel,
   repositories,
   selectedRepositoryId,
+  emptyLabel,
   status,
 }: {
   ariaLabel: string
   collapsed?: boolean
   menuLabel: string
   repositories: RepositorySelectorRepository[]
-  selectedRepositoryId: string
+  selectedRepositoryId: string | null
+  emptyLabel?: string
   status?: RepositorySelectorStatus
 }) {
   const selectedRepository = repositories.find(
@@ -29,7 +31,12 @@ export function RepositorySelector({
 
   return (
     <div className={`repository-selector${collapsed ? " repository-selector--collapsed" : ""}`}>
-      <ActionMenu size="small" selectionVariant="none" menuAlignment="start">
+      <ActionMenu
+        size="small"
+        selectionVariant="none"
+        menuAlignment="start"
+        disabled={Boolean(emptyLabel && repositories.length === 0 && !status)}
+      >
         <ActionMenu.Button
           className="repository-selector__trigger"
           variant="secondary"
@@ -40,7 +47,9 @@ export function RepositorySelector({
           {collapsed ? (
             <span className="repository-selector__sr-only">{ariaLabel}</span>
           ) : (
-            <span className="repository-selector__name">{selectedRepository?.nameWithOwner}</span>
+            <span className="repository-selector__name">
+              {selectedRepository?.nameWithOwner ?? emptyLabel}
+            </span>
           )}
         </ActionMenu.Button>
         <ActionMenu.Overlay aria-label={menuLabel} data-menu-label={menuLabel}>

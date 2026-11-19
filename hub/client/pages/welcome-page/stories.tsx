@@ -34,6 +34,7 @@ const meta = {
         typeof videoUrl === "string" && videoUrl
           ? null
           : "https://www.youtube-nocookie.com/embed/J2Z28CwIfsA",
+      videoWatchUrl: "https://www.youtube.com/watch?v=J2Z28CwIfsA",
       videoPosterUrl: typeof videoPosterUrl === "string" && videoPosterUrl ? videoPosterUrl : null,
       videoLabel: "Learn how Replica works",
       videoDescription:
@@ -50,7 +51,7 @@ const meta = {
       setupPath: "https://github.com/github/replica/blob/main/docs/getting-started.md",
       createLabel: "Create prototype",
       createDescription: "Turn an idea into a prototype with GitHub Copilot.",
-      createUnavailable: "Creating a prototype here requires a connected GitHub repository.",
+      createUnavailable: "Choose a repository where you can create prototypes.",
       hideLabel: "Hide welcome",
       hideDescription: "Hide Welcome from the sidebar. You can still visit /welcome.",
       hidePath: "/welcome",
@@ -92,7 +93,13 @@ export const NoRepository: Story = {
   args: {
     data: {
       ...meta.args.data,
-      workspace: { ...meta.args.data.workspace, repository: null },
+      workspace: {
+        ...meta.args.data.workspace,
+        emptyRepositoryLabel: "No repository selected",
+        repositoriesLabel: "Prototypes",
+        repository: null,
+        securityAuditPath: null,
+      },
     },
   },
 }
@@ -101,10 +108,24 @@ export const LocalRepository: Story = {
   args: {
     data: {
       ...meta.args.data,
-      createPath: null,
+      createDescription: "Draft a prototype brief and copy it for your coding agent.",
       workspace: {
         ...meta.args.data.workspace,
-        repository: prototypeWorkspaceData,
+        navigationLabel: "Repository navigation",
+        accountMenuLabel: "Account menu for Local developer",
+        currentUser: {
+          login: "local-developer",
+          name: "Local developer",
+          avatarUrl: null,
+          provider: "local",
+        },
+        repository: {
+          ...prototypeWorkspaceData,
+          repositories: [
+            { id: "2001", nameWithOwner: "local/minimal", path: "/repositories/2001" },
+          ],
+          repositorySelectorLabel: "Choose repository. local/minimal selected",
+        },
       },
     },
   },

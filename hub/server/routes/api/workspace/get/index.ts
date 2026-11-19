@@ -35,9 +35,10 @@ export function get(
             product.listRepositories(viewer),
             product.welcome?.isHidden(viewer.userId),
           ])
-          const selected = selectedRepository.success
-            ? repositories.find(({ id }) => id === selectedRepository.data)
-            : undefined
+          const requested = selectedRepository.success
+            ? selectedRepository.data.toLowerCase()
+            : null
+          const selected = repositories.find(({ id }) => id === requested) ?? repositories[0]
           let permission = "none"
           let permissionUnavailable = false
           if (selected) {

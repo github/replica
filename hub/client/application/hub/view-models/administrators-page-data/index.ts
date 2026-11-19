@@ -1,20 +1,20 @@
 import type { HubAdminsPageData } from "@pages/hub-admins-page/types"
-import type {
-  AdministratorsResponse,
-  CurrentHubSession,
-} from "@application/hub/administrator-contracts/types"
+import type { AdministratorsResponse } from "@application/hub/administrator-contracts/types"
+import type { HubAdministrationWorkspaceData } from "@features/hub-administration-workspace/types"
 
-import { administratorWorkspace } from "../administrator-workspace"
 import { administratorProviderLabel } from "../administrator-provider-label"
+import { resourcePath } from "../resource-path"
 
 export function administratorsPageData(
-  session: CurrentHubSession,
+  workspace: HubAdministrationWorkspaceData,
   response: AdministratorsResponse,
   before?: string,
   notice: string | null = null,
 ): HubAdminsPageData {
+  const search = new URLSearchParams()
+  const repositoryId = workspace.repository?.selectedRepositoryId ?? null
   return {
-    administrationWorkspace: administratorWorkspace(session),
+    administrationWorkspace: workspace,
     heading: "Hub administrators",
     description:
       "Hub administrators can manage this deployment and read its security records. This role never grants access to repositories.",
@@ -31,7 +31,10 @@ export function administratorsPageData(
     emptyLabel: "No Hub administrators are available.",
     nextLabel: "Next page",
     nextPath: response.nextCursor
-      ? `/settings/administrators?before=${encodeURIComponent(response.nextCursor)}`
+      ? resourcePath("/settings/administrators", search, {
+          before: response.nextCursor,
+          repositoryId,
+        })
       : null,
     addLabel: "Add administrator",
     administratorsLabel: `${response.administrators.length} ${
@@ -63,7 +66,11 @@ export function administratorsPageData(
       identity: `${administratorProviderLabel(administrator.provider)} · Membership ${administrator.membershipId}`,
       role: "Hub administrator",
       actionLabel: "Remove administrator",
-      confirmationPath: `/settings/administrators/${administrator.membershipId}/revoke${before ? `?before=${encodeURIComponent(before)}` : ""}`,
+      confirmationPath: resourcePath(
+        `/settings/administrators/${administrator.membershipId}/revoke`,
+        search,
+        { before: before ?? null, repositoryId },
+      ),
     })),
   }
 }

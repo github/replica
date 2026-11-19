@@ -2,6 +2,7 @@ import { useState } from "react"
 
 import { CopilotConnectionPage } from "@pages/copilot-connection-page"
 import type { CopilotConnectionPageData } from "@pages/copilot-connection-page/types"
+import { loadAdministratorWorkspace } from "@application/hub/load-administrator-workspace"
 import { ApiContractError } from "@application/hub/requests/api-contract-error"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
 import { getCopilotConnection } from "@application/hub/requests/get-copilot-connection"
@@ -34,8 +35,11 @@ export async function clientLoader(
   if (session.role !== "ADMINISTRATOR") {
     throw new Response("Administrator access is required.", { status: 403 })
   }
-  const status = await getCopilotConnection(args.request)
-  return { surface: "copilot-connection", page: copilotConnectionPageData(session, status) }
+  const [status, workspace] = await Promise.all([
+    getCopilotConnection(args.request),
+    loadAdministratorWorkspace(args.request, session, "copilot"),
+  ])
+  return { surface: "copilot-connection", page: copilotConnectionPageData(workspace, status) }
 }
 
 export async function clientAction(args: Parameters<typeof controller.clientAction>[0]) {

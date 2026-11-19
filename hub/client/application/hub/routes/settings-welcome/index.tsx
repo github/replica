@@ -8,9 +8,8 @@ import { ApiRequestError } from "@application/hub/requests/api-request-error"
 import { requestJson } from "@application/hub/requests/request-json"
 import { SettingsFormBoundary } from "@application/hub/screens/settings-form-boundary"
 import { SettingsRouteScreen } from "@application/hub/screens/settings-route-screen"
-import { repositoryWorkspace } from "@application/hub/view-models/repository-workspace"
+import { hubWorkspace } from "@application/hub/view-models/hub-workspace"
 import { welcomeData } from "@application/hub/view-models/settings-welcome"
-import { workspaceNavigation } from "@application/hub/view-models/workspace-navigation"
 
 import { settingsController } from "../settings-controller"
 import type { SettingsRouteData } from "../settings-controller/types"
@@ -64,23 +63,12 @@ function RealWelcome() {
   const workspace = useOutletContext<WorkspaceResponse>()
   const fetcher = useFetcher<{ saved: boolean; error?: string }>()
   const search = new URLSearchParams(useLocation().search)
-  const requestedRepository = search.get("repositoryId")
-  const repository =
-    requestedRepository === null
-      ? workspace.repositories[0]
-      : workspace.repositories.find(({ id }) => id === requestedRepository)
-  const navigation = repository ? repositoryWorkspace(workspace, repository, search, true) : null
   const page = welcomeData(
-    {
-      ...workspaceNavigation(workspace, repository?.id ?? null, search, true),
-      selectedSection: "welcome",
-      repository: navigation,
-    },
+    hubWorkspace(workspace, search, "welcome"),
     workspace.welcomeHidden ?? false,
     search,
     true,
   )
-  if (repository?.capabilities?.local) page.createPath = null
   const busy = fetcher.state !== "idle"
   return (
     <SettingsFormBoundary

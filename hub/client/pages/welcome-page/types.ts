@@ -6,6 +6,7 @@ export interface WelcomePageData {
   description: string
   videoUrl: string | null
   videoEmbedUrl: string | null
+  videoWatchUrl?: string
   videoPosterUrl: string | null
   videoLabel: string
   videoDescription: string

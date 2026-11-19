@@ -8,6 +8,7 @@ import { ApiRequestError } from "@application/hub/requests/api-request-error"
 import { getCurrentHubSession } from "@application/hub/requests/get-current-hub-session"
 import { getSession } from "@application/hub/requests/get-session"
 import { getWorkspace } from "@application/hub/requests/get-workspace"
+import { selectWorkspaceRepository } from "@application/hub/view-models/select-workspace-repository"
 import { workspaceNavigation } from "@application/hub/view-models/workspace-navigation"
 
 import type { Route } from "./+types/index"
@@ -36,8 +37,8 @@ export async function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "re
     if (!mock && error instanceof ApiRequestError && error.status === 401) throw redirect("/")
     throw error
   }
-  const firstRepository = workspace.repositories[0]
-  if (firstRepository) throw redirect(`/repositories/${firstRepository.id}`)
+  const repository = selectWorkspaceRepository(workspace, new URL(request.url).searchParams)
+  if (repository) throw redirect(`/repositories/${repository.id}`)
   return workspace
 }
 
@@ -50,6 +51,7 @@ export default function Home({ loaderData }: Pick<Route.ComponentProps, "loaderD
       data={{
         ...workspaceNavigation(loaderData, null, new URLSearchParams(location.search), real),
         repository: null,
+        selectedSection: "prototypes",
       }}
     />
   )

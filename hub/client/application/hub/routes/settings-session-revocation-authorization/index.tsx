@@ -3,6 +3,7 @@ import { useNavigate } from "react-router"
 import { z } from "zod"
 
 import { SessionRevocationPage } from "@pages/session-revocation-page"
+import { loadAdministratorWorkspace } from "@application/hub/load-administrator-workspace"
 import { ApiContractError } from "@application/hub/requests/api-contract-error"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
 import { cancelSessionRevocationAuthorization } from "@application/hub/requests/cancel-session-revocation-authorization"
@@ -11,6 +12,7 @@ import { getCurrentHubSession } from "@application/hub/requests/get-current-hub-
 import { getSessionRevocationAuthorization } from "@application/hub/requests/get-session-revocation-authorization"
 import { getSessionRevocationStatus } from "@application/hub/requests/get-session-revocation-status"
 import { sessionRevocationErrorMessage } from "@application/hub/session-revocation-error-message"
+import { resourcePath } from "@application/hub/view-models/resource-path"
 import { sessionRevocationPageData } from "@application/hub/view-models/session-revocation-page-data"
 
 import type { Route } from "./+types/index"
@@ -28,13 +30,15 @@ export async function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "re
   if (session.role !== "ADMINISTRATOR") {
     throw new Response("Administrator access is required.", { status: 403 })
   }
-  const [{ authorization }, { status }] = await Promise.all([
+  const [{ authorization }, { status }, workspace] = await Promise.all([
     getSessionRevocationAuthorization(request, authorizationId.data),
     getSessionRevocationStatus(request),
+    loadAdministratorWorkspace(request, session, "sessions"),
   ])
   return {
     authorization,
     authorizationId: authorizationId.data,
+    workspace,
     page: sessionRevocationPageData(session, status, {
       authorizationId: authorizationId.data,
     }),
@@ -81,7 +85,14 @@ export default function SettingsSessionRevocationAuthorization({
         const operation =
           form.get("cancelled") === "1"
             ? cancelSessionRevocationAuthorization(request, loaderData.authorizationId).then(() => {
-                void navigate("/settings/sessions?result=cancelled")
+                void navigate(
+                  resourcePath("/settings/sessions", new URLSearchParams(), {
+                    result: "cancelled",
+                    repositoryId:
+                      loaderData.page.administrationWorkspace?.repository?.selectedRepositoryId ??
+                      null,
+                  }),
+                )
               })
             : continueSessionRevocationAuthorization(request, loaderData.authorizationId).then(
                 () => {

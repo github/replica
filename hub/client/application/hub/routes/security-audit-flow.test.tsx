@@ -4,6 +4,7 @@ import { setupServer } from "msw/node"
 import { createBrowserRouter, RouterProvider, useLoaderData } from "react-router"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
+import type { RepositoryRecord } from "@application/hub/contracts/types"
 import { HubThemeProvider } from "@hooks/use-hub-theme"
 
 import HubRoot, { clientLoader as loadHub, ErrorBoundary, HydrateFallback } from "../root"
@@ -32,11 +33,30 @@ function unavailableServerRoute(): Promise<never> {
   return Promise.reject(new Error("The audit frontend must use the audit API directly."))
 }
 
-async function renderApplication(path: string, handlers: Parameters<typeof setupServer>) {
+async function renderApplication(
+  path: string,
+  handlers: Parameters<typeof setupServer>,
+  repositories: RepositoryRecord[] = [],
+) {
   vi.stubEnv("MODE", "development")
   vi.stubEnv("DEV", true)
   const requests: string[] = []
-  const server = setupServer(...handlers)
+  const { userId, provider, login, name } = session()
+  const server = setupServer(
+    ...handlers,
+    http.get(`${window.location.origin}/api/workspace`, () =>
+      HttpResponse.json({
+        viewer: { id: userId, provider, login, name, avatarUrl: null },
+        repositories,
+        capabilities: {
+          createPrototypes: false,
+          reviewPrototypes: false,
+          manageSharing: false,
+          administerHub: true,
+        },
+      }),
+    ),
+  )
   server.events.on("request:start", ({ request }) => {
     const url = new URL(request.url)
     requests.push(`${request.method} ${url.pathname}${url.search}`)
@@ -54,6 +74,7 @@ async function renderApplication(path: string, handlers: Parameters<typeof setup
         HydrateFallback,
         children: [
           {
+            id: "routes/workspace/index",
             loader: loadWorkspace,
             Component: () => <Workspace loaderData={useLoaderData<typeof loadWorkspace>()} />,
             children: [
@@ -85,25 +106,23 @@ function authenticatedSession() {
 }
 
 function expectOnlyRealAuditRequests(requests: string[]) {
-  expect(
-    requests.every(
-      (request) =>
-        request === "GET /api/auth/session" || request.startsWith("GET /api/security-audits?"),
-    ),
-  ).toBe(true)
+  const allowed = ["GET /api/auth/session", "GET /api/workspace", "GET /api/security-audits"]
+  expect(requests.filter((request) => !allowed.includes(request.split("?")[0] ?? request))).toEqual(
+    [],
+  )
 }
 
 describe("real security audit frontend integration", () => {
-  it("loads only the canonical Hub audit APIs and preserves opaque pagination", async () => {
+  it("keeps a repository hint separate from Hub audit scope and preserves opaque pagination", async () => {
     const before = "current+/cursor=="
     const nextCursor = "next+/cursor=="
+    const repositoryId = "33333333-3333-4333-8333-333333333333"
     const { requests } = await renderApplication(
-      `/settings/audit?scope=hub&before=${encodeURIComponent(before)}`,
+      `/settings/audit?scope=hub&repositoryId=${repositoryId}&before=${encodeURIComponent(before)}`,
       [
         authenticatedSession(),
-        http.get(`${window.location.origin}/api/security-audits`, ({ request }) => {
-          expect(new URL(request.url).searchParams.get("before")).toBe(before)
-          return HttpResponse.json({
+        http.get(`${window.location.origin}/api/security-audits`, () =>
+          HttpResponse.json({
             records: [
               {
                 id: "22222222-2222-4222-8222-222222222222",
@@ -115,8 +134,20 @@ describe("real security audit frontend integration", () => {
               },
             ],
             nextCursor,
-          })
-        }),
+          }),
+        ),
+      ],
+      [
+        {
+          id: repositoryId,
+          nameWithOwner: "team/design",
+          defaultBranch: "main",
+          capabilities: {
+            reviewPrototypes: true,
+            manageSharing: false,
+            administerRepository: true,
+          },
+        },
       ],
     )
 
@@ -125,10 +156,15 @@ describe("real security audit frontend integration", () => {
       `GET /api/security-audits?limit=50&before=${encodeURIComponent(before)}`,
     ])
     expectOnlyRealAuditRequests(requests)
-    expect(screen.getByRole("link", { name: "Older actions" })).toHaveAttribute(
-      "href",
-      `/settings/audit?scope=hub&before=${encodeURIComponent(nextCursor)}`,
+    const older = new URL(
+      screen.getByRole<HTMLAnchorElement>("link", { name: "Older actions" }).href,
     )
+    expect(older.pathname).toBe("/settings/audit")
+    expect(Object.fromEntries(older.searchParams)).toEqual({
+      scope: "hub",
+      repositoryId,
+      before: nextCursor,
+    })
   })
 
   it("accepts and renders the safe Copilot credential provider field", async () => {
@@ -196,6 +232,7 @@ describe("real security audit frontend integration", () => {
     expect(screen.getByText("400")).toBeVisible()
     if (message) expect(screen.getByText(message)).toBeVisible()
     expect(requests.some((request) => request.includes("/api/security-audits"))).toBe(false)
+    expectOnlyRealAuditRequests(requests)
   })
 
   it("requires a current administrator session before loading audit data", async () => {
@@ -208,6 +245,7 @@ describe("real security audit frontend integration", () => {
     expect(await screen.findByRole("heading", { name: "Access denied" })).toBeVisible()
     expect(screen.getByText("Administrator access is required.")).toBeVisible()
     expect(requests.some((request) => request.includes("/api/security-audits"))).toBe(false)
+    expectOnlyRealAuditRequests(requests)
   })
 
   it.each([
