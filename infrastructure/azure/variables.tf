@@ -58,12 +58,31 @@ variable "acr_id" {
 
 variable "postgres_admin_password" {
   type        = string
+  default     = null
+  nullable    = true
   sensitive   = true
-  description = "Explicit PostgreSQL administrator password. Stored in protected Terraform state."
+  description = "Explicit PostgreSQL administrator password for bootstrap. Stored in protected Terraform state."
 
   validation {
-    condition     = length(var.postgres_admin_password) >= 16
+    condition     = var.postgres_admin_password == null || length(var.postgres_admin_password) >= 16
     error_message = "Use an independently generated PostgreSQL password of at least 16 characters."
+  }
+}
+
+variable "reuse_existing_postgres_admin_password" {
+  type        = bool
+  default     = false
+  description = "Release-only acknowledgement that the existing server password remains unchanged and is not available to this Terraform run."
+}
+
+variable "deployment_storage_principal_id" {
+  type        = string
+  default     = null
+  description = "Optional object ID for the Terraform-managed installation storage grant. Automation must preserve the principal already recorded in state."
+
+  validation {
+    condition     = var.deployment_storage_principal_id == null || can(regex("^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$", var.deployment_storage_principal_id))
+    error_message = "Supply an Entra object UUID for the existing Terraform-managed deployment storage principal."
   }
 }
 

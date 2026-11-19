@@ -34,7 +34,7 @@ Follow the [commit and PR conventions](CONTRIBUTING.md#commits-and-pull-requests
 - `actions/build/` owns the artifact contract between prototype repositories and Hub.
 - `packages/learning/` owns the learning contracts, the memory provider and consolidator interfaces, the reference providers and consolidators, the conformance suite, and the `replica-learning` command. It is private repository source with no release yet. Read its `README.md` and [ADR 0001](docs/adr/0001-learning-extension-architecture.md) before changing it.
 
-The new Hub has no release or deployment workflow. The starter follows `main` and has no separate release process. Start a new agent session after copying the starter so its local skills are discovered.
+The new Hub has one protected manual workflow for a named non-production Azure installation. It does not publish prototypes or provide a general release service. The starter follows `main` and has no separate release process. Start a new agent session after copying the starter so its local skills are discovered.
 
 For requests to create a prototype repository or set up an existing repository for prototyping, read [prototype repository setup](docs/prototype-repository-setup.md) before acting. It owns target selection, starter installation, the fresh-session handoff, and the path from local preview to optional guidance, a team baseline, or Hub.
 

@@ -145,6 +145,112 @@ export function checkWorkflows(root: string): void {
     "Dependency age must run unconditionally",
   )
   assert(!workflow("dependency-age").jobs.audit.if, "Dependency age must run unconditionally")
+
+  const deployment = workflow("hub-azure-deploy")
+  assert.deepEqual(
+    deployment.on,
+    { workflow_dispatch: null },
+    "Azure deployment must remain an explicit manual action",
+  )
+  assert.deepEqual(deployment.permissions, {
+    contents: "read",
+    "id-token": "write",
+  })
+  assert.deepEqual(deployment.concurrency, {
+    group: "hub-azure-development",
+    "cancel-in-progress": false,
+  })
+  assert.deepEqual(Object.keys(deployment.jobs), ["deploy"])
+  const deploy = deployment.jobs.deploy
+  assert.equal(deploy.environment, "hub-azure-development")
+  assert.equal(
+    deploy.env?.AZURE_RUNTIME_ENVIRONMENT_JSON,
+    "${{ vars.AZURE_RUNTIME_ENVIRONMENT_JSON }}",
+    "Deployment must read non-secret runtime settings from the protected Environment",
+  )
+  assert.equal(
+    deploy.env?.AZURE_RUNTIME_SECRET_REFERENCES_JSON,
+    "${{ vars.AZURE_RUNTIME_SECRET_REFERENCES_JSON }}",
+    "Deployment must read secret references from the protected Environment",
+  )
+  assert.equal(
+    deploy.env?.AZURE_INSTALLATION_SETTINGS_JSON,
+    "${{ vars.AZURE_INSTALLATION_SETTINGS_JSON }}",
+    "Deployment must read installation settings from the protected Environment",
+  )
+  for (const name of [
+    "AZURE_HUB_APPLICATION_ORIGIN",
+    "AZURE_GITHUB_APP_ID",
+    "AZURE_GITHUB_CLIENT_ID",
+    "AZURE_GITHUB_APP_INSTALLATION_ID",
+    "AZURE_GITHUB_PROVIDER_REVISION",
+  ]) {
+    assert.equal(
+      deploy.env?.[name],
+      `\${{ vars.${name} }}`,
+      `Deployment must read ${name} from the protected Environment`,
+    )
+  }
+  assert(!JSON.stringify(deployment).includes("secrets."), "Deployment must not read GitHub secrets")
+  assert(
+    deploy.steps?.every(
+      (step) => !step.uses || step.uses.startsWith("./") || /@[a-f0-9]{40}$/.test(step.uses),
+    ),
+    "Deployment actions must use immutable commit SHAs",
+  )
+  assert(
+    deploy.steps?.some(
+      (step) =>
+        step.uses === "azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6" &&
+        step.with?.["client-id"] === "${{ vars.AZURE_CLIENT_ID }}" &&
+        step.with?.["tenant-id"] === "${{ vars.AZURE_TENANT_ID }}" &&
+        step.with?.["subscription-id"] === "${{ vars.AZURE_SUBSCRIPTION_ID }}",
+    ),
+    "Deployment must authenticate to Azure with the protected environment's OIDC identity",
+  )
+  const image = deploy.steps?.find((step) => step.name === "Build and publish the checked-out commit")
+  assert(
+    image?.run?.includes("docker buildx build") &&
+      image.run.includes("--metadata-file") &&
+      image.run.includes("--push") &&
+      image.run.includes("containerimage.digest") &&
+      image.run.includes("reference=%s@%s"),
+    "Deployment must publish the checked-out commit and return an immutable image digest",
+  )
+  const configuration = deploy.steps?.find(
+    (step) => step.name === "Prepare non-secret deployment configuration",
+  )
+  assert(
+    configuration?.run?.includes("deployment_storage_principal_id: required(") &&
+      configuration.run.includes('"AZURE_DEPLOYMENT_STORAGE_PRINCIPAL_ID"') &&
+      configuration.run.includes("hub_application_origin: hubOrigin") &&
+      configuration.run.includes("github_app_id: githubAppId") &&
+      configuration.run.includes("github_client_id: githubClientId") &&
+      configuration.run.includes("github_app_installation_id: githubInstallationId") &&
+      configuration.run.includes("github_provider_revision: Number(githubRevisionText)") &&
+      configuration.run.includes('record("AZURE_RUNTIME_ENVIRONMENT_JSON", true)') &&
+      configuration.run.includes('record("AZURE_RUNTIME_SECRET_REFERENCES_JSON", true)') &&
+      configuration.run.includes('record("AZURE_INSTALLATION_SETTINGS_JSON", true)') &&
+      configuration.run.includes("postgres_sku: installationSettings.postgres_sku") &&
+      configuration.run.includes("postgres_version: installationSettings.postgres_version") &&
+      configuration.run.includes(
+        "backup_retention_days: installationSettings.backup_retention_days",
+      ) &&
+      configuration.run.includes(
+        "    custom_hostname: customHostname,\n    certificate_id: certificateId,\n    runtime_environment_variables: environment,",
+      ) &&
+      configuration.run.includes("runtime_secret_references: references"),
+    "Deployment must preserve the storage principal and separate public runtime settings from secret references",
+  )
+  const release = deploy.steps?.find(
+    (step) => step.name === "Run the serialized maintenance-window release",
+  )
+  assert(
+    release?.run?.includes("node infrastructure/azure/deploy-hub/index.ts release") &&
+      release.run.includes('--image "$HUB_IMAGE"') &&
+      release.env?.HUB_IMAGE === "${{ steps.image.outputs.reference }}",
+    "Deployment must use the serialized Hub release path",
+  )
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
