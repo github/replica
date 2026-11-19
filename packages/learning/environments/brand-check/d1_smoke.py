@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import pickle
 import tempfile
 import time
 import uuid
@@ -105,7 +104,7 @@ def _run_smoke(
     """Run one smoke inference in a child that cannot outlive its deadline."""
     process_context = _process_context()
     with tempfile.TemporaryDirectory(prefix="replica-d1-smoke-") as directory:
-        result_path = Path(directory) / "result.pickle"
+        result_path = Path(directory) / "result.json"
         process = process_context.Process(
             target=_smoke_process,
             args=(
@@ -129,9 +128,16 @@ def _run_smoke(
                 _stop_process(process)
                 raise SystemExit("d1-omni smoke timed out before model execution completed.")
             try:
-                with result_path.open("rb") as handle:
-                    kind, payload = pickle.load(handle)
-            except (FileNotFoundError, EOFError, OSError, pickle.UnpicklingError):
+                with result_path.open("r", encoding="utf-8") as handle:
+                    outcome = json.load(handle)
+                kind, payload = _validated_outcome(outcome)
+            except (
+                FileNotFoundError,
+                OSError,
+                UnicodeError,
+                json.JSONDecodeError,
+                ValueError,
+            ):
                 raise SystemExit(
                     f"d1-omni smoke worker exited without a result "
                     f"(exit code {process.exitcode})."
@@ -202,13 +208,30 @@ def _smoke_process(
     destination = Path(result_path)
     temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}")
     try:
-        with temporary.open("xb") as handle:
-            pickle.dump(outcome, handle)
+        with temporary.open("x", encoding="utf-8") as handle:
+            json.dump(outcome, handle, sort_keys=True)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, destination)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _validated_outcome(value: object) -> tuple[str, object]:
+    if not isinstance(value, list) or len(value) != 2:
+        raise ValueError("invalid smoke worker result")
+    kind, payload = value
+    if kind == "error" and isinstance(payload, str):
+        return kind, payload
+    if (
+        kind == "ok"
+        and isinstance(payload, list)
+        and len(payload) == 2
+        and payload[0] in ("promoted-adapter", "released-model")
+        and isinstance(payload[1], dict)
+    ):
+        return kind, (payload[0], payload[1])
+    raise ValueError("invalid smoke worker result")
 
 
 if __name__ == "__main__":

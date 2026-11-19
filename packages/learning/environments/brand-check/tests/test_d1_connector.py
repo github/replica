@@ -39,7 +39,7 @@ from replica_brand_check.local_connectors import (
     LocalTrainingConnector,
     taskset_digest,
 )
-from replica_brand_check.d1_smoke import _run_smoke
+from replica_brand_check.d1_smoke import _run_smoke, _validated_outcome
 from replica_brand_check.runtime import FixtureBackend, LocalRuntime, RuntimeFailure
 from replica_brand_check.taskset import load_taskset
 from tests.support import RULE, make_task, write_taskset
@@ -1433,6 +1433,16 @@ class D1ConnectorTest(unittest.TestCase):
                 adapter=None,
                 context=_context(),
             )
+
+    def test_smoke_rejects_unexpected_child_result_shapes(self):
+        for value in (
+            {"kind": "ok"},
+            ["unknown", "payload"],
+            ["error", {"message": "not text"}],
+            ["ok", ["released-model", []]],
+        ):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                _validated_outcome(value)
 
     def test_production_accepts_real_backend_and_does_not_mint_credentials(self):
         taskset_directory = write_taskset(
