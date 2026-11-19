@@ -16,7 +16,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .connectors import RuntimeScope
-from .d1_connector import D1OmniBackend
+from .d1_connector import D1OmniBackend, taskset_learning_texts
 from .local_connectors import taskset_digest
 from .runtime import ENVIRONMENTS, FixtureBackend, LocalRuntime, RuntimeFailure
 from .taskset import load_taskset
@@ -112,11 +112,11 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                 return
             if path == "/ready":
                 try:
-                    readiness = self.server.runtime.ready()
+                    self.server.runtime.ready()
                 except RuntimeFailure as error:
                     self._send(503, {"status": "not_ready", "reason": error.code})
                 else:
-                    self._send(200, readiness)
+                    self._send(200, {"status": "ready"})
                 return
             self._authorize()
             if path == "/v1/promotion":
@@ -276,6 +276,7 @@ def main() -> None:
         backends["d1-omni"] = D1OmniBackend(
             args.d1_model,
             expected_taskset_digest=str(taskset_digest(taskset)),
+            expected_learning_texts=taskset_learning_texts(taskset),
         )
     runtime = LocalRuntime(
         args.state,

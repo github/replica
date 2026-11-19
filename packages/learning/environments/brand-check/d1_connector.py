@@ -183,6 +183,7 @@ class D1OmniBackend:
         model_directory: str | Path,
         *,
         expected_taskset_digest: str,
+        expected_learning_texts: Mapping[str, str] | None = None,
         part: str = "readout",
         tasks_per_update: int = 16,
         group: int = 8,
@@ -195,6 +196,11 @@ class D1OmniBackend:
             raise ValueError("d1-omni training settings must be positive.")
         self.model_directory = str(Path(model_directory).expanduser().resolve())
         self.expected_taskset_digest = expected_taskset_digest
+        self.expected_learning_texts = (
+            dict(expected_learning_texts)
+            if expected_learning_texts is not None
+            else None
+        )
         self.part = part
         self.tasks_per_update = tasks_per_update
         self.group = group
@@ -237,6 +243,19 @@ class D1OmniBackend:
                     raise ConnectorError(
                         "learning_text_missing",
                         "Each d1-omni yes-or-no question needs non-empty learning text.",
+                        category="invalid_input",
+                    )
+                if self.expected_learning_texts is None:
+                    raise ConnectorError(
+                        "learning_contract_unavailable",
+                        "The d1-omni backend has no configured learning contract.",
+                        category="unavailable",
+                    )
+                expected_learning = self.expected_learning_texts.get(key)
+                if expected_learning is None or projected["learning_text"] != expected_learning:
+                    raise ConnectorError(
+                        "learning_text_mismatch",
+                        "The d1-omni question does not match the configured taskset learning.",
                         category="invalid_input",
                     )
                 projected["instructions"] = NOUL_INSTRUCTIONS
@@ -578,6 +597,30 @@ def _validate_training_questions(taskset: Taskset, task_ids: list[str]) -> None:
                 f"Training task {task_id} has no yes-or-no question for d1-omni.",
                 category="invalid_input",
             )
+
+
+def taskset_learning_texts(taskset: Taskset) -> dict[str, str]:
+    """Return the one stable learning text configured for each yes-or-no question."""
+    learnings: dict[str, str] = {}
+    for task in taskset.by_id.values():
+        for key, question in task.questions.items():
+            if question.type != "noul":
+                continue
+            text = question.spec.get("learning_text")
+            if not isinstance(text, str) or not text.strip():
+                raise ConnectorError(
+                    "learning_text_missing",
+                    f"Task {task.id} question {key} needs learning text for d1-omni.",
+                    category="invalid_input",
+                )
+            previous = learnings.setdefault(key, text)
+            if previous != text:
+                raise ConnectorError(
+                    "learning_text_conflict",
+                    f"Question {key} has inconsistent learning text in the taskset.",
+                    category="integrity",
+                )
+    return learnings
 
 
 def _model_module() -> Any:

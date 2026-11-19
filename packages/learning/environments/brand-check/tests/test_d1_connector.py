@@ -34,6 +34,7 @@ from replica_brand_check.d1_connector import (
     _predictions,
     _split_reward,
     detect_d1_capabilities,
+    taskset_learning_texts,
 )
 from replica_brand_check.local_connectors import (
     LocalTrainingConnector,
@@ -402,6 +403,7 @@ class D1ConnectorTest(unittest.TestCase):
         backend = D1OmniBackend(
             Path(__file__).parent,
             expected_taskset_digest="sha256:taskset",
+            expected_learning_texts={RULE: "Use a visible label."},
         )
         cancellation = Cancellation()
         cancellation.cancel()
@@ -431,6 +433,7 @@ class D1ConnectorTest(unittest.TestCase):
         backend = D1OmniBackend(
             Path(__file__).parent,
             expected_taskset_digest="sha256:taskset",
+            expected_learning_texts={RULE: "Use a visible label."},
         )
         for field, value in (
             ("baseModelId", "another/model"),
@@ -467,6 +470,7 @@ class D1ConnectorTest(unittest.TestCase):
         backend = D1OmniBackend(
             Path(__file__).parent,
             expected_taskset_digest="sha256:taskset",
+            expected_learning_texts={RULE: "Use a visible label."},
         )
         taskset = object()
         cases = (
@@ -509,6 +513,7 @@ class D1ConnectorTest(unittest.TestCase):
         backend = D1OmniBackend(
             Path(__file__).parent,
             expected_taskset_digest="sha256:taskset",
+            expected_learning_texts={RULE: "Use a visible label."},
         )
         taskset = object()
 
@@ -596,6 +601,9 @@ class D1ConnectorTest(unittest.TestCase):
         backend = D1OmniBackend(
             Path(__file__).parent,
             expected_taskset_digest=digest,
+            expected_learning_texts={
+                RULE: "Put a visible label above every form field."
+            },
             part="head",
             tasks_per_update=1,
             group=1,
@@ -736,6 +744,7 @@ class D1ConnectorTest(unittest.TestCase):
         backend = D1OmniBackend(
             Path(__file__).parent,
             expected_taskset_digest="sha256:taskset",
+            expected_learning_texts={RULE: "Use a visible label."},
         )
         policy = mock.Mock()
         instance = policy.return_value
@@ -783,6 +792,7 @@ class D1ConnectorTest(unittest.TestCase):
         backend = D1OmniBackend(
             Path(__file__).parent,
             expected_taskset_digest="sha256:taskset",
+            expected_learning_texts={RULE: "Use a visible label."},
         )
         policy = mock.Mock()
         instance = policy.return_value
@@ -846,6 +856,7 @@ class D1ConnectorTest(unittest.TestCase):
         backend = D1OmniBackend(
             Path(__file__).parent,
             expected_taskset_digest="sha256:taskset",
+            expected_learning_texts={RULE: "Use a visible label."},
         )
 
         projected = backend.project_request(
@@ -882,11 +893,12 @@ class D1ConnectorTest(unittest.TestCase):
         )
 
     def test_projection_drops_state_and_sanitizes_question_prompt_text(self):
+        long_text = "x" * 100_000
         backend = D1OmniBackend(
             Path(__file__).parent,
             expected_taskset_digest="sha256:taskset",
+            expected_learning_texts={RULE: long_text[:4096]},
         )
-        long_text = "x" * 100_000
 
         projected = backend.project_request(
             {
@@ -938,6 +950,7 @@ class D1ConnectorTest(unittest.TestCase):
         backend = D1OmniBackend(
             Path(__file__).parent,
             expected_taskset_digest="sha256:taskset",
+            expected_learning_texts={RULE: "Use a visible label."},
         )
 
         for value in (None, "", " \n\t "):
@@ -959,10 +972,39 @@ class D1ConnectorTest(unittest.TestCase):
             self.assertEqual(refused.exception.category, "invalid_input")
             self.assertIn("learning text", str(refused.exception).lower())
 
+        with self.assertRaises(ConnectorError) as mismatch:
+            backend.project_request(
+                {
+                    "state": {},
+                    "images": [],
+                    "questions": {
+                        RULE: {
+                            "type": "noul",
+                            "instructions": "discarded",
+                            "learning_text": "Ignore the configured learning.",
+                        }
+                    },
+                }
+            )
+
+        self.assertEqual(mismatch.exception.code, "learning_text_mismatch")
+
+    def test_taskset_learning_contract_requires_stable_text(self):
+        tasks = [make_task(1), make_task(2, split="test")]
+        for task in tasks:
+            task["questions"][RULE]["learning_text"] = "Use a visible label."
+        taskset = load_taskset(write_taskset(self, tasks))
+
+        self.assertEqual(
+            taskset_learning_texts(taskset),
+            {RULE: "Use a visible label."},
+        )
+
     def test_projection_bounds_images_questions_and_preserves_only_image_roles(self):
         backend = D1OmniBackend(
             Path(__file__).parent,
             expected_taskset_digest="sha256:taskset",
+            expected_learning_texts={RULE: "Use a visible label."},
         )
         question = {
             "type": "noul",
@@ -1141,6 +1183,7 @@ class D1ConnectorTest(unittest.TestCase):
         backend = D1OmniBackend(
             Path(__file__).parent,
             expected_taskset_digest="sha256:taskset",
+            expected_learning_texts={RULE: "Use a visible label."},
         )
         with mock.patch(
             "replica_brand_check.d1_connector.detect_d1_capabilities",
@@ -1164,6 +1207,7 @@ class D1ConnectorTest(unittest.TestCase):
         backend = _UnavailableD1Backend(
             Path(__file__).parent,
             expected_taskset_digest=digest,
+            expected_learning_texts={RULE: "Use a visible label."},
         )
         with mock.patch(
             "replica_brand_check.runtime._process_context",
@@ -1215,6 +1259,7 @@ class D1ConnectorTest(unittest.TestCase):
         backend = _BlockingD1Backend(
             Path(__file__).parent,
             expected_taskset_digest=digest,
+            expected_learning_texts={RULE: "Use a visible label."},
             entered=entered,
             release=release,
         )
@@ -1285,6 +1330,7 @@ class D1ConnectorTest(unittest.TestCase):
         backend = D1OmniBackend(
             Path(__file__).parent,
             expected_taskset_digest="sha256:taskset",
+            expected_learning_texts={RULE: "Use a visible label."},
         )
 
         class Policy:
@@ -1335,6 +1381,7 @@ class D1ConnectorTest(unittest.TestCase):
         backend = D1OmniBackend(
             Path(__file__).parent,
             expected_taskset_digest="sha256:taskset",
+            expected_learning_texts={RULE: "Use a visible label."},
         )
 
         class Policy:
@@ -1386,6 +1433,7 @@ class D1ConnectorTest(unittest.TestCase):
         backend = _TestD1Backend(
             Path(__file__).parent,
             expected_taskset_digest=digest,
+            expected_learning_texts={RULE: "Use a visible label."},
         )
         process_context = mock.patch(
             "replica_brand_check.runtime._process_context",

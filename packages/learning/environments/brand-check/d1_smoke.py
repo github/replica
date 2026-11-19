@@ -22,6 +22,7 @@ from .d1_connector import (
     D1OmniBackend,
     _completed_answers,
     detect_d1_capabilities,
+    taskset_learning_texts,
 )
 from .episode import Episodes
 from .local_connectors import taskset_digest
@@ -43,6 +44,7 @@ def main() -> None:
     backend = D1OmniBackend(
         args.model,
         expected_taskset_digest=digest,
+        expected_learning_texts=taskset_learning_texts(taskset),
     )
     capability = detect_d1_capabilities(args.model)
     if not capability["inference"]:
