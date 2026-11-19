@@ -25,6 +25,8 @@ export async function discoverGitHubWorkflowRunsJob(): Promise<void> {
   const jobs = await discoverGitHubWorkflowRuns(
     {
       database: prisma,
+      listBranchHeads: (githubRepositoryId) =>
+        createGitHubActionsClient({ ...credentials, githubRepositoryId }).listBranchHeads(),
       listWorkflowRuns: (githubRepositoryId, createdAfter) =>
         createGitHubActionsClient({ ...credentials, githubRepositoryId }).listWorkflowRuns(
           createdAfter,

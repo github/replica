@@ -3,6 +3,7 @@ import type { Logger } from "pino"
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
 import type { GitHubWorkflowRun } from "../../../integrations/github/create-github-actions-client/types.ts"
 import { listGitHubBuildRuns } from "../../../repositories/github-builds/list-github-build-runs/index.ts"
+import { recordGitHubBranchHeads } from "../../../repositories/github-builds/record-github-branch-heads/index.ts"
 import { listConnectedGitHubRepositories } from "../../../repositories/repository-access/list-connected-github-repositories/index.ts"
 import type { GitHubWorkflowRunJob } from "../get-github-workflow-run-job-definition/index.ts"
 
@@ -11,6 +12,9 @@ type SavedRun = Awaited<ReturnType<typeof listGitHubBuildRuns>>[number]
 export interface DiscoverGitHubWorkflowRunsDependencies {
   database: PrismaClient
   listWorkflowRuns: (githubRepositoryId: number, createdAfter: Date) => Promise<GitHubWorkflowRun[]>
+  listBranchHeads: (
+    githubRepositoryId: number,
+  ) => Promise<{ branchName: string; commitSha: string }[]>
   logger: Pick<Logger, "warn">
 }
 
@@ -34,12 +38,22 @@ function settled(run: GitHubWorkflowRun, saved: SavedRun[]) {
  * have been missed. One repository's failure does not block the others.
  */
 export async function discoverGitHubWorkflowRuns(
-  { database, listWorkflowRuns, logger }: DiscoverGitHubWorkflowRunsDependencies,
+  { database, listWorkflowRuns, listBranchHeads, logger }: DiscoverGitHubWorkflowRunsDependencies,
   { createdAfter }: { createdAfter: Date },
 ): Promise<GitHubWorkflowRunJob[]> {
   const jobs: GitHubWorkflowRunJob[] = []
   for (const repository of await listConnectedGitHubRepositories(database)) {
     const githubRepositoryId = Number(repository.githubRepositoryId)
+    const observedAt = new Date()
+    try {
+      await recordGitHubBranchHeads(database, {
+        githubRepositoryId,
+        heads: await listBranchHeads(githubRepositoryId),
+        observedAt,
+      })
+    } catch (error) {
+      logger.warn({ err: error, githubRepositoryId }, "GitHub branch head discovery failed")
+    }
     try {
       const runs = (await listWorkflowRuns(githubRepositoryId, createdAfter)).filter(
         (run) => run.headBranch !== null && run.headBranch !== "replica/install-workflow",
