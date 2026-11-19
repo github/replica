@@ -43,10 +43,15 @@ export interface DecisionModelOverview {
     }[]
     durationSeconds: number | null
     usage: {
-      quantity: string
+      connector: string
+      kind: string
+      quantity: number
       unit: string
-      cost: { amount: string; currency: string } | null
-    } | null
+      cost: number | null
+      currency: string | null
+      source: string
+      metadata: Record<string, unknown>
+    }[]
     rejection: {
       rejectedAt: string
       reason: string | null

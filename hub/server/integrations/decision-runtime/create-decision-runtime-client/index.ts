@@ -13,17 +13,20 @@ import type {
 const digest = z.string().regex(/^sha256:[a-f0-9]{64}$/)
 const usage = z
   .object({
-    quantity: z.string().regex(/^\d+(?:\.\d+)?$/),
+    connector: z.string().min(1).max(200),
+    kind: z.string().min(1).max(100),
+    quantity: z.number().nonnegative(),
     unit: z.string().min(1).max(50),
-    cost: z
-      .object({
-        amount: z.string().regex(/^\d+(?:\.\d+)?$/),
-        currency: z.string().regex(/^[A-Z]{3}$/),
-      })
-      .strict()
-      .optional(),
+    cost: z.number().nonnegative().nullable(),
+    currency: z
+      .string()
+      .regex(/^[A-Z]{3}$/)
+      .nullable(),
+    source: z.string().min(1).max(200),
+    metadata: z.record(z.string(), z.unknown()),
   })
   .strict()
+  .refine((value) => (value.cost === null) === (value.currency === null))
 const job = z
   .object({
     id: z.string().min(1).max(100),
@@ -36,7 +39,7 @@ const job = z
       .object({ code: z.string().min(1).max(100) })
       .loose()
       .optional(),
-    usage: usage.optional(),
+    usage: z.array(usage).optional(),
   })
   .loose()
 const promotion = z
@@ -73,6 +76,7 @@ const candidate = z
         id: z.string().min(1).max(100),
         tasksetDigest: digest,
         productionEligible: z.boolean(),
+        usage: z.array(usage).optional(),
       })
       .loose(),
     evaluation: z
@@ -87,7 +91,6 @@ const candidate = z
           .loose(),
       })
       .loose(),
-    usage: usage.optional(),
   })
   .loose()
 const evaluation = z
@@ -104,7 +107,7 @@ const evaluation = z
         })
         .strict(),
     ),
-    usage: usage.optional(),
+    usage: z.array(usage).optional(),
   })
   .loose()
 
@@ -333,10 +336,13 @@ export function createDecisionRuntimeClient({
             backend: input.backend,
             maxUpdates: input.maxUpdates,
             maxSeconds: input.maxSeconds,
-            maxCredits: z
-              .string()
-              .regex(/^(?:0|[1-9]\d*)(?:\.\d{1,9})?$/)
-              .parse(input.maxCredits),
+            maxCredits: Number(
+              z
+                .string()
+                .regex(/^(?:0|[1-9]\d*)(?:\.\d{1,9})?$/)
+                .parse(input.maxCredits),
+            ),
+            budgetMode: "hard",
             tasksetDigest,
           }),
           contentType: "application/json",
@@ -408,7 +414,7 @@ export function createDecisionRuntimeClient({
           calibrationErrorDelta: value.evaluation.evidence.calibrationErrorDelta,
           learningMetrics,
         },
-        ...(value.usage ? { usage: value.usage } : {}),
+        ...(value.manifest.usage ? { usage: value.manifest.usage } : {}),
       } satisfies DecisionRuntimeCandidate
     },
     async getPromotion(signal) {

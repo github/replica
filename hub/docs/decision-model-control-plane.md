@@ -2,7 +2,7 @@
 
 Hub provides the backend contracts for customer-specific decision-model training, review, promotion, rollback, and Build evaluation. The model runtime stays on customer-operated infrastructure. Hub stores references, digests, decisions, and usage metadata, not taskset contents, credentials, adapters, reports, or model weights.
 
-The control plane is not enabled by default. Runtime composition must supply the adapter that turns stored Build screenshot artifacts into the decision Builds contract and the learning-package taskset preparation source before the API and workers are registered. The runtime taskset upload and cancellation contract matches the work proposed in #297 and must be aligned to its final merged base before publication.
+The control plane is not enabled by default. Runtime composition must supply the adapter that turns stored Build screenshot artifacts into the decision Builds contract and the learning-package taskset preparation source before the API and workers are registered. The runtime client uses the merged taskset upload, cancellation, hard-credit-budget, authoritative usage, and generation-checked promotion contracts.
 
 ## Flow
 
@@ -48,7 +48,7 @@ Every mutation requires the application origin and a live administrator session.
 
 The overview's preflight section reports only counts and warnings produced by the configured taskset source: covered prototypes, Builds, screenshots, questions, and labeled samples. Hub does not infer missing coverage. Candidate records retain the runtime's absolute baseline and candidate held-out reward and calibration, their deltas, and per-learning balanced-accuracy changes. Missing runtime metrics remain `null`; Hub labels a per-learning change as a gain, regression, unchanged result, or unknown only from the two reported values.
 
-Candidate duration comes from the runtime job's start and completion times. Usage and cost come from the runtime usage contract. Missing runtime values remain unknown. A rejection records the administrator membership, reason, and time and prevents later promotion or rollback to that candidate. The overview lists promotion history and marks rollback available only when the current promotion names a previous candidate that has not been rejected.
+Candidate duration comes from the runtime job's start and completion times. Usage and cost remain the runtime's attributed record list, including connector, kind, quantity, unit, cost, currency, source, and metadata. Hub sums only measured `credits` records for monthly budget accounting; it does not combine unrelated units or currencies. Missing runtime values remain unknown. A rejection records the administrator membership, reason, and time and prevents later promotion or rollback to that candidate. The overview lists promotion history and marks rollback available only when the current promotion names a previous candidate that has not been rejected.
 
 Promotion, rollback, and rejection share one Hub decision-control lock. Runtime work remains outside Prisma transactions, but loss of the lock connection aborts the runtime request before Hub persists a decision. This prevents a concurrent rejection from racing a promotion into inconsistent Hub and runtime state.
 
@@ -80,7 +80,7 @@ The runtime client requires bounded JSON responses and typed errors. It uses the
 | `POST /v1/rollbacks` | Restores the previous candidate |
 | `POST /v1/evaluations` | Evaluates server-prepared Build screenshots |
 
-The transfer and cancellation interfaces are narrow Hub transport additions to the reference runtime lifecycle. The runtime must also enforce the submitted credit limit, return candidate usage and cost when known, and support generation-checked promotion decisions before those fields can be authoritative end to end. Hub preserves missing runtime values as unknown.
+The reference runtime validates uploaded tasksets, enforces the submitted hard credit limit, returns attributed training usage and cost, and rejects stale promotion or rollback generations. Hub preserves optional values as unknown rather than inventing them.
 
 ## Persistence
 

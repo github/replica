@@ -120,7 +120,8 @@ describe("createDecisionRuntimeClient()", () => {
 
     const [, init] = fetch.mock.calls[0]!
     if (typeof init?.body !== "string") throw new Error("Expected a JSON request body.")
-    expect(init.body).toContain('"maxCredits":"12.5"')
+    expect(init.body).toContain('"maxCredits":12.5')
+    expect(init.body).toContain('"budgetMode":"hard"')
   })
 
   it("parses absolute, delta, and per-learning candidate metrics without changing values", async () => {
@@ -131,6 +132,18 @@ describe("createDecisionRuntimeClient()", () => {
             id: "candidate-1",
             tasksetDigest,
             productionEligible: true,
+            usage: [
+              {
+                connector: "customer-gpu",
+                kind: "training_credits",
+                quantity: 123.45,
+                unit: "credits",
+                cost: 8.9,
+                currency: "USD",
+                source: "customer-runtime",
+                metadata: {},
+              },
+            ],
           },
           evaluation: {
             baseline: {
@@ -157,11 +170,6 @@ describe("createDecisionRuntimeClient()", () => {
               meanRewardDelta: 0.15,
               calibrationErrorDelta: -0.08,
             },
-          },
-          usage: {
-            quantity: "123.45",
-            unit: "gpu-second",
-            cost: { amount: "8.90", currency: "USD" },
           },
         }),
       ),
@@ -197,11 +205,18 @@ describe("createDecisionRuntimeClient()", () => {
           },
         ],
       },
-      usage: {
-        quantity: "123.45",
-        unit: "gpu-second",
-        cost: { amount: "8.90", currency: "USD" },
-      },
+      usage: [
+        {
+          connector: "customer-gpu",
+          kind: "training_credits",
+          quantity: 123.45,
+          unit: "credits",
+          cost: 8.9,
+          currency: "USD",
+          source: "customer-runtime",
+          metadata: {},
+        },
+      ],
     })
   })
 

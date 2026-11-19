@@ -13,7 +13,7 @@ export async function saveDecisionBuildEvaluation(
     runtimeEvaluationId?: string
     responseDigest: string
     summary: Prisma.InputJsonValue
-    usage?: DecisionRuntimeUsage
+    usage?: DecisionRuntimeUsage[]
   },
 ) {
   const where = {
@@ -34,10 +34,9 @@ export async function saveDecisionBuildEvaluation(
     runtimeEvaluationId: input.runtimeEvaluationId,
     responseDigest: input.responseDigest,
     summary: input.summary,
-    usageQuantity: input.usage?.quantity,
-    usageUnit: input.usage?.unit,
-    costAmount: input.usage?.cost?.amount,
-    costCurrency: input.usage?.cost?.currency,
+    usageRecords: (input.usage ?? []).map((record) => ({
+      ...record,
+    })) as Prisma.InputJsonArray,
   }
   const existing = await database.decisionBuildEvaluation.findUnique({ where })
   if (existing) {

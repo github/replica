@@ -1,15 +1,15 @@
 import type { DecisionTrainingJobState, Prisma } from "../../../generated/prisma/client.ts"
 import type { DecisionRuntimeUsage } from "../../../integrations/decision-runtime/create-decision-runtime-client/types.ts"
 
-function usageData(usage?: DecisionRuntimeUsage) {
-  return usage
-    ? {
-        usageQuantity: usage.quantity,
-        usageUnit: usage.unit,
-        costAmount: usage.cost?.amount,
-        costCurrency: usage.cost?.currency,
-      }
-    : {}
+function usageData(usage?: DecisionRuntimeUsage[]) {
+  if (!usage) return {}
+  const creditQuantity = usage
+    .filter((record) => record.unit === "credits")
+    .reduce((total, record) => total + record.quantity, 0)
+  return {
+    usageRecords: usage.map((record) => ({ ...record })) as Prisma.InputJsonArray,
+    ...(creditQuantity > 0 ? { usageQuantity: creditQuantity, usageUnit: "credits" } : {}),
+  }
 }
 
 export async function updateDecisionTrainingJob(
@@ -27,7 +27,7 @@ export async function updateDecisionTrainingJob(
         expectedStates: DecisionTrainingJobState[]
         candidateRuntimeId?: string
         failureCode?: string
-        usage?: DecisionRuntimeUsage
+        usage?: DecisionRuntimeUsage[]
       },
 ) {
   if ("runtimeJobId" in input) {

@@ -19,7 +19,7 @@ export async function saveDecisionCandidate(
     calibrationErrorDelta: number | null
     learningMetrics: Prisma.InputJsonValue
     durationSeconds?: number
-    usage?: DecisionRuntimeUsage
+    usage?: DecisionRuntimeUsage[]
   },
 ) {
   const data = {
@@ -38,10 +38,9 @@ export async function saveDecisionCandidate(
     calibrationErrorDelta: input.calibrationErrorDelta,
     learningMetrics: input.learningMetrics,
     durationSeconds: input.durationSeconds,
-    usageQuantity: input.usage?.quantity,
-    usageUnit: input.usage?.unit,
-    costAmount: input.usage?.cost?.amount,
-    costCurrency: input.usage?.cost?.currency,
+    usageRecords: (input.usage ?? []).map((record) => ({
+      ...record,
+    })) as Prisma.InputJsonArray,
   }
   const existing = await database.decisionCandidate.findUnique({
     where: { trainingJobId: input.trainingJobId },

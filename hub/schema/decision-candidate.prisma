@@ -31,6 +31,7 @@ model DecisionCandidate {
   usageUnit                   String?   @map("usage_unit") @db.VarChar(50)
   costAmount                  Decimal?  @map("cost_amount") @db.Decimal(20, 9)
   costCurrency                String?   @map("cost_currency") @db.VarChar(3)
+  usageRecords                Json      @default("[]") @map("usage_records") @db.JsonB
   rejectedReason              String?   @map("rejected_reason") @db.VarChar(500)
   rejectedAt                  DateTime? @map("rejected_at") @db.Timestamptz(3)
 

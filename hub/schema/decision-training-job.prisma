@@ -31,6 +31,7 @@ model DecisionTrainingJob {
   usageUnit                      String?                  @map("usage_unit") @db.VarChar(50)
   costAmount                     Decimal?                 @map("cost_amount") @db.Decimal(20, 9)
   costCurrency                   String?                  @map("cost_currency") @db.VarChar(3)
+  usageRecords         Json                     @default("[]") @map("usage_records") @db.JsonB
   submittedAt                    DateTime?                @map("submitted_at") @db.Timestamptz(3)
   startedAt                      DateTime?                @map("started_at") @db.Timestamptz(3)
   finishedAt                     DateTime?                @map("finished_at") @db.Timestamptz(3)

@@ -382,7 +382,18 @@ describe("decision training orchestration", () => {
           candidateId: "runtime-candidate-1",
           startedAt: "2026-11-18T12:00:00.000Z",
           completedAt: "2026-11-18T12:02:05.000Z",
-          usage: { quantity: "12", unit: "gpu-second" },
+          usage: [
+            {
+              connector: "customer-gpu",
+              kind: "training_credits",
+              quantity: 12,
+              unit: "credits",
+              cost: 1.2,
+              currency: "USD",
+              source: "customer-runtime",
+              metadata: {},
+            },
+          ],
         }),
         getCandidate: vi.fn().mockResolvedValue({
           id: "runtime-candidate-1",
@@ -413,13 +424,19 @@ describe("decision training orchestration", () => {
                 direction: "regression",
               },
             ],
-            durationSeconds: 125,
           },
-          usage: {
-            quantity: "20.25",
-            unit: "gpu-second",
-            cost: { amount: "3.75", currency: "USD" },
-          },
+          usage: [
+            {
+              connector: "customer-gpu",
+              kind: "training_credits",
+              quantity: 20.25,
+              unit: "credits",
+              cost: 3.75,
+              currency: "USD",
+              source: "customer-runtime",
+              metadata: {},
+            },
+          ],
         }),
       },
       store: {
@@ -465,12 +482,30 @@ describe("decision training orchestration", () => {
         },
       ],
       durationSeconds: 125,
-      usage: {
-        quantity: "20.25",
-        unit: "gpu-second",
-        cost: { amount: "3.75", currency: "USD" },
-      },
-      jobUsage: { quantity: "12", unit: "gpu-second" },
+      usage: [
+        {
+          connector: "customer-gpu",
+          kind: "training_credits",
+          quantity: 20.25,
+          unit: "credits",
+          cost: 3.75,
+          currency: "USD",
+          source: "customer-runtime",
+          metadata: {},
+        },
+      ],
+      jobUsage: [
+        {
+          connector: "customer-gpu",
+          kind: "training_credits",
+          quantity: 12,
+          unit: "credits",
+          cost: 1.2,
+          currency: "USD",
+          source: "customer-runtime",
+          metadata: {},
+        },
+      ],
       actorMembershipId: membershipId,
     })
   })
@@ -811,11 +846,18 @@ describe("decision training orchestration", () => {
               breaksProbability: 0.18,
             },
           ],
-          usage: {
-            quantity: "2.5",
-            unit: "gpu-second",
-            cost: { amount: "0.12", currency: "USD" },
-          },
+          usage: [
+            {
+              connector: "customer-gpu",
+              kind: "inference_seconds",
+              quantity: 2.5,
+              unit: "seconds",
+              cost: 0.12,
+              currency: "USD",
+              source: "customer-runtime",
+              metadata: {},
+            },
+          ],
         }),
       },
       store: {
@@ -859,11 +901,18 @@ describe("decision training orchestration", () => {
             },
           ],
         },
-        usage: {
-          quantity: "2.5",
-          unit: "gpu-second",
-          cost: { amount: "0.12", currency: "USD" },
-        },
+        usage: [
+          {
+            connector: "customer-gpu",
+            kind: "inference_seconds",
+            quantity: 2.5,
+            unit: "seconds",
+            cost: 0.12,
+            currency: "USD",
+            source: "customer-runtime",
+            metadata: {},
+          },
+        ],
       }),
     )
   })

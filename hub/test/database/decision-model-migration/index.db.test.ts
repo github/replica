@@ -122,6 +122,7 @@ describe("decision-model migration", () => {
               "candidate_calibration_error",
               "learning_metrics",
               "duration_seconds",
+              "usage_records",
               "rejected_reason",
               "rejected_at",
             ]),

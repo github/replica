@@ -9,9 +9,14 @@ export interface DecisionRuntimeCredentialProvider {
 }
 
 export interface DecisionRuntimeUsage {
-  quantity: string
+  connector: string
+  kind: string
+  quantity: number
   unit: string
-  cost?: { amount: string; currency: string }
+  cost: number | null
+  currency: string | null
+  source: string
+  metadata: Record<string, unknown>
 }
 
 export interface DecisionRuntimeTasksetUpload {
@@ -34,7 +39,7 @@ export interface DecisionRuntimeJob {
   error?: { code: string }
   startedAt?: string
   completedAt?: string
-  usage?: DecisionRuntimeUsage
+  usage?: DecisionRuntimeUsage[]
 }
 
 export interface DecisionRuntimeCandidate {
@@ -58,7 +63,7 @@ export interface DecisionRuntimeCandidate {
       direction: "gain" | "regression" | "unchanged" | "unknown"
     }[]
   }
-  usage?: DecisionRuntimeUsage
+  usage?: DecisionRuntimeUsage[]
 }
 
 export interface DecisionRuntimePromotion {
@@ -77,7 +82,7 @@ export interface DecisionRuntimeEvaluation {
     followsProbability: number
     breaksProbability: number
   }[]
-  usage?: DecisionRuntimeUsage
+  usage?: DecisionRuntimeUsage[]
 }
 
 export interface DecisionRuntimeClient {

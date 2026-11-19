@@ -6,6 +6,7 @@ ALTER TABLE "decision_candidates"
   ADD COLUMN "candidate_calibration_error" DECIMAL(20,9),
   ADD COLUMN "learning_metrics" JSONB NOT NULL DEFAULT '[]',
   ADD COLUMN "duration_seconds" DECIMAL(20,3),
+  ADD COLUMN "usage_records" JSONB NOT NULL DEFAULT '[]',
   ADD COLUMN "rejected_reason" VARCHAR(500),
   ADD COLUMN "rejected_at" TIMESTAMPTZ(3);
 
@@ -20,3 +21,9 @@ ALTER TABLE "decision_candidates"
     OR
     ("rejected_at" IS NOT NULL AND "rejected_reason" IS NOT NULL)
   );
+
+ALTER TABLE "decision_training_jobs"
+  ADD COLUMN "usage_records" JSONB NOT NULL DEFAULT '[]';
+
+ALTER TABLE "decision_build_evaluations"
+  ADD COLUMN "usage_records" JSONB NOT NULL DEFAULT '[]';

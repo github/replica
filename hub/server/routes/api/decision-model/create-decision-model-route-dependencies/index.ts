@@ -42,6 +42,20 @@ const learningMetricsSchema = z.array(
     })
     .strict(),
 )
+const usageRecordsSchema = z.array(
+  z
+    .object({
+      connector: z.string(),
+      kind: z.string(),
+      quantity: z.number().nonnegative(),
+      unit: z.string(),
+      cost: z.number().nonnegative().nullable(),
+      currency: z.string().nullable(),
+      source: z.string(),
+      metadata: z.record(z.string(), z.unknown()),
+    })
+    .strict(),
+)
 const evaluationSummarySchema = z
   .object({
     findings: z.array(
@@ -193,20 +207,7 @@ export function createDecisionModelRouteDependencies(
           calibrationErrorDelta: candidate.calibrationErrorDelta?.toString() ?? null,
           learningMetrics: learningMetricsSchema.parse(candidate.learningMetrics),
           durationSeconds: candidate.durationSeconds?.toNumber() ?? null,
-          usage:
-            candidate.usageQuantity && candidate.usageUnit
-              ? {
-                  quantity: candidate.usageQuantity.toString(),
-                  unit: candidate.usageUnit,
-                  cost:
-                    candidate.costAmount && candidate.costCurrency
-                      ? {
-                          amount: candidate.costAmount.toString(),
-                          currency: candidate.costCurrency,
-                        }
-                      : null,
-                }
-              : null,
+          usage: usageRecordsSchema.parse(candidate.usageRecords),
           rejection: candidate.rejectedAt
             ? {
                 rejectedAt: candidate.rejectedAt.toISOString(),

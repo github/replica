@@ -62,11 +62,18 @@ describe("decision candidate repositories", () => {
         },
       ],
       durationSeconds: 125,
-      usage: {
-        quantity: "123.45",
-        unit: "gpu-second",
-        cost: { amount: "8.90", currency: "USD" },
-      },
+      usage: [
+        {
+          connector: "customer-gpu",
+          kind: "training_credits",
+          quantity: 123.45,
+          unit: "credits",
+          cost: 8.9,
+          currency: "USD",
+          source: "customer-runtime",
+          metadata: {},
+        },
+      ],
       actorMembershipId: membership.id,
     })
     if (!completed.candidate) throw new Error("Expected a persisted candidate.")
@@ -98,8 +105,6 @@ describe("decision candidate repositories", () => {
           direction: "regression",
         },
       ],
-      usageUnit: "gpu-second",
-      costCurrency: "USD",
       rejectedByMembershipId: membership.id,
       rejectedReason: "Held-out reward regressed.",
     })
@@ -110,8 +115,18 @@ describe("decision candidate repositories", () => {
     expect(candidate.candidateCalibrationError?.toString()).toBe("0.12")
     expect(candidate.calibrationErrorDelta?.toString()).toBe("-0.08")
     expect(candidate.durationSeconds?.toString()).toBe("125")
-    expect(candidate.usageQuantity?.toString()).toBe("123.45")
-    expect(candidate.costAmount?.toString()).toBe("8.9")
+    expect(candidate.usageRecords).toEqual([
+      {
+        connector: "customer-gpu",
+        kind: "training_credits",
+        quantity: 123.45,
+        unit: "credits",
+        cost: 8.9,
+        currency: "USD",
+        source: "customer-runtime",
+        metadata: {},
+      },
+    ])
     expect(candidate.rejectedAt).toBeInstanceOf(Date)
     const audit = await prisma.securityAudit.findFirstOrThrow({
       where: { action: "decision.candidate.rejected" },

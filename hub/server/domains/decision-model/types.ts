@@ -138,7 +138,7 @@ export interface DecisionModelStore {
     state: DecisionTrainingJobRecord["state"]
     candidateRuntimeId?: string
     failureCode?: string
-    usage?: DecisionRuntimeUsage
+    usage?: DecisionRuntimeUsage[]
     audit?: {
       actorMembershipId: string
       outcome: "cancelled" | "failed"
@@ -162,8 +162,8 @@ export interface DecisionModelStore {
     calibrationErrorDelta: number | null
     learningMetrics: DecisionRuntimeCandidate["evidence"]["learningMetrics"]
     durationSeconds?: number
-    usage?: DecisionRuntimeUsage
-    jobUsage?: DecisionRuntimeUsage
+    usage?: DecisionRuntimeUsage[]
+    jobUsage?: DecisionRuntimeUsage[]
     actorMembershipId?: string
   }): Promise<{
     candidate: DecisionCandidateRecord | null
@@ -197,7 +197,7 @@ export interface DecisionModelStore {
     summary: {
       findings: DecisionBuildEvaluationFinding[]
     }
-    usage?: DecisionRuntimeUsage
+    usage?: DecisionRuntimeUsage[]
   }): Promise<{ id: string }>
 }
 
