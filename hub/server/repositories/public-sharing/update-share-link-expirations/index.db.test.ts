@@ -27,10 +27,12 @@ describe("updateShareLinkExpirations()", () => {
       },
     })
     const day = 24 * 60 * 60 * 1000
-    const originalExpiration = new Date(Date.now() + 30 * day)
+    const createdAt = new Date("2026-01-01T00:00:00.000Z")
+    const originalExpiration = new Date(createdAt.getTime() + 30 * day)
     const link = await prisma.shareLink.create({
       data: {
         buildId: build.id,
+        createdAt,
         createdById: user.id,
         createdByLogin: "octocat",
         expiresAt: originalExpiration,
