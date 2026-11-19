@@ -19,6 +19,7 @@ export interface AuthenticationCompletionEvidence {
   providerAssignment?: ProviderAssignmentEvidence
   /** GitHub repositories the person can read through the connected App installation. */
   repositoryAccess?: Array<{
+    accessLevel: "READ" | "TRIAGE" | "WRITE" | "MAINTAIN" | "ADMIN"
     defaultBranch: string
     githubRepositoryId: number
     nameWithOwner: string

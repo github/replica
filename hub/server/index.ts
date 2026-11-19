@@ -222,6 +222,15 @@ try {
                 },
                 syncRepositories: () => setup.syncRepositories(),
                 webhookSecret: appCredentials.webhookSecret,
+                enqueueWorkflowRunImport: async (job, deliveryId) => {
+                  const { enqueueGitHubWorkflowRunImport } =
+                    await import("./domains/github-builds/enqueue-github-workflow-run-import/index.ts")
+                  await enqueueGitHubWorkflowRunImport(
+                    { databaseUrl: configuration.databaseUrl ?? "", logger },
+                    job,
+                    deliveryId,
+                  )
+                },
               })
             }
           }

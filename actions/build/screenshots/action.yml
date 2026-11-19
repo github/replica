@@ -1,0 +1,49 @@
+name: Replica screenshots
+description: Capture screenshots for a replica-build-v1 package uploaded earlier in the same workflow run
+
+runs:
+  using: composite
+  steps:
+    - name: Use Node.js 24
+      uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      with:
+        node-version: 24
+
+    - name: Check checkout credentials
+      run: node "$GITHUB_ACTION_PATH/../scripts/validate-checkout/index.mjs" --root "$GITHUB_WORKSPACE"
+      shell: bash
+
+    - name: Download Replica dist package
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      with:
+        name: replica-build-v1
+        path: ${{ runner.temp }}/replica-build-v1
+
+    - name: Check downloaded dist paths and size limits
+      run: node "$GITHUB_ACTION_PATH/../scripts/validate-build-output/index.mjs" --root "$RUNNER_TEMP/replica-build-v1"
+      shell: bash
+
+    - name: Install browser-check dependencies
+      run: npm ci --ignore-scripts --omit=dev
+      shell: bash
+      working-directory: ${{ github.action_path }}/..
+
+    - name: Install Chromium
+      run: '"$GITHUB_ACTION_PATH/../node_modules/.bin/playwright" install --with-deps chromium'
+      shell: bash
+
+    - name: Capture screenshots
+      run: node "$GITHUB_ACTION_PATH/../scripts/capture-screenshots/index.mjs" --root "$RUNNER_TEMP/replica-build-v1" --config-root "$RUNNER_TEMP/replica-build-v1" --config-file templates.json --screenshots "$RUNNER_TEMP/replica-screenshots"
+      shell: bash
+
+    - name: Create Replica screenshot package
+      run: node "$GITHUB_ACTION_PATH/../scripts/create-screenshot-package/index.mjs" --screenshots "$RUNNER_TEMP/replica-screenshots" --dist-package "$RUNNER_TEMP/replica-build-v1" --output "$RUNNER_TEMP/replica-screenshots-v1"
+      shell: bash
+
+    - name: Upload Replica screenshot package
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: replica-screenshots-v1
+        path: ${{ runner.temp }}/replica-screenshots-v1/
+        if-no-files-found: error
+        retention-days: 3

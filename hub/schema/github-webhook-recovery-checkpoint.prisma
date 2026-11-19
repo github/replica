@@ -1,0 +1,18 @@
+model GitHubWebhookRecoveryCheckpoint {
+  // ID columns
+  id      String  @id @default(uuid()) @db.Uuid
+  leaseId String? @map("lease_id") @db.Uuid
+
+  // Attribute columns
+  appId  String  @unique @map("app_id") @db.VarChar(100)
+  cursor String? @db.VarChar(2048)
+
+  // Timestamp columns
+  leaseExpiresAt             DateTime? @map("lease_expires_at") @db.Timestamptz(3)
+  scanStartedAt              DateTime? @map("scan_started_at") @db.Timestamptz(3)
+  lastCompletedScanStartedAt DateTime? @map("last_completed_scan_started_at") @db.Timestamptz(3)
+  createdAt                  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("github_webhook_recovery_checkpoints")
+}

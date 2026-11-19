@@ -245,6 +245,14 @@ export interface LearningRunAudit extends SecurityAuditEvent {
   runId: string
 }
 
+export interface RepositoryAdministrationDeniedAudit extends SecurityAuditEvent {
+  type: "repository_administration_denied"
+  actorMembershipId: string
+  operation: "learning_overview" | "learning_run" | "learning_decision"
+  reason: "authority_missing"
+  repositoryId: string
+}
+
 export type CreateSecurityAuditEvent =
   | AuthenticationAttemptDeniedAudit
   | BootstrapAttemptDeniedAudit
@@ -275,4 +283,5 @@ export type CreateSecurityAuditEvent =
   | SessionRevocationAdvancedAudit
   | LearningDecisionAudit
   | LearningRunAudit
+  | RepositoryAdministrationDeniedAudit
   | GitHubAppConnectionTestedAudit

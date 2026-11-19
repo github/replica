@@ -8,7 +8,9 @@ export const githubAppRequirements = {
   organizationPermissions: [{ key: "members", label: "Members", access: "read" }],
   events: [
     { key: "push", label: "Push" },
+    { key: "delete", label: "Branch or tag deletion" },
     { key: "workflow_run", label: "Workflow run" },
+    { key: "workflow_job", label: "Workflow job" },
     { key: "installation_target", label: "Installation target" },
     { key: "repository", label: "Repository" },
     { key: "member", label: "Member" },

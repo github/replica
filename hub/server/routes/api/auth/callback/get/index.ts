@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto"
 import type { RequestHandler } from "express"
 import { z } from "zod"
 
-import { AdmissionDeniedError } from "../../../../../domains/admission/errors.ts"
+import {
+  AdmissionDeniedError,
+  AdmissionUnavailableError,
+} from "../../../../../domains/admission/errors.ts"
 import { AuthenticationProofError } from "../../../../../domains/authentication/errors.ts"
 import { createOpaqueValue } from "../../../../../domains/authentication/create-opaque-value/index.ts"
 import { hashAuthenticationValue } from "../../../../../domains/authentication/hash-authentication-value/index.ts"
@@ -125,6 +128,22 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
       ])
       response.redirect(303, returnTo ?? "/?authentication=success")
     } catch (error) {
+      if (error instanceof AdmissionUnavailableError) {
+        response.setHeader(
+          "Set-Cookie",
+          clearAuthenticationCookie(browserAuthenticationCookieName, dependencies.secureCookie),
+        )
+        response.setHeader("Retry-After", "1")
+        response
+          .status(503)
+          .type("text/plain")
+          .send(
+            readCookie(request, hubSessionCookieName)
+              ? "Verification is temporarily unavailable. Return to Hub settings and start the administrator action again."
+              : "Sign-in is temporarily unavailable. Return to Replica Hub and start sign-in again.",
+          )
+        return
+      }
       if (error instanceof AdmissionDeniedError || error instanceof AuthenticationProofError) {
         const noAccess =
           error instanceof AdmissionDeniedError && error.reason === "no_repository_access"

@@ -58,7 +58,7 @@ Maintainers must update branch rules when required checks change. Editing a work
 
 Hub, Starter, build-action, and Learning CI test both Node.js majors supported by each project's `engines.node`. The workflow matrices define the versions and distinguish their check names. A failure on one version does not cancel checks on the other. npm installation enforces dependency engines. The workflow checker verifies that the manifests, lockfiles, and matrices agree.
 
-Scripts CI and dependency-age checks use the Node.js version specified in their workflows. The build-action suite tests JavaScript and browser capture on both supported majors. It runs the composite-action smoke test only on the action's pinned runtime to avoid duplicate artifact uploads.
+Scripts CI and dependency-age checks use the Node.js version specified in their workflows. The build-action suite tests JavaScript and browser capture on both supported majors. Its composite-action smoke test uses separate dist and screenshot jobs on the action's pinned runtime, outside the Node matrix to avoid duplicate artifact uploads. The screenshot job depends on the dist job because it consumes that job's artifact; this functional dependency is not an aggregate result gate.
 
 ## Update dependencies
 

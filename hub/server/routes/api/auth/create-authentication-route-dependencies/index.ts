@@ -432,7 +432,8 @@ export async function createAuthenticationRouteDependencies(
             {
               createId: randomUUID,
               getBootstrapSecretDigest: () => hashAuthenticationValue(context.bootstrapSecret),
-              runTransaction: (operation) => runAdmissionTransaction(prisma, operation),
+              runTransaction: (operation, options) =>
+                runAdmissionTransaction(prisma, operation, options),
               writeAudit: (event) => createSecurityAudit(prisma, event),
             },
           ),

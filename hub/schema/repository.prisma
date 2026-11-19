@@ -24,7 +24,6 @@ model Repository {
   defaultBranch      String    @map("default_branch") @db.VarChar(255)
   localPath          String?   @unique @map("local_path") @db.VarChar(2048)
   removedAt          DateTime? @map("removed_at") @db.Timestamptz(3)
-  hostedBranchScan   Int       @default(0) @map("hosted_branch_scan")
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

@@ -8,6 +8,7 @@ import {
   AdmissionDeniedError,
   AdmissionPersistenceError,
   AdmissionTransactionConflictError,
+  AdmissionUnavailableError,
 } from "../errors.ts"
 import type { AdmissionRepositories } from "../run-admission-transaction/types.ts"
 import type {
@@ -38,6 +39,7 @@ const inputSchema = z
       .array(
         z
           .object({
+            accessLevel: z.enum(["READ", "TRIAGE", "WRITE", "MAINTAIN", "ADMIN"]),
             defaultBranch: z.string().min(1).max(255),
             githubRepositoryId: z.number().int().positive(),
             nameWithOwner: z.string().min(3).max(255),
@@ -347,19 +349,30 @@ export async function admitAuthenticationProof(
   try {
     result = await runWithBoundedRetries(
       () =>
-        dependencies.runTransaction((repositories) =>
-          admitWithinTransaction(
-            repositories,
-            input,
-            () => dependencies.createId(),
-            () => dependencies.getBootstrapSecretDigest(),
-          ),
+        dependencies.runTransaction(
+          (repositories) =>
+            admitWithinTransaction(
+              repositories,
+              input,
+              () => dependencies.createId(),
+              () => dependencies.getBootstrapSecretDigest(),
+            ),
+          {
+            repositoryAuthorityChange:
+              input.providerAssignment !== undefined ||
+              (input.providerKey === "github" && input.repositoryAccess !== undefined),
+          },
         ),
       (error) => error instanceof AdmissionTransactionConflictError,
     )
   } catch (error) {
     const denial = error instanceof AdmissionDeniedError
-    const primary = denial ? error : new AdmissionPersistenceError({ cause: error })
+    const unavailable = error instanceof AdmissionTransactionConflictError
+    const primary = denial
+      ? error
+      : unavailable
+        ? new AdmissionUnavailableError({ cause: error })
+        : new AdmissionPersistenceError({ cause: error })
     try {
       await dependencies.writeAudit(
         denial

@@ -1,6 +1,6 @@
 # Build previews
 
-Hub serves successful Build artifacts without a GitHub App. The preview layer consumes the shared `BuildArtifact` contract: each immutable package file has a `kind`, package-relative `path`, opaque artifact-storage `storageKey`, and `byteLength`. Build producers write the bytes through `ArtifactStorage`, then commit those records with the successful Build. Preview serving does not discover repositories, run Builds, or import GitHub artifacts.
+Hub serves successful Build artifacts without a GitHub App. The preview layer consumes the shared `BuildArtifact` contract: each immutable package file has a `kind`, package-relative `path`, opaque artifact-storage `storageKey`, and `byteLength`. Build producers write the bytes through `ArtifactStorage`, then commit those records with the successful Build. Preview serving does not discover repositories, run Builds, or [import GitHub artifacts](github-actions-builds.md).
 
 ## Access flow
 

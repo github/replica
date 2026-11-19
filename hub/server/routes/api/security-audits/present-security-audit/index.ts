@@ -24,6 +24,11 @@ const providerSchema = z.unknown().transform((value, context) => {
   }
 })
 const operationSchema = z.enum(["designate", "revoke"])
+const repositoryAdministrationOperationSchema = z.enum([
+  "learning_overview",
+  "learning_run",
+  "learning_decision",
+])
 
 function actorFor(record: SecurityAuditListRecord) {
   switch (record.action) {
@@ -87,7 +92,10 @@ function actorFor(record: SecurityAuditListRecord) {
     case "learning.retire":
     case "learning.retire.requested":
     case "learning.run.requested":
-    case "learning.run.failed": {
+    case "learning.run.failed":
+    case "repository.administration.learning_overview.denied":
+    case "repository.administration.learning_run.denied":
+    case "repository.administration.learning_decision.denied": {
       const parsed = actorContextSchema.safeParse(record.context)
       return parsed.success ? { membershipId: parsed.data.actorMembershipId } : null
     }
@@ -382,6 +390,25 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
                 : { learningId: record.targetId }
               : {}),
             ...(parsed.data.reason ? { reason: parsed.data.reason } : {}),
+          }
+        : {}
+    }
+    case "repository.administration.learning_overview.denied":
+    case "repository.administration.learning_run.denied":
+    case "repository.administration.learning_decision.denied": {
+      const parsed = z
+        .object({
+          actorMembershipId: z.uuid(),
+          operation: repositoryAdministrationOperationSchema,
+          reason: reasonSchema,
+        })
+        .strict()
+        .safeParse(record.context)
+      return parsed.success && targetId
+        ? {
+            operation: parsed.data.operation,
+            reason: parsed.data.reason,
+            repositoryId: targetId,
           }
         : {}
     }

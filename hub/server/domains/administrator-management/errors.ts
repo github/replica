@@ -24,3 +24,10 @@ export class AdministratorManagementPersistenceError extends Error {
     this.name = "AdministratorManagementPersistenceError"
   }
 }
+
+export class AdministratorManagementUnavailableError extends Error {
+  constructor(options?: ErrorOptions) {
+    super("Administrator management is temporarily unavailable.", options)
+    this.name = "AdministratorManagementUnavailableError"
+  }
+}

@@ -1,9 +1,11 @@
 import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto"
+import { Client } from "pg"
 import { describe, expect, it, vi } from "vitest"
 
 import { restoreHubSession } from "../../../../domains/admission/restore-hub-session"
 import { runSessionRestoreTransaction } from "../../../../domains/admission/run-session-restore-transaction"
 import { syncGitHubInstallationRepositories } from "../../../../domains/admission/sync-github-installation-repositories"
+import { AdmissionUnavailableError } from "../../../../domains/admission/errors"
 import { createEntraAuthenticationContext } from "../../../../domains/authentication/create-entra-authentication-context"
 import { createGitHubAuthenticationContext } from "../../../../domains/authentication/create-github-authentication-context"
 import { activateGitHubRepositoryScoping } from "../../../../domains/identity/activate-github-repository-scoping"
@@ -11,6 +13,7 @@ import { getSelectedProviderRevision } from "../../../../domains/identity/get-se
 import { runProviderRevisionTransaction } from "../../../../domains/identity/run-provider-revision-transaction"
 import { Prisma } from "../../../../generated/prisma/client"
 import { prisma } from "../../../../integrations/prisma"
+import { getDatabaseUrl } from "../../../../../test/database/get-database-url"
 import { findAuthenticationProvider } from "../../../../repositories/authentication-providers/find-authentication-provider"
 import { listOpenGitHubSessionMemberships } from "../../../../repositories/hub-sessions/list-open-github-session-memberships"
 import { withFailingSecurityAudit } from "../../../../../test/database/with-failing-security-audit"
@@ -213,6 +216,13 @@ describe("createAuthenticationRouteDependencies()", () => {
                   default_branch: repository.defaultBranch,
                   full_name: repository.nameWithOwner,
                   id: repository.githubRepositoryId,
+                  permissions: {
+                    admin: true,
+                    maintain: true,
+                    pull: true,
+                    push: true,
+                    triage: true,
+                  },
                 },
               ],
             }),
@@ -357,13 +367,30 @@ describe("createAuthenticationRouteDependencies()", () => {
         state,
       })
       const freshDigest = "6".repeat(64)
-      await dependencies.github!.callback.admit({
+      const authorityLock = new Client({ connectionString: getDatabaseUrl() })
+      await authorityLock.connect()
+      await authorityLock.query("SELECT pg_advisory_lock_shared(1919242348, 3)")
+      const admission = dependencies.github!.callback.admit({
         proof: completed.proof,
         providerAssignment: completed.providerAssignment,
         repositoryAccess: completed.repositoryAccess,
         sessionDigest: freshDigest,
         sessionId: randomUUID(),
       })
+      try {
+        await expect(admission).rejects.toBeInstanceOf(AdmissionUnavailableError)
+      } finally {
+        await authorityLock.query("SELECT pg_advisory_unlock_shared(1919242348, 3)")
+        await authorityLock.end()
+      }
+      const admitted = await dependencies.github!.callback.admit({
+        proof: completed.proof,
+        providerAssignment: completed.providerAssignment,
+        repositoryAccess: completed.repositoryAccess,
+        sessionDigest: freshDigest,
+        sessionId: randomUUID(),
+      })
+      expect(admitted.expiresAt).toBeInstanceOf(Date)
       const connected = await prisma.repository.findUniqueOrThrow({
         where: { githubRepositoryId: 1001n },
       })

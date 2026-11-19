@@ -44,7 +44,11 @@ export function createAdmissionRepositories(
         createId: input.createId,
         membershipId: input.membershipId,
         observedAt: input.observedAt,
-        repositoryIds,
+        repositories: repositoryIds.map((repositoryId, index) => {
+          const repository = input.repositories[index]
+          if (!repository) throw new Error("Connected repository evidence was not saved in order.")
+          return { accessLevel: repository.accessLevel, repositoryId }
+        }),
       })
     },
     endProviderAssignment: (input) => endProviderAssignment(transaction, input),

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { describe, expect, it } from "vitest"
 
+import { RepositoryAccessLevel } from "../../../generated/prisma/client"
 import { prisma } from "../../../integrations/prisma"
 import { createQueryCountingClient } from "../../../../test/database/create-query-counting-client/index.ts"
 import { replaceRepositoryAccessGrants } from "."
@@ -22,20 +23,32 @@ async function createRepositories(count: number) {
 }
 
 describe("replaceRepositoryAccessGrants", () => {
-  it("revokes stale grants, refreshes kept grants and creates only missing ones", async () => {
+  it("replaces stale permissions without changing another membership's grants", async () => {
     const membership = await createMembership()
     const other = await createMembership()
     const [stale, kept, added] = await createRepositories(3)
     const before = new Date("2024-01-01")
     await prisma.repositoryAccessGrant.createMany({
       data: [
-        { membershipId: membership.id, observedAt: before, repositoryId: stale!.id },
-        { membershipId: membership.id, observedAt: before, repositoryId: kept!.id },
-        { membershipId: other.id, observedAt: before, repositoryId: stale!.id },
+        {
+          accessLevel: RepositoryAccessLevel.ADMIN,
+          membershipId: membership.id,
+          observedAt: before,
+          repositoryId: stale!.id,
+        },
+        {
+          accessLevel: RepositoryAccessLevel.ADMIN,
+          membershipId: membership.id,
+          observedAt: before,
+          repositoryId: kept!.id,
+        },
+        {
+          accessLevel: RepositoryAccessLevel.ADMIN,
+          membershipId: other.id,
+          observedAt: before,
+          repositoryId: stale!.id,
+        },
       ],
-    })
-    const keptGrant = await prisma.repositoryAccessGrant.findFirstOrThrow({
-      where: { membershipId: membership.id, repositoryId: kept!.id },
     })
     const observedAt = new Date("2024-06-01")
     const createdIds: string[] = []
@@ -48,29 +61,48 @@ describe("replaceRepositoryAccessGrants", () => {
       },
       membershipId: membership.id,
       observedAt,
-      repositoryIds: [kept!.id, added!.id, added!.id],
+      repositories: [
+        { accessLevel: RepositoryAccessLevel.READ, repositoryId: kept!.id },
+        { accessLevel: RepositoryAccessLevel.MAINTAIN, repositoryId: added!.id },
+        { accessLevel: RepositoryAccessLevel.MAINTAIN, repositoryId: added!.id },
+      ],
     })
 
     const grants = await prisma.repositoryAccessGrant.findMany({
       where: { membershipId: membership.id },
     })
     expect(
-      grants.map(({ id, observedAt, repositoryId }) => ({ id, observedAt, repositoryId })),
+      grants.map(({ accessLevel, id, observedAt, repositoryId }) => ({
+        accessLevel,
+        id,
+        observedAt,
+        repositoryId,
+      })),
     ).toEqual(
       expect.arrayContaining([
-        { id: keptGrant.id, observedAt, repositoryId: kept!.id },
-        { id: createdIds[0], observedAt, repositoryId: added!.id },
+        {
+          accessLevel: RepositoryAccessLevel.READ,
+          id: createdIds[0],
+          observedAt,
+          repositoryId: kept!.id,
+        },
+        {
+          accessLevel: RepositoryAccessLevel.MAINTAIN,
+          id: createdIds[1],
+          observedAt,
+          repositoryId: added!.id,
+        },
       ]),
     )
     expect(grants).toHaveLength(2)
-    expect(createdIds).toHaveLength(1)
+    expect(createdIds).toHaveLength(2)
     expect(await prisma.repositoryAccessGrant.count({ where: { membershipId: other.id } })).toBe(1)
 
     await replaceRepositoryAccessGrants(prisma, {
       createId: randomUUID,
       membershipId: membership.id,
       observedAt,
-      repositoryIds: [],
+      repositories: [],
     })
     expect(
       await prisma.repositoryAccessGrant.count({ where: { membershipId: membership.id } }),
@@ -86,7 +118,10 @@ describe("replaceRepositoryAccessGrants", () => {
       createId: randomUUID,
       membershipId: membership.id,
       observedAt: new Date(),
-      repositoryIds: repositories.map((repository) => repository.id),
+      repositories: repositories.map((repository) => ({
+        accessLevel: RepositoryAccessLevel.READ,
+        repositoryId: repository.id,
+      })),
     }).finally(() => counted.client.$disconnect())
 
     expect(counted.statements()).toBeLessThanOrEqual(4)

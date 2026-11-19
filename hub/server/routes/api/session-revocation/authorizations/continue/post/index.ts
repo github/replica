@@ -1,7 +1,10 @@
 import type { RequestHandler } from "express"
 import { z } from "zod"
 
-import { SessionRevocationDeniedError } from "../../../../../../domains/session-revocation/errors.ts"
+import {
+  SessionRevocationDeniedError,
+  SessionRevocationUnavailableError,
+} from "../../../../../../domains/session-revocation/errors.ts"
 import { clearAuthenticationCookie } from "../../../../../../integrations/express/clear-authentication-cookie/index.ts"
 import { hubSessionCookieName } from "../../../../../../integrations/express/hub-session-cookie-name/index.ts"
 import type { SessionRevocationRouteDependencies } from "../../../../auth/types.ts"
@@ -33,6 +36,13 @@ export function post(dependencies: SessionRevocationRouteDependencies): RequestH
       )
       response.json({ result })
     } catch (error) {
+      if (error instanceof SessionRevocationUnavailableError) {
+        response.setHeader("Retry-After", "1")
+        response
+          .status(503)
+          .json({ error: "Session revocation is temporarily unavailable. Try again." })
+        return
+      }
       if (error instanceof SessionRevocationDeniedError) {
         response.status(409).json({ error: error.reason })
         return

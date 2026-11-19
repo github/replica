@@ -41,6 +41,7 @@ export interface AuthenticationCallbackDependencies extends RateLimitDependencie
       role: "MEMBER" | "ADMINISTRATOR" | null
     }
     repositoryAccess?: Array<{
+      accessLevel: "READ" | "TRIAGE" | "WRITE" | "MAINTAIN" | "ADMIN"
       defaultBranch: string
       githubRepositoryId: number
       nameWithOwner: string
@@ -74,6 +75,7 @@ export interface AuthenticationCallbackDependencies extends RateLimitDependencie
       role: "MEMBER" | "ADMINISTRATOR" | null
     }
     repositoryAccess?: Array<{
+      accessLevel: "READ" | "TRIAGE" | "WRITE" | "MAINTAIN" | "ADMIN"
       defaultBranch: string
       githubRepositoryId: number
       nameWithOwner: string

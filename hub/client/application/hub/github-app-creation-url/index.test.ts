@@ -25,7 +25,14 @@ describe("githubAppCreationUrl()", () => {
     expect(url.searchParams.getAll("events[]")).toContain("installation_target")
     expect(url.searchParams.get("members")).toBe("read")
     expect(url.searchParams.getAll("events[]")).toEqual(
-      expect.arrayContaining(["organization", "membership", "team"]),
+      expect.arrayContaining([
+        "organization",
+        "membership",
+        "team",
+        "workflow_run",
+        "workflow_job",
+        "delete",
+      ]),
     )
   })
 

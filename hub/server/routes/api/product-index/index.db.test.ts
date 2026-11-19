@@ -944,16 +944,26 @@ describe("real product index", () => {
           const headers = { cookie: "hub_session=member-session" }
           const before = await fetch(`${baseUrl}${path}`, { headers })
           expect(before.status).toBe(200)
-          expect(await before.text()).toContain(secret)
+          const beforeBody = await before.text()
+          if (resource === "review comments") {
+            expect(beforeBody).toContain(secret)
+          } else {
+            expect(beforeBody).not.toContain(secret)
+          }
 
           activateDuringRead = true
+          if (resource === "learnings") {
+            await prisma.$transaction(activateGitHubRepositoryScoping)
+          }
           const after = await fetch(`${baseUrl}${path}`, { headers })
           expect(after.status).toBe(404)
           expect(await after.text()).not.toContain(secret)
         },
         learnings,
       )
-      expect(resource === "review comments" ? list : overview).toHaveBeenCalledTimes(2)
+      expect(resource === "review comments" ? list : overview).toHaveBeenCalledTimes(
+        resource === "review comments" ? 2 : 0,
+      )
       await expect(
         prisma.repository.findUniqueOrThrow({ where: { id: repository.id }, include: history }),
       ).resolves.toEqual(legacyBefore)
@@ -1210,9 +1220,11 @@ describe("real product index", () => {
           },
         )
         expect(currentLearnings.status).toBe(200)
-        expect(getOverview).toHaveBeenCalledWith(
-          expect.objectContaining({ repositoryId: current.id }),
-        )
+        expect(await currentLearnings.json()).toMatchObject({
+          accessDenied: true,
+          capabilities: { administerHub: true, administerRepository: false },
+        })
+        expect(getOverview).not.toHaveBeenCalled()
       },
       learnings,
     )

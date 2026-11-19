@@ -2,16 +2,16 @@ import { Prisma } from "../../../generated/prisma/client.ts"
 
 export type PrismaTransactionErrorClassification = "retryable" | "terminal" | "unknown"
 
-function hasSerializationCode(value: unknown, depth = 0): boolean {
+function hasRetryablePostgresCode(value: unknown, depth = 0): boolean {
   if (depth > 4 || value === null || typeof value !== "object") return false
   if (
-    ("code" in value && value.code === "40001") ||
-    ("originalCode" in value && value.originalCode === "40001")
+    ("code" in value && ["40001", "40P01", "55P03"].includes(String(value.code))) ||
+    ("originalCode" in value && ["40001", "40P01", "55P03"].includes(String(value.originalCode)))
   ) {
     return true
   }
   return ["cause", "driverAdapterError", "meta"].some(
-    (key) => key in value && hasSerializationCode(value[key as keyof typeof value], depth + 1),
+    (key) => key in value && hasRetryablePostgresCode(value[key as keyof typeof value], depth + 1),
   )
 }
 
@@ -20,11 +20,11 @@ export function classifyPrismaTransactionError(
 ): PrismaTransactionErrorClassification {
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
     if (["P2002", "P2034"].includes(error.code)) return "retryable"
-    if (error.code === "P2010" && hasSerializationCode(error.meta)) {
+    if (error.code === "P2010" && hasRetryablePostgresCode(error.meta)) {
       return "retryable"
     }
     return "terminal"
   }
-  if (hasSerializationCode(error)) return "retryable"
+  if (hasRetryablePostgresCode(error)) return "retryable"
   return "unknown"
 }

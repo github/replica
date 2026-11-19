@@ -12,27 +12,26 @@ model Build {
   shareLinks             ShareLink[]
 
   // Attribute columns
-  number                     Int
-  state                      BuildState @default(queued)
-  commitSha                  String?    @map("commit_sha") @db.VarChar(64)
-  authorProvider             String?    @map("author_provider") @db.VarChar(100)
-  authorIssuer               String?    @map("author_issuer") @db.VarChar(500)
-  authorProviderUserId       String?    @map("author_provider_user_id") @db.VarChar(500)
-  authorLogin                String?    @map("author_login") @db.VarChar(255)
-  authorName                 String?    @map("author_name") @db.VarChar(255)
-  authorAvatarUrl            String?    @map("author_avatar_url") @db.VarChar(2048)
-  workflowCreatedAt          DateTime?  @map("workflow_created_at") @db.Timestamptz(3)
-  startedAt                  DateTime?  @map("started_at") @db.Timestamptz(3)
-  finishedAt                 DateTime?  @map("finished_at") @db.Timestamptz(3)
-  failureSummary             String?    @map("failure_summary") @db.VarChar(1000)
-  localLeaseId               String?    @map("local_lease_id") @db.Uuid
-  localLeaseExpiresAt        DateTime?  @map("local_lease_expires_at") @db.Timestamptz(3)
-  githubWorkflowRunId        BigInt?    @unique @map("github_workflow_run_id")
-  githubWorkflowRunAttempt   Int?       @map("github_workflow_run_attempt")
-  githubWorkflowCompletedAt  DateTime?  @map("github_workflow_completed_at") @db.Timestamptz(3)
-  githubArtifactId           BigInt?    @map("github_artifact_id")
-  hostedImportLeaseId        String?    @map("hosted_import_lease_id") @db.Uuid
-  hostedImportLeaseExpiresAt DateTime?  @map("hosted_import_lease_expires_at") @db.Timestamptz(3)
+  number                   Int
+  state                    BuildState @default(queued)
+  commitSha                String?    @map("commit_sha") @db.VarChar(64)
+  authorProvider           String?    @map("author_provider") @db.VarChar(100)
+  authorIssuer             String?    @map("author_issuer") @db.VarChar(500)
+  authorProviderUserId     String?    @map("author_provider_user_id") @db.VarChar(500)
+  authorLogin              String?    @map("author_login") @db.VarChar(255)
+  authorName               String?    @map("author_name") @db.VarChar(255)
+  authorAvatarUrl          String?    @map("author_avatar_url") @db.VarChar(2048)
+  workflowCreatedAt        DateTime?  @map("workflow_created_at") @db.Timestamptz(3)
+  startedAt                DateTime?  @map("started_at") @db.Timestamptz(3)
+  finishedAt               DateTime?  @map("finished_at") @db.Timestamptz(3)
+  failureSummary           String?    @map("failure_summary") @db.VarChar(1000)
+  localLeaseId             String?    @map("local_lease_id") @db.Uuid
+  localLeaseExpiresAt      DateTime?  @map("local_lease_expires_at") @db.Timestamptz(3)
+  githubWorkflowRunId      BigInt?    @map("github_workflow_run_id")
+  githubWorkflowRunAttempt Int?       @map("github_workflow_run_attempt")
+  workflowUrl              String?    @map("workflow_url") @db.VarChar(2048)
+  workflowCompletedAt      DateTime?  @map("workflow_completed_at") @db.Timestamptz(3)
+  distDigest               String?    @map("dist_digest") @db.VarChar(71)
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

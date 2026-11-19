@@ -1,5 +1,8 @@
 import type { Prisma } from "../../../generated/prisma/client.ts"
-import type { ConnectedRepositoryEvidence } from "../../../repositories/repository-access/types.ts"
+import type {
+  ConnectedRepositoryEvidence,
+  RepositoryAccessEvidence,
+} from "../../../repositories/repository-access/types.ts"
 import type { CreateSecurityAuditEvent } from "../../../repositories/security-audits/create-security-audit/types.ts"
 
 export interface AdmissionRepositories {
@@ -44,7 +47,7 @@ export interface AdmissionRepositories {
     createId: () => string
     membershipId: string
     observedAt: Date
-    repositories: ConnectedRepositoryEvidence[]
+    repositories: RepositoryAccessEvidence[]
   }): Promise<void>
   endProviderAssignment(input: { id: string; lifecycle: "SUPERSEDED" | "REVOKED" }): Promise<void>
   endOpenHubSessionsForMembership(
@@ -85,6 +88,7 @@ export interface AdmissionRepositories {
 
 export type AdmissionTransaction = <Result>(
   operation: (repositories: AdmissionRepositories) => Promise<Result>,
+  options?: { repositoryAuthorityChange?: boolean },
 ) => Promise<Result>
 
 export interface AdmissionDatabaseClient {

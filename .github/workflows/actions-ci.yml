@@ -18,6 +18,8 @@ jobs:
         node: [24, 26]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
@@ -29,8 +31,28 @@ jobs:
         working-directory: actions/build
       - run: actions/build/node_modules/.bin/playwright install --with-deps chromium
       - run: npm test --prefix actions/build
+
+  publish:
+    name: Build action publish job
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Prepare composite action fixture
-        if: ${{ matrix.node == 24 }}
-        run: cp actions/build/test/fixture/package.json actions/build/test/fixture/package-lock.json actions/build/test/fixture/fixture-build.mjs .
+        run: |
+          cp actions/build/test/fixture/package.json actions/build/test/fixture/package-lock.json actions/build/test/fixture/fixture-build.mjs .
       - uses: ./actions/build
-        if: ${{ matrix.node == 24 }}
+        with:
+          build-only: "true"
+      - uses: ./actions/build/publish
+
+  screenshots:
+    name: Build action screenshot job
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./actions/build/screenshots
