@@ -4,12 +4,11 @@ export function listDecisionWithdrawalSources(database: PrismaClient) {
   return database.repository.findMany({
     where: {
       removedAt: null,
-      decisionTrainingJobs: { some: { requestedByMembershipId: { not: null } } },
+      decisionTrainingJobs: { some: {} },
     },
     select: {
       id: true,
       decisionTrainingJobs: {
-        where: { requestedByMembershipId: { not: null } },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         select: {
           consentGrantId: true,
@@ -18,6 +17,16 @@ export function listDecisionWithdrawalSources(database: PrismaClient) {
           tasksetDigest: true,
           requestedByMembershipId: true,
           requestedByMembership: {
+            select: { user: { select: { profile: { select: { login: true } } } } },
+          },
+        },
+      },
+      accessGrants: {
+        where: { accessLevel: "ADMIN", membership: { lifecycle: "ACTIVE" } },
+        orderBy: [{ observedAt: "desc" }, { id: "desc" }],
+        select: {
+          membershipId: true,
+          membership: {
             select: { user: { select: { profile: { select: { login: true } } } } },
           },
         },

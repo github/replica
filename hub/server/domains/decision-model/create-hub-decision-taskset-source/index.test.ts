@@ -150,6 +150,12 @@ describe("createHubDecisionTasksetSource()", () => {
             },
           },
         ],
+        accessGrants: [
+          {
+            membershipId: "44444444-4444-4444-8444-444444444444",
+            membership: { user: { profile: { login: "mona" } } },
+          },
+        ],
       },
     ] as never)
     vi.mocked(prepareLearningStore).mockResolvedValue({
@@ -179,6 +185,7 @@ describe("createHubDecisionTasksetSource()", () => {
         },
         reason: "The repository administrator withdrew training consent.",
         idempotencyKey: `withdrawal:withdrawal-1:sha256:${"t".repeat(64)}`,
+        authorizationAlreadyEstablished: true,
       },
     ])
   })

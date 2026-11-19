@@ -205,6 +205,7 @@ describe("createDecisionModelJobProcessors()", () => {
         selectors: { grantId: "grant-succeeded" },
         reason: "Withdrawn.",
         idempotencyKey: "withdrawal-succeeded",
+        authorizationAlreadyEstablished: true,
       },
     ]
     input.listTrainingWithdrawals = vi.fn().mockResolvedValue(withdrawals)
@@ -240,6 +241,7 @@ describe("createDecisionModelJobProcessors()", () => {
 
     await expect(processors.reconcileDeletions.process({})).resolves.toBeUndefined()
     expect(input.store.createOrGetDeletion).toHaveBeenCalledTimes(2)
+    expect(input.authorization.requireRepositoryAdministrator).toHaveBeenCalledTimes(1)
     expect(warn).toHaveBeenCalledWith(
       expect.objectContaining({ idempotencyKey: "withdrawal-failed" }),
       "Decision runtime withdrawal reconciliation failed",

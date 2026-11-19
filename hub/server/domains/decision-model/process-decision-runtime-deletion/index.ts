@@ -10,13 +10,16 @@ export async function processDecisionRuntimeDeletion(
     selectors: DecisionRuntimeDeletionSelectors
     reason: string
     idempotencyKey: string
+    authorizationAlreadyEstablished?: boolean
   },
   dependencies: DecisionModelDependencies,
 ) {
-  await dependencies.authorization.requireRepositoryAdministrator({
-    membershipId: input.actorMembershipId,
-    repositoryId: input.repositoryId,
-  })
+  if (!input.authorizationAlreadyEstablished) {
+    await dependencies.authorization.requireRepositoryAdministrator({
+      membershipId: input.actorMembershipId,
+      repositoryId: input.repositoryId,
+    })
+  }
   if (!dependencies.store.createOrGetDeletion) {
     throw new Error("Decision runtime deletion support is required.")
   }

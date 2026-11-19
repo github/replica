@@ -741,6 +741,10 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
             const matchingJobs = repository.decisionTrainingJobs.filter(
               (candidate) => candidate.consentGrantId === withdrawal.grantId,
             )
+            const actorGrant =
+              repository.accessGrants.find(
+                (grant) => grant.membership.user.profile?.login === login,
+              ) ?? repository.accessGrants[0]
             const actorJob =
               matchingJobs.find(
                 (candidate) => candidate.requestedByMembership?.user.profile?.login === login,
@@ -750,22 +754,24 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
                 (candidate) => candidate.requestedByMembership?.user.profile?.login === login,
               ) ??
               repository.decisionTrainingJobs[0]
-            if (!actorJob?.requestedByMembershipId) continue
+            const actorMembershipId = actorGrant?.membershipId ?? actorJob?.requestedByMembershipId
+            if (!actorMembershipId) continue
             if (!matchingJobs.length) {
               pending.push({
                 repositoryId: repository.id,
-                actorMembershipId: actorJob.requestedByMembershipId,
+                actorMembershipId,
                 actorLogin: login,
                 selectors: { grantId: withdrawal.grantId },
                 reason: withdrawal.reason ?? "Training consent was withdrawn.",
                 idempotencyKey: `withdrawal:${withdrawal.id}:grant`,
+                authorizationAlreadyEstablished: true,
               })
               continue
             }
             for (const job of matchingJobs) {
               pending.push({
                 repositoryId: repository.id,
-                actorMembershipId: actorJob.requestedByMembershipId,
+                actorMembershipId,
                 actorLogin: login,
                 selectors: {
                   exportId: job.trainingExportId,
@@ -775,6 +781,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
                 },
                 reason: withdrawal.reason ?? "Training consent was withdrawn.",
                 idempotencyKey: `withdrawal:${withdrawal.id}:${job.tasksetDigest}`,
+                authorizationAlreadyEstablished: true,
               })
             }
           }

@@ -314,6 +314,7 @@ export interface DecisionModelDependencies {
       selectors: DecisionRuntimeDeletionSelectors
       reason: string
       idempotencyKey: string
+      authorizationAlreadyEstablished?: boolean
     }[]
   >
 }
