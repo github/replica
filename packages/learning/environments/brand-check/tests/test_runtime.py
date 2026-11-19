@@ -446,6 +446,36 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertFalse(reporting_context.cancellation.requested)
         self.assertGreater(reporting_context.deadline, time.monotonic())
 
+    def test_persists_success_when_backend_returns_at_the_training_deadline(self):
+        runtime = self._runtime()
+        result = FixtureBackend().train(
+            runtime.taskset,
+            self.state_dir,
+            max_updates=2,
+            deadline=time.monotonic() + 5,
+        )
+
+        def finish_at_deadline(*args, context, **kwargs):
+            del args, kwargs
+            while time.monotonic() < context.deadline:
+                time.sleep(0.001)
+            return result
+
+        with mock.patch(
+            "replica_brand_check.runtime._run_backend",
+            side_effect=finish_at_deadline,
+        ):
+            finished = self._wait_for_job(
+                runtime,
+                runtime.submit(backend="fixture", max_updates=2, max_seconds=1)["id"],
+            )
+
+        self.assertEqual(finished["state"], "succeeded")
+        self.assertEqual(
+            runtime.candidate(finished["candidateId"])["manifest"]["id"],
+            finished["candidateId"],
+        )
+
     def test_maps_runtime_credential_failure_to_service_unavailable(self):
         runtime = LocalRuntime(
             self.state_dir,
@@ -1115,6 +1145,51 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(not_served.exception.code, "candidate_mismatch")
         self.assertEqual(not_rolled_back.exception.code, "candidate_mismatch")
 
+    def test_candidate_taskset_connector_failures_keep_service_status(self):
+        runtime = self._runtime()
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=4, max_seconds=5)["id"],
+        )
+        runtime.promote(finished["candidateId"], promoted_by="test-operator")
+        runtime.close()
+        reopened = self._runtime()
+
+        for category, code, status in (
+            ("unavailable", "tasksets_unavailable", 503),
+            ("deadline_exceeded", "tasksets_deadline", 504),
+        ):
+            with self.subTest(category=category), mock.patch.object(
+                reopened.connectors.tasksets,
+                "resolve",
+                side_effect=ConnectorError(
+                    code,
+                    "provider detail",
+                    category=category,
+                ),
+            ):
+                with self.assertRaises(RuntimeFailure) as failure:
+                    reopened.ready()
+
+                self.assertEqual(failure.exception.code, code)
+                self.assertEqual(failure.exception.status, status)
+                self.assertEqual(str(failure.exception), "Connector operation failed.")
+
+    def test_ready_and_evaluate_use_the_loaded_taskset_identity(self):
+        runtime = self._runtime()
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=4, max_seconds=5)["id"],
+        )
+        runtime.promote(finished["candidateId"], promoted_by="test-operator")
+        image_path = self.taskset_dir / "images" / "screen.png"
+        image_path.write_bytes(b"changed after activation")
+
+        runtime.ready()
+        response = runtime.evaluate(self._request())
+
+        self.assertEqual(response["candidateId"], finished["candidateId"])
+
     def test_http_upload_registers_a_private_taskset_for_jobs_and_restart(self):
         uploaded_directory = write_taskset(
             self,
@@ -1248,17 +1323,55 @@ class LocalRuntimeTest(unittest.TestCase):
 
         cases = {}
         wrong_digest = json.loads(json.dumps(valid))
-        cases["claimed digest"] = ("0" * 64, wrong_digest)
+        cases["claimed digest"] = ("0" * 64, wrong_digest, None)
         traversal = json.loads(json.dumps(valid))
         traversal["tasks"][0]["images"][0]["path"] = "../screen.png"
         traversal["images"][0]["path"] = "../screen.png"
-        cases["path containment"] = (digest, traversal)
+        cases["path containment"] = (digest, traversal, None)
+        reserved = json.loads(json.dumps(valid))
+        reserved["tasks"][0]["images"][0]["path"] = "taskset.json"
+        reserved["images"][0]["path"] = "taskset.json"
+        cases["reserved taskset path"] = (digest, reserved, None)
+        nul_path = json.loads(json.dumps(valid))
+        nul_path["tasks"][0]["images"][0]["path"] = "images/\x00screen.png"
+        nul_path["images"][0]["path"] = "images/\x00screen.png"
+        cases["NUL path"] = (digest, nul_path, None)
+        normalized_collision = json.loads(json.dumps(valid))
+        normalized_collision["images"].append(
+            {
+                **normalized_collision["images"][0],
+                "path": "images/./screen.png",
+            }
+        )
+        cases["normalized path collision"] = (digest, normalized_collision, None)
+        file_directory_collision = json.loads(json.dumps(valid))
+        file_directory_collision["images"].append(
+            {
+                **file_directory_collision["images"][0],
+                "path": "images/screen.png/detail.png",
+            }
+        )
+        cases["file and directory collision"] = (
+            digest,
+            file_directory_collision,
+            None,
+        )
+        invalid_path_type = json.loads(json.dumps(valid))
+        invalid_path_type["images"][0]["path"] = 7
+        cases["non-string image path"] = (digest, invalid_path_type, "invalid_input")
+        invalid_media_type = json.loads(json.dumps(valid))
+        invalid_media_type["images"][0]["mediaType"] = 7
+        cases["non-string image media type"] = (
+            digest,
+            invalid_media_type,
+            "invalid_input",
+        )
         image_mismatch = json.loads(json.dumps(valid))
         image_mismatch["images"][0]["dataBase64"] = base64.b64encode(b"changed").decode()
-        cases["image digest"] = (digest, image_mismatch)
+        cases["image digest"] = (digest, image_mismatch, None)
         media_type_mismatch = json.loads(json.dumps(valid))
         media_type_mismatch["images"][0]["mediaType"] = "image/jpeg"
-        cases["image media type"] = (digest, media_type_mismatch)
+        cases["image media type"] = (digest, media_type_mismatch, None)
         extra_image = json.loads(json.dumps(valid))
         extra_image["images"].append(
             {
@@ -1266,22 +1379,22 @@ class LocalRuntimeTest(unittest.TestCase):
                 "path": "images/extra.png",
             }
         )
-        cases["extra image"] = (digest, extra_image)
+        cases["extra image"] = (digest, extra_image, None)
         too_many = json.loads(json.dumps(valid))
         too_many["tasks"][0]["images"] = [
             dict(too_many["tasks"][0]["images"][0]) for _ in range(6)
         ]
-        cases["image count"] = (digest, too_many)
+        cases["image count"] = (digest, too_many, None)
         oversized = json.loads(json.dumps(valid))
         oversized["images"][0]["dataBase64"] = base64.b64encode(
             b"x" * (MAX_IMAGE_BYTES + 1)
         ).decode()
-        cases["image size"] = (digest, oversized)
+        cases["image size"] = (digest, oversized, None)
         invalid_manifest = json.loads(json.dumps(valid))
         invalid_manifest["manifest"]["schemaVersion"] = "unsupported"
-        cases["manifest contract"] = (digest, invalid_manifest)
+        cases["manifest contract"] = (digest, invalid_manifest, None)
 
-        for name, (claimed_digest, body) in cases.items():
+        for name, (claimed_digest, body, expected_code) in cases.items():
             with self.subTest(name=name):
                 http_request = request.Request(
                     f"{base_url}/v1/tasksets/{claimed_digest}",
@@ -1296,6 +1409,8 @@ class LocalRuntimeTest(unittest.TestCase):
                 self.assertEqual(repeated, first)
                 self.assertEqual(set(first[1]["error"]), {"code", "message"})
                 self.assertTrue(first[1]["error"]["code"])
+                if expected_code is not None:
+                    self.assertEqual(first[1]["error"]["code"], expected_code)
                 self.assertNotIn("dataBase64", first[1]["error"]["message"])
                 self.assertNotIn(str(self.state_dir), first[1]["error"]["message"])
 

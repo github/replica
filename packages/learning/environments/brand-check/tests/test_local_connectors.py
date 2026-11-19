@@ -172,19 +172,30 @@ def _cleanup_resources():
 
 
 class LocalConnectorPersistenceTest(unittest.TestCase):
-    def test_registered_taskset_survives_reopening_the_local_bundle(self):
+    def test_identical_mounted_upload_persists_and_repairs_its_stored_copy(self):
         bundle, state_directory, scope = _new_bundle(self)
         startup_directory = bundle.tasksets.taskset.directory
+        uploaded = taskset_bundle(startup_directory)
         registered = bundle.connectors.tasksets.register(
-            taskset_bundle(startup_directory),
+            uploaded,
             _context(scope, "register-taskset"),
         )
         self.assertNotEqual(registered.reference, "")
+        stored = state_directory / "tasksets" / registered.digest.value
+        self.assertTrue(stored.is_dir())
+
+        shutil.rmtree(stored)
+        repaired = bundle.connectors.tasksets.register(
+            uploaded,
+            _context(scope, "register-taskset"),
+        )
+        self.assertEqual(repaired, registered)
+        self.assertTrue(stored.is_dir())
         bundle.close()
 
         reopened = create_local_connector_bundle(
             state_directory,
-            startup_directory,
+            None,
             {"fixture": _FixtureBackend()},
             scope=scope,
         )

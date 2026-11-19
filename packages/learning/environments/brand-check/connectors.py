@@ -163,7 +163,13 @@ class TasksetImage:
     data: bytes
 
     def __post_init__(self) -> None:
-        if not self.path or not self.media_type.strip() or not isinstance(self.data, bytes):
+        if (
+            not isinstance(self.path, str)
+            or not self.path
+            or not isinstance(self.media_type, str)
+            or not self.media_type.strip()
+            or not isinstance(self.data, bytes)
+        ):
             raise ValueError("A taskset image needs a path, media type, digest, and bytes.")
 
 

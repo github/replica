@@ -9,12 +9,14 @@ import time
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import replica_brand_check
 from replica_brand_check.connector_conformance import (
     ConnectorConformanceFixture,
     connector_conformance,
 )
+from replica_brand_check.local_connectors import taskset_digest
 from replica_brand_check.connectors import (
     CONNECTOR_ERROR_CATEGORIES,
     Artifact,
@@ -35,7 +37,7 @@ from replica_brand_check.connectors import (
     TrainingResult,
     Usage,
 )
-from replica_brand_check.taskset import Taskset
+from replica_brand_check.taskset import Taskset, load_taskset
 from tests.support import PNG, make_task
 
 
@@ -61,8 +63,24 @@ def _taskset_bundle():
                 data=PNG,
             ),
         ),
-        digest=_digest(b"registered-taskset"),
     )
+
+
+def _materialize_taskset(bundle: TasksetBundle) -> tuple[TemporaryDirectory, Taskset]:
+    holder = TemporaryDirectory()
+    directory = Path(holder.name)
+    (directory / "taskset.json").write_text(
+        json.dumps(bundle.manifest), encoding="utf-8"
+    )
+    (directory / "tasks.jsonl").write_text(
+        "".join(json.dumps(task) + "\n" for task in bundle.tasks),
+        encoding="utf-8",
+    )
+    for image in bundle.images:
+        destination = directory / image.path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(image.data)
+    return holder, load_taskset(directory)
 
 
 def _context(
@@ -98,12 +116,21 @@ def _scope_key(scope: RuntimeScope) -> tuple[str, str]:
 
 
 class _MemoryTasksets:
-    def __init__(self, scope: RuntimeScope, reference: str, taskset: Taskset):
+    def __init__(
+        self,
+        scope: RuntimeScope,
+        reference: str,
+        taskset: Taskset,
+        *,
+        trust_claimed_digest: bool = False,
+    ):
         self._scope = scope
         self._taskset = taskset
         self._items = {(_scope_key(scope), reference): taskset}
         self._registrations = {}
         self._idempotency = {}
+        self._holders = []
+        self._trust_claimed_digest = trust_claimed_digest
 
     def register(self, bundle, context):
         _check_context(context)
@@ -138,7 +165,23 @@ class _MemoryTasksets:
                 "The idempotency key was reused with different input.",
                 category="conflict",
             )
-        digest = bundle.digest or _digest(identity)
+        holder, taskset = _materialize_taskset(bundle)
+        actual_digest = taskset_digest(taskset)
+        digest = bundle.digest or actual_digest
+        if bundle.digest is not None and bundle.digest != actual_digest:
+            if not self._trust_claimed_digest:
+                claimed_reference = f"taskset:{bundle.digest.value}"
+                raise ConnectorError(
+                    "taskset_immutable"
+                    if (_scope_key(context.scope), claimed_reference)
+                    in self._registrations
+                    else "taskset_digest_mismatch",
+                    "The taskset does not match its claimed digest.",
+                    category="conflict"
+                    if (_scope_key(context.scope), claimed_reference)
+                    in self._registrations
+                    else "invalid_input",
+                )
         reference = f"taskset:{digest.value}"
         previous = self._registrations.get((_scope_key(context.scope), reference))
         if previous is not None and previous[0] != identity:
@@ -147,8 +190,11 @@ class _MemoryTasksets:
                 "The taskset digest already identifies different content.",
                 category="conflict",
             )
-        artifact = TasksetArtifact(reference, digest, self._taskset)
-        self._items[(_scope_key(context.scope), reference)] = self._taskset
+        if previous is not None:
+            return previous[1]
+        self._holders.append(holder)
+        artifact = TasksetArtifact(reference, digest, taskset)
+        self._items[(_scope_key(context.scope), reference)] = taskset
         self._registrations[(_scope_key(context.scope), reference)] = (
             identity,
             artifact,
@@ -572,10 +618,14 @@ class _MemoryBundle:
         self.scope = RuntimeScope("tenant-one", "octo/example")
         self.other_repository_scope = RuntimeScope("tenant-one", "octo/other")
         self.other_tenant_scope = RuntimeScope("tenant-two", "octo/example")
-        self.taskset = Taskset(Path("."), {}, (), {}, {"train": (), "dev": (), "test": ()})
-        self.taskset_reference = f"taskset:{_digest(b'contract').value}"
         self.taskset_bundle = _taskset_bundle()
-        self.taskset_digest = self.taskset_bundle.digest
+        self._taskset_holder, self.taskset = _materialize_taskset(self.taskset_bundle)
+        self.taskset_digest = taskset_digest(self.taskset)
+        self.taskset_bundle = replace(
+            self.taskset_bundle,
+            digest=self.taskset_digest,
+        )
+        self.taskset_reference = f"taskset:{self.taskset_digest.value}"
         self.execution = _MemoryExecution()
         self.observability = _MemoryObservability()
         self.connectors = RuntimeConnectors(
@@ -630,6 +680,31 @@ class _ResolveOnlyTasksets:
 
     def resolve(self, reference, context):
         return self._delegate.resolve(reference, context)
+
+
+class _TrustingTasksetDigest(_MemoryTasksets):
+    def __init__(self, scope, reference, taskset):
+        super().__init__(
+            scope,
+            reference,
+            taskset,
+            trust_claimed_digest=True,
+        )
+
+
+class _UnrelatedTasksetContent(_MemoryTasksets):
+    def register(self, bundle, context):
+        registered = super().register(bundle, context)
+        return replace(
+            registered,
+            taskset=Taskset(
+                Path("."),
+                {},
+                (),
+                {},
+                {"train": (), "dev": (), "test": ()},
+            ),
+        )
 
 
 class _CancellationBlindJobs(_MemoryJobs):
@@ -874,6 +949,42 @@ class ConnectorConformanceTest(unittest.TestCase):
         self._assert_suite_rejects(
             bundle,
             "a taskset connector that can resolve but cannot register a private bundle",
+        )
+
+    def test_shared_suite_rejects_tasksets_that_trust_a_claimed_digest(self):
+        def bundle():
+            result = _MemoryBundle()
+            result.connectors = replace(
+                result.connectors,
+                tasksets=_TrustingTasksetDigest(
+                    result.scope,
+                    result.taskset_reference,
+                    result.taskset,
+                ),
+            )
+            return result
+
+        self._assert_suite_rejects(
+            bundle,
+            "taskset registration that trusts an incorrect claimed digest",
+        )
+
+    def test_shared_suite_rejects_unrelated_registered_taskset_content(self):
+        def bundle():
+            result = _MemoryBundle()
+            result.connectors = replace(
+                result.connectors,
+                tasksets=_UnrelatedTasksetContent(
+                    result.scope,
+                    result.taskset_reference,
+                    result.taskset,
+                ),
+            )
+            return result
+
+        self._assert_suite_rejects(
+            bundle,
+            "taskset registration that returns unrelated manifest, tasks, or image bytes",
         )
 
     def test_shared_suite_rejects_lease_operations_that_ignore_cancellation(self):

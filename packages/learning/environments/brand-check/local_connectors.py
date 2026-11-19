@@ -310,56 +310,33 @@ class LocalTasksetConnector(_ScopedConnector):
                     )
                 reference = f"taskset:{actual.value}"
                 destination = self.root / actual.value
-                if idempotency_path.exists():
-                    saved = _read_object(
-                        idempotency_path,
-                        code="taskset_idempotency_not_found",
-                        message="The taskset retry record was not found.",
-                    )
-                    if saved.get("requestDigest") != str(request_digest):
-                        raise ConnectorError(
-                            "idempotency_conflict",
-                            "The idempotency key was reused with different input.",
-                            category="conflict",
-                        )
-                    return self.resolve(reference, context)
-                if reference in self._mounted:
-                    check_context(context)
-                    _write_immutable(
-                        idempotency_path,
-                        _json_bytes(
-                            {
-                                "reference": reference,
-                                "requestDigest": str(request_digest),
-                            }
-                        ),
-                    )
-                    return self.resolve(reference, context)
                 if destination.exists():
                     existing = self.resolve(reference, context)
-                    check_context(context)
-                    _write_immutable(
-                        idempotency_path,
-                        _json_bytes(
-                            {
-                                "reference": reference,
-                                "requestDigest": str(request_digest),
-                            }
-                        ),
-                    )
+                    if not idempotency_path.exists():
+                        check_context(context)
+                        _write_immutable(
+                            idempotency_path,
+                            _json_bytes(
+                                {
+                                    "reference": reference,
+                                    "requestDigest": str(request_digest),
+                                }
+                            ),
+                        )
                     return existing
                 check_context(context)
                 os.replace(staging, destination)
                 _sync_directory(self.root)
-                _write_immutable(
-                    idempotency_path,
-                    _json_bytes(
-                        {
-                            "reference": reference,
-                            "requestDigest": str(request_digest),
-                        }
-                    ),
-                )
+                if not idempotency_path.exists():
+                    _write_immutable(
+                        idempotency_path,
+                        _json_bytes(
+                            {
+                                "reference": reference,
+                                "requestDigest": str(request_digest),
+                            }
+                        ),
+                    )
             except TasksetError as error:
                 raise ConnectorError(
                     "taskset_invalid",
@@ -372,6 +349,29 @@ class LocalTasksetConnector(_ScopedConnector):
 
     def resolve(self, reference: str, context: OperationContext) -> TasksetArtifact:
         self._check(context, hide=True)
+        if reference.startswith("taskset:"):
+            value = reference.removeprefix("taskset:")
+            directory = self.root / value
+            try:
+                digest = ContentDigest("sha256", value)
+            except ValueError:
+                digest = None
+            if digest is not None and directory.is_dir():
+                try:
+                    taskset = load_taskset(directory)
+                except TasksetError:
+                    raise ConnectorError(
+                        "taskset_damaged",
+                        "The taskset no longer matches its immutable identity.",
+                        category="integrity",
+                    ) from None
+                if taskset_digest(taskset) != digest:
+                    raise ConnectorError(
+                        "taskset_damaged",
+                        "The taskset no longer matches its immutable identity.",
+                        category="integrity",
+                    )
+                return TasksetArtifact(reference, digest, taskset)
         mounted = self._mounted.get(reference)
         if mounted is not None:
             try:
@@ -433,6 +433,26 @@ def _materialize_taskset_bundle(
     directory: Path, bundle: TasksetBundle, context: OperationContext
 ) -> None:
     check_context(context)
+    paths = [_taskset_image_parts(image.path) for image in bundle.images]
+    reserved = {("taskset.json",), ("tasks.jsonl",)}
+    for parts in paths:
+        if parts in reserved:
+            raise ConnectorError(
+                "taskset_image_path_invalid",
+                "A taskset image path conflicts with a taskset data file.",
+                category="invalid_input",
+            )
+    path_set = set(paths)
+    if len(path_set) != len(paths) or any(
+        parts[:index] in path_set
+        for parts in path_set
+        for index in range(1, len(parts))
+    ):
+        raise ConnectorError(
+            "taskset_image_conflict",
+            "Taskset image paths must not repeat or collide as files and directories.",
+            category="invalid_input",
+        )
     _write_immutable(directory / "taskset.json", _json_bytes(bundle.manifest))
     check_context(context)
     _write_immutable(
@@ -462,24 +482,12 @@ def _materialize_taskset_bundle(
                 )
             expected[path] = identity
     seen: dict[str, Any] = {}
-    for image in bundle.images:
+    for image, parts in zip(bundle.images, paths, strict=True):
         check_context(context)
         if _digest(image.data) != image.digest:
             raise ConnectorError(
                 "taskset_image_digest_mismatch",
                 "A taskset image does not match its claimed digest.",
-                category="invalid_input",
-            )
-        if (
-            not isinstance(image.path, str)
-            or not image.path
-            or "\\" in image.path
-            or image.path.startswith("/")
-            or ".." in image.path.split("/")
-        ):
-            raise ConnectorError(
-                "taskset_image_path_invalid",
-                "A taskset image path must stay inside the taskset.",
                 category="invalid_input",
             )
         prior = seen.get(image.path)
@@ -496,7 +504,7 @@ def _materialize_taskset_bundle(
                 "A taskset image path appears more than once.",
                 category="invalid_input",
             )
-        _write_immutable(directory / image.path, image.data)
+        _write_immutable(directory.joinpath(*parts), image.data)
         seen[image.path] = identity
     check_context(context)
     if set(seen) != set(expected):
@@ -505,6 +513,29 @@ def _materialize_taskset_bundle(
             "The transfer must contain every taskset image exactly once.",
             category="invalid_input",
         )
+
+
+def _taskset_image_parts(path: str) -> tuple[str, ...]:
+    if (
+        not isinstance(path, str)
+        or not path
+        or "\x00" in path
+        or "\\" in path
+        or path.startswith("/")
+    ):
+        raise ConnectorError(
+            "taskset_image_path_invalid",
+            "A taskset image path must stay inside the taskset.",
+            category="invalid_input",
+        )
+    parts = tuple(path.split("/"))
+    if any(part in ("", ".", "..") for part in parts):
+        raise ConnectorError(
+            "taskset_image_path_invalid",
+            "A taskset image path must use canonical relative segments.",
+            category="invalid_input",
+        )
+    return parts
 
 
 class LocalArtifactConnector(_ScopedConnector):

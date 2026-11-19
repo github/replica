@@ -40,6 +40,7 @@ from .connectors import (
     OperationContext,
     RuntimeOwner,
     RuntimeScope,
+    TasksetArtifact,
     TasksetBundle,
     TasksetImage,
     TrainingConnector,
@@ -210,6 +211,7 @@ class LocalRuntime:
         self.inference_connectors = dict(self.connectors.inference)
         self._lock = threading.RLock()
         self._job_cancellations: dict[str, Cancellation] = {}
+        self._tasksets: dict[str, TasksetArtifact] = {}
         try:
             self.taskset = None
             self.taskset_digest = None
@@ -307,6 +309,7 @@ class LocalRuntime:
         )
         try:
             registered = self.connectors.tasksets.register(bundle, context)
+            self._tasksets[str(registered.digest)] = registered
             self._record_usage(
                 context,
                 connector=type(self.connectors.tasksets).__name__,
@@ -713,6 +716,14 @@ class LocalRuntime:
                 context=context,
                 credential=credential,
             )
+            context = OperationContext(
+                operation_id=context.operation_id,
+                idempotency_key=context.idempotency_key,
+                scope=context.scope,
+                owner=context.owner,
+                deadline=time.monotonic() + 30,
+                cancellation=context.cancellation,
+            )
             with self._lock:
                 context.cancellation.raise_if_requested()
                 durable = self._job_record(job_id)
@@ -960,7 +971,13 @@ class LocalRuntime:
         candidate = self.candidate(candidate_id)["manifest"]
         try:
             self._resolve_taskset(candidate["tasksetDigest"])
-        except RuntimeFailure:
+        except RuntimeFailure as error:
+            if error.code not in (
+                "taskset_damaged",
+                "taskset_digest_invalid",
+                "taskset_not_found",
+            ):
+                raise
             raise RuntimeFailure(
                 "candidate_mismatch", "The candidate belongs to another taskset.", 409
             ) from None
@@ -998,15 +1015,23 @@ class LocalRuntime:
         )
 
     def _resolve_taskset(self, digest: str):
+        normalized = _taskset_digest_value(digest)
+        cached = self._tasksets.get(normalized)
+        if cached is not None:
+            if cached.taskset.directory.is_dir():
+                return cached
+            self._tasksets.pop(normalized, None)
         try:
-            return self.connectors.tasksets.resolve(
-                f"taskset:{ContentDigest('sha256', digest.removeprefix('sha256:')).value}",
+            resolved = self.connectors.tasksets.resolve(
+                f"taskset:{ContentDigest('sha256', normalized.removeprefix('sha256:')).value}",
                 self._operation_context(
                     f"resolve_taskset_{uuid.uuid4().hex}",
                     max_seconds=30,
                     owner=RuntimeOwner("service", "decision-runtime"),
                 ),
             )
+            self._tasksets[normalized] = resolved
+            return resolved
         except (ValueError, ConnectorError) as error:
             if isinstance(error, ConnectorError):
                 raise _runtime_connector_failure(error) from None

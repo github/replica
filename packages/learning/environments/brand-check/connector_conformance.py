@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import time
 import unittest
 from collections.abc import Callable, Sequence
@@ -24,6 +25,7 @@ from .connectors import (
     TrainingResult,
     Usage,
 )
+from .taskset import read_image
 
 
 @dataclass(frozen=True)
@@ -110,6 +112,21 @@ def _taskset_registration(create_fixture):
         case.assertEqual(registered.digest, fixture.taskset_digest)
         case.assertEqual(registered.reference, f"taskset:{registered.digest.value}")
         case.assertEqual(
+            _validated_taskset_digest(registered.taskset),
+            fixture.taskset_digest,
+        )
+        case.assertEqual(
+            {
+                image.name: (image.media_type, image.digest, read_image(image))
+                for task in registered.taskset.tasks
+                for image in task.images
+            },
+            {
+                image.path: (image.media_type, str(image.digest), image.data)
+                for image in fixture.taskset_bundle.images
+            },
+        )
+        case.assertEqual(
             fixture.connectors.tasksets.register(fixture.taskset_bundle, context),
             registered,
         )
@@ -138,6 +155,20 @@ def _taskset_registration(create_fixture):
                 ),
             )
         case.assertEqual(retry_conflict.exception.category, "conflict")
+        incorrect_digest = replace(
+            fixture.taskset_bundle,
+            digest=ContentDigest("sha256", "0" * 64),
+        )
+        with case.assertRaises(ConnectorError) as mismatch:
+            fixture.connectors.tasksets.register(
+                incorrect_digest,
+                _context(
+                    fixture.scope,
+                    "taskset-register-wrong-digest",
+                    idempotency_key="taskset-register-wrong-digest",
+                ),
+            )
+        case.assertIn(mismatch.exception.category, ("conflict", "invalid_input"))
         case.assertEqual(
             fixture.connectors.tasksets.resolve(
                 registered.reference,
@@ -163,6 +194,41 @@ def _taskset_registration(create_fixture):
             case.assertEqual(hidden.exception.category, "not_found")
 
     return run
+
+
+def _validated_taskset_digest(taskset) -> ContentDigest:
+    identity = {
+        "manifest": dict(taskset.metadata),
+        "tasks": [
+            {
+                "id": task.id,
+                "split": task.split,
+                "state": dict(task.state),
+                "images": [
+                    {
+                        "role": image.role,
+                        "path": image.name,
+                        "mediaType": image.media_type,
+                        "digest": image.digest,
+                        "size": image.size,
+                        "theme": image.theme,
+                    }
+                    for image in task.images
+                ],
+                "questions": {
+                    key: dict(question.spec) for key, question in task.questions.items()
+                },
+                "labels": dict(task.labels),
+                "provenance": dict(task.provenance),
+            }
+            for task in taskset.tasks
+        ],
+    }
+    data = (
+        json.dumps(identity, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        + "\n"
+    ).encode()
+    return ContentDigest("sha256", hashlib.sha256(data).hexdigest())
 
 
 def _scope_isolation(create_fixture):
