@@ -117,16 +117,27 @@ class OperationContext:
     owner: RuntimeOwner
     deadline: float
     cancellation: Cancellation
+    max_credits: float | None = None
+    budget_mode: str = "none"
 
     def __post_init__(self) -> None:
         if (
             not self.operation_id.strip()
             or not self.idempotency_key.strip()
             or not math.isfinite(self.deadline)
+            or (
+                self.max_credits is not None
+                and (
+                    not math.isfinite(self.max_credits)
+                    or self.max_credits <= 0
+                )
+            )
+            or self.budget_mode not in ("none", "hard", "unmetered_local")
+            or (self.budget_mode == "none") != (self.max_credits is None)
         ):
             raise ValueError(
                 "Operation context needs operation and idempotency identifiers "
-                "and a finite deadline."
+                "and valid deadline and budget limits."
             )
 
 
@@ -151,6 +162,40 @@ class TasksetArtifact:
     reference: str
     digest: ContentDigest
     taskset: Taskset
+
+
+@dataclass(frozen=True)
+class TasksetImage:
+    """One private image transferred as part of a complete taskset."""
+
+    path: str
+    media_type: str
+    digest: ContentDigest
+    data: bytes
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.path, str)
+            or not self.path
+            or not isinstance(self.media_type, str)
+            or not self.media_type.strip()
+            or not isinstance(self.data, bytes)
+        ):
+            raise ValueError("A taskset image needs a path, media type, digest, and bytes.")
+
+
+@dataclass(frozen=True)
+class TasksetBundle:
+    """Provider-neutral contents needed to validate and register one taskset."""
+
+    manifest: Mapping[str, Any]
+    tasks: Sequence[Mapping[str, Any]]
+    images: Sequence[TasksetImage]
+    digest: ContentDigest | None = None
+
+    def __post_init__(self) -> None:
+        if not self.tasks or not self.images:
+            raise ValueError("A taskset bundle needs tasks and images.")
 
 
 @dataclass(frozen=True)
@@ -237,6 +282,7 @@ class Usage:
     cost: float | None = None
     currency: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    source: str = "connector"
 
     def __post_init__(self) -> None:
         if (
@@ -244,6 +290,7 @@ class Usage:
             or not self.connector.strip()
             or not self.kind.strip()
             or not self.unit.strip()
+            or not self.source.strip()
             or not math.isfinite(self.quantity)
             or self.quantity < 0
             or (self.cost is None) != (self.currency is None)
@@ -265,6 +312,7 @@ class TrainingResult:
     candidate_report: Mapping[str, Any]
     metadata: Mapping[str, Any]
     updates_completed: int
+    usage: Sequence[Usage] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -274,6 +322,7 @@ class TrainingResult:
             or isinstance(self.updates_completed, bool)
             or not isinstance(self.updates_completed, int)
             or self.updates_completed < 0
+            or not isinstance(self.usage, Sequence)
         ):
             raise ValueError(
                 "Training result needs a safe adapter name, bytes, and measured updates."
@@ -281,6 +330,10 @@ class TrainingResult:
 
 
 class TasksetConnector(Protocol):
+    def register(
+        self, bundle: TasksetBundle, context: OperationContext
+    ) -> TasksetArtifact: ...
+
     def resolve(self, reference: str, context: OperationContext) -> TasksetArtifact: ...
 
 
@@ -354,6 +407,7 @@ class CandidateConnector(Protocol):
 class TrainingConnector(Protocol):
     name: str
     production_eligible: bool
+    supports_hard_credit_budget: bool
 
     def train(
         self,

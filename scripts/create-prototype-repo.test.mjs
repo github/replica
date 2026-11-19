@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
-import { execFileSync, spawnSync } from "node:child_process"
+import { execFileSync, spawn, spawnSync } from "node:child_process"
+import { createServer } from "node:http"
 import {
-  chmodSync,
   copyFileSync,
   cpSync,
   existsSync,
@@ -14,15 +14,15 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs"
-import { tmpdir } from "node:os"
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { test } from "node:test"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { gunzipSync, gzipSync } from "node:zlib"
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
-const script = join(root, "scripts/create-prototype-repo.sh")
-const installer = join(root, "scripts/install-starter.sh")
+const script = join(root, "scripts/create-prototype-repo.mjs")
+const installer = join(root, "scripts/install-starter.mjs")
+const directoryLinkType = process.platform === "win32" ? "junction" : "dir"
 const documentSources = {
   "ACCESSIBILITY.md": ["product", "repository"],
   "BROWSER-VALIDATION.md": ["repository"],
@@ -254,13 +254,17 @@ function assertContextBundle(repository) {
 }
 
 function workspace(t) {
-  const directory = mkdtempSync(join(tmpdir(), "replica-bootstrap-"))
+  const directory = mkdtempSync(join(root, ".replica-bootstrap-"))
   t.after(() => rmSync(directory, { recursive: true, force: true }))
   return directory
 }
 
 function run(destination, cwd, bootstrap = script) {
-  return spawnSync("bash", [bootstrap, destination], { cwd, encoding: "utf8" })
+  return spawnSync(process.execPath, [bootstrap, destination], {
+    cwd,
+    encoding: "utf8",
+    env: { ...process.env, REPLICA_INTERNAL_STARTER_ROOT: cwd },
+  })
 }
 
 function starterPaths() {
@@ -274,9 +278,9 @@ function starterPaths() {
 
 function checkoutFixture(t) {
   const directory = workspace(t)
-  const checkout = join(directory, "checkout")
+  const checkout = join(directory, "checkout with spaces # %")
   mkdirSync(join(checkout, "scripts"), { recursive: true })
-  const bootstrap = join(checkout, "scripts/create-prototype-repo.sh")
+  const bootstrap = join(checkout, "scripts/create-prototype-repo.mjs")
   copyFileSync(script, bootstrap)
   for (const path of [
     "starter/.agents/skills/setup-skills/SKILL.md",
@@ -294,7 +298,15 @@ function checkoutFixture(t) {
 
 function archiveFixture(
   t,
-  { gitMetadata, missing, symlink, traversal, unrelatedSymlink, unrelatedTraversal } = {},
+  {
+    gitMetadata,
+    missing,
+    symlink,
+    traversal,
+    unrelatedSymlink,
+    unrelatedTraversal,
+    unsafePath,
+  } = {},
 ) {
   const directory = workspace(t)
   const source = join(directory, "source")
@@ -304,14 +316,14 @@ function archiveFixture(
     mkdirSync(dirname(target), { recursive: true })
     copyFileSync(join(root, path), target)
   }
-  const bootstrap = join(archiveRoot, "scripts/create-prototype-repo.sh")
+  const bootstrap = join(archiveRoot, "scripts/create-prototype-repo.mjs")
   mkdirSync(dirname(bootstrap), { recursive: true })
   copyFileSync(script, bootstrap)
   if (missing) rmSync(join(archiveRoot, missing))
-  if (symlink) symlinkSync("/missing/outside", join(archiveRoot, "starter/src/linked"))
-  if (traversal) writeFileSync(join(archiveRoot, "starter/src/unsafe.txt"), "unsafe")
+  if (symlink) writeFileSync(join(archiveRoot, "starter/src/linked"), "link fixture")
+  if (traversal || unsafePath) writeFileSync(join(archiveRoot, "starter/src/unsafe.txt"), "unsafe")
   if (unrelatedSymlink || unrelatedTraversal) mkdirSync(join(archiveRoot, "hub"))
-  if (unrelatedSymlink) symlinkSync("/missing/outside", join(archiveRoot, "hub/linked"))
+  if (unrelatedSymlink) writeFileSync(join(archiveRoot, "hub/linked"), "link fixture")
   if (unrelatedTraversal) writeFileSync(join(archiveRoot, "hub/unsafe.txt"), "unsafe")
   if (gitMetadata) {
     mkdirSync(join(archiveRoot, "starter/.git"))
@@ -320,19 +332,35 @@ function archiveFixture(
 
   const archive = join(directory, "replica.tar.gz")
   execFileSync("tar", ["-czf", archive, "-C", source, "replica-main"])
-  if (traversal || unrelatedTraversal) {
-    const bytes = gunzipSync(readFileSync(archive))
-    const unsafeEntry = traversal ? "replica-main/starter/src/unsafe.txt" : "replica-main/hub/unsafe.txt"
+  if (traversal || unrelatedTraversal || symlink || unrelatedSymlink || unsafePath) {
+    let bytes = gunzipSync(readFileSync(archive))
+    const unsafeEntry = symlink ? "replica-main/starter/src/linked"
+      : unrelatedSymlink ? "replica-main/hub/linked"
+      : traversal || unsafePath ? "replica-main/starter/src/unsafe.txt" : "replica-main/hub/unsafe.txt"
     let found = false
     for (let offset = 0; offset < bytes.length; ) {
       const header = bytes.subarray(offset, offset + 512)
       const name = header.toString("utf8", 0, 100).replace(/\0.*$/s, "")
       if (name === unsafeEntry) {
-        header.fill(0, 0, 100)
-        header.write("replica-main/../unsafe.txt")
+        if (symlink || unrelatedSymlink) {
+          const size = Number.parseInt(header.toString("ascii", 124, 136).trim(), 8) || 0
+          header.fill(0, 124, 136)
+          header.write("00000000000", 124)
+          header[156] = "2".charCodeAt(0)
+          header.fill(0, 157, 257)
+          header.write("/missing/outside", 157)
+          bytes = Buffer.concat([
+            bytes.subarray(0, offset + 512),
+            bytes.subarray(offset + 512 + Math.ceil(size / 512) * 512),
+          ])
+        } else {
+          header.fill(0, 0, 100)
+          header.write(unsafePath ?? "replica-main/../unsafe.txt")
+        }
         header.fill(0x20, 148, 156)
         const checksum = header.reduce((sum, byte) => sum + byte, 0)
         header.write(`${checksum.toString(8).padStart(6, "0")}\0 `, 148)
+        header.copy(bytes, offset)
         writeFileSync(archive, gzipSync(bytes))
         found = true
         break
@@ -343,39 +371,167 @@ function archiveFixture(
     assert.ok(found, `Missing tar fixture entry: ${unsafeEntry}`)
   }
 
-  const bin = join(directory, "bin")
-  mkdirSync(bin)
-  const curl = join(bin, "curl")
+  const download = join(directory, "download.mjs")
   writeFileSync(
-    curl,
-    `#!/bin/sh
-set -eu
-[ "$1" = "-q" ] && [ "$2" = "-fLSs" ] && [ "$3" = "--output" ] &&
-  [ "$5" = "https://github.com/github/replica/archive/refs/heads/main.tar.gz" ]
-cp "$REPLICA_TEST_ARCHIVE" "$4"
+    download,
+    `import assert from "node:assert/strict"
+import { readFileSync } from "node:fs"
+globalThis.fetch = async url => {
+  assert.equal(url, "https://github.com/github/replica/archive/refs/heads/main.tar.gz")
+  return new Response(readFileSync(process.env.REPLICA_TEST_ARCHIVE))
+}
 `,
   )
-  chmodSync(curl, 0o755)
-  return { directory, archive, bin }
+  return { directory, archive, download }
 }
 
-function runInstaller(destination, { directory, archive, bin }) {
-  return spawnSync("bash", [installer, destination], {
+function runInstaller(destination, { directory, archive, download }, env = process.env) {
+  return spawnSync(process.execPath, ["--import", pathToFileURL(download).href, installer, destination], {
     cwd: directory,
     encoding: "utf8",
     env: {
-      ...process.env,
-      PATH: `${bin}:${process.env.PATH}`,
-      TMPDIR: directory,
+      ...env,
       REPLICA_TEST_ARCHIVE: archive,
     },
   })
 }
 
+function gitForWindowsTarDirectory() {
+  if (process.platform !== "win32") return undefined
+  const gitPaths = spawnSync("where.exe", ["git"], { encoding: "utf8" })
+  if (gitPaths.status !== 0) return undefined
+
+  for (const gitPath of gitPaths.stdout.split(/\r?\n/).filter(Boolean)) {
+    let directory = dirname(gitPath)
+    for (let depth = 0; depth < 6; depth += 1) {
+      const tarDirectory = join(directory, "usr", "bin")
+      const tar = join(tarDirectory, "tar.exe")
+      if (existsSync(tar)) {
+        try {
+          if (execFileSync(tar, ["--version"], { encoding: "utf8" }).includes("GNU tar")) {
+            return tarDirectory
+          }
+        } catch {
+          continue
+        }
+      }
+      const parent = dirname(directory)
+      if (parent === directory) break
+      directory = parent
+    }
+  }
+  return undefined
+}
+
 function assertNoTemporaryFiles(directory) {
-  assert.ok(!readdirSync(directory).some(name => name.startsWith("replica-download.")))
+  assert.ok(!readdirSync(directory).some(name => name.startsWith(".replica-download.")))
   assert.ok(!readdirSync(directory).some(name => name.startsWith(".replica-starter.")))
 }
+
+test("creation keeps shell metacharacters literal in destination paths", t => {
+  const { directory, bootstrap } = checkoutFixture(t)
+  const destination = join(directory, "prototype & echo injected")
+  const result = run(destination, directory, bootstrap)
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(readFileSync(join(destination, "src/example.txt"), "utf8"), "starter/src/example.txt")
+  assert.equal(spawnSync("git", ["rev-parse", "HEAD"], { cwd: destination }).status, 128)
+  assertNoTemporaryFiles(directory)
+})
+
+test("the creator runs through a directory alias without running when imported", t => {
+  const { directory, checkout } = checkoutFixture(t)
+  const alias = join(directory, "source alias")
+  symlinkSync(checkout, alias, directoryLinkType)
+  const bootstrap = join(alias, "scripts/create-prototype-repo.mjs")
+  const destination = join(directory, "prototype")
+  const imported = spawnSync(process.execPath, [
+    "--input-type=module",
+    "--eval",
+    `await import(${JSON.stringify(pathToFileURL(bootstrap).href)})`,
+    destination,
+  ], { cwd: directory, encoding: "utf8" })
+  assert.equal(imported.status, 0, imported.stderr)
+  assert.equal(imported.stdout, "")
+  assert.ok(!existsSync(destination))
+  const result = run(destination, directory, bootstrap)
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(readFileSync(join(destination, "src/example.txt"), "utf8"), "starter/src/example.txt")
+  assertNoTemporaryFiles(directory)
+})
+
+test("termination removes an incomplete repository", { skip: process.platform === "win32" }, t => {
+  const { directory, bootstrap } = checkoutFixture(t)
+  const destination = join(directory, "prototype")
+  const interrupt = join(directory, "interrupt.mjs")
+  writeFileSync(interrupt, `
+import fs from "node:fs"
+import { syncBuiltinESMExports } from "node:module"
+const mkdir = fs.mkdirSync
+fs.mkdirSync = (path, ...args) => {
+  const result = mkdir(path, ...args)
+  if (path === process.env.REPLICA_TEST_DESTINATION) process.kill(process.pid, "SIGTERM")
+  return result
+}
+syncBuiltinESMExports()
+`)
+  const result = spawnSync(process.execPath, [
+    "--import", pathToFileURL(interrupt).href, bootstrap, destination,
+  ], {
+    cwd: directory,
+    encoding: "utf8",
+    timeout: 10_000,
+    env: { ...process.env, REPLICA_TEST_DESTINATION: destination },
+  })
+  assert.equal(result.error, undefined)
+  assert.notEqual(result.status, 0)
+  assert.ok(!existsSync(destination))
+  assertNoTemporaryFiles(directory)
+})
+
+test("termination cancels a download and removes its staging directory", {
+  skip: process.platform === "win32",
+}, t => {
+  const directory = workspace(t)
+  const destination = join(directory, "prototype")
+  const download = join(directory, "download.mjs")
+  writeFileSync(download, `
+globalThis.fetch = async (url, { signal } = {}) => new Promise((resolve, reject) => {
+  const pending = setInterval(() => {}, 1000)
+  signal?.addEventListener("abort", () => {
+    clearInterval(pending)
+    reject(signal.reason)
+  }, { once: true })
+  process.kill(process.pid, "SIGTERM")
+})
+`)
+  const result = spawnSync(process.execPath, [
+    "--import", pathToFileURL(download).href, installer, destination,
+  ], { cwd: directory, encoding: "utf8", timeout: 10_000 })
+  assert.equal(result.error, undefined)
+  assert.notEqual(result.status, 0)
+  assert.ok(!existsSync(destination))
+  assertNoTemporaryFiles(directory)
+})
+
+test("the internal Starter override permits only its designated root inside the checkout", t => {
+  const { directory, checkout, bootstrap } = checkoutFixture(t)
+  const allowed = join(checkout, "local-prototypes")
+  const other = join(checkout, "other")
+  mkdirSync(allowed)
+  mkdirSync(other)
+  const invoke = (destination, internalRoot) => spawnSync(process.execPath, [bootstrap, destination], {
+    cwd: directory,
+    encoding: "utf8",
+    env: { ...process.env, REPLICA_INTERNAL_STARTER_ROOT: internalRoot },
+  })
+  const destination = join(allowed, "prototype")
+  assert.equal(invoke(destination, "").status, 1)
+  const result = invoke(destination, allowed)
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(invoke(join(other, "prototype"), allowed).status, 1)
+  assert.ok(!existsSync(join(other, "prototype")))
+  assertNoTemporaryFiles(allowed)
+})
 
 test("creates an independent repository with exactly the tracked starter files", t => {
   const directory = workspace(t)
@@ -399,7 +555,7 @@ test("creates an independent repository with exactly the tracked starter files",
     .split("\0")
     .filter(Boolean)
     .sort()
-  assert.deepEqual(actual, paths.map(path => relative("starter", path)).sort())
+  assert.deepEqual(actual, paths.map(path => relative("starter", path).split(sep).join("/")).sort())
   assert.ok(paths.includes("starter/.agents/skills/setup-skills/SKILL.md"))
   assert.ok(paths.includes("starter/.agents/context-templates/SKILL.md"))
   assert.ok(paths.includes("starter/.github/github-app.yml"))
@@ -437,7 +593,7 @@ test("installs a public-style archive without a checkout or credentials", t => {
     .split("\0")
     .filter(Boolean)
     .sort()
-  assert.deepEqual(actual, paths.map(path => relative("starter", path)).sort())
+  assert.deepEqual(actual, paths.map(path => relative("starter", path).split(sep).join("/")).sort())
   assert.ok(!existsSync(join(destination, "tests")))
   assert.equal(
     execFileSync("git", ["branch", "--show-current"], { cwd: destination }).toString().trim(),
@@ -446,6 +602,74 @@ test("installs a public-style archive without a checkout or credentials", t => {
   assert.equal(execFileSync("git", ["remote"], { cwd: destination }).toString(), "")
   assert.equal(spawnSync("git", ["rev-parse", "HEAD"], { cwd: destination }).status, 128)
   assertNoTemporaryFiles(fixture.directory)
+})
+
+test("installs an archive with Git for Windows GNU tar first on PATH", t => {
+  const tarDirectory = gitForWindowsTarDirectory()
+  if (!tarDirectory) return t.skip("Git for Windows GNU tar is unavailable.")
+
+  const fixture = archiveFixture(t)
+  const destination = join(fixture.directory, "prototype")
+  const result = runInstaller(destination, fixture, {
+    ...process.env,
+    PATH: [tarDirectory, process.env.PATH].join(delimiter),
+  })
+  assert.equal(result.status, 0, result.stderr)
+  assert.ok(existsSync(join(destination, ".agents/skills/setup-skills/SKILL.md")))
+  assertNoTemporaryFiles(fixture.directory)
+})
+
+test("documented installer entry points opt into Node environment proxies", async t => {
+  const docs = readFileSync(join(root, "docs/prototype-repository-setup.md"), "utf8")
+  assert.match(docs, /node --use-env-proxy install-starter\.mjs/)
+
+  const requests = []
+  const proxy = createServer()
+  proxy.on("connect", (request, socket) => {
+    requests.push(request.url)
+    socket.end("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nContent-Length: 0\r\n\r\n")
+  })
+  await new Promise(resolve => proxy.listen(0, "127.0.0.1", resolve))
+  t.after(() => new Promise(resolve => proxy.close(resolve)))
+
+  const address = proxy.address()
+  assert.ok(address && typeof address === "object")
+  const proxyUrl = `http://127.0.0.1:${address.port}`
+  const targetUrl = "https://example.invalid/proxy-test"
+  const result = await new Promise(resolve => {
+    const child = spawn(
+      process.execPath,
+      [
+        "--use-env-proxy",
+        "--input-type=module",
+        "--eval",
+        `await fetch(${JSON.stringify(targetUrl)}).catch(() => {})`,
+      ],
+      {
+        env: {
+          ...process.env,
+          HTTP_PROXY: proxyUrl,
+          HTTPS_PROXY: proxyUrl,
+          NO_PROXY: "",
+          ALL_PROXY: "",
+          http_proxy: proxyUrl,
+          https_proxy: proxyUrl,
+          no_proxy: "",
+          all_proxy: "",
+        },
+        stdio: "ignore",
+      },
+    )
+    const timeout = setTimeout(() => child.kill(), 5_000)
+    child.once("error", error => resolve({ error }))
+    child.once("close", (status, signal) => {
+      clearTimeout(timeout)
+      resolve({ status, signal })
+    })
+  })
+  assert.equal(result.error, undefined)
+  assert.equal(result.status, 0)
+  assert.deepEqual(requests, ["example.invalid:443"])
 })
 
 test("ignores an unrelated symlink in the archive", t => {
@@ -461,11 +685,15 @@ test("ignores an unrelated symlink in the archive", t => {
 
 test("rejects missing, linked, and unsafe archive members before writing the destination", t => {
   for (const [options, error] of [
-    [{ missing: "scripts/create-prototype-repo.sh" }, /missing the starter or setup script/],
+    [{ missing: "scripts/create-prototype-repo.mjs" }, /missing the starter or setup script/],
     [{ missing: "starter/.agents/context-templates/SKILL.md" }, /missing the starter or setup script/],
     [{ symlink: true }, /linked or unsupported file/],
     [{ traversal: true }, /unsafe path/],
     [{ unrelatedTraversal: true }, /unsafe path/],
+    [{ unsafePath: "replica-main/starter/src/file:stream" }, /unsafe path/],
+    [{ unsafePath: "replica-main/starter/src/NUL.txt" }, /unsafe path/],
+    [{ unsafePath: "replica-main/starter/src/alias." }, /unsafe path/],
+    [{ unsafePath: "replica-main/starter/.Git/config" }, /contains Git metadata/],
     [{ gitMetadata: true }, /contains Git metadata/],
   ]) {
     const fixture = archiveFixture(t, options)
@@ -527,7 +755,7 @@ test("refuses to create a repository inside the Replica checkout", t => {
   assert.ok(!existsSync(destination))
 
   const linkedParent = join(directory, "linked-starter")
-  symlinkSync(join(root, "starter"), linkedParent)
+  symlinkSync(join(root, "starter"), linkedParent, directoryLinkType)
   const linkedDestination = join(linkedParent, "nested-prototype")
   const linkedResult = run(linkedDestination, directory)
   assert.equal(linkedResult.status, 1)
@@ -535,11 +763,13 @@ test("refuses to create a repository inside the Replica checkout", t => {
   assert.ok(!existsSync(destination))
 })
 
-test("refuses tracked symlinks and cleans the temporary directory", t => {
+test("refuses indexed symlink modes even when the working file is regular", t => {
   const { directory, checkout, bootstrap } = checkoutFixture(t)
   const link = join(checkout, "starter/src/linked")
-  symlinkSync("/missing/outside", link)
-  execFileSync("git", ["add", "--", "starter/src/linked"], { cwd: checkout })
+  writeFileSync(link, "/missing/outside")
+  const object = execFileSync("git", ["hash-object", "-w", "--", "starter/src/linked"], { cwd: checkout })
+    .toString().trim()
+  execFileSync("git", ["update-index", "--add", "--cacheinfo", `120000,${object},starter/src/linked`], { cwd: checkout })
   const destination = join(directory, "prototype")
   const result = run(destination, directory, bootstrap)
   assert.equal(result.status, 1)
@@ -555,7 +785,7 @@ test("refuses linked starter directories even when indexed files look regular", 
   mkdirSync(outside)
   writeFileSync(join(outside, "example.txt"), "outside content")
   rmSync(source, { recursive: true })
-  symlinkSync(outside, source)
+  symlinkSync(outside, source, directoryLinkType)
   const destination = join(directory, "prototype")
   const result = run(destination, directory, bootstrap)
   assert.equal(result.status, 1)

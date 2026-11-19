@@ -161,7 +161,7 @@ A missing or invalid answer counts as wrong for accuracy and as `invalid`, and i
 
 ## Run the single-node reference runtime
 
-The single-node reference Replica decision runtime proves one complete customer-operated lifecycle. It keeps mutable job records under `jobs/`, writes each completed candidate once under `candidates/`, keeps immutable promotion generations under `promotions/`, and serves only the candidate an operator explicitly promotes or restores. Replica does not receive the taskset, adapter, reports, token, or requests.
+The single-node reference Replica decision runtime proves one complete customer-operated lifecycle. It keeps mutable job records under `jobs/`, writes each completed candidate once under `candidates/`, keeps immutable promotion generations under `promotions/`, and serves only the candidate an operator explicitly promotes or restores. Job limits, authoritative connector usage, promotion generations, and retry records live in the mounted state directory, so restart recovery does not reset a budget or let a stale operator overwrite a newer pointer. Replica does not receive the taskset, adapter, reports, token, or requests.
 
 The only backend in this first reference is deterministic and ignores image content. It uses the real taskset loader, proper-scoring evaluation, candidate store, promotion gate, rollback, and inference contract without a GPU or model download. Its candidates are for development and tests only; the runtime refuses to promote them when `--environment production`.
 
@@ -172,7 +172,7 @@ python3 examples/runtime_demo.py --out /tmp/replica-runtime-demo
 
 The output shows two bounded jobs, immutable candidates, baseline and candidate test reports, two promotions, an explicit rollback, and one structured Build evaluation from the restored candidate. `candidate.evaluation.evidence.meanRewardDelta` states the fixture's measured gain over the 50% baseline, not real visual-model quality. The demo leaves its state in `/tmp/replica-runtime-demo/runtime` so an operator can inspect it.
 
-For a taskset created by `replica-learning decision taskset`, make a runtime token, install the package, and start the service:
+For a taskset created by `replica-learning decision taskset`, make a runtime token, install the package, and start the service. `--taskset` remains available for a read-only local default, but Hub and other control planes should start the runtime without it and use the authenticated upload route.
 
 ```sh
 (umask 077 && python3 -c 'import secrets; print(secrets.token_urlsafe(32))' > ~/.replica-runtime-token)
@@ -182,32 +182,58 @@ uv pip install -e .
 .venv/bin/replica-decision-runtime \
   --environment development \
   --tenant local --repository github/example \
-  --taskset /path/to/taskset --state /path/to/runtime-state --port 8010
+  --state /path/to/runtime-state --port 8010
 ```
 
 `--tenant` and `--repository` assign the customer scope that every connector call receives. A single-user process may keep the defaults; a shared host must set both from its authenticated customer and repository context.
+
+Upload the complete taskset as one JSON object. The route digest is the lowercase SHA-256 value from the taskset's stable content identity. The body uses `replica.decision-taskset-upload/v1`, with `manifest`, ordered `tasks`, and one base64 image record for each distinct relative image path. Each image record contains `path`, `mediaType`, its `sha256:<hex>` digest, and `dataBase64`. The runtime validates the manifest and task contracts, path containment, image digests, image counts, and size limits before its taskset connector stores anything.
+
+```sh
+curl -sS -X PUT \
+  -H "Authorization: Bearer $REPLICA_RUNTIME_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: taskset-<digest>" \
+  --data-binary @taskset-upload.json \
+  http://127.0.0.1:8010/v1/tasksets/<64-character digest>
+```
+
+Repeating the same upload returns the registered taskset. Reusing an idempotency key for different input returns `409 idempotency_conflict`. A digest that already identifies different content is never replaced. The runtime binds every connector operation to its configured tenant and repository; another scope receives not found rather than record details.
 
 Submit and track a bounded fixture job, then promote its candidate:
 
 ```sh
 curl -sS -H "Authorization: Bearer $REPLICA_RUNTIME_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"backend":"fixture","maxUpdates":12,"maxSeconds":30}' \
+  -d '{"backend":"fixture","tasksetDigest":"sha256:<digest>","maxUpdates":12,"maxSeconds":30,"maxCredits":12,"budgetMode":"hard"}' \
   http://127.0.0.1:8010/v1/jobs
 
 curl -sS -H "Authorization: Bearer $REPLICA_RUNTIME_TOKEN" \
   http://127.0.0.1:8010/v1/jobs/<job id>
 
+curl -sS -X POST \
+  -H "Authorization: Bearer $REPLICA_RUNTIME_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: cancel-<job id>" \
+  -d '{}' \
+  http://127.0.0.1:8010/v1/jobs/<job id>/cancel
+
 curl -sS -H "Authorization: Bearer $REPLICA_RUNTIME_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"candidateId":"<candidate id>","promotedBy":"<operator>"}' \
+-H "Idempotency-Key: promote-<candidate id>-from-<generation>" \
+-d '{"candidateId":"<candidate id>","promotedBy":"<operator>","expectedGeneration":0}' \
   http://127.0.0.1:8010/v1/promotions
 
 curl -sS -H "Authorization: Bearer $REPLICA_RUNTIME_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"rolledBackBy":"<operator>"}' \
+-H "Idempotency-Key: rollback-from-<generation>" \
+-d '{"rolledBackBy":"<operator>","expectedGeneration":2}' \
   http://127.0.0.1:8010/v1/rollbacks
 ```
+
+`maxCredits` is a finite hard ceiling from 1 to 1,000,000. A hard-budget connector must stop before it exceeds that ceiling and return its measured usage. The local fixture charges one credit per completed update and reports the connector's billed cost as `0 USD`; it does not estimate infrastructure cost. A connector that cannot enforce the ceiling is rejected before the job is created. Development and test callers may explicitly choose `budgetMode: "unmetered_local"` for such a local connector; production refuses that mode. Job and candidate results include the connector's authoritative `usage` records with quantity, unit, cost, currency, and source.
+
+Promotion and rollback bodies must carry the generation the operator read. A stale `expectedGeneration` returns `409 promotion_generation_conflict` without validating a candidate or moving the pointer. Retrying the exact request with the same `Idempotency-Key` returns its already-appended generation, including after process restart. Reusing the key for another candidate, generation, or operation returns `409 idempotency_conflict`.
 
 `POST /score` and `POST /v1/evaluations` accept a task-shaped request with `state`, image data URIs, and `questions`. Send the runtime token as a bearer token. The fixture ignores the screenshots, so do not use its answers to judge a Build or guide authoring. The response includes probability `answers`, the promoted candidate ID, promotion generation, and one `followsProbability` and `breaksProbability` pair per learning. Inference returns `409 candidate_not_promoted` until an operator promotes a candidate.
 
@@ -224,17 +250,19 @@ The HTTP contract stays independent of the local store and trainer implementatio
 | --- | --- |
 | `GET /health` | Process liveness; no token required |
 | `GET /ready` | Returns 200 only when an intact promoted candidate has a configured backend; no token required |
-| `POST /v1/jobs` | Enqueues one job bounded by `maxUpdates` and `maxSeconds` |
-| `GET /v1/jobs/<id>` | Returns `queued`, `running`, `succeeded`, or `failed` |
+| `PUT /v1/tasksets/<digest>` | Validates and immutably registers one complete private taskset |
+| `POST /v1/jobs` | Enqueues one job bounded by `maxUpdates`, `maxSeconds`, and required `maxCredits` |
+| `GET /v1/jobs/<id>` | Returns `queued`, `running`, `succeeded`, `failed`, or `cancelled` |
+| `POST /v1/jobs/<id>/cancel` | Idempotently cancels a queued or running job; completed jobs return `409 job_terminal` |
 | `GET /v1/candidates/<id>` | Returns the immutable manifest and evaluation report |
-| `POST /v1/promotions` | Moves the explicit promotion pointer to one candidate |
-| `POST /v1/rollbacks` | Restores the immediately previous candidate as a new promotion generation |
+| `POST /v1/promotions` | Moves the pointer when required `expectedGeneration` still matches; exact idempotent retries return the applied generation |
+| `POST /v1/rollbacks` | Restores the previous candidate as a new generation when required `expectedGeneration` still matches |
 | `GET /v1/promotion` | Returns the promoted candidate and generation |
 | `POST /score`, `POST /v1/evaluations` | Evaluates one page with the promoted candidate |
 
 ### Run the fixture runtime in a container
 
-Build the runtime image, mount the taskset read-only, and mount a separate durable directory read-write:
+Build the runtime image and mount a durable private directory read-write. Upload tasksets through the authenticated API after startup.
 
 ```sh
 docker build -f server/runtime.Dockerfile -t replica-decision-runtime:dev .
@@ -242,7 +270,6 @@ mkdir -p /path/to/runtime-state
 docker run --rm \
   -e REPLICA_RUNTIME_TOKEN \
   --user "$(id -u):$(id -g)" \
-  -v /path/to/taskset:/data/taskset:ro \
   -v /path/to/runtime-state:/data/runtime \
   -p 127.0.0.1:8010:8010 \
   replica-decision-runtime:dev
@@ -256,7 +283,6 @@ The included Compose file wires the same complete local bundle without a GPU or 
 mkdir -p /path/to/runtime-state
 chmod 700 /path/to/runtime-state
 export REPLICA_RUNTIME_TOKEN="$(cat ~/.replica-runtime-token)"
-export REPLICA_TASKSET_DIR=/absolute/path/to/taskset
 export REPLICA_RUNTIME_STATE_DIR=/absolute/path/to/runtime-state
 export REPLICA_RUNTIME_TENANT=local
 export REPLICA_RUNTIME_REPOSITORY=github/example
@@ -264,7 +290,7 @@ export REPLICA_RUNTIME_USER="$(id -u):$(id -g)"
 docker compose up --build
 ```
 
-Compose binds the service only to localhost. It mounts the taskset read-only and the private runtime state read-write. The local factory binds that state directory permanently to the configured tenant and repository, so reopening it under another scope fails instead of exposing the first scope's jobs or candidates.
+Compose binds the service only to localhost and mounts the private runtime state read-write. Upload a taskset, submit a hard-budget job that names its digest, cancel a queued or running job, and repeat promotion or rollback requests with the same generation and idempotency key to exercise restart-safe retries. Keep `REPLICA_RUNTIME_STATE_DIR` on durable storage: it holds job budgets, connector-reported usage, generation history, and retry records. The local factory binds the directory permanently to the configured tenant and repository, so reopening it under another scope fails instead of exposing the first scope's tasksets, jobs, or candidates.
 
 ### Replace the infrastructure
 
@@ -272,11 +298,11 @@ The runtime contract follows the lifecycle rather than the services of one cloud
 
 | Interface | Local implementation | Future hosted responsibility |
 | --- | --- | --- |
-| Taskset | `LocalTasksetConnector` validates one read-only mounted taskset and resolves only its scoped content digest | Resolve a private taskset object after checking tenant and repository access |
+| Taskset | `LocalTasksetConnector` validates optional mounted input plus uploaded bundles and keeps uploaded tasksets in private immutable digest paths | Register and resolve a private taskset object after checking tenant and repository access |
 | Artifact | `LocalArtifactConnector` keeps verified immutable bytes under private SHA-256 paths | Keep immutable candidate inputs and outputs in private content-addressed storage |
 | Job | `LocalJobConnector` keeps atomic JSON records, compare-and-swap versions, durable cancellation, idempotency records, and requires the active expiring worker lease for each state update | Keep durable job state and fence each transactional update through one worker lease |
-| Candidate | `LocalCandidateConnector` keeps read-only candidate files, verifies their digests, and appends atomic promotion or rollback generations | Keep immutable candidate manifests and artifacts, with a transactional generation-checked promotion pointer |
-| Training | `LocalTrainingConnector` runs a trusted backend inside the bounded local worker and returns persistable artifacts, evaluation evidence, and measured completed updates | Schedule bounded training on customer-selected compute and return the same candidate evidence and measured work |
+| Candidate | `LocalCandidateConnector` keeps read-only candidate files, verifies their digests, and appends generation-checked promotion or rollback decisions with durable idempotency records | Keep immutable candidate manifests and artifacts, with a transactional generation-checked promotion pointer and exact retry result |
+| Training | `LocalTrainingConnector` runs a trusted backend inside the bounded local worker, enforces fixture credits before work, and returns persistable artifacts, evaluation evidence, and authoritative usage | Reject unsupported hard budgets before scheduling, stop before exceeding measurable limits, and return authoritative usage and billed cost |
 | Inference | `LocalInferenceConnector` serves the adapter from the explicitly promoted local candidate | Send evaluation requests only to the explicitly promoted model deployment |
 | Credential | `LocalCredentialConnector` mints short-lived operation-bound credentials from a private installation key | Acquire workload or brokered credentials restricted to the operation, audience, tenant, and repository |
 | Observability | `LocalObservabilityConnector` appends scoped usage, optional cost, and metadata to private JSON Lines | Send the same scoped usage and cost records to the operator's telemetry and billing sinks |
