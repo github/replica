@@ -738,24 +738,45 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
           for (const withdrawal of withdrawals) {
             if (!withdrawal.purposes.includes("training")) continue
             const login = withdrawal.withdrawnBy.id.replace(/^(?:github|human):/, "")
-            const job =
-              repository.decisionTrainingJobs.find(
-                (candidate) =>
-                  candidate.consentGrantId === withdrawal.grantId &&
-                  candidate.requestedByMembership?.user.profile?.login === login,
+            const matchingJobs = repository.decisionTrainingJobs.filter(
+              (candidate) => candidate.consentGrantId === withdrawal.grantId,
+            )
+            const actorJob =
+              matchingJobs.find(
+                (candidate) => candidate.requestedByMembership?.user.profile?.login === login,
               ) ??
+              matchingJobs[0] ??
               repository.decisionTrainingJobs.find(
-                (candidate) => candidate.consentGrantId === withdrawal.grantId,
-              )
-            if (!job?.requestedByMembershipId) continue
-            pending.push({
-              repositoryId: repository.id,
-              actorMembershipId: job.requestedByMembershipId,
-              actorLogin: login,
-              selectors: { grantId: withdrawal.grantId },
-              reason: withdrawal.reason ?? "Training consent was withdrawn.",
-              idempotencyKey: `withdrawal:${withdrawal.id}`,
-            })
+                (candidate) => candidate.requestedByMembership?.user.profile?.login === login,
+              ) ??
+              repository.decisionTrainingJobs[0]
+            if (!actorJob?.requestedByMembershipId) continue
+            if (!matchingJobs.length) {
+              pending.push({
+                repositoryId: repository.id,
+                actorMembershipId: actorJob.requestedByMembershipId,
+                actorLogin: login,
+                selectors: { grantId: withdrawal.grantId },
+                reason: withdrawal.reason ?? "Training consent was withdrawn.",
+                idempotencyKey: `withdrawal:${withdrawal.id}:grant`,
+              })
+              continue
+            }
+            for (const job of matchingJobs) {
+              pending.push({
+                repositoryId: repository.id,
+                actorMembershipId: actorJob.requestedByMembershipId,
+                actorLogin: login,
+                selectors: {
+                  exportId: job.trainingExportId,
+                  grantId: withdrawal.grantId,
+                  evidenceDigest: job.evidenceDigest,
+                  tasksetDigest: job.tasksetDigest,
+                },
+                reason: withdrawal.reason ?? "Training consent was withdrawn.",
+                idempotencyKey: `withdrawal:${withdrawal.id}:${job.tasksetDigest}`,
+              })
+            }
           }
         }
         return pending

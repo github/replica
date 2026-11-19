@@ -13,6 +13,9 @@ export function listDecisionWithdrawalSources(database: PrismaClient) {
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         select: {
           consentGrantId: true,
+          trainingExportId: true,
+          evidenceDigest: true,
+          tasksetDigest: true,
           requestedByMembershipId: true,
           requestedByMembership: {
             select: { user: { select: { profile: { select: { login: true } } } } },

@@ -141,6 +141,9 @@ describe("createHubDecisionTasksetSource()", () => {
         decisionTrainingJobs: [
           {
             consentGrantId: "grant-training",
+            trainingExportId: "export-1",
+            evidenceDigest: `sha256:${"e".repeat(64)}`,
+            tasksetDigest: `sha256:${"t".repeat(64)}`,
             requestedByMembershipId: "44444444-4444-4444-8444-444444444444",
             requestedByMembership: {
               user: { profile: { login: "mona" } },
@@ -168,9 +171,14 @@ describe("createHubDecisionTasksetSource()", () => {
         repositoryId,
         actorMembershipId: "44444444-4444-4444-8444-444444444444",
         actorLogin: "mona",
-        selectors: { grantId: "grant-training" },
+        selectors: {
+          exportId: "export-1",
+          grantId: "grant-training",
+          evidenceDigest: `sha256:${"e".repeat(64)}`,
+          tasksetDigest: `sha256:${"t".repeat(64)}`,
+        },
         reason: "The repository administrator withdrew training consent.",
-        idempotencyKey: "withdrawal:withdrawal-1",
+        idempotencyKey: `withdrawal:withdrawal-1:sha256:${"t".repeat(64)}`,
       },
     ])
   })
