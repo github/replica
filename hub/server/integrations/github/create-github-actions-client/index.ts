@@ -77,6 +77,19 @@ const configurationFileSchema = z.looseObject({
   size: z.number().int().nonnegative().max(maximumConfigurationBytes),
   content: z.string(),
 })
+const treeSchema = z.looseObject({
+  truncated: z.literal(false),
+  tree: z
+    .array(
+      z.looseObject({
+        path: z.string().max(255),
+        mode: z.string(),
+        type: z.string(),
+        sha: z.string().regex(/^[0-9a-f]{40}$/),
+      }),
+    )
+    .max(2_000),
+})
 
 function mapRun(run: z.infer<typeof runSchema>): GitHubWorkflowRun {
   const actor = run.triggering_actor ?? run.actor
@@ -195,11 +208,46 @@ export function createGitHubActionsClient(
           authorization,
         ),
       )
+      async function readTree(sha: string) {
+        const response = await send(`${repositoryPath}/git/trees/${sha}`, authorization)
+        if (!response.ok) throw new GitHubProviderRequestError()
+        const bytes = await readBounded(response, 1_048_576)
+        if (!bytes) {
+          throw new Error(
+            "Cannot read .github/replica.json: its configuration directory exceeds the 1 MiB discovery limit.",
+          )
+        }
+        let value: unknown
+        try {
+          value = JSON.parse(bytes.toString("utf8"))
+        } catch (error) {
+          throw new GitHubProviderRequestError({ cause: error })
+        }
+        const tree = treeSchema.safeParse(value)
+        if (!tree.success) {
+          throw new Error(
+            "Cannot read .github/replica.json: GitHub must return a complete configuration directory with at most 2,000 entries.",
+            { cause: tree.error },
+          )
+        }
+        return tree.data.tree
+      }
+      const directory = (await readTree(reference.object.sha)).find(
+        (entry) => entry.path === ".github",
+      )
+      if (!directory) return readBuildWorkflowPaths({ version: 1 })
+      if (directory.type !== "tree" || directory.mode !== "040000") {
+        throw new Error(".github must be a directory without symbolic links.")
+      }
+      const entry = (await readTree(directory.sha)).find((entry) => entry.path === "replica.json")
+      if (!entry) return readBuildWorkflowPaths({ version: 1 })
+      if (entry.type !== "blob" || !["100644", "100755"].includes(entry.mode)) {
+        throw new Error(".github/replica.json must be a regular file without symbolic links.")
+      }
       const response = await send(
         `${repositoryPath}/contents/.github/replica.json?ref=${reference.object.sha}`,
         authorization,
       )
-      if (response.status === 404) return readBuildWorkflowPaths({ version: 1 })
       if (!response.ok) throw new GitHubProviderRequestError()
       const bytes = await readBounded(response, 32_768)
       if (!bytes) {

@@ -26,6 +26,21 @@ describe("validateTemplates()", () => {
     assert.equal(validateTemplates(metadata), null)
   })
 
+  it("rejects malformed explicit build selection even when no templates are configured", () => {
+    for (const builds of [
+      null,
+      [],
+      { workflow: ".github/workflows/build.yml" },
+      { workflows: [] },
+      { workflows: ".github/workflows/build.yml" },
+      { workflows: [".github/workflows/nested/build.yml"] },
+      { workflows: [".github/workflows/build.yml@refs/heads/main"] },
+      { workflows: [".github/workflows/build.yml", ".github/workflows/build.yml"] },
+    ]) {
+      assert.throws(() => validateTemplates({ version: 1, builds }), /builds|workflows/i)
+    }
+  })
+
   it("preserves local paths, query strings and fragments but removes Hub metadata", () => {
     assert.deepEqual(
       validateTemplates({

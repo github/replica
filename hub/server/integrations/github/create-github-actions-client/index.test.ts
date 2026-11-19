@@ -20,6 +20,7 @@ function respond(
     if (
       href.pathname === "/repositories/56" ||
       href.pathname.startsWith("/repositories/56/git/ref/heads/") ||
+      href.pathname.startsWith("/repositories/56/git/trees/") ||
       href.pathname === "/repositories/56/contents/.github/replica.json"
     ) {
       const overridden = configuration?.(href, init ?? {})
@@ -29,6 +30,24 @@ function respond(
       }
       if (href.pathname.includes("/git/ref/")) {
         return Promise.resolve(Response.json({ object: { type: "commit", sha: "c".repeat(40) } }))
+      }
+      if (href.pathname === `/repositories/56/git/trees/${"c".repeat(40)}`) {
+        return Promise.resolve(
+          Response.json({
+            truncated: false,
+            tree: [{ path: ".github", mode: "040000", type: "tree", sha: "d".repeat(40) }],
+          }),
+        )
+      }
+      if (href.pathname === `/repositories/56/git/trees/${"d".repeat(40)}`) {
+        return Promise.resolve(
+          Response.json({
+            truncated: false,
+            tree: configuration
+              ? [{ path: "replica.json", mode: "100644", type: "blob", sha: "e".repeat(40) }]
+              : [],
+          }),
+        )
       }
       return Promise.resolve(new Response("{}", { status: 404 }))
     }
@@ -102,6 +121,12 @@ describe("createGitHubActionsClient", () => {
     const configReads = requests.filter((url) => url.pathname.endsWith("/replica.json"))
     expect(configReads).toHaveLength(1)
     expect(configReads[0]?.searchParams.get("ref")).toBe("c".repeat(40))
+    expect(
+      requests.filter((url) => url.pathname.includes("/git/trees/")).map((url) => url.pathname),
+    ).toEqual([
+      `/repositories/56/git/trees/${"c".repeat(40)}`,
+      `/repositories/56/git/trees/${"d".repeat(40)}`,
+    ])
     expect(
       requests
         .filter((url) => url.pathname.includes("/actions/workflows/"))
@@ -209,7 +234,7 @@ describe("createGitHubActionsClient", () => {
     ).resolves.toEqual([expect.objectContaining({ id: 7 })])
   })
 
-  it.each([401, 403, 429, 503])(
+  it.each([401, 403, 404, 429, 503])(
     "does not treat a configuration HTTP %s failure as omitted configuration",
     async (status) => {
       const fetch = respond(
@@ -223,6 +248,154 @@ describe("createGitHubActionsClient", () => {
       ).rejects.toThrow(GitHubProviderRequestError)
     },
   )
+
+  it.each(["configuration file", "configuration directory"])(
+    "rejects a symlinked %s before the Contents API can follow it",
+    async (target) => {
+      const fetch = respond(
+        () => Response.json({}),
+        (url) => {
+          const treeSha = target === "configuration file" ? "d" : "c"
+          if (url.pathname === `/repositories/56/git/trees/${treeSha.repeat(40)}`) {
+            return Response.json({
+              truncated: false,
+              tree: [
+                {
+                  path: target === "configuration file" ? "replica.json" : ".github",
+                  mode: "120000",
+                  type: "blob",
+                  sha: "e".repeat(40),
+                },
+              ],
+            })
+          }
+          if (url.pathname.endsWith("/replica.json")) {
+            return configurationFile(
+              '{"version":1,"builds":{"workflows":[".github/workflows/redirected.yml"]}}',
+            )
+          }
+          return undefined
+        },
+      )
+
+      await expect(
+        createGitHubActionsClient(input, { fetch }).getBuildWorkflowPaths(),
+      ).rejects.toThrow()
+      expect(fetch.mock.calls.some(([url]) => (url as URL).pathname.includes("/contents/"))).toBe(
+        false,
+      )
+    },
+  )
+
+  it("accepts a regular executable configuration at the end of a 2000-entry tree", async () => {
+    const fetch = respond(
+      () => Response.json({}),
+      (url) => {
+        if (url.pathname === `/repositories/56/git/trees/${"d".repeat(40)}`) {
+          return Response.json({
+            truncated: false,
+            tree: [
+              ...Array.from({ length: 1999 }, (_, index) => ({
+                path: `other-${index}`,
+                mode: "100644",
+                type: "blob",
+                sha: "e".repeat(40),
+              })),
+              { path: "replica.json", mode: "100755", type: "blob", sha: "e".repeat(40) },
+            ],
+          })
+        }
+        return url.pathname.endsWith("/replica.json")
+          ? configurationFile(
+              '{"version":1,"builds":{"workflows":[".github/workflows/publish.yml"]}}',
+            )
+          : undefined
+      },
+    )
+
+    await expect(
+      createGitHubActionsClient(input, { fetch }).getBuildWorkflowPaths(),
+    ).resolves.toEqual([".github/workflows/publish.yml"])
+  })
+
+  it.each([".github", "replica.json"])(
+    "uses the legacy workflow only when the pinned tree has no %s entry",
+    async (missing) => {
+      const fetch = respond(
+        () => Response.json({}),
+        (url) => {
+          const treeSha = missing === ".github" ? "c" : "d"
+          if (url.pathname === `/repositories/56/git/trees/${treeSha.repeat(40)}`) {
+            return Response.json({ truncated: false, tree: [] })
+          }
+          return undefined
+        },
+      )
+
+      await expect(
+        createGitHubActionsClient(input, { fetch }).getBuildWorkflowPaths(),
+      ).resolves.toEqual([".github/workflows/replica.yml"])
+      expect(fetch.mock.calls.some(([url]) => (url as URL).pathname.includes("/contents/"))).toBe(
+        false,
+      )
+    },
+  )
+
+  it.each(["truncated", "malformed", "too many entries", "oversized"])(
+    "rejects %s tree evidence rather than treating configuration as absent",
+    async (failure) => {
+      const fetch = respond(
+        () => Response.json({}),
+        (url) => {
+          if (url.pathname === `/repositories/56/git/trees/${"d".repeat(40)}`) {
+            if (failure === "truncated") return Response.json({ truncated: true, tree: [] })
+            if (failure === "malformed") return Response.json({ truncated: false, tree: null })
+            if (failure === "oversized") {
+              return Response.json({
+                truncated: false,
+                tree: [],
+                padding: "x".repeat(1024 * 1024),
+              })
+            }
+            return Response.json({
+              truncated: false,
+              tree: Array.from({ length: 2001 }, (_, index) => ({
+                path: `other-${index}`,
+                mode: "100644",
+                type: "blob",
+                sha: "e".repeat(40),
+              })),
+            })
+          }
+          return undefined
+        },
+      )
+
+      await expect(
+        createGitHubActionsClient(input, { fetch }).getBuildWorkflowPaths(),
+      ).rejects.toThrow()
+      expect(fetch.mock.calls.some(([url]) => (url as URL).pathname.includes("/contents/"))).toBe(
+        false,
+      )
+    },
+  )
+
+  it.each([
+    { treeSha: "c", status: 404 },
+    { treeSha: "d", status: 503 },
+  ])("does not fall back after a tree HTTP $status failure", async ({ treeSha, status }) => {
+    const fetch = respond(
+      () => Response.json({}),
+      (url) =>
+        url.pathname === `/repositories/56/git/trees/${treeSha.repeat(40)}`
+          ? new Response("{}", { status })
+          : undefined,
+    )
+
+    await expect(
+      createGitHubActionsClient(input, { fetch }).getBuildWorkflowPaths(),
+    ).rejects.toThrow(GitHubProviderRequestError)
+  })
 
   it.each(["/repositories/56", "/repositories/56/git/ref/heads/trunk"])(
     "does not treat missing source evidence at %s as omitted configuration",

@@ -109,6 +109,22 @@ describe("GitHub recovery workers", () => {
       if (url.pathname === "/repositories/56/git/ref/heads/trunk") {
         return Promise.resolve(Response.json({ object: { type: "commit", sha: "c".repeat(40) } }))
       }
+      if (url.pathname === `/repositories/56/git/trees/${"c".repeat(40)}`) {
+        return Promise.resolve(
+          Response.json({
+            truncated: false,
+            tree: [{ path: ".github", mode: "040000", type: "tree", sha: "d".repeat(40) }],
+          }),
+        )
+      }
+      if (url.pathname === `/repositories/56/git/trees/${"d".repeat(40)}`) {
+        return Promise.resolve(
+          Response.json({
+            truncated: false,
+            tree: [{ path: "replica.json", mode: "100644", type: "blob", sha: "e".repeat(40) }],
+          }),
+        )
+      }
       if (url.pathname.endsWith("/replica.json")) {
         const content = JSON.stringify({
           version: 1,
