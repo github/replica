@@ -80,7 +80,8 @@ export function createReviewInbox(
         const allowed = await Promise.all(
           visible.map(async (repository) =>
             githubId &&
-            (await github.find(repository.nameWithOwner, input.viewer.login, githubId))
+            repository.githubRepositoryId &&
+            (await github.find(repository.githubRepositoryId, input.viewer.login, githubId))
               ?.githubId === githubId
               ? repository.id
               : null,
@@ -120,8 +121,8 @@ export function createReviewInbox(
         (repository) =>
           verified.has(repository.id) &&
           visible.some(
-            ({ id, nameWithOwner }) =>
-              id === repository.id && nameWithOwner === repository.nameWithOwner,
+            ({ id, githubRepositoryId }) =>
+              id === repository.id && githubRepositoryId === repository.githubRepositoryId,
           ),
       )
       return action(transaction, inboxWhere(currentKeys, confirmed))

@@ -40,7 +40,7 @@ export async function findReviewRepository(
 ) {
   const repository = await database.repository.findFirst({
     where: { id: repositoryId, removedAt: null },
-    select: { id: true, nameWithOwner: true, localPath: true, defaultBranch: true },
+    select: { id: true, githubRepositoryId: true, localPath: true, defaultBranch: true },
   })
   if (!repository) return null
   const available = await database.repository.findFirst({

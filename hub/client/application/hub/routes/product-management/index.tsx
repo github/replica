@@ -86,7 +86,7 @@ export async function clientAction({
     }
     try {
       const prototypeId = readRecordIdentifier(match[2], "prototype")
-      await updatePrototype(request, repositoryId, prototypeId, parsed.data)
+      await updatePrototype(request, repositoryId, prototypeId, parsed.data, true)
       return data<ProductActionResult>({ saved: true, notice: "Prototype listing saved." })
     } catch (error) {
       return productActionError(error)

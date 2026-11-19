@@ -1864,24 +1864,26 @@ describe("syncGitHubInstallationRepositories()", () => {
 
     await syncGitHubInstallationRepositories(prisma, () => Promise.resolve([renamed]))
 
-    await expect(
-      prisma.repository.findUniqueOrThrow({
-        include: { prototypes: { include: { builds: true } } },
-        where: { id: repository.id },
-      }),
-    ).resolves.toMatchObject({
+    const saved = await prisma.repository.findUniqueOrThrow({
+      include: { prototypes: { include: { builds: true } } },
+      where: { id: repository.id },
+    })
+    expect(saved).toMatchObject({
       defaultBranch: "trunk",
       githubRepositoryId: 1001n,
       nameWithOwner: "team/new-name",
       removedAt: null,
-      prototypes: [
-        {
-          id: history.prototypeId,
-          currentBuildId: history.buildId,
-          builds: [{ id: history.buildId, prototypeId: history.prototypeId }],
-        },
-      ],
     })
+    expect(saved.prototypes.find(({ id }) => id === history.prototypeId)).toMatchObject({
+      currentBuildId: history.buildId,
+      builds: [{ id: history.buildId, prototypeId: history.prototypeId }],
+    })
+    expect(
+      saved.prototypes
+        .filter(({ replica }) => replica)
+        .map(({ branchName }) => branchName)
+        .sort(),
+    ).toEqual(["main", "trunk"])
     expect(await prisma.repository.count()).toBe(1)
     expect(await repositoryGrants(member.membershipId)).toEqual([repository.id])
     await expect(restore(member.sessions[0]!.digest)).resolves.toMatchObject({

@@ -49,9 +49,9 @@ export function createReviewMentionDirectory(database: Database, github?: GitHub
           .filter(({ login, userId }) => userId !== viewerId && validLogin.test(login))
           .map(({ login }) => ({ login, avatarUrl: null }))
       }
-      if (!github) throw unavailable()
+      if (!github || !source.githubRepositoryId) throw unavailable()
       try {
-        return await github.search(source.nameWithOwner, query)
+        return await github.search(source.githubRepositoryId, query)
       } catch {
         throw unavailable()
       }
@@ -85,10 +85,10 @@ export function createReviewMentionDirectory(database: Database, github?: GitHub
               ? null
               : { login, recipientKey }
           }
-          if (!github) throw unavailable()
+          if (!github || !source.githubRepositoryId) throw unavailable()
           try {
             const previousId = previous ? githubReviewId(previous.recipientKey) : undefined
-            const profile = await github.find(source.nameWithOwner, login, previousId)
+            const profile = await github.find(source.githubRepositoryId, login, previousId)
             return profile && (!previous || profile.githubId === previousId)
               ? { login, recipientKey: `github:${profile.githubId}` }
               : null

@@ -73,6 +73,7 @@ export function post(
         prototypeId: prototypeId.data,
         createdById: current.userId,
         createdByLogin: current.login,
+        actorMembershipId: current.membershipId,
         ...(hosted ? { approval: hosted.approval } : {}),
         ...body.data,
       })

@@ -319,18 +319,19 @@ export function createProductRouteDependencies({
             applicationOrigin: analyticsSettings.applicationOrigin,
             localAdministration: localAnalyticsAdministration,
             isLocalAdministrator: isLocalAnalyticsAdministrator,
-            hostedAuthorization: githubRepositoryCredentials || permissionOverride
-              ? createHostedAnalyticsAuthorization(
-                  prisma,
-                  analytics,
-                  analyticsSettings.encryptionKey,
-                  {
-                    getRepositoryPermission,
-                    restoreSession: (transaction, digest) =>
-                      restoreSession(transaction, joinTransaction(transaction), digest),
-                  },
-                )
-              : undefined,
+            hostedAuthorization:
+              githubRepositoryCredentials || permissionOverride
+                ? createHostedAnalyticsAuthorization(
+                    prisma,
+                    analytics,
+                    analyticsSettings.encryptionKey,
+                    {
+                      getRepositoryPermission,
+                      restoreSession: (transaction, digest) =>
+                        restoreSession(transaction, joinTransaction(transaction), digest),
+                    },
+                  )
+                : undefined,
             list: (repositoryId) => analytics.list(repositoryId),
             mutate: (actor, mutation, digest) =>
               analytics.mutate(actor, mutation, async (transaction) => {
@@ -376,7 +377,7 @@ export function createProductRouteDependencies({
         return denied
       }
       if (!repository.localPath && actor.sessionProvider === "github" && githubReviewDirectory) {
-        if (!actor.sessionDigest) return denied
+        if (!actor.sessionDigest || !repository.githubRepositoryId) return denied
         const session = await findSessionGitHubSubject(prisma, actor.sessionDigest)
         const identity = session?.externalIdentity
         const githubId =
@@ -386,7 +387,7 @@ export function createProductRouteDependencies({
         if (!githubId) return denied
         try {
           const profile = await githubReviewDirectory.find(
-            repository.nameWithOwner,
+            repository.githubRepositoryId,
             actor.login,
             githubId,
             signal,
@@ -469,25 +470,27 @@ export function createProductRouteDependencies({
         findRepositoryAuthors(prisma, repositoryId, filters, repositoryScope),
       ),
     editPrototypeMetadata: async (input) => {
-      const hostedDraft = await prisma.prototype.findFirst({
+      const hostedTarget = await prisma.prototype.findFirst({
         where: {
           id: input.prototypeId,
-          registeredAt: null,
+          ...(input.listing ? {} : { registeredAt: null }),
           repository: {
             id: input.repositoryId,
             githubRepositoryId: { not: null },
             localPath: null,
           },
         },
-        select: { branchName: true },
+        select: { branchName: true, registeredAt: true },
       })
-      const initial = hostedDraft ? await restoreSession(prisma, prisma, input.sessionDigest) : null
-      const registrationPermission =
-        hostedDraft && initial
+      const initial = hostedTarget
+        ? await restoreSession(prisma, prisma, input.sessionDigest)
+        : null
+      const listingPermission =
+        hostedTarget && initial
           ? await getRepositoryPermissionEvidence(
               initial,
               input.repositoryId,
-              hostedDraft.branchName,
+              hostedTarget.registeredAt ? undefined : hostedTarget.branchName,
             )
           : null
       return editPrototypeMetadata(input, {
@@ -506,15 +509,27 @@ export function createProductRouteDependencies({
                     transaction,
                     repositoryId,
                     prototypeId,
+                    input.listing,
                   )
                   if (
+                    input.listing &&
                     prototype &&
-                    !prototype.registeredAt &&
+                    !prototype.hosted &&
+                    !(
+                      prototype.local &&
+                      viewer.sessionProvider === "local" &&
+                      viewer.role === "ADMINISTRATOR"
+                    )
+                  )
+                    return null
+                  if (
+                    prototype &&
                     prototype.hosted &&
-                    (!registrationPermission ||
-                      !canWriteRepository(registrationPermission.permission ?? "none") ||
-                      registrationPermission.accessRevision !== revision ||
-                      hostedDraft?.branchName !== prototype.branchName ||
+                    (input.listing || !prototype.registeredAt) &&
+                    (!listingPermission ||
+                      !canWriteRepository(listingPermission.permission ?? "none") ||
+                      listingPermission.accessRevision !== revision ||
+                      hostedTarget?.branchName !== prototype.branchName ||
                       initial?.externalIdentityId !== viewer.externalIdentityId ||
                       initial?.role !== viewer.role)
                   ) {

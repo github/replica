@@ -56,6 +56,7 @@ export function del(
           repositoryId: repositoryId.data,
           prototypeId: prototypeId.data,
           publicId: publicId.data,
+          actorMembershipId: current.membershipId,
           ...(hosted ? { approval: hosted.approval } : {}),
         }))
       ) {

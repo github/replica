@@ -14,6 +14,7 @@ export function workspaceNavigation(
   const repositoryAdmin = workspace.repositories.find(({ id }) => id === repositoryId)?.capabilities
     ?.administerRepository
   const unreadCount = workspace.navigation?.notificationsUnreadCount ?? 0
+  const inboxConnected = real && workspace.reviewInboxAvailable
   const welcomeVisible = real
     ? workspace.welcomeHidden === false
     : !workspace.navigation?.welcomeHidden
@@ -42,14 +43,32 @@ export function workspaceNavigation(
     welcomeLabel: "Welcome",
     welcomePath: welcomeVisible ? resourcePath("/welcome", search, { repositoryId }) : null,
     notificationsLabel: real ? "Inbox" : "Notifications",
-    notificationsPath: resourcePath("/notifications", search, { repositoryId }),
-    notificationInbox: real ? { ...notificationInboxConfiguration, connected: true } : undefined,
+    notificationsPath:
+      !real || inboxConnected
+        ? resourcePath("/notifications", search, { repositoryId })
+        : undefined,
+    notificationInbox: inboxConnected
+      ? { ...notificationInboxConfiguration, connected: true }
+      : undefined,
     notificationsUnread: unreadCount > 0,
     notificationsUnreadCount: unreadCount,
     notificationsUnreadLabel: `${real ? "Inbox" : "Notifications"}, ${unreadCount} unread`,
     administrationLinks: admin
       ? real
-        ? [{ section: "admins", label: "Hub administrators", path: "/settings/administrators" }]
+        ? [
+            { section: "admins", label: "Hub administrators", path: "/settings/administrators" },
+            ...(workspace.publicSharingSettingsAvailable
+              ? [
+                  {
+                    section: "sharing" as const,
+                    label: "Public sharing",
+                    path: "/settings/sharing",
+                  },
+                ]
+              : []),
+            { section: "sessions", label: "End all Hub sessions", path: "/settings/sessions" },
+            { section: "copilot", label: "Copilot connection", path: "/settings/copilot" },
+          ]
         : [
             {
               section: "admins",

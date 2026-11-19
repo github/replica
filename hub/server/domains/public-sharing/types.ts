@@ -67,6 +67,7 @@ export interface PublicSharingService {
     createdByLogin: string
     label: string
     expiration: ShareLinkExpiration
+    actorMembershipId?: string
     approval?: HostedSharingApproval
   }): Promise<{
     id: string
@@ -84,6 +85,7 @@ export interface PublicSharingService {
     repositoryId: string
     prototypeId: string
     publicId: string
+    actorMembershipId?: string
     approval?: HostedSharingApproval
   }): Promise<boolean>
   readPublicLink(publicId: string): Promise<

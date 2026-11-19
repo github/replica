@@ -10,6 +10,7 @@ export function productShareLinksData(
   response: ProductSharingResponse,
   search: URLSearchParams,
   origin: string,
+  real = false,
 ): ShareLinksIndexPageData {
   const { resource } = response
   const { repository, prototype, selectedBuild } = resource
@@ -28,9 +29,9 @@ export function productShareLinksData(
       selectedBuild: selected,
       search,
       surface: "build",
-      real: hosted,
+      real: real || hosted,
     }),
-    ...(!hosted
+    ...(!real && !hosted
       ? { newPrototypePath: resourcePath(`/repositories/${repository.id}/new`, search) }
       : {}),
     buildOptions: prototype.builds

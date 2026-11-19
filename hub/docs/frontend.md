@@ -1,12 +1,6 @@
 # Routed frontend
 
-The Hub frontend uses React Router Framework Mode as a single-page application (SPA) rendered in the browser. In mock mode, it connects the retained pages to local product mocks. In real mode, Create, template previews, and Welcome use Express alongside the repository index, prototype details and Build history, persisted review conversations, administrator roster, and Hub-wide security audit.
-
-This frontend does not restore the production Hub. Configured GitHub authentication, Hub admission, browser sessions, a repository index, and a prototype detail API are available. GitHub members are limited to their readable repositories; see [Authentication](authentication.md). The following remain separate backend work:
-
-- Other product APIs and finer-grained repository permissions.
-- External product integrations.
-- Build hosting and publishing.
+The Hub frontend uses React Router Framework Mode as a single-page application. Real mode connects the product flows to Express and PostgreSQL. Mock mode uses isolated local fixtures. The legacy GitHub App settings, registration, and installation pages remain mock references; use the guided setup in real mode.
 
 Browser source lives under [client/](../client/), with its routed entry in [application/hub/](../client/application/hub/). The [frontend layers](coding-conventions.md#frontend-layers) define how that entry uses presentation code. The Express API stays separate under [server/](../server/).
 
@@ -32,7 +26,9 @@ The dataset includes `octocat`, `mona`, additional fictional collaborators, `git
 
 In mock mode, the neutral root reads the simulated session. Private pages load their workspace in a separate layout; public shared previews and signed-out pages do not load a private workspace. These provisional product contracts are not adapters for real authentication or authorization.
 
-In real mode, signed-out visitors see the authentication shell without loading provisional session or workspace data. Signed-in members open the first repository or an empty workspace. Administrators can open `/settings/administrators`, `/settings/sessions`, `/settings/copilot`, `/settings/sharing`, and `/settings/audit?scope=hub` without loading provisional product workspace data. The sessions page reads current Hub authentication counts, requires explicit confirmation, leaves for fresh authorization through the current session provider, and keeps the signed-out completion result visible after the API ends every Hub session. Sign-in, enrollment, and sign-out forms submit natively to the configured API. Members can search the index, filter it by user, page through 24 prototypes at a time, and open prototype details and Build history. The detail API selects the latest successful Build by default; `build` pins another successful Build, and invalid or unavailable selections return 404. Successful Builds with the canonical package artifacts expose authenticated preview and screenshot URLs on Build-specific origins. A member can edit the name, description, and start page of any visible prototype; saving a draft registers it. Later edits preserve its author and registration time. The fixed local identity can use persisted review conversations for configured local repositories and create or revoke Build-pinned share links after an administrator enables deployment sharing. Other providers receive neither capability until repository authorization is connected. `/shared/:shareId` remains public and loads no private workspace or review data. Users from other providers are shown by name or login without a GitHub link. Build user metadata may be unknown for older records. Live review updates remain unavailable, and other real product routes retain explicit API failures. In mock mode, `/` keeps the product entry flow, and `/admin-enrollment` redirects to the mock `/settings/enroll` flow. See [Hub development](development.md) for seed data and access limitations.
+In real mode, signed-in members open the first repository or an empty workspace. Members can search the gallery, filter by user, and open prototype details and Build history. The detail page shows the latest successful Build by default; `?build=N` selects another successful Build. Hosted listing changes and draft registration require current GitHub write permission. Individual edits to an already listed prototype retain the existing detail permissions.
+
+Live [review and Inbox](review-collaboration.md) use saved PostgreSQL records and repository access checks. [Public preview links](share-links.md) are Build-pinned, signed-out routes with no private Hub navigation. [Analytics](analytics.md) and repository audit require repository-level administration. Hub-wide sign-in, enrollment, administration, audit, and session revocation keep their separate authorization.
 
 The Build pickers and History list all Build states in both modes. Successful Builds open the prototype view with `?build=N`; History shows when each Build was added in the viewer's local timezone. Real previews use saved artifacts from local Builds or [GitHub Actions imports](github-actions-builds.md). Share-link management offers successful Builds with a saved preview.
 
@@ -265,9 +261,9 @@ npm run dev:api
 npm run dev
 ```
 
-Run those in separate terminals. `npm run dev:api` uses local developer sign-in; use `npm run dev:api:live` for configured GitHub or Entra sign-in. [Development](development.md#start-with-the-real-api) explains the choice. Real mode proxies `/api` to Express and never starts MSW or falls back to fixtures. Open `/` for sign-in, or `/admin-enrollment` for administrator enrollment. After restoring an administrator session, open `/settings/administrators` for administrator management or `/settings/audit?scope=hub` for Hub-wide security records. Express exposes health, readiness, authentication, administrator-management, security-audit, workspace, repository-index, author-search, prototype-detail, and Build history routes, including prototype-detail edits. The real detail page supports metadata editing but has no hosted preview yet. Other product routes show explicit API failures until their real endpoints exist.
+Run those in separate terminals. `npm run dev:api` uses local developer sign-in; use `npm run dev:api:live` for configured GitHub or Entra sign-in. See [Development](development.md#start-with-the-real-api) for setup. Real mode proxies `/api` to Express and never starts MSW or falls back to fixtures. Open `/` for sign-in or `/admin-enrollment` for administrator enrollment.
 
-The [authentication guide](authentication.md) owns real sign-in, admission, and session behavior. Those routes and the backend's [telemetry](telemetry.md) and [WebSocket](websockets.md) foundations do not change the provisional mock product contracts. WebSocket upgrades are denied until application access checks are supplied. Mock sign-in and review actions remain local simulations.
+The [authentication guide](authentication.md) owns real sign-in, admission, and session behavior. [WebSocket updates](websockets.md) refresh authorized reviews. Mock sign-in and review actions remain local simulations.
 
 `npm run lint` and `npm run typecheck` generate Framework route types before their typed checks, including independent CI jobs. `npm run build` produces the static SPA under `dist/client/` and the separate API under `dist/server/`. Framework SPA Mode disables runtime SSR but still renders the root fallback at build time, so imported modules and the root remain safe outside a browser.
 
@@ -301,11 +297,11 @@ GitHub App setup, registration, and installation pages can be opened directly wi
 | --- | --- | --- |
 | [Repositories index](../client/pages/repositories-index-page/) | Repository-free navigation at `/` and `/repositories` | [Empty workspace in Storybook](http://localhost:6006/?path=/story/hub-pages-repositories--empty) |
 | [Repositories show](../client/pages/repositories-show-page/) | Connected repository listing, filters, and pagination | [github/prototype](http://127.0.0.1:5173/repositories/2001) |
-| [Prototypes show](../client/pages/prototypes-show-page/) | Preview, metadata, and mock review conversations | [Welcome review](http://127.0.0.1:5173/repositories/2001/prototypes/1?build=3&comment=1) |
+| [Prototypes show](../client/pages/prototypes-show-page/) | Preview, metadata, and review conversations | [Welcome review](http://127.0.0.1:5173/repositories/2001/prototypes/1?build=3&comment=1) |
 | [Builds index](../client/pages/builds-index-page/) | Connected build history | [Welcome history](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds) |
 | [Home](../client/pages/home-index-page/) | `/sign-in` | [Mock sign-in](http://127.0.0.1:5173/sign-in) |
 | [Analytics](../client/pages/analytics-page/) | `/repositories/:repositoryId/analytics` | [Repository analytics](http://127.0.0.1:5173/repositories/2001/analytics) |
-| [Canvas pairings](../client/pages/canvas-pairings-page/) | `/settings/canvas` and `/settings/canvas/approve` | [Connections](http://127.0.0.1:5173/settings/canvas?repositoryId=2001) and [approval](http://127.0.0.1:5173/settings/canvas/approve?repositoryId=2001) |
+| [Canvas pairings](../client/pages/canvas-pairings-page/) | Real `/canvas/connections` and `/canvas/pair/:code`; mock `/settings/canvas` and `/settings/canvas/approve` | [Connections](http://127.0.0.1:5173/settings/canvas?repositoryId=2001) and [approval](http://127.0.0.1:5173/settings/canvas/approve?repositoryId=2001) |
 | [Copilot connection](../client/pages/copilot-connection-page/) | `/settings/copilot` | [Mock Copilot connection](http://127.0.0.1:5173/settings/copilot) |
 | [Fresh authorization](../client/pages/fresh-authorization-page/) | Mock `/settings/authorize`; real `/settings/administrators/confirm?authorizationId=:uuid` | [Administrator continuation in Storybook](http://localhost:6006/?path=/story/hub-pages-security-fresh-authorization--continuing) |
 | [GitHub App](../client/pages/github-app-page/) | `/settings/github` | [Mock App settings](http://127.0.0.1:5173/settings/github) |

@@ -26,7 +26,7 @@ export function findInboxRepositories(
         },
       ],
     },
-    select: { id: true, nameWithOwner: true, defaultBranch: true },
+    select: { id: true, githubRepositoryId: true, defaultBranch: true },
   })
 }
 

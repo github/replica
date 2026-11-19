@@ -310,7 +310,7 @@ describe("real product index", () => {
     }
     const entraSession = {
       membershipId: randomUUID(),
-      userId: randomUUID(),
+      userId: (await prisma.user.create({ data: {} })).id,
       provider: "entra",
       sessionProvider: "entra",
       login: "member",
@@ -604,7 +604,7 @@ describe("real product index", () => {
     })
     const activeSession = {
       membershipId: randomUUID(),
-      userId: randomUUID(),
+      userId: (await prisma.user.create({ data: {} })).id,
       provider: "github",
       sessionProvider: "github",
       login: "mona",
@@ -662,7 +662,7 @@ describe("real product index", () => {
   it("uses the current role after reading the workspace", async () => {
     const session = {
       membershipId: randomUUID(),
-      userId: randomUUID(),
+      userId: (await prisma.user.create({ data: {} })).id,
       provider: "entra",
       sessionProvider: "entra",
       login: "member",

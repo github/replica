@@ -70,7 +70,12 @@ async function renderApplication(path: string, handlers: Parameters<typeof setup
   vi.stubEnv("MODE", "development")
   vi.stubEnv("DEV", true)
   const requests: string[] = []
-  const server = setupServer(...handlers)
+  const server = setupServer(
+    http.get(`${window.location.origin}/api/notifications/inbox`, () =>
+      HttpResponse.json({ notifications: [], nextBefore: null, unreadCount: 0 }),
+    ),
+    ...handlers,
+  )
   server.events.on("request:start", ({ request }) => {
     const url = new URL(request.url)
     requests.push(`${request.method} ${url.pathname}${url.search}`)
@@ -106,7 +111,9 @@ function expectOnlyRealAuditRequests(requests: string[]) {
   expect(
     requests.every(
       (request) =>
-        request === "GET /api/auth/session" || request.startsWith("GET /api/security-audits?"),
+        request === "GET /api/auth/session" ||
+        request === "GET /api/notifications/inbox?limit=1&unread=true" ||
+        request.startsWith("GET /api/security-audits?"),
     ),
   ).toBe(true)
 }
@@ -200,9 +207,9 @@ describe("real security audit frontend integration", () => {
   it.each([
     ["an unsupported query field", "/settings/audit?scope=hub&page=2", null],
     [
-      "repository scope",
+      "repository scope without a repository",
       "/settings/audit?scope=repository",
-      "Only the Hub-wide security audit is available.",
+      "Select a valid security audit scope.",
     ],
     ["an empty cursor", "/settings/audit?scope=hub&before=", null],
     ["repeated cursors", "/settings/audit?scope=hub&before=one&before=two", null],

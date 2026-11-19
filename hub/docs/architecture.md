@@ -38,7 +38,7 @@ The [review collaboration flow](review-collaboration.md) stores Build-pinned ele
 
 The [telemetry integration](telemetry.md) sends explicit server-side OpenTelemetry spans to an optional operator-configured recipient. [Repository analytics](analytics.md) separately retains product events and can deliver them to repository destinations when an operator enables delivery. Security audit data never enters the analytics pipeline.
 
-The [WebSocket foundation](websockets.md) attaches to the API's HTTP server and broadcasts to local channel subscribers without persistence. The application rejects upgrades until access checks are supplied. Product channels, client recovery, and communication between processes are not implemented.
+[WebSocket updates](websockets.md) tell authorized review clients when saved conversations change. PostgreSQL notifies each API process after the write commits. The browser reloads authorized review data over HTTP after a notice or reconnect.
 
 The identity foundation stores Hub users, immutable external identity mappings, selected authentication provider revision digests, administrator-managed assignment history, and bounded security audits. It does not store provider configuration. A provider adapter must validate its typed public configuration before the kernel computes a digest and starts the database transaction.
 
@@ -78,7 +78,7 @@ The theme provider wraps routes and their loading and error feedback.
 - Route loaders and actions request product data and refresh it after changes. Shareable filters and selections live in the URL.
 - Product screens keep product-facing copy. API failures remain visible errors.
 
-The application adapts retained internal links and GET forms to SPA navigation. Authentication POST forms use native browser submissions. Explicit adapters submit supported product mutations; unknown legacy form submissions receive visible feedback. The [frontend guide](frontend.md) owns the connected routes, provisional HTTP contracts, local development modes, and complete page inventory. Most real product APIs remain separate work.
+The application adapts internal links and GET forms to SPA navigation. Authentication POST forms use native browser submissions. Explicit adapters submit supported product mutations; unknown legacy form submissions receive visible feedback. The [frontend guide](frontend.md) owns the connected routes and local development modes.
 
 ## Other projects
 

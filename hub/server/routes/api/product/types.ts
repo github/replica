@@ -105,6 +105,7 @@ export interface ProductRouteDependencies {
   ): ReturnType<typeof findRepositoryAuthors>
   editPrototypeMetadata(input: {
     changes: PrototypeMetadataChanges
+    listing?: boolean
     prototypeId: string
     repositoryId: string
     sessionDigest: string

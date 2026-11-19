@@ -10,6 +10,7 @@ export function settingsWorkspace(
   state: NavigationState,
   search: URLSearchParams,
   selectedSection: HubWorkspaceData["selectedSection"],
+  real = false,
 ) {
   const currentWorkspace: WorkspaceResponse = {
     ...workspace,
@@ -20,10 +21,10 @@ export function settingsWorkspace(
     },
   }
   return {
-    ...workspaceNavigation(currentWorkspace, state.repository?.id ?? null, search),
+    ...workspaceNavigation(currentWorkspace, state.repository?.id ?? null, search, real),
     selectedSection,
     repository: state.repository
-      ? repositoryWorkspace(currentWorkspace, state.repository, search)
+      ? repositoryWorkspace(currentWorkspace, state.repository, search, real)
       : null,
   } satisfies HubWorkspaceData
 }

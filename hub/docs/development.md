@@ -129,8 +129,9 @@ The runner uses an isolated detached Git worktree for the exact commit, so worki
 
 Successful local Builds are immediately available to the authenticated [preview layer](build-previews.md) through their saved `BuildArtifact` records. The preview and screenshot URLs use the same artifact paths and storage keys written by synchronization; no import or second artifact representation is required. The injected preview bridge supplies element and area anchors to the parent Hub page. The fixed local identity can list and change persisted conversations for those configured repositories while each thread remains pinned to the successful Build where it began. After a local administrator enables deployment sharing, the same saved preview can receive an opaque public link through the [local sharing contract](share-links.md).
 
-Reviews and share links do not modify or duplicate Build artifacts. Public links do not expose review or repository data. This local flow does not add GitHub collaborator lookup, mentions, inbox notifications, reactions, Canvas pairing, hosted repository discovery, workflow installation, or GitHub authorization.
-Vite also forwards WebSocket upgrades under `/api`. The `/api/realtime` endpoint rejects connections until application access checks are connected; see [WebSocket updates](websockets.md). Stopping the API closes its WebSocket connections as well.
+Reviews and share links do not modify or duplicate Build artifacts. Public links do not expose review or repository data. The local identity can use review reactions, Canvas pairing, and analytics settings without GitHub. Use separate authorized GitHub identities to exercise hosted permissions and mention and Inbox behavior across accounts.
+
+Vite forwards `/api/realtime` for [authenticated review updates](websockets.md). Stopping the API closes its WebSocket connections.
 
 The API reads an optional `PORT` environment variable, defaulting to 3001. If you change it, update the local Vite proxy target to match. The editor forwards ports 3001, 5173, and 6006 from the devcontainer. API startup reads `.env` when present; Compose's environment takes precedence.
 
@@ -140,7 +141,7 @@ On `SIGINT` or `SIGTERM`, the API stops accepting requests and allows active req
 
 The API and frontend do not start background consumers. After starting PostgreSQL, run `npm run setup` once, then start `npm run worker:on-demand` and `npm run worker:scheduled` in separate terminals. Both use `DATABASE_URL`; their concurrency settings are in `.env.example`.
 
-The scheduled worker reconciles the configured GitHub installation hourly. See [Background jobs](background-jobs.md) for definitions, shutdown, migrations, and the compiled commands intended for separate deployment services.
+The scheduled worker reconciles the GitHub installation hourly and [polls for hosted Builds](github-actions-builds.md) every five minutes. See [Background jobs](background-jobs.md) for setup and worker commands.
 
 ## Database lifecycle
 

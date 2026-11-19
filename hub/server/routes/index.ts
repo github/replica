@@ -134,7 +134,11 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
         )
       app.get(
         "/api/workspace",
-        handleWorkspaceGet(authentication.currentSession, product, Boolean(publicSharing)),
+        handleWorkspaceGet(
+          authentication.currentSession,
+          product,
+          Boolean(publicSharing && !publicSharing.hosted),
+        ),
       )
       if (product.welcome) {
         app.patch(
@@ -179,6 +183,12 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
         app.get(
           "/api/repositories/:repositoryId/prototype-management",
           handlePrototypeManagementGet(authentication.currentSession, findPrototypeManagement),
+        )
+        app.patch(
+          "/api/repositories/:repositoryId/prototype-management/:prototypeId",
+          requireOrigin(authentication.signOut.applicationOrigin),
+          express.json({ limit: "32kb", strict: true }),
+          handlePrototypePatch(authentication.currentSession, product, true),
         )
       }
       app.get(

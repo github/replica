@@ -13,6 +13,7 @@ import { revokeAllShareLinks } from "../../../repositories/public-sharing/revoke
 import { revokeShareLink } from "../../../repositories/public-sharing/revoke-share-link/index.ts"
 import { updateShareLinkExpirations } from "../../../repositories/public-sharing/update-share-link-expirations/index.ts"
 import { updateSharingSetting } from "../../../repositories/public-sharing/update-sharing-setting/index.ts"
+import { recordRepositoryAudit } from "../../../repositories/security-audits/record-repository-audit/index.ts"
 import {
   hostedPublicSharingSettingKey,
   publicSharingSettingKey,
@@ -210,6 +211,14 @@ export async function createPublicSharingService(
             prototypeId: input.prototypeId,
             publicId: randomUUID(),
           })
+          if (input.actorMembershipId) {
+            await recordRepositoryAudit(transaction, {
+              action: "share_link.created",
+              repositoryId: input.repositoryId,
+              targetId: link.id,
+              actorMembershipId: input.actorMembershipId,
+            })
+          }
           return { ...link, buildNumber: input.buildNumber }
         },
         { isolationLevel },
@@ -233,7 +242,26 @@ export async function createPublicSharingService(
               "Public sharing changed while this link was being revoked.",
             )
           }
-          return revokeShareLink(transaction, { ...input, revokedAt: new Date() }, hosted)
+          const existing = input.actorMembershipId
+            ? await transaction.shareLink.findUnique({
+                where: { publicId: input.publicId },
+                select: { id: true },
+              })
+            : null
+          const revoked = await revokeShareLink(
+            transaction,
+            { ...input, revokedAt: new Date() },
+            hosted,
+          )
+          if (revoked && existing && input.actorMembershipId) {
+            await recordRepositoryAudit(transaction, {
+              action: "share_link.revoked",
+              repositoryId: input.repositoryId,
+              targetId: existing.id,
+              actorMembershipId: input.actorMembershipId,
+            })
+          }
+          return revoked
         },
         { isolationLevel },
       )

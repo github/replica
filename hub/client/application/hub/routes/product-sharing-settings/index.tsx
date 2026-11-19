@@ -101,6 +101,7 @@ export default function ProductSharingSettings({
           workspace,
           loaderData,
           new URLSearchParams(location.search),
+          !(import.meta.env.DEV && import.meta.env.MODE === "mock"),
         )}
         busy={busy}
       />

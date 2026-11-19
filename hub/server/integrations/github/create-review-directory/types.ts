@@ -6,10 +6,10 @@ export interface GitHubReviewPerson {
 
 export interface GitHubReviewDirectory {
   find(
-    repository: string,
+    repositoryId: bigint,
     login: string,
     githubId?: number,
     signal?: AbortSignal,
   ): Promise<GitHubReviewPerson | null>
-  search(repository: string, query: string): Promise<GitHubReviewPerson[]>
+  search(repositoryId: bigint, query: string): Promise<GitHubReviewPerson[]>
 }

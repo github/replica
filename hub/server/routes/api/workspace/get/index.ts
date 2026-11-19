@@ -100,6 +100,8 @@ export function get(
           avatarUrl: null,
         },
         repositories: presentedRepositories,
+        ...(product.reviewInbox ? { reviewInboxAvailable: true } : {}),
+        ...(manageSharing ? { publicSharingSettingsAvailable: true } : {}),
         ...(welcomeHidden !== undefined ? { welcomeHidden } : {}),
         capabilities: {
           createPrototypes: false,

@@ -11,6 +11,7 @@ export function productSharingSettingsData(
   workspace: WorkspaceResponse,
   response: ProductSharingSettings,
   search: URLSearchParams,
+  real = false,
 ): SharingSettingsPageData {
   const context = search.get("repositoryId")
   const parsed = context === null ? null : recordIdentifierSchema.safeParse(context)
@@ -40,6 +41,7 @@ export function productSharingSettingsData(
     },
     search,
     "sharing",
+    real,
   )
   const sharingPath = resourcePath("/settings/sharing", search, {
     repositoryId: repository?.id ?? null,
@@ -55,7 +57,7 @@ export function productSharingSettingsData(
     repositoriesLabel: "Repositories",
     repositoriesPath: "/repositories",
     signOutLabel: "Sign out",
-    signOutPath: "/session",
+    signOutPath: real ? "/api/auth/session/sign-out" : "/session",
     authenticityToken: "",
     notice: null,
     alert: null,

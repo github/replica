@@ -23,6 +23,7 @@ const errorStatus = { invalid_input: 400, not_found: 404, not_signed_in: 401 } a
 export function patch(
   session: CurrentSessionDependencies,
   product: ProductRouteDependencies,
+  listing = false,
 ): RequestHandler {
   return async (request, response, next) => {
     try {
@@ -46,6 +47,7 @@ export function patch(
 
       const detail = await product.editPrototypeMetadata({
         changes: changes.data,
+        ...(listing ? { listing: true } : {}),
         prototypeId: prototypeId.data,
         repositoryId: repositoryId.data,
         sessionDigest: hashAuthenticationValue(cookie),

@@ -405,6 +405,16 @@ describe("prototype management GET API", () => {
     const saved = await prisma.prototype.findUniqueOrThrow({ where: { id: draft.id } })
     expect(saved.name).toBe("Listed checkout")
     expect(saved.registeredAt).toBeInstanceOf(Date)
+
+    const listingPath = `/api/repositories/${repository.id}/prototype-management/${draft.id}`
+    permission = "read"
+    expect((await registerDraft(origin, listingPath, github.headers)).status).toBe(404)
+    permission = "write"
+    expect((await registerDraft(origin, listingPath, github.headers)).status).toBe(200)
+    expect(await prisma.prototype.findUniqueOrThrow({ where: { id: draft.id } })).toMatchObject({
+      authorId: saved.authorId,
+      registeredAt: saved.registeredAt,
+    })
   })
 
   it("does not list hosted branches when current repository authority cannot be confirmed", async () => {
