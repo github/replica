@@ -1,17 +1,32 @@
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
 
-/** Returns the import state of Builds saved for the given runs of one repository. */
+/** Includes commit reuse and newer owners when finding the import state of each run. */
 export async function listGitHubBuildRuns(
   database: PrismaClient,
-  { githubRepositoryId, runIds }: { githubRepositoryId: number; runIds: readonly number[] },
+  {
+    githubRepositoryId,
+    runs,
+  }: {
+    githubRepositoryId: number
+    runs: readonly { id: number; headBranch: string | null; headSha: string }[]
+  },
 ) {
-  if (runIds.length === 0) return []
+  if (runs.length === 0) return []
   const builds = await database.build.findMany({
     where: {
-      githubWorkflowRunId: { in: runIds.map(BigInt) },
       prototype: { repository: { githubRepositoryId: BigInt(githubRepositoryId) } },
+      OR: [
+        { githubWorkflowRunId: { in: runs.map((run) => BigInt(run.id)) } },
+        ...runs.flatMap((run) =>
+          run.headBranch
+            ? [{ commitSha: run.headSha, prototype: { branchName: run.headBranch } }]
+            : [],
+        ),
+      ],
     },
     select: {
+      commitSha: true,
+      prototype: { select: { branchName: true, branchDeletedAt: true } },
       githubWorkflowRunId: true,
       githubWorkflowRunAttempt: true,
       state: true,
@@ -19,7 +34,10 @@ export async function listGitHubBuildRuns(
     },
   })
   return builds.map((build) => ({
-    runId: Number(build.githubWorkflowRunId),
+    runId: build.githubWorkflowRunId === null ? null : Number(build.githubWorkflowRunId),
+    branchName: build.prototype.branchName,
+    branchDeletedAt: build.prototype.branchDeletedAt,
+    commitSha: build.commitSha,
     runAttempt: build.githubWorkflowRunAttempt ?? 0,
     state: build.state,
     workflowCompletedAt: build.workflowCompletedAt,

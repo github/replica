@@ -902,6 +902,69 @@ describe("createGitHubWebhookRouteDependencies()", () => {
     ).resolves.toEqual({ event: "membership", payloadDigest: delivery.payloadDigest })
   })
 
+  it.each(["delete", "push"])(
+    "retires a branch from a %s event without an action and preserves its history on redelivery",
+    async (event) => {
+      const repository = await createRepository(1001, "branch-deletion")
+      const history = await createHistory(repository.id)
+      const before = await prisma.prototype.update({
+        where: { id: history.prototypeId },
+        data: { branchName: "proto/history", description: "Retained description" },
+      })
+      await prisma.buildArtifact.create({
+        data: {
+          buildId: history.buildId,
+          kind: "dist",
+          path: "dist/index.html",
+          storageKey: "retained-branch-dist",
+          byteLength: 20,
+        },
+      })
+      const builds = await prisma.build.findMany({ include: { artifacts: true } })
+      const payload = {
+        repository: { id: 1001 },
+        ...(event === "delete"
+          ? { ref_type: "branch", ref: "proto/history" }
+          : { deleted: true, ref: "refs/heads/proto/history" }),
+      }
+      const delivery = deliveryFor(payload)
+      const dependencies = webhook()
+
+      await expect(dependencies.handleEvent(event, payload, delivery)).resolves.toBe(true)
+      const retired = await prisma.prototype.findUniqueOrThrow({
+        where: { id: history.prototypeId },
+      })
+      expect(retired.branchDeletedAt).toBeInstanceOf(Date)
+      expect({
+        ...retired,
+        branchDeletedAt: before.branchDeletedAt,
+        updatedAt: before.updatedAt,
+      }).toEqual(before)
+      await expect(dependencies.handleEvent(event, payload, delivery)).resolves.toBe(true)
+      expect(
+        await prisma.prototype.findUniqueOrThrow({ where: { id: history.prototypeId } }),
+      ).toEqual(retired)
+      expect(await prisma.build.findMany({ include: { artifacts: true } })).toEqual(builds)
+      expect(await prisma.gitHubWebhookDelivery.count({ where: { id: delivery.id } })).toBe(1)
+    },
+  )
+
+  it.each([
+    { event: "delete", payload: { ref_type: "tag", ref: "proto/history" } },
+    { event: "push", payload: { deleted: false, ref: "refs/heads/proto/history" } },
+    { event: "push", payload: { deleted: true, ref: "refs/tags/proto/history" } },
+  ])("does not retire a branch for unrelated $event evidence", async ({ event, payload }) => {
+    const repository = await createRepository(1001, "unrelated-branch-event")
+    const before = await prisma.prototype.create({
+      data: { repositoryId: repository.id, branchName: "proto/history" },
+    })
+    const body = { ...payload, repository: { id: 1001 } }
+
+    await expect(handleWebhook(event, body)).resolves.toBe(true)
+    expect(await prisma.prototype.findUniqueOrThrow({ where: { id: before.id } })).toEqual(before)
+    expect(await prisma.gitHubWebhookDelivery.count()).toBe(1)
+  })
+
   it("queues a Replica workflow import before recording the delivery", async () => {
     const enqueueWorkflowRunImport = vi.fn(() => Promise.resolve())
     const dependencies = createGitHubWebhookRouteDependencies({

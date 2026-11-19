@@ -18,6 +18,24 @@ function respond(handler: Handler) {
   })
 }
 
+function workflowRun(id: number, createdAt = "2026-01-02T00:00:00Z") {
+  return {
+    id,
+    run_attempt: 1,
+    path: ".github/workflows/replica.yml",
+    event: "push",
+    head_branch: "proto/welcome",
+    head_sha: "a".repeat(40),
+    status: "completed",
+    conclusion: "success",
+    html_url: `https://github.com/o/r/actions/runs/${id}`,
+    created_at: createdAt,
+    updated_at: createdAt,
+    repository: { id: 56 },
+    actor: null,
+  }
+}
+
 describe("createGitHubActionsClient", () => {
   it("requests one repository-scoped token for Actions and branch reads", async () => {
     const fetch = respond(() => new Response(JSON.stringify({ total_count: 0, artifacts: [] })))
@@ -105,7 +123,7 @@ describe("createGitHubActionsClient", () => {
     )
     const client = createGitHubActionsClient(input, { fetch })
 
-    const runs = await client.listWorkflowRuns(new Date("2026-01-01T00:00:00Z"))
+    const runs = await client.listWorkflowRuns(new Date("2026-01-01T00:00:00.789Z"))
     missing = true
 
     expect(runs).toEqual([
@@ -119,8 +137,62 @@ describe("createGitHubActionsClient", () => {
     const [url] = fetch.mock.calls.at(-1) as unknown as [URL]
     expect(url.pathname).toBe("/repositories/56/actions/workflows/replica.yml/runs")
     expect(url.searchParams.get("event")).toBe("push")
-    expect(url.searchParams.get("created")).toBe(">=2026-01-01T00:00:00.000Z")
+    expect(url.searchParams.get("created")).toBe(">=2026-01-01T00:00:00Z")
     await expect(client.listWorkflowRuns(new Date())).resolves.toEqual([])
+  })
+
+  it("includes recent runs beyond the first page", async () => {
+    const runs = Array.from({ length: 151 }, (_, index) => workflowRun(151 - index))
+    const fetch = respond((url) => {
+      const page = Number(url.searchParams.get("page") ?? 1)
+      const size = Number(url.searchParams.get("per_page"))
+      return Response.json({
+        total_count: runs.length,
+        workflow_runs: runs.slice((page - 1) * size, page * size),
+      })
+    })
+    const client = createGitHubActionsClient(input, { fetch })
+
+    const result = await client.listWorkflowRuns(new Date("2026-01-01T00:00:00Z"))
+    expect(result.map((run) => run.id)).toEqual(runs.map((run) => run.id))
+  })
+
+  it("stops pagination at the creation boundary without returning older runs", async () => {
+    let pages = 0
+    const fetch = respond((url) => {
+      pages += 1
+      const size = Number(url.searchParams.get("per_page"))
+      return Response.json({
+        total_count: 900,
+        workflow_runs: Array.from({ length: size }, (_, index) =>
+          workflowRun(index + 1, index === 0 ? "2026-01-02T00:00:00Z" : "2025-12-31T23:59:59Z"),
+        ),
+      })
+    })
+    const client = createGitHubActionsClient(input, { fetch })
+
+    await expect(client.listWorkflowRuns(new Date("2026-01-01T00:00:00Z"))).resolves.toEqual([
+      expect.objectContaining({ id: 1 }),
+    ])
+    expect(pages).toBe(1)
+  })
+
+  it("reports truncated workflow search results instead of silently omitting runs", async () => {
+    const fetch = respond((url) => {
+      const size = Number(url.searchParams.get("per_page"))
+      const page = Number(url.searchParams.get("page") ?? 1)
+      return Response.json({
+        total_count: 1_001,
+        workflow_runs: Array.from({ length: size }, (_, index) =>
+          workflowRun((page - 1) * size + index + 1),
+        ),
+      })
+    })
+    const client = createGitHubActionsClient(input, { fetch })
+
+    await expect(client.listWorkflowRuns(new Date("2026-01-01T00:00:00Z"))).rejects.toThrow(
+      GitHubProviderRequestError,
+    )
   })
 
   it("preserves artifact creation times for rerun selection", async () => {

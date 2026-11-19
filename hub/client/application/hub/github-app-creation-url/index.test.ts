@@ -31,6 +31,7 @@ describe("githubAppCreationUrl()", () => {
         "team",
         "workflow_run",
         "workflow_job",
+        "delete",
       ]),
     )
   })

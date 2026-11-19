@@ -10,7 +10,6 @@ export async function completeGitHubBuildSuccess(
   input: {
     buildId: string
     run: Pick<GitHubBuildRun, "runId" | "runAttempt">
-    completedAt: Date | null
     distDigest: string
     artifacts: StoredGitHubBuildArtifact[]
   },
@@ -33,7 +32,6 @@ export async function completeGitHubBuildSuccess(
         distDigest: input.distDigest,
         startedAt: active.startedAt ?? finishedAt,
         finishedAt,
-        workflowCompletedAt: input.completedAt,
         failureSummary: null,
       },
     })

@@ -16,7 +16,7 @@ function workflowRun(githubRepositoryId: number, fields: Partial<GitHubWorkflowR
     runAttempt: 1,
     path: ".github/workflows/replica.yml",
     event: "push",
-    headBranch: "prototype/a",
+    headBranch: `prototype/${randomUUID()}`,
     headSha: "a".repeat(40),
     status: "completed",
     conclusion: "success",
@@ -43,17 +43,23 @@ async function createRepository() {
       state: BuildState,
       { attempt = run.runAttempt, completed = false } = {},
     ) {
-      const prototype = await prisma.prototype.create({
-        data: { repositoryId: repository.id, branchName: `prototype/${randomUUID()}` },
-      })
+      const prototype =
+        (await prisma.prototype.findFirst({
+          where: { repositoryId: repository.id, branchName: run.headBranch! },
+        })) ??
+        (await prisma.prototype.create({
+          data: { repositoryId: repository.id, branchName: run.headBranch! },
+        }))
       number += 1
-      await prisma.build.create({
+      return prisma.build.create({
         data: {
           prototypeId: prototype.id,
+          commitSha: run.headSha,
           number,
           state,
           githubWorkflowRunId: run.id,
           githubWorkflowRunAttempt: attempt,
+          workflowCreatedAt: run.createdAt,
           workflowCompletedAt: completed ? new Date() : null,
         },
       })
@@ -72,6 +78,7 @@ describe("discoverGitHubWorkflowRuns", () => {
     const superseded = workflowRun(id)
     const failed = workflowRun(id)
     const rerunAfterFailure = workflowRun(id, { runAttempt: 2 })
+    const rerunAfterSuccess = workflowRun(id, { runAttempt: 2 })
     const installer = workflowRun(id, { headBranch: "replica/install-workflow" })
     await repository.saveBuild(queued, "queued")
     await repository.saveBuild(awaitingScreenshots, "successful")
@@ -79,6 +86,7 @@ describe("discoverGitHubWorkflowRuns", () => {
     await repository.saveBuild(superseded, "superseded")
     await repository.saveBuild(failed, "failed", { completed: true })
     await repository.saveBuild(rerunAfterFailure, "failed", { attempt: 1, completed: true })
+    await repository.saveBuild(rerunAfterSuccess, "successful", { attempt: 1, completed: true })
     const runs = [
       unseen,
       queued,
@@ -87,6 +95,7 @@ describe("discoverGitHubWorkflowRuns", () => {
       superseded,
       failed,
       rerunAfterFailure,
+      rerunAfterSuccess,
       installer,
     ]
     const listWorkflowRuns = vi.fn((githubRepositoryId: number) =>
@@ -106,7 +115,61 @@ describe("discoverGitHubWorkflowRuns", () => {
     expect(listWorkflowRuns).toHaveBeenCalledWith(id, createdAfter)
     const discovered = jobs.filter((job) => job.githubRepositoryId === id).map((job) => job.runId)
     expect(discovered.sort()).toEqual(
-      [unseen, queued, awaitingScreenshots, rerunAfterFailure].map((run) => run.id).sort(),
+      [unseen, queued, awaitingScreenshots, rerunAfterFailure, rerunAfterSuccess]
+        .map((run) => run.id)
+        .sort(),
+    )
+  })
+
+  it("does not repeatedly enqueue runs that reuse a settled commit or lost Build ownership", async () => {
+    const repository = await createRepository()
+    const settledOwner = workflowRun(repository.githubRepositoryId, { id: 100 })
+    const reused = { ...settledOwner, id: 102 }
+    const old = workflowRun(repository.githubRepositoryId, { id: 200 })
+    const owner = { ...old, id: 201 }
+    await repository.saveBuild(settledOwner, "successful", { completed: true })
+    await repository.saveBuild(owner, "running")
+
+    const jobs = await discoverGitHubWorkflowRuns(
+      {
+        database: prisma,
+        listWorkflowRuns: () => Promise.resolve([settledOwner, reused, old, owner]),
+        listBranchHeads: () => Promise.resolve([]),
+        logger: { warn: vi.fn() },
+      },
+      { createdAfter },
+    )
+
+    expect(jobs).toEqual([{ githubRepositoryId: repository.githubRepositoryId, runId: owner.id }])
+  })
+
+  it("does not mistake another repository, branch, or commit for a settled Build", async () => {
+    const repository = await createRepository()
+    const other = await createRepository()
+    const original = workflowRun(repository.githubRepositoryId)
+    await repository.saveBuild(original, "successful", { completed: true })
+    const differentBranch = { ...original, id: original.id + 1, headBranch: "proto/other" }
+    const differentCommit = { ...original, id: original.id + 2, headSha: "b".repeat(40) }
+    const differentRepository = workflowRun(repository.githubRepositoryId)
+    await other.saveBuild(differentRepository, "successful", { completed: true })
+
+    const jobs = await discoverGitHubWorkflowRuns(
+      {
+        database: prisma,
+        listWorkflowRuns: (id) =>
+          Promise.resolve(
+            id === repository.githubRepositoryId
+              ? [differentBranch, differentCommit, differentRepository]
+              : [],
+          ),
+        listBranchHeads: () => Promise.resolve([]),
+        logger: { warn: vi.fn() },
+      },
+      { createdAfter },
+    )
+
+    expect(jobs.map((job) => job.runId).sort()).toEqual(
+      [differentBranch.id, differentCommit.id, differentRepository.id].sort(),
     )
   })
 
@@ -226,6 +289,11 @@ describe("discoverGitHubWorkflowRuns", () => {
     })
     expect(observation.buildId).toBe(first.buildId)
     expect(observation.lastObservedAt.getTime()).toBeGreaterThan(secondRun.createdAt.getTime())
+    expect(
+      await prisma.prototype.findFirstOrThrow({
+        where: { repositoryId: repository.id, branchName },
+      }),
+    ).toMatchObject({ currentBuildRunCreatedAt: secondRun.createdAt })
 
     await prepareGitHubBuild(prisma, {
       githubRepositoryId: repository.githubRepositoryId,
@@ -239,6 +307,90 @@ describe("discoverGitHubWorkflowRuns", () => {
         where: { repositoryId: repository.id, branchName },
       }),
     ).toMatchObject({ currentBuildId: first.buildId })
+
+    const thirdRun = {
+      ...secondRun,
+      runId: 102n,
+      workflowUrl: "https://github.com/o/r/actions/runs/102",
+      createdAt: new Date(secondRun.createdAt.getTime() + 30_000),
+    }
+    expect(thirdRun.createdAt.getTime()).toBeLessThan(observation.lastObservedAt.getTime())
+    const third = await prepareGitHubBuild(prisma, {
+      githubRepositoryId: repository.githubRepositoryId,
+      branchName,
+      commitSha: "c".repeat(40),
+      run: thirdRun,
+      author: null,
+    })
+    if (third.status !== "ready") throw new Error("The new fixture Build must exist.")
+    expect(
+      await prisma.prototype.findFirstOrThrow({
+        where: { repositoryId: repository.id, branchName },
+      }),
+    ).toMatchObject({
+      currentBuildId: third.buildId,
+      currentBuildRunCreatedAt: thirdRun.createdAt,
+    })
+  })
+
+  it("does not change an already selected Build or fence out newer runs with the poll time", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-11-18T12:00:00Z"))
+    const repository = await createRepository()
+    const input = {
+      githubRepositoryId: repository.githubRepositoryId,
+      branchName: "proto/welcome",
+      commitSha: "a".repeat(40),
+      run: {
+        runId: 100n,
+        runAttempt: 1,
+        workflowUrl: "https://github.com/o/r/actions/runs/100",
+        createdAt: new Date("2026-11-18T10:00:00Z"),
+      },
+      author: null,
+    }
+    const first = await prepareGitHubBuild(prisma, input)
+    if (first.status !== "ready") throw new Error("The fixture Build must exist.")
+    const before = await prisma.prototype.findFirstOrThrow({
+      where: { repositoryId: repository.id, branchName: input.branchName },
+    })
+    const polledAt = new Date("2026-11-18T13:00:00Z")
+    vi.setSystemTime(polledAt)
+
+    await discoverGitHubWorkflowRuns(
+      {
+        database: prisma,
+        listBranchHeads: () =>
+          Promise.resolve([{ branchName: input.branchName, commitSha: input.commitSha }]),
+        listWorkflowRuns: () => Promise.resolve([]),
+        logger: { warn: vi.fn() },
+      },
+      { createdAfter },
+    )
+    expect(await prisma.prototype.findUniqueOrThrow({ where: { id: before.id } })).toEqual(before)
+    expect(
+      await prisma.branchHeadObservation.findUniqueOrThrow({
+        where: {
+          repositoryId_branchName_commitSha: {
+            repositoryId: repository.id,
+            branchName: input.branchName,
+            commitSha: input.commitSha,
+          },
+        },
+      }),
+    ).toMatchObject({ buildId: first.buildId, lastObservedAt: polledAt })
+
+    const newerRun = { ...input.run, runId: 101n, createdAt: new Date("2026-11-18T11:00:00Z") }
+    const newer = await prepareGitHubBuild(prisma, {
+      ...input,
+      commitSha: "b".repeat(40),
+      run: newerRun,
+    })
+    if (newer.status !== "ready") throw new Error("The newer fixture Build must exist.")
+    expect(await prisma.prototype.findUniqueOrThrow({ where: { id: before.id } })).toMatchObject({
+      currentBuildId: newer.buildId,
+      currentBuildRunCreatedAt: newerRun.createdAt,
+    })
   })
 
   it("does not let a delayed branch response undo a newer workflow selection", async () => {

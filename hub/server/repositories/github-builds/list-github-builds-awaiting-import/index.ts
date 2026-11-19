@@ -16,7 +16,10 @@ export async function listGitHubBuildsAwaitingImport(
         { state: { in: ["queued", "running"] } },
         { state: "successful", workflowCompletedAt: null },
       ],
-      prototype: { repository: { removedAt: null, githubRepositoryId: { not: null } } },
+      prototype: {
+        branchDeletedAt: null,
+        repository: { removedAt: null, githubRepositoryId: { not: null } },
+      },
     },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: limit,

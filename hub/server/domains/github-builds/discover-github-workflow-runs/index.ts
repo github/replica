@@ -24,13 +24,18 @@ export interface DiscoverGitHubWorkflowRunsDependencies {
  * cannot reopen. Everything else still needs an import pass.
  */
 function settled(run: GitHubWorkflowRun, saved: SavedRun[]) {
-  return saved.some(
-    (build) =>
-      build.runId === run.id &&
+  return saved.some((build) => {
+    if (build.branchName !== run.headBranch || build.commitSha !== run.headSha) return false
+    if (build.state === "superseded" || build.branchDeletedAt !== null) return true
+    if (build.runId !== run.id) {
+      return build.state === "successful" || (build.runId !== null && build.runId > run.id)
+    }
+    return (
+      build.runAttempt >= run.runAttempt &&
       ((build.state === "successful" && build.workflowCompletedAt !== null) ||
-        build.state === "superseded" ||
-        (build.state === "failed" && build.runAttempt >= run.runAttempt)),
-  )
+        build.state === "failed")
+    )
+  })
 }
 
 /**
@@ -60,7 +65,7 @@ export async function discoverGitHubWorkflowRuns(
       )
       const saved = await listGitHubBuildRuns(database, {
         githubRepositoryId,
-        runIds: runs.map((run) => run.id),
+        runs,
       })
       for (const run of runs) {
         if (!settled(run, saved)) jobs.push({ githubRepositoryId, runId: run.id })

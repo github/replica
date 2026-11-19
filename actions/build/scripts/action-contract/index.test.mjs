@@ -1,11 +1,10 @@
 import assert from "node:assert/strict"
 import { execFile } from "node:child_process"
-import { mkdir, readFile, realpath, writeFile } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
+import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { describe, it } from "node:test"
 import { promisify } from "node:util"
-
-import { temporaryDirectory } from "../../test/temporary-directory/index.mjs"
 
 const actionFile = new URL("../../action.yml", import.meta.url)
 const screenshotsActionFile = new URL("../../screenshots/action.yml", import.meta.url)
@@ -42,15 +41,19 @@ function enabled(condition, inputs) {
   if (!condition) return true
   const conditions = {
     "inputs.skip-build != 'true'": inputs.skipBuild !== "true",
+    "inputs.build-only != 'true'": inputs.buildOnly !== "true",
     "inputs.screenshots == 'inline'": inputs.screenshots === "inline",
     "inputs.screenshots == 'separate'": inputs.screenshots === "separate",
   }
-  assert.ok(condition in conditions, `Unexpected step condition: ${condition}`)
-  return conditions[condition]
+  return condition.split(" && ").every((part) => {
+    assert.ok(part in conditions, `Unexpected step condition: ${part}`)
+    return conditions[part]
+  })
 }
 
 async function runAction(action, inputs) {
-  const root = await temporaryDirectory()
+  const root = path.join(process.cwd(), `.action-contract-${randomUUID()}`)
+  await mkdir(root)
   const bin = path.join(root, "bin")
   const actionPath = path.join(root, "action")
   const workspace = path.join(root, "workspace")
@@ -82,6 +85,7 @@ appendFileSync(process.env.TRACE, JSON.stringify({ command: process.argv[1].spli
         GITHUB_WORKSPACE: workspace,
         RUNNER_TEMP: runner,
         REPLICA_SKIP_BUILD: inputs.skipBuild,
+        REPLICA_BUILD_ONLY: inputs.buildOnly ?? "false",
         REPLICA_OUTPUT_DIRECTORY: inputs.outputDirectory,
         REPLICA_SCREENSHOTS: inputs.screenshots,
       },
@@ -93,7 +97,18 @@ appendFileSync(process.env.TRACE, JSON.stringify({ command: process.argv[1].spli
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line))
-  return { calls, actionPath: await realpath(actionPath), workspace, runner }
+  const resolvedActionPath = await realpath(actionPath)
+  await rm(root, { recursive: true })
+  return {
+    calls,
+    actionPath: resolvedActionPath,
+    workspace,
+    runner,
+    uploads: steps(action).filter(
+      (step) =>
+        step.uses?.startsWith("actions/upload-artifact@") && enabled(step.condition, inputs),
+    ),
+  }
 }
 
 describe("Replica composite action", () => {
@@ -105,6 +120,7 @@ describe("Replica composite action", () => {
     it(`builds=${options.builds} and captures=${options.captures} with the expected steps`, async () => {
       const action = await readFile(actionFile, "utf8")
       assert.equal(inputDefault(action, "skip-build"), "false")
+      assert.equal(inputDefault(action, "build-only"), "false")
       assert.equal(inputDefault(action, "output-directory"), "dist")
       assert.equal(inputDefault(action, "screenshots"), "inline")
       const inputs = {
@@ -180,10 +196,9 @@ describe("Replica composite action", () => {
   it("uploads one replica-build-v1 package per mode, with separate mode first", async () => {
     const list = steps(await readFile(actionFile, "utf8"))
     const uploads = list.filter((step) => step.uses?.startsWith("actions/upload-artifact@"))
-    assert.deepEqual(
-      uploads.map((step) => step.condition),
-      ["inputs.screenshots == 'separate'", "inputs.screenshots == 'inline'"],
-    )
+    for (const screenshots of ["inline", "separate"]) {
+      assert.equal(uploads.filter((step) => enabled(step.condition, { screenshots })).length, 1)
+    }
     for (const upload of uploads) {
       assert.match(upload.body, /name: replica-build-v1\n/)
       assert.match(upload.body, /path: \$\{\{ runner\.temp \}\}\/replica-build-v1\//)
@@ -193,6 +208,37 @@ describe("Replica composite action", () => {
       assert.doesNotMatch(step.body, /npm ci --ignore-scripts|playwright|capture-screenshots/)
     }
   })
+
+  for (const screenshots of ["inline", "separate"]) {
+    it(`builds without packaging or browser work before publishing once with ${screenshots} screenshots`, async () => {
+      const build = await runAction(await readFile(actionFile, "utf8"), {
+        skipBuild: "false",
+        buildOnly: "true",
+        outputDirectory: "dist",
+        screenshots,
+      })
+      assert.ok(build.calls.some((call) => call.command === "docker"))
+      assert.equal(
+        build.calls.some((call) => ["npm", "playwright"].includes(call.command)),
+        false,
+      )
+      assert.equal(
+        build.calls.some(
+          (call) =>
+            call.command === "node" &&
+            /\/(?:create-(?:dist-|screenshot-)?package|capture-screenshots)\//.test(call.args[0]),
+        ),
+        false,
+      )
+      assert.equal(build.uploads.length, 0)
+
+      const publish = await runAction(await readFile(publishActionFile, "utf8"), {
+        outputDirectory: "dist",
+      })
+      assert.equal(build.uploads.length + publish.uploads.length, 1)
+      assert.match(publish.uploads[0].body, /name: replica-build-v1\n/)
+    })
+  }
 
   it("publishes pre-built output with the same dist package as separate mode, without npm or a browser", async () => {
     const action = await readFile(publishActionFile, "utf8")
@@ -227,7 +273,7 @@ describe("Replica composite action", () => {
       step.uses?.startsWith("actions/upload-artifact@"),
     )
     const [separateUpload] = steps(await readFile(actionFile, "utf8")).filter(
-      (step) => step.condition === "inputs.screenshots == 'separate'" && step.uses,
+      (step) => step.condition?.includes("inputs.screenshots == 'separate'") && step.uses,
     )
     assert.equal(
       publishUpload.body.trimEnd(),

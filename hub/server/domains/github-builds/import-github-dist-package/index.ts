@@ -42,7 +42,6 @@ export async function importGitHubDistPackage(
   const imported = await completeGitHubBuildSuccess(database, {
     buildId,
     run,
-    completedAt: target.completedAt,
     distDigest: extracted.distDigest,
     artifacts,
   })

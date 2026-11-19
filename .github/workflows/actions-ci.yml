@@ -39,11 +39,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Build composite action fixture with its own build
+      - name: Prepare composite action fixture
         run: |
           cp actions/build/test/fixture/package.json actions/build/test/fixture/package-lock.json actions/build/test/fixture/fixture-build.mjs .
-          npm ci --ignore-scripts
-          npm run build
+      - uses: ./actions/build
+        with:
+          build-only: "true"
       - uses: ./actions/build/publish
 
   screenshots:

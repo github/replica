@@ -1,6 +1,5 @@
 import assert from "node:assert/strict"
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
@@ -15,7 +14,7 @@ afterEach(() => {
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
 })
 function fixture() {
-  const directory = mkdtempSync(join(tmpdir(), "replica-workflows-test-"))
+  const directory = mkdtempSync(join(root, ".workflows-test-"))
   directories.push(directory)
   mkdirSync(join(directory, ".github"), { recursive: true })
   cpSync(join(root, ".github/workflows"), join(directory, ".github/workflows"), { recursive: true })
@@ -64,28 +63,39 @@ describe("checkWorkflows()", () => {
     expect(() => checkWorkflows(directory)).toThrow(/starter-ci/)
   })
 
-  it.each(["same-job screenshots", "missing dependency", "inline build action"])(
-    "rejects a build smoke workflow with %s",
-    (regression) => {
-      const directory = fixture()
-      const path = join(directory, ".github/workflows/actions-ci.yml")
-      const workflow = parse(readFileSync(path, "utf8")) as Workflow
-      const { publish, screenshots } = workflow.jobs
-      assert(publish?.steps && screenshots?.steps)
-      const publishAction = publish.steps.find((step) => step.uses === "./actions/build/publish")
-      assert(publishAction)
-      if (regression === "same-job screenshots") {
-        publish.steps.push({ uses: "./actions/build/screenshots" })
-      } else if (regression === "missing dependency") {
-        delete screenshots.needs
-      } else {
-        publishAction.uses = "./actions/build"
-      }
-      writeFileSync(path, stringify(workflow))
+  it.each([
+    "same-job screenshots",
+    "missing dependency",
+    "missing publish action",
+    "build-only omitted",
+    "build-only disabled",
+    "build in screenshot job",
+  ])("rejects a build smoke workflow with %s", (regression) => {
+    const directory = fixture()
+    const path = join(directory, ".github/workflows/actions-ci.yml")
+    const workflow = parse(readFileSync(path, "utf8")) as Workflow
+    const { publish, screenshots } = workflow.jobs
+    assert(publish?.steps && screenshots?.steps)
+    const publishAction = publish.steps.find((step) => step.uses === "./actions/build/publish")
+    const buildAction = publish.steps.find((step) => step.uses === "./actions/build")
+    assert(publishAction && buildAction?.with)
+    if (regression === "same-job screenshots") {
+      publish.steps.push({ uses: "./actions/build/screenshots" })
+    } else if (regression === "missing dependency") {
+      delete screenshots.needs
+    } else if (regression === "missing publish action") {
+      publishAction.uses = "./actions/build"
+    } else if (regression === "build in screenshot job") {
+      screenshots.steps.push({ uses: "./actions/build", with: { "build-only": "true" } })
+    } else if (regression === "build-only omitted") {
+      delete buildAction.with["build-only"]
+    } else {
+      buildAction.with["build-only"] = "false"
+    }
+    writeFileSync(path, stringify(workflow))
 
-      expect(() => checkWorkflows(directory)).toThrow()
-    },
-  )
+    expect(() => checkWorkflows(directory)).toThrow()
+  })
 
   it("rejects missing supported Node versions and required commands", () => {
     for (const mutation of [

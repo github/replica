@@ -28,21 +28,44 @@ export async function recordGitHubBranchHeads(
             },
           },
         },
-        select: { id: true, prototypeId: true, prototype: { select: { repositoryId: true } } },
+        select: {
+          id: true,
+          prototypeId: true,
+          workflowCreatedAt: true,
+          prototype: {
+            select: {
+              repositoryId: true,
+              currentBuildId: true,
+              currentBuildRunCreatedAt: true,
+              currentBuild: { select: { workflowCreatedAt: true } },
+            },
+          },
+        },
       })
       if (!build) return
-      const selected = await transaction.prototype.updateMany({
-        where: {
-          id: build.prototypeId,
-          branchDeletedAt: null,
-          OR: [
-            { currentBuildRunCreatedAt: null },
-            { currentBuildRunCreatedAt: { lte: input.observedAt } },
-          ],
-        },
-        data: { currentBuildId: build.id, currentBuildRunCreatedAt: input.observedAt },
-      })
-      if (selected.count !== 1) return
+      if (build.prototype.currentBuildId !== build.id) {
+        const latestRunAt = [
+          build.workflowCreatedAt,
+          build.prototype.currentBuildRunCreatedAt,
+          build.prototype.currentBuild?.workflowCreatedAt,
+        ].reduce<Date | null>(
+          (latest, time) => (time && (!latest || time > latest) ? time : latest),
+          null,
+        )
+        const selected = await transaction.prototype.updateMany({
+          where: {
+            id: build.prototypeId,
+            branchDeletedAt: null,
+            // A webhook may have selected a newer head while GitHub was listing branches.
+            updatedAt: { lte: input.observedAt },
+          },
+          data: {
+            currentBuildId: build.id,
+            currentBuildRunCreatedAt: latestRunAt,
+          },
+        })
+        if (selected.count !== 1) return
+      }
       const identity = {
         repositoryId: build.prototype.repositoryId,
         branchName: head.branchName,

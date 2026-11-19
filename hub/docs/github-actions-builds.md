@@ -4,9 +4,9 @@ Hub imports Builds that prototype repositories produce in `.github/workflows/rep
 
 ## Requirements
 
-The Hub that imports a repository's Builds is the Hub whose GitHub App is installed on that repository. The App needs **Actions: read** and **Contents: read** and must subscribe to the **Workflow runs** and **Workflow jobs** webhook events. Only branch `push` runs of `.github/workflows/replica.yml` in connected repositories are imported. The installer branch is excluded. Imports never create repositories.
+The Hub that imports a repository's Builds is the Hub whose GitHub App is installed on that repository. The App needs **Actions: read** and **Contents: read** and must subscribe to the **Workflow runs**, **Workflow jobs**, **Push**, and **Branch or tag deletion** webhook events. Only branch `push` runs of `.github/workflows/replica.yml` in connected repositories are imported. The installer branch is excluded. Imports never create repositories.
 
-Create the App manually and connect it with the `setup:post` wizard. If the App was created before these settings were required, open its **Permissions & events** settings, confirm **Actions: read** and **Contents: read**, select **Workflow run** and **Workflow job** under **Subscribe to events**, and save. If either permission was added, each installation must accept the updated permissions.
+Create the App manually and connect it with the `setup:post` wizard. If the App was created before these settings were required, open its **Permissions & events** settings, confirm **Actions: read** and **Contents: read**, select these four events under **Subscribe to events**, and save. If either permission was added, each installation must accept the updated permissions.
 
 Webhooks give the fastest import. Without webhook reachability, [recovery](#recovery) still imports retained artifacts by polling, typically within about five minutes after Hub is available. Workflows do not contact Hub directly or need publishing credentials.
 
@@ -57,6 +57,8 @@ Keep publish last in its job: later steps delay the completed-job event used for
 
 The optional [build action](../../actions/build/action.yml) is still available. It runs `npm ci` and `npm run build` as a non-root user in a Node container. With `screenshots: separate`, it uploads the same dist package as the publish action and can replace the build steps and publish action above. Existing single-job workflows remain compatible: `screenshots` defaults to `inline`, which uploads one package containing the dist and screenshots, so Hub imports it only after screenshots finish.
 
+To use the build and publish actions as separate steps, set `build-only: 'true'` on the build action, then call the publish action. Build-only mode leaves the static output in the workspace without packaging, uploads, browser installation, or screenshot capture. Without this option, both actions upload `replica-build-v1`, and GitHub rejects the duplicate artifact name.
+
 If Hub is offline during an update, the workflow can still upload both artifacts to GitHub. GitHub does not automatically retry failed webhook deliveries. Once Hub returns, polling or requested redelivery can import the retained packages. Hub still needs GitHub API and artifact-download access. Recovery is bounded by the three-day artifact retention and polling window; expired packages cannot be recovered automatically. Re-running the workflow is safe because successful Builds and artifacts are never replaced.
 
 ## Flow
@@ -95,7 +97,9 @@ One Build exists per repository, branch, and commit. Each pass is idempotent:
 - Invalid, expired, or oversized packages fail the Build with a summary. Network, storage, and database errors throw so the job retries.
 - A successful Build is never re-imported, replaced, or deleted.
 
-GitHub lists named artifacts across rerun attempts. For a rerun, import only accepts packages created at or after that attempt's `run_started_at`. Missing timing evidence does not authorize an older package: an ongoing run stays pending and a completed run fails without a usable dist.
+GitHub lists named artifacts across rerun attempts. Hub prefers packages created at or after the current attempt's `run_started_at`. If that attempt has no package, it can reuse an unexpired package from an earlier attempt of the same run. This supports **Re-run failed jobs** when only screenshots failed and GitHub keeps the successful publish job's artifact. The first successful dist import fixes the Build's digest; subsequent attempts never replace it, and screenshots attach only when their digest matches that Build.
+
+Hub records the completed workflow pass only after registration and screenshot processing finish. A transport or storage error leaves that pass pending for recovery even if the dist preview is already available.
 
 Storage keys derive from the Build, file path, and content. Retries reuse identical objects, a key with different bytes stops the import, and keys are never deleted. Unreferenced keys left by an interrupted import are harmless.
 
@@ -106,6 +110,8 @@ A successful imported Build on a branch starting with `proto/` automatically reg
 Registration sets the existing `Prototype.registeredAt` timestamp and uses the branch name only when no name has been saved. Repeated imports preserve that timestamp and never replace a saved name, description, or other prototype metadata. Repository and prototype locks serialize registration with metadata edits.
 
 Other branches still import Builds but remain unregistered until a user tracks them manually in Hub. The default branch, reserved `replica/install-workflow` branch, internal replica owners, and deleted branches never auto-register. Stale imports cannot recreate a retired branch's Prototype. Existing registrations are not removed or reclassified.
+
+Branch `delete` events and `push` events with `deleted: true` retire the branch without deleting its metadata, Builds, or artifacts. Hub keeps a retirement record even if deletion arrives before the first workflow import. Branch polling never infers deletion from a missing branch; the App's deletion-event subscription and webhook recovery provide that evidence.
 
 Gallery and prototype-list queries are unchanged. `registeredAt !== null` remains the registration contract, alongside their existing repository, branch, and visibility checks.
 
@@ -136,7 +142,9 @@ Webhook redelivery covers deliveries from the past three days, the limit of GitH
 
 Discovery and retry look back three days, matching the artifacts' retention. Runs older than that, or whose artifacts expired, are not imported.
 
-Branch polling selects a matching existing Build when a branch returns to an earlier commit; it does not invent a Build without a workflow package or delete branches. Each poll bounds branch listing to ten pages of 100 and workflow discovery to the newest 50 runs per repository. Saved unfinished Builds are retried separately. A very busy repository can therefore outrun discovery of previously unseen runs; recovery is a safety net, not an unlimited delivery guarantee. Webhook imports and polling share immutable Build ownership, so whichever valid dist import commits first wins.
+Branch polling selects a matching existing Build when a branch returns to an earlier commit; it does not invent a Build without a workflow package or delete branches. Poll observations do not replace workflow creation times or rewrite an unchanged prototype selection. Reselection retains the latest actual workflow timestamp so a known run's redelivery cannot undo it, while a new run can still become current.
+
+Each poll bounds branch listing to ten pages of 100. Workflow discovery pages through recent runs within the recovery window, up to GitHub's 1,000-result filtered-search limit; reaching that limit reports an error instead of silently accepting a truncated list. Saved unfinished Builds are retried separately. A very busy repository can therefore outrun discovery of previously unseen runs; recovery is a safety net, not an unlimited delivery guarantee. Runs that reuse an immutable Build or have lost ownership to a newer run do not keep queuing redundant imports. Webhook imports and polling share immutable Build ownership, so whichever valid dist import commits first wins.
 
 ## Not yet implemented
 

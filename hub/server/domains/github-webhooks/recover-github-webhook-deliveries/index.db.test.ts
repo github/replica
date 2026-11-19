@@ -57,11 +57,13 @@ describe("recoverGitHubWebhookDeliveries", () => {
   it("redelivers only missed deliveries the Hub can still handle", async () => {
     const missed = delivery()
     const timedOut = delivery({ statusCode: 0, event: "installation" })
+    const branchDeleted = delivery({ event: "delete" })
+    const deletedByPush = delivery({ event: "push" })
     const laterDelivered = delivery()
     const received = delivery()
     const ignored = [
       delivery({ statusCode: 400 }),
-      delivery({ event: "push" }),
+      delivery({ event: "check_run" }),
       delivery({ installationId: 999 }),
       delivery({ deliveredAt: new Date(Date.now() - 3 * day - minute) }),
       delivery({ guid: "not-a-uuid" }),
@@ -71,15 +73,15 @@ describe("recoverGitHubWebhookDeliveries", () => {
     })
     const recovery = dependencies([
       [{ ...laterDelivered, id: deliveryId++, statusCode: 200 }],
-      [missed, timedOut, laterDelivered, received, ...ignored],
+      [missed, timedOut, branchDeleted, deletedByPush, laterDelivered, received, ...ignored],
     ])
 
     await expect(recoverGitHubWebhookDeliveries(recovery)).resolves.toBe(true)
 
     expect(recovery.redeliver.mock.calls.map(([id]) => id).sort()).toEqual(
-      [missed.id, timedOut.id].sort(),
+      [missed.id, timedOut.id, branchDeleted.id, deletedByPush.id].sort(),
     )
-    expect(await prisma.gitHubWebhookRedelivery.count()).toBe(2)
+    expect(await prisma.gitHubWebhookRedelivery.count()).toBe(4)
     expect(await redelivery(missed.guid)).toMatchObject({ state: "waiting", attempts: 1 })
   })
 

@@ -3,6 +3,7 @@ import { z } from "zod"
 import type { GitHubWorkflowRunJob } from "../../../../../domains/github-builds/get-github-workflow-run-job-definition/index.ts"
 import { replicaWorkflowPath } from "../../../../../domains/github-builds/constants.ts"
 import { revokeGitHubRepositoryAccess } from "../../../../../domains/admission/revoke-github-repository-access/index.ts"
+import { recordGitHubBranchDeletion } from "../../../../../domains/prototypes/record-github-branch-deletion/index.ts"
 import { prisma } from "../../../../../integrations/prisma/index.ts"
 import { claimGitHubWebhookDelivery } from "../../../../../repositories/github-webhook-deliveries/claim-github-webhook-delivery/index.ts"
 import type { GitHubWebhookRouteDependencies } from "../types.ts"
@@ -51,6 +52,16 @@ const teamDeletedEvent = z.looseObject({
   action: z.literal("deleted"),
   team,
 })
+const branchDeletionEvent = z.looseObject({
+  ref_type: z.enum(["branch", "tag"]),
+  ref: z.string().min(1).max(255),
+  repository: z.looseObject({ id: githubId }),
+})
+const pushEvent = z.looseObject({
+  deleted: z.boolean(),
+  ref: z.string().min(1).max(266),
+  repository: z.looseObject({ id: githubId }),
+})
 
 /**
  * Repositories are marked disconnected rather than deleted so their Builds and
@@ -73,6 +84,35 @@ export function createGitHubWebhookRouteDependencies(input: {
     webhookSecret: input.webhookSecret,
     async handleEvent(name, payload, delivery) {
       const receipt = { ...delivery, event: name }
+      if (name === "delete" || name === "push") {
+        let branchName: string | undefined
+        let githubRepositoryId: number
+        if (name === "delete") {
+          const event = branchDeletionEvent.safeParse(payload)
+          if (!event.success) return false
+          githubRepositoryId = event.data.repository.id
+          if (event.data.ref_type === "branch") branchName = event.data.ref
+        } else {
+          const event = pushEvent.safeParse(payload)
+          if (!event.success) return false
+          githubRepositoryId = event.data.repository.id
+          if (event.data.deleted && event.data.ref.startsWith("refs/heads/")) {
+            branchName = event.data.ref.slice("refs/heads/".length)
+            if (!branchName) return false
+          }
+        }
+        if (!branchName) {
+          // Acknowledge unrelated pushes and tag deletions so recovery need not resend them.
+          await claimGitHubWebhookDelivery(prisma, receipt)
+          return true
+        }
+        await recordGitHubBranchDeletion(prisma, {
+          githubRepositoryId,
+          branchName,
+          delivery: receipt,
+        })
+        return true
+      }
       const action = webhookAction.safeParse(payload)
       if (!action.success) {
         if (name === "membership" || name === "team") {

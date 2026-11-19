@@ -18,17 +18,13 @@ import { prepareGitHubWorkflowRunBuild } from "../prepare-github-workflow-run-bu
 import type { ImportGitHubWorkflowRunDependencies, ImportGitHubWorkflowRunResult } from "./types.ts"
 
 function newest(artifacts: GitHubWorkflowArtifact[], run: GitHubWorkflowRun) {
-  return artifacts
-    .filter(
-      (artifact) =>
-        !artifact.expired &&
-        // GitHub lists artifacts across attempts. Never reuse an earlier attempt's dist.
-        (run.runAttempt === 1 ||
-          (run.startedAt &&
-            artifact.createdAt &&
-            artifact.createdAt.getTime() >= run.startedAt.getTime())),
-    )
-    .sort((a, b) => b.id - a.id)[0]
+  const retained = artifacts.filter((artifact) => !artifact.expired).sort((a, b) => b.id - a.id)
+  // Prefer this attempt, but failed-jobs reruns may retain an earlier job's artifact.
+  return (
+    retained.find(
+      (artifact) => run.startedAt && artifact.createdAt && artifact.createdAt >= run.startedAt,
+    ) ?? retained[0]
+  )
 }
 
 /**
@@ -99,7 +95,7 @@ export async function importGitHubWorkflowRun(
   }
 
   const dist = await importDist()
-  if (dist === "imported" || state === "successful") {
+  if (dist === "imported" || dist === "unchanged") {
     await registerImportedPrototype(database, buildId)
   }
   const screenshots = await importScreenshots()

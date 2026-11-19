@@ -56,10 +56,15 @@ export async function prepareGitHubBuild(
     try {
       return await database.$transaction(
         async (transaction) => {
-          const repository = await transaction.repository.findFirst({
-            where: { githubRepositoryId: BigInt(input.githubRepositoryId), removedAt: null },
-            select: { id: true, defaultBranch: true },
-          })
+          // Serialize creation with deletion tombstones, including a branch's first event.
+          const [repository] = await transaction.$queryRaw<
+            Array<{ id: string; defaultBranch: string }>
+          >`
+            SELECT "id", "default_branch" AS "defaultBranch" FROM "repositories"
+            WHERE "github_repository_id" = ${BigInt(input.githubRepositoryId)}
+              AND "removed_at" IS NULL
+            FOR SHARE
+          `
           if (!repository) return { status: "unknown-repository" as const }
 
           let prototype = await transaction.prototype.findFirst({
@@ -116,13 +121,24 @@ export async function prepareGitHubBuild(
           if (existing) {
             ownsBuild = ownsExistingBuild(existing, run)
             build = existing
-            if (ownsBuild) {
+            const retryingSuccessfulRun =
+              existing.state === "successful" &&
+              existing.githubWorkflowRunId === run.runId &&
+              run.runAttempt > (existing.githubWorkflowRunAttempt ?? 0)
+            if (ownsBuild || retryingSuccessfulRun) {
               build = await transaction.build.update({
                 where: { id: existing.id },
                 data: {
                   ...runFields,
+                  ...(retryingSuccessfulRun ? { workflowCompletedAt: null } : {}),
                   ...(existing.state === "failed"
-                    ? { state: "queued", failureSummary: null, finishedAt: null, startedAt: null }
+                    ? {
+                        state: "queued",
+                        failureSummary: null,
+                        finishedAt: null,
+                        startedAt: null,
+                        workflowCompletedAt: null,
+                      }
                     : {}),
                 },
                 select: { id: true, state: true, distDigest: true },
@@ -157,11 +173,11 @@ export async function prepareGitHubBuild(
           const alreadyCurrent =
             prototype.currentBuildId === build.id &&
             prototype.currentBuildRunCreatedAt?.getTime() === run.createdAt.getTime()
-          if (
-            build.state !== "superseded" &&
-            !alreadyCurrent &&
-            run.createdAt.getTime() >= currentSelectedAt(prototype)
-          ) {
+          const selectedAt = currentSelectedAt(prototype)
+          const selectsNewRun =
+            run.createdAt.getTime() > selectedAt ||
+            (run.createdAt.getTime() === selectedAt && existing?.githubWorkflowRunId !== run.runId)
+          if (build.state !== "superseded" && !alreadyCurrent && selectsNewRun) {
             await transaction.prototype.update({
               where: { id: prototype.id },
               data: { currentBuildId: build.id, currentBuildRunCreatedAt: run.createdAt },

@@ -13,11 +13,13 @@ export const webhookScanOverlapMs = 5 * minute
 
 /** Events the webhook route handles; others would be ignored if redelivered. */
 export const recoverableWebhookEvents = new Set([
+  "delete",
   "installation",
   "installation_repositories",
   "member",
   "membership",
   "organization",
+  "push",
   "team",
   "workflow_job",
   "workflow_run",

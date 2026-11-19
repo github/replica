@@ -193,21 +193,32 @@ export function createGitHubActionsClient(
     },
 
     /**
-     * Lists the newest page of push runs of the Replica workflow created at or after
-     * createdAfter. Returns none when the repository has no Replica workflow.
+     * Lists push runs of the Replica workflow through createdAfter. GitHub caps filtered
+     * run searches at 1,000 results; report truncation instead of silently missing runs.
      */
     async listWorkflowRuns(createdAfter: Date, perPage = 50): Promise<GitHubWorkflowRun[]> {
-      const query = new URLSearchParams({
-        event: "push",
-        created: `>=${createdAfter.toISOString()}`,
-        per_page: String(perPage),
+      const runs: GitHubWorkflowRun[] = []
+      for (let page = 1; page <= Math.ceil(1_000 / perPage); page += 1) {
+        const query = new URLSearchParams({
+          event: "push",
+          created: `>=${createdAfter.toISOString().replace(/\.\d{3}Z$/, "Z")}`,
+          per_page: String(perPage),
+          page: String(page),
+        })
+        const response = await send(
+          `${repositoryPath}/actions/workflows/replica.yml/runs?${query}`,
+          await installationToken(),
+        )
+        if (response.status === 404 && page === 1) return []
+        const found = (await parse(runsSchema, response)).workflow_runs.map(mapRun)
+        runs.push(...found.filter((run) => run.createdAt >= createdAfter))
+        if (found.length < perPage || found.some((run) => run.createdAt < createdAfter)) {
+          return runs
+        }
+      }
+      throw new GitHubProviderRequestError({
+        cause: new Error("Workflow run discovery reached GitHub's 1,000-result search limit."),
       })
-      const response = await send(
-        `${repositoryPath}/actions/workflows/replica.yml/runs?${query}`,
-        await installationToken(),
-      )
-      if (response.status === 404) return []
-      return (await parse(runsSchema, response)).workflow_runs.map(mapRun)
     },
 
     async listRunArtifacts(runId: number, name: string): Promise<GitHubWorkflowArtifact[]> {

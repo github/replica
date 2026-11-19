@@ -93,21 +93,22 @@ export function checkWorkflows(root: string): void {
   const publishSteps = actionJobs.publish.steps
   const screenshotSteps = actionJobs.screenshots.steps
   assert(publishSteps && screenshotSteps, "Missing build-action artifact jobs")
-  const fixture = publishSteps.find(
-    (step) => step.name === "Build composite action fixture with its own build",
-  )
+  const fixture = publishSteps.find((step) => step.uses === "./actions/build")
   const publish = publishSteps.find((step) => step.uses === "./actions/build/publish")
   const screenshots = screenshotSteps.find((step) => step.uses === "./actions/build/screenshots")
   assert(fixture && publish && screenshots, "Run publish and screenshots in separate jobs")
+  assert.equal(fixture.with?.["build-only"], "true", "Build without uploading before publish")
   assert(
     !fixture.if && !publish.if && !screenshots.if,
     "Artifact smoke steps must run unconditionally",
   )
   for (const [id, job] of Object.entries(actionJobs)) {
-    assert(
-      !job.steps?.some((step) => step.uses === "./actions/build"),
-      "Publish the fixture's own build output instead of the inline build action",
-    )
+    if (id !== "publish") {
+      assert(
+        !job.steps?.some((step) => step.uses === "./actions/build"),
+        "Build the composite fixture only in the publish job",
+      )
+    }
     if (id !== "publish") {
       assert(
         !job.steps?.some((step) => step.uses === "./actions/build/publish"),
