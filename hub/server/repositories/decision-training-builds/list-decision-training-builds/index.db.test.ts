@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 
 import { prisma } from "../../../integrations/prisma"
 import { listDecisionTrainingBuilds } from "."
+import { findDecisionEvaluationBuild } from "../find-decision-evaluation-build"
 
 async function createRepository(name: string, removedAt: Date | null = null) {
   return prisma.repository.create({
@@ -114,10 +115,12 @@ describe("listDecisionTrainingBuilds()", () => {
       branchName: "deleted",
       branchDeletedAt: new Date("2026-01-02T00:00:00.000Z"),
     })
+
     const unregistered = await createReviewedPrototype(repository.id, {
       branchName: "unregistered",
       registeredAt: null,
     })
+
     const unreviewed = await createReviewedPrototype(repository.id, {
       branchName: "unreviewed",
       reviewed: false,
@@ -207,6 +210,30 @@ describe("listDecisionTrainingBuilds()", () => {
         prototypes: 20,
         buildsPerPrototype: 20,
       }),
+    ).resolves.toBeNull()
+  })
+})
+
+describe("findDecisionEvaluationBuild()", () => {
+  it("finds a published Build without requiring training review eligibility", async () => {
+    const repository = await createRepository("evaluation")
+    const otherRepository = await createRepository("other-evaluation")
+    const prototype = await createReviewedPrototype(repository.id, {
+      branchName: "unreviewed",
+      reviewed: false,
+    })
+    const otherPrototype = await createReviewedPrototype(otherRepository.id, {
+      branchName: "other",
+      reviewed: false,
+    })
+    const build = await createBuild(prototype.id, { number: 1 })
+    const otherBuild = await createBuild(otherPrototype.id, { number: 1 })
+
+    await expect(
+      findDecisionEvaluationBuild(prisma, repository.id, build.id),
+    ).resolves.toMatchObject({ id: build.id, prototypeId: prototype.id })
+    await expect(
+      findDecisionEvaluationBuild(prisma, repository.id, otherBuild.id),
     ).resolves.toBeNull()
   })
 })

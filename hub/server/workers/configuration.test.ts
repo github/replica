@@ -38,6 +38,13 @@ describe("learning worker configuration", () => {
     })
     expect(daily?.payload).toEqual({})
     expect(daily?.repeat).toEqual({ pattern: "0 2 * * *", tz: "UTC" })
+    expect(jobProcessors.scheduled.map(({ name }) => name)).toContain("decision.recover-training")
+    expect(jobSchedules).toContainEqual(
+      expect.objectContaining({
+        id: "decision-training-recovery",
+        repeat: { every: 60_000 },
+      }),
+    )
   })
 })
 

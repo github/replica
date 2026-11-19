@@ -80,7 +80,7 @@ export const jobProcessors: Record<JobQueueName, JobProcessor[]> = {
     analytics.recover,
     analytics.clear,
     learning.scheduledRun,
-    ...(decisionConfigured ? [decision.recover] : []),
+    decision.recover,
     learning.recover,
     learning.schedule,
     createJobProcessor(githubInstallationReconciliation, reconcileGitHubInstallation),
@@ -96,16 +96,12 @@ export const jobSchedules: {
   payload: unknown
   repeat: JobScheduleRepeat
 }[] = [
-  ...(decisionConfigured
-    ? [
-        {
-          id: "decision-training-recovery",
-          definition: recoverDecisionTrainingJobs,
-          payload: {},
-          repeat: { every: 60_000 } as const,
-        },
-      ]
-    : []),
+  {
+    id: "decision-training-recovery",
+    definition: recoverDecisionTrainingJobs,
+    payload: {},
+    repeat: { every: 60_000 },
+  },
   {
     id: "analytics-delivery-recovery",
     definition: recoverAnalyticsJob,

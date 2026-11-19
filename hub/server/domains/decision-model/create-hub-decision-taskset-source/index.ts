@@ -1,18 +1,32 @@
-import { createHash } from "node:crypto"
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { createHash, randomUUID } from "node:crypto"
+import { constants } from "node:fs"
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { z } from "zod"
 
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
 import { runLearningCommand } from "../../../integrations/learning/run-learning-command/index.ts"
+import { LearningCommandError } from "../../../integrations/learning/run-learning-command/errors.ts"
 import type { ArtifactStorage } from "../../artifacts/create-artifact-storage/types.ts"
 import { createHubReviewCollection } from "../../learning/create-hub-review-collection/index.ts"
 import { prepareLearningStore } from "../../learning/prepare-learning-store/index.ts"
 import { captureRepositoryReviewSnapshot } from "../../review-comments/capture-repository-review-snapshot/index.ts"
 import { listDecisionTrainingBuilds } from "../../../repositories/decision-training-builds/list-decision-training-builds/index.ts"
+import { findDecisionEvaluationBuild } from "../../../repositories/decision-training-builds/find-decision-evaluation-build/index.ts"
 import { withLearningExecutionLock } from "../../../integrations/postgres/with-learning-execution-lock/index.ts"
 import { DecisionModelError } from "../errors.ts"
+import { digestDecisionTasksetUpload } from "../digest-decision-taskset-upload/index.ts"
 import type { DecisionTasksetPreparationSource } from "../prepare-decision-taskset/index.ts"
 import type {
   DecisionTrainingPreflight,
@@ -91,6 +105,11 @@ interface HubDecisionTasksetSourceOptions {
   learningRoot: string
   nodePath?: string
   staticDirectories: string[]
+  stabilizeSnapshot?: (
+    directory: string,
+    digest: string,
+    capturedAt: Date,
+  ) => Promise<{ snapshotId: string; capturedAt: Date }>
 }
 
 interface BuildSetArchive {
@@ -154,9 +173,51 @@ function digestJson(value: unknown): string {
   return sha256(canonicalJson(value))
 }
 
-function digestUuid(digest: string): string {
-  const hex = digest.slice("sha256:".length)
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`
+async function stabilizeReviewSnapshot(
+  directory: string,
+  digest: string,
+  capturedAt: Date,
+): Promise<{ snapshotId: string; capturedAt: Date }> {
+  const statePath = join(directory, "decision-review-snapshot.json")
+  try {
+    const handle = await open(statePath, constants.O_RDONLY | constants.O_NOFOLLOW)
+    try {
+      const state = z
+        .object({
+          digest: z.string(),
+          snapshotId: z.uuid(),
+          capturedAt: z.iso.datetime(),
+        })
+        .strict()
+        .parse(JSON.parse(await handle.readFile("utf8")))
+      if (state.digest === digest) {
+        return { snapshotId: state.snapshotId, capturedAt: new Date(state.capturedAt) }
+      }
+    } finally {
+      await handle.close()
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
+  const state = {
+    digest,
+    snapshotId: randomUUID(),
+    capturedAt: capturedAt.toISOString(),
+  }
+  const temporary = join(directory, `.decision-review-snapshot-${randomUUID()}`)
+  const handle = await open(
+    temporary,
+    constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+    0o600,
+  )
+  try {
+    await handle.writeFile(`${JSON.stringify(state)}\n`)
+    await handle.sync()
+  } finally {
+    await handle.close()
+  }
+  await rename(temporary, statePath)
+  return { snapshotId: state.snapshotId, capturedAt }
 }
 
 function stableExport(bundle: Record<string, unknown>, snapshotDigest: string) {
@@ -252,20 +313,6 @@ function validPngDimensions(
   )
 }
 
-function snapshotTime(snapshot: Awaited<ReturnType<typeof captureRepositoryReviewSnapshot>>) {
-  const times = snapshot.threads.flatMap((thread) => [
-    thread.createdAt,
-    thread.updatedAt,
-    thread.root.createdAt,
-    thread.root.updatedAt,
-    ...thread.replies.flatMap((reply) => [reply.createdAt, reply.updatedAt]),
-    ...thread.resolutionHistory.map((event) => event.occurredAt),
-  ])
-  return times.length
-    ? new Date(Math.max(...times.map((value) => value.getTime())))
-    : new Date("1970-01-01T00:00:00.000Z")
-}
-
 async function readTasksetUpload(directory: string): Promise<PreparedDecisionTaskset["upload"]> {
   const manifest = JSON.parse(await readFile(join(directory, "taskset.json"), "utf8")) as Record<
     string,
@@ -329,6 +376,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
   prepareBuildEvaluation(input: {
     repositoryId: string
     buildId: string
+    actorMembershipId: string
   }): Promise<PreparedBuildEvaluation>
 } {
   const applicationRoot = options.applicationRoot ?? process.cwd()
@@ -356,6 +404,18 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
     repositoryId: string,
     onlyBuildId?: string,
   ): Promise<BuildSetArchive> {
+    if (onlyBuildId) {
+      const build = await findDecisionEvaluationBuild(options.database, repositoryId, onlyBuildId)
+      if (!build) {
+        throw new DecisionModelError(404, "build_not_found", "Published Build not found.")
+      }
+      return readSelectedBuilds(repositoryId, [
+        {
+          id: build.prototypeId,
+          builds: [build],
+        },
+      ])
+    }
     const repository = await listDecisionTrainingBuilds(options.database, repositoryId, {
       prototypes: maximumPrototypes,
       buildsPerPrototype: maximumBuildsPerPrototype,
@@ -370,11 +430,19 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
         "The repository has too many reviewed prototypes.",
       )
     }
+    return readSelectedBuilds(repositoryId, repository.prototypes, repository)
+  }
+
+  async function readSelectedBuilds(
+    repositoryId: string,
+    prototypes: NonNullable<Awaited<ReturnType<typeof listDecisionTrainingBuilds>>>["prototypes"],
+    initialRepository?: NonNullable<Awaited<ReturnType<typeof listDecisionTrainingBuilds>>>,
+  ): Promise<BuildSetArchive> {
     const files: BuildSetArchive["files"] = []
     const issues: BuildSetArchive["issues"] = []
     const builds = []
     let totalBytes = 0
-    for (const prototype of repository.prototypes) {
+    for (const prototype of prototypes) {
       if (prototype.builds.length > maximumBuildsPerPrototype) {
         throw new DecisionModelError(
           409,
@@ -388,7 +456,6 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
             (right.workflowCreatedAt ?? right.createdAt).getTime() || left.number - right.number,
       )
       for (const build of ordered) {
-        if (onlyBuildId && build.id !== onlyBuildId) continue
         const artifacts = [...build.artifacts].sort(
           (left, right) =>
             left.path.localeCompare(right.path) || left.storageKey.localeCompare(right.storageKey),
@@ -420,6 +487,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
           issues.push({ code: "artifact-corrupt" })
         }
         const screenshots = []
+        const selectedViews = new Set<string>()
         for (const artifact of artifacts.filter((item) => item.kind === "screenshot")) {
           if (files.length >= maximumScreenshots) {
             throw new DecisionModelError(
@@ -447,6 +515,9 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
             issues.push({ code: "artifact-unmapped" })
             continue
           }
+          const viewKey = `${descriptor.route}\0${descriptor.size}\0${descriptor.theme}`
+          if (selectedViews.has(viewKey)) continue
+          selectedViews.add(viewKey)
           const result = await options.artifactStorage.read(artifact.storageKey)
           if (result.status !== "ok") {
             issues.push({
@@ -522,22 +593,22 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
         })
       }
     }
-    if (onlyBuildId && builds.length !== 1) {
-      throw new DecisionModelError(404, "build_not_found", "Published Build not found.")
-    }
-    const currentRepository = await listDecisionTrainingBuilds(options.database, repositoryId, {
-      prototypes: maximumPrototypes,
-      buildsPerPrototype: maximumBuildsPerPrototype,
-    })
-    if (
-      !currentRepository ||
-      digestJson(buildSelection(repository)) !== digestJson(buildSelection(currentRepository))
-    ) {
-      throw new DecisionModelError(
-        409,
-        "taskset_drift",
-        "Repository Build eligibility changed during taskset preparation.",
-      )
+    if (initialRepository) {
+      const currentRepository = await listDecisionTrainingBuilds(options.database, repositoryId, {
+        prototypes: maximumPrototypes,
+        buildsPerPrototype: maximumBuildsPerPrototype,
+      })
+      if (
+        !currentRepository ||
+        digestJson(buildSelection(initialRepository)) !==
+          digestJson(buildSelection(currentRepository))
+      ) {
+        throw new DecisionModelError(
+          409,
+          "taskset_drift",
+          "Repository Build eligibility changed during taskset preparation.",
+        )
+      }
     }
     return {
       schemaVersion: "replica.decision-build-set-archive/v1",
@@ -644,6 +715,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
           const taskset = await tasksetSource.createTaskset({
             trainingExport: trainingExport.bytes,
             builds: buildArtifacts.bytes,
+            allowIncomplete: true,
           })
           const prepared = readPreparedTaskset(taskset.upload)
           const skipped = [
@@ -674,7 +746,12 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
             },
           }
         } catch (error) {
-          if (!(error instanceof DecisionModelError) || error.code !== "taskset_drift") throw error
+          if (!(
+            (error instanceof DecisionModelError && error.code === "taskset_drift") ||
+            (error instanceof LearningCommandError && error.code === "invalid_input")
+          )) {
+            throw error
+          }
           const counted = reasonCounts([...reasons, "evidence-incomplete"])
           return {
             state: "blocked",
@@ -692,110 +769,145 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
         }
       },
       async exportTrainingEvidence({ repositoryId, actorMembershipId }) {
-        return withLearningExecutionLock({
-          databaseUrl: options.databaseUrl,
-          run: async (signal) => {
-            const store = await learningStore(repositoryId)
-            const common = ["--dir", store.directory, "--repository", store.repositoryScope]
-            const grants = grantListSchema.parse(
-              await command(["grants", "list", ...common], 60_000, signal),
-            )
-            const grantIds = grants
-              .filter(
-                ({ grant, activePurposes, expired }) =>
-                  !expired &&
-                  activePurposes.includes("training") &&
-                  grant.sources.includes("hub_review_comments"),
+        try {
+          return await withLearningExecutionLock({
+            databaseUrl: options.databaseUrl,
+            run: async (signal) => {
+              const store = await learningStore(repositoryId)
+              const common = ["--dir", store.directory, "--repository", store.repositoryScope]
+              const grants = grantListSchema.parse(
+                await command(["grants", "list", ...common], 60_000, signal),
               )
-              .map(({ grant }) => grant.id)
-              .sort()
-            const snapshot = await captureRepositoryReviewSnapshot(
-              options.database,
-              repositoryId,
-              new Date(),
-            )
-            const capturedAt = snapshotTime(snapshot)
-            snapshot.capturedAt = capturedAt
-            const initialReview = createHubReviewCollection(snapshot, options.hubOrigin)
-            snapshot.snapshotId = digestUuid(initialReview.digest)
-            const review = createHubReviewCollection(snapshot, options.hubOrigin)
-            if (!grantIds.length) {
-              return {
-                bytes: new Uint8Array(),
-                consentGrantId: null,
-                digest: sha256(new Uint8Array()),
-                repeatableReviewSnapshotDigest: review.digest,
+              const trainingGrantIds = grants
+                .filter(
+                  ({ grant, activePurposes, expired }) =>
+                    !expired &&
+                    activePurposes.includes("training") &&
+                    grant.sources.includes("hub_review_comments"),
+                )
+                .map(({ grant }) => grant.id)
+                .sort()
+              const reviewGrantIds = grants
+                .filter(
+                  ({ grant, activePurposes, expired }) =>
+                    !expired &&
+                    activePurposes.includes("review") &&
+                    grant.sources.includes("hub_review_comments"),
+                )
+                .map(({ grant }) => grant.id)
+                .sort()
+              const snapshot = await captureRepositoryReviewSnapshot(
+                options.database,
+                repositoryId,
+                new Date(),
+              )
+              const initialReview = createHubReviewCollection(snapshot, options.hubOrigin)
+              const metadata = await (options.stabilizeSnapshot ?? stabilizeReviewSnapshot)(
+                store.directory,
+                initialReview.digest,
+                snapshot.capturedAt,
+              )
+              snapshot.snapshotId = metadata.snapshotId
+              snapshot.capturedAt = metadata.capturedAt
+              const review = createHubReviewCollection(snapshot, options.hubOrigin)
+              if (!trainingGrantIds.length) {
+                return {
+                  bytes: new Uint8Array(),
+                  consentGrantId: null,
+                  digest: sha256(new Uint8Array()),
+                  repeatableReviewSnapshotDigest: review.digest,
+                }
               }
-            }
-            const temporary = await mkdtemp(join(tmpdir(), "replica-decision-export-"))
-            await chmod(temporary, 0o700)
-            try {
-              signal.throwIfAborted()
-              const collectionPath = join(temporary, "review.json")
-              await writeFile(collectionPath, JSON.stringify(review.collection), { mode: 0o600 })
-              const imported = importSchema.parse(
+              if (!reviewGrantIds.length) {
+                throw new DecisionModelError(
+                  409,
+                  "consent_required",
+                  "An active review-purpose consent grant is required to refresh review evidence.",
+                )
+              }
+              const temporary = await mkdtemp(join(tmpdir(), "replica-decision-export-"))
+              await chmod(temporary, 0o700)
+              try {
+                signal.throwIfAborted()
+                const collectionPath = join(temporary, "review.json")
+                await writeFile(collectionPath, JSON.stringify(review.collection), { mode: 0o600 })
+                const imported = importSchema.parse(
+                  await command(
+                    [
+                      "import",
+                      "hub-comments",
+                      collectionPath,
+                      ...reviewGrantIds.flatMap((grantId) => ["--grant", grantId]),
+                      "--actor",
+                      "system:replica-hub",
+                      "--redact-deleted",
+                      ...common,
+                    ],
+                    60_000,
+                    signal,
+                  ),
+                )
+                if (!imported.complete) {
+                  throw new DecisionModelError(
+                    409,
+                    "taskset_drift",
+                    `The review evidence snapshot is incomplete: ${imported.problems.join(" ")}`,
+                  )
+                }
+                const exportPath = join(temporary, "training-export.json")
                 await command(
                   [
-                    "import",
-                    "hub-comments",
-                    collectionPath,
-                    ...grantIds.flatMap((grantId) => ["--grant", grantId]),
-                    "--actor",
-                    "system:replica-hub",
-                    "--redact-deleted",
+                    "export",
+                    "--purpose",
+                    "training",
+                    "--by",
+                    `human:${actorMembershipId}`,
+                    "--preview",
+                    "--out",
+                    exportPath,
                     ...common,
                   ],
                   60_000,
                   signal,
-                ),
-              )
-              if (!imported.complete) {
-                throw new DecisionModelError(
-                  409,
-                  "taskset_drift",
-                  `The review evidence snapshot is incomplete: ${imported.problems.join(" ")}`,
                 )
+                const bundle = JSON.parse(await readFile(exportPath, "utf8")) as Record<
+                  string,
+                  unknown
+                >
+                const stable = stableExport(bundle, review.digest)
+                const bytes = new TextEncoder().encode(canonicalJson(stable))
+                return {
+                  bytes,
+                  consentGrantId: trainingGrantIds[0]!,
+                  digest: sha256(bytes),
+                  repeatableReviewSnapshotDigest: review.digest,
+                }
+              } finally {
+                await rm(temporary, { recursive: true, force: true })
               }
-              const exportPath = join(temporary, "training-export.json")
-              await command(
-                [
-                  "export",
-                  "--purpose",
-                  "training",
-                  "--by",
-                  `human:${actorMembershipId}`,
-                  "--preview",
-                  "--out",
-                  exportPath,
-                  ...common,
-                ],
-                60_000,
-                signal,
-              )
-              const bundle = JSON.parse(await readFile(exportPath, "utf8")) as Record<
-                string,
-                unknown
-              >
-              const stable = stableExport(bundle, review.digest)
-              const bytes = new TextEncoder().encode(canonicalJson(stable))
-              return {
-                bytes,
-                consentGrantId: grantIds[0]!,
-                digest: sha256(bytes),
-                repeatableReviewSnapshotDigest: review.digest,
-              }
-            } finally {
-              await rm(temporary, { recursive: true, force: true })
-            }
-          },
-        })
+            },
+          })
+        } catch (error) {
+          if (
+            error instanceof Error &&
+            error.message === "Another learning operation is still running."
+          ) {
+            throw new DecisionModelError(
+              409,
+              "control_busy",
+              "Another learning operation is still running.",
+              { cause: error },
+            )
+          }
+          throw error
+        }
       },
       async readBuildArtifacts(repositoryId) {
         const archive = await readBuildSet(repositoryId)
         const bytes = new TextEncoder().encode(canonicalJson(archive))
         return { bytes, digest: sha256(bytes), complete: archive.issues.length === 0 }
       },
-      async createTaskset({ trainingExport, builds }) {
+      async createTaskset({ trainingExport, builds, allowIncomplete = false }) {
         const temporary = await mkdtemp(join(tmpdir(), "replica-decision-taskset-"))
         await chmod(temporary, 0o700)
         try {
@@ -857,7 +969,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
           const incompleteEvidence = Object.entries(tasksetManifest.skipped).filter(
             ([reason, count]) => count > 0 && incompleteEvidenceReasons.has(reason),
           )
-          if (incompleteEvidence.length) {
+          if (!allowIncomplete && incompleteEvidence.length) {
             throw new DecisionModelError(
               409,
               "taskset_drift",
@@ -879,14 +991,14 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
           return {
             upload,
             questionDigest: digestJson(firstTask?.questions ?? {}),
-            tasksetDigest: digestJson(upload),
+            tasksetDigest: digestDecisionTasksetUpload(upload),
           }
         } finally {
           await rm(temporary, { recursive: true, force: true })
         }
       },
     }),
-    async prepareBuildEvaluation({ repositoryId, buildId }) {
+    async prepareBuildEvaluation({ repositoryId, buildId, actorMembershipId }) {
       const buildSet = await readBuildSet(repositoryId, buildId)
       if (buildSet.issues.length) {
         throw new DecisionModelError(
@@ -902,8 +1014,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
         "decision",
         "questions",
         "--by",
-        "human:replica-hub-decision-evaluation",
-        "--preview",
+        `human:${actorMembershipId}`,
         "--dir",
         store.directory,
         "--repository",

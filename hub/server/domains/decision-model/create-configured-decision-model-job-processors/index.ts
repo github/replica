@@ -1,6 +1,7 @@
 import type { Logger } from "pino"
 
 import { createConfiguredArtifactStorage } from "../../artifacts/create-configured-artifact-storage/index.ts"
+import { resolveLocalSignInEnvironment } from "../../authentication/resolve-local-sign-in-environment/index.ts"
 import { readLearningConfiguration } from "../../learning/read-learning-configuration/index.ts"
 import { createDecisionModelStore } from "../create-decision-model-store/index.ts"
 import { createHubDecisionTasksetSource } from "../create-hub-decision-taskset-source/index.ts"
@@ -17,17 +18,18 @@ export function createConfiguredDecisionModelJobProcessors(
   let processorsPromise: ReturnType<typeof load> | undefined
 
   async function load() {
-    const databaseUrl = environment.DATABASE_URL
-    const hubOrigin = environment.HUB_APPLICATION_ORIGIN
-    const runtimeConfiguration = readDecisionRuntimeConfiguration(environment)
+    const resolvedEnvironment = resolveLocalSignInEnvironment(environment)
+    const databaseUrl = resolvedEnvironment.DATABASE_URL
+    const hubOrigin = resolvedEnvironment.HUB_APPLICATION_ORIGIN
+    const runtimeConfiguration = readDecisionRuntimeConfiguration(resolvedEnvironment)
     if (!databaseUrl || !hubOrigin || !runtimeConfiguration) {
       throw new Error(
         "DATABASE_URL, HUB_APPLICATION_ORIGIN, and decision runtime configuration are required for decision-model jobs.",
       )
     }
     const [artifactStorage, learning] = await Promise.all([
-      createConfiguredArtifactStorage(environment),
-      readLearningConfiguration(environment),
+      createConfiguredArtifactStorage(resolvedEnvironment),
+      readLearningConfiguration(resolvedEnvironment),
     ])
     const { prisma } = await import("../../../integrations/prisma/index.ts")
     const source = createHubDecisionTasksetSource({
@@ -77,7 +79,10 @@ export function createConfiguredDecisionModelJobProcessors(
     },
     recover: {
       name: recoverDecisionTrainingJobs.name,
-      process: async (job: unknown) => (await processors()).recover.process(job),
+      process: async (job: unknown) => {
+        if (!readDecisionRuntimeConfiguration(resolveLocalSignInEnvironment(environment))) return
+        return (await processors()).recover.process(job)
+      },
     },
   }
 }

@@ -12,7 +12,10 @@ import { parseRuntimeConfig } from "../utils/parse-runtime-config/index.ts"
 try {
   const name = z.enum(["on-demand", "scheduled"]).parse(process.argv[2])
   const configuration = parseRuntimeConfig({ ...process.env, RUNTIME_MODE: name })
-  readDecisionRuntimeConfiguration(process.env)
+  const decisionRuntime = readDecisionRuntimeConfiguration(process.env)
+  if (decisionRuntime && !configuration.hasArtifactStorage) {
+    throw new Error("Decision runtime workers require configured artifact storage.")
+  }
   if (configuration.hasArtifactStorage) await createConfiguredArtifactStorage(process.env)
   const databaseUrl = configuration.databaseUrl
   if (!databaseUrl) throw new Error("Workers require DATABASE_URL.")

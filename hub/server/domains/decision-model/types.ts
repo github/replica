@@ -300,6 +300,7 @@ export interface DecisionModelDependencies {
   prepareBuildEvaluation(input: {
     repositoryId: string
     buildId: string
+    actorMembershipId: string
   }): Promise<PreparedBuildEvaluation>
   runtime?: DecisionRuntimeClient
   runtimeForRepository?: (repositoryId: string) => DecisionRuntimeClient

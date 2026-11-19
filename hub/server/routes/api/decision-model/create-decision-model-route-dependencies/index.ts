@@ -152,6 +152,7 @@ interface CreateDecisionModelRouteDependenciesOptions {
   prepareBuildEvaluation(input: {
     repositoryId: string
     buildId: string
+    actorMembershipId: string
   }): Promise<PreparedBuildEvaluation>
 }
 
@@ -188,8 +189,11 @@ export function createDecisionModelRouteDependencies(
       actorMembershipId: string
       consentGrantId: string
     }) => options.tasksetSource.hasTrainingConsent(input),
-    prepareBuildEvaluation: (input: { repositoryId: string; buildId: string }) =>
-      options.prepareBuildEvaluation(input),
+    prepareBuildEvaluation: (input: {
+      repositoryId: string
+      buildId: string
+      actorMembershipId: string
+    }) => options.prepareBuildEvaluation(input),
     runtimeForRepository: (repositoryId: string) => options.runtimeForRepository(repositoryId),
     store,
     withControlLock: async <Result>(operation: (signal: AbortSignal) => Promise<Result>) => {

@@ -10,6 +10,7 @@ import { captureRepositoryReviewSnapshot } from "../../review-comments/capture-r
 import { runLearningCommand } from "../../../integrations/learning/run-learning-command"
 import { withLearningExecutionLock } from "../../../integrations/postgres/with-learning-execution-lock"
 import { listDecisionTrainingBuilds } from "../../../repositories/decision-training-builds/list-decision-training-builds"
+import { findDecisionEvaluationBuild } from "../../../repositories/decision-training-builds/find-decision-evaluation-build"
 import { createHubDecisionTasksetSource } from "."
 
 vi.mock("../../learning/create-hub-review-collection", () => ({
@@ -29,6 +30,9 @@ vi.mock("../../../integrations/postgres/with-learning-execution-lock", () => ({
 }))
 vi.mock("../../../repositories/decision-training-builds/list-decision-training-builds", () => ({
   listDecisionTrainingBuilds: vi.fn(),
+}))
+vi.mock("../../../repositories/decision-training-builds/find-decision-evaluation-build", () => ({
+  findDecisionEvaluationBuild: vi.fn(),
 }))
 
 const repositoryId = "11111111-1111-4111-8111-111111111111"
@@ -80,6 +84,10 @@ function hubSource(artifactStorage: ArtifactStorage) {
     hubOrigin: "https://hub.example.test",
     learningRoot: "server/domains/decision-model/create-hub-decision-taskset-source/.learning",
     staticDirectories: [],
+    stabilizeSnapshot: vi.fn().mockResolvedValue({
+      snapshotId: "55555555-5555-4555-8555-555555555555",
+      capturedAt: new Date("2026-01-05T00:00:00.000Z"),
+    }),
   })
 }
 
@@ -143,7 +151,7 @@ describe("createHubDecisionTasksetSource()", () => {
         return [
           {
             grant: { id: "grant-training", sources: ["hub_review_comments"] },
-            activePurposes: ["training"],
+            activePurposes: ["training", "review"],
             expired: false,
           },
         ]
@@ -174,7 +182,11 @@ describe("createHubDecisionTasksetSource()", () => {
         join(output, "taskset.json"),
         JSON.stringify({
           counts: { tasks: 10, train: 6, dev: 2, test: 2, follows: 7, breaks: 3 },
-          skipped: { "status-ambiguous": 2, "learning-over-limit": 1 },
+          skipped: {
+            "status-ambiguous": 2,
+            "learning-over-limit": 1,
+            "screenshot-missing": 1,
+          },
         }),
       )
       await writeFile(
@@ -224,7 +236,7 @@ describe("createHubDecisionTasksetSource()", () => {
 
     expect(first).toEqual(second)
     expect(first).toMatchObject({
-      state: "ready",
+      state: "blocked",
       counts: {
         prototypes: 1,
         builds: 1,
@@ -241,6 +253,7 @@ describe("createHubDecisionTasksetSource()", () => {
       reasons: [
         { code: "event-redacted", count: 2 },
         { code: "learning-over-limit", count: 1 },
+        { code: "screenshot-missing", count: 1 },
         { code: "status-ambiguous", count: 2 },
       ],
     })
@@ -255,6 +268,12 @@ describe("createHubDecisionTasksetSource()", () => {
         .mock.calls.map(([arguments_]) => arguments_)
         .filter(([command]) => command === "export"),
     ).toEqual([expect.arrayContaining(["--preview"]), expect.arrayContaining(["--preview"])])
+    const importCall = vi
+      .mocked(runLearningCommand)
+      .mock.calls.map(([arguments_]) => arguments_)
+      .find(([command]) => command === "import")!
+    expect(importCall).toEqual(expect.arrayContaining(["--grant", "grant-training"]))
+    expect(importCall).not.toContain("grant-a")
   })
 
   it("reports withheld, corrupt, and missing evidence without exposing evidence or another repository", async () => {
@@ -360,6 +379,11 @@ describe("createHubDecisionTasksetSource()", () => {
           {
             grant: { id: "grant-a", sources: ["hub_review_comments"] },
             activePurposes: ["training"],
+            expired: false,
+          },
+          {
+            grant: { id: "grant-review", sources: ["hub_review_comments"] },
+            activePurposes: ["review"],
             expired: false,
           },
         ]
@@ -539,6 +563,46 @@ describe("createHubDecisionTasksetSource()", () => {
     expect(archive.files[0]).toMatchObject({ mediaType: "image/png", digest: digest(png) })
   })
 
+  it("uses one deterministic capture group when template aliases share a route", async () => {
+    const manifest = new TextEncoder().encode(
+      JSON.stringify({
+        version: 1,
+        templates: [
+          { id: "alias-a", path: "/", name: "A", category: "Test", description: "A" },
+          { id: "alias-b", path: "/", name: "B", category: "Test", description: "B" },
+        ],
+      }),
+    )
+    const paths = [
+      "screenshots/desktop.png",
+      "screenshots/desktop-dark.png",
+      "screenshots/narrow.png",
+      "screenshots/narrow-dark.png",
+      ...["alias-a", "alias-b"].flatMap((id) => [
+        `screenshots/templates/${id}/desktop.png`,
+        `screenshots/templates/${id}/desktop-dark.png`,
+        `screenshots/templates/${id}/narrow.png`,
+        `screenshots/templates/${id}/narrow-dark.png`,
+      ]),
+    ]
+    const reads: Record<string, Uint8Array> = { manifest }
+    const artifacts = [artifact("manifest", "templates.json", "manifest", manifest)]
+    for (const [index, path] of paths.entries()) {
+      const bytes = path.includes("narrow") ? createPng(390, 844) : createPng()
+      const key = `capture-${index}`
+      reads[key] = bytes
+      artifacts.push(artifact("screenshot", path, key, bytes))
+    }
+    vi.mocked(listDecisionTrainingBuilds).mockResolvedValue(repository(artifacts))
+
+    const result = await source(storage(reads)).readBuildArtifacts(repositoryId)
+    const archive = decodeArchive(result.bytes)
+
+    expect(result.complete).toBe(true)
+    expect(archive.builds.builds[0]?.screenshots).toHaveLength(4)
+    expect(archive.files).toHaveLength(4)
+  })
+
   it("prepares deterministic Build views with the learning IDs and text used at evaluation", async () => {
     const learningId = "mem_111111111111111111111111"
     const captures = {
@@ -563,7 +627,10 @@ describe("createHubDecisionTasksetSource()", () => {
         captures["root-desktop-dark"],
       ),
     ]
-    vi.mocked(listDecisionTrainingBuilds).mockResolvedValue(repository(artifacts))
+    vi.mocked(findDecisionEvaluationBuild).mockResolvedValue({
+      ...repository(artifacts).prototypes[0]!.builds[0]!,
+      prototypeId,
+    })
     vi.mocked(prepareLearningStore).mockResolvedValue({
       directory: "/private/learning/repository",
       repositoryScope: `github.com/repositories/${repositoryId}`,
@@ -581,6 +648,7 @@ describe("createHubDecisionTasksetSource()", () => {
     const prepared = await hubSource(storage(captures)).prepareBuildEvaluation({
       repositoryId,
       buildId,
+      actorMembershipId: "44444444-4444-4444-8444-444444444444",
     })
 
     expect(prepared.route).toBe("/")
@@ -594,6 +662,20 @@ describe("createHubDecisionTasksetSource()", () => {
     expect(prepared.images).toHaveLength(4)
     expect(prepared.questionDigest).toMatch(/^sha256:[0-9a-f]{64}$/)
     expect(prepared.screenshotSetDigest).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect(runLearningCommand).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        "decision",
+        "questions",
+        "--by",
+        "human:44444444-4444-4444-8444-444444444444",
+      ]),
+      expect.anything(),
+    )
+    expect(
+      vi
+        .mocked(runLearningCommand)
+        .mock.calls.some(([arguments_]) => arguments_.includes("--preview")),
+    ).toBe(false)
   })
 
   it("refuses a Build selection that changes while artifacts are being read", async () => {
@@ -637,17 +719,7 @@ describe("createHubDecisionTasksetSource()", () => {
     },
   )
 
-  it("enforces screenshot count and aggregate byte bounds before taskset creation", async () => {
-    const many = Array.from({ length: 4_001 }, (_, index) =>
-      artifact("screenshot", "screenshots/desktop.png", `capture-${index}`, png),
-    )
-    vi.mocked(listDecisionTrainingBuilds).mockResolvedValue(repository(many))
-    await expect(
-      source(
-        storage(Object.fromEntries(many.map(({ storageKey }) => [storageKey, png]))),
-      ).readBuildArtifacts(repositoryId),
-    ).rejects.toMatchObject({ code: "taskset_drift" })
-
+  it("enforces aggregate byte bounds before taskset creation", async () => {
     const oversized = artifact("screenshot", "screenshots/desktop.png", "oversized", png)
     oversized.byteLength = 256 * 1024 * 1024 + 1
     vi.mocked(listDecisionTrainingBuilds).mockResolvedValue(repository([oversized]))
