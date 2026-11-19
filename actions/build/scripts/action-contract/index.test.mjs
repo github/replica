@@ -44,6 +44,7 @@ function enabled(condition, inputs) {
     "inputs.skip-build != 'true'": inputs.skipBuild !== "true",
     "inputs.screenshots == 'inline'": inputs.screenshots === "inline",
     "inputs.screenshots == 'separate'": inputs.screenshots === "separate",
+    "inputs.hub-url != ''": Boolean(inputs.hubUrl),
   }
   assert.ok(condition in conditions, `Unexpected step condition: ${condition}`)
   return conditions[condition]
@@ -68,6 +69,10 @@ appendFileSync(process.env.TRACE, JSON.stringify({ command: process.argv[1].spli
   await writeFile(path.join(actionPath, "node_modules", ".bin", "playwright"), executable, {
     mode: 0o755,
   })
+  await mkdir(path.join(root, "node_modules", ".bin"), { recursive: true })
+  await writeFile(path.join(root, "node_modules", ".bin", "playwright"), executable, {
+    mode: 0o755,
+  })
   await writeFile(trace, "")
 
   for (const step of steps(action)) {
@@ -84,6 +89,7 @@ appendFileSync(process.env.TRACE, JSON.stringify({ command: process.argv[1].spli
         REPLICA_SKIP_BUILD: inputs.skipBuild,
         REPLICA_OUTPUT_DIRECTORY: inputs.outputDirectory,
         REPLICA_SCREENSHOTS: inputs.screenshots,
+        REPLICA_HUB_URL: inputs.hubUrl,
       },
     })
   }
@@ -97,6 +103,28 @@ appendFileSync(process.env.TRACE, JSON.stringify({ command: process.argv[1].spli
 }
 
 describe("Replica composite action", () => {
+  for (const [file, kind, packageName] of [
+    [publishActionFile, "build", "replica-build-v1"],
+    [screenshotsActionFile, "screenshots", "replica-screenshots-v1"],
+  ]) {
+    it(`retains the ${kind} fallback artifact before pushing and can opt out of push`, async () => {
+      const action = await readFile(file, "utf8")
+      const list = steps(action)
+      const upload = list.findIndex((step) => step.uses?.startsWith("actions/upload-artifact@"))
+      const push = list.findIndex((step) => step.run?.includes("push-to-hub"))
+      assert.ok(upload >= 0 && push > upload)
+      assert.match(list[upload].body, new RegExp(`name: ${packageName}\\n`))
+      assert.equal(list[push].condition, "inputs.hub-url != ''")
+      for (const hubUrl of ["", "https://hub.example.com"]) {
+        const { calls, runner } = await runAction(action, { hubUrl })
+        const sent = calls.filter((call) => call.args[0]?.includes("push-to-hub"))
+        assert.equal(sent.length, hubUrl ? 1 : 0)
+        if (hubUrl) {
+          assert.deepEqual(sent[0].args.slice(1), [kind, path.join(runner, packageName)])
+        }
+      }
+    })
+  }
   for (const options of [
     { builds: true, captures: true },
     { skipBuild: "true", outputDirectory: "website/public", builds: false, captures: true },
@@ -244,7 +272,6 @@ describe("Replica composite action", () => {
     const validate = list.find((step) => step.run?.includes("validate-build-output"))
     assert.ok(names.indexOf(download.name) < names.indexOf(validate.name))
     assert.ok(names.indexOf(validate.name) < names.indexOf("Capture screenshots"))
-    assert.match(list.at(-1).body, /name: replica-screenshots-v1\n/)
     const uploads = list.filter((step) => step.uses?.startsWith("actions/upload-artifact@"))
     assert.equal(uploads.length, 1)
     assert.match(uploads[0].body, /name: replica-screenshots-v1\n/)
