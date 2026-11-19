@@ -16,6 +16,7 @@ model Repository {
   analyticsEvents            AnalyticsEvent[]
   analyticsDestinations      AnalyticsDestination[]
   analyticsState             AnalyticsRepositoryState?
+  analyticsDestinationAuthorizations AnalyticsDestinationAuthorization[]
 
   // Attribute columns
   githubRepositoryId BigInt?   @unique @map("github_repository_id")

@@ -35,6 +35,7 @@ export interface GitHubUserAuthenticationAdapter {
   }): URL
   completeAuthenticationProof(input: {
     authenticatedAfter?: Date
+    identityOnly?: boolean
     callbackUri: string
     code: string
     codeVerifier: string

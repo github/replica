@@ -57,6 +57,45 @@ export function AnalyticsPage({ data }: { data: AnalyticsPageData }) {
               <HubToast title={data.notice} />
             )
           ) : null}
+          {data.authorization ? (
+            <section aria-label="Authorize destination change">
+              <Heading as="h2" size="5">
+                {data.authorization.authorizationUrl
+                  ? "Verify with GitHub"
+                  : "Finish destination change"}
+              </Heading>
+              <Text as="p">
+                {data.authorization.authorizationUrl
+                  ? "Verify the GitHub account you used to sign into Hub. The destination has not changed."
+                  : "Your GitHub account was verified. Continue to apply the original change."}
+              </Text>
+              <form action={data.createPath} method="post" className="analytics-page__actions">
+                <input type="hidden" name="authorizationId" value={data.authorization.id} />
+                {data.authorization.authorizationUrl ? (
+                  <Button as="a" href={data.authorization.authorizationUrl} variant="primary">
+                    Verify with GitHub
+                  </Button>
+                ) : (
+                  <Button
+                    type="submit"
+                    name="analyticsAuthorization"
+                    value="continue"
+                    variant="primary"
+                  >
+                    Continue
+                  </Button>
+                )}
+                <Button
+                  type="submit"
+                  name="analyticsAuthorization"
+                  value="cancel"
+                  variant="secondary"
+                >
+                  Cancel change
+                </Button>
+              </form>
+            </section>
+          ) : null}
           <div className="analytics-page__section-header">
             <Heading as="h2" size="5">
               {copy.destinations}

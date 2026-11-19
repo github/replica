@@ -53,7 +53,38 @@ export function createAnalyticsDestinationService(
   database: PrismaClient,
   settings: AnalyticsSettings,
 ) {
+  async function prepare(
+    tx: Prisma.TransactionClient,
+    repositoryId: string,
+    mutation: AnalyticsMutation,
+  ) {
+    const previous =
+      mutation.action === "create"
+        ? null
+        : await loadAnalyticsDestination(tx, repositoryId, mutation.destinationId)
+    if (mutation.action !== "create" && !previous)
+      throw new AnalyticsSettingsError(404, "Destination not found.")
+    if ("input" in mutation) {
+      if (
+        mutation.input.includeRetained &&
+        (mutation.action !== "create" || !settings.allowRetainedExport)
+      ) {
+        throw new AnalyticsSettingsError(
+          422,
+          "Retained-event export is not available for this change.",
+        )
+      }
+      parseAnalyticsConfiguration(
+        mutation.input,
+        settings.policy,
+        previous ? openAnalyticsConfiguration(previous, settings.encryptionKey) : undefined,
+      )
+    }
+    return previous?.updatedAt.toISOString() ?? null
+  }
+
   return {
+    prepare,
     async list(repositoryId: string) {
       const rows = await listAnalyticsDestinations(database, repositoryId)
       const destinations = rows.map((row) => {
@@ -104,6 +135,7 @@ export function createAnalyticsDestinationService(
       actor: AnalyticsActor,
       mutation: AnalyticsMutation,
       confirmCurrent: (tx: Prisma.TransactionClient) => Promise<boolean>,
+      targetUpdatedAt?: string | null,
     ) {
       const { repositoryId } = actor
       return database.$transaction(async (tx) => {
@@ -119,6 +151,15 @@ export function createAnalyticsDestinationService(
             : await loadAnalyticsDestination(tx, repositoryId, mutation.destinationId)
         if (action !== "create" && !previous)
           throw new AnalyticsSettingsError(404, "Destination not found.")
+        if (
+          targetUpdatedAt !== undefined &&
+          targetUpdatedAt !== (previous?.updatedAt.toISOString() ?? null)
+        ) {
+          throw new AnalyticsSettingsError(
+            409,
+            "The destination changed during authorization. Review it and try again.",
+          )
+        }
         if (!("input" in mutation)) {
           const id = previous!.id
           if (action === "delete") await tx.analyticsDestination.delete({ where: { id } })

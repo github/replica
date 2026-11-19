@@ -41,16 +41,36 @@ const analyticsSchema = z.object({
   canExportHistory: z.boolean(),
   outboundEnabled: z.boolean(),
   canMutate: z.boolean(),
+  authorization: z.object({ id: z.uuid(), expiresAt: z.iso.datetime() }).optional(),
 })
 
+const startedAuthorization = z.object({
+  authorization: z.object({
+    id: z.uuid(),
+    expiresAt: z.iso.datetime(),
+    authorizationUrl: z.url().refine((value) => {
+      const url = new URL(value)
+      return (
+        url.origin === "https://github.com" &&
+        url.pathname === "/login/oauth/authorize" &&
+        !url.username &&
+        !url.password &&
+        !url.hash
+      )
+    }),
+  }),
+})
+const mutationResult = z.object({ id: z.uuid() })
+
 export function getRepositoryAnalytics(request: Request, repositoryId: string) {
-  return requestJson(
-    new URL(`/api/repositories/${repositoryId}/analytics`, request.url),
-    analyticsSchema,
-    {
-      signal: request.signal,
-    },
-  )
+  const url = new URL(`/api/repositories/${repositoryId}/analytics`, request.url)
+  const authorizationId = new URL(request.url).searchParams.get("authorizationId")
+  if (authorizationId && z.uuid().safeParse(authorizationId).success) {
+    url.searchParams.set("authorizationId", authorizationId)
+  }
+  return requestJson(url, analyticsSchema, {
+    signal: request.signal,
+  })
 }
 
 export function changeRepositoryAnalytics(
@@ -60,11 +80,27 @@ export function changeRepositoryAnalytics(
 ) {
   return requestJson(
     new URL(`/api/repositories/${repositoryId}/analytics/destinations${change.path}`, request.url),
-    z.object({ id: z.uuid() }),
+    z.union([mutationResult, startedAuthorization]),
     {
       method: change.method,
       body: change.body === undefined ? undefined : JSON.stringify(change.body),
       signal: request.signal,
     },
+  )
+}
+
+export function finishRepositoryAnalyticsAuthorization(
+  request: Request,
+  repositoryId: string,
+  authorizationId: string,
+  operation: "continue" | "cancel",
+) {
+  return requestJson(
+    new URL(
+      `/api/repositories/${repositoryId}/analytics/authorizations/${authorizationId}/${operation}`,
+      request.url,
+    ),
+    mutationResult,
+    { method: "POST", body: "{}", signal: request.signal },
   )
 }

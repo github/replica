@@ -206,6 +206,69 @@ export async function createAuthenticationRouteDependencies(
       secureCookie: context.secureCookie,
     }
     return {
+      ...(context.adapter.providerKey === "github"
+        ? {
+            repositoryAnalyticsProof: {
+              ...sharedStart,
+              callbackIssuer: context.callbackIssuer,
+              start: (save) =>
+                startAuthenticationProof(
+                  { purpose: "REPOSITORY_ANALYTICS" },
+                  {
+                    adapter: context.adapter,
+                    callbackUri: context.callbackUri,
+                    configurationDigest: context.configurationDigest,
+                    expectedRevision: context.providerRevision,
+                    createAttempt: (attempt) =>
+                      prisma.$transaction(async (transaction) => {
+                        const saved = await createAuthorizationAttempt(transaction, {
+                          ...attempt,
+                          bootstrapSecretDigest: null,
+                        })
+                        await save(transaction, attempt)
+                        return saved
+                      }),
+                    createId: randomUUID,
+                    createOpaqueValue,
+                    deleteExpiredArtifacts: () => deleteExpiredAuthorizationAttempts(prisma),
+                    encryptCodeVerifier: (value) =>
+                      encryptAuthenticationValue(value, context.encryptionKey),
+                    encryptNonce: (value) =>
+                      encryptAuthenticationValue(value, context.encryptionKey),
+                    getAuthenticationProofState: () =>
+                      getAuthenticationProofState(prisma, "github"),
+                    writeDenialAudit: writeAuthenticationDenial,
+                  },
+                ),
+              complete: async (input, match) => {
+                const result = await completeAuthenticationProof(input, {
+                  adapter: context.adapter,
+                  callbackUri: context.callbackUri,
+                  consumeAttempt: (value) =>
+                    consumeAuthorizationAttempt(prisma, value, "repository-analytics"),
+                  decryptCodeVerifier: (value) =>
+                    decryptAuthenticationValue(value, context.encryptionKey),
+                  decryptNonce: (value) => decryptAuthenticationValue(value, context.encryptionKey),
+                  localConfigurationDigest: context.configurationDigest,
+                  localRevision: context.providerRevision,
+                  getAuthenticationProofState: () => getAuthenticationProofState(prisma, "github"),
+                  resolveOrCreateIdentity: match,
+                  updateIdentityProfile: () => Promise.resolve(),
+                  writeDenialAudit: writeAuthenticationDenial,
+                })
+                if (result.purpose !== "REPOSITORY_ANALYTICS") {
+                  throw new AuthenticationProofError(
+                    "attempt_invalid",
+                    "The repository authorization is unavailable.",
+                  )
+                }
+                return result.proof
+              },
+            } satisfies NonNullable<
+              ProviderAuthenticationRouteDependencies["repositoryAnalyticsProof"]
+            >,
+          }
+        : {}),
       administratorAuthorization: {
         ...sharedStart,
         start: async (input) => {

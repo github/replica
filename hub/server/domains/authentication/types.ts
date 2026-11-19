@@ -45,6 +45,7 @@ export interface AuthenticationProviderAdapter {
   }): URL | Promise<URL>
   completeAuthenticationProof(input: {
     authenticatedAfter?: Date
+    identityOnly?: boolean
     callbackUri: string
     code: string
     codeVerifier: string

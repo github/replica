@@ -41,6 +41,7 @@ export interface AnalyticsPageData extends RepositoryWorkspaceData {
   readOnly?: boolean
   historyAvailable?: boolean
   exportNotice?: string
+  authorization?: { id: string; authorizationUrl?: string }
   pageTitle: string
   alert: string | null
   notice: string | null

@@ -168,6 +168,28 @@ export const LocalOutboundDisabled: Story = {
     },
   },
 }
+export const WaitingForGitHub: Story = {
+  args: {
+    data: {
+      ...data,
+      historyAvailable: false,
+      authorization: {
+        id: "00000000-0000-4000-8000-000000000001",
+        authorizationUrl: "https://github.com/login/oauth/authorize",
+      },
+    },
+  },
+}
+export const VerifiedGitHubChange: Story = {
+  args: {
+    data: {
+      ...data,
+      destinations: [destination],
+      historyAvailable: false,
+      authorization: { id: "00000000-0000-4000-8000-000000000001" },
+    },
+  },
+}
 export const ReadOnly: Story = {
   args: {
     data: {

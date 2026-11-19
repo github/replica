@@ -4,7 +4,11 @@ Hub keeps repository activity for 90 days whether or not a destination is config
 
 ## Access and settings
 
-Hosted reads require current GitHub repository `admin` permission, checked independently of Hub administration and Entra roles. An unavailable GitHub permission check does not grant access. Hosted writes are disabled: Hub's fresh administrator authorization does not verify a GitHub repository administrator's specific destination change. Hub does not retain a submitted change while that flow is unavailable.
+Hosted reads and changes require current GitHub repository `admin` permission, checked independently of Hub administration and Entra roles. An unavailable GitHub permission check does not grant access.
+
+To change a hosted destination, submit the change, then select **Verify with GitHub**. Hub reuses its GitHub account verification callback, without signing you in again or changing your Hub role. Verify the same GitHub account on the same Hub session. GitHub may reuse its browser session; this is not a guaranteed password or MFA prompt.
+
+After verification, select **Continue** to apply that one saved change. Hub rechecks repository administration and the browser session before saving. Verification is usable for less than five minutes and never beyond the original 10-minute attempt. A destination changed by someone else during verification must be reviewed and submitted again. **Cancel change** discards the saved change. The pending fields are bounded and encrypted; they never enter OAuth URLs, callback forms, or the returned authorization details.
 
 The fixed local developer can change destinations on a local repository when the loopback development sign-in and local mode are enabled. That exception does not apply to a hosted repository. Outbound delivery and retained-event export are disabled by default, including in local mode.
 

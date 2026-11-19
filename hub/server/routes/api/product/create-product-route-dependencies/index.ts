@@ -1,5 +1,6 @@
 import { Prisma } from "../../../../generated/prisma/client.ts"
 import { createAnalyticsDestinationService } from "../../../../domains/analytics/create-destination-service/index.ts"
+import { createHostedAnalyticsAuthorization } from "../../../../domains/analytics/hosted-authorization/index.ts"
 import { recordAnalyticsEvent } from "../../../../domains/analytics/record-event/index.ts"
 import type { AnalyticsSettings } from "../../../../domains/analytics/types.ts"
 import { restoreHubSession } from "../../../../domains/admission/restore-hub-session/index.ts"
@@ -303,6 +304,18 @@ export function createProductRouteDependencies({
             applicationOrigin: analyticsSettings.applicationOrigin,
             localAdministration: localAnalyticsAdministration,
             isLocalAdministrator: isLocalAnalyticsAdministrator,
+            hostedAuthorization: getRepositoryPermission
+              ? createHostedAnalyticsAuthorization(
+                  prisma,
+                  analytics,
+                  analyticsSettings.encryptionKey,
+                  {
+                    getRepositoryPermission,
+                    restoreSession: (transaction, digest) =>
+                      restoreSession(transaction, joinTransaction(transaction), digest),
+                  },
+                )
+              : undefined,
             list: (repositoryId) => analytics.list(repositoryId),
             mutate: (actor, mutation, digest) =>
               analytics.mutate(actor, mutation, async (transaction) => {

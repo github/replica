@@ -6,6 +6,7 @@ import { ApiRequestError } from "@application/hub/requests/api-request-error"
 import { getWorkspace } from "@application/hub/requests/get-workspace"
 import {
   changeRepositoryAnalytics,
+  finishRepositoryAnalyticsAuthorization,
   getRepositoryAnalytics,
 } from "@application/hub/requests/repository-analytics"
 import { SettingsFormBoundary } from "@application/hub/screens/settings-form-boundary"
@@ -25,6 +26,12 @@ import { readDestinationForm } from "./read-destination-form"
 const mock = settingsController("analytics", "workspace")
 type AnalyticsRouteData =
   SettingsRouteData | { surface: "repository-analytics"; page: AnalyticsPageData }
+type AnalyticsActionResult =
+  | SettingsActionResult
+  | {
+      saved: "pending"
+      authorization: NonNullable<AnalyticsPageData["authorization"]>
+    }
 
 function isMockMode() {
   return import.meta.env.DEV && import.meta.env.MODE === "mock"
@@ -52,24 +59,37 @@ export async function clientLoader(
   const path = `/repositories/${id}/analytics`
   return {
     surface: "repository-analytics",
-    page: analyticsPageData(
-      { ...repositoryWorkspace(workspace, repository, search, true), selectedSection: "analytics" },
-      resourcePath(path, search),
-      analytics.destinations.map((destination) => ({
-        ...destination,
-        path: resourcePath(path, search, { destinationId: destination.id }),
-      })),
-      {
-        readOnly: !analytics.canMutate,
-        historyAvailable: analytics.canExportHistory,
-        notice: !analytics.canMutate
-          ? "Hosted destination changes are unavailable until Hub can verify fresh GitHub repository authorization."
-          : null,
-        exportNotice: !analytics.outboundEnabled
-          ? "Outbound analytics delivery is disabled on this Hub."
-          : undefined,
-      },
-    ),
+    page: {
+      ...analyticsPageData(
+        {
+          ...repositoryWorkspace(workspace, repository, search, true),
+          selectedSection: "analytics",
+        },
+        resourcePath(path, search),
+        analytics.destinations.map((destination) => ({
+          ...destination,
+          path: resourcePath(path, search, { destinationId: destination.id }),
+        })),
+        {
+          readOnly: !analytics.canMutate,
+          historyAvailable: analytics.canExportHistory,
+          notice: !analytics.canMutate
+            ? "Hosted destination changes are unavailable until Hub can verify fresh GitHub repository authorization."
+            : null,
+          exportNotice: !analytics.outboundEnabled
+            ? "Outbound analytics delivery is disabled on this Hub."
+            : undefined,
+        },
+      ),
+      authorization: analytics.authorization,
+      alert:
+        search.get("authorization") === "cancelled"
+          ? "GitHub authorization was cancelled. No changes were saved."
+          : search.get("authorization") === "unavailable" ||
+              (search.has("authorizationId") && !analytics.authorization)
+            ? "This authorization is unavailable. Submit the change again if needed."
+            : null,
+    },
   }
 }
 
@@ -81,8 +101,22 @@ export async function clientAction(args: Parameters<typeof mock.clientAction>[0]
   }
   try {
     const repositoryId = readRepositoryId(args.params.repositoryId)
-    const change = readDestinationForm(request, repositoryId, await request.formData())
-    await changeRepositoryAnalytics(request, repositoryId, change)
+    const form = await request.formData()
+    const operation = form.get("analyticsAuthorization")
+    if (operation === "continue" || operation === "cancel") {
+      const id = z.uuid().safeParse(form.get("authorizationId"))
+      if (!id.success) throw new Response("This authorization is unavailable.", { status: 404 })
+      await finishRepositoryAnalyticsAuthorization(request, repositoryId, id.data, operation)
+      return data<AnalyticsActionResult>({
+        saved: true,
+        notice: operation === "continue" ? "Destination change saved." : "Change cancelled.",
+        revision: Date.now(),
+      })
+    }
+    const change = readDestinationForm(request, repositoryId, form)
+    const result = await changeRepositoryAnalytics(request, repositoryId, change)
+    if ("authorization" in result)
+      return data<AnalyticsActionResult>({ saved: "pending", authorization: result.authorization })
     const notice =
       change.method === "DELETE"
         ? "Destination disconnected."
@@ -128,7 +162,7 @@ export default function SettingsAnalytics({ loaderData }: { loaderData: Analytic
 
 function ConnectedAnalytics({ page }: { page: AnalyticsPageData }) {
   const location = useLocation()
-  const fetcher = useFetcher<SettingsActionResult>()
+  const fetcher = useFetcher<AnalyticsActionResult>()
   const result = fetcher.data
   const busy = fetcher.state !== "idle"
   return (
@@ -153,8 +187,12 @@ function ConnectedAnalytics({ page }: { page: AnalyticsPageData }) {
       }}
     >
       <AnalyticsPage
-        key={`${page.selectedRepositoryId}:${result?.saved ? result.revision : ""}`}
-        data={page}
+        key={`${page.selectedRepositoryId}:${result?.saved === true ? result.revision : result?.saved === "pending" ? result.authorization.id : ""}`}
+        data={{
+          ...page,
+          alert: result?.saved === true ? null : page.alert,
+          authorization: result?.saved === "pending" ? result.authorization : page.authorization,
+        }}
       />
     </SettingsFormBoundary>
   )

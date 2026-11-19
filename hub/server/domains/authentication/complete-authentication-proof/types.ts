@@ -5,13 +5,14 @@ import type {
   ProviderAssignmentEvidence,
 } from "../types.ts"
 import type { SelectedProviderRevision } from "../start-authentication-proof/types.ts"
+import type { AuthorizationAttemptPurpose } from "../../../generated/prisma/enums.ts"
 
 export interface ConsumedAuthorizationAttempt {
   id: string
   codeVerifierCiphertext: string
   createdAt: Date
   nonceCiphertext: string | null
-  purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
+  purpose: AuthorizationAttemptPurpose
   providerRevisionId: string
   sensitiveAuthorizationId?: string | null
   sessionRevocationRevision: number
@@ -62,7 +63,7 @@ export interface CompleteAuthenticationProofInput {
 }
 
 export interface CompleteAuthenticationProofResult {
-  purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
+  purpose: AuthorizationAttemptPurpose
   sensitiveAuthorizationId?: string
   githubLogin?: string
   providerAssignment?: ProviderAssignmentEvidence & { providerRevisionId: string }

@@ -5,6 +5,7 @@ import { createJobProcessor } from "../../../integrations/bullmq/create-job-proc
 import { createJobQueue } from "../../../integrations/bullmq/create-job-queue/index.ts"
 import { enqueueJob } from "../../../integrations/bullmq/enqueue-job/index.ts"
 import type { JobDefinition } from "../../../integrations/bullmq/types.ts"
+import { clearExpiredAnalyticsAuthorizations } from "../../../repositories/analytics/authorization-store/index.ts"
 import {
   clearExpiredAnalyticsEvents,
   createAnalyticsDeliveryProcessor,
@@ -52,6 +53,7 @@ export function createAnalyticsJobProcessors(environment: NodeJS.ProcessEnv, log
     }),
     clear: createJobProcessor(clearAnalyticsJob, async () => {
       const { prisma } = await import("../../../integrations/prisma/index.ts")
+      await clearExpiredAnalyticsAuthorizations(prisma)
       return clearExpiredAnalyticsEvents(prisma)
     }),
   }

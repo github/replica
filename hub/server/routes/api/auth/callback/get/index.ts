@@ -53,6 +53,12 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
         code: query.data.code,
         state: query.data.state,
       })
+      if (completed.purpose === "REPOSITORY_ANALYTICS") {
+        throw new AuthenticationProofError(
+          "attempt_invalid",
+          "Use the repository authorization flow.",
+        )
+      }
       githubLogin = completed.githubLogin
       if (completed.purpose === "ADMINISTRATOR_MANAGEMENT") {
         const hubSessionValue = readCookie(request, hubSessionCookieName)
