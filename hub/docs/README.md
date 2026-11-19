@@ -10,6 +10,7 @@ Hub is being rebuilt. The [Hub overview](../README.md) describes what the baseli
 - [Development](development.md): local API and frontend setup.
 - [Deployment](deployment.md): production image, runtime roles, setup, and health.
 - [Artifact storage](artifact-storage.md): provider selection and immutable byte storage.
+- [Hosted Builds from GitHub Actions](github-actions-builds.md): branch discovery, workflow attempts, package import, and retries.
 - [Build previews](build-previews.md): authenticated access, isolated Build origins, file behavior, screenshots, and bridge injection.
 - [Build share links](share-links.md): local and hosted opt-in, Build-pinned public links, revocation, and the separate public preview session.
 - [Database](database.md): Prisma schema conventions, migrations, and the shared client.

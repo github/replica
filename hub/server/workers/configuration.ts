@@ -16,6 +16,7 @@ import type {
   JobScheduleRepeat,
 } from "../integrations/bullmq/types.ts"
 import { logger } from "../integrations/pino/index.ts"
+import { pollConfiguredHostedBuilds } from "./poll-hosted-builds/index.ts"
 import { reconcileGitHubInstallation } from "./reconcile-github-installation/index.ts"
 
 const learning = createLearningJobProcessors(process.env, logger)
@@ -23,6 +24,11 @@ const analytics = createAnalyticsJobProcessors(process.env, logger)
 
 const githubInstallationReconciliation: JobDefinition<Record<string, never>> = {
   name: "reconcile-github-installation",
+  schema: z.object({}).strict(),
+  options: { attempts: 3, backoff: { type: "exponential", delay: 60_000 } },
+}
+const hostedBuildPoll: JobDefinition<Record<string, never>> = {
+  name: "poll-hosted-builds",
   schema: z.object({}).strict(),
   options: { attempts: 3, backoff: { type: "exponential", delay: 60_000 } },
 }
@@ -42,6 +48,7 @@ export const jobProcessors: Record<JobQueueName, JobProcessor[]> = {
     analytics.clear,
     learning.recover,
     createJobProcessor(githubInstallationReconciliation, reconcileGitHubInstallation),
+    createJobProcessor(hostedBuildPoll, pollConfiguredHostedBuilds),
   ],
 }
 
@@ -74,5 +81,11 @@ export const jobSchedules: {
     definition: githubInstallationReconciliation,
     payload: {},
     repeat: { every: 60 * 60 * 1_000 },
+  },
+  {
+    id: "hosted-build-poll",
+    definition: hostedBuildPoll,
+    payload: {},
+    repeat: { every: 5 * 60_000 },
   },
 ]

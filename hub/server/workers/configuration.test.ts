@@ -2,10 +2,14 @@ import { UnrecoverableError } from "bullmq"
 import { describe, expect, it, vi } from "vitest"
 
 import { reconcileGitHubInstallation } from "./reconcile-github-installation"
+import { pollConfiguredHostedBuilds } from "./poll-hosted-builds"
 import { jobProcessors, jobSchedules } from "./configuration"
 
 vi.mock("./reconcile-github-installation", () => ({
   reconcileGitHubInstallation: vi.fn(),
+}))
+vi.mock("./poll-hosted-builds", () => ({
+  pollConfiguredHostedBuilds: vi.fn(),
 }))
 
 describe("learning worker configuration", () => {
@@ -69,4 +73,13 @@ describe("GitHub installation reconciliation schedule", () => {
     await expect(processor.process({})).rejects.toBe(failure)
     await expect(processor.process({ unexpected: true })).rejects.toBeInstanceOf(UnrecoverableError)
   })
+})
+
+it("schedules the hosted poll every five minutes and uses its processor", async () => {
+  const schedule = jobSchedules.find((candidate) => candidate.id === "hosted-build-poll")!
+  expect(schedule.repeat).toEqual({ every: 5 * 60_000 })
+  expect(jobProcessors["on-demand"].map(({ name }) => name)).not.toContain(schedule.definition.name)
+  const scheduled = jobProcessors.scheduled.find(({ name }) => name === schedule.definition.name)!
+  await scheduled.process(schedule.payload)
+  expect(pollConfiguredHostedBuilds).toHaveBeenCalledOnce()
 })
