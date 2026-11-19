@@ -225,7 +225,6 @@ describe("decision-model routes", () => {
             {
               learning: {
                 id: "learning-gain",
-                text: "Use the compact navigation on settings pages.",
               },
               route: "/settings/profile",
               views: [
@@ -351,7 +350,6 @@ describe("decision-model routes", () => {
               {
                 learning: {
                   id: "learning-gain",
-                  text: "Use the compact navigation on settings pages.",
                 },
                 route: "/settings/profile",
                 views: [{ viewport: "desktop", theme: "dark" }],
@@ -425,7 +423,6 @@ describe("decision-model routes", () => {
             {
               learning: {
                 id: "learning-gain",
-                text: "Use the compact navigation on settings pages.",
               },
               route: "/settings/profile",
               views: [{ viewport: "desktop", theme: "dark" }],

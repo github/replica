@@ -427,9 +427,8 @@ describe("createHubDecisionTasksetSource()", () => {
       vi
         .mocked(runLearningCommand)
         .mock.calls.map(([arguments_]) => arguments_)
-        .filter(([command]) => command === "export")
-        .some((arguments_) => arguments_.includes("--preview")),
-    ).toBe(false)
+        .filter(([command]) => command === "export"),
+    ).toEqual([expect.arrayContaining(["--preview"]), expect.arrayContaining(["--preview"])])
   })
 
   it("maps root and template captures to exact routes, viewports, themes, media, and digests", async () => {

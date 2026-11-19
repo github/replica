@@ -71,14 +71,9 @@ async function createEvaluation(
       summary: {
         findings: [
           {
-            learningId: "mem_111111111111111111111111",
-            views: [
-              {
-                route: "/",
-                viewport: { width: 1440, height: 900 },
-                theme: "light",
-              },
-            ],
+            learning: { id: "mem_111111111111111111111111" },
+            route: "/",
+            views: [{ viewport: "desktop", theme: "light" }],
             followsProbability: 0.8,
             breaksProbability: 0.2,
             explanation:

@@ -1139,7 +1139,6 @@ describe("decision training orchestration", () => {
             {
               learning: {
                 id: "learning-1",
-                text: null,
               },
               route: "/settings/profile",
               views: [

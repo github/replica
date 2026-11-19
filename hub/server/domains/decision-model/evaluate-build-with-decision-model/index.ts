@@ -62,7 +62,7 @@ export async function evaluateBuildWithDecisionModel(
       }
       const findings = result.evaluations.map((evaluation) => {
         return {
-          learning: { id: evaluation.learningId, text: null },
+          learning: { id: evaluation.learningId },
           route: prepared.route,
           views: prepared.views,
           followsProbability: evaluation.followsProbability,

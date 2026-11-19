@@ -601,7 +601,6 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
           tasksetSource.exportTrainingEvidence({
             repositoryId,
             actorMembershipId,
-            preview: true,
           }),
           tasksetSource.readBuildArtifacts(repositoryId),
         ])
@@ -692,7 +691,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
           }
         }
       },
-      async exportTrainingEvidence({ repositoryId, actorMembershipId, preview = false }) {
+      async exportTrainingEvidence({ repositoryId, actorMembershipId }) {
         return withLearningExecutionLock({
           databaseUrl: options.databaseUrl,
           run: async (signal) => {
@@ -765,7 +764,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
                   "training",
                   "--by",
                   `human:${actorMembershipId}`,
-                  ...(preview ? ["--preview"] : []),
+                  "--preview",
                   "--out",
                   exportPath,
                   ...common,

@@ -75,7 +75,6 @@ export interface PreparedBuildEvaluation {
 export interface DecisionBuildEvaluationFinding {
   learning: {
     id: string
-    text: string | null
   }
   route: string
   views: {

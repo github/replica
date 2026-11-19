@@ -505,7 +505,6 @@ export function createDecisionModelStore(
           findings: input.summary.findings.map((finding) => ({
             learning: {
               id: finding.learning.id,
-              text: finding.learning.text,
             },
             route: finding.route,
             views: finding.views.map((view) => ({
@@ -514,6 +513,7 @@ export function createDecisionModelStore(
             })),
             followsProbability: finding.followsProbability,
             breaksProbability: finding.breaksProbability,
+            explanation: finding.explanation,
           })),
         }
         return saveDecisionBuildEvaluation(transaction, {
