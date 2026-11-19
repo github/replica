@@ -1,6 +1,6 @@
 import { createHash, randomInt, randomUUID } from "node:crypto"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { prisma } from "../../../integrations/prisma/index.ts"
 import type {
@@ -85,7 +85,15 @@ async function createFixture() {
     listRunArtifacts: (_runId: number, name: string) =>
       Promise.resolve<GitHubWorkflowArtifact[]>(
         packages.has(name)
-          ? [{ id: name === distArtifactName ? 1 : 2, name, sizeInBytes: 1, expired: false }]
+          ? [
+              {
+                id: name === distArtifactName ? 1 : 2,
+                name,
+                sizeInBytes: 1,
+                expired: false,
+                createdAt: run.startedAt ?? undefined,
+              },
+            ]
           : [],
       ),
     downloadArtifact: async (id: number) => {
@@ -105,7 +113,7 @@ async function createFixture() {
       include: { artifacts: { orderBy: { path: "asc" } }, prototype: true },
     })
   }
-  return { run, packages, hooks, importRun, findBuild, storage }
+  return { run, packages, hooks, importRun, findBuild, storage, client }
 }
 
 describe("importGitHubWorkflowRun", () => {
@@ -235,6 +243,7 @@ describe("importGitHubWorkflowRun", () => {
     const before = await fixture.findBuild()
 
     fixture.run.runAttempt = 2
+    fixture.run.startedAt = new Date("2026-01-01T00:02:00Z")
     fixture.packages.set(distArtifactName, distPackage("<h1>Changed</h1>"))
     await expect(fixture.importRun()).resolves.toMatchObject({ dist: "unchanged" })
 
@@ -254,12 +263,14 @@ describe("importGitHubWorkflowRun", () => {
     })
 
     fixture.run.runAttempt = 2
+    fixture.run.startedAt = new Date("2026-01-01T00:02:00Z")
     fixture.run.conclusion = "success"
     fixture.packages.set(distArtifactName, createZipArchive([{ name: "dist/app.js" }]))
     await expect(fixture.importRun()).resolves.toMatchObject({ dist: "failed" })
     expect((await fixture.findBuild()).artifacts).toEqual([])
 
     fixture.run.runAttempt = 3
+    fixture.run.startedAt = new Date("2026-01-01T00:03:00Z")
     fixture.packages.set(distArtifactName, distPackage())
     await expect(fixture.importRun()).resolves.toMatchObject({ dist: "imported" })
     expect(await fixture.findBuild()).toMatchObject({
@@ -268,6 +279,119 @@ describe("importGitHubWorkflowRun", () => {
       failureSummary: null,
     })
   })
+
+  it.each([false, true])(
+    "does not import an earlier attempt's dist when the rerun is completed=%s",
+    async (completed) => {
+      const fixture = await createFixture()
+      fixture.run.runAttempt = 2
+      fixture.run.startedAt = new Date("2026-01-01T00:02:00Z")
+      fixture.run.status = completed ? "completed" : "in_progress"
+      fixture.run.conclusion = completed ? "success" : null
+      vi.spyOn(fixture.client, "listRunArtifacts").mockImplementation((_runId, name) =>
+        Promise.resolve(
+          name === distArtifactName
+            ? [
+                {
+                  id: 999,
+                  name,
+                  sizeInBytes: 1,
+                  expired: false,
+                  createdAt: new Date("2026-01-01T00:01:00Z"),
+                },
+              ]
+            : [],
+        ),
+      )
+      const download = vi.spyOn(fixture.client, "downloadArtifact")
+
+      await expect(fixture.importRun()).resolves.toEqual({
+        dist: completed ? "failed" : "pending",
+        screenshots: "absent",
+      })
+      expect(download).not.toHaveBeenCalled()
+      expect(await fixture.findBuild()).toMatchObject({
+        state: completed ? "failed" : "running",
+        distDigest: null,
+        artifacts: [],
+      })
+    },
+  )
+
+  it("imports the current attempt's dist even when an older attempt's artifact has a higher ID", async () => {
+    const fixture = await createFixture()
+    fixture.run.runAttempt = 2
+    const startedAt = new Date("2026-01-01T00:02:00Z")
+    fixture.run.startedAt = startedAt
+    const currentDist = distPackage("<h1>Current attempt</h1>")
+    vi.spyOn(fixture.client, "listRunArtifacts").mockImplementation((_runId, name) =>
+      Promise.resolve(
+        name === distArtifactName
+          ? [
+              {
+                id: 999,
+                name,
+                sizeInBytes: 1,
+                expired: false,
+                createdAt: new Date("2026-01-01T00:01:00Z"),
+              },
+              { id: 1, name, sizeInBytes: 1, expired: false, createdAt: startedAt },
+            ]
+          : [],
+      ),
+    )
+    vi.spyOn(fixture.client, "downloadArtifact").mockImplementation((id) =>
+      Promise.resolve({
+        status: "ok",
+        bytes: Buffer.from(id === 1 ? currentDist : distPackage("<h1>Earlier attempt</h1>")),
+      }),
+    )
+
+    await expect(fixture.importRun()).resolves.toEqual({
+      dist: "imported",
+      screenshots: "absent",
+    })
+    expect(await fixture.findBuild()).toMatchObject({
+      state: "successful",
+      distDigest: extractDistPackage(currentDist).distDigest,
+    })
+  })
+
+  it.each(["run", "artifact"] as const)(
+    "keeps a rerun pending when the %s timestamp is missing",
+    async (missing) => {
+      const fixture = await createFixture()
+      fixture.run.runAttempt = 2
+      fixture.run.startedAt = missing === "run" ? undefined : new Date("2026-01-01T00:02:00Z")
+      vi.spyOn(fixture.client, "listRunArtifacts").mockImplementation((_runId, name) =>
+        Promise.resolve(
+          name === distArtifactName
+            ? [
+                {
+                  id: 1,
+                  name,
+                  sizeInBytes: 1,
+                  expired: false,
+                  createdAt: missing === "artifact" ? undefined : new Date("2026-01-01T00:03:00Z"),
+                },
+              ]
+            : [],
+        ),
+      )
+      const download = vi.spyOn(fixture.client, "downloadArtifact")
+
+      await expect(fixture.importRun()).resolves.toEqual({
+        dist: "pending",
+        screenshots: "absent",
+      })
+      expect(download).not.toHaveBeenCalled()
+      expect(await fixture.findBuild()).toMatchObject({
+        state: "running",
+        distDigest: null,
+        artifacts: [],
+      })
+    },
+  )
 
   it("ignores runs that are not Replica push workflows", async () => {
     const fixture = await createFixture()

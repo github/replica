@@ -28,12 +28,19 @@ const runSchema = z.looseObject({
   conclusion: z.string().max(50).nullable(),
   html_url: z.string().max(2048),
   created_at: z.iso.datetime({ offset: true }),
+  run_started_at: z.iso.datetime({ offset: true }).nullish(),
   updated_at: z.iso.datetime({ offset: true }),
   repository: z.looseObject({ id: z.number().int().positive() }),
   actor: actorSchema,
   triggering_actor: actorSchema,
 })
 const runsSchema = z.looseObject({ workflow_runs: z.array(runSchema) })
+const branchHeadsSchema = z.array(
+  z.looseObject({
+    name: z.string().min(1).max(255),
+    commit: z.looseObject({ sha: z.string().regex(/^[0-9a-f]{40}$/) }),
+  }),
+)
 const artifactsSchema = z.looseObject({
   total_count: z.number().int().nonnegative(),
   artifacts: z.array(
@@ -42,6 +49,7 @@ const artifactsSchema = z.looseObject({
       name: z.string().max(255),
       size_in_bytes: z.number().int().nonnegative(),
       expired: z.boolean(),
+      created_at: z.iso.datetime({ offset: true }).optional(),
     }),
   ),
 })
@@ -60,6 +68,7 @@ function mapRun(run: z.infer<typeof runSchema>): GitHubWorkflowRun {
     conclusion: run.conclusion,
     htmlUrl: run.html_url,
     createdAt: new Date(run.created_at),
+    ...(run.run_started_at ? { startedAt: new Date(run.run_started_at) } : {}),
     updatedAt: new Date(run.updated_at),
     repositoryId: run.repository.id,
     actor: actor ? { id: actor.id, login: actor.login, avatarUrl: actor.avatar_url ?? null } : null,
@@ -88,7 +97,7 @@ async function readBounded(response: Response, maximumBytes: number) {
 
 /**
  * Reads workflow runs and artifacts for one repository with a short-lived installation
- * token that only grants Actions read access to that repository.
+ * token that only grants Actions and Contents read access to that repository.
  */
 export function createGitHubActionsClient(
   input: GitHubActionsClientInput,
@@ -138,7 +147,7 @@ export function createGitHubActionsClient(
           method: "POST",
           body: JSON.stringify({
             repository_ids: [input.githubRepositoryId],
-            permissions: { actions: "read" },
+            permissions: { actions: "read", contents: "read" },
           }),
         },
       )
@@ -151,6 +160,28 @@ export function createGitHubActionsClient(
   }
 
   return {
+    /** Lists branch heads without assuming a truncated response is a complete snapshot. */
+    async listBranchHeads(): Promise<{ branchName: string; commitSha: string }[]> {
+      const heads: { branchName: string; commitSha: string }[] = []
+      for (let page = 1; page <= 10; page += 1) {
+        const response = await send(
+          `${repositoryPath}/branches?per_page=100&page=${page}`,
+          await installationToken(),
+        )
+        const branches = await parse(branchHeadsSchema, response)
+        heads.push(
+          ...branches.map((branch) => ({
+            branchName: branch.name,
+            commitSha: branch.commit.sha,
+          })),
+        )
+        if (branches.length < 100) return heads
+      }
+      throw new GitHubProviderRequestError({
+        cause: new Error("Branch discovery exceeded its ten-page limit."),
+      })
+    },
+
     /** Returns the run, or null when GitHub no longer has it for this repository. */
     async getWorkflowRun(runId: number): Promise<GitHubWorkflowRun | null> {
       const response = await send(
@@ -197,6 +228,7 @@ export function createGitHubActionsClient(
               name: artifact.name,
               sizeInBytes: artifact.size_in_bytes,
               expired: artifact.expired,
+              ...(artifact.created_at ? { createdAt: new Date(artifact.created_at) } : {}),
             })),
         )
         if (body.artifacts.length < 100 || page * 100 >= body.total_count) return artifacts

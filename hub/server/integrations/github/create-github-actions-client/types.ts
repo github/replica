@@ -26,6 +26,7 @@ export interface GitHubWorkflowRun {
   conclusion: string | null
   htmlUrl: string
   createdAt: Date
+  startedAt?: Date | null
   updatedAt: Date
   repositoryId: number
   actor: { id: number; login: string; avatarUrl: string | null } | null
@@ -36,4 +37,5 @@ export interface GitHubWorkflowArtifact {
   name: string
   sizeInBytes: number
   expired: boolean
+  createdAt?: Date
 }

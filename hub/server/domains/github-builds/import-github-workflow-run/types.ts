@@ -1,17 +1,11 @@
-import type { Logger } from "pino"
-
-import type { PrismaClient } from "../../../generated/prisma/client.ts"
 import type { createGitHubActionsClient } from "../../../integrations/github/create-github-actions-client/index.ts"
-import type { ArtifactStorage } from "../../artifacts/create-artifact-storage/types.ts"
+import type { GitHubBuildImportDependencies } from "../types.ts"
 
-export interface ImportGitHubWorkflowRunDependencies {
-  database: PrismaClient
-  storage: ArtifactStorage
+export interface ImportGitHubWorkflowRunDependencies extends GitHubBuildImportDependencies {
   client: Pick<
     ReturnType<typeof createGitHubActionsClient>,
     "getWorkflowRun" | "listRunArtifacts" | "downloadArtifact"
   >
-  logger: Pick<Logger, "info" | "warn">
 }
 
 export interface ImportGitHubWorkflowRunResult {

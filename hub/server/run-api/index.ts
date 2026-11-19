@@ -6,6 +6,7 @@ import type { Logger } from "pino"
 import { createApp } from "../create-app/index.ts"
 import type { AuthenticationRouteDependencies } from "../routes/api/auth/types.ts"
 import type { CopilotConnectionRouteDependencies } from "../routes/api/copilot-connection/types.ts"
+import type { GitHubActionsRouteDependencies } from "../routes/api/github/actions/types.ts"
 import type { GitHubWebhookRouteDependencies } from "../routes/api/github/webhooks/types.ts"
 import type { LearningsRouteDependencies } from "../routes/api/learnings/types.ts"
 import type { ProductRouteDependencies } from "../routes/api/product/types.ts"
@@ -19,6 +20,7 @@ export async function runApi({
   port,
   logger,
   authentication,
+  githubActions,
   githubSetup,
   githubWebhooks,
   copilotConnection,
@@ -42,6 +44,7 @@ export async function runApi({
   product?: ProductRouteDependencies
   publicSharing?: PublicSharingRouteDependencies
   githubSetup?: GitHubSetupRouteDependencies
+  githubActions?: GitHubActionsRouteDependencies
   githubWebhooks?: GitHubWebhookRouteDependencies
   trustedProxyHops?: number
   shutdownTimeoutMs?: number
@@ -70,6 +73,7 @@ export async function runApi({
       clientDirectory,
       isReady: async () => !stoppingRequested && (isReady ? await isReady() : true),
       authentication,
+      githubActions,
       githubSetup,
       githubWebhooks,
       copilotConnection: copilotConnection

@@ -9,6 +9,10 @@ import { get as handleCurrentSessionGet } from "./api/auth/session/get/index.ts"
 import { get as handleAuthenticationProvidersGet } from "./api/auth/providers/get/index.ts"
 import { post as handleSignOutPost } from "./api/auth/session/sign-out/post/index.ts"
 import { post as handleAuthenticationStartPost } from "./api/auth/start/post/index.ts"
+import { authenticate as authenticateGitHubActions } from "./api/github/actions/authenticate/index.ts"
+import { post as handleGitHubActionsBuildPost } from "./api/github/actions/builds/post/index.ts"
+import { post as handleGitHubActionsScreenshotPost } from "./api/github/actions/screenshots/post/index.ts"
+import { maximumArtifactDownloadBytes } from "../domains/github-builds/constants.ts"
 import { post as handleGitHubWebhookPost } from "./api/github/webhooks/post/index.ts"
 import { get as handleApiHealthGet } from "./api/health/get/index.ts"
 import { get as handleApiReadyGet } from "./api/ready/get/index.ts"
@@ -66,6 +70,7 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
   const {
     authentication,
     copilotConnection,
+    githubActions,
     githubSetup,
     githubWebhooks,
     isReady,
@@ -91,6 +96,22 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
       "/api/github/webhooks",
       express.raw({ limit: "1mb", type: "application/json" }),
       handleGitHubWebhookPost(githubWebhooks),
+    )
+  }
+  if (githubActions) {
+    // The token is verified before the upload body is read.
+    const upload = express.raw({ limit: maximumArtifactDownloadBytes, type: "application/zip" })
+    app.post(
+      "/api/github/actions/builds",
+      authenticateGitHubActions(githubActions),
+      upload,
+      handleGitHubActionsBuildPost(githubActions),
+    )
+    app.post(
+      "/api/github/actions/screenshots",
+      authenticateGitHubActions(githubActions),
+      upload,
+      handleGitHubActionsScreenshotPost(githubActions),
     )
   }
   if (githubSetup) {
