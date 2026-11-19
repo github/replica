@@ -6,6 +6,7 @@ import type { BuildState } from "../../../generated/prisma/client"
 import type { GitHubWorkflowRun } from "../../../integrations/github/create-github-actions-client/types"
 import { prisma } from "../../../integrations/prisma"
 import { prepareGitHubBuild } from "../../../repositories/github-builds/prepare-github-build"
+import { retireGitHubBranch } from "../../../repositories/prototypes/retire-github-branch"
 import { discoverGitHubWorkflowRuns } from "."
 
 const createdAfter = new Date(Date.now() - 60 * 60 * 1_000)
@@ -447,5 +448,86 @@ describe("discoverGitHubWorkflowRuns", () => {
       currentBuildId: newerBuildId,
       currentBuildRunCreatedAt: new Date("2026-11-18T12:00:30Z"),
     })
+  })
+
+  it("restores a deleted branch only from a listing that began after its deletion", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-11-18T12:00:00Z"))
+    const repository = await createRepository()
+    const githubRepositoryId = repository.githubRepositoryId
+    const branchName = "proto/welcome"
+    const input = {
+      githubRepositoryId,
+      branchName,
+      commitSha: "a".repeat(40),
+      run: {
+        runId: 100n,
+        runAttempt: 1,
+        workflowUrl: "https://github.com/o/r/actions/runs/100",
+        createdAt: new Date("2026-11-18T11:00:00Z"),
+      },
+      author: null,
+    }
+    const first = await prepareGitHubBuild(prisma, input)
+    if (first.status !== "ready") throw new Error("The fixture Build must exist.")
+    const prototype = await prisma.prototype.findFirstOrThrow({
+      where: { repositoryId: repository.id, branchName },
+    })
+    await prisma.prototype.update({
+      where: { id: prototype.id },
+      data: { name: "Welcome", description: "Saved description" },
+    })
+    const builds = await prisma.build.findMany({ where: { prototypeId: prototype.id } })
+    function retire() {
+      return prisma.$transaction((transaction) =>
+        retireGitHubBranch(transaction, { githubRepositoryId, branchName }),
+      )
+    }
+    await retire()
+    const recreated = workflowRun(githubRepositoryId, { headBranch: branchName })
+    function discover(
+      at: string,
+      heads: () => Promise<{ branchName: string; commitSha: string }[]>,
+    ) {
+      vi.setSystemTime(new Date(at))
+      return discoverGitHubWorkflowRuns(
+        {
+          database: prisma,
+          listBranchHeads: heads,
+          listWorkflowRuns: () => Promise.resolve([recreated]),
+          logger: { warn: vi.fn() },
+        },
+        { createdAfter },
+      )
+    }
+    const listed = [{ branchName, commitSha: recreated.headSha }]
+    async function branchDeletedAt() {
+      return (await prisma.prototype.findUniqueOrThrow({ where: { id: prototype.id } }))
+        .branchDeletedAt
+    }
+
+    await discover("2026-11-18T12:01:00Z", () => Promise.resolve([]))
+    expect(await branchDeletedAt()).toEqual(new Date("2026-11-18T12:00:00Z"))
+
+    await discover("2026-11-18T12:02:00Z", async () => {
+      vi.setSystemTime(new Date("2026-11-18T12:03:00Z"))
+      await retire()
+      return listed
+    })
+    expect(await branchDeletedAt()).toEqual(new Date("2026-11-18T12:03:00Z"))
+
+    const jobs = await discover("2026-11-18T12:04:00Z", () => Promise.resolve(listed))
+    expect(jobs).toContainEqual({ githubRepositoryId, runId: recreated.id })
+    expect(await prisma.prototype.findUniqueOrThrow({ where: { id: prototype.id } })).toMatchObject(
+      { branchDeletedAt: null, name: "Welcome", description: "Saved description" },
+    )
+    expect(await prisma.build.findMany({ where: { prototypeId: prototype.id } })).toEqual(builds)
+    await expect(
+      prepareGitHubBuild(prisma, {
+        ...input,
+        commitSha: recreated.headSha,
+        run: { ...input.run, runId: BigInt(recreated.id), createdAt: recreated.createdAt },
+      }),
+    ).resolves.toMatchObject({ status: "ready" })
   })
 })
