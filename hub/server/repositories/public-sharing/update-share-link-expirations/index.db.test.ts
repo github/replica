@@ -26,7 +26,8 @@ describe("updateShareLinkExpirations()", () => {
         prototypeId: prototype.id,
       },
     })
-    const originalExpiration = new Date("2026-12-18T18:00:00.000Z")
+    const day = 24 * 60 * 60 * 1000
+    const originalExpiration = new Date(Date.now() + 30 * day)
     const link = await prisma.shareLink.create({
       data: {
         buildId: build.id,
@@ -38,8 +39,8 @@ describe("updateShareLinkExpirations()", () => {
         publicId: randomUUID(),
       },
     })
-    const shortenedExpiration = new Date("2026-11-19T18:00:00.000Z")
-    const staleExpiration = new Date("2026-11-25T18:00:00.000Z")
+    const shortenedExpiration = new Date(link.createdAt.getTime() + day)
+    const staleExpiration = new Date(link.createdAt.getTime() + 7 * day)
 
     await updateShareLinkExpirations(prisma, [{ id: link.id, expiresAt: shortenedExpiration }])
     await updateShareLinkExpirations(prisma, [{ id: link.id, expiresAt: staleExpiration }])

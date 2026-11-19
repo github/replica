@@ -1,7 +1,11 @@
 import { z } from "zod"
 
+import type { GitHubWorkflowRunJob } from "../../../../../domains/github-builds/get-github-workflow-run-job-definition/index.ts"
+import { replicaWorkflowPath } from "../../../../../domains/github-builds/constants.ts"
 import { revokeGitHubRepositoryAccess } from "../../../../../domains/admission/revoke-github-repository-access/index.ts"
+import { recordGitHubBranchDeletion } from "../../../../../domains/prototypes/record-github-branch-deletion/index.ts"
 import { prisma } from "../../../../../integrations/prisma/index.ts"
+import { claimGitHubWebhookDelivery } from "../../../../../repositories/github-webhook-deliveries/claim-github-webhook-delivery/index.ts"
 import type { GitHubWebhookRouteDependencies } from "../types.ts"
 
 const githubId = z.number().int().positive()
@@ -34,6 +38,16 @@ const teamRepositoryEvent = z.looseObject({
   repository: z.looseObject({ id: githubId.nullish() }).nullish(),
   team,
 })
+const workflowRunEvent = z.looseObject({
+  action: z.enum(["requested", "in_progress", "completed"]),
+  repository: z.looseObject({ id: githubId }),
+  workflow_run: z.looseObject({ id: githubId, path: z.string() }),
+})
+const workflowJobEvent = z.looseObject({
+  action: z.literal("completed"),
+  repository: z.looseObject({ id: githubId }),
+  workflow_job: z.looseObject({ run_id: githubId }),
+})
 const teamRepositoryPermissionEvent = z.looseObject({
   action: z.literal("edited"),
   changes: z.looseObject({ repository: z.looseObject({}) }),
@@ -43,6 +57,17 @@ const teamRepositoryPermissionEvent = z.looseObject({
 const teamDeletedEvent = z.looseObject({
   action: z.literal("deleted"),
   team,
+})
+const branchDeletionEvent = z.looseObject({
+  ref_type: z.enum(["branch", "tag"]),
+  ref: z.string().min(1).max(255),
+  repository: z.looseObject({ id: githubId }),
+})
+const pushEvent = z.looseObject({
+  deleted: z.boolean(),
+  before: z.unknown().optional(),
+  ref: z.string().min(1).max(266),
+  repository: z.looseObject({ id: githubId }),
 })
 
 /**
@@ -54,6 +79,8 @@ export function createGitHubWebhookRouteDependencies(input: {
   installationId: string
   provider: { configurationDigest: string; revision: number }
   syncRepositories: () => Promise<unknown>
+  /** Enqueues idempotently by key, so a redelivered event cannot import twice. */
+  enqueueWorkflowRunImport?: (job: GitHubWorkflowRunJob, key: string) => Promise<unknown>
 }): GitHubWebhookRouteDependencies {
   async function syncRepositories() {
     await input.syncRepositories()
@@ -64,12 +91,73 @@ export function createGitHubWebhookRouteDependencies(input: {
     webhookSecret: input.webhookSecret,
     async handleEvent(name, payload, delivery) {
       const receipt = { ...delivery, event: name }
+      if (name === "delete" || name === "push") {
+        let branchName: string | undefined
+        let githubRepositoryId: number
+        let deletedHeadSha: string | undefined
+        if (name === "delete") {
+          const event = branchDeletionEvent.safeParse(payload)
+          if (!event.success) return false
+          githubRepositoryId = event.data.repository.id
+          if (event.data.ref_type === "branch") branchName = event.data.ref
+        } else {
+          const event = pushEvent.safeParse(payload)
+          if (!event.success) return false
+          githubRepositoryId = event.data.repository.id
+          if (event.data.deleted && event.data.ref.startsWith("refs/heads/")) {
+            branchName = event.data.ref.slice("refs/heads/".length)
+            if (!branchName) return false
+            const { before } = event.data
+            if (typeof before === "string" && /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(before)) {
+              deletedHeadSha = before
+            }
+          }
+        }
+        if (!branchName) {
+          // Acknowledge unrelated pushes and tag deletions so recovery need not resend them.
+          await claimGitHubWebhookDelivery(prisma, receipt)
+          return true
+        }
+        await recordGitHubBranchDeletion(prisma, {
+          githubRepositoryId,
+          branchName,
+          deletedHeadSha,
+          delivery: receipt,
+        })
+        return true
+      }
       const action = webhookAction.safeParse(payload)
       if (!action.success) {
         if (name === "membership" || name === "team") {
           throw new Error("Invalid GitHub team webhook event.")
         }
         return false
+      }
+      if (name === "workflow_run" || name === "workflow_job") {
+        if (!input.enqueueWorkflowRunImport) return false
+        let job: GitHubWorkflowRunJob
+        if (name === "workflow_run") {
+          const event = workflowRunEvent.safeParse(payload)
+          if (
+            !event.success ||
+            event.data.workflow_run.path.split("@")[0] !== replicaWorkflowPath
+          ) {
+            return false
+          }
+          job = { githubRepositoryId: event.data.repository.id, runId: event.data.workflow_run.id }
+        } else {
+          // Job events let the dist import as soon as its job ends, before screenshots finish.
+          const event = workflowJobEvent.safeParse(payload)
+          if (!event.success) return false
+          job = {
+            githubRepositoryId: event.data.repository.id,
+            runId: event.data.workflow_job.run_id,
+          }
+        }
+        // Enqueue before recording receipt so a failed enqueue can be redelivered.
+        await input.enqueueWorkflowRunImport(job, delivery.id)
+        await claimGitHubWebhookDelivery(prisma, receipt)
+        return true
       }
       if (name === "installation") {
         const event = installationEvent.safeParse(payload)

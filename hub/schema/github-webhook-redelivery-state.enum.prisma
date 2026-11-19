@@ -1,0 +1,7 @@
+enum GitHubWebhookRedeliveryState {
+  pending
+  requesting
+  waiting
+  succeeded
+  failed
+}
