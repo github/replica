@@ -78,6 +78,39 @@ Use `test/database/get-database-url` to read the worker URL and `test/jobs/open-
 
 ## Local browser smoke test
 
+### Click through the real Hub
+
+Use the seeded smoke workspace to test the real React Router app, Express API, and PostgreSQL on Linux. It has a successful Build with a preview, an unbuilt prototype, an unlisted draft, and a saved template. It does not need a GitHub App, external credentials, or a Docker Build. Local-mode preparation uses the [Build action's Playwright and Chromium](development.md#build-local-prototype-repositories).
+
+From `hub/`, after `npm ci`, use a loopback PostgreSQL server with a test user that can create and drop databases. For the standard development Compose database:
+
+```sh
+docker compose -f .devcontainer/compose.yaml up -d --wait db
+export TEST_DATABASE_URL=postgresql://replica:replica@127.0.0.1:5432/postgres
+npm run build:runtime
+npm run smoke:local
+```
+
+If that database is already running, skip the Compose command. Use the `http://localhost:…` URL printed by the smoke command, then choose **Sign in as local developer**. The repository picker should show `local/validation`. If you see the **Test data** toolbar, you are on the mock site, not this server.
+
+The command does not need a `.env` file and does not use your development database or existing prototype checkout. Keep the terminal open while testing. Press **Ctrl+C** to stop Hub and discard the temporary database and artifacts; rerun `npm run smoke:local` to start fresh. Keep the server on loopback.
+
+| Try this | Pass if |
+| --- | --- |
+| **Prototypes**: Open the **Welcome** prototype, dismiss its introduction, and open **More actions → History**. Go back and open **No Build**. | Welcome opens the saved Build 1 and has a history entry. No Build shows **No preview available**. |
+| **Edit prototype listings**: Add `prototype/listing-draft` as **Smoke draft**. Go back to the gallery, reload, and open the repository's **Security audit**. | Smoke draft stays in the gallery and the repository audit shows `prototype.registered`. Registering did not create a Build. |
+| **Create**: Open **Field notes**, choose **Branch from here**, enter “Add a trail map,” and select **Copy prompt**. Paste into a local text editor. | The saved template still opens even though the next default-branch Build failed. The copied prompt contains the brief and `/field-notes/`. Hub does not create a branch. |
+| **Review**: Open the Welcome prototype. Choose **Add a comment → Comment on element**, click **Example action** inside the preview, and post a comment. Add a reply and an emoji reaction, then reload. Use the root comment's actions menu to **Mark as unread**. Resolve the thread, then use **Show resolved** in the comments filters to reopen it. | The thread, reply, and reaction persist across reload. The unread state changes independently of resolution; reopening makes replies available again. |
+| **Welcome** in the sidebar: Copy its page URL, select **Hide welcome**, and reopen the saved URL. | Welcome stays off the sidebar after reload. The direct page still opens. |
+| **Analytics**: Add a **Segment** destination with a throwaway key such as `smoke-only-not-a-real-key`. Reload, pause, resume, and disconnect it. | The destination persists, shows no saved key, and disappears after disconnect. The page reports that outbound analytics delivery is disabled. |
+| **Public sharing**: Confirm and enable it, then open the Welcome prototype's **More actions → Share links**. Create a Build 1 link and paste it into a private browser window. Delete the link from Hub and reload the private window. | Before revocation, the signed-out window shows just the preview. After revocation, it shows **This link was revoked** and no preview. |
+
+Also open **Inbox**, **Canvas connections**, and **Hub administrators**. The workspace uses one real local identity, so Inbox and Canvas connections start empty. To check live review updates, open the same comment thread in two tabs and post a reply from one; the other should update without a reload. For a final administrator check, also sign in from a separate browser profile, then confirm **End all Hub sessions**. Both browser sessions should require sign-in again on reload.
+
+This smoke workspace seeds saved files, not a Git history. Check Git discovery and packaging separately with [local Builds](development.md#build-local-prototype-repositories). Check [Canvas approval and revocation](prototype-canvas.md#connect-and-revoke) from the actual extension with a matching checkout and a local development Hub. Use an approved scratch GitHub App and repository in [`dev:api:live`](development.md#start-with-the-real-api) for hosted Build import, repository roles, and cross-user mentions and Inbox. Real analytics delivery and deployed sharing are separate checks; leave them off for this walkthrough.
+
+### Run the automated check
+
 Run this check on Linux with `playwright-cli` and its Chromium browser installed. Point `TEST_DATABASE_URL` at a disposable PostgreSQL server on loopback with permission to create and drop databases. From `hub/`:
 
 ```sh

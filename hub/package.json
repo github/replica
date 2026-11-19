@@ -52,6 +52,7 @@
     "extension:test": "npm run controls:runtime:test && node --test ../.github/extensions/replica-prototype/**/*.test.mjs",
     "format": "prettier --write .",
     "lint": "react-router typegen && eslint . ../.github/extensions/replica-prototype ../packages/learning && prettier --check . \"../eslint.config.mjs\" \"../.github/extensions/replica-prototype/**/*.{mjs,mts,ts}\" \"../.github/extensions/replica-prototype/*.json\" \"../packages/learning/**/*.{mjs,mts,json}\" --config .prettierrc.json",
+    "smoke:local": "node test/local-smoke/manual.ts",
     "storybook": "storybook dev --disable-telemetry --host 0.0.0.0 --port 6006 --initial-path /story/hub-design-overview--taxonomy",
     "storybook:build": "storybook build --disable-telemetry --output-dir storybook-static",
     "test": "vitest run --project=node --project=browser",

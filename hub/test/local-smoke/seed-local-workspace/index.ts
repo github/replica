@@ -1,17 +1,20 @@
 import { randomUUID } from "node:crypto"
-import { join } from "node:path"
 
-import { createArtifactStorage } from "../../../server/domains/artifacts/create-artifact-storage"
-import { prisma } from "../../../server/integrations/prisma"
+import { createArtifactStorage } from "../../../server/domains/artifacts/create-artifact-storage/index.ts"
+import type { PrismaClient } from "../../../server/generated/prisma/client.ts"
 
-export async function seedLocalWorkspace(root: string, artifactDirectory: string) {
+export async function seedLocalWorkspace(
+  prisma: PrismaClient,
+  repositoryPath: string,
+  artifactDirectory: string,
+) {
   const storage = await createArtifactStorage({
     provider: "filesystem",
     directory: artifactDirectory,
   })
   const storageKey = "welcome_smoke_html"
   const bytes = Buffer.from(
-    '<!doctype html><html lang="en"><title>Welcome prototype</title><main><h1>Welcome prototype</h1></main></html>',
+    '<!doctype html><html lang="en"><title>Welcome prototype</title><main><h1>Welcome prototype</h1><button type="button">Example action</button></main></html>',
   )
   const write = await storage.write(storageKey, bytes)
   if (write.status !== "ok") throw new Error(`Could not save the smoke Build: ${write.status}.`)
@@ -51,7 +54,7 @@ export async function seedLocalWorkspace(root: string, artifactDirectory: string
     data: {
       nameWithOwner: "local/validation",
       defaultBranch: "main",
-      localPath: join(root, "validation"),
+      localPath: repositoryPath,
       prototypes: {
         create: [
           {
