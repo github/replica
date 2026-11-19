@@ -24,10 +24,7 @@ When a reference app is supplied, retain it for the guidance and component work 
 Without a local Replica checkout, download the installer:
 
 ```sh
-# macOS, Linux, or Git Bash
 curl -fLSs https://raw.githubusercontent.com/github/replica/main/scripts/install-starter.mjs -o install-starter.mjs
-# Windows PowerShell 5.1
-curl.exe -fLSs https://raw.githubusercontent.com/github/replica/main/scripts/install-starter.mjs -o install-starter.mjs
 ```
 
 Read the downloaded script before running it. Use a destination that does not exist and whose parent directory exists:
