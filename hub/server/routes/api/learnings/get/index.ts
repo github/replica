@@ -74,6 +74,7 @@ export function get(dependencies: LearningsRouteDependencies): RequestHandler {
         canAdministerHub: true,
         permissions: { decide: true, requestRun: dependencies.requestRun !== undefined },
         copilot,
+        automaticRunsEnabled: dependencies.automaticRunsEnabled,
         usageCredits: runSummary.usageCredits,
         runAvailable,
         ...overview,

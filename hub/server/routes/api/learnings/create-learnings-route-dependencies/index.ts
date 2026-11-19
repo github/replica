@@ -95,6 +95,7 @@ export async function createLearningsRouteDependencies(
 
   return {
     applicationOrigin,
+    automaticRunsEnabled: configuration.automaticRuns,
     currentSession,
     findRepository,
     getOverview: async ({ repositoryId, viewer }) => {

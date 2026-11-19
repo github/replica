@@ -49,11 +49,13 @@ export function settingsLearnings(
                 )}`
               : ""
           }, so Hub stopped looking for learnings until the token is replaced or checked again on the Copilot page. You can still decide on suggestions, and agents still get accepted learnings.`
-        : `Hub looks for learnings once a day when there are new comments${
-            state.copilot.connectedBy
-              ? `, using the Copilot connection @${state.copilot.connectedBy} made`
-              : ""
-          }.`
+        : state.automaticRunsEnabled
+          ? `Hub looks for learnings once a day when there are new comments${
+              state.copilot.connectedBy
+                ? `, using the Copilot connection @${state.copilot.connectedBy} made`
+                : ""
+            }.`
+          : "Hub looks for learnings when you choose Find learnings now."
   return {
     ...shared,
     accessDenied: false,

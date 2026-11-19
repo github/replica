@@ -6,7 +6,7 @@ import { getDatabaseUrl } from "../../../../test/database/get-database-url"
 import { openQueue } from "../../../../test/jobs/open-queue"
 import { createJobProcessor } from "../create-job-processor"
 import { enqueueJob } from "../enqueue-job"
-import type { JobDefinition, JobProcessor, JobQueueName } from "../types"
+import type { JobDefinition, JobProcessor, JobProcessorContext, JobQueueName } from "../types"
 import { upsertJobSchedule } from "../upsert-job-schedule"
 import { createJobWorker } from "."
 
@@ -140,6 +140,32 @@ describe("job processing with PostgreSQL", () => {
     expect(lines.join("")).not.toMatch(
       /private-error-marker|private-payload-marker|private-connection-marker/,
     )
+  }, 15_000)
+
+  it("delays expected contention without consuming the retry budget", async () => {
+    const queue = openQueue("scheduled")
+    const definition = {
+      name: "deferred",
+      schema: z.object({ value: z.string() }),
+      options: { attempts: 1 },
+    }
+    const process = vi.fn(async ({ value }: { value: string }, context: JobProcessorContext) => {
+      if (process.mock.calls.length === 1) await context.defer(20)
+      return value
+    })
+    const { start } = await openWorker("scheduled", [createJobProcessor(definition, process)])
+    const job = await enqueueJob(queue, definition, { value: "completed after deferral" })
+    start()
+
+    await vi.waitFor(
+      async () => {
+        expect(await job.getState()).toBe("completed")
+      },
+      { timeout: 5_000 },
+    )
+
+    expect(process).toHaveBeenCalledTimes(2)
+    expect((await queue.getJob(job.id!))?.attemptsMade).toBe(1)
   }, 15_000)
 
   it("keeps a stable schedule id while updating its payload, interval, and job defaults", async () => {

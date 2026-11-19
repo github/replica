@@ -131,8 +131,10 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
           credentialProvider: string
         }
       | undefined
-    await processLearningRun(runId, {
-      claim: (id, startedAt) => claimLearningRun(prisma, id, startedAt),
+    return await processLearningRun(runId, {
+      expectedScheduled: scheduled,
+      claim: (id, startedAt, expectedScheduled) =>
+        claimLearningRun(prisma, id, startedAt, expectedScheduled),
       capture: (repositoryId) => source.captureCompleteSnapshot({ repositoryId }),
       finish: (id, input) => finishLearningRun(prisma, id, input),
       getRun: (id) => getLearningRun(prisma, id),
@@ -241,8 +243,12 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
     })
   }
 
-  const run = createJobProcessor(learningRunJob, ({ runId }) => processRun(runId, false))
-  const scheduledRun = createJobProcessor(learningRunJob, ({ runId }) => processRun(runId, true))
+  const run = createJobProcessor(learningRunJob, async ({ runId }, context) => {
+    if ((await processRun(runId, false)) === "deferred") await context.defer(30_000)
+  })
+  const scheduledRun = createJobProcessor(learningRunJob, async ({ runId }, context) => {
+    if ((await processRun(runId, true)) === "deferred") await context.defer(30_000)
+  })
 
   const recover = createJobProcessor(recoverLearningRunsJob, async () => {
     const { configuration, databaseUrl, prisma } = await dependencies()
@@ -401,6 +407,9 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
           )
         },
         now: () => new Date(),
+        reportRepositoryFailure: ({ repositoryId, errorType }) => {
+          logger.warn({ repositoryId, errorType }, "Scheduled learning repository discovery failed")
+        },
       })
     } finally {
       await queue.close()

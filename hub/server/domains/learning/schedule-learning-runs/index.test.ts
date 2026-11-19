@@ -32,6 +32,7 @@ function dependencies(overrides: Partial<EnabledDependencies> = {}): EnabledDepe
     enqueue: vi.fn().mockResolvedValue(undefined),
     fail: vi.fn().mockResolvedValue(undefined),
     now: vi.fn(() => new Date("2026-11-18T10:00:00Z")),
+    reportRepositoryFailure: vi.fn(),
     ...overrides,
   }
 }
@@ -139,6 +140,48 @@ describe("scheduleLearningRuns()", () => {
 
     expect(deps.capture).toHaveBeenCalledTimes(2)
     expect(deps.enqueue).toHaveBeenCalledOnce()
+    expect(deps.enqueue).toHaveBeenCalledWith("run-22222222-2222-4222-8222-222222222222")
+  })
+
+  it("reports a snapshot capture failure and continues with later repositories", async () => {
+    const deps = dependencies({
+      capture: vi
+        .fn()
+        .mockRejectedValueOnce(new TypeError("snapshot failed"))
+        .mockResolvedValueOnce({
+          digest: "sha256:available",
+          reviewActivitySnapshot: { available: 1 },
+        }),
+    })
+
+    await expect(scheduleLearningRuns(deps)).resolves.toEqual({ scheduled: 1 })
+
+    expect(deps.reportRepositoryFailure).toHaveBeenCalledWith({
+      repositoryId: "11111111-1111-4111-8111-111111111111",
+      errorType: "TypeError",
+    })
+    expect(deps.create).toHaveBeenCalledOnce()
+    expect(deps.enqueue).toHaveBeenCalledWith("run-22222222-2222-4222-8222-222222222222")
+  })
+
+  it("reports a run creation failure and continues with later repositories", async () => {
+    const deps = dependencies({
+      create: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("create failed"))
+        .mockResolvedValueOnce({
+          run: { id: "run-22222222-2222-4222-8222-222222222222" },
+          created: true,
+        }),
+    })
+
+    await expect(scheduleLearningRuns(deps)).resolves.toEqual({ scheduled: 1 })
+
+    expect(deps.reportRepositoryFailure).toHaveBeenCalledWith({
+      repositoryId: "11111111-1111-4111-8111-111111111111",
+      errorType: "Error",
+    })
+    expect(deps.capture).toHaveBeenCalledTimes(2)
     expect(deps.enqueue).toHaveBeenCalledWith("run-22222222-2222-4222-8222-222222222222")
   })
 

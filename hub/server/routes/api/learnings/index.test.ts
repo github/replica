@@ -31,6 +31,7 @@ function dependencies(
 ): LearningsRouteDependencies {
   return {
     applicationOrigin: "http://127.0.0.1:5173",
+    automaticRunsEnabled: false,
     currentSession: { restore: vi.fn().mockResolvedValue(session) },
     findRepository: vi.fn().mockResolvedValue(repository),
     getOverview: vi.fn().mockResolvedValue({
@@ -149,6 +150,7 @@ describe("learning routes", () => {
       usage: { credits: "0.021", requests: 1 },
     }
     const deps = dependencies({
+      automaticRunsEnabled: true,
       getOverview: vi.fn().mockResolvedValue({
         loadError: null,
         identityReviewCount: 1,
@@ -179,6 +181,7 @@ describe("learning routes", () => {
           canAdministerHub: true,
           permissions: { decide: true, requestRun: false },
           copilot: { state: "connected", connectedBy: "mona" },
+          automaticRunsEnabled: true,
           usageCredits: "0.021",
           runAvailable: false,
           loadError: null,

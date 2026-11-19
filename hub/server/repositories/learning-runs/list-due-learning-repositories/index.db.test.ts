@@ -223,6 +223,103 @@ describe("listDueLearningRepositories()", () => {
     )
   })
 
+  it("waits for an explicit administrator run after automatic consent failures", async () => {
+    const grantRequiredId = randomUUID()
+    const grantInactiveId = randomUUID()
+    const supersededId = randomUUID()
+    const otherFailureId = randomUUID()
+    const user = await prisma.user.create({ data: {} })
+    const membership = await prisma.membership.create({ data: { userId: user.id } })
+    await prisma.repository.createMany({
+      data: [
+        { id: grantRequiredId, nameWithOwner: "team/grant-required", defaultBranch: "main" },
+        { id: grantInactiveId, nameWithOwner: "team/grant-inactive", defaultBranch: "main" },
+        { id: supersededId, nameWithOwner: "team/superseded", defaultBranch: "main" },
+        { id: otherFailureId, nameWithOwner: "team/other-failure", defaultBranch: "main" },
+      ],
+    })
+    await Promise.all(
+      [grantRequiredId, grantInactiveId, supersededId, otherFailureId].map((repositoryId) =>
+        createReviewEvidence({
+          repositoryId,
+          updatedAt: new Date("2026-11-18T09:00:00Z"),
+        }),
+      ),
+    )
+    await prisma.learningRun.createMany({
+      data: [
+        {
+          repositoryId: grantRequiredId,
+          scheduled: true,
+          state: "FAILED",
+          snapshotDigest: `sha256:${"a".repeat(64)}`,
+          failureCode: "grant_required",
+          failureSummary: "An administrator must request this run.",
+          finishedAt: new Date("2026-11-18T08:00:00Z"),
+          createdAt: new Date("2026-11-18T07:00:00Z"),
+        },
+        {
+          repositoryId: grantInactiveId,
+          requestedById: user.id,
+          requestedByMembershipId: membership.id,
+          state: "FAILED",
+          snapshotDigest: `sha256:${"b".repeat(64)}`,
+          failureCode: "failed",
+          failureSummary: "An earlier explicit run failed.",
+          finishedAt: new Date("2026-11-17T08:00:00Z"),
+          createdAt: new Date("2026-11-17T07:00:00Z"),
+        },
+        {
+          repositoryId: grantInactiveId,
+          scheduled: true,
+          state: "FAILED",
+          snapshotDigest: `sha256:${"c".repeat(64)}`,
+          failureCode: "grant_inactive",
+          failureSummary: "Consent ended.",
+          finishedAt: new Date("2026-11-18T08:00:00Z"),
+          createdAt: new Date("2026-11-18T07:00:00Z"),
+        },
+        {
+          repositoryId: supersededId,
+          scheduled: true,
+          state: "FAILED",
+          snapshotDigest: `sha256:${"d".repeat(64)}`,
+          failureCode: "grant_required",
+          failureSummary: "An administrator must request this run.",
+          finishedAt: new Date("2026-11-18T08:00:00Z"),
+          createdAt: new Date("2026-11-18T07:00:00Z"),
+        },
+        {
+          repositoryId: supersededId,
+          requestedById: user.id,
+          requestedByMembershipId: membership.id,
+          state: "FAILED",
+          snapshotDigest: `sha256:${"e".repeat(64)}`,
+          failureCode: "failed",
+          failureSummary: "The explicit run failed later.",
+          finishedAt: new Date("2026-11-18T10:00:00Z"),
+          createdAt: new Date("2026-11-18T09:00:00Z"),
+        },
+        {
+          repositoryId: otherFailureId,
+          scheduled: true,
+          state: "FAILED",
+          snapshotDigest: `sha256:${"f".repeat(64)}`,
+          failureCode: "failed",
+          failureSummary: "A retryable failure.",
+          finishedAt: new Date("2026-11-18T08:00:00Z"),
+          createdAt: new Date("2026-11-18T07:00:00Z"),
+        },
+      ],
+    })
+
+    const due = await listDueLearningRepositories(prisma, {
+      requireGitHubId: false,
+    })
+
+    expect(new Set(due.map(({ id }) => id))).toEqual(new Set([supersededId, otherFailureId]))
+  })
+
   it("finds review evidence committed after snapshot capture with an earlier timestamp", async () => {
     const repositoryId = randomUUID()
     await prisma.repository.create({
@@ -264,6 +361,9 @@ describe("listDueLearningRepositories()", () => {
           finishedAt: new Date("2026-11-18T10:00:00Z"),
         },
       })
+      await expect(
+        listDueLearningRepositories(prisma, { requireGitHubId: false }),
+      ).resolves.toEqual([])
       await reviewDatabase.query("COMMIT")
       committed = true
     } finally {

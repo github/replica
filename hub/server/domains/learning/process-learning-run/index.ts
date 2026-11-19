@@ -56,7 +56,8 @@ function credits(nanoAiu: number) {
 export async function processLearningRun(
   runId: string,
   dependencies: {
-    claim(runId: string, startedAt: Date): Promise<boolean>
+    expectedScheduled: boolean
+    claim(runId: string, startedAt: Date, scheduled: boolean): Promise<boolean>
     capture(repositoryId: string): Promise<{
       collection: unknown
       digest: string
@@ -114,12 +115,18 @@ export async function processLearningRun(
 ) {
   const run = await dependencies.getRun(runId)
   if (!run || !["QUEUED", "RUNNING"].includes(run.state)) return
+  if (run.scheduled !== dependencies.expectedScheduled) return
   try {
     await dependencies.withLock(async (signal) => {
-      if (run.scheduled && (await dependencies.hasPendingUserRun())) {
+      if (dependencies.expectedScheduled && (await dependencies.hasPendingUserRun())) {
         throw new Error("User-requested learning work is waiting.")
       }
-      if (run.state === "QUEUED" && !(await dependencies.claim(runId, dependencies.now()))) return
+      if (
+        run.state === "QUEUED" &&
+        !(await dependencies.claim(runId, dependencies.now(), dependencies.expectedScheduled))
+      ) {
+        return
+      }
       const current = await dependencies.getRun(runId)
       if (!current) throw new Error("The claimed learning run disappeared.")
       if (current.state !== "RUNNING") return
@@ -314,7 +321,7 @@ export async function processLearningRun(
         "User-requested learning work is waiting.",
       ].includes(error.message)
     ) {
-      throw error
+      return "deferred" as const
     }
     const current = await dependencies.getRun(runId)
     if (current?.state === "QUEUED") throw error

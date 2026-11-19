@@ -39,6 +39,7 @@ function learningsResponse() {
     canAdministerHub: false,
     permissions: { decide: true, requestRun: true },
     copilot: { state: "connected" as const, connectedBy: "hub-admin" },
+    automaticRunsEnabled: false,
     usageCredits: "0.0945",
     runAvailable: true,
     loadError: null,
@@ -180,7 +181,27 @@ describe("Learnings frontend integration", () => {
     expect(screen.getByRole("cell", { name: "0.021 AI credits in 1 request" })).toBeVisible()
     expect(screen.getByRole("cell", { name: /Copilot did not return a result/ })).toBeVisible()
     expect(screen.queryByRole("button", { name: /connect copilot/i })).not.toBeInTheDocument()
+    expect(
+      screen.getByText("Hub looks for learnings when you choose Find learnings now."),
+    ).toBeVisible()
     expect(requests).toEqual(["GET /api/repositories/2001/learnings"])
+  })
+
+  it("reports daily checks only when automatic runs are enabled", async () => {
+    const store = createMockStore({ origin: window.location.origin })
+    const server = setupServer(...createMockHandlers(store))
+    server.use(
+      http.get(`${store.origin}/api/repositories/2001/learnings`, () =>
+        HttpResponse.json({ ...learningsResponse(), automaticRunsEnabled: true }),
+      ),
+    )
+    await renderHubFlow(server, "/repositories/2001/learnings", { workspaceRoutes })
+
+    expect(
+      await screen.findByText(
+        "Hub looks for learnings once a day when there are new comments, using the Copilot connection @hub-admin made.",
+      ),
+    ).toBeVisible()
   })
 
   it("posts a run only to the dedicated repository endpoint", async () => {

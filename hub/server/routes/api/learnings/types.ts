@@ -30,6 +30,7 @@ export interface LearningRun {
 
 export interface LearningsRouteDependencies {
   applicationOrigin: string
+  automaticRunsEnabled: boolean
   currentSession: CurrentSessionDependencies
   findRepository(
     viewer: ProductViewer,

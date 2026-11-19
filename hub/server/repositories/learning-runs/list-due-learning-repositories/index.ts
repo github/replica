@@ -24,6 +24,27 @@ export function listDueLearningRepositories(
       FROM learning_runs
       WHERE state = 'SUCCEEDED'
       ORDER BY repository_id, finished_at DESC, number DESC
+    ),
+    latest_automatic_runs AS (
+      SELECT DISTINCT ON (repository_id)
+        repository_id,
+        created_at,
+        number,
+        state,
+        failure_code
+      FROM learning_runs
+      WHERE scheduled = true
+      ORDER BY repository_id, created_at DESC, number DESC
+    ),
+    latest_explicit_runs AS (
+      SELECT DISTINCT ON (repository_id)
+        repository_id,
+        created_at,
+        number
+      FROM learning_runs
+      WHERE scheduled = false
+        AND requested_by_membership_id IS NOT NULL
+      ORDER BY repository_id, created_at DESC, number DESC
     )
     SELECT repositories.id
     FROM repositories
@@ -31,6 +52,10 @@ export function listDueLearningRepositories(
       ON latest_runs.repository_id = repositories.id
     LEFT JOIN latest_successes
       ON latest_successes.repository_id = repositories.id
+    LEFT JOIN latest_automatic_runs
+      ON latest_automatic_runs.repository_id = repositories.id
+    LEFT JOIN latest_explicit_runs
+      ON latest_explicit_runs.repository_id = repositories.id
     LEFT JOIN LATERAL (
       SELECT jsonb_object_agg(id::text, activity_version) AS snapshot
       FROM review_threads
@@ -43,6 +68,16 @@ export function listDueLearningRepositories(
         FROM learning_runs active_runs
         WHERE active_runs.repository_id = repositories.id
           AND active_runs.state IN ('QUEUED', 'RUNNING')
+      )
+      AND NOT (
+        latest_automatic_runs.repository_id IS NOT NULL
+        AND latest_automatic_runs.state = 'FAILED'
+        AND latest_automatic_runs.failure_code IN ('grant_required', 'grant_inactive')
+        AND (
+          latest_explicit_runs.number IS NULL
+          OR (latest_explicit_runs.created_at, latest_explicit_runs.number)
+            < (latest_automatic_runs.created_at, latest_automatic_runs.number)
+        )
       )
       AND (
         COALESCE(latest_runs.comments_remaining, 0) > 0

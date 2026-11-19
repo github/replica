@@ -24,6 +24,7 @@ type EnabledDependencies = BaseDependencies & {
   }) => Promise<{ run: { id: string }; created: boolean } | null>
   enqueue: (runId: string) => Promise<unknown>
   fail: (runId: string, error: unknown) => Promise<unknown>
+  reportRepositoryFailure: (input: { repositoryId: string; errorType: string }) => void
 }
 
 export async function scheduleLearningRuns(
@@ -40,15 +41,33 @@ export async function scheduleLearningRuns(
 
   let scheduled = 0
   for (const repository of (await dependencies.listDue()).slice(0, automaticDispatchLimit)) {
-    const snapshot = await dependencies.capture(repository.id)
+    let snapshot: Awaited<ReturnType<EnabledDependencies["capture"]>>
+    try {
+      snapshot = await dependencies.capture(repository.id)
+    } catch (error) {
+      dependencies.reportRepositoryFailure({
+        repositoryId: repository.id,
+        errorType: error instanceof Error ? error.name : "UnknownError",
+      })
+      continue
+    }
     if (!snapshot) continue
 
-    const result = await dependencies.create({
-      repositoryId: repository.id,
-      scheduled: true,
-      snapshotDigest: snapshot.digest,
-      reviewActivitySnapshot: snapshot.reviewActivitySnapshot,
-    })
+    let result: Awaited<ReturnType<EnabledDependencies["create"]>>
+    try {
+      result = await dependencies.create({
+        repositoryId: repository.id,
+        scheduled: true,
+        snapshotDigest: snapshot.digest,
+        reviewActivitySnapshot: snapshot.reviewActivitySnapshot,
+      })
+    } catch (error) {
+      dependencies.reportRepositoryFailure({
+        repositoryId: repository.id,
+        errorType: error instanceof Error ? error.name : "UnknownError",
+      })
+      continue
+    }
     if (!result?.created) continue
 
     try {

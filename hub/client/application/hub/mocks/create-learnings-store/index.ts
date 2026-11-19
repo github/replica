@@ -151,6 +151,7 @@ ${recalled.map((entry, index) => `${index + 1}. [rule] ${entry.content}`).join("
       copilot: copilot.connected
         ? { state: "connected", connectedBy: copilot.connectedBy }
         : { state: "not-connected" },
+      automaticRunsEnabled: false,
       usageCredits: addDecimalStrings(
         allRepositoryRuns.flatMap((run) =>
           run.usage && Date.parse(run.startedAt) >= usageSince ? [run.usage.credits] : [],

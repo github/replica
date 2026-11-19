@@ -24,6 +24,7 @@ function dependencies(overrides: Partial<Dependencies> = {}) {
     return await operation(new AbortController().signal)
   }
   const base: Dependencies = {
+    expectedScheduled: false,
     claim: vi.fn(() => {
       run.state = "RUNNING"
       return Promise.resolve(true)
@@ -152,14 +153,15 @@ describe("processLearningRun()", () => {
 
   it("defers a queued scheduled run before claim while user work is waiting", async () => {
     const deps = dependencies({
+      expectedScheduled: true,
       hasPendingUserRun: vi.fn().mockResolvedValue(true),
     })
     deps.run.scheduled = true
     deps.run.requestedBy = null
     deps.run.requestedByMembershipId = null
 
-    await expect(processLearningRun("11111111-2222-4333-8444-555555555555", deps)).rejects.toThrow(
-      "User-requested learning work is waiting.",
+    await expect(processLearningRun("11111111-2222-4333-8444-555555555555", deps)).resolves.toBe(
+      "deferred",
     )
 
     expect(deps.claim).not.toHaveBeenCalled()
@@ -167,8 +169,42 @@ describe("processLearningRun()", () => {
     expect(deps.finished).toEqual([])
   })
 
+  it("does not claim a scheduled run promoted after its initial read", async () => {
+    const deps = dependencies({ expectedScheduled: true })
+    deps.run.scheduled = true
+    deps.run.requestedBy = null
+    deps.run.requestedByMembershipId = null
+    deps.claim = vi.fn((_runId, _startedAt, scheduled) => {
+      deps.run.scheduled = false
+      deps.run.requestedBy = { profile: { login: "mona" } }
+      deps.run.requestedByMembershipId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+      return Promise.resolve(scheduled === deps.run.scheduled)
+    })
+
+    await processLearningRun("11111111-2222-4333-8444-555555555555", deps)
+
+    expect(deps.claim).toHaveBeenCalledWith(
+      "11111111-2222-4333-8444-555555555555",
+      new Date("2026-11-13T10:00:00Z"),
+      true,
+    )
+    expect(deps.capture).not.toHaveBeenCalled()
+    expect(deps.finished).toEqual([])
+  })
+
+  it("does not claim a run promoted before the scheduled processor reads it", async () => {
+    const deps = dependencies({ expectedScheduled: true })
+    deps.run.scheduled = false
+
+    await processLearningRun("11111111-2222-4333-8444-555555555555", deps)
+
+    expect(deps.claim).not.toHaveBeenCalled()
+    expect(deps.capture).not.toHaveBeenCalled()
+    expect(deps.finished).toEqual([])
+  })
+
   it("fails a first scheduled run without creating consent", async () => {
-    const deps = dependencies()
+    const deps = dependencies({ expectedScheduled: true })
     deps.run.scheduled = true
     deps.run.requestedBy = null
     deps.run.requestedByMembershipId = null
@@ -189,6 +225,7 @@ describe("processLearningRun()", () => {
 
   it("uses an active human-approved grant for a scheduled run", async () => {
     const deps = dependencies({
+      expectedScheduled: true,
       runCommand: vi.fn((arguments_: string[]) => {
         if (arguments_[0] === "grants" && arguments_[1] === "list") {
           return Promise.resolve([
@@ -237,6 +274,7 @@ describe("processLearningRun()", () => {
 
   it("rejects an active grant that was not approved by a person", async () => {
     const deps = dependencies({
+      expectedScheduled: true,
       runCommand: vi.fn((arguments_: string[]) => {
         if (arguments_[0] === "grants" && arguments_[1] === "list") {
           return Promise.resolve([
@@ -270,6 +308,7 @@ describe("processLearningRun()", () => {
 
   it("fails a scheduled run visibly when evidence changes after scheduling", async () => {
     const deps = dependencies({
+      expectedScheduled: true,
       capture: vi.fn().mockResolvedValue({
         collection: { kind: "replica.hub-review-collection/v1" },
         digest: "sha256:changed",
@@ -293,14 +332,14 @@ describe("processLearningRun()", () => {
     })
   })
 
-  it("retries a recovered running job when another learning mutation holds the lock", async () => {
+  it("defers a recovered running job when another learning mutation holds the lock", async () => {
     const deps = dependencies({
       withLock: () => Promise.reject(new Error("Another learning operation is still running.")),
     })
     deps.run.state = "RUNNING"
 
-    await expect(processLearningRun("11111111-2222-4333-8444-555555555555", deps)).rejects.toThrow(
-      "Another learning operation is still running.",
+    await expect(processLearningRun("11111111-2222-4333-8444-555555555555", deps)).resolves.toBe(
+      "deferred",
     )
     expect(deps.finished).toEqual([])
   })
