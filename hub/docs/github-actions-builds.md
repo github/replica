@@ -1,18 +1,20 @@
 # GitHub Actions Builds
 
-Hub imports Builds that prototype repositories produce with the shared [build action](../../actions/build/action.yml) in `.github/workflows/replica.yml`. With separate jobs, Hub can import the dist when the build job finishes, without waiting for screenshots. Screenshots attach to that same Build later; a failed or missing screenshot job does not fail an already imported Build.
+Hub imports Builds that prototype repositories produce in `.github/workflows/replica.yml`. The workflow builds the prototype, uploads its static output with the [publish action](../../actions/build/publish/action.yml), and captures screenshots in a dependent job with the [screenshots action](../../actions/build/screenshots/action.yml). Hub pulls each package through the GitHub API. It imports the dist when the publish job finishes, without waiting for screenshots. Screenshots attach to that same Build later; a failed or missing screenshot job does not fail an already imported Build.
 
 ## Requirements
 
-The GitHub App needs **Actions: read** and must subscribe to the **Workflow runs** and **Workflow jobs** webhook events. Hub imports only repositories that installation reconciliation has already connected; imports never create repositories.
+The Hub that receives a repository's Builds is the Hub whose GitHub App is installed on that repository. The App needs **Actions: read** and must subscribe to the **Workflow runs** and **Workflow jobs** webhook events. Hub imports only repositories that installation reconciliation has already connected; imports never create repositories.
 
-Hub's App creation flow requests these settings for new Apps. An App created before Workflow jobs was required does not gain it automatically: in the App's **Permissions & events** settings, confirm **Actions: read**, select **Workflow job** under **Subscribe to events**, and save. If the Actions permission was added too, each installation must accept the updated permissions. Without it, Hub imports the dist only when `workflow_run.completed` arrives after screenshots finish.
+Create the App manually and connect it with the `setup:post` wizard. If the App was created before these settings were required, open its **Permissions & events** settings, confirm **Actions: read**, select **Workflow run** and **Workflow job** under **Subscribe to events**, and save. If the Actions permission was added too, each installation must accept the updated permissions.
+
+Webhooks give the fastest import. Without them, for example when GitHub cannot reach Hub, [recovery](#recovery) still imports Builds by polling, typically within about five minutes.
 
 ## Configure the prototype workflow
 
-Save this as `.github/workflows/replica.yml` in a connected prototype repository. It requires a Linux runner with Docker, a committed `package-lock.json`, and an npm `build` script that writes `dist/index.html`.
+Save this as `.github/workflows/replica.yml` in a connected prototype repository. Replace the build steps with the repository's own build; they must write static output, with an `index.html`, to `dist` or to the directory set in `output-directory`.
 
-The example pins both actions to the same implementation revision. That revision must be available on GitHub before enabling the workflow in another repository. When upgrading, replace both action references with the same reviewed commit containing the dist and screenshot actions.
+The example pins both Replica actions to the same implementation revision. That revision must be available on GitHub before enabling the workflow in another repository. When upgrading, replace both references with the same reviewed commit.
 
 ```yaml
 name: Replica
@@ -24,33 +26,34 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: github/replica/actions/build@b7e5d6b057aa5993543f401ebd74b98597ce1c5b
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          screenshots: separate
+          node-version: 24
+      - run: npm ci
+      - run: npm run build
+      - uses: github/replica/actions/build/publish@9af9a084bc776eb0104046e3f2d81cc1c874f214
 
   screenshots:
-    needs: build
+    needs: publish
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: github/replica/actions/build/screenshots@b7e5d6b057aa5993543f401ebd74b98597ce1c5b
+      - uses: github/replica/actions/build/screenshots@9af9a084bc776eb0104046e3f2d81cc1c874f214
 ```
 
-The build job uploads `replica-build-v1` and finishes without installing Chromium or taking screenshots. Its completed-job event queues the Hub import while the dependent screenshot job downloads that exact artifact and captures images. The preview becomes available after webhook delivery, queue processing, and artifact import, not immediately on upload. Screenshot completion queues another import to attach the images.
+The publish action validates and packages the output and uploads `replica-build-v1`. It installs no npm packages and no browser. Its completed-job event queues the Hub import while the dependent screenshot job downloads that exact artifact and uploads `replica-screenshots-v1`. The preview becomes available after webhook delivery, queue processing, and artifact import, not immediately on upload. If the publish job fails, GitHub skips the screenshot job and Hub records the failed Build.
 
-Keep the action last in the build job: later steps delay the completed-job signal. Putting both actions in one job also delays import until screenshots finish, even with `screenshots: separate`.
+Keep the publish action last in its job: later steps delay the completed-job signal. Putting screenshots in the same job delays import until they finish.
 
-Existing single-job workflows remain compatible: `screenshots` defaults to `inline`, which uploads the dist before capturing screenshots but normally signals Hub only after all steps finish. Moving to the two-job layout is required for early import through completed-job events.
-
-For an existing build command or npm proxy configuration, run that build in earlier steps of the build job and set `skip-build: "true"` on the build action. Set `output-directory` if the command writes somewhere other than `dist`. Keep `screenshots: separate`; the screenshot job consumes the normalized package regardless of the original output directory. Ensure action dependency installation can also reach the approved npm registry.
+The optional [build action](../../actions/build/action.yml) is still available. It runs `npm ci` and `npm run build` as a non-root user in a Node container. With `screenshots: separate`, it uploads the same dist package as the publish action and can replace the build steps and publish action above. Existing single-job workflows remain compatible: `screenshots` defaults to `inline`, which uploads one package containing the dist and screenshots, so Hub imports it only after screenshots finish.
 
 ## Flow
 

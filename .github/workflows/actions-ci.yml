@@ -32,22 +32,23 @@ jobs:
       - run: actions/build/node_modules/.bin/playwright install --with-deps chromium
       - run: npm test --prefix actions/build
 
-  build:
-    name: Build action dist job
+  publish:
+    name: Build action publish job
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Prepare composite action fixture
-        run: cp actions/build/test/fixture/package.json actions/build/test/fixture/package-lock.json actions/build/test/fixture/fixture-build.mjs .
-      - uses: ./actions/build
-        with:
-          screenshots: separate
+      - name: Build composite action fixture with its own build
+        run: |
+          cp actions/build/test/fixture/package.json actions/build/test/fixture/package-lock.json actions/build/test/fixture/fixture-build.mjs .
+          npm ci --ignore-scripts
+          npm run build
+      - uses: ./actions/build/publish
 
   screenshots:
     name: Build action screenshot job
-    needs: build
+    needs: publish
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

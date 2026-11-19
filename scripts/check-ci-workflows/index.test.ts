@@ -64,22 +64,22 @@ describe("checkWorkflows()", () => {
     expect(() => checkWorkflows(directory)).toThrow(/starter-ci/)
   })
 
-  it.each(["same-job screenshots", "missing dependency", "inline screenshots"])(
+  it.each(["same-job screenshots", "missing dependency", "inline build action"])(
     "rejects a build smoke workflow with %s",
     (regression) => {
       const directory = fixture()
       const path = join(directory, ".github/workflows/actions-ci.yml")
       const workflow = parse(readFileSync(path, "utf8")) as Workflow
-      const { build, screenshots } = workflow.jobs
-      assert(build?.steps && screenshots?.steps)
-      const buildAction = build.steps.find((step) => step.uses === "./actions/build")
-      assert(buildAction?.with)
+      const { publish, screenshots } = workflow.jobs
+      assert(publish?.steps && screenshots?.steps)
+      const publishAction = publish.steps.find((step) => step.uses === "./actions/build/publish")
+      assert(publishAction)
       if (regression === "same-job screenshots") {
-        build.steps.push({ uses: "./actions/build/screenshots" })
+        publish.steps.push({ uses: "./actions/build/screenshots" })
       } else if (regression === "missing dependency") {
         delete screenshots.needs
       } else {
-        delete buildAction.with.screenshots
+        publishAction.uses = "./actions/build"
       }
       writeFileSync(path, stringify(workflow))
 
@@ -109,7 +109,7 @@ describe("checkWorkflows()", () => {
 })
 
 describe("documented prototype workflow", () => {
-  it("makes the dist job finish before a separate screenshot job using the same action revision", () => {
+  it("publishes the dist before a dependent screenshot job using the same action revision", () => {
     const guide = readFileSync(join(root, "hub/docs/github-actions-builds.md"), "utf8")
     const examples = [...guide.matchAll(/^```yaml\r?\n([\s\S]*?)^```/gm)]
     expect(examples).toHaveLength(1)
@@ -118,24 +118,23 @@ describe("documented prototype workflow", () => {
     }
 
     expect(workflow.on).toHaveProperty("push")
-    expect(workflow.permissions?.contents).toBe("read")
-    const { build, screenshots } = workflow.jobs
-    assert(build?.steps && screenshots?.steps)
-    expect(build.needs).toBeUndefined()
-    expect([screenshots.needs].flat()).toEqual(["build"])
-    const buildAction = build.steps.find((step) =>
-      step.uses?.startsWith("github/replica/actions/build@"),
+    expect(workflow.permissions).toEqual({ contents: "read" })
+    const { publish, screenshots } = workflow.jobs
+    assert(publish?.steps && screenshots?.steps)
+    expect(publish.needs).toBeUndefined()
+    expect([screenshots.needs].flat()).toEqual(["publish"])
+    const publishAction = publish.steps.find((step) =>
+      step.uses?.startsWith("github/replica/actions/build/publish@"),
     )
-    expect(buildAction?.with?.screenshots).toBe("separate")
-    const revision = buildAction?.uses?.match(/@([a-f0-9]{40})$/)?.[1]
+    const revision = publishAction?.uses?.match(/@([a-f0-9]{40})$/)?.[1]
     expect(revision).toBeDefined()
     expect(
       screenshots.steps.some(
         (step) => step.uses === `github/replica/actions/build/screenshots@${revision}`,
       ),
     ).toBe(true)
-    expect(build.steps.some((step) => step.uses?.includes("/build/screenshots@"))).toBe(false)
-    for (const job of [build, screenshots]) {
+    expect(publish.steps.some((step) => step.uses?.includes("/build/screenshots@"))).toBe(false)
+    for (const job of [publish, screenshots]) {
       const checkout = job.steps?.find((step) => step.uses?.startsWith("actions/checkout@"))
       expect(checkout?.with?.["persist-credentials"]).toBe(false)
     }

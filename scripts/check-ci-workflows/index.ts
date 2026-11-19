@@ -18,7 +18,7 @@ export function checkWorkflows(root: string): void {
     parse(readFileSync(resolve(root, `.github/workflows/${name}.yml`), "utf8")) as Workflow
   for (const [name, ids] of [
     ["hub-ci", ["check", "integration"]],
-    ["actions-ci", ["test", "build", "screenshots"]],
+    ["actions-ci", ["test", "publish", "screenshots"]],
     ["starter-ci", ["test"]],
     ["learning-ci", ["test"]],
     ["scripts-ci", ["check"]],
@@ -32,7 +32,7 @@ export function checkWorkflows(root: string): void {
     for (const [id, job] of Object.entries(jobs)) {
       assert(!job.if, `${name}/${id}: checks must run unconditionally`)
       if (name === "actions-ci" && id === "screenshots") {
-        assert.equal(job.needs, "build", `${name}/${id}: consume the dist job's artifact`)
+        assert.equal(job.needs, "publish", `${name}/${id}: consume the publish job's artifact`)
       } else {
         assert(!job.needs, `${name}/${id}: checks must run independently`)
       }
@@ -90,23 +90,28 @@ export function checkWorkflows(root: string): void {
     )
   }
   const actionJobs = workflow("actions-ci").jobs
-  const buildSteps = actionJobs.build.steps
+  const publishSteps = actionJobs.publish.steps
   const screenshotSteps = actionJobs.screenshots.steps
-  assert(buildSteps && screenshotSteps, "Missing build-action artifact jobs")
-  const fixture = buildSteps.find((step) => step.name === "Prepare composite action fixture")
-  const build = buildSteps.find((step) => step.uses === "./actions/build")
+  assert(publishSteps && screenshotSteps, "Missing build-action artifact jobs")
+  const fixture = publishSteps.find(
+    (step) => step.name === "Build composite action fixture with its own build",
+  )
+  const publish = publishSteps.find((step) => step.uses === "./actions/build/publish")
   const screenshots = screenshotSteps.find((step) => step.uses === "./actions/build/screenshots")
-  assert(fixture && build && screenshots, "Run both composite actions in separate jobs")
+  assert(fixture && publish && screenshots, "Run publish and screenshots in separate jobs")
   assert(
-    !fixture.if && !build.if && !screenshots.if,
+    !fixture.if && !publish.if && !screenshots.if,
     "Artifact smoke steps must run unconditionally",
   )
-  assert.equal(build.with?.screenshots, "separate", "Finish the dist job before taking screenshots")
   for (const [id, job] of Object.entries(actionJobs)) {
-    if (id !== "build") {
+    assert(
+      !job.steps?.some((step) => step.uses === "./actions/build"),
+      "Publish the fixture's own build output instead of the inline build action",
+    )
+    if (id !== "publish") {
       assert(
-        !job.steps?.some((step) => step.uses === "./actions/build"),
-        "Upload the composite fixture only once, in the dist job",
+        !job.steps?.some((step) => step.uses === "./actions/build/publish"),
+        "Upload the composite fixture only once, in the publish job",
       )
     }
     if (id !== "screenshots") {
@@ -116,7 +121,7 @@ export function checkWorkflows(root: string): void {
       )
     }
   }
-  for (const steps of [buildSteps, screenshotSteps]) {
+  for (const steps of [publishSteps, screenshotSteps]) {
     const checkout = steps.find((step) => step.uses?.startsWith("actions/checkout@"))
     assert.equal(checkout?.with?.["persist-credentials"], false, "Disable checkout credentials")
   }
