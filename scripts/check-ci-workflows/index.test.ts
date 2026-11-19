@@ -64,6 +64,29 @@ describe("checkWorkflows()", () => {
     expect(() => checkWorkflows(directory)).toThrow(/starter-ci/)
   })
 
+  it.each(["same-job screenshots", "missing dependency", "inline screenshots"])(
+    "rejects a build smoke workflow with %s",
+    (regression) => {
+      const directory = fixture()
+      const path = join(directory, ".github/workflows/actions-ci.yml")
+      const workflow = parse(readFileSync(path, "utf8")) as Workflow
+      const { build, screenshots } = workflow.jobs
+      assert(build?.steps && screenshots?.steps)
+      const buildAction = build.steps.find((step) => step.uses === "./actions/build")
+      assert(buildAction?.with)
+      if (regression === "same-job screenshots") {
+        build.steps.push({ uses: "./actions/build/screenshots" })
+      } else if (regression === "missing dependency") {
+        delete screenshots.needs
+      } else {
+        delete buildAction.with.screenshots
+      }
+      writeFileSync(path, stringify(workflow))
+
+      expect(() => checkWorkflows(directory)).toThrow()
+    },
+  )
+
   it("rejects missing supported Node versions and required commands", () => {
     for (const mutation of [
       (workflow: Workflow) => {
@@ -81,6 +104,40 @@ describe("checkWorkflows()", () => {
       mutation(workflow)
       writeFileSync(path, stringify(workflow))
       expect(() => checkWorkflows(directory)).toThrow()
+    }
+  })
+})
+
+describe("documented prototype workflow", () => {
+  it("makes the dist job finish before a separate screenshot job using the same action revision", () => {
+    const guide = readFileSync(join(root, "hub/docs/github-actions-builds.md"), "utf8")
+    const examples = [...guide.matchAll(/^```yaml\r?\n([\s\S]*?)^```/gm)]
+    expect(examples).toHaveLength(1)
+    const workflow = parse(examples[0][1]) as Workflow & {
+      permissions?: Record<string, string>
+    }
+
+    expect(workflow.on).toHaveProperty("push")
+    expect(workflow.permissions?.contents).toBe("read")
+    const { build, screenshots } = workflow.jobs
+    assert(build?.steps && screenshots?.steps)
+    expect(build.needs).toBeUndefined()
+    expect([screenshots.needs].flat()).toEqual(["build"])
+    const buildAction = build.steps.find((step) =>
+      step.uses?.startsWith("github/replica/actions/build@"),
+    )
+    expect(buildAction?.with?.screenshots).toBe("separate")
+    const revision = buildAction?.uses?.match(/@([a-f0-9]{40})$/)?.[1]
+    expect(revision).toBeDefined()
+    expect(
+      screenshots.steps.some(
+        (step) => step.uses === `github/replica/actions/build/screenshots@${revision}`,
+      ),
+    ).toBe(true)
+    expect(build.steps.some((step) => step.uses?.includes("/build/screenshots@"))).toBe(false)
+    for (const job of [build, screenshots]) {
+      const checkout = job.steps?.find((step) => step.uses?.startsWith("actions/checkout@"))
+      expect(checkout?.with?.["persist-credentials"]).toBe(false)
     }
   })
 })

@@ -1,4 +1,4 @@
-import { randomInt, randomUUID } from "node:crypto"
+import { createHash, randomInt, randomUUID } from "node:crypto"
 
 import { describe, expect, it } from "vitest"
 
@@ -8,11 +8,13 @@ import type {
   GitHubWorkflowRun,
 } from "../../../integrations/github/create-github-actions-client/types.ts"
 import { findBuildArtifact } from "../../../repositories/build-artifacts/find-build-artifact/index.ts"
+import { createGitHubWebhookRouteDependencies } from "../../../routes/api/github/webhooks/create-github-webhook-route-dependencies"
 import { createZipArchive } from "../../../test/create-zip-archive/index.ts"
 import type { ArtifactStorage } from "../../artifacts/create-artifact-storage/types.ts"
 import { extractDistPackage } from "../../build-artifacts/extract-dist-package/index.ts"
 import { readBuildPreviewFile } from "../../build-preview/read-build-preview-file/index.ts"
 import { distArtifactName, screenshotArtifactName } from "../constants.ts"
+import type { GitHubWorkflowRunJob } from "../get-github-workflow-run-job-definition"
 import { importGitHubWorkflowRun } from "./index.ts"
 
 const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1])
@@ -92,8 +94,7 @@ async function createFixture() {
       )
     },
   }
-  const job = { githubRepositoryId, runId: run.id }
-  function importRun() {
+  function importRun(job = { githubRepositoryId, runId: run.id }) {
     return importGitHubWorkflowRun({ database: prisma, storage, client, logger }, job)
   }
   function findBuild() {
@@ -106,16 +107,45 @@ async function createFixture() {
 }
 
 describe("importGitHubWorkflowRun", () => {
-  it("imports the dist before screenshots exist and serves a working preview", async () => {
+  it("serves the dist preview after a completed job while the workflow is still running", async () => {
     const fixture = await createFixture()
 
     await expect(fixture.importRun()).resolves.toEqual({ dist: "pending", screenshots: "absent" })
     expect((await fixture.findBuild()).state).toBe("running")
 
     fixture.packages.set(distArtifactName, distPackage())
-    await expect(fixture.importRun()).resolves.toEqual({ dist: "imported", screenshots: "absent" })
+    const enqueued: GitHubWorkflowRunJob[] = []
+    const webhooks = createGitHubWebhookRouteDependencies({
+      installationId: "700",
+      provider: { configurationDigest: "test-provider", revision: 1 },
+      webhookSecret: "webhook-secret-for-tests",
+      syncRepositories: () => Promise.resolve(),
+      enqueueWorkflowRunImport: (job) => {
+        enqueued.push(job)
+        return Promise.resolve()
+      },
+    })
+    const payload = {
+      action: "completed",
+      repository: { id: fixture.run.repositoryId },
+      workflow_job: { run_id: fixture.run.id },
+    }
+    await expect(
+      webhooks.handleEvent("workflow_job", payload, {
+        id: randomUUID(),
+        payloadDigest: createHash("sha256").update(JSON.stringify(payload)).digest("hex"),
+      }),
+    ).resolves.toBe(true)
+    expect(enqueued).toEqual([
+      { githubRepositoryId: fixture.run.repositoryId, runId: fixture.run.id },
+    ])
+    await expect(fixture.importRun(enqueued[0])).resolves.toEqual({
+      dist: "imported",
+      screenshots: "absent",
+    })
 
     const build = await fixture.findBuild()
+    expect(fixture.run.status).toBe("in_progress")
     expect(build).toMatchObject({
       state: "successful",
       number: 1,

@@ -31,12 +31,26 @@ jobs:
         working-directory: actions/build
       - run: actions/build/node_modules/.bin/playwright install --with-deps chromium
       - run: npm test --prefix actions/build
+
+  build:
+    name: Build action dist job
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Prepare composite action fixture
-        if: ${{ matrix.node == 24 }}
         run: cp actions/build/test/fixture/package.json actions/build/test/fixture/package-lock.json actions/build/test/fixture/fixture-build.mjs .
       - uses: ./actions/build
-        if: ${{ matrix.node == 24 }}
         with:
           screenshots: separate
+
+  screenshots:
+    name: Build action screenshot job
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: ./actions/build/screenshots
-        if: ${{ matrix.node == 24 }}

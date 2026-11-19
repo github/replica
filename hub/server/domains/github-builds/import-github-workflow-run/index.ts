@@ -37,9 +37,8 @@ function newest(artifacts: GitHubWorkflowArtifact[]) {
 }
 
 /**
- * Imports one workflow run. The dist package is imported as soon as its job
- * uploads it; screenshots attach later only to the Build whose dist they depict,
- * so a slow or failed screenshot job never delays, fails, or changes the Build.
+ * Imports available artifacts when a workflow event queues a pass. Separate jobs
+ * let dist import before screenshot capture finishes.
  * Transient errors throw so the job retries; invalid packages fail the Build.
  */
 export async function importGitHubWorkflowRun(
