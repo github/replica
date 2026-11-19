@@ -11,8 +11,14 @@ export async function saveDecisionCandidate(
     manifestDigest: string
     evaluationDigest: string
     productionEligible: boolean
+    baselineMeanReward: number | null
+    candidateMeanReward: number | null
     meanRewardDelta: number | null
+    baselineCalibrationError: number | null
+    candidateCalibrationError: number | null
     calibrationErrorDelta: number | null
+    learningMetrics: Prisma.InputJsonValue
+    durationSeconds?: number
     usage?: DecisionRuntimeUsage
   },
 ) {
@@ -24,8 +30,14 @@ export async function saveDecisionCandidate(
     manifestDigest: input.manifestDigest,
     evaluationDigest: input.evaluationDigest,
     productionEligible: input.productionEligible,
+    baselineMeanReward: input.baselineMeanReward,
+    candidateMeanReward: input.candidateMeanReward,
     meanRewardDelta: input.meanRewardDelta,
+    baselineCalibrationError: input.baselineCalibrationError,
+    candidateCalibrationError: input.candidateCalibrationError,
     calibrationErrorDelta: input.calibrationErrorDelta,
+    learningMetrics: input.learningMetrics,
+    durationSeconds: input.durationSeconds,
     usageQuantity: input.usage?.quantity,
     usageUnit: input.usage?.unit,
     costAmount: input.usage?.cost?.amount,

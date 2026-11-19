@@ -33,6 +33,7 @@ import type {
   RepositoryAdministrationDeniedAudit,
   DecisionTrainingAudit,
   DecisionPromotionAudit,
+  DecisionCandidateRejectionAudit,
 } from "../create-security-audit/types.ts"
 
 export type ParsedSecurityAuditEvent =
@@ -76,4 +77,5 @@ export type ParsedSecurityAuditEvent =
   | RepositoryAdministrationDeniedAudit
   | DecisionTrainingAudit
   | DecisionPromotionAudit
+  | DecisionCandidateRejectionAudit
   | GitHubAppConnectionTestedAudit

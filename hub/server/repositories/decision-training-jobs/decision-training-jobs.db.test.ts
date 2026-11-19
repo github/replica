@@ -78,7 +78,19 @@ describe("decision training job repositories", () => {
     const { membership, repository } = await configuredRepository()
     const store = createDecisionModelStore(prisma)
     const taskset = {
-      bytes: new Uint8Array(),
+      upload: {
+        schemaVersion: "replica.decision-taskset-upload/v1" as const,
+        manifest: {},
+        tasks: [{}],
+        images: [
+          {
+            path: "screenshots/home.png",
+            mediaType: "image/png",
+            digest: `sha256:${"f".repeat(64)}`,
+            dataBase64: "AQID",
+          },
+        ],
+      },
       consentGrantId: "grant_training",
       exportDigest: `sha256:${"a".repeat(64)}`,
       repeatableReviewSnapshotDigest: `sha256:${"e".repeat(64)}`,
@@ -131,7 +143,19 @@ describe("decision training job repositories", () => {
         monthlyBudgetCredits: "10",
       },
       taskset: {
-        bytes: new Uint8Array(),
+        upload: {
+          schemaVersion: "replica.decision-taskset-upload/v1" as const,
+          manifest: {},
+          tasks: [{}],
+          images: [
+            {
+              path: "screenshots/home.png",
+              mediaType: "image/png",
+              digest: `sha256:${"f".repeat(64)}`,
+              dataBase64: "AQID",
+            },
+          ],
+        },
         consentGrantId: "grant_training",
         exportDigest: `sha256:${"a".repeat(64)}`,
         repeatableReviewSnapshotDigest: `sha256:${"e".repeat(64)}`,

@@ -1,28 +1,38 @@
 model DecisionCandidate {
   // ID columns
-  id            String @id @default(uuid()) @db.Uuid
-  repositoryId  String @map("repository_id") @db.Uuid
-  trainingJobId String @unique @map("training_job_id") @db.Uuid
+  id                     String  @id @default(uuid()) @db.Uuid
+  repositoryId           String  @map("repository_id") @db.Uuid
+  trainingJobId          String  @unique @map("training_job_id") @db.Uuid
+  rejectedByMembershipId String? @map("rejected_by_membership_id") @db.Uuid
 
   // Relations
-  repository  Repository                @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-  trainingJob DecisionTrainingJob       @relation(fields: [trainingJobId], references: [id], onDelete: Restrict)
-  promotions         DecisionModelPromotion[] @relation("PromotedCandidate")
-  previousPromotions DecisionModelPromotion[] @relation("PreviousPromotedCandidate")
-  evaluations        DecisionBuildEvaluation[]
+  repository           Repository               @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  trainingJob          DecisionTrainingJob      @relation(fields: [trainingJobId], references: [id], onDelete: Restrict)
+  rejectedByMembership Membership?              @relation(fields: [rejectedByMembershipId], references: [id], onDelete: SetNull)
+  promotions           DecisionModelPromotion[] @relation("PromotedCandidate")
+  previousPromotions   DecisionModelPromotion[] @relation("PreviousPromotedCandidate")
+  evaluations          DecisionBuildEvaluation[]
 
   // Attribute columns
-  runtimeCandidateId    String   @map("runtime_candidate_id") @db.VarChar(100)
-  tasksetDigest         String   @map("taskset_digest") @db.VarChar(71)
-  manifestDigest        String   @map("manifest_digest") @db.VarChar(71)
-  evaluationDigest      String   @map("evaluation_digest") @db.VarChar(71)
-  productionEligible    Boolean  @map("production_eligible")
-  meanRewardDelta       Decimal? @map("mean_reward_delta") @db.Decimal(20, 9)
-  calibrationErrorDelta Decimal? @map("calibration_error_delta") @db.Decimal(20, 9)
-  usageQuantity         Decimal? @map("usage_quantity") @db.Decimal(20, 9)
-  usageUnit             String?  @map("usage_unit") @db.VarChar(50)
-  costAmount            Decimal? @map("cost_amount") @db.Decimal(20, 9)
-  costCurrency          String?  @map("cost_currency") @db.VarChar(3)
+  runtimeCandidateId          String    @map("runtime_candidate_id") @db.VarChar(100)
+  tasksetDigest               String    @map("taskset_digest") @db.VarChar(71)
+  manifestDigest              String    @map("manifest_digest") @db.VarChar(71)
+  evaluationDigest            String    @map("evaluation_digest") @db.VarChar(71)
+  productionEligible          Boolean   @map("production_eligible")
+  baselineMeanReward          Decimal?  @map("baseline_mean_reward") @db.Decimal(20, 9)
+  candidateMeanReward         Decimal?  @map("candidate_mean_reward") @db.Decimal(20, 9)
+  meanRewardDelta             Decimal?  @map("mean_reward_delta") @db.Decimal(20, 9)
+  baselineCalibrationError Decimal? @map("baseline_calibration_error") @db.Decimal(20, 9)
+  candidateCalibrationError Decimal? @map("candidate_calibration_error") @db.Decimal(20, 9)
+  calibrationErrorDelta       Decimal?  @map("calibration_error_delta") @db.Decimal(20, 9)
+  learningMetrics             Json      @default("[]") @map("learning_metrics") @db.JsonB
+  durationSeconds             Decimal?  @map("duration_seconds") @db.Decimal(20, 3)
+  usageQuantity               Decimal?  @map("usage_quantity") @db.Decimal(20, 9)
+  usageUnit                   String?   @map("usage_unit") @db.VarChar(50)
+  costAmount                  Decimal?  @map("cost_amount") @db.Decimal(20, 9)
+  costCurrency                String?   @map("cost_currency") @db.VarChar(3)
+  rejectedReason              String?   @map("rejected_reason") @db.VarChar(500)
+  rejectedAt                  DateTime? @map("rejected_at") @db.Timestamptz(3)
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

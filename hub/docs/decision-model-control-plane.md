@@ -2,7 +2,7 @@
 
 Hub provides the backend contracts for customer-specific decision-model training, review, promotion, rollback, and Build evaluation. The model runtime stays on customer-operated infrastructure. Hub stores references, digests, decisions, and usage metadata, not taskset contents, credentials, adapters, reports, or model weights.
 
-The control plane is not enabled by default. Runtime composition must supply the adapter that turns stored Build screenshot artifacts into the decision Builds contract and the learning-package taskset preparation source before the API and workers are registered. The reference single-node runtime does not yet implement Hub's taskset-transfer and cancellation HTTP endpoints.
+The control plane is not enabled by default. Runtime composition must supply the adapter that turns stored Build screenshot artifacts into the decision Builds contract and the learning-package taskset preparation source before the API and workers are registered. The runtime taskset upload and cancellation contract matches the work proposed in #297 and must be aligned to its final merged base before publication.
 
 ## Flow
 
@@ -40,10 +40,19 @@ The administrator API is:
 | `GET /api/repositories/:repositoryId/decision-model/training-jobs/:jobId` | Returns the persisted job state |
 | `POST /api/repositories/:repositoryId/decision-model/training-jobs/:jobId/cancel` | Cancels queued or runtime work |
 | `POST /api/repositories/:repositoryId/decision-model/candidates/:candidateId/promotion` | Promotes one reviewed candidate at an observed generation |
+| `POST /api/repositories/:repositoryId/decision-model/candidates/:candidateId/rejection` | Persists an administrator's rejection of an unpromoted candidate |
 | `POST /api/repositories/:repositoryId/decision-model/rollback` | Restores the previous candidate as a new generation |
 | `POST /api/repositories/:repositoryId/decision-model/builds/:buildId/evaluation` | Evaluates one Build through the promoted candidate |
 
 Every mutation requires the application origin and a live administrator session. Candidate promotion and rollback write typed security audits without storing taskset content, learning text, screenshots, runtime credentials, or model artifacts.
+
+The overview's preflight section reports only counts and warnings produced by the configured taskset source: covered prototypes, Builds, screenshots, questions, and labeled samples. Hub does not infer missing coverage. Candidate records retain the runtime's absolute baseline and candidate held-out reward and calibration, their deltas, and per-learning balanced-accuracy changes. Missing runtime metrics remain `null`; Hub labels a per-learning change as a gain, regression, unchanged result, or unknown only from the two reported values.
+
+Candidate duration comes from the runtime job's start and completion times. Usage and cost come from the runtime usage contract. Missing runtime values remain unknown. A rejection records the administrator membership, reason, and time and prevents later promotion or rollback to that candidate. The overview lists promotion history and marks rollback available only when the current promotion names a previous candidate that has not been rejected.
+
+Promotion, rollback, and rejection share one Hub decision-control lock. Runtime work remains outside Prisma transactions, but loss of the lock connection aborts the runtime request before Hub persists a decision. This prevents a concurrent rejection from racing a promotion into inconsistent Hub and runtime state.
+
+Saved Build evaluations list the persisted page-level findings. Each finding names the learning, route, and the viewport and theme combinations evaluated together, plus the runtime candidate and promotion generation and the Hub save time. Hub does not claim that a page-level probability came from one particular screenshot.
 
 ## Runtime connection
 
@@ -61,7 +70,7 @@ The runtime client requires bounded JSON responses and typed errors. It uses the
 
 | HTTP interface | Purpose |
 | --- | --- |
-| `PUT /v1/tasksets/:digest` | Transfers one immutable private taskset with its question digest |
+| `PUT /v1/tasksets/:digest` | Transfers one immutable private taskset upload bundle |
 | `POST /v1/jobs` | Submits bounded training with an idempotency key |
 | `GET /v1/jobs/:id` | Reads queued, running, or terminal state |
 | `POST /v1/jobs/:id/cancel` | Records durable cancellation |
@@ -71,7 +80,7 @@ The runtime client requires bounded JSON responses and typed errors. It uses the
 | `POST /v1/rollbacks` | Restores the previous candidate |
 | `POST /v1/evaluations` | Evaluates server-prepared Build screenshots |
 
-The transfer and cancellation interfaces are narrow Hub transport additions to the current reference runtime lifecycle. The Python reference runtime must implement them before this Hub adapter can run against it without another conforming runtime.
+The transfer and cancellation interfaces are narrow Hub transport additions to the reference runtime lifecycle. The runtime must also enforce the submitted credit limit, return candidate usage and cost when known, and support generation-checked promotion decisions before those fields can be authoritative end to end. Hub preserves missing runtime values as unknown.
 
 ## Persistence
 

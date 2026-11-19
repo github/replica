@@ -14,12 +14,26 @@ export interface DecisionRuntimeUsage {
   cost?: { amount: string; currency: string }
 }
 
+export interface DecisionRuntimeTasksetUpload {
+  schemaVersion: "replica.decision-taskset-upload/v1"
+  manifest: Record<string, unknown>
+  tasks: Record<string, unknown>[]
+  images: {
+    path: string
+    mediaType: string
+    digest: string
+    dataBase64: string
+  }[]
+}
+
 export interface DecisionRuntimeJob {
   id: string
   state: "queued" | "running" | "succeeded" | "failed" | "cancelled"
   tasksetDigest: string
   candidateId?: string
   error?: { code: string }
+  startedAt?: string
+  completedAt?: string
   usage?: DecisionRuntimeUsage
 }
 
@@ -30,8 +44,19 @@ export interface DecisionRuntimeCandidate {
   evaluationDigest: string
   productionEligible: boolean
   evidence: {
+    baselineMeanReward: number | null
+    candidateMeanReward: number | null
     meanRewardDelta: number | null
+    baselineCalibrationError: number | null
+    candidateCalibrationError: number | null
     calibrationErrorDelta: number | null
+    learningMetrics: {
+      learningId: string
+      baselineBalancedAccuracy: number | null
+      candidateBalancedAccuracy: number | null
+      delta: number | null
+      direction: "gain" | "regression" | "unchanged" | "unknown"
+    }[]
   }
   usage?: DecisionRuntimeUsage
 }
@@ -57,18 +82,16 @@ export interface DecisionRuntimeEvaluation {
 
 export interface DecisionRuntimeClient {
   transferTaskset(input: {
-    bytes: Uint8Array
+    upload: DecisionRuntimeTasksetUpload
     tasksetDigest: string
-    questionDigest: string
     idempotencyKey: string
     signal?: AbortSignal
-  }): Promise<{ id: string; tasksetDigest: string }>
+  }): Promise<{ reference: string; tasksetDigest: string }>
   submitTraining(input: {
     backend: string
     maxUpdates: number
     maxSeconds: number
     maxCredits: string
-    tasksetId: string
     tasksetDigest: string
     idempotencyKey: string
     signal?: AbortSignal

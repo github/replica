@@ -86,7 +86,8 @@ function actorFor(record: SecurityAuditListRecord) {
     case "decision.promote.succeeded":
     case "decision.promote.failed":
     case "decision.rollback.succeeded":
-    case "decision.rollback.failed": {
+    case "decision.rollback.failed":
+    case "decision.candidate.rejected": {
       const parsed = actorContextSchema.safeParse(record.context)
       return parsed.success ? { membershipId: parsed.data.actorMembershipId } : null
     }
@@ -442,6 +443,21 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
             generation: parsed.data.generation,
             ...(record.targetId ? { candidateId: record.targetId } : {}),
             ...(parsed.data.reason ? { reason: parsed.data.reason } : {}),
+          }
+        : {}
+    }
+    case "decision.candidate.rejected": {
+      const parsed = z
+        .object({
+          actorMembershipId: z.uuid(),
+          repositoryId: z.uuid(),
+        })
+        .strict()
+        .safeParse(record.context)
+      return parsed.success
+        ? {
+            repositoryId: parsed.data.repositoryId,
+            ...(record.targetId ? { candidateId: record.targetId } : {}),
           }
         : {}
     }

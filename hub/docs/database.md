@@ -90,6 +90,8 @@ Review threads bind one non-removed repository, one reviewable prototype, and on
 
 Decision-model tables store repository settings, pinned input digests, runtime job and candidate references, promotion generations, Build evaluation references, and decimal usage or cost metadata. They do not store credentials, screenshots, tasksets, adapters, evaluation reports, or model weights. Database checks enforce training bounds, positive promotion generations, nonnegative usage and cost, and complete quantity/unit and amount/currency pairs.
 
+Candidate rows also store the runtime's held-out baseline and candidate metrics, per-learning metric changes, and an optional administrator rejection. Rejection fields must be absent together or include a time and reason. Build evaluation rows keep typed page-level findings in their bounded summary rather than copying screenshot bytes.
+
 PostgreSQL `CHECK` expressions accept `NULL` unless the expression explicitly rejects it. Write nullable-branch checks so every invalid `NULL` combination evaluates to false. Design indexes from the real equality, range, ordering, and partial predicates used by lock, restore, and lookup queries.
 
 Validate schema changes on both a fresh database and an upgrade from the exact base. Migration tests should seed representative base records and prove required data, backfills, relationships, and constraints after deployment. Do not enumerate the complete migration, table, column, or index inventory. Split PostgreSQL enum additions from statements that use the new values when transactional enum visibility requires a committed boundary.

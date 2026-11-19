@@ -50,6 +50,23 @@ export async function evaluateBuildWithDecisionModel(
           "The promoted decision model changed during Build evaluation.",
         )
       }
+      const findings = result.evaluations.map((evaluation) => {
+        const question = prepared.questions[evaluation.learningId]
+        const text =
+          question &&
+          typeof question === "object" &&
+          "learning_text" in question &&
+          typeof question.learning_text === "string"
+            ? question.learning_text
+            : null
+        return {
+          learning: { id: evaluation.learningId, text },
+          route: prepared.route,
+          views: prepared.views,
+          followsProbability: evaluation.followsProbability,
+          breaksProbability: evaluation.breaksProbability,
+        }
+      })
       const saved = await dependencies.store.saveBuildEvaluation({
         repositoryId: input.repositoryId,
         buildId: input.buildId,
@@ -59,7 +76,7 @@ export async function evaluateBuildWithDecisionModel(
         screenshotSetDigest: prepared.screenshotSetDigest,
         runtimeEvaluationId: result.id,
         responseDigest: result.responseDigest,
-        summary: { evaluations: result.evaluations },
+        summary: { findings },
         usage: result.usage,
       })
       return { id: saved.id, ...result }

@@ -29,6 +29,15 @@ describe("parseSecurityAuditEvent()", () => {
         outcome: "succeeded",
       }),
     ).toMatchObject({ type: "decision_promotion", generation: 2 })
+    expect(
+      parseSecurityAuditEvent({
+        id: "12121212-1212-4121-8121-121212121212",
+        type: "decision_candidate_rejection",
+        actorMembershipId,
+        repositoryId,
+        candidateId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+      }),
+    ).toMatchObject({ type: "decision_candidate_rejection" })
   })
 
   it("uses the shared opaque provider key contract", () => {

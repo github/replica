@@ -4,6 +4,12 @@ import { createDecisionRuntimeClient } from "."
 
 const tasksetDigest = `sha256:${"a".repeat(64)}`
 const questionDigest = `sha256:${"b".repeat(64)}`
+const tasksetUpload = {
+  schemaVersion: "replica.decision-taskset-upload/v1" as const,
+  manifest: { questionDigest },
+  tasks: [{ id: "task-1", private: "taskset" }],
+  images: [],
+}
 
 function credentialProvider(token = "runtime-secret") {
   return {
@@ -28,10 +34,9 @@ describe("createDecisionRuntimeClient()", () => {
   })
 
   it("acquires a short-lived credential for the runtime origin without copying it into taskset data", async () => {
-    const bytes = new TextEncoder().encode('{"private":"taskset"}')
     const provider = credentialProvider()
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
-      new Response(JSON.stringify({ id: "taskset-1", tasksetDigest }), {
+      new Response(JSON.stringify({ reference: "taskset-1", digest: tasksetDigest }), {
         headers: { "content-type": "application/json" },
       }),
     )
@@ -42,9 +47,8 @@ describe("createDecisionRuntimeClient()", () => {
     })
 
     await client.transferTaskset({
-      bytes,
+      upload: tasksetUpload,
       idempotencyKey: "transfer:repository-1:task-1",
-      questionDigest,
       tasksetDigest,
     })
 
@@ -58,14 +62,12 @@ describe("createDecisionRuntimeClient()", () => {
       `https://runtime.example.test/v1/tasksets/${tasksetDigest.slice("sha256:".length)}`,
     )
     expect(init?.method).toBe("PUT")
-    expect(init?.body).toEqual(bytes)
+    expect(init?.body).toBe(JSON.stringify(tasksetUpload))
     expect(headers.get("authorization")).toBe("Bearer runtime-secret")
-    expect(headers.get("content-type")).toBe("application/vnd.replica.decision-taskset")
+    expect(headers.get("content-type")).toBe("application/json")
     expect(headers.get("idempotency-key")).toBe("transfer:repository-1:task-1")
-    expect(headers.get("x-replica-question-digest")).toBe(questionDigest)
     expect(requestedUrl).not.toContain("runtime-secret")
-    if (!(init?.body instanceof Uint8Array)) throw new Error("Expected taskset bytes.")
-    expect(new TextDecoder().decode(init.body)).not.toContain("runtime-secret")
+    expect(init?.body).not.toContain("runtime-secret")
   })
 
   it("rejects an expired credential before sending private data", async () => {
@@ -83,9 +85,8 @@ describe("createDecisionRuntimeClient()", () => {
 
     await expect(
       client.transferTaskset({
-        bytes: new Uint8Array([1, 2, 3]),
+        upload: tasksetUpload,
         idempotencyKey: "transfer-1",
-        questionDigest,
         tasksetDigest,
       }),
     ).rejects.toMatchObject({ code: "authentication_failed" })
@@ -113,7 +114,6 @@ describe("createDecisionRuntimeClient()", () => {
       maxUpdates: 8,
       maxSeconds: 300,
       maxCredits: "12.5",
-      tasksetId: "taskset-1",
       tasksetDigest,
       idempotencyKey: "training-1",
     })
@@ -121,6 +121,123 @@ describe("createDecisionRuntimeClient()", () => {
     const [, init] = fetch.mock.calls[0]!
     if (typeof init?.body !== "string") throw new Error("Expected a JSON request body.")
     expect(init.body).toContain('"maxCredits":"12.5"')
+  })
+
+  it("parses absolute, delta, and per-learning candidate metrics without changing values", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          manifest: {
+            id: "candidate-1",
+            tasksetDigest,
+            productionEligible: true,
+          },
+          evaluation: {
+            baseline: {
+              meanReward: 0.55,
+              noul: {
+                ece: 0.2,
+                byRule: {
+                  "learning-gain": { balancedAccuracy: 0.5 },
+                  "learning-regression": { balancedAccuracy: 0.875 },
+                },
+              },
+            },
+            candidate: {
+              meanReward: 0.7,
+              noul: {
+                ece: 0.12,
+                byRule: {
+                  "learning-gain": { balancedAccuracy: 0.75 },
+                  "learning-regression": { balancedAccuracy: 0.625 },
+                },
+              },
+            },
+            evidence: {
+              meanRewardDelta: 0.15,
+              calibrationErrorDelta: -0.08,
+            },
+          },
+          usage: {
+            quantity: "123.45",
+            unit: "gpu-second",
+            cost: { amount: "8.90", currency: "USD" },
+          },
+        }),
+      ),
+    )
+    const client = createDecisionRuntimeClient({
+      baseUrl: "https://runtime.example.test",
+      credentialProvider: credentialProvider(),
+      fetch,
+    })
+
+    await expect(client.getCandidate("candidate-1")).resolves.toMatchObject({
+      evidence: {
+        baselineMeanReward: 0.55,
+        candidateMeanReward: 0.7,
+        meanRewardDelta: 0.15,
+        baselineCalibrationError: 0.2,
+        candidateCalibrationError: 0.12,
+        calibrationErrorDelta: -0.08,
+        learningMetrics: [
+          {
+            learningId: "learning-gain",
+            baselineBalancedAccuracy: 0.5,
+            candidateBalancedAccuracy: 0.75,
+            delta: 0.25,
+            direction: "gain",
+          },
+          {
+            learningId: "learning-regression",
+            baselineBalancedAccuracy: 0.875,
+            candidateBalancedAccuracy: 0.625,
+            delta: -0.25,
+            direction: "regression",
+          },
+        ],
+      },
+      usage: {
+        quantity: "123.45",
+        unit: "gpu-second",
+        cost: { amount: "8.90", currency: "USD" },
+      },
+    })
+  })
+
+  it("rejects candidate evidence with missing absolute metrics instead of synthesizing them", async () => {
+    const client = createDecisionRuntimeClient({
+      baseUrl: "https://runtime.example.test",
+      credentialProvider: credentialProvider(),
+      fetch: vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            manifest: {
+              id: "candidate-1",
+              tasksetDigest,
+              productionEligible: true,
+            },
+            evaluation: {
+              baseline: {
+                noul: { ece: 0.2, byRule: {} },
+              },
+              candidate: {
+                meanReward: 0.7,
+                noul: { ece: 0.12, byRule: {} },
+              },
+              evidence: {
+                meanRewardDelta: 0.15,
+                calibrationErrorDelta: -0.08,
+              },
+            },
+          }),
+        ),
+      ),
+    })
+
+    await expect(client.getCandidate("candidate-1")).rejects.toMatchObject({
+      code: "invalid_response",
+    })
   })
 
   it.each([

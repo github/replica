@@ -1,5 +1,7 @@
 import type {
+  DecisionRuntimeCandidate,
   DecisionRuntimeClient,
+  DecisionRuntimeTasksetUpload,
   DecisionRuntimeUsage,
 } from "../../integrations/decision-runtime/create-decision-runtime-client/types.ts"
 
@@ -12,7 +14,7 @@ export interface DecisionModelSettings {
 }
 
 export interface PreparedDecisionTaskset {
-  bytes: Uint8Array
+  upload: DecisionRuntimeTasksetUpload
   consentGrantId: string
   exportDigest: string
   repeatableReviewSnapshotDigest: string
@@ -21,12 +23,46 @@ export interface PreparedDecisionTaskset {
   tasksetDigest: string
 }
 
+export interface DecisionTrainingPreflight {
+  counts: {
+    prototypes: number
+    builds: number
+    screenshots: number
+    questions: number
+    samples: number
+  }
+  warnings: {
+    code: string
+    message: string
+    count?: number
+  }[]
+}
+
 export interface PreparedBuildEvaluation {
   state: Record<string, unknown>
   images: string[]
   questions: Record<string, unknown>
+  route: string
+  views: {
+    viewport: string
+    theme: string
+  }[]
   questionDigest: string
   screenshotSetDigest: string
+}
+
+export interface DecisionBuildEvaluationFinding {
+  learning: {
+    id: string
+    text: string | null
+  }
+  route: string
+  views: {
+    viewport: string
+    theme: string
+  }[]
+  followsProbability: number
+  breaksProbability: number
 }
 
 export interface DecisionTrainingJobRecord {
@@ -57,6 +93,7 @@ export interface DecisionCandidateRecord {
   repositoryId: string
   runtimeCandidateId: string
   tasksetDigest: string
+  rejectedAt: Date | null
 }
 
 export interface DecisionPromotionRecord {
@@ -117,8 +154,14 @@ export interface DecisionModelStore {
     manifestDigest: string
     evaluationDigest: string
     productionEligible: boolean
+    baselineMeanReward: number | null
+    candidateMeanReward: number | null
     meanRewardDelta: number | null
+    baselineCalibrationError: number | null
+    candidateCalibrationError: number | null
     calibrationErrorDelta: number | null
+    learningMetrics: DecisionRuntimeCandidate["evidence"]["learningMetrics"]
+    durationSeconds?: number
     usage?: DecisionRuntimeUsage
     jobUsage?: DecisionRuntimeUsage
     actorMembershipId?: string
@@ -127,6 +170,12 @@ export interface DecisionModelStore {
     job: DecisionTrainingJobRecord
   }>
   getCandidate(repositoryId: string, candidateId: string): Promise<DecisionCandidateRecord | null>
+  rejectCandidate(input: {
+    repositoryId: string
+    candidateId: string
+    rejectedByMembershipId: string
+    reason: string
+  }): Promise<DecisionCandidateRecord>
   getPromotion(repositoryId: string): Promise<DecisionPromotionRecord | null>
   savePromotion(input: {
     repositoryId: string
@@ -145,7 +194,9 @@ export interface DecisionModelStore {
     screenshotSetDigest: string
     runtimeEvaluationId?: string
     responseDigest: string
-    summary: Record<string, unknown>
+    summary: {
+      findings: DecisionBuildEvaluationFinding[]
+    }
     usage?: DecisionRuntimeUsage
   }): Promise<{ id: string }>
 }
@@ -157,10 +208,15 @@ export interface DecisionModelDependencies {
     repositoryId: string
     actorMembershipId: string
   }): Promise<PreparedDecisionTaskset>
+  preflightTaskset(input: {
+    repositoryId: string
+    actorMembershipId: string
+  }): Promise<DecisionTrainingPreflight>
   prepareBuildEvaluation(input: {
     repositoryId: string
     buildId: string
   }): Promise<PreparedBuildEvaluation>
   runtime: DecisionRuntimeClient
   store: DecisionModelStore
+  withControlLock<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T>
 }

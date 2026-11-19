@@ -4,6 +4,7 @@ import { Prisma, type PrismaClient } from "../../../generated/prisma/client.ts"
 import { saveDecisionBuildEvaluation } from "../../../repositories/decision-build-evaluations/save-decision-build-evaluation/index.ts"
 import { getDecisionCandidate } from "../../../repositories/decision-candidates/get-decision-candidate/index.ts"
 import { saveDecisionCandidate } from "../../../repositories/decision-candidates/save-decision-candidate/index.ts"
+import { rejectDecisionCandidate } from "../../../repositories/decision-candidates/reject-decision-candidate/index.ts"
 import { getDecisionModelConfiguration } from "../../../repositories/decision-model-configurations/get-decision-model-configuration/index.ts"
 import { getDecisionModelPromotion } from "../../../repositories/decision-model-promotions/get-decision-model-promotion/index.ts"
 import { saveDecisionModelPromotion } from "../../../repositories/decision-model-promotions/save-decision-model-promotion/index.ts"
@@ -211,7 +212,10 @@ export function createDecisionModelStore(database: PrismaClient): DecisionModelS
           usage: input.jobUsage,
         })
         if (!result.changed) return { candidate: null, job: jobRecord(result.job) }
-        const candidate = await saveDecisionCandidate(transaction, input)
+        const candidate = await saveDecisionCandidate(transaction, {
+          ...input,
+          learningMetrics: input.learningMetrics,
+        })
         if (input.actorMembershipId) {
           await createSecurityAudit(transaction, {
             id: randomUUID(),
@@ -228,6 +232,7 @@ export function createDecisionModelStore(database: PrismaClient): DecisionModelS
             repositoryId: candidate.repositoryId,
             runtimeCandidateId: candidate.runtimeCandidateId,
             tasksetDigest: candidate.tasksetDigest,
+            rejectedAt: candidate.rejectedAt,
           },
           job: jobRecord(result.job),
         }
@@ -241,8 +246,50 @@ export function createDecisionModelStore(database: PrismaClient): DecisionModelS
             repositoryId: candidate.repositoryId,
             runtimeCandidateId: candidate.runtimeCandidateId,
             tasksetDigest: candidate.tasksetDigest,
+            rejectedAt: candidate.rejectedAt,
           }
         : null
+    },
+    async rejectCandidate(input) {
+      return database.$transaction(async (transaction) => {
+        await transaction.$queryRaw`
+          SELECT id
+          FROM decision_candidates
+          WHERE id = ${input.candidateId}::uuid
+            AND repository_id = ${input.repositoryId}::uuid
+          FOR UPDATE
+        `
+        const result = await rejectDecisionCandidate(transaction, {
+          ...input,
+          rejectedAt: new Date(),
+        })
+        if (result.status === "promoted") {
+          throw new DecisionModelError(
+            409,
+            "candidate_already_promoted",
+            "A promoted decision candidate cannot be rejected.",
+          )
+        }
+        if (result.status === "not-found") {
+          throw new DecisionModelError(404, "candidate_not_found", "Decision candidate not found.")
+        }
+        if (result.status === "rejected") {
+          await createSecurityAudit(transaction, {
+            id: randomUUID(),
+            type: "decision_candidate_rejection",
+            actorMembershipId: input.rejectedByMembershipId,
+            repositoryId: input.repositoryId,
+            candidateId: input.candidateId,
+          })
+        }
+        return {
+          id: result.candidate.id,
+          repositoryId: result.candidate.repositoryId,
+          runtimeCandidateId: result.candidate.runtimeCandidateId,
+          tasksetDigest: result.candidate.tasksetDigest,
+          rejectedAt: result.candidate.rejectedAt,
+        }
+      })
     },
     async getPromotion(repositoryId) {
       const promotion = await getDecisionModelPromotion(database, repositoryId)
@@ -258,6 +305,27 @@ export function createDecisionModelStore(database: PrismaClient): DecisionModelS
     },
     async savePromotion(input) {
       return database.$transaction(async (transaction) => {
+        await transaction.$queryRaw`
+          SELECT id
+          FROM decision_candidates
+          WHERE id = ${input.candidateId}::uuid
+            AND repository_id = ${input.repositoryId}::uuid
+          FOR UPDATE
+        `
+        const candidate = await transaction.decisionCandidate.findFirst({
+          where: { id: input.candidateId, repositoryId: input.repositoryId },
+          select: { rejectedAt: true },
+        })
+        if (!candidate) {
+          throw new DecisionModelError(404, "candidate_not_found", "Decision candidate not found.")
+        }
+        if (candidate.rejectedAt) {
+          throw new DecisionModelError(
+            409,
+            "candidate_rejected",
+            "A rejected decision candidate cannot be promoted.",
+          )
+        }
         const promotion = await saveDecisionModelPromotion(transaction, {
           ...input,
           runtimeGeneration: BigInt(input.runtimeGeneration),
@@ -282,10 +350,25 @@ export function createDecisionModelStore(database: PrismaClient): DecisionModelS
       })
     },
     async saveBuildEvaluation(input) {
+      const summary: Prisma.InputJsonObject = {
+        findings: input.summary.findings.map((finding) => ({
+          learning: {
+            id: finding.learning.id,
+            text: finding.learning.text,
+          },
+          route: finding.route,
+          views: finding.views.map((view) => ({
+            viewport: view.viewport,
+            theme: view.theme,
+          })),
+          followsProbability: finding.followsProbability,
+          breaksProbability: finding.breaksProbability,
+        })),
+      }
       return saveDecisionBuildEvaluation(database, {
         ...input,
         promotionGeneration: BigInt(input.promotionGeneration),
-        summary: input.summary as Prisma.InputJsonValue,
+        summary,
       })
     },
   }

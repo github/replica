@@ -3,6 +3,19 @@ import { withTelemetrySpan } from "../../../integrations/opentelemetry/with-tele
 import { DecisionModelError } from "../errors.ts"
 import type { DecisionModelDependencies, DecisionTrainingJobRecord } from "../types.ts"
 
+function runtimeDurationSeconds(input: {
+  startedAt?: string
+  completedAt?: string
+}): number | undefined {
+  if (!input.startedAt || !input.completedAt) return undefined
+  const startedAt = Date.parse(input.startedAt)
+  const completedAt = Date.parse(input.completedAt)
+  if (!Number.isFinite(startedAt) || !Number.isFinite(completedAt) || completedAt < startedAt) {
+    return undefined
+  }
+  return (completedAt - startedAt) / 1_000
+}
+
 export async function processDecisionTrainingJob(
   input: { repositoryId: string; jobId: string },
   dependencies: DecisionModelDependencies,
@@ -76,9 +89,8 @@ export async function processDecisionTrainingJob(
             )
           }
           const transferred = await dependencies.runtime.transferTaskset({
-            bytes: taskset.bytes,
+            upload: taskset.upload,
             tasksetDigest: taskset.tasksetDigest,
-            questionDigest: taskset.questionDigest,
             idempotencyKey: `${job.idempotencyKey}:taskset`,
           })
           const runtimeJob = await dependencies.runtime.submitTraining({
@@ -86,7 +98,6 @@ export async function processDecisionTrainingJob(
             maxUpdates: job.maxUpdates,
             maxSeconds: job.maxSeconds,
             maxCredits: job.budgetCredits,
-            tasksetId: transferred.id,
             tasksetDigest: job.tasksetDigest,
             idempotencyKey: `${job.idempotencyKey}:job`,
           })
@@ -100,7 +111,7 @@ export async function processDecisionTrainingJob(
           current = await dependencies.store.markJobSubmitted({
             jobId: job.id,
             runtimeJobId: runtimeJob.id,
-            runtimeTasksetId: transferred.id,
+            runtimeTasksetId: transferred.reference,
           })
           if (current.state === "CANCELLED") {
             await dependencies.runtime.cancelTrainingJob({
@@ -181,8 +192,14 @@ export async function processDecisionTrainingJob(
           manifestDigest: candidate.manifestDigest,
           evaluationDigest: candidate.evaluationDigest,
           productionEligible: candidate.productionEligible,
+          baselineMeanReward: candidate.evidence.baselineMeanReward,
+          candidateMeanReward: candidate.evidence.candidateMeanReward,
           meanRewardDelta: candidate.evidence.meanRewardDelta,
+          baselineCalibrationError: candidate.evidence.baselineCalibrationError,
+          candidateCalibrationError: candidate.evidence.candidateCalibrationError,
           calibrationErrorDelta: candidate.evidence.calibrationErrorDelta,
+          learningMetrics: candidate.evidence.learningMetrics,
+          durationSeconds: runtimeDurationSeconds(runtimeJob),
           usage: candidate.usage,
           jobUsage: runtimeJob.usage,
           actorMembershipId: current.requestedByMembershipId ?? undefined,

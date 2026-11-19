@@ -1,5 +1,6 @@
 import { DecisionModelError } from "../errors.ts"
 import { processDecisionTrainingJob } from "../process-decision-training-job/index.ts"
+import { DecisionRuntimeError } from "../../../integrations/decision-runtime/create-decision-runtime-client/errors.ts"
 import type { DecisionModelDependencies } from "../types.ts"
 
 export async function cancelDecisionTraining(
@@ -18,10 +19,23 @@ export async function cancelDecisionTraining(
   if (!job) throw new DecisionModelError(404, "job_not_found", "Training job not found.")
   if (["SUCCEEDED", "FAILED", "CANCELLED"].includes(job.state)) return job
   if (job.runtimeJobId) {
-    const runtimeJob = await dependencies.runtime.cancelTrainingJob({
-      id: job.runtimeJobId,
-      idempotencyKey: `${job.idempotencyKey}:cancel`,
-    })
+    let runtimeJob
+    try {
+      runtimeJob = await dependencies.runtime.cancelTrainingJob({
+        id: job.runtimeJobId,
+        idempotencyKey: `${job.idempotencyKey}:cancel`,
+      })
+    } catch (error) {
+      if (error instanceof DecisionRuntimeError && error.code === "conflict") {
+        return (
+          await processDecisionTrainingJob(
+            { repositoryId: input.repositoryId, jobId: input.jobId },
+            dependencies,
+          )
+        ).job
+      }
+      throw error
+    }
     if (runtimeJob.state === "succeeded") {
       return (
         await processDecisionTrainingJob(

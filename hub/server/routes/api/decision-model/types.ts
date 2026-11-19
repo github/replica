@@ -1,15 +1,103 @@
 import type { CurrentSessionDependencies } from "../auth/types.ts"
 import type { DecisionModelSettings } from "../../../domains/decision-model/types.ts"
 
+export interface DecisionModelOverview {
+  preflight: {
+    counts: {
+      prototypes: number
+      builds: number
+      screenshots: number
+      questions: number
+      samples: number
+    }
+    warnings: { code: string; message: string; count?: number }[]
+  }
+  configuration: (DecisionModelSettings & { generation: number }) | null
+  jobs: {
+    id: string
+    state: "queued" | "submitted" | "running" | "succeeded" | "failed" | "cancelled"
+    tasksetDigest: string
+    runtimeJobId: string | null
+    candidateRuntimeId: string | null
+    failureCode: string | null
+    createdAt: string
+    finishedAt: string | null
+  }[]
+  candidates: {
+    id: string
+    runtimeCandidateId: string
+    tasksetDigest: string
+    productionEligible: boolean
+    baselineMeanReward: string | null
+    candidateMeanReward: string | null
+    meanRewardDelta: string | null
+    baselineCalibrationError: string | null
+    candidateCalibrationError: string | null
+    calibrationErrorDelta: string | null
+    learningMetrics: {
+      learningId: string
+      baselineBalancedAccuracy: number | null
+      candidateBalancedAccuracy: number | null
+      delta: number | null
+      direction: "gain" | "regression" | "unchanged" | "unknown"
+    }[]
+    durationSeconds: number | null
+    usage: {
+      quantity: string
+      unit: string
+      cost: { amount: string; currency: string } | null
+    } | null
+    rejection: {
+      rejectedAt: string
+      reason: string | null
+      membershipId: string | null
+    } | null
+    createdAt: string
+  }[]
+  promotion: {
+    candidateId: string
+    runtimeCandidateId: string
+    generation: number
+    operation: "promote" | "rollback"
+    rollbackAvailable: boolean
+  } | null
+  promotionHistory: {
+    candidateId: string
+    runtimeCandidateId: string
+    previousCandidateId: string | null
+    previousRuntimeCandidateId: string | null
+    generation: number
+    operation: "promote" | "rollback"
+    membershipId: string | null
+    createdAt: string
+  }[]
+  evaluations: {
+    id: string
+    build: { id: string; number: number; prototypeId: string }
+    model: { id: string; runtimeCandidateId: string; generation: number }
+    findings: {
+      learning: { id: string; text: string | null }
+      route: string
+      views: { viewport: string; theme: string }[]
+      followsProbability: number
+      breaksProbability: number
+    }[]
+    createdAt: string
+  }[]
+}
+
 export interface DecisionModelRouteDependencies {
   applicationOrigin: string
   currentSession: CurrentSessionDependencies
-  getOverview(input: { repositoryId: string; actorMembershipId: string }): Promise<unknown>
+  getOverview(input: {
+    repositoryId: string
+    actorMembershipId: string
+  }): Promise<DecisionModelOverview>
   saveSettings(input: {
     repositoryId: string
     actorMembershipId: string
     settings: DecisionModelSettings
-  }): Promise<unknown>
+  }): Promise<DecisionModelSettings & { generation: number }>
   requestTraining(input: {
     repositoryId: string
     actorMembershipId: string
@@ -24,6 +112,12 @@ export interface DecisionModelRouteDependencies {
     repositoryId: string
     actorMembershipId: string
     jobId: string
+  }): Promise<unknown>
+  rejectCandidate(input: {
+    repositoryId: string
+    actorMembershipId: string
+    candidateId: string
+    reason: string
   }): Promise<unknown>
   promote(input: {
     repositoryId: string

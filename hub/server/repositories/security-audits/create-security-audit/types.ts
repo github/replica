@@ -273,6 +273,13 @@ export interface DecisionPromotionAudit extends SecurityAuditEvent {
   generation: number
 }
 
+export interface DecisionCandidateRejectionAudit extends SecurityAuditEvent {
+  type: "decision_candidate_rejection"
+  actorMembershipId: string
+  repositoryId: string
+  candidateId: string
+}
+
 export type CreateSecurityAuditEvent =
   | AuthenticationAttemptDeniedAudit
   | BootstrapAttemptDeniedAudit
@@ -306,4 +313,5 @@ export type CreateSecurityAuditEvent =
   | RepositoryAdministrationDeniedAudit
   | DecisionTrainingAudit
   | DecisionPromotionAudit
+  | DecisionCandidateRejectionAudit
   | GitHubAppConnectionTestedAudit

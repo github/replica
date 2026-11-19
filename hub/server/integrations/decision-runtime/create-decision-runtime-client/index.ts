@@ -30,6 +30,8 @@ const job = z
     state: z.enum(["queued", "running", "succeeded", "failed", "cancelled"]),
     tasksetDigest: digest,
     candidateId: z.string().min(1).max(100).optional(),
+    startedAt: z.iso.datetime().optional(),
+    completedAt: z.iso.datetime().optional(),
     error: z
       .object({ code: z.string().min(1).max(100) })
       .loose()
@@ -44,6 +46,26 @@ const promotion = z
     generation: z.number().int().nonnegative().optional(),
   })
   .loose()
+const evaluationReport = z
+  .object({
+    meanReward: z.number().nullable(),
+    noul: z
+      .object({
+        ece: z.number().nullable(),
+        byRule: z
+          .record(
+            z.string(),
+            z
+              .object({
+                balancedAccuracy: z.number().nullable(),
+              })
+              .loose(),
+          )
+          .default({}),
+      })
+      .loose(),
+  })
+  .loose()
 const candidate = z
   .object({
     manifest: z
@@ -55,6 +77,8 @@ const candidate = z
       .loose(),
     evaluation: z
       .object({
+        baseline: evaluationReport,
+        candidate: evaluationReport,
         evidence: z
           .object({
             meanRewardDelta: z.number().nullable(),
@@ -278,26 +302,26 @@ export function createDecisionRuntimeClient({
   return {
     async transferTaskset(input) {
       const tasksetDigest = digest.parse(input.tasksetDigest)
-      const questionDigest = digest.parse(input.questionDigest)
-      const body = new Uint8Array(input.bytes.byteLength)
-      body.set(input.bytes)
       const value = await call(`/v1/tasksets/${tasksetDigest.slice("sha256:".length)}`, {
         method: "PUT",
-        body,
-        contentType: "application/vnd.replica.decision-taskset",
-        headers: { "x-replica-question-digest": questionDigest },
+        body: JSON.stringify(input.upload),
+        contentType: "application/json",
         idempotencyKey: validateIdempotencyKey(input.idempotencyKey),
         signal: input.signal,
       })
-      return parse(
+      const registered = parse(
         z
           .object({
-            id: z.string().min(1).max(100),
-            tasksetDigest: digest,
+            reference: z.string().min(1).max(200),
+            digest,
           })
-          .strict(),
+          .loose(),
         value,
       )
+      return {
+        reference: registered.reference,
+        tasksetDigest: registered.digest,
+      }
     },
     async submitTraining(input) {
       const tasksetDigest = digest.parse(input.tasksetDigest)
@@ -313,7 +337,6 @@ export function createDecisionRuntimeClient({
               .string()
               .regex(/^(?:0|[1-9]\d*)(?:\.\d{1,9})?$/)
               .parse(input.maxCredits),
-            tasksetId: input.tasksetId,
             tasksetDigest,
           }),
           contentType: "application/json",
@@ -342,13 +365,49 @@ export function createDecisionRuntimeClient({
         candidate,
         await call(`/v1/candidates/${encodeURIComponent(id)}`, { signal }),
       )
+      const learningIds = new Set([
+        ...Object.keys(value.evaluation.baseline.noul.byRule),
+        ...Object.keys(value.evaluation.candidate.noul.byRule),
+      ])
+      const learningMetrics = [...learningIds].sort().map((learningId) => {
+        const baselineBalancedAccuracy =
+          value.evaluation.baseline.noul.byRule[learningId]?.balancedAccuracy ?? null
+        const candidateBalancedAccuracy =
+          value.evaluation.candidate.noul.byRule[learningId]?.balancedAccuracy ?? null
+        const delta =
+          baselineBalancedAccuracy === null || candidateBalancedAccuracy === null
+            ? null
+            : candidateBalancedAccuracy - baselineBalancedAccuracy
+        return {
+          learningId,
+          baselineBalancedAccuracy,
+          candidateBalancedAccuracy,
+          delta,
+          direction:
+            delta === null
+              ? ("unknown" as const)
+              : delta > 0
+                ? ("gain" as const)
+                : delta < 0
+                  ? ("regression" as const)
+                  : ("unchanged" as const),
+        }
+      })
       return {
         id: value.manifest.id,
         tasksetDigest: value.manifest.tasksetDigest,
         manifestDigest: hashJson(value.manifest),
         evaluationDigest: hashJson(value.evaluation),
         productionEligible: value.manifest.productionEligible,
-        evidence: value.evaluation.evidence,
+        evidence: {
+          baselineMeanReward: value.evaluation.baseline.meanReward,
+          candidateMeanReward: value.evaluation.candidate.meanReward,
+          meanRewardDelta: value.evaluation.evidence.meanRewardDelta,
+          baselineCalibrationError: value.evaluation.baseline.noul.ece,
+          candidateCalibrationError: value.evaluation.candidate.noul.ece,
+          calibrationErrorDelta: value.evaluation.evidence.calibrationErrorDelta,
+          learningMetrics,
+        },
         ...(value.usage ? { usage: value.usage } : {}),
       } satisfies DecisionRuntimeCandidate
     },

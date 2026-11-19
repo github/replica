@@ -16,64 +16,85 @@ export async function rollbackDecisionCandidate(
     membershipId: input.actorMembershipId,
     repositoryId: input.repositoryId,
   })
-  const current = await dependencies.store.getPromotion(input.repositoryId)
-  if (!current || current.runtimeGeneration !== input.expectedGeneration) {
-    throw new DecisionModelError(
-      409,
-      "promotion_stale",
-      "The promoted decision model changed. Refresh and try again.",
+  return dependencies.withControlLock(async (signal) => {
+    const current = await dependencies.store.getPromotion(input.repositoryId)
+    if (!current || current.runtimeGeneration !== input.expectedGeneration) {
+      throw new DecisionModelError(
+        409,
+        "promotion_stale",
+        "The promoted decision model changed. Refresh and try again.",
+      )
+    }
+    if (!current.previousCandidateId || !current.previousRuntimeCandidateId) {
+      throw new DecisionModelError(
+        409,
+        "rollback_unavailable",
+        "The current decision model has no previous candidate to restore.",
+      )
+    }
+    const candidate = await dependencies.store.getCandidate(
+      input.repositoryId,
+      current.previousCandidateId,
     )
-  }
-  if (!current.previousCandidateId || !current.previousRuntimeCandidateId) {
-    throw new DecisionModelError(
-      409,
-      "rollback_unavailable",
-      "The current decision model has no previous candidate to restore.",
-    )
-  }
-  const remote = await dependencies.runtime.getPromotion()
-  let promotion = remote
-  if (remote.generation === input.expectedGeneration) {
-    promotion = await dependencies.runtime.rollback({
-      rolledBackBy: input.actorLogin,
-      expectedGeneration: input.expectedGeneration,
-      idempotencyKey: randomUUID(),
+    if (!candidate) {
+      throw new DecisionModelError(
+        404,
+        "candidate_not_found",
+        "The rollback candidate is not recorded in Hub.",
+      )
+    }
+    if (candidate.runtimeCandidateId !== current.previousRuntimeCandidateId) {
+      throw new DecisionModelError(
+        409,
+        "promotion_stale",
+        "The rollback candidate changed. Refresh and try again.",
+      )
+    }
+    if (candidate.rejectedAt) {
+      throw new DecisionModelError(
+        409,
+        "candidate_rejected",
+        "A rejected decision candidate cannot be restored.",
+      )
+    }
+    const remote = await dependencies.runtime.getPromotion(signal)
+    let promotion = remote
+    if (remote.generation === input.expectedGeneration) {
+      promotion = await dependencies.runtime.rollback({
+        rolledBackBy: input.actorLogin,
+        expectedGeneration: input.expectedGeneration,
+        idempotencyKey: randomUUID(),
+        signal,
+      })
+    } else if (
+      remote.generation !== input.expectedGeneration + 1 ||
+      remote.candidateId !== current.previousRuntimeCandidateId
+    ) {
+      throw new DecisionModelError(
+        409,
+        "promotion_stale",
+        "The decision runtime promotion changed. Refresh and try again.",
+      )
+    }
+    if (
+      promotion.generation !== input.expectedGeneration + 1 ||
+      promotion.candidateId !== current.previousRuntimeCandidateId
+    ) {
+      throw new DecisionModelError(
+        409,
+        "promotion_stale",
+        "The decision runtime returned an unexpected rollback generation.",
+      )
+    }
+    signal.throwIfAborted()
+    const saved = await dependencies.store.savePromotion({
+      repositoryId: input.repositoryId,
+      candidateId: candidate.id,
+      previousCandidateId: current.candidateId,
+      promotedByMembershipId: input.actorMembershipId,
+      runtimeGeneration: promotion.generation,
+      operation: "ROLLBACK",
     })
-  } else if (
-    remote.generation !== input.expectedGeneration + 1 ||
-    remote.candidateId !== current.previousRuntimeCandidateId
-  ) {
-    throw new DecisionModelError(
-      409,
-      "promotion_stale",
-      "The decision runtime promotion changed. Refresh and try again.",
-    )
-  }
-  if (
-    promotion.generation !== input.expectedGeneration + 1 ||
-    promotion.candidateId !== current.previousRuntimeCandidateId
-  ) {
-    throw new DecisionModelError(
-      409,
-      "promotion_stale",
-      "The decision runtime returned an unexpected rollback generation.",
-    )
-  }
-  const candidate = await dependencies.store.getCandidate(input.repositoryId, promotion.candidateId)
-  if (!candidate) {
-    throw new DecisionModelError(
-      404,
-      "candidate_not_found",
-      "The rollback candidate is not recorded in Hub.",
-    )
-  }
-  const saved = await dependencies.store.savePromotion({
-    repositoryId: input.repositoryId,
-    candidateId: candidate.id,
-    previousCandidateId: current.candidateId,
-    promotedByMembershipId: input.actorMembershipId,
-    runtimeGeneration: promotion.generation,
-    operation: "ROLLBACK",
+    return saved
   })
-  return saved
 }

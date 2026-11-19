@@ -397,5 +397,17 @@ export function getSecurityAuditData(
           ...(event.reason ? { reason: event.reason } : {}),
         },
       }
+    case "decision_candidate_rejection":
+      return {
+        id: event.id,
+        action: "decision.candidate.rejected",
+        outcome: SecurityAuditOutcome.SUCCESS,
+        targetType: "decision_candidate",
+        targetId: event.candidateId,
+        context: {
+          actorMembershipId: event.actorMembershipId,
+          repositoryId: event.repositoryId,
+        },
+      }
   }
 }

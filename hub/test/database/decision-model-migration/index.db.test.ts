@@ -29,7 +29,7 @@ describe("decision-model migration", () => {
         try {
           const hubRoot = fileURLToPath(new URL("../../../", import.meta.url))
           const migrationsRoot = join(hubRoot, "schema/migrations")
-          const decisionMigration = "20261203140000_decision_model_control_plane"
+          const decisionMigration = "20261203150000_decision_model_ux_contracts"
           const baseMigrations = (await readdir(migrationsRoot, { withFileTypes: true }))
             .filter((entry) => entry.isDirectory() && entry.name < decisionMigration)
             .map((entry) => entry.name)
@@ -113,6 +113,19 @@ describe("decision-model migration", () => {
               /(credential|secret|token|adapter|weight)/.test(column_name),
             ),
           ).toBe(false)
+          const candidateColumns = columns.rows.map(({ column_name }) => column_name)
+          expect(candidateColumns).toEqual(
+            expect.arrayContaining([
+              "baseline_mean_reward",
+              "candidate_mean_reward",
+              "baseline_calibration_error",
+              "candidate_calibration_error",
+              "learning_metrics",
+              "duration_seconds",
+              "rejected_reason",
+              "rejected_at",
+            ]),
+          )
         } finally {
           await database.end()
         }

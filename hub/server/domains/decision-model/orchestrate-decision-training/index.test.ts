@@ -4,10 +4,12 @@ import { describe, expect, it, vi } from "vitest"
 import type { DecisionModelDependencies, DecisionTrainingJobRecord } from "../types"
 import { cancelDecisionTraining } from "../cancel-decision-training"
 import { evaluateBuildWithDecisionModel } from "../evaluate-build-with-decision-model"
-import { prepareDecisionTaskset } from "../prepare-decision-taskset"
+import { preflightDecisionTaskset, prepareDecisionTaskset } from "../prepare-decision-taskset"
 import { processDecisionTrainingJob } from "../process-decision-training-job"
 import { promoteDecisionCandidate } from "../promote-decision-candidate"
+import { rejectDecisionCandidate } from "../reject-decision-candidate"
 import { requestDecisionTraining } from "../request-decision-training"
+import { rollbackDecisionCandidate } from "../rollback-decision-candidate"
 
 const repositoryId = "11111111-1111-4111-8111-111111111111"
 const membershipId = "22222222-2222-4222-8222-222222222222"
@@ -17,6 +19,19 @@ const tasksetDigest = `sha256:${"a".repeat(64)}`
 const questionDigest = `sha256:${"b".repeat(64)}`
 const exportDigest = `sha256:${"c".repeat(64)}`
 const buildSetDigest = `sha256:${"d".repeat(64)}`
+const tasksetUpload = {
+  schemaVersion: "replica.decision-taskset-upload/v1" as const,
+  manifest: { questionDigest },
+  tasks: [{ id: "task-1" }],
+  images: [
+    {
+      path: "screenshots/home.png",
+      mediaType: "image/png",
+      digest: `sha256:${"f".repeat(64)}`,
+      dataBase64: "AQID",
+    },
+  ],
+}
 
 function job(overrides: Partial<DecisionTrainingJobRecord> = {}): DecisionTrainingJobRecord {
   return {
@@ -50,15 +65,22 @@ function dependencies(overrides: Partial<DecisionModelDependencies> = {}) {
       requireRepositoryAdministrator: vi.fn().mockResolvedValue(undefined),
     },
     now: () => new Date("2026-11-18T12:00:00Z"),
+    withControlLock: (operation) => operation(new AbortController().signal),
+    preflightTaskset: vi.fn().mockResolvedValue({
+      counts: { prototypes: 0, builds: 0, screenshots: 0, questions: 0, samples: 0 },
+      warnings: [],
+    }),
     prepareBuildEvaluation: vi.fn().mockResolvedValue({
       state: {},
       images: [],
       questions: {},
+      route: "/",
+      views: [],
       questionDigest,
       screenshotSetDigest: buildSetDigest,
     }),
     prepareTaskset: vi.fn().mockResolvedValue({
-      bytes: new Uint8Array([1, 2, 3]),
+      upload: tasksetUpload,
       consentGrantId: "consent-1",
       exportDigest,
       repeatableReviewSnapshotDigest: `sha256:${"e".repeat(64)}`,
@@ -93,6 +115,7 @@ function dependencies(overrides: Partial<DecisionModelDependencies> = {}) {
       updateJobState: vi.fn(),
       completeJobWithCandidate: vi.fn(),
       getCandidate: vi.fn(),
+      rejectCandidate: vi.fn(),
       getPromotion: vi.fn(),
       savePromotion: vi.fn(),
       saveBuildEvaluation: vi.fn(),
@@ -167,12 +190,12 @@ describe("decision training orchestration", () => {
   it("pins consent, export, repeatable review, Build, question, and taskset digests", async () => {
     const trainingExport = new TextEncoder().encode("review outcomes")
     const builds = new TextEncoder().encode("screenshots and artifact boundaries")
-    const archive = new Uint8Array([...trainingExport, ...builds])
     const repeatableReviewSnapshotDigest = `sha256:${"e".repeat(64)}`
 
     const prepared = await prepareDecisionTaskset(
       { repositoryId, actorMembershipId: membershipId },
       {
+        preflight: vi.fn(),
         exportTrainingEvidence: vi.fn().mockResolvedValue({
           bytes: trainingExport,
           consentGrantId: "consent-1",
@@ -185,9 +208,9 @@ describe("decision training orchestration", () => {
           complete: true,
         }),
         createTaskset: vi.fn().mockResolvedValue({
-          archive,
+          upload: tasksetUpload,
           questionDigest,
-          tasksetDigest: sha256(archive),
+          tasksetDigest,
         }),
       },
     )
@@ -198,7 +221,45 @@ describe("decision training orchestration", () => {
       repeatableReviewSnapshotDigest,
       buildSetDigest: sha256(builds),
       questionDigest,
-      tasksetDigest: sha256(archive),
+      tasksetDigest,
+      upload: tasksetUpload,
+    })
+  })
+
+  it("returns exact taskset-source preflight counts and warnings without fallback values", async () => {
+    const preflight = {
+      counts: {
+        prototypes: 2,
+        builds: 5,
+        screenshots: 11,
+        questions: 7,
+        samples: 43,
+      },
+      warnings: [
+        {
+          code: "missing_repeatable_reviews",
+          message: "Three screenshots do not have repeatable review outcomes.",
+          count: 3,
+        },
+        {
+          code: "single_theme",
+          message: "The taskset covers only one theme.",
+        },
+      ],
+    }
+    const source = {
+      preflight: vi.fn().mockResolvedValue(preflight),
+      exportTrainingEvidence: vi.fn(),
+      readBuildArtifacts: vi.fn(),
+      createTaskset: vi.fn(),
+    }
+
+    await expect(
+      preflightDecisionTaskset({ repositoryId, actorMembershipId: membershipId }, source),
+    ).resolves.toEqual(preflight)
+    expect(source.preflight).toHaveBeenCalledWith({
+      repositoryId,
+      actorMembershipId: membershipId,
     })
   })
 
@@ -218,7 +279,7 @@ describe("decision training orchestration", () => {
     const transferTaskset = vi.fn()
     const deps = dependencies({
       prepareTaskset: vi.fn().mockResolvedValue({
-        bytes: new Uint8Array([1, 2, 3]),
+        upload: tasksetUpload,
         consentGrantId: "consent-1",
         exportDigest,
         repeatableReviewSnapshotDigest: `sha256:${"e".repeat(64)}`,
@@ -265,7 +326,7 @@ describe("decision training orchestration", () => {
       runtime: {
         ...dependencies().runtime,
         transferTaskset: vi.fn().mockResolvedValue({
-          id: "runtime-taskset-1",
+          reference: "taskset:runtime-taskset-1",
           tasksetDigest,
         }),
         submitTraining: vi.fn().mockResolvedValue({
@@ -295,7 +356,7 @@ describe("decision training orchestration", () => {
     expect(getTrainingJob).not.toHaveBeenCalled()
   })
 
-  it("persists candidate references and usage when polling reaches success", async () => {
+  it("persists absolute and per-learning candidate evidence with exact usage and cost", async () => {
     const submitted = job({
       state: "RUNNING",
       runtimeJobId: "runtime-job-1",
@@ -307,6 +368,7 @@ describe("decision training orchestration", () => {
         repositoryId,
         runtimeCandidateId: "runtime-candidate-1",
         tasksetDigest,
+        rejectedAt: null,
       },
       job: job({ state: "SUCCEEDED" }),
     })
@@ -318,6 +380,8 @@ describe("decision training orchestration", () => {
           state: "succeeded",
           tasksetDigest,
           candidateId: "runtime-candidate-1",
+          startedAt: "2026-11-18T12:00:00.000Z",
+          completedAt: "2026-11-18T12:02:05.000Z",
           usage: { quantity: "12", unit: "gpu-second" },
         }),
         getCandidate: vi.fn().mockResolvedValue({
@@ -326,8 +390,36 @@ describe("decision training orchestration", () => {
           manifestDigest: `sha256:${"5".repeat(64)}`,
           evaluationDigest: `sha256:${"6".repeat(64)}`,
           productionEligible: true,
-          evidence: { meanRewardDelta: 0.2, calibrationErrorDelta: -0.1 },
-          usage: { quantity: "20", unit: "gpu-second" },
+          evidence: {
+            baselineMeanReward: 0.61,
+            candidateMeanReward: 0.81,
+            meanRewardDelta: 0.2,
+            baselineCalibrationError: 0.19,
+            candidateCalibrationError: 0.09,
+            calibrationErrorDelta: -0.1,
+            learningMetrics: [
+              {
+                learningId: "learning-gain",
+                baselineBalancedAccuracy: 0.5,
+                candidateBalancedAccuracy: 0.8,
+                delta: 0.3,
+                direction: "gain",
+              },
+              {
+                learningId: "learning-regression",
+                baselineBalancedAccuracy: 0.9,
+                candidateBalancedAccuracy: 0.7,
+                delta: -0.2,
+                direction: "regression",
+              },
+            ],
+            durationSeconds: 125,
+          },
+          usage: {
+            quantity: "20.25",
+            unit: "gpu-second",
+            cost: { amount: "3.75", currency: "USD" },
+          },
         }),
       },
       store: {
@@ -350,9 +442,34 @@ describe("decision training orchestration", () => {
       manifestDigest: `sha256:${"5".repeat(64)}`,
       evaluationDigest: `sha256:${"6".repeat(64)}`,
       productionEligible: true,
+      baselineMeanReward: 0.61,
+      candidateMeanReward: 0.81,
       meanRewardDelta: 0.2,
+      baselineCalibrationError: 0.19,
+      candidateCalibrationError: 0.09,
       calibrationErrorDelta: -0.1,
-      usage: { quantity: "20", unit: "gpu-second" },
+      learningMetrics: [
+        {
+          learningId: "learning-gain",
+          baselineBalancedAccuracy: 0.5,
+          candidateBalancedAccuracy: 0.8,
+          delta: 0.3,
+          direction: "gain",
+        },
+        {
+          learningId: "learning-regression",
+          baselineBalancedAccuracy: 0.9,
+          candidateBalancedAccuracy: 0.7,
+          delta: -0.2,
+          direction: "regression",
+        },
+      ],
+      durationSeconds: 125,
+      usage: {
+        quantity: "20.25",
+        unit: "gpu-second",
+        cost: { amount: "3.75", currency: "USD" },
+      },
       jobUsage: { quantity: "12", unit: "gpu-second" },
       actorMembershipId: membershipId,
     })
@@ -445,6 +562,121 @@ describe("decision training orchestration", () => {
     expect(savePromotion).not.toHaveBeenCalled()
   })
 
+  it("persists candidate rejection through the decision-model store", async () => {
+    const rejectedAt = new Date("2026-11-18T12:05:00Z")
+    const rejectCandidate = vi.fn().mockResolvedValue({
+      id: "candidate-1",
+      repositoryId,
+      runtimeCandidateId: "runtime-candidate-1",
+      tasksetDigest,
+      rejectedAt,
+    })
+    const deps = dependencies({
+      store: { ...dependencies().store, rejectCandidate },
+    })
+
+    await expect(
+      rejectDecisionCandidate(
+        {
+          repositoryId,
+          candidateId: "candidate-1",
+          actorMembershipId: membershipId,
+          reason: "Held-out reward regressed.",
+        },
+        deps,
+      ),
+    ).resolves.toMatchObject({ rejectedAt })
+
+    expect(rejectCandidate).toHaveBeenCalledWith({
+      repositoryId,
+      candidateId: "candidate-1",
+      rejectedByMembershipId: membershipId,
+      reason: "Held-out reward regressed.",
+    })
+  })
+
+  it("does not call the runtime when a persisted candidate rejection prevents promotion", async () => {
+    const promote = vi.fn()
+    const getPromotion = vi.fn()
+    const savePromotion = vi.fn()
+    const deps = dependencies({
+      runtime: { ...dependencies().runtime, promote },
+      store: {
+        ...dependencies().store,
+        getCandidate: vi.fn().mockResolvedValue({
+          id: "candidate-1",
+          repositoryId,
+          runtimeCandidateId: "runtime-candidate-1",
+          tasksetDigest,
+          rejectedAt: new Date("2026-11-18T12:05:00Z"),
+        }),
+        getPromotion,
+        savePromotion,
+      },
+    })
+
+    await expect(
+      promoteDecisionCandidate(
+        {
+          repositoryId,
+          candidateId: "candidate-1",
+          actorMembershipId: membershipId,
+          actorLogin: "mona",
+          expectedGeneration: 4,
+        },
+        deps,
+      ),
+    ).rejects.toMatchObject({ code: "candidate_rejected" })
+
+    expect(getPromotion).not.toHaveBeenCalled()
+    expect(promote).not.toHaveBeenCalled()
+    expect(savePromotion).not.toHaveBeenCalled()
+  })
+
+  it("does not mutate the runtime when the rollback target is rejected", async () => {
+    const rollback = vi.fn()
+    const getRuntimePromotion = vi.fn()
+    const deps = dependencies({
+      runtime: {
+        ...dependencies().runtime,
+        rollback,
+        getPromotion: getRuntimePromotion,
+      },
+      store: {
+        ...dependencies().store,
+        getPromotion: vi.fn().mockResolvedValue({
+          candidateId: "candidate-current",
+          runtimeCandidateId: "runtime-current",
+          previousCandidateId: "candidate-previous",
+          previousRuntimeCandidateId: "runtime-previous",
+          runtimeGeneration: 4,
+        }),
+        getCandidate: vi.fn().mockResolvedValue({
+          id: "candidate-previous",
+          repositoryId,
+          runtimeCandidateId: "runtime-previous",
+          tasksetDigest,
+          rejectedAt: new Date("2026-11-18T12:05:00Z"),
+        }),
+      },
+    })
+
+    await expect(
+      rollbackDecisionCandidate(
+        {
+          repositoryId,
+          actorMembershipId: membershipId,
+          actorLogin: "mona",
+          expectedGeneration: 4,
+        },
+        deps,
+      ),
+    ).rejects.toMatchObject({ code: "candidate_rejected" })
+
+    expect(getRuntimePromotion).not.toHaveBeenCalled()
+    expect(rollback).not.toHaveBeenCalled()
+  })
+
   it("reconciles a runtime promotion that completed before Hub saved it", async () => {
     const promote = vi.fn()
     const savePromotion = vi.fn().mockResolvedValue({
@@ -510,6 +742,8 @@ describe("decision training orchestration", () => {
         state: { title: "Build" },
         images: ["artifact://screenshot-1"],
         questions: { kind: "replica.questions/v1" },
+        route: "/settings/profile",
+        views: [{ viewport: "desktop", theme: "dark" }],
         questionDigest,
         screenshotSetDigest: buildSetDigest,
       }),
@@ -540,5 +774,97 @@ describe("decision training orchestration", () => {
       evaluateBuildWithDecisionModel({ repositoryId, buildId }, deps),
     ).rejects.toMatchObject({ code: "promotion_stale" })
     expect(saveBuildEvaluation).not.toHaveBeenCalled()
+  })
+
+  it("persists page-level Build findings with learning text and the evaluated views", async () => {
+    const base = dependencies()
+    const saveBuildEvaluation = vi.fn().mockResolvedValue({ id: "evaluation-record-1" })
+    const deps = {
+      ...base,
+      prepareBuildEvaluation: vi.fn().mockResolvedValue({
+        state: { title: "Profile settings" },
+        images: ["artifact://desktop-dark", "artifact://mobile-light"],
+        questions: {
+          "learning-1": {
+            learning_text: "Use the compact navigation on settings pages.",
+          },
+        },
+        route: "/settings/profile",
+        views: [
+          { viewport: "desktop", theme: "dark" },
+          { viewport: "mobile", theme: "light" },
+        ],
+        questionDigest,
+        screenshotSetDigest: buildSetDigest,
+      }),
+      runtime: {
+        ...base.runtime,
+        evaluate: vi.fn().mockResolvedValue({
+          id: "runtime-evaluation-1",
+          candidateId: "runtime-candidate-1",
+          generation: 8,
+          responseDigest: `sha256:${"7".repeat(64)}`,
+          evaluations: [
+            {
+              learningId: "learning-1",
+              followsProbability: 0.82,
+              breaksProbability: 0.18,
+            },
+          ],
+          usage: {
+            quantity: "2.5",
+            unit: "gpu-second",
+            cost: { amount: "0.12", currency: "USD" },
+          },
+        }),
+      },
+      store: {
+        ...base.store,
+        saveBuildEvaluation,
+        getPromotion: vi.fn().mockResolvedValue({
+          candidateId: "candidate-1",
+          runtimeCandidateId: "runtime-candidate-1",
+          previousCandidateId: "candidate-0",
+          previousRuntimeCandidateId: "runtime-candidate-0",
+          runtimeGeneration: 8,
+        }),
+      },
+    }
+
+    await expect(
+      evaluateBuildWithDecisionModel({ repositoryId, buildId }, deps),
+    ).resolves.toMatchObject({ id: "runtime-evaluation-1" })
+
+    expect(saveBuildEvaluation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repositoryId,
+        buildId,
+        candidateId: "candidate-1",
+        promotionGeneration: 8,
+        runtimeEvaluationId: "runtime-evaluation-1",
+        summary: {
+          findings: [
+            {
+              learning: {
+                id: "learning-1",
+                text: "Use the compact navigation on settings pages.",
+              },
+              route: "/settings/profile",
+              views: [
+                { viewport: "desktop", theme: "dark" },
+                { viewport: "mobile", theme: "light" },
+              ],
+              followsProbability: 0.82,
+              breaksProbability: 0.18,
+            },
+          ],
+        },
+        usage: {
+          quantity: "2.5",
+          unit: "gpu-second",
+          cost: { amount: "0.12", currency: "USD" },
+        },
+      }),
+    )
   })
 })

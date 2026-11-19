@@ -13,6 +13,7 @@ model Membership {
   learningRuns               LearningRun[]
   decisionTrainingJobs       DecisionTrainingJob[]
   decisionModelPromotions    DecisionModelPromotion[]
+  rejectedDecisionCandidates DecisionCandidate[]
   learningDecisionOperations LearningDecisionOperation[]
 
   // Attribute columns

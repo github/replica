@@ -1,9 +1,13 @@
 import { createHash } from "node:crypto"
 
 import { DecisionModelError } from "../errors.ts"
-import type { PreparedDecisionTaskset } from "../types.ts"
+import type { DecisionTrainingPreflight, PreparedDecisionTaskset } from "../types.ts"
 
 export interface DecisionTasksetPreparationSource {
+  preflight(input: {
+    repositoryId: string
+    actorMembershipId: string
+  }): Promise<DecisionTrainingPreflight>
   exportTrainingEvidence(input: { repositoryId: string; actorMembershipId: string }): Promise<{
     bytes: Uint8Array
     consentGrantId: string | null
@@ -16,10 +20,17 @@ export interface DecisionTasksetPreparationSource {
     complete: boolean
   }>
   createTaskset(input: { trainingExport: Uint8Array; builds: Uint8Array }): Promise<{
-    archive: Uint8Array
+    upload: PreparedDecisionTaskset["upload"]
     questionDigest: string
     tasksetDigest: string
   }>
+}
+
+export function preflightDecisionTaskset(
+  input: { repositoryId: string; actorMembershipId: string },
+  source: DecisionTasksetPreparationSource,
+) {
+  return source.preflight(input)
 }
 
 function digest(bytes: Uint8Array): string {
@@ -58,15 +69,8 @@ export async function prepareDecisionTaskset(
     trainingExport: trainingExport.bytes,
     builds: builds.bytes,
   })
-  if (digest(taskset.archive) !== taskset.tasksetDigest) {
-    throw new DecisionModelError(
-      409,
-      "taskset_drift",
-      "The prepared decision taskset failed its digest check.",
-    )
-  }
   return {
-    bytes: taskset.archive,
+    upload: taskset.upload,
     consentGrantId: trainingExport.consentGrantId,
     exportDigest: trainingExport.digest,
     repeatableReviewSnapshotDigest: trainingExport.repeatableReviewSnapshotDigest,

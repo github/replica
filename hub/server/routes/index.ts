@@ -66,6 +66,7 @@ import { post as handleDecisionTrainingPost } from "./api/decision-model/trainin
 import { get as handleDecisionTrainingGet } from "./api/decision-model/training-jobs/get/index.ts"
 import { post as handleDecisionTrainingCancelPost } from "./api/decision-model/training-jobs/cancel/post/index.ts"
 import { post as handleDecisionCandidatePromotionPost } from "./api/decision-model/candidates/promotion/post/index.ts"
+import { post as handleDecisionCandidateRejectionPost } from "./api/decision-model/candidates/rejection/post/index.ts"
 import { post as handleDecisionRollbackPost } from "./api/decision-model/rollback/post/index.ts"
 import { post as handleDecisionBuildEvaluationPost } from "./api/decision-model/builds/evaluation/post/index.ts"
 
@@ -423,6 +424,12 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
       requireOrigin(decisionModels.applicationOrigin),
       express.json({ limit: "4kb", strict: true }),
       handleDecisionCandidatePromotionPost(decisionModels),
+    )
+    app.post(
+      `${path}/candidates/:candidateId/rejection`,
+      requireOrigin(decisionModels.applicationOrigin),
+      express.json({ limit: "4kb", strict: true }),
+      handleDecisionCandidateRejectionPost(decisionModels),
     )
     app.post(
       `${path}/rollback`,
