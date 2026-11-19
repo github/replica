@@ -209,7 +209,7 @@ describe("createDecisionModelJobProcessors()", () => {
       },
     ]
     input.listTrainingWithdrawals = vi.fn().mockResolvedValue(withdrawals)
-    input.store.createOrGetDeletion = vi
+    const createOrGetDeletion = vi
       .fn()
       .mockRejectedValueOnce(new Error("first failed"))
       .mockResolvedValueOnce({
@@ -217,6 +217,9 @@ describe("createDecisionModelJobProcessors()", () => {
         runtimeDeletionId: null,
         state: "PENDING",
       })
+    input.store.createOrGetDeletion = createOrGetDeletion
+    const requireRepositoryAdministrator = vi.fn().mockResolvedValue(undefined)
+    input.authorization.requireRepositoryAdministrator = requireRepositoryAdministrator
     input.store.saveRuntimeCopies = vi.fn()
     input.store.updateDeletionReceipt = vi.fn()
     input.store.listPendingDeletions = vi.fn().mockResolvedValue([])
@@ -240,8 +243,8 @@ describe("createDecisionModelJobProcessors()", () => {
     })
 
     await expect(processors.reconcileDeletions.process({})).resolves.toBeUndefined()
-    expect(input.store.createOrGetDeletion).toHaveBeenCalledTimes(2)
-    expect(input.authorization.requireRepositoryAdministrator).toHaveBeenCalledTimes(1)
+    expect(createOrGetDeletion).toHaveBeenCalledTimes(2)
+    expect(requireRepositoryAdministrator).toHaveBeenCalledTimes(1)
     expect(warn).toHaveBeenCalledWith(
       expect.objectContaining({ idempotencyKey: "withdrawal-failed" }),
       "Decision runtime withdrawal reconciliation failed",
