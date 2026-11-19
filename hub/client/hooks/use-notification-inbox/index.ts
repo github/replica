@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react"
 
 import { NOTIFICATION_PAGE_SCHEMA, NOTIFICATION_READ_SCHEMA } from "@utils/notification/schemas"
 import { notifyInboxRead, onInboxReadChanged } from "@utils/notification/read-updates"
@@ -164,39 +164,43 @@ export function useNotificationInbox({
     return () => controller.abort()
   }, [autoCount, path])
 
-  useEffect(() => {
-    if (!path || !synchronize) return
-    return onInboxReadChanged(({ id, saved }) => {
-      if (ownReadUpdate.current === saved) return
-      setUnreadCount(saved.unreadCount)
-      setNotifications((previous) =>
-        previous.map((item) =>
-          item.id === id && item.version < saved.version
-            ? { ...item, version: saved.version, read: saved.read }
-            : item,
-        ),
-      )
-      if (loaded.current || autoLoad) void load()
-      else generation.current += 1
-    })
-  }, [autoLoad, load, path, synchronize])
-
   function applyReadUpdate(id: number, saved: NotificationReadUpdate) {
+    const current = notifications.find((item) => item.id === id)
+    if (current && current.version >= saved.version) return { count: unreadCount, refill: false }
+
+    const delta = current?.read === saved.read ? 0 : saved.read ? -1 : 1
+    const count = saved.unreadCount ?? Math.max(0, unreadCount + delta)
     const visible = notifications.filter((item) => !unreadOnly || !item.read)
     setNotifications((previous) =>
       previous.map((item) =>
-        item.id === id && item.version <= saved.version
+        item.id === id && item.version < saved.version
           ? { ...item, version: saved.version, read: saved.read }
           : item,
       ),
     )
-    setUnreadCount(saved.unreadCount)
-    return (
-      unreadOnly &&
-      ((!saved.read && !notifications.some((item) => item.id === id)) ||
-        (saved.read && visible.length === 1 && visible[0]?.id === id && saved.unreadCount > 0))
-    )
+    setUnreadCount((previous) => saved.unreadCount ?? Math.max(0, previous + delta))
+    return {
+      count,
+      refill:
+        unreadOnly &&
+        ((!saved.read && !current) ||
+          (saved.read && visible.length === 1 && visible[0]?.id === id && count > 0)),
+    }
   }
+
+  const receiveReadUpdate = useEffectEvent(
+    ({ id, saved }: { id: number; saved: NotificationReadUpdate }) => {
+      if (ownReadUpdate.current === saved) return
+      applyReadUpdate(id, saved)
+      if (loaded.current || autoLoad || loading) void load()
+      else generation.current += 1
+    },
+  )
+
+  useEffect(() => {
+    if (!path || !synchronize) return
+    return onInboxReadChanged((update) => receiveReadUpdate(update))
+  }, [path, synchronize])
 
   async function toggleRead(notification: InboxNotification) {
     const requestGeneration = ++generation.current
@@ -219,14 +223,14 @@ export function useNotificationInbox({
       if (saved.read !== !notification.read)
         throw new Error("Notification read state did not change")
 
-      const needsReload = applyReadUpdate(notification.id, saved)
+      const { count, refill } = applyReadUpdate(notification.id, saved)
       if (synchronize) {
         ownReadUpdate.current = saved
         notifyInboxRead({ id: notification.id, saved })
       }
       callbacks.current.onReadChange?.(notification.id, saved)
-      callbacks.current.onUnreadCountChange?.(saved.unreadCount)
-      if (needsReload) {
+      callbacks.current.onUnreadCountChange?.(count)
+      if (refill) {
         await load()
       } else {
         setLoading(false)
@@ -263,8 +267,8 @@ export function useNotificationInbox({
     onUnreadCountChange: setUnreadCount,
     onReadUpdate: (id: number, saved: NotificationReadUpdate) => {
       generation.current += 1
-      const needsReload = applyReadUpdate(id, saved)
-      if (loading || needsReload) {
+      const { refill } = applyReadUpdate(id, saved)
+      if (loading || refill) {
         void load()
       } else {
         setLoading(false)

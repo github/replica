@@ -61,9 +61,20 @@ export function createReviewRealtimeAccess(
         signal.aborted
       )
         return false
-      return (
-        (await product.isPrototypeReviewable(scope.repositoryId, scope.prototypeId)) &&
-        !signal.aborted
+      if (
+        !(await product.isPrototypeReviewable(scope.repositoryId, scope.prototypeId)) ||
+        signal.aborted
+      )
+        return false
+      const verified = await authentication.currentSession.restore(digest)
+      return Boolean(
+        verified &&
+        verified.userId === current.userId &&
+        verified.membershipId === current.membershipId &&
+        verified.externalIdentityId === current.externalIdentityId &&
+        verified.sessionProvider === current.sessionProvider &&
+        verified.role === current.role &&
+        !signal.aborted,
       )
     },
     revalidateSubscriptions: true,

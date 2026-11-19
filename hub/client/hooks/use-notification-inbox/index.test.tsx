@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
+import { notifyInboxRead } from "@utils/notification/read-updates"
 import type { InboxNotification } from "@utils/notification/types"
 
 import { useNotificationInbox } from "."
@@ -267,7 +268,7 @@ describe("useNotificationInbox()", () => {
           nextBefore: 2,
         }),
       )
-      .mockResolvedValueOnce(Response.json({ version: 1, read: true, unreadCount: 11 }))
+      .mockResolvedValueOnce(Response.json({ version: 1, read: true }))
     vi.stubGlobal("fetch", fetch)
     const { result } = renderHook(() =>
       useNotificationInbox({ path: "/notifications/inbox", authenticityToken: "token" }),
@@ -291,7 +292,7 @@ describe("useNotificationInbox()", () => {
       .fn()
       .mockResolvedValueOnce(Response.json(page))
       .mockResolvedValueOnce(Response.json({ ...page, nextBefore: 1, unreadCount: 2 }))
-      .mockResolvedValueOnce(Response.json({ version: 1, read: true, unreadCount: 1 }))
+      .mockResolvedValueOnce(Response.json({ version: 1, read: true }))
       .mockResolvedValueOnce(
         Response.json({
           ...page,
@@ -344,11 +345,31 @@ describe("useNotificationInbox()", () => {
       version: 1,
       read: true,
     })
+
     expect(result.current.notifications).toHaveLength(2)
     expect(result.current.hasMore).toBe(true)
     expect(result.current.unreadCount).toBe(11)
     expect(fetch).toHaveBeenCalledTimes(2)
     expect(onReadChange).not.toHaveBeenCalled()
+  })
+
+  it("updates a closed Inbox badge after a notice is read without requesting the Inbox list", () => {
+    const fetch = vi.fn()
+    vi.stubGlobal("fetch", fetch)
+    const { result } = renderHook(() =>
+      useNotificationInbox({
+        path: "/api/notifications/inbox",
+        authenticityToken: "",
+        initialUnreadCount: 2,
+        autoLoad: false,
+        synchronize: true,
+      }),
+    )
+
+    act(() => notifyInboxRead({ id: 1, saved: { version: 1, read: true } }))
+
+    expect(result.current.unreadCount).toBe(1)
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it("reloads an unread filter when another surface marks an unloaded item unread", async () => {

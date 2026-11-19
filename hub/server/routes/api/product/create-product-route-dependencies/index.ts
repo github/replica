@@ -386,19 +386,22 @@ export function createProductRouteDependencies({
             : undefined
         if (!githubId) return denied
         try {
-          const profile = await githubReviewDirectory.find(
-            repository.githubRepositoryId,
-            actor.login,
-            githubId,
-            signal,
+          if (
+            !(await githubReviewDirectory.canRead(
+              repository.githubRepositoryId,
+              actor.login,
+              githubId,
+              signal,
+            ))
           )
-          if (profile?.githubId !== githubId) return denied
+            return denied
         } catch {
           throw new ReviewCommentError(
             "unavailable",
             "GitHub could not check review access. Try again.",
           )
         }
+        if (!(await repositoryIsVisible(prisma, repositoryId, actor))) return denied
       }
       return access
     },

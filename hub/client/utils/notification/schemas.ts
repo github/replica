@@ -35,5 +35,5 @@ export const NOTIFICATION_PAGE_SCHEMA = z.object({
 export const NOTIFICATION_READ_SCHEMA = z.object({
   version: z.number().int().nonnegative(),
   read: z.boolean(),
-  unreadCount: z.number().int().nonnegative(),
+  unreadCount: z.number().int().nonnegative().optional(),
 })

@@ -59,7 +59,7 @@ export function createReviewInbox(
   }
 
   async function run<Result>(
-    input: InboxContext,
+    input: InboxContext & { notificationId?: number },
     action: (
       transaction: Prisma.TransactionClient,
       where: Prisma.ReviewNotificationWhereInput,
@@ -72,6 +72,7 @@ export function createReviewInbox(
       await repositoryScope(database, input.viewer),
       keys,
       isLocal,
+      input.notificationId,
     )
     let verified = new Set(visible.map(({ id }) => id))
     if (github && input.viewer.sessionProvider === "github" && visible.length) {
@@ -81,8 +82,7 @@ export function createReviewInbox(
           visible.map(async (repository) =>
             githubId &&
             repository.githubRepositoryId &&
-            (await github.find(repository.githubRepositoryId, input.viewer.login, githubId))
-              ?.githubId === githubId
+            (await github.canRead(repository.githubRepositoryId, input.viewer.login, githubId))
               ? repository.id
               : null,
           ),
@@ -116,6 +116,7 @@ export function createReviewInbox(
         await repositoryScope(transaction, current),
         currentKeys,
         isLocal,
+        input.notificationId,
       )
       const confirmed = repositories.filter(
         (repository) =>
@@ -171,7 +172,6 @@ export function createReviewInbox(
         return {
           version: input.version + 1,
           read: input.read,
-          unreadCount: await countUnreadInbox(transaction, where),
         }
       })
     },
