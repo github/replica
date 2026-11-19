@@ -1,7 +1,7 @@
 import "dotenv/config"
 import { spawn } from "node:child_process"
 import { resolve } from "node:path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { logger } from "../../integrations/pino/index.ts"
 import { withSetupLock } from "../../integrations/postgres/with-setup-lock/index.ts"
@@ -35,8 +35,8 @@ export async function setup() {
         )
         const steps = [
           [resolve("node_modules/prisma/build/index.js"), "migrate", "deploy"],
-          [jobScript.pathname],
-          ...(process.env.DATABASE_RUNTIME_ROLE ? [[grantScript.pathname]] : []),
+          [fileURLToPath(jobScript)],
+          ...(process.env.DATABASE_RUNTIME_ROLE ? [[fileURLToPath(grantScript)]] : []),
         ]
         for (const [index, args] of steps.entries()) {
           signal.throwIfAborted()
