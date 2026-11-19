@@ -1763,6 +1763,7 @@ def _run_backend(
 ) -> TrainingResult:
     """Run backend code in a child that the runtime can stop at the job deadline."""
     process_context = _process_context()
+    cancellation_event = process_context.Event()
     result_path = work_directory / "result.pickle"
     process = process_context.Process(
         target=_backend_process,
@@ -1781,19 +1782,25 @@ def _run_backend(
             context.max_credits,
             context.budget_mode,
             credential,
+            cancellation_event,
         ),
         name=f"replica-{connector.name}-job",
     )
     process.start()
     try:
         while process.is_alive():
-            context.cancellation.raise_if_requested()
+            if context.cancellation.requested:
+                cancellation_event.set()
+                process.join(1)
+                context.cancellation.raise_if_requested()
             remaining = context.deadline - time.monotonic()
             if remaining <= 0:
                 break
             process.join(min(0.05, remaining))
         if process.is_alive():
-            context.cancellation.cancel()
+            cancellation_event.set()
+            process.join(1)
+        if process.is_alive():
             _stop_process(process)
             raise RuntimeFailure(
                 "job_timed_out", "The bounded training job reached maxSeconds."
@@ -1842,6 +1849,7 @@ def _backend_process(
     max_credits: float | None,
     budget_mode: str,
     credential: Credential | None,
+    cancellation_event: Any,
 ) -> None:
     """Load task data afresh and run one serializable connector in a spawned child process."""
     try:
@@ -1858,7 +1866,7 @@ def _backend_process(
             scope=scope,
             owner=owner,
             deadline=deadline,
-            cancellation=Cancellation(),
+            cancellation=Cancellation(cancellation_event),
             max_credits=max_credits,
             budget_mode=budget_mode,
         )

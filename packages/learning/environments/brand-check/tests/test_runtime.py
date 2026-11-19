@@ -146,6 +146,22 @@ class CancellableBackend(FixtureBackend):
         return super().train(*args, **kwargs)
 
 
+class CooperativeCancellationBackend(FixtureBackend):
+    """A hosted-style connector that records cancellation inside the worker."""
+
+    def __init__(self, started: Path, cancelled: Path):
+        self.started = started
+        self.cancelled = cancelled
+
+    def train_with_context(self, *args, **kwargs):
+        context = kwargs["context"]
+        self.started.write_text("started", encoding="utf-8")
+        while not context.cancellation.requested:
+            time.sleep(0.01)
+        self.cancelled.write_text("cancelled", encoding="utf-8")
+        context.cancellation.raise_if_requested()
+
+
 class CapturingBackend(FixtureBackend):
     """A fixture backend that records the projected inference request."""
 
@@ -2462,6 +2478,40 @@ class LocalRuntimeTest(unittest.TestCase):
         )
         self.addCleanup(reopened.close)
         self.assertEqual(reopened.job(submitted["id"])["state"], "cancelled")
+
+    def test_running_worker_receives_cancellation_before_process_termination(self):
+        started = self.taskset_dir / ".cooperative-cancel-started"
+        cancelled = self.taskset_dir / ".cooperative-cancel-received"
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={
+                "cooperative": CooperativeCancellationBackend(started, cancelled)
+            },
+            environment="test",
+        )
+        self.addCleanup(runtime.close)
+        submitted = runtime.submit(
+            backend="cooperative",
+            max_updates=1,
+            max_seconds=30,
+            max_credits=1,
+        )
+        deadline = time.monotonic() + 5
+        while not started.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(started.exists(), runtime.job(submitted["id"]))
+
+        terminal = runtime.cancel(
+            submitted["id"],
+            idempotency_key="cancel-cooperative-worker",
+        )
+        deadline = time.monotonic() + 5
+        while not cancelled.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+        self.assertEqual(terminal["state"], "cancelled")
+        self.assertTrue(cancelled.exists())
 
     def test_http_cancellation_is_safe_for_queued_retries_and_terminal_jobs(self):
         started = self.taskset_dir / ".queued-cancel-started"
