@@ -63,6 +63,14 @@ const data: NewPrototypePageData = {
   },
 }
 
+const copyPromptData: NewPrototypePageData = {
+  ...data,
+  submissionMode: "copy",
+  promptInstructions:
+    "BRIEF-END\nCreate a new prototype branch from the repository's default branch. Build the prototype there. Do not change the default branch.",
+  copy: { ...data.copy, submitLabel: data.copy.copyPromptLabel },
+}
+
 const meta = {
   title: "Hub/Pages/Repositories/Create",
   component: NewPrototypePage,
@@ -113,13 +121,19 @@ export const NarrowDesktop: Story = {
 export const Local: Story = {
   args: {
     data: {
-      ...data,
+      ...copyPromptData,
       repositoryName: "local/example",
-      submissionMode: "copy",
-      promptInstructions:
-        "BRIEF-END\nCreate a new prototype branch from the repository's default branch. Build the prototype there. Do not change the default branch.",
-      copy: { ...data.copy, submitLabel: data.copy.copyPromptLabel },
     },
+  },
+}
+
+export const CopyPromptAsViewer: Story = {
+  args: { data: copyPromptData },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.type(
+      canvas.getByRole("textbox", { name: data.copy.heading }),
+      "Compare two prototype builds side by side.",
+    )
   },
 }
 

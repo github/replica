@@ -166,10 +166,16 @@ export function templateRoutes(
         const snapshot = await load(viewer, repositoryId)
         if (!snapshot) return null
         const { repository, templates, build, local } = snapshot
-        const canCreate = local || (await canHandOffToCopilot(product, viewer, repositoryId))
+        const canHandOff =
+          !local &&
+          (await canHandOffToCopilot(product, viewer, repositoryId).catch((error: unknown) => {
+            if (!(error instanceof GitHubProviderRequestError)) throw error
+            request.log?.warn("GitHub is unavailable for Copilot handoff. Offering prompt copy.")
+            return false
+          }))
         if (!(await product.isRepositoryVisible(viewer, repositoryId))) return null
-        const submissionMode = local ? "copy" : "copilot"
-        const context = { repository, canCreate, submissionMode }
+        const submissionMode = canHandOff ? "copilot" : "copy"
+        const context = { repository, canCreate: true, submissionMode }
         if (!id) {
           return {
             ...context,
