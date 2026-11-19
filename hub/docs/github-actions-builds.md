@@ -4,7 +4,7 @@ Hub imports Builds that prototype repositories produce in `.github/workflows/rep
 
 ## Requirements
 
-The Hub that imports a repository's Builds is the Hub whose GitHub App is installed on that repository. The App needs **Actions: read** and **Contents: read** and must subscribe to the **Workflow runs**, **Workflow jobs**, **Push**, and **Branch or tag deletion** webhook events. Only branch `push` runs of `.github/workflows/replica.yml` in connected repositories are imported. The installer branch is excluded. Imports never create repositories.
+The Hub that imports a repository's Builds is the Hub whose GitHub App is installed on that repository. The App needs **Actions: read** and **Contents: read** and must subscribe to the **Workflow runs**, **Workflow jobs**, **Push**, and **Branch or tag deletion** webhook events. Hub imports `push` runs of `.github/workflows/replica.yml` in connected repositories. To exclude tag runs, the workflow must restrict its trigger to branches. The installer branch is excluded. Imports never create repositories.
 
 Create the App manually and connect it with the `setup:post` wizard. If the App was created before these settings were required, open its **Permissions & events** settings, confirm **Actions: read** and **Contents: read**, select these four events under **Subscribe to events**, and save. If either permission was added, each installation must accept the updated permissions.
 
