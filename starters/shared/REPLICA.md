@@ -20,6 +20,8 @@ Outside automatic session setup, run `node scripts/setup-replica-plugin.mjs` man
 
 Session startup runs `node scripts/setup-replica-plugin.mjs --startup`. It always attempts `npm ci`, even if CLI installation or plugin setup fails. If dependencies install successfully, startup completes without a hard error, but the Replica canvas remains unavailable until plugin setup succeeds. Dependency installation failures still fail startup.
 
+On Windows, setup runs npm's JavaScript entrypoint with Node rather than launching `npm.cmd` or `npm.ps1`. If setup cannot find `npm-cli.js`, use a Node.js installation that includes npm.
+
 After `npm ci` finishes, the script prints a final summary of dependency installation and Replica plugin setup, including failure reasons and recovery commands. Plugin installation success does not prove that the current session loaded the canvas; the summary includes the separate activation steps.
 
 Agents do not automatically receive this output. Open the app's setup output to diagnose failures, then rerun `node scripts/setup-replica-plugin.mjs` after resolving them. Running that script without `--startup` only sets up the plugin and still exits nonzero on failure. For manual installation, updates or source changes, follow the [plugin guide](https://github.com/github/replica/blob/main/.github/extensions/replica-prototype/README.md#install). Keep only one Replica provider active.

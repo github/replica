@@ -1,23 +1,74 @@
 import { execFileSync } from "node:child_process"
-import { isAbsolute, join } from "node:path"
+import { existsSync, readFileSync } from "node:fs"
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
 const pluginName = "replica-prototype"
 const pluginId = `${pluginName}@replica`
-let cliExecutable = "copilot"
+const windows = process.platform === "win32"
+const pathCli = windows ? "copilot.exe" : "copilot"
+let cliExecutable = pathCli
+let cliArguments = []
 const enableHelp =
   "Open Customization, select Installed in the top-left bar, and enable both the Replica plugin and the Replica extension. Start a fresh Copilot session if the canvas is still missing."
 
+function npm(args, options) {
+  if (!windows) return execFileSync("npm", args, options)
+  // Windows npm shims need a shell; Node can run the same npm entrypoint directly.
+  const inherited = process.env.npm_execpath
+  const entrypoint =
+    inherited && isAbsolute(inherited) && basename(inherited).toLowerCase() === "npm-cli.js"
+      ? inherited
+      : join(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js")
+  if (!existsSync(entrypoint)) {
+    throw new Error("Cannot find npm-cli.js. Use a Node.js installation that includes npm.")
+  }
+  return execFileSync(process.execPath, [entrypoint, ...args], options)
+}
+
 function cli(args, timeout = 10_000) {
-  return execFileSync(cliExecutable, ["plugin", ...args], {
+  return execFileSync(cliExecutable, [...cliArguments, "plugin", ...args], {
     encoding: "utf8",
     timeout,
     stdio: ["ignore", "pipe", "pipe"],
   })
 }
 
+function useGlobalCli(prefix) {
+  if (!windows) {
+    cliExecutable = join(prefix, "bin", "copilot")
+    return true
+  }
+  const directory = join(prefix, "node_modules", "@github", "copilot")
+  let manifest
+  try {
+    manifest = JSON.parse(readFileSync(join(directory, "package.json"), "utf8"))
+  } catch (error) {
+    if (error.code === "ENOENT") return false
+    throw error
+  }
+  const entry = typeof manifest?.bin === "string" ? manifest.bin : manifest?.bin?.copilot
+  if (typeof entry !== "string" || !entry || isAbsolute(entry)) {
+    throw new Error("Copilot CLI has no valid npm entrypoint.")
+  }
+  const entrypoint = resolve(directory, entry)
+  const local = relative(directory, entrypoint)
+  if (
+    !local ||
+    isAbsolute(local) ||
+    local === ".." ||
+    local.startsWith(`..${sep}`) ||
+    !existsSync(entrypoint)
+  ) {
+    throw new Error("Copilot CLI has no valid npm entrypoint.")
+  }
+  cliExecutable = process.execPath
+  cliArguments = [entrypoint]
+  return true
+}
+
 function installCli() {
   try {
-    const prefix = execFileSync("npm", ["prefix", "--global"], {
+    const prefix = npm(["prefix", "--global"], {
       encoding: "utf8",
       timeout: 10_000,
       stdio: ["ignore", "pipe", "pipe"],
@@ -25,18 +76,18 @@ function installCli() {
     if (!isAbsolute(prefix)) {
       throw new Error("npm did not return an absolute global installation path.")
     }
-    cliExecutable = join(prefix, "bin", "copilot")
     try {
-      return installedPlugin()
+      if (useGlobalCli(prefix)) return installedPlugin()
     } catch (error) {
-      if (error.code !== "ENOENT" || error.path !== cliExecutable) throw error
+      if (windows || error.code !== "ENOENT" || error.path !== cliExecutable) throw error
     }
     console.log("Copilot CLI was not found. Installing it globally with npm.")
-    execFileSync("npm", ["install", "-g", "@github/copilot"], {
+    npm(["install", "-g", "@github/copilot"], {
       encoding: "utf8",
       timeout: 180_000,
       stdio: ["ignore", "pipe", "pipe"],
     })
+    if (!useGlobalCli(prefix)) throw new Error("Copilot CLI was not found after npm installation.")
     return installedPlugin()
   } catch (error) {
     throw new Error(
@@ -73,7 +124,7 @@ function setup() {
   try {
     installed = installedPlugin()
   } catch (error) {
-    if (error.code !== "ENOENT" || error.path !== "copilot") throw error
+    if (error.code !== "ENOENT" || error.path !== pathCli) throw error
     installed = installCli()
   }
   if (installed?.enabled) return
@@ -122,7 +173,7 @@ try {
 if (startup) {
   let dependencyError
   try {
-    execFileSync("npm", ["ci"], {
+    npm(["ci"], {
       stdio: ["ignore", "inherit", "inherit"],
     })
   } catch (error) {
