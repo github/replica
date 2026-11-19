@@ -1651,9 +1651,16 @@ class AzureEndpointInferenceConnector:
             )
         requested_generation = request.get("expectedGeneration")
         if (
-            requested_generation is not None
-            and requested_generation != expected_generation
+            isinstance(requested_generation, bool)
+            or not isinstance(requested_generation, int)
+            or requested_generation < 1
         ):
+            raise ConnectorError(
+                "expected_generation_required",
+                "Inference requires the promotion generation selected by the runtime.",
+                category="invalid_input",
+            )
+        if requested_generation != expected_generation:
             raise ConnectorError(
                 "inference_generation_conflict",
                 "The inference request expects another promotion generation.",
@@ -1714,15 +1721,14 @@ class AzureEndpointInferenceConnector:
                 "The inference endpoint scored another promotion generation.",
                 category="conflict",
             )
-        return dict(
-            result,
-            operationId=context.operation_id,
-            readiness={
-                "state": readiness["state"],
-                "coldStart": bool(readiness.get("coldStart", False)),
-                "generation": generation,
-            },
-        )
+        answers = result.get("answers")
+        if not isinstance(answers, Mapping):
+            raise ConnectorError(
+                "azure_inference_response_invalid",
+                "The customer inference endpoint returned invalid answers.",
+                category="integrity",
+            )
+        return dict(answers, operationId=context.operation_id)
 
 
 class AzureManagedIdentityCredentialConnector(_AzureScopedConnector):

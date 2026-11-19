@@ -721,11 +721,13 @@ class LocalRuntime:
                 else None
             )
             project_request = getattr(connector, "project_request", _backend_request)
+            connector_request = dict(project_request(request))
+            connector_request["expectedGeneration"] = promotion["generation"]
             answers = dict(
                 _run_inference(
                     connector,
                     adapter,
-                    project_request(request),
+                    connector_request,
                     work_directory=work,
                     context=context,
                     credential=credential,

@@ -800,6 +800,20 @@ class _InferenceClient:
         }
 
 
+class _ConformanceInferenceConnector:
+    def __init__(self, connector):
+        self.connector = connector
+        self.name = connector.name
+
+    def predict(self, adapter, request, *, context, credential):
+        return self.connector.predict(
+            adapter,
+            dict(request, expectedGeneration=1),
+            context=context,
+            credential=credential,
+        )
+
+
 class _IdentityClient:
     def __init__(self, expires_at):
         self.expires_at = expires_at
@@ -1283,14 +1297,20 @@ class AzureExecutionConnectorTest(unittest.TestCase):
             context=context,
             credential=credential,
         )
-        self.assertEqual(response["generation"], 4)
-        self.assertEqual(
-            response["readiness"],
-            {"state": "ready", "coldStart": False, "generation": 4},
-        )
+        self.assertEqual(response["learning-one"], {"yes": 0.8, "no": 0.2})
+        self.assertEqual(response["operationId"], context.operation_id)
         self.assertEqual(len(client.requests), 1)
         self.assertNotIn("training", client.requests[0]["request"])
         self.assertNotIn("admin", client.requests[0]["request"])
+
+        with self.assertRaises(ConnectorError) as missing:
+            connector.predict(
+                Path("candidate_live"),
+                {"questions": {}},
+                context=context,
+                credential=credential,
+            )
+        self.assertEqual(missing.exception.code, "expected_generation_required")
 
     def test_inference_refuses_a_training_scoped_credential(self):
         client = _InferenceClient(
@@ -1455,10 +1475,12 @@ def _conformance_fixture():
     inference_client = _InferenceClient(
         {"state": "ready", "coldStart": False, "generation": 1}
     )
-    inference = AzureEndpointInferenceConnector(
-        inference_client,
-        endpoint_name="replica-inference",
-        expected_generation=1,
+    inference = _ConformanceInferenceConnector(
+        AzureEndpointInferenceConnector(
+            inference_client,
+            endpoint_name="replica-inference",
+            expected_generation=1,
+        )
     )
     identity = _IdentityClient(expires_at=time.time() + 600)
     telemetry = _TelemetrySink()

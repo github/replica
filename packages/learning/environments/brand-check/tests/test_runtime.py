@@ -359,6 +359,7 @@ class LocalRuntimeTest(unittest.TestCase):
                     "data:image/png;base64," + base64.b64encode(PNG).decode("ascii")
                 ],
                 "questions": {RULE: {"type": "noul"}},
+                "expectedGeneration": 1,
             },
         )
 
