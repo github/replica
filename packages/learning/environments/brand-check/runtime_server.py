@@ -166,6 +166,8 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                     backend=body.get("backend", "fixture"),
                     max_updates=body.get("maxUpdates"),
                     max_seconds=body.get("maxSeconds"),
+                    max_credits=body.get("maxCredits"),
+                    budget_mode=body.get("budgetMode", "hard"),
                     taskset_digest=body.get("tasksetDigest"),
                 )
                 self._send(202, job)
@@ -174,14 +176,26 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                 self._send(
                     200,
                     self.server.runtime.promote(
-                        body.get("candidateId"), promoted_by=body.get("promotedBy")
+                        body.get("candidateId"),
+                        promoted_by=body.get("promotedBy"),
+                        expected_generation=body.get("expectedGeneration"),
+                        idempotency_key=self._idempotency_key(
+                            "promote:"
+                            f"{body.get('candidateId')}:{body.get('expectedGeneration')}"
+                        ),
                     ),
                 )
                 return
             if path == "/v1/rollbacks":
                 self._send(
                     200,
-                    self.server.runtime.rollback(rolled_back_by=body.get("rolledBackBy")),
+                    self.server.runtime.rollback(
+                        rolled_back_by=body.get("rolledBackBy"),
+                        expected_generation=body.get("expectedGeneration"),
+                        idempotency_key=self._idempotency_key(
+                            f"rollback:{body.get('expectedGeneration')}"
+                        ),
+                    ),
                 )
                 return
             if path in ("/score", "/v1/evaluations"):

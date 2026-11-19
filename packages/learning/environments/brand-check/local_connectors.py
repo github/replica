@@ -32,6 +32,7 @@ from .connectors import (
     RuntimeScope,
     TasksetArtifact,
     TasksetBundle,
+    TrainingResult,
     Usage,
     check_context,
 )
@@ -990,6 +991,7 @@ class LocalCandidateConnector(_ScopedConnector):
         os.chmod(self.promotion_owners.parent, 0o700)
         self._lock = threading.RLock()
         self._recover_promotion()
+        self._recover_pending_promotions()
 
     def put(self, candidate: Candidate, context: OperationContext) -> Candidate:
         self._check(context)
@@ -1199,7 +1201,6 @@ class LocalCandidateConnector(_ScopedConnector):
                 "A promotion operation must be promote or rollback.",
                 category="invalid_input",
             )
-        self.get(candidate_id, context)
         with self._lock:
             request_digest = _digest(
                 _json_bytes(
@@ -1207,6 +1208,10 @@ class LocalCandidateConnector(_ScopedConnector):
                         "candidateId": candidate_id,
                         "expectedGeneration": expected_generation,
                         "operation": operation,
+                        "owner": {
+                            "kind": context.owner.kind,
+                            "id": context.owner.id,
+                        },
                         "scope": _scope_key(context.scope),
                     }
                 )
@@ -1233,14 +1238,44 @@ class LocalCandidateConnector(_ScopedConnector):
                         "The promotion retry record is invalid.",
                         category="integrity",
                     )
+                history_path = self.promotions / f"{generation:08d}.json"
+                if not history_path.exists():
+                    promotion_record = saved.get("promotion")
+                    owner_kind = saved.get("ownerKind")
+                    if not isinstance(promotion_record, dict) or not isinstance(
+                        owner_kind, str
+                    ):
+                        raise ConnectorError(
+                            "promotion_idempotency_damaged",
+                            "The promotion retry record is invalid.",
+                            category="integrity",
+                        )
+                    self._write_promotion_record(promotion_record, owner_kind)
+                elif (
+                    _read_object(
+                        history_path,
+                        code="promotion_not_found",
+                        message="The promotion generation was not found.",
+                    )
+                    != saved.get("promotion")
+                    or self._promotion_owner_kind(generation)
+                    != saved.get("ownerKind")
+                ):
+                    raise ConnectorError(
+                        "promotion_idempotency_damaged",
+                        "The promotion retry does not match its immutable generation.",
+                        category="integrity",
+                    )
+                self._recover_promotion()
                 return self._promotion_from_json(
                     _read_object(
-                        self.promotions / f"{generation:08d}.json",
+                        history_path,
                         code="promotion_not_found",
                         message="The promotion generation was not found.",
                     ),
                     self._promotion_owner_kind(generation),
                 )
+            self._recover_pending_promotions()
             current = self.current(context)
             generation = current.generation if current else 0
             if generation != expected_generation:
@@ -1249,6 +1284,7 @@ class LocalCandidateConnector(_ScopedConnector):
                     "The promotion generation changed.",
                     category="conflict",
                 )
+            self.get(candidate_id, context)
             promotion = Promotion(
                 generation + 1,
                 candidate_id,
@@ -1256,16 +1292,19 @@ class LocalCandidateConnector(_ScopedConnector):
                 operation,
                 context.owner,
             )
-            self._write_promotion(promotion)
+            saved = self._promotion_record(promotion)
             _write_immutable(
                 idempotency_path,
                 _json_bytes(
                     {
                         "generation": promotion.generation,
                         "requestDigest": str(request_digest),
+                        "ownerKind": promotion.owner.kind,
+                        "promotion": saved,
                     }
                 ),
             )
+            self._write_promotion_record(saved, promotion.owner.kind)
             return promotion
 
     def current(self, context: OperationContext) -> Promotion | None:
@@ -1352,8 +1391,8 @@ class LocalCandidateConnector(_ScopedConnector):
             and tuple(left.artifacts) == tuple(right.artifacts)
         )
 
-    def _write_promotion(self, promotion: Promotion) -> None:
-        saved = {
+    def _promotion_record(self, promotion: Promotion) -> dict[str, Any]:
+        return {
             "schemaVersion": "replica.decision-promotion/v1",
             "generation": promotion.generation,
             "candidateId": promotion.candidate_id,
@@ -1362,10 +1401,21 @@ class LocalCandidateConnector(_ScopedConnector):
             "promotedBy": promotion.owner.id,
             "promotedAt": _timestamp(),
         }
-        history = self.promotions / f"{promotion.generation:08d}.json"
+
+    def _write_promotion_record(
+        self, saved: Mapping[str, Any], owner_kind: str
+    ) -> None:
+        generation = saved.get("generation")
+        if not isinstance(generation, int):
+            raise ConnectorError(
+                "promotion_damaged",
+                "The promotion generation is invalid.",
+                category="integrity",
+            )
+        history = self.promotions / f"{generation:08d}.json"
         data = _json_bytes(saved)
-        owner_path = self.promotion_owners / f"{promotion.generation:08d}.json"
-        owner_data = _json_bytes({"kind": promotion.owner.kind})
+        owner_path = self.promotion_owners / f"{generation:08d}.json"
+        owner_data = _json_bytes({"kind": owner_kind})
         if owner_path.exists():
             if owner_path.read_bytes() != owner_data:
                 raise ConnectorError(
@@ -1437,6 +1487,107 @@ class LocalCandidateConnector(_ScopedConnector):
             "Promotion history is not one generation ahead of the current pointer.",
             category="integrity",
         )
+
+    def _recover_pending_promotions(self) -> None:
+        pending: dict[int, tuple[dict[str, Any], str]] = {}
+        for path in self.promotion_idempotency.glob("*.json"):
+            saved = _read_object(
+                path,
+                code="promotion_idempotency_not_found",
+                message="The promotion retry was not found.",
+            )
+            promotion = saved.get("promotion")
+            owner_kind = saved.get("ownerKind")
+            generation = saved.get("generation")
+            if promotion is None and owner_kind is None:
+                continue
+            if (
+                not isinstance(promotion, dict)
+                or not isinstance(owner_kind, str)
+                or not isinstance(generation, int)
+                or promotion.get("generation") != generation
+            ):
+                raise ConnectorError(
+                    "promotion_idempotency_damaged",
+                    "A promotion retry record is invalid.",
+                    category="integrity",
+                )
+            parsed = self._promotion_from_json(promotion, owner_kind)
+            expected_digest = _digest(
+                _json_bytes(
+                    {
+                        "candidateId": parsed.candidate_id,
+                        "expectedGeneration": parsed.generation - 1,
+                        "operation": parsed.operation,
+                        "owner": {
+                            "kind": parsed.owner.kind,
+                            "id": parsed.owner.id,
+                        },
+                        "scope": _scope_key(self.scope),
+                    }
+                )
+            )
+            if saved.get("requestDigest") != str(expected_digest):
+                raise ConnectorError(
+                    "promotion_idempotency_damaged",
+                    "A promotion retry record has invalid request identity.",
+                    category="integrity",
+                )
+            existing = pending.get(generation)
+            value = (promotion, owner_kind)
+            if existing is not None and existing != value:
+                raise ConnectorError(
+                    "promotion_idempotency_damaged",
+                    "Two promotion retries claim the same generation.",
+                    category="integrity",
+                )
+            pending[generation] = value
+        current_path = self.root / "promotion.json"
+        current = (
+            _read_object(
+                current_path,
+                code="promotion_not_found",
+                message="The promotion was not found.",
+            )
+            if current_path.exists()
+            else None
+        )
+        current_generation = current.get("generation", 0) if current else 0
+        current_candidate = current.get("candidateId") if current else None
+        for generation, (promotion, owner_kind) in sorted(pending.items()):
+            history = self.promotions / f"{generation:08d}.json"
+            if history.exists():
+                if (
+                    _read_object(
+                        history,
+                        code="promotion_not_found",
+                        message="The promotion generation was not found.",
+                    )
+                    != promotion
+                    or self._promotion_owner_kind(generation) != owner_kind
+                ):
+                    raise ConnectorError(
+                        "promotion_idempotency_damaged",
+                        "A promotion retry does not match its immutable generation.",
+                        category="integrity",
+                    )
+                if generation > current_generation:
+                    self._recover_promotion()
+                    current_generation = generation
+                    current_candidate = promotion.get("candidateId")
+                continue
+            if (
+                generation != current_generation + 1
+                or promotion.get("previousCandidateId") != current_candidate
+            ):
+                raise ConnectorError(
+                    "promotion_idempotency_damaged",
+                    "A pending promotion retry is not the next generation.",
+                    category="integrity",
+                )
+            self._write_promotion_record(promotion, owner_kind)
+            current_generation = generation
+            current_candidate = promotion.get("candidateId")
 
     def _migrate_existing_candidate(self, directory: Path, candidate_id: str) -> None:
         manifest = _read_object(
@@ -1557,6 +1708,9 @@ class LocalTrainingConnector:
         self.backend = backend
         self.name = backend.name
         self.production_eligible = backend.production_eligible
+        self.supports_hard_credit_budget = bool(
+            getattr(backend, "supports_hard_credit_budget", False)
+        )
 
     def train(
         self,
@@ -1569,11 +1723,63 @@ class LocalTrainingConnector:
     ) -> Any:
         del credential
         check_context(context)
-        return self.backend.train(
+        if context.budget_mode == "hard" and not self.supports_hard_credit_budget:
+            raise ConnectorError(
+                "hard_budget_unsupported",
+                "The training connector cannot enforce a hard credit budget.",
+                category="invalid_input",
+            )
+        bounded_updates = max_updates
+        if context.budget_mode == "hard":
+            assert context.max_credits is not None
+            bounded_updates = min(max_updates, math.floor(context.max_credits))
+            if bounded_updates < 1:
+                raise ConnectorError(
+                    "credit_budget_too_small",
+                    "The hard credit budget cannot fund one training update.",
+                    category="invalid_input",
+                )
+        result = self.backend.train(
             taskset,
             work_directory,
-            max_updates=max_updates,
+            max_updates=bounded_updates,
             deadline=context.deadline,
+        )
+        if not isinstance(result, TrainingResult):
+            return result
+        credits = float(result.updates_completed)
+        if context.budget_mode == "hard" and (
+            context.max_credits is None or credits > context.max_credits
+        ):
+            raise ConnectorError(
+                "credit_budget_exceeded",
+                "The training connector exceeded its hard credit budget.",
+                category="conflict",
+            )
+        usage = Usage(
+            operation_id=context.operation_id,
+            scope=context.scope,
+            connector=self.name,
+            kind="training_credits",
+            quantity=credits,
+            unit="credits",
+            cost=0.0,
+            currency="USD",
+            metadata={
+                "updatesCompleted": result.updates_completed,
+                "requestedUpdates": max_updates,
+                "budgetMode": context.budget_mode,
+            },
+            source="local-training-connector",
+        )
+        return TrainingResult(
+            adapter_name=result.adapter_name,
+            adapter=result.adapter,
+            baseline_report=result.baseline_report,
+            candidate_report=result.candidate_report,
+            metadata=result.metadata,
+            updates_completed=result.updates_completed,
+            usage=(*result.usage, usage),
         )
 
 
@@ -1692,6 +1898,7 @@ class LocalObservabilityConnector(_ScopedConnector):
             "cost": usage.cost,
             "currency": usage.currency,
             "metadata": usage.metadata,
+            "source": usage.source,
         }
         data = _json_bytes(record)
         with self._lock:
@@ -1732,6 +1939,7 @@ class LocalObservabilityConnector(_ScopedConnector):
                         record.get("cost"),
                         record.get("currency"),
                         record.get("metadata", {}),
+                        record.get("source", "connector"),
                     )
                 )
             except (KeyError, TypeError, ValueError, json.JSONDecodeError):

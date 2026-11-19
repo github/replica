@@ -446,6 +446,17 @@ def _promotion_generations(create_fixture):
             context=first_promotion_context,
         )
         case.assertEqual(repeated, generation_one)
+        with case.assertRaises(ConnectorError) as changed_owner:
+            fixture.connectors.candidates.promote(
+                first.id,
+                expected_generation=0,
+                operation="promote",
+                context=replace(
+                    first_promotion_context,
+                    owner=RuntimeOwner("worker", "another-operator"),
+                ),
+            )
+        case.assertEqual(changed_owner.exception.category, "conflict")
         generation_two = fixture.connectors.candidates.promote(
             second.id,
             expected_generation=1,
