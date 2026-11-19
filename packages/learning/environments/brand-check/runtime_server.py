@@ -14,7 +14,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from .connectors import RuntimeScope
 from .d1_connector import D1OmniBackend, taskset_learning_texts
@@ -30,6 +30,7 @@ SOCKET_TIMEOUT_SECONDS = 10
 _SAFE_TOKEN = re.compile(r"^[\x21-\x7e]+$")
 _TASKSET_ROUTE = re.compile(r"^/v1/tasksets/([0-9a-f]{64})$")
 _CANCEL_ROUTE = re.compile(r"^/v1/jobs/(job_[A-Za-z0-9]+)/cancel$")
+_DELETION_ROUTE = re.compile(r"^/v1/deletions/(deletion_[A-Za-z0-9]+)$")
 _IDEMPOTENCY_KEY = re.compile(r"^[\x21-\x7e]{1,200}$")
 
 
@@ -132,6 +133,49 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                 promotion = self.server.runtime.promotion(required=False)
                 self._send(200, promotion or {"candidateId": None})
                 return
+            if path == "/v1/runtime-copies":
+                query = parse_qs(urlparse(self.path).query, keep_blank_values=True)
+                selectors = {
+                    public: query[name][0]
+                    for public, name in (
+                        ("exportId", "exportId"),
+                        ("grantId", "grantId"),
+                        ("evidenceDigest", "evidenceDigest"),
+                        ("tasksetDigest", "tasksetDigest"),
+                    )
+                    if name in query and len(query[name]) == 1
+                }
+                try:
+                    limit = int(query.get("limit", ["50"])[0])
+                except ValueError:
+                    raise RuntimeFailure("invalid_input", "limit must be an integer.") from None
+                cursor = query.get("cursor", [None])[0]
+                known = {
+                    "exportId",
+                    "grantId",
+                    "evidenceDigest",
+                    "tasksetDigest",
+                    "limit",
+                    "cursor",
+                }
+                if set(query) - known or any(len(values) != 1 for values in query.values()):
+                    raise RuntimeFailure(
+                        "invalid_input",
+                        "Runtime copy disclosure accepts one value per supported query parameter.",
+                    )
+                self._send(
+                    200,
+                    self.server.runtime.disclose(
+                        selectors,
+                        limit=limit,
+                        cursor=cursor,
+                    ),
+                )
+                return
+            deletion = _DELETION_ROUTE.fullmatch(path)
+            if deletion:
+                self._send(200, self.server.runtime.deletion(deletion.group(1)))
+                return
             if path.startswith("/v1/jobs/"):
                 self._send(200, self.server.runtime.job(path.removeprefix("/v1/jobs/")))
                 return
@@ -181,6 +225,18 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                     idempotency_key=self._idempotency_key(_request_fingerprint("submit", body)),
                 )
                 self._send(202, job)
+                return
+            if path == "/v1/deletions":
+                self._send(
+                    200,
+                    self.server.runtime.request_deletion(
+                        body.get("selectors"),
+                        requested_by=body.get("requestedBy"),
+                        reason=body.get("reason"),
+                        retention=body.get("retention"),
+                        idempotency_key=self._idempotency_key("runtime-deletion"),
+                    ),
+                )
                 return
             if path == "/v1/promotions":
                 self._send(

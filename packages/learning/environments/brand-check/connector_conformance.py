@@ -63,6 +63,18 @@ def connector_conformance(
             case("stores immutable content by digest", _immutable_artifacts(create_fixture)),
             case("stores immutable scoped candidates", _immutable_candidates(create_fixture)),
             case(
+                "enumerates and tombstones content-free runtime copies",
+                _privacy_inventory(create_fixture),
+            ),
+            case(
+                "deletes tasksets and candidates through their owning connectors",
+                _copy_deletion(create_fixture),
+            ),
+            case(
+                "persists idempotent versioned deletion receipts",
+                _deletion_receipts(create_fixture),
+            ),
+            case(
                 "makes retries idempotent and conflicting reuse explicit",
                 _idempotency(create_fixture),
             ),
@@ -362,6 +374,174 @@ def _immutable_candidates(create_fixture):
                 _context(fixture.other_tenant_scope, "candidate-other"),
             )
         case.assertEqual(hidden.exception.category, "not_found")
+
+    return run
+
+
+def _privacy_inventory(create_fixture):
+    def run(case):
+        fixture = create_fixture()
+        context = _context(fixture.scope, "privacy-copy")
+        record = {
+            "schemaVersion": "replica.runtime-copy/v1",
+            "id": "copy_contract",
+            "kind": "taskset",
+            "scope": {
+                "tenantId": fixture.scope.tenant_id,
+                "repository": fixture.scope.repository,
+            },
+            "sourceTrainingExportId": "export_contract",
+            "sourceTrainingExportDigest": "sha256:" + "1" * 64,
+            "permittingGrantIds": ["grant_contract"],
+            "permittedPurposes": ["training"],
+            "reviewDigests": ["sha256:" + "2" * 64],
+            "evidenceDigests": ["sha256:" + "3" * 64],
+            "tasksetDigest": str(fixture.taskset_digest),
+            "runtimeCopyId": fixture.taskset_reference,
+            "storage": {
+                "connector": type(fixture.connectors.tasksets).__name__,
+                "reference": fixture.taskset_reference,
+            },
+            "createdAt": "2026-11-18T00:00:00Z",
+            "useState": "active",
+            "promotionState": "not_applicable",
+            "retention": {"mode": "delete_on_withdrawal"},
+            "parentRuntimeCopyIds": [],
+        }
+        case.assertEqual(fixture.connectors.privacy.put_copy(record, context), record)
+        case.assertEqual(
+            fixture.connectors.privacy.get_copy("copy_contract", context),
+            record,
+        )
+        page, cursor = fixture.connectors.privacy.list_copies(
+            {"grantId": "grant_contract"},
+            cursor=None,
+            limit=1,
+            context=context,
+        )
+        case.assertEqual(tuple(page), (record,))
+        case.assertIsNone(cursor)
+        revoked = fixture.connectors.privacy.tombstone_copy(
+            "copy_contract",
+            state="revoked",
+            retention=None,
+            context=context,
+        )
+        case.assertEqual(revoked["useState"], "revoked")
+        case.assertNotIn("payload", json.dumps(revoked))
+        for label, scope in (
+            ("repository", fixture.other_repository_scope),
+            ("tenant", fixture.other_tenant_scope),
+        ):
+            other = _context(scope, f"privacy-copy-other-{label}")
+            with case.assertRaises(ConnectorError) as hidden:
+                fixture.connectors.privacy.get_copy("copy_contract", other)
+            case.assertIn(hidden.exception.category, ("not_found", "unauthorized"))
+            try:
+                other_page, _cursor = fixture.connectors.privacy.list_copies(
+                    {"grantId": "grant_contract"},
+                    cursor=None,
+                    limit=10,
+                    context=other,
+                )
+            except ConnectorError as error:
+                case.assertIn(error.category, ("not_found", "unauthorized"))
+            else:
+                case.assertFalse(other_page)
+            with case.assertRaises(ConnectorError) as refused:
+                fixture.connectors.privacy.tombstone_copy(
+                    "copy_contract",
+                    state="deleted",
+                    retention=None,
+                    context=other,
+                )
+            case.assertIn(refused.exception.category, ("not_found", "unauthorized"))
+
+    return run
+
+
+def _copy_deletion(create_fixture):
+    def run(case):
+        fixture = create_fixture()
+        context = _context(fixture.scope, "copy-delete")
+        deletable_bundle = replace(
+            fixture.taskset_bundle,
+            manifest={**fixture.taskset_bundle.manifest, "exportId": "export_delete"},
+            digest=None,
+        )
+        registered = fixture.connectors.tasksets.register(
+            deletable_bundle,
+            context,
+        )
+        candidate = fixture.connectors.candidates.put(
+            _candidate("delete"), context
+        )
+        case.assertTrue(
+            fixture.connectors.tasksets.delete(registered.reference, context)
+        )
+        case.assertTrue(fixture.connectors.candidates.delete(candidate.id, context))
+        case.assertFalse(
+            fixture.connectors.tasksets.delete(registered.reference, context)
+        )
+        case.assertFalse(fixture.connectors.candidates.delete(candidate.id, context))
+
+    return run
+
+
+def _deletion_receipts(create_fixture):
+    def run(case):
+        fixture = create_fixture()
+        context = _context(
+            fixture.scope,
+            "privacy-delete",
+            idempotency_key="privacy-delete",
+        )
+        request = {
+            "selectors": {"exportId": "export_contract"},
+            "requestedBy": "operator",
+            "reason": "Training consent was withdrawn.",
+            "retention": None,
+        }
+        receipt = fixture.connectors.privacy.create_deletion(request, context)
+        case.assertEqual(
+            fixture.connectors.privacy.create_deletion(request, context),
+            receipt,
+        )
+        updated = dict(receipt, state="pending", updatedAt="2026-11-18T00:01:00Z")
+        saved = fixture.connectors.privacy.update_deletion(
+            receipt["id"],
+            updated,
+            expected_version=receipt["version"],
+            context=context,
+        )
+        case.assertEqual(saved["version"], receipt["version"] + 1)
+        case.assertEqual(
+            fixture.connectors.privacy.get_deletion(receipt["id"], context),
+            saved,
+        )
+        case.assertEqual(
+            tuple(fixture.connectors.privacy.list_deletions(("pending",), context)),
+            (saved,),
+        )
+        for label, scope in (
+            ("repository", fixture.other_repository_scope),
+            ("tenant", fixture.other_tenant_scope),
+        ):
+            other = _context(scope, f"privacy-deletion-other-{label}")
+            with case.assertRaises(ConnectorError) as hidden:
+                fixture.connectors.privacy.get_deletion(receipt["id"], other)
+            case.assertIn(hidden.exception.category, ("not_found", "unauthorized"))
+            case.assertFalse(
+                fixture.connectors.privacy.list_deletions(("pending",), other)
+            )
+            with case.assertRaises(ConnectorError) as refused:
+                fixture.connectors.privacy.update_deletion(
+                    receipt["id"],
+                    saved,
+                    expected_version=saved["version"],
+                    context=other,
+                )
+            case.assertIn(refused.exception.category, ("not_found", "unauthorized"))
 
     return run
 

@@ -238,7 +238,7 @@ class LocalTasksetConnector(_ScopedConnector):
         self.digest = None
         self.reference = None
         self._mounted: dict[str, Taskset] = {}
-        if taskset_directory is not None:
+        if taskset_directory is not None and Path(taskset_directory).exists():
             self.taskset = load_taskset(taskset_directory)
             self.digest = taskset_digest(self.taskset)
             self.reference = f"taskset:{self.digest.value}"
@@ -428,6 +428,38 @@ class LocalTasksetConnector(_ScopedConnector):
                 category="integrity",
             )
         return TasksetArtifact(reference, digest, taskset)
+
+    def delete(self, reference: str, context: OperationContext) -> bool:
+        """Delete one uploaded taskset; mounted tasksets remain operator-owned."""
+        self._check(context, hide=True)
+        mounted = self._mounted.get(reference)
+        if mounted is not None:
+            raise ConnectorError(
+                "taskset_retention_required",
+                "A mounted taskset remains under operator-controlled retention.",
+                category="conflict",
+            )
+        if not reference.startswith("taskset:"):
+            raise ConnectorError(
+                "taskset_not_found",
+                "The taskset was not found.",
+                category="not_found",
+            )
+        try:
+            digest = ContentDigest("sha256", reference.removeprefix("taskset:"))
+        except ValueError:
+            raise ConnectorError(
+                "taskset_not_found",
+                "The taskset was not found.",
+                category="not_found",
+            ) from None
+        directory = self.root / digest.value
+        with self._lock:
+            if not directory.exists():
+                return False
+            shutil.rmtree(directory)
+            _sync_directory(self.root)
+        return True
 
 
 def _materialize_taskset_bundle(
@@ -1343,6 +1375,18 @@ class LocalCandidateConnector(_ScopedConnector):
                 )
             return promotion
 
+    def delete(self, candidate_id: str, context: OperationContext) -> bool:
+        """Delete one immutable candidate and its colocated evaluation report."""
+        self._check(context, hide=True)
+        candidate_id = _checked_identifier(candidate_id, "candidate")
+        directory = self.candidates / candidate_id
+        with self._lock:
+            if not directory.exists():
+                return False
+            shutil.rmtree(directory)
+            _sync_directory(self.candidates)
+        return True
+
     def artifact_path(
         self,
         candidate_id: str,
@@ -2032,6 +2076,343 @@ class LocalCredentialConnector(_ScopedConnector):
         )
 
 
+class LocalPrivacyConnector(_ScopedConnector):
+    """Keep content-free copy inventory, revocations, and deletion receipts."""
+
+    def __init__(self, root: Path, scope: RuntimeScope):
+        super().__init__(scope)
+        self.root = root / "privacy"
+        self.copies = self.root / "copies"
+        self.deletions = self.root / "deletions"
+        self.idempotency = self.root / ".idempotency"
+        for directory in (self.root, self.copies, self.deletions, self.idempotency):
+            directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+            os.chmod(directory, 0o700)
+        self._lock = threading.RLock()
+
+    def put_copy(
+        self, record: Mapping[str, Any], context: OperationContext
+    ) -> Mapping[str, Any]:
+        self._check(context)
+        saved = self._validated_copy(record)
+        path = self._copy_path(saved["id"])
+        with self._lock:
+            if path.exists():
+                existing = self._validated_copy(
+                    _read_object(
+                        path,
+                        code="runtime_copy_not_found",
+                        message="The runtime copy was not found.",
+                    )
+                )
+                if existing != saved:
+                    raise ConnectorError(
+                        "runtime_copy_immutable",
+                        "The runtime copy ID already identifies different metadata.",
+                        category="conflict",
+                    )
+                return existing
+            _write_immutable(path, _json_bytes(saved))
+        return saved
+
+    def get_copy(
+        self, copy_id: str, context: OperationContext
+    ) -> Mapping[str, Any]:
+        self._check(context, hide=True)
+        return self._validated_copy(
+            _read_object(
+                self._copy_path(copy_id),
+                code="runtime_copy_not_found",
+                message="The runtime copy was not found.",
+            )
+        )
+
+    def list_copies(
+        self,
+        selectors: Mapping[str, str],
+        *,
+        cursor: str | None,
+        limit: int,
+        context: OperationContext,
+    ) -> tuple[Sequence[Mapping[str, Any]], str | None]:
+        self._check(context)
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
+            raise ConnectorError(
+                "pagination_invalid",
+                "Copy pagination limit must be from 1 to 100.",
+                category="invalid_input",
+            )
+        if cursor is not None:
+            _checked_identifier(cursor, "runtime copy cursor")
+        allowed = {
+            "exportId",
+            "grantId",
+            "evidenceDigest",
+            "tasksetDigest",
+        }
+        if not selectors or set(selectors) - allowed or any(
+            not isinstance(value, str) or not value for value in selectors.values()
+        ):
+            raise ConnectorError(
+                "disclosure_selector_invalid",
+                "Disclosure needs one or more supported exact selectors.",
+                category="invalid_input",
+            )
+        selected = []
+        for path in sorted(self.copies.glob("*.json")):
+            record = self._validated_copy(
+                _read_object(
+                    path,
+                    code="runtime_copy_not_found",
+                    message="The runtime copy was not found.",
+                )
+            )
+            if cursor is not None and record["id"] <= cursor:
+                continue
+            if _copy_matches(record, selectors):
+                selected.append(record)
+            if len(selected) > limit:
+                break
+        next_cursor = selected[limit - 1]["id"] if len(selected) > limit else None
+        return tuple(selected[:limit]), next_cursor
+
+    def tombstone_copy(
+        self,
+        copy_id: str,
+        *,
+        state: str,
+        retention: Mapping[str, Any] | None,
+        context: OperationContext,
+    ) -> Mapping[str, Any]:
+        self._check(context)
+        if state not in ("revoked", "deleted", "retained"):
+            raise ConnectorError(
+                "runtime_copy_state_invalid",
+                "A runtime copy tombstone must be revoked, deleted, or retained.",
+                category="invalid_input",
+            )
+        path = self._copy_path(copy_id)
+        with self._lock:
+            current = self._validated_copy(
+                _read_object(
+                    path,
+                    code="runtime_copy_not_found",
+                    message="The runtime copy was not found.",
+                )
+            )
+            if current["useState"] == state and (
+                retention is None or current.get("retention") == _json_data(retention)
+            ):
+                return current
+            saved = dict(current)
+            saved["useState"] = state
+            saved["state"] = state
+            saved["updatedAt"] = _timestamp()
+            if retention is not None:
+                saved["retention"] = _json_data(retention)
+            _write_json_atomic(path, saved)
+            return self._validated_copy(saved)
+
+    def create_deletion(
+        self, request: Mapping[str, Any], context: OperationContext
+    ) -> Mapping[str, Any]:
+        self._check(context)
+        request_data = _json_data(request)
+        request_digest = str(_digest(_json_bytes(request_data)))
+        retry_path = self.idempotency / (
+            hashlib.sha256(context.idempotency_key.encode()).hexdigest() + ".json"
+        )
+        with self._lock:
+            if retry_path.exists():
+                retry = _read_object(
+                    retry_path,
+                    code="deletion_retry_not_found",
+                    message="The deletion retry record was not found.",
+                )
+                if retry.get("requestDigest") != request_digest:
+                    raise ConnectorError(
+                        "idempotency_conflict",
+                        "The idempotency key was reused with different input.",
+                        category="conflict",
+                    )
+                return self.get_deletion(retry.get("deletionId", ""), context)
+            for path in sorted(self.deletions.glob("*.json")):
+                existing = self.get_deletion(path.stem, context)
+                if (
+                    existing.get("selectors") == request_data.get("selectors")
+                    and existing.get("requestedBy") == request_data.get("requestedBy")
+                    and existing.get("reason") == request_data.get("reason")
+                    and existing.get("retention") == request_data.get("retention")
+                ):
+                    _write_immutable(
+                        retry_path,
+                        _json_bytes(
+                            {
+                                "deletionId": existing["id"],
+                                "requestDigest": request_digest,
+                            }
+                        ),
+                    )
+                    return existing
+            deletion_id = "deletion_" + hashlib.sha256(
+                (
+                    _scope_key(context.scope)
+                    + "\0"
+                    + context.idempotency_key
+                    + "\0"
+                    + request_digest
+                ).encode()
+            ).hexdigest()[:32]
+            receipt = {
+                "schemaVersion": "replica.runtime-deletion-receipt/v1",
+                "id": deletion_id,
+                "scope": {
+                    "tenantId": context.scope.tenant_id,
+                    "repository": context.scope.repository,
+                },
+                "selectors": request_data["selectors"],
+                "requestedBy": request_data["requestedBy"],
+                "reason": request_data["reason"],
+                "state": "revoking",
+                "createdAt": _timestamp(),
+                "updatedAt": _timestamp(),
+                "items": [],
+                "pendingItems": [],
+                "failures": [],
+                "version": 1,
+            }
+            if request_data.get("retention") is not None:
+                receipt["retention"] = request_data["retention"]
+            _write_immutable(self._deletion_path(deletion_id), _json_bytes(receipt))
+            _write_immutable(
+                retry_path,
+                _json_bytes(
+                    {
+                        "deletionId": deletion_id,
+                        "requestDigest": request_digest,
+                    }
+                ),
+            )
+            return receipt
+
+    def get_deletion(
+        self, deletion_id: str, context: OperationContext
+    ) -> Mapping[str, Any]:
+        self._check(context, hide=True)
+        saved = _read_object(
+            self._deletion_path(deletion_id),
+            code="deletion_not_found",
+            message="The deletion receipt was not found.",
+        )
+        if (
+            saved.get("schemaVersion") != "replica.runtime-deletion-receipt/v1"
+            or saved.get("id") != deletion_id
+            or not isinstance(saved.get("version"), int)
+        ):
+            raise ConnectorError(
+                "deletion_receipt_damaged",
+                "The deletion receipt is invalid.",
+                category="integrity",
+            )
+        return saved
+
+    def list_deletions(
+        self, states: Sequence[str], context: OperationContext
+    ) -> Sequence[Mapping[str, Any]]:
+        check_context(context)
+        if context.scope != self.scope:
+            return ()
+        selected = set(states)
+        return tuple(
+            receipt
+            for path in sorted(self.deletions.glob("*.json"))
+            if (receipt := self.get_deletion(path.stem, context)).get("state")
+            in selected
+        )
+
+    def update_deletion(
+        self,
+        deletion_id: str,
+        record: Mapping[str, Any],
+        *,
+        expected_version: int,
+        context: OperationContext,
+    ) -> Mapping[str, Any]:
+        self._check(context)
+        with self._lock:
+            current = dict(self.get_deletion(deletion_id, context))
+            if current["version"] != expected_version:
+                raise ConnectorError(
+                    "deletion_version_conflict",
+                    "The deletion receipt changed before this update.",
+                    category="conflict",
+                )
+            saved = dict(_json_data(record), version=expected_version + 1)
+            if (
+                saved.get("id") != deletion_id
+                or saved.get("schemaVersion")
+                != "replica.runtime-deletion-receipt/v1"
+            ):
+                raise ConnectorError(
+                    "deletion_receipt_invalid",
+                    "The deletion update must preserve the receipt identity.",
+                    category="invalid_input",
+                )
+            _write_json_atomic(self._deletion_path(deletion_id), saved)
+            return saved
+
+    def _validated_copy(self, value: Mapping[str, Any]) -> dict[str, Any]:
+        saved = dict(_json_data(value))
+        if (
+            saved.get("schemaVersion") != "replica.runtime-copy/v1"
+            or not isinstance(saved.get("id"), str)
+            or saved.get("kind") not in ("taskset", "candidate", "report")
+            or saved.get("useState") not in ("active", "revoked", "deleted", "retained")
+            or not isinstance(saved.get("sourceTrainingExportId"), str)
+            or not isinstance(saved.get("tasksetDigest"), str)
+            or not isinstance(saved.get("storage"), dict)
+            or saved.get("scope")
+            != {
+                "tenantId": self.scope.tenant_id,
+                "repository": self.scope.repository,
+            }
+            or not isinstance(saved.get("permittingGrantIds"), list)
+            or not isinstance(saved.get("permittedPurposes"), list)
+            or not isinstance(saved.get("reviewDigests"), list)
+            or not isinstance(saved.get("evidenceDigests"), list)
+            or not isinstance(saved.get("retention"), dict)
+            or not isinstance(saved.get("createdAt"), str)
+        ):
+            raise ConnectorError(
+                "runtime_copy_invalid",
+                "The runtime copy metadata is invalid.",
+                category="invalid_input",
+            )
+        _checked_identifier(saved["id"], "runtime copy")
+        return saved
+
+    def _copy_path(self, copy_id: str) -> Path:
+        return self.copies / f"{_checked_identifier(copy_id, 'runtime copy')}.json"
+
+    def _deletion_path(self, deletion_id: str) -> Path:
+        return self.deletions / f"{_checked_identifier(deletion_id, 'deletion')}.json"
+
+
+def _copy_matches(record: Mapping[str, Any], selectors: Mapping[str, str]) -> bool:
+    values = {
+        "exportId": record.get("sourceTrainingExportId"),
+        "grantId": record.get("permittingGrantIds", ()),
+        "evidenceDigest": record.get("evidenceDigests", ()),
+        "tasksetDigest": record.get("tasksetDigest"),
+    }
+    return all(
+        selector in values[name]
+        if isinstance(values[name], (list, tuple))
+        else values[name] == selector
+        for name, selector in selectors.items()
+    )
+
+
 class LocalObservabilityConnector(_ScopedConnector):
     """Append scoped usage and cost records to durable private JSON Lines."""
 
@@ -2129,6 +2510,7 @@ class LocalConnectorBundle:
     taskset_digest: ContentDigest | None
     tasksets: LocalTasksetConnector
     candidates: LocalCandidateConnector
+    privacy: LocalPrivacyConnector
     observability: LocalObservabilityConnector
     _owner: Any
 
@@ -2198,6 +2580,7 @@ def create_local_connector_bundle(
         artifacts = LocalArtifactConnector(root, scope)
         jobs = LocalJobConnector(root, scope)
         candidates = LocalCandidateConnector(root, scope)
+        privacy = LocalPrivacyConnector(root, scope)
         training = {
             name: LocalTrainingConnector(backend)
             for name, backend in backends.items()
@@ -2213,6 +2596,7 @@ def create_local_connector_bundle(
             artifacts=artifacts,
             jobs=jobs,
             candidates=candidates,
+            privacy=privacy,
             training=training,
             inference=inference,
             credentials=credentials or local_credentials,
@@ -2226,6 +2610,7 @@ def create_local_connector_bundle(
             tasksets.digest,
             tasksets,
             candidates,
+            privacy,
             local_observability,
             owner,
         )

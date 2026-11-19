@@ -452,6 +452,21 @@ describe("replica-learning decision", () => {
       tasksetManifest.provenance.grantIds,
       bundle.grants.map((grant) => grant.id).sort(),
     )
+    assert.deepEqual(tasksetManifest.provenance.purposes, ["training"])
+    assert.deepEqual(
+      tasksetManifest.provenance.reviewDigests,
+      bundle.manifest.records
+        .filter((record) => record.kind === "memory")
+        .map((record) => record.digest)
+        .sort(),
+    )
+    assert.deepEqual(
+      tasksetManifest.provenance.evidenceDigests,
+      bundle.manifest.records
+        .filter((record) => ["collection", "episode", "event"].includes(record.kind))
+        .map((record) => record.digest)
+        .sort(),
+    )
     assert.deepEqual(tasksetManifest.retention, { mode: "delete_on_withdrawal" })
   })
 
