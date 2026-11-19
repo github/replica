@@ -205,15 +205,16 @@ class CapturingObservability:
         self.records.append((usage, context))
 
 
-class ContextCheckingObservability(CapturingObservability):
+class BlockingObservability(CapturingObservability):
+    def __init__(self):
+        super().__init__()
+        self.started = threading.Event()
+        self.release = threading.Event()
+
     def record(self, usage, context):
-        context.cancellation.raise_if_requested()
-        if time.monotonic() >= context.deadline:
-            raise ConnectorError(
-                "reporting_deadline",
-                "The reporting deadline elapsed.",
-                category="deadline_exceeded",
-            )
+        self.started.set()
+        if not self.release.wait(5):
+            raise AssertionError("usage reporting was not released")
         super().record(usage, context)
 
 
@@ -477,7 +478,7 @@ class LocalRuntimeTest(unittest.TestCase):
             finished["usage"],
         )
 
-    def test_usage_records_of_the_same_kind_have_distinct_retry_keys(self):
+    def test_job_reports_same_kind_usage_with_distinct_retry_keys(self):
         observability = CapturingObservability()
         runtime = LocalRuntime(
             self.state_dir,
@@ -486,32 +487,51 @@ class LocalRuntimeTest(unittest.TestCase):
             observability=observability,
         )
         self.addCleanup(runtime.close)
-        context = runtime._operation_context(
-            "usage-key-test",
-            max_seconds=5,
-            owner=runtime_module.RuntimeOwner("worker", "usage-test"),
-        )
-        usage = Usage(
-            context.operation_id,
-            context.scope,
-            "fixture",
-            "training_credits",
-            1,
-            "credits",
-            0,
-            "USD",
-            {},
-            "test",
-        )
+        def two_records(*args, context, **kwargs):
+            del args, kwargs
+            result = FixtureBackend().train(
+                runtime.taskset,
+                self.state_dir,
+                max_updates=2,
+                deadline=time.monotonic() + 5,
+            )
+            usage = tuple(
+                Usage(
+                    context.operation_id,
+                    context.scope,
+                    "fixture",
+                    "training_credits",
+                    1,
+                    "credits",
+                    0,
+                    "USD",
+                    {"part": index},
+                    "test",
+                )
+                for index in range(2)
+            )
+            return replace(result, usage=usage)
 
-        runtime._record_connector_usage(context, usage, index=0)
-        runtime._record_connector_usage(context, usage, index=1)
+        with mock.patch(
+            "replica_brand_check.runtime._run_backend",
+            side_effect=two_records,
+        ):
+            finished = self._wait_for_job(
+                runtime,
+                runtime.submit(
+                    backend="fixture",
+                    max_updates=2,
+                    max_seconds=5,
+                    max_credits=2,
+                )["id"],
+            )
 
+        self.assertEqual(finished["state"], "succeeded")
         self.assertEqual(
             [record_context.idempotency_key for _, record_context in observability.records],
             [
-                "usage-key-test:usage:0:training_credits",
-                "usage-key-test:usage:1:training_credits",
+                f"{finished['id']}:usage:0:training_credits",
+                f"{finished['id']}:usage:1:training_credits",
             ],
         )
 
@@ -566,7 +586,6 @@ class LocalRuntimeTest(unittest.TestCase):
                 max_credits=1,
             )["id"],
         )
-
         self.assertEqual(failed["state"], "failed")
         self.assertEqual(failed["error"]["code"], "credit_budget_exceeded")
         self.assertNotIn("candidateId", failed)
@@ -601,7 +620,7 @@ class LocalRuntimeTest(unittest.TestCase):
         runtime = LocalRuntime(
             self.state_dir,
             self.taskset_dir,
-            backends={"failing": FailingBackend()},
+            backends={"over-budget": OverBudgetBackend()},
             environment="test",
             observability=FailingObservability(),
         )
@@ -610,15 +629,15 @@ class LocalRuntimeTest(unittest.TestCase):
         failed = self._wait_for_job(
             runtime,
             runtime.submit(
-                backend="failing", max_updates=8, max_seconds=5, max_credits=8
+                backend="over-budget", max_updates=2, max_seconds=5, max_credits=1
             )["id"],
         )
+        failed = self._wait_for_usage_error(runtime, failed["id"])
 
-        self.assertEqual(failed["error"]["code"], "backend_failed")
-        self.assertEqual(failed["error"]["message"], "Backend operation failed.")
-        self.assertNotIn("backend-token", failed["error"]["message"])
-        self.assertNotIn("usage", failed)
-        self.assertNotIn("usageError", failed)
+        self.assertEqual(failed["error"]["code"], "credit_budget_exceeded")
+        self.assertEqual(failed["usageError"]["code"], "usage_unavailable")
+        self.assertEqual(failed["usageError"]["message"], "Connector operation failed.")
+        self.assertEqual(failed["usage"][0]["quantity"], 2)
 
     def test_preserves_successful_candidate_when_usage_reporting_fails(self):
         runtime = LocalRuntime(
@@ -635,6 +654,7 @@ class LocalRuntimeTest(unittest.TestCase):
                 backend="fixture", max_updates=8, max_seconds=5, max_credits=8
             )["id"],
         )
+        finished = self._wait_for_usage_error(runtime, finished["id"])
 
         self.assertEqual(finished["state"], "succeeded")
         self.assertIn("candidateId", finished)
@@ -648,8 +668,33 @@ class LocalRuntimeTest(unittest.TestCase):
             finished["candidateId"],
         )
 
-    def test_reports_timeout_usage_with_a_fresh_completion_context(self):
-        observability = ContextCheckingObservability()
+    def test_persists_terminal_success_before_exporting_usage(self):
+        observability = BlockingObservability()
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            environment="test",
+            observability=observability,
+        )
+        self.addCleanup(runtime.close)
+
+        submitted = runtime.submit(
+            backend="fixture",
+            max_updates=2,
+            max_seconds=5,
+            max_credits=2,
+        )
+        self.assertTrue(observability.started.wait(5))
+        durable = runtime.job(submitted["id"])
+        observability.release.set()
+        finished = self._wait_for_job(runtime, submitted["id"])
+
+        self.assertEqual(durable["state"], "succeeded")
+        self.assertIn("candidateId", durable)
+        self.assertEqual(finished["state"], "succeeded")
+
+    def test_timeout_without_a_connector_result_records_no_usage(self):
+        observability = CapturingObservability()
         runtime = LocalRuntime(
             self.state_dir,
             self.taskset_dir,
@@ -700,6 +745,50 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(finished["error"]["code"], "usage_missing")
         self.assertNotIn("candidateId", finished)
         self.assertEqual(list((self.state_dir / "candidates").iterdir()), [])
+
+    def test_fails_closed_when_connector_usage_omits_billed_cost(self):
+        runtime = self._runtime()
+        result = FixtureBackend().train(
+            runtime.taskset,
+            self.state_dir,
+            max_updates=2,
+            deadline=time.monotonic() + 5,
+        )
+
+        def missing_cost(*args, context, **kwargs):
+            del args, kwargs
+            return replace(
+                result,
+                usage=(
+                    Usage(
+                        context.operation_id,
+                        context.scope,
+                        "fixture",
+                        "training_credits",
+                        2,
+                        "credits",
+                        source="missing-cost-test",
+                    ),
+                ),
+            )
+
+        with mock.patch(
+            "replica_brand_check.runtime._run_backend",
+            side_effect=missing_cost,
+        ):
+            failed = self._wait_for_job(
+                runtime,
+                runtime.submit(
+                    backend="fixture",
+                    max_updates=2,
+                    max_seconds=5,
+                    max_credits=2,
+                )["id"],
+            )
+
+        self.assertEqual(failed["state"], "failed")
+        self.assertEqual(failed["error"]["code"], "usage_invalid")
+        self.assertNotIn("candidateId", failed)
 
     def test_persists_success_when_connector_usage_arrives_at_the_training_deadline(self):
         runtime = self._runtime()
@@ -2691,6 +2780,15 @@ class LocalRuntimeTest(unittest.TestCase):
                 return job
             time.sleep(0.01)
         self.fail(f"job {job_id} did not finish")
+
+    def _wait_for_usage_error(self, runtime, job_id):
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            job = runtime.job(job_id)
+            if "usageError" in job:
+                return job
+            time.sleep(0.01)
+        self.fail(f"job {job_id} did not persist its usage error")
 
     def _wait_for_http_job(self, base_url, job_id):
         deadline = time.monotonic() + 10

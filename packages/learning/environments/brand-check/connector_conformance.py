@@ -507,43 +507,17 @@ def _promotion_generations(create_fixture):
 def _training_budget(create_fixture):
     def run(case):
         fixture = create_fixture()
-        connector = next(iter(fixture.connectors.training.values()))
-        context = _context(
-            fixture.scope,
-            "training-budget",
-            max_credits=1,
-            budget_mode="hard",
-        )
-        credential = fixture.connectors.credentials.acquire("training", context)
-        with TemporaryDirectory() as work:
-            if connector.supports_hard_credit_budget:
-                result = connector.train(
-                    fixture.connectors.tasksets.resolve(
-                        fixture.taskset_reference,
-                        context,
-                    ).taskset,
-                    Path(work),
-                    max_updates=2,
-                    context=context,
-                    credential=credential,
-                )
-                case.assertTrue(result.usage)
-                credits = [
-                    item
-                    for item in result.usage
-                    if item.kind == "training_credits" and item.unit == "credits"
-                ]
-                case.assertTrue(credits)
-                case.assertLessEqual(sum(item.quantity for item in credits), 1)
-                for item in result.usage:
-                    case.assertEqual(item.operation_id, context.operation_id)
-                    case.assertEqual(item.scope, context.scope)
-                    case.assertEqual(item.connector, connector.name)
-                    case.assertNotEqual(item.source, "estimate")
-                    case.assertEqual(item.cost is None, item.currency is None)
-            else:
-                with case.assertRaises(ConnectorError) as unsupported:
-                    connector.train(
+        for name, connector in fixture.connectors.training.items():
+            context = _context(
+                fixture.scope,
+                f"training-budget-{name}",
+                max_credits=1,
+                budget_mode="hard",
+            )
+            credential = fixture.connectors.credentials.acquire("training", context)
+            with TemporaryDirectory() as work:
+                if connector.supports_hard_credit_budget:
+                    result = connector.train(
                         fixture.connectors.tasksets.resolve(
                             fixture.taskset_reference,
                             context,
@@ -553,7 +527,37 @@ def _training_budget(create_fixture):
                         context=context,
                         credential=credential,
                     )
-                case.assertEqual(unsupported.exception.code, "hard_budget_unsupported")
+                    case.assertTrue(result.usage)
+                    credits = [
+                        item
+                        for item in result.usage
+                        if item.kind == "training_credits" and item.unit == "credits"
+                    ]
+                    case.assertTrue(credits)
+                    case.assertLessEqual(sum(item.quantity for item in credits), 1)
+                    for item in result.usage:
+                        case.assertEqual(item.operation_id, context.operation_id)
+                        case.assertEqual(item.scope, context.scope)
+                        case.assertEqual(item.connector, connector.name)
+                        case.assertNotEqual(item.source, "estimate")
+                        case.assertIsNotNone(item.cost)
+                        case.assertIsInstance(item.currency, str)
+                        case.assertTrue(item.currency.strip())
+                else:
+                    with case.assertRaises(ConnectorError) as unsupported:
+                        connector.train(
+                            fixture.connectors.tasksets.resolve(
+                                fixture.taskset_reference,
+                                context,
+                            ).taskset,
+                            Path(work),
+                            max_updates=2,
+                            context=context,
+                            credential=credential,
+                        )
+                    case.assertEqual(
+                        unsupported.exception.code, "hard_budget_unsupported"
+                    )
 
     return run
 

@@ -780,14 +780,6 @@ class LocalRuntime:
                 usage = _validated_training_usage(result, context, connector)
                 job["usage"] = [_public_usage(item) for item in usage]
                 try:
-                    for index, item in enumerate(usage):
-                        self._record_connector_usage(context, item, index=index)
-                except ConnectorError as usage_error:
-                    job["usageError"] = {
-                        "code": usage_error.code,
-                        "message": "Connector operation failed.",
-                    }
-                try:
                     _enforce_training_budget(usage, context)
                 except RuntimeFailure as error:
                     job.update(
@@ -806,38 +798,62 @@ class LocalRuntime:
                         )
                     )
                     durable_finished = True
-                    return
-                context.cancellation.raise_if_requested()
-                durable = self._job_record(job_id)
-                if durable["state"] == "cancelled":
-                    raise ConnectorError(
-                        "operation_cancelled",
-                        "The operation was cancelled.",
-                        category="cancelled",
-                    )
-                candidate_id = self._persist_candidate(
-                    job,
-                    result,
-                    taskset_digest=job["tasksetDigest"],
-                    usage=usage,
-                    context=context,
-                )
-                job.update(
-                    state="succeeded",
-                    candidateId=candidate_id,
-                    completedAt=_now(),
-                    updatedAt=_now(),
-                )
-                job = dict(
-                    self.connectors.jobs.update(
-                        job_id,
+                else:
+                    context.cancellation.raise_if_requested()
+                    durable = self._job_record(job_id)
+                    if durable["state"] == "cancelled":
+                        raise ConnectorError(
+                            "operation_cancelled",
+                            "The operation was cancelled.",
+                            category="cancelled",
+                        )
+                    candidate_id = self._persist_candidate(
                         job,
-                        expected_version=job["version"],
-                        lease=lease,
+                        result,
+                        taskset_digest=job["tasksetDigest"],
+                        usage=usage,
                         context=context,
                     )
-                )
-                durable_finished = True
+                    job.update(
+                        state="succeeded",
+                        candidateId=candidate_id,
+                        completedAt=_now(),
+                        updatedAt=_now(),
+                    )
+                    job = dict(
+                        self.connectors.jobs.update(
+                            job_id,
+                            job,
+                            expected_version=job["version"],
+                            lease=lease,
+                            context=context,
+                        )
+                    )
+                    durable_finished = True
+                try:
+                    for index, item in enumerate(usage):
+                        self._record_connector_usage(context, item, index=index)
+                except ConnectorError as usage_error:
+                    job["usageError"] = {
+                        "code": usage_error.code,
+                        "message": "Connector operation failed.",
+                    }
+                    try:
+                        job = dict(
+                            self.connectors.jobs.update(
+                                job_id,
+                                job,
+                                expected_version=job["version"],
+                                lease=lease,
+                                context=self._operation_context(
+                                    f"usage_error_{job_id}",
+                                    max_seconds=30,
+                                    owner=lease.owner,
+                                ),
+                            )
+                        )
+                    except ConnectorError:
+                        pass
         except Exception as error:
             if isinstance(error, ConnectorError) and error.category == "cancelled":
                 job.update(
@@ -1435,6 +1451,9 @@ def _validated_training_usage(
             or item.scope != context.scope
             or item.connector != connector.name
             or item.source == "estimate"
+            or item.cost is None
+            or not isinstance(item.currency, str)
+            or not item.currency.strip()
         ):
             raise RuntimeFailure(
                 "usage_invalid",

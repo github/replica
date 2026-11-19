@@ -1820,22 +1820,29 @@ class LocalTrainingConnector:
         if not isinstance(result, TrainingResult):
             return result
         credits = float(result.updates_completed)
-        usage = Usage(
-            operation_id=context.operation_id,
-            scope=context.scope,
-            connector=self.name,
-            kind="training_credits",
-            quantity=credits,
-            unit="credits",
-            cost=0.0,
-            currency="USD",
-            metadata={
-                "updatesCompleted": result.updates_completed,
-                "requestedUpdates": max_updates,
-                "budgetMode": context.budget_mode,
-            },
-            source="local-training-connector",
-        )
+        usage = tuple(result.usage)
+        if not any(
+            item.kind == "training_credits" and item.unit == "credits"
+            for item in usage
+        ):
+            usage += (
+                Usage(
+                    operation_id=context.operation_id,
+                    scope=context.scope,
+                    connector=self.name,
+                    kind="training_credits",
+                    quantity=credits,
+                    unit="credits",
+                    cost=0.0,
+                    currency="USD",
+                    metadata={
+                        "updatesCompleted": result.updates_completed,
+                        "requestedUpdates": max_updates,
+                        "budgetMode": context.budget_mode,
+                    },
+                    source="local-training-connector",
+                ),
+            )
         return TrainingResult(
             adapter_name=result.adapter_name,
             adapter=result.adapter,
@@ -1843,7 +1850,7 @@ class LocalTrainingConnector:
             candidate_report=result.candidate_report,
             metadata=result.metadata,
             updates_completed=result.updates_completed,
-            usage=(*result.usage, usage),
+            usage=usage,
         )
 
 

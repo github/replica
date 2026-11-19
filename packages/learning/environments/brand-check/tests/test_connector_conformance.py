@@ -891,6 +891,10 @@ class _DeadlineBlindExecution(_MemoryExecution):
             max_updates,
         )
 
+    def predict(self, adapter, request, *, context, credential):
+        del adapter, request, credential
+        return {"operationId": context.operation_id}
+
 
 class _BudgetBlindExecution(_MemoryExecution):
     def train(self, *args, max_updates, context, **kwargs):
@@ -916,10 +920,6 @@ class _BudgetBlindExecution(_MemoryExecution):
 class _MissingUsageExecution(_MemoryExecution):
     def train(self, *args, **kwargs):
         return replace(super().train(*args, **kwargs), usage=())
-
-    def predict(self, adapter, request, *, context, credential):
-        del adapter, request, credential
-        return {"operationId": context.operation_id}
 
 
 class _AlwaysFailingInference(_MemoryExecution):

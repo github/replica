@@ -77,6 +77,14 @@ class _OverBudgetBackend(_FixtureBackend):
         )
 
 
+class _AuthoritativeUsageBackend(_FixtureBackend):
+    def __init__(self, usage):
+        self.usage = usage
+
+    def train(self, *args, **kwargs):
+        return replace(super().train(*args, **kwargs), usage=self.usage)
+
+
 def _digest(data: bytes) -> ContentDigest:
     return ContentDigest("sha256", hashlib.sha256(data).hexdigest())
 
@@ -759,6 +767,42 @@ class LocalConnectorPersistenceTest(unittest.TestCase):
         self.assertEqual(result.usage[0].quantity, 2)
         self.assertEqual(result.usage[0].unit, "credits")
         self.assertEqual(bundle.observability.records(), ())
+
+    def test_preserves_backend_reported_credit_usage_without_double_counting(self):
+        scope = RuntimeScope("tenant-one", "github/example")
+        context = _context(
+            scope,
+            "authoritative-usage",
+            max_credits=2,
+            budget_mode="hard",
+        )
+        reported = Usage(
+            context.operation_id,
+            context.scope,
+            "fixture",
+            "training_credits",
+            2,
+            "credits",
+            0,
+            "USD",
+            {},
+            "backend",
+        )
+        bundle, _, _ = _new_bundle(
+            self,
+            scope=scope,
+            backends={"fixture": _AuthoritativeUsageBackend((reported,))},
+        )
+
+        result = bundle.connectors.training["fixture"].train(
+            bundle.tasksets.taskset,
+            bundle.state_directory / "work",
+            max_updates=2,
+            context=context,
+            credential=bundle.connectors.credentials.acquire("training", context),
+        )
+
+        self.assertEqual(result.usage, (reported,))
 
     def test_keeps_scoped_files_private_and_detects_artifact_tampering(self):
         bundle, state_directory, scope = _new_bundle(self)
