@@ -9,6 +9,7 @@ export function recordGitHubBranchDeletion(
   input: {
     githubRepositoryId: number
     branchName: string
+    deletedHeadSha?: string
     delivery: GitHubWebhookDelivery
   },
 ) {

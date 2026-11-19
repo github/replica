@@ -112,11 +112,14 @@ async function createBranchFixture() {
     prototypeId: prototype.id,
     buildId: prepared.buildId,
     poll,
-    retire: () =>
+    retire: (
+      { deletedHeadSha }: { deletedHeadSha?: string } = { deletedHeadSha: input.commitSha },
+    ) =>
       prisma.$transaction((transaction) =>
         retireGitHubBranch(transaction, {
           githubRepositoryId: repository.githubRepositoryId,
           branchName: input.branchName,
+          deletedHeadSha,
         }),
       ),
     read: () => prisma.prototype.findUniqueOrThrow({ where: { id: prototype.id } }),
@@ -552,7 +555,11 @@ describe("discoverGitHubWorkflowRuns", () => {
     const builds = await prisma.build.findMany({ where: { prototypeId: prototype.id } })
     function retire() {
       return prisma.$transaction((transaction) =>
-        retireGitHubBranch(transaction, { githubRepositoryId, branchName }),
+        retireGitHubBranch(transaction, {
+          githubRepositoryId,
+          branchName,
+          deletedHeadSha: input.commitSha,
+        }),
       )
     }
     await retire()
@@ -763,7 +770,7 @@ describe("discoverGitHubWorkflowRuns", () => {
     })
 
     vi.setSystemTime(new Date("2026-11-18T12:02:00Z"))
-    await branch.retire()
+    await branch.retire({ deletedHeadSha: head })
     vi.setSystemTime(new Date("2026-11-18T12:03:00Z"))
     const compareAgain = vi.fn(() => Promise.resolve(false))
     await branch.poll(head, { isAncestor: compareAgain })
@@ -774,6 +781,69 @@ describe("discoverGitHubWorkflowRuns", () => {
       }),
     ).toMatchObject({ id: replacement.id, registeredAt: null, description: null })
     expect(await prisma.prototype.count()).toBe(3)
+  })
+
+  it("does not resume from a replacement head observed before a delayed SHA-less deletion", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-11-18T12:00:00Z"))
+    const branch = await createBranchFixture()
+    const replacementHead = "b".repeat(40)
+    vi.setSystemTime(new Date("2026-11-18T12:01:00Z"))
+    await branch.poll(replacementHead)
+    expect((await branch.read()).branchHeadSha).toBe(replacementHead)
+    vi.setSystemTime(new Date("2026-11-18T12:02:00Z"))
+    await branch.retire({})
+    const history = await branch.read()
+    expect(history.retiredHeadSha).toBeNull()
+    vi.setSystemTime(new Date("2026-11-18T12:03:00Z"))
+    const isAncestor = vi.fn(() => Promise.resolve(true))
+
+    await branch.poll(replacementHead, { isAncestor })
+
+    expect(isAncestor).not.toHaveBeenCalled()
+    expect(await branch.read()).toEqual(history)
+    expect(await prisma.build.count({ where: { prototypeId: branch.prototypeId } })).toBe(1)
+    const active = await prisma.prototype.findFirstOrThrow({
+      where: { repositoryId: branch.repository.id, branchDeletedAt: null },
+    })
+    expect(active).toMatchObject({ branchHeadSha: replacementHead, currentBuildId: null })
+    expect(active.id).not.toBe(branch.prototypeId)
+  })
+
+  it.each([
+    { name: "delete before push", order: [undefined, "deleted"] as const },
+    { name: "push before delete", order: ["deleted", undefined] as const },
+  ])("anchors on the deleted head from push evidence ($name)", async ({ order }) => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-11-18T12:00:00Z"))
+    const branch = await createBranchFixture()
+    vi.setSystemTime(new Date("2026-11-18T12:01:00Z"))
+    for (const evidence of order) {
+      await branch.retire(evidence ? { deletedHeadSha: branch.input.commitSha } : {})
+    }
+    expect((await branch.read()).retiredHeadSha).toBe(branch.input.commitSha)
+    await branch.retire({ deletedHeadSha: "c".repeat(40) })
+    expect((await branch.read()).retiredHeadSha).toBe(branch.input.commitSha)
+    vi.setSystemTime(new Date("2026-11-18T12:02:00Z"))
+    const returning = "d".repeat(40)
+    const isAncestor = vi.fn(() => Promise.resolve(true))
+
+    await branch.poll(returning, { isAncestor })
+
+    expect(isAncestor.mock.calls).toEqual([
+      [branch.repository.githubRepositoryId, branch.input.commitSha, returning],
+    ])
+    expect(await branch.read()).toMatchObject({ branchDeletedAt: null, branchHeadSha: returning })
+    expect(await prisma.prototype.count()).toBe(1)
+  })
+
+  it("ignores push evidence for a head the identity never accepted", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-11-18T12:00:00Z"))
+    const branch = await createBranchFixture()
+    vi.setSystemTime(new Date("2026-11-18T12:01:00Z"))
+    await branch.retire({ deletedHeadSha: "e".repeat(40) })
+    expect((await branch.read()).retiredHeadSha).toBeNull()
   })
 
   it("creates a separate unbuilt identity when the retired head is unknown", async () => {

@@ -11,7 +11,7 @@ const migrationTestTimeoutMs = 120_000
 
 describe("GitHub branch identity migration", () => {
   it(
-    "anchors retirement only to the selected Build and preserves retained history",
+    "leaves existing retirements without a deleted-head anchor and preserves retained history",
     async () => {
       const adminUrl = process.env.TEST_DATABASE_URL
       if (!adminUrl) throw new Error("TEST_DATABASE_URL is required.")
@@ -154,7 +154,7 @@ describe("GitHub branch identity migration", () => {
             expect.arrayContaining([
               {
                 id: selectedPrototypeId,
-                retired_head_sha: "a".repeat(40),
+                retired_head_sha: null,
                 branch_head_sha: null,
                 branch_presence_revision: 0,
                 branch_identity_started_at: null,

@@ -925,7 +925,7 @@ describe("createGitHubWebhookRouteDependencies()", () => {
         repository: { id: 1001 },
         ...(event === "delete"
           ? { ref_type: "branch", ref: "proto/history" }
-          : { deleted: true, ref: "refs/heads/proto/history" }),
+          : { deleted: true, ref: "refs/heads/proto/history", before: null }),
       }
       const delivery = deliveryFor(payload)
       const dependencies = webhook()
@@ -952,6 +952,30 @@ describe("createGitHubWebhookRouteDependencies()", () => {
       expect(await prisma.gitHubWebhookDelivery.count({ where: { id: delivery.id } })).toBe(1)
     },
   )
+
+  it("anchors retirement on the deleted head reported by a push event", async () => {
+    const repository = await createRepository(1001, "branch-deletion-anchor")
+    const history = await createHistory(repository.id)
+    const commitSha = "a".repeat(40)
+    await prisma.build.update({ where: { id: history.buildId }, data: { commitSha } })
+    await prisma.prototype.update({
+      where: { id: history.prototypeId },
+      data: { branchName: "proto/history" },
+    })
+
+    await expect(
+      handleWebhook("push", {
+        repository: { id: 1001 },
+        deleted: true,
+        ref: "refs/heads/proto/history",
+        before: commitSha,
+      }),
+    ).resolves.toBe(true)
+
+    expect(
+      await prisma.prototype.findUniqueOrThrow({ where: { id: history.prototypeId } }),
+    ).toMatchObject({ retiredHeadSha: commitSha })
+  })
 
   it.each([
     { event: "delete", payload: { ref_type: "tag", ref: "proto/history" } },

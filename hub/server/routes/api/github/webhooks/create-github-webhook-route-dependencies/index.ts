@@ -59,6 +59,7 @@ const branchDeletionEvent = z.looseObject({
 })
 const pushEvent = z.looseObject({
   deleted: z.boolean(),
+  before: z.unknown().optional(),
   ref: z.string().min(1).max(266),
   repository: z.looseObject({ id: githubId }),
 })
@@ -87,6 +88,7 @@ export function createGitHubWebhookRouteDependencies(input: {
       if (name === "delete" || name === "push") {
         let branchName: string | undefined
         let githubRepositoryId: number
+        let deletedHeadSha: string | undefined
         if (name === "delete") {
           const event = branchDeletionEvent.safeParse(payload)
           if (!event.success) return false
@@ -99,6 +101,10 @@ export function createGitHubWebhookRouteDependencies(input: {
           if (event.data.deleted && event.data.ref.startsWith("refs/heads/")) {
             branchName = event.data.ref.slice("refs/heads/".length)
             if (!branchName) return false
+            const { before } = event.data
+            if (typeof before === "string" && /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(before)) {
+              deletedHeadSha = before
+            }
           }
         }
         if (!branchName) {
@@ -109,6 +115,7 @@ export function createGitHubWebhookRouteDependencies(input: {
         await recordGitHubBranchDeletion(prisma, {
           githubRepositoryId,
           branchName,
+          deletedHeadSha,
           delivery: receipt,
         })
         return true

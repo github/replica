@@ -2,12 +2,13 @@ import type { Prisma } from "../../../generated/prisma/client.ts"
 
 /**
  * Keeps a tombstone even when deletion arrives before the branch's first import.
- * The first retirement fixes the continuity anchor; later historical imports or delete
- * deliveries must not replace it.
+ * Only the deleted head reported by GitHub can anchor continuity, and only when this
+ * identity accepted that head. Hub's last observed head may already belong to a
+ * replacement when the deletion is delayed, so it is never used as evidence.
  */
 export async function retireGitHubBranch(
   database: Prisma.TransactionClient,
-  input: { githubRepositoryId: number; branchName: string },
+  input: { githubRepositoryId: number; branchName: string; deletedHeadSha?: string },
 ) {
   const [repository] = await database.$queryRaw<Array<{ id: string; defaultBranch: string }>>`
     SELECT "id", "default_branch" AS "defaultBranch" FROM "repositories"
@@ -32,19 +33,26 @@ export async function retireGitHubBranch(
       id: true,
       branchDeletedAt: true,
       branchHeadSha: true,
-      currentBuild: { select: { commitSha: true } },
+      retiredHeadSha: true,
     },
   })
   if (existing) {
+    const anchor =
+      existing.retiredHeadSha ??
+      (input.deletedHeadSha &&
+      (existing.branchHeadSha === input.deletedHeadSha ||
+        (await database.build.count({
+          where: { prototypeId: existing.id, commitSha: input.deletedHeadSha },
+        })) > 0)
+        ? input.deletedHeadSha
+        : null)
     // A repeated deletion refreshes the tombstone so an older branch listing cannot restore it.
     await database.prototype.update({
       where: { id: existing.id },
       data: {
         branchDeletedAt: new Date(),
         branchPresenceRevision: { increment: 1 },
-        ...(!existing.branchDeletedAt
-          ? { retiredHeadSha: existing.branchHeadSha ?? existing.currentBuild?.commitSha ?? null }
-          : {}),
+        retiredHeadSha: anchor,
       },
     })
   } else {
