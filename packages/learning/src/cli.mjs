@@ -87,6 +87,7 @@ Decision model
                                   The typed questions a decision model answers about a
                                   page: one yes-or-no question per accepted learning
   decision taskset --export <file> --builds <file> --out <dir> [--brand-sheet <image>]
+                   [--created-at <time>]
                                   Labeled tasks for a reinforcement learning environment,
                                   from a training export and the Builds' screenshots
 Options: --dir <path> data directory (default .replica/learning), --json machine output.
@@ -140,6 +141,7 @@ const OPTIONS = {
   export: { type: "string" },
   builds: { type: "string" },
   "brand-sheet": { type: "string" },
+  "created-at": { type: "string" },
 }
 
 class UsageError extends Error {}
@@ -1234,7 +1236,9 @@ async function decisionTaskset(session) {
     directory,
     baseDirectory: path.dirname(path.resolve(session.cwd, values.builds)),
     brandSheet: values["brand-sheet"] && path.resolve(session.cwd, values["brand-sheet"]),
-    createdAt: timestampFromMilliseconds(session.clock()),
+    createdAt: values["created-at"]
+      ? parseTimeOption(values["created-at"], session.clock())
+      : timestampFromMilliseconds(session.clock()),
   })
   const { counts } = manifest
   session.out(

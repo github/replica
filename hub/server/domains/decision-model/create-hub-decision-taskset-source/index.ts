@@ -925,6 +925,10 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
           const buildsPath = join(temporary, "builds.json")
           const output = join(temporary, "taskset")
           await writeFile(exportPath, trainingExport, { mode: 0o600 })
+          const exportCreatedAt = exportManifestSchema.parse(
+            (JSON.parse(new TextDecoder().decode(trainingExport)) as Record<string, unknown>)
+              .manifest,
+          ).createdAt
           for (const file of bundle.files) {
             const destination = resolve(temporary, file.path)
             if (!destination.startsWith(`${temporary}/`)) {
@@ -952,6 +956,8 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
               buildsPath,
               "--out",
               output,
+              "--created-at",
+              exportCreatedAt,
             ],
             5 * 60_000,
           )
@@ -978,14 +984,6 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
                 .join(", ")}.`,
             )
           }
-          const normalized = {
-            ...tasksetManifest,
-            createdAt: exportManifestSchema.parse(
-              (JSON.parse(new TextDecoder().decode(trainingExport)) as Record<string, unknown>)
-                .manifest,
-            ).createdAt,
-          }
-          await writeFile(tasksetPath, `${JSON.stringify(normalized, null, 2)}\n`, { mode: 0o600 })
           const upload = await readTasksetUpload(output)
           const firstTask = upload.tasks[0] as { questions?: unknown } | undefined
           return {

@@ -738,7 +738,21 @@ describe("createHubDecisionTasksetSource()", () => {
       await mkdir(join(output, "images"), { recursive: true })
       await writeFile(
         join(output, "taskset.json"),
-        JSON.stringify({ counts: { tasks: 1 }, skipped: {}, createdAt: "variable" }),
+        JSON.stringify({
+          exportId: "export-1",
+          scope: { repository: "team/repository" },
+          provenance: {
+            exportDigest: `sha256:${"a".repeat(64)}`,
+            purposes: ["training"],
+            grantIds: ["grant-1"],
+            reviewDigests: [`sha256:${"b".repeat(64)}`],
+            evidenceDigests: [`sha256:${"c".repeat(64)}`],
+          },
+          retention: { mode: "delete_on_withdrawal" },
+          counts: { tasks: 1 },
+          skipped: {},
+          createdAt: arguments_[arguments_.indexOf("--created-at") + 1],
+        }),
       )
       await writeFile(
         join(output, "tasks.jsonl"),
@@ -781,7 +795,19 @@ describe("createHubDecisionTasksetSource()", () => {
       await expect(stat(directory)).rejects.toMatchObject({ code: "ENOENT" })
     }
     expect(first.upload.schemaVersion).toBe("replica.decision-taskset-upload/v1")
-    expect(first.upload.manifest).toMatchObject({ createdAt: "2026-01-05T00:00:00.000Z" })
+    expect(first.upload.manifest).toMatchObject({
+      exportId: "export-1",
+      scope: { repository: "team/repository" },
+      provenance: {
+        exportDigest: `sha256:${"a".repeat(64)}`,
+        purposes: ["training"],
+        grantIds: ["grant-1"],
+        reviewDigests: [`sha256:${"b".repeat(64)}`],
+        evidenceDigests: [`sha256:${"c".repeat(64)}`],
+      },
+      retention: { mode: "delete_on_withdrawal" },
+      createdAt: "2026-01-05T00:00:00.000Z",
+    })
     expect(first.upload.tasks).toHaveLength(1)
     expect(first.upload.images).toHaveLength(1)
   })
@@ -805,7 +831,16 @@ describe("createHubDecisionTasksetSource()", () => {
 
     await expect(
       tasksetSource.createTaskset({
-        trainingExport: new TextEncoder().encode("{}"),
+        trainingExport: new TextEncoder().encode(
+          JSON.stringify({
+            manifest: {
+              id: "export-1",
+              createdAt: "2026-01-05T00:00:00.000Z",
+              digest: `sha256:${"a".repeat(64)}`,
+              records: [],
+            },
+          }),
+        ),
         builds,
       }),
     ).rejects.toThrow("runtime failed")
