@@ -53,6 +53,11 @@ mock_provider "azurerm" {
       principal_id = "00000000-0000-0000-0000-000000000002"
     }
   }
+  mock_resource "azurerm_role_definition" {
+    defaults = {
+      role_definition_resource_id = "/subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.Authorization/roleDefinitions/00000000-0000-0000-0000-000000000095"
+    }
+  }
   mock_resource "azurerm_log_analytics_workspace" {
     defaults = {
       id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub/providers/Microsoft.OperationalInsights/workspaces/test"
@@ -263,8 +268,6 @@ run "decision_runtime_uses_private_data_scale_to_zero_gpu_and_split_identities" 
     decision_training_job_id                     = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/customer/providers/Microsoft.App/jobs/customer-decision-training"
     decision_training_job_name                   = "customer-decision-training"
     decision_training_principal_id               = "00000000-0000-0000-0000-000000000008"
-    decision_runtime_storage_role_definition_id  = "/subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.Authorization/roleDefinitions/00000000-0000-0000-0000-000000000096"
-    decision_training_storage_role_definition_id = "/subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.Authorization/roleDefinitions/00000000-0000-0000-0000-000000000097"
     decision_training_broker_url                 = "https://decision-broker.example.com"
     decision_training_control_scope              = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/customer/providers/Microsoft.App/containerApps/decision-broker"
     decision_training_control_role_definition_id = "/subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.Authorization/roleDefinitions/00000000-0000-0000-0000-000000000098"
@@ -280,9 +283,11 @@ run "decision_runtime_uses_private_data_scale_to_zero_gpu_and_split_identities" 
       azurerm_storage_account.artifacts.blob_properties[0].delete_retention_policy[0].permanent_delete_enabled &&
       azurerm_storage_management_policy.artifacts.rule[0].actions[0].version[0].delete_after_days_since_creation == var.decision_artifact_version_retention_days &&
       azurerm_role_assignment.decision_runtime_artifacts[0].scope == "${azurerm_storage_account.artifacts.id}/blobServices/default/containers/decision-runtime" &&
-      azurerm_role_assignment.decision_runtime_artifacts[0].role_definition_id == var.decision_runtime_storage_role_definition_id &&
+      azurerm_role_assignment.decision_runtime_artifacts[0].role_definition_id == azurerm_role_definition.decision_artifact_writer[0].role_definition_resource_id &&
       azurerm_role_assignment.decision_training_artifacts[0].scope == "${azurerm_storage_account.artifacts.id}/blobServices/default/containers/decision-runtime" &&
-      azurerm_role_assignment.decision_training_artifacts[0].role_definition_id == var.decision_training_storage_role_definition_id
+      azurerm_role_assignment.decision_training_artifacts[0].role_definition_id == azurerm_role_definition.decision_artifact_writer[0].role_definition_resource_id &&
+      !contains(azurerm_role_definition.decision_artifact_writer[0].permissions[0].data_actions, "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/delete") &&
+      !contains(azurerm_role_definition.decision_artifact_writer[0].permissions[0].data_actions, "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/permanentDelete/action")
     )
     error_message = "Decision tasksets, candidates, and reports must stay in the private versioned container through identity-based access."
   }
