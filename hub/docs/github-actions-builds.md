@@ -66,7 +66,7 @@ sequenceDiagram
   GA->>W: workflow_run requested/in_progress
   W->>Q: enqueue (job ID per delivery), then record delivery
   Q->>I: import run → queued/running Build
-  GA->>W: workflow_job completed (dist job)
+  GA->>W: workflow_job completed (publish job)
   W->>Q: enqueue
   Q->>I: download replica-build-v1 → successful Build, preview ready
   GA->>W: workflow_run completed (after screenshots)
@@ -76,7 +76,7 @@ sequenceDiagram
 
 The webhook accepts `workflow_run` (`requested`, `in_progress`, `completed`) for the Replica workflow path, and every completed `workflow_job`, because job events are the earliest signal that the dist artifact exists. `workflow_run.completed` arrives only after every job, including screenshots, so it cannot provide early preview availability.
 
-The route enqueues before recording the delivery receipt. A queue failure therefore leaves the delivery available for manual redelivery; GitHub does not automatically retry failed webhook deliveries. Each delivery gets its own job ID, so an event that arrives while an earlier import of the same run is active still triggers another pass.
+The route enqueues before recording the delivery receipt. A queue failure therefore leaves the delivery unrecorded, so [recovery](#recovery) can redeliver it. Each delivery gets its own job ID, so an event that arrives while an earlier import of the same run is active still triggers another pass.
 
 ## Import worker
 
@@ -103,6 +103,21 @@ Both packages use the same path, size, and entry-count limits as local Builds.
 
 Each pass after the dist import also looks for screenshots. Hub attaches them only when their `distDigest` matches the successful Build. Repeated passes add no duplicates and never replace existing artifact records. Invalid packages are logged and ignored; a digest mismatch leaves screenshots unattached. A Build whose screenshots never arrive stays successful and previewable without them.
 
+## Recovery
+
+GitHub does not retry failed webhook deliveries, so scheduled jobs recover missed events and stalled imports. Each job is idempotent, and none deletes Builds or artifacts.
+
+| Schedule | Job | Purpose |
+| --- | --- | --- |
+| Every minute | `recover-github-webhook-deliveries` | Scans the App's recent webhook deliveries from a saved checkpoint and asks GitHub to redeliver workflow, installation, and access events that Hub never recorded. |
+| Every 5 minutes | `discover-github-workflow-runs` | Lists recent Replica workflow runs for connected repositories and enqueues an import for each, so Builds arrive even without webhooks. |
+| Every 5 minutes | `retry-github-builds-awaiting-import` | Re-enqueues recent GitHub Builds whose dist import or final screenshot pass is still owed. |
+| Every 15 minutes | `reconcile-github-installation` | Refreshes the installation's repository list. |
+
+Webhook redelivery covers deliveries from the past three days, the limit of GitHub's delivery history. A lease lets one worker run at a time. Each missed delivery is retried at most 12 times, with backoff from one minute to one hour, and settled records are removed after 30 days. Redelivery cannot help while Hub is unreachable; discovery and retry then import the Build once Hub is back, as long as its artifact has not expired.
+
+Discovery and retry look back three days, matching the artifacts' retention. Runs older than that, or whose artifacts expired, are not imported.
+
 ## Not yet implemented
 
-Workflow-installation UI, discovery and recovery of missed deliveries, Build start pages and authorship display, and the templates API are later increments. Until recovery exists, a missed delivery can leave its run unimported; operators must monitor and manually redeliver failed webhooks.
+Workflow-installation UI, Build start pages and authorship display, and the templates API are later increments.
