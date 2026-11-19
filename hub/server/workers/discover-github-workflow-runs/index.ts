@@ -27,6 +27,8 @@ export async function discoverGitHubWorkflowRunsJob(): Promise<void> {
       database: prisma,
       listBranchHeads: (githubRepositoryId) =>
         createGitHubActionsClient({ ...credentials, githubRepositoryId }).listBranchHeads(),
+      isAncestor: (githubRepositoryId, base, head) =>
+        createGitHubActionsClient({ ...credentials, githubRepositoryId }).isAncestor(base, head),
       listWorkflowRuns: (githubRepositoryId, createdAfter) =>
         createGitHubActionsClient({ ...credentials, githubRepositoryId }).listWorkflowRuns(
           createdAfter,

@@ -15,13 +15,17 @@ model Prototype {
   shareLinks    ShareLink[]
 
   // Attribute columns
-  branchName      String    @map("branch_name") @db.VarChar(255)
-  name            String?   @db.VarChar(255)
-  description     String?   @db.VarChar(500)
-  startPage       String?   @map("start_page") @db.VarChar(2048)
-  registeredAt    DateTime? @map("registered_at") @db.Timestamptz(3)
-  branchDeletedAt DateTime? @map("branch_deleted_at") @db.Timestamptz(3)
-  replica         Boolean   @default(false)
+  branchName               String    @map("branch_name") @db.VarChar(255)
+  name                     String?   @db.VarChar(255)
+  description              String?   @db.VarChar(500)
+  startPage                String?   @map("start_page") @db.VarChar(2048)
+  registeredAt             DateTime? @map("registered_at") @db.Timestamptz(3)
+  branchDeletedAt          DateTime? @map("branch_deleted_at") @db.Timestamptz(3)
+  retiredHeadSha           String?   @map("retired_head_sha") @db.VarChar(64)
+  branchHeadSha            String?   @map("branch_head_sha") @db.VarChar(64)
+  branchPresenceRevision   Int       @default(0) @map("branch_presence_revision")
+  branchIdentityStartedAt  DateTime? @map("branch_identity_started_at") @db.Timestamptz(3)
+  replica                  Boolean   @default(false)
   // Creation time of the workflow run that last selected the current Build.
   currentBuildRunCreatedAt DateTime? @map("current_build_run_created_at") @db.Timestamptz(3)
 
@@ -31,6 +35,7 @@ model Prototype {
 
   @@unique([id, repositoryId])
   @@index([repositoryId, registeredAt, id])
+  @@index([repositoryId, branchName, branchDeletedAt(sort: Desc), branchPresenceRevision(sort: Desc), id(sort: Desc)], map: "prototypes_branch_identity_idx")
   @@index([authorId])
   @@map("prototypes")
 }

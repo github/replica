@@ -253,6 +253,7 @@ describe("importGitHubWorkflowRun", () => {
         database: prisma,
         listWorkflowRuns: () => Promise.resolve([fixture.run]),
         listBranchHeads: () => Promise.resolve([]),
+        isAncestor: () => Promise.resolve(false),
         logger,
       },
       { createdAfter: new Date("2025-12-31T00:00:00Z") },

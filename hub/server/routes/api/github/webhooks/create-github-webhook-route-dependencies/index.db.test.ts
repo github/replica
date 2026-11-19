@@ -935,9 +935,13 @@ describe("createGitHubWebhookRouteDependencies()", () => {
         where: { id: history.prototypeId },
       })
       expect(retired.branchDeletedAt).toBeInstanceOf(Date)
+      expect(retired.branchPresenceRevision).toBe(before.branchPresenceRevision + 1)
+      expect(retired.retiredHeadSha).toBeNull()
       expect({
         ...retired,
         branchDeletedAt: before.branchDeletedAt,
+        branchPresenceRevision: before.branchPresenceRevision,
+        retiredHeadSha: before.retiredHeadSha,
         updatedAt: before.updatedAt,
       }).toEqual(before)
       await expect(dependencies.handleEvent(event, payload, delivery)).resolves.toBe(true)

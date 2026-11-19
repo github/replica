@@ -3,9 +3,10 @@ import type { Logger } from "pino"
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
 import type { GitHubWorkflowRun } from "../../../integrations/github/create-github-actions-client/types.ts"
 import { listGitHubBuildRuns } from "../../../repositories/github-builds/list-github-build-runs/index.ts"
-import { recordGitHubBranchHeads } from "../../../repositories/github-builds/record-github-branch-heads/index.ts"
+import { listGitHubBranchIdentities } from "../../../repositories/prototypes/list-github-branch-identities/index.ts"
 import { listConnectedGitHubRepositories } from "../../../repositories/repository-access/list-connected-github-repositories/index.ts"
 import type { GitHubWorkflowRunJob } from "../get-github-workflow-run-job-definition/index.ts"
+import { refreshGitHubBranchHeads } from "../refresh-github-branch-heads/index.ts"
 
 type SavedRun = Awaited<ReturnType<typeof listGitHubBuildRuns>>[number]
 
@@ -15,6 +16,7 @@ export interface DiscoverGitHubWorkflowRunsDependencies {
   listBranchHeads: (
     githubRepositoryId: number,
   ) => Promise<{ branchName: string; commitSha: string }[]>
+  isAncestor: (githubRepositoryId: number, base: string, head: string) => Promise<boolean>
   logger: Pick<Logger, "warn">
 }
 
@@ -43,26 +45,34 @@ function settled(run: GitHubWorkflowRun, saved: SavedRun[]) {
  * have been missed. One repository's failure does not block the others.
  */
 export async function discoverGitHubWorkflowRuns(
-  { database, listWorkflowRuns, listBranchHeads, logger }: DiscoverGitHubWorkflowRunsDependencies,
+  {
+    database,
+    listWorkflowRuns,
+    listBranchHeads,
+    isAncestor,
+    logger,
+  }: DiscoverGitHubWorkflowRunsDependencies,
   { createdAfter }: { createdAfter: Date },
 ): Promise<GitHubWorkflowRunJob[]> {
   const jobs: GitHubWorkflowRunJob[] = []
   for (const repository of await listConnectedGitHubRepositories(database)) {
     const githubRepositoryId = Number(repository.githubRepositoryId)
-    const observedAt = new Date()
     try {
-      await recordGitHubBranchHeads(database, {
-        githubRepositoryId,
-        heads: await listBranchHeads(githubRepositoryId),
-        observedAt,
-      })
+      await refreshGitHubBranchHeads({ database, listBranchHeads, isAncestor }, githubRepositoryId)
     } catch (error) {
       logger.warn({ err: error, githubRepositoryId }, "GitHub branch head discovery failed")
     }
     try {
-      const runs = (await listWorkflowRuns(githubRepositoryId, createdAfter)).filter(
-        (run) => run.headBranch !== null && run.headBranch !== "replica/install-workflow",
-      )
+      const identities = await listGitHubBranchIdentities(database, githubRepositoryId)
+      const runs = (await listWorkflowRuns(githubRepositoryId, createdAfter)).filter((run) => {
+        if (!run.headBranch || run.headBranch === "replica/install-workflow") return false
+        const owner = identities.get(run.headBranch)
+        return !(
+          owner?.branchIdentityStartedAt &&
+          run.createdAt <= owner.branchIdentityStartedAt &&
+          run.headSha !== owner.branchHeadSha
+        )
+      })
       const saved = await listGitHubBuildRuns(database, {
         githubRepositoryId,
         runs,

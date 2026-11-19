@@ -7,7 +7,7 @@ import type { GitHubWorkflowRun } from "../../../integrations/github/create-gith
 import { prisma } from "../../../integrations/prisma"
 import { prepareGitHubBuild } from "../../../repositories/github-builds/prepare-github-build"
 import { retireGitHubBranch } from "../../../repositories/prototypes/retire-github-branch"
-import { discoverGitHubWorkflowRuns } from "."
+import { discoverGitHubWorkflowRuns, type DiscoverGitHubWorkflowRunsDependencies } from "."
 
 const createdAfter = new Date(Date.now() - 60 * 60 * 1_000)
 
@@ -68,6 +68,61 @@ async function createRepository() {
   }
 }
 
+async function createBranchFixture() {
+  const repository = await createRepository()
+  const input = {
+    githubRepositoryId: repository.githubRepositoryId,
+    branchName: "proto/welcome",
+    commitSha: "a".repeat(40),
+    run: {
+      runId: 100n,
+      runAttempt: 1,
+      workflowUrl: "https://github.com/o/r/actions/runs/100",
+      createdAt: new Date("2026-11-18T10:00:00Z"),
+    },
+    author: null,
+  }
+  const prepared = await prepareGitHubBuild(prisma, input)
+  if (prepared.status !== "ready") throw new Error("The fixture Build must exist.")
+  const prototype = await prisma.prototype.findFirstOrThrow({
+    where: { repositoryId: repository.id, branchName: input.branchName },
+  })
+  function poll(
+    commitSha = input.commitSha,
+    dependencies: Partial<DiscoverGitHubWorkflowRunsDependencies> = {},
+  ) {
+    return discoverGitHubWorkflowRuns(
+      {
+        database: prisma,
+        listBranchHeads: vi.fn(() =>
+          Promise.resolve([{ branchName: input.branchName, commitSha }]),
+        ),
+        listWorkflowRuns: vi.fn(() => Promise.resolve([])),
+        isAncestor: vi.fn(() => Promise.resolve(false)),
+        logger: { warn: vi.fn() },
+        ...dependencies,
+      },
+      { createdAfter },
+    )
+  }
+  await poll()
+  return {
+    repository,
+    input,
+    prototypeId: prototype.id,
+    buildId: prepared.buildId,
+    poll,
+    retire: () =>
+      prisma.$transaction((transaction) =>
+        retireGitHubBranch(transaction, {
+          githubRepositoryId: repository.githubRepositoryId,
+          branchName: input.branchName,
+        }),
+      ),
+    read: () => prisma.prototype.findUniqueOrThrow({ where: { id: prototype.id } }),
+  }
+}
+
 describe("discoverGitHubWorkflowRuns", () => {
   it("queues runs whose Build is missing or can still change", async () => {
     const repository = await createRepository()
@@ -107,6 +162,7 @@ describe("discoverGitHubWorkflowRuns", () => {
       {
         database: prisma,
         listWorkflowRuns,
+        isAncestor: vi.fn(() => Promise.resolve(false)),
         listBranchHeads: () => Promise.resolve([]),
         logger: { warn: vi.fn() },
       },
@@ -134,6 +190,7 @@ describe("discoverGitHubWorkflowRuns", () => {
     const jobs = await discoverGitHubWorkflowRuns(
       {
         database: prisma,
+        isAncestor: vi.fn(() => Promise.resolve(false)),
         listWorkflowRuns: () => Promise.resolve([settledOwner, reused, old, owner]),
         listBranchHeads: () => Promise.resolve([]),
         logger: { warn: vi.fn() },
@@ -157,6 +214,7 @@ describe("discoverGitHubWorkflowRuns", () => {
     const jobs = await discoverGitHubWorkflowRuns(
       {
         database: prisma,
+        isAncestor: vi.fn(() => Promise.resolve(false)),
         listWorkflowRuns: (id) =>
           Promise.resolve(
             id === repository.githubRepositoryId
@@ -183,6 +241,7 @@ describe("discoverGitHubWorkflowRuns", () => {
     const jobs = await discoverGitHubWorkflowRuns(
       {
         database: prisma,
+        isAncestor: vi.fn(() => Promise.resolve(false)),
         listBranchHeads: () => Promise.resolve([]),
         listWorkflowRuns: (githubRepositoryId) =>
           githubRepositoryId === broken.githubRepositoryId
@@ -269,7 +328,13 @@ describe("discoverGitHubWorkflowRuns", () => {
 
     await expect(
       discoverGitHubWorkflowRuns(
-        { database: prisma, listBranchHeads, listWorkflowRuns, logger: { warn: vi.fn() } },
+        {
+          database: prisma,
+          isAncestor: vi.fn(() => Promise.resolve(false)),
+          listBranchHeads,
+          listWorkflowRuns,
+          logger: { warn: vi.fn() },
+        },
         { createdAfter },
       ),
     ).resolves.toEqual([])
@@ -361,6 +426,7 @@ describe("discoverGitHubWorkflowRuns", () => {
     await discoverGitHubWorkflowRuns(
       {
         database: prisma,
+        isAncestor: vi.fn(() => Promise.resolve(false)),
         listBranchHeads: () =>
           Promise.resolve([{ branchName: input.branchName, commitSha: input.commitSha }]),
         listWorkflowRuns: () => Promise.resolve([]),
@@ -368,7 +434,12 @@ describe("discoverGitHubWorkflowRuns", () => {
       },
       { createdAfter },
     )
-    expect(await prisma.prototype.findUniqueOrThrow({ where: { id: before.id } })).toEqual(before)
+    expect(await prisma.prototype.findUniqueOrThrow({ where: { id: before.id } })).toMatchObject({
+      currentBuildId: before.currentBuildId,
+      currentBuildRunCreatedAt: before.currentBuildRunCreatedAt,
+      branchHeadSha: input.commitSha,
+      branchPresenceRevision: before.branchPresenceRevision + 1,
+    })
     expect(
       await prisma.branchHeadObservation.findUniqueOrThrow({
         where: {
@@ -418,6 +489,7 @@ describe("discoverGitHubWorkflowRuns", () => {
     await discoverGitHubWorkflowRuns(
       {
         database: prisma,
+        isAncestor: vi.fn(() => Promise.resolve(false)),
         listBranchHeads: async () => {
           vi.setSystemTime(new Date("2026-11-18T12:01:00Z"))
           const newer = await prepareGitHubBuild(prisma, {
@@ -450,7 +522,7 @@ describe("discoverGitHubWorkflowRuns", () => {
     })
   })
 
-  it("restores a deleted branch only from a listing that began after its deletion", async () => {
+  it("restores an equal retired head without comparison, but not from a pre-deletion listing", async () => {
     vi.useFakeTimers({ toFake: ["Date"] })
     vi.setSystemTime(new Date("2026-11-18T12:00:00Z"))
     const repository = await createRepository()
@@ -484,6 +556,7 @@ describe("discoverGitHubWorkflowRuns", () => {
       )
     }
     await retire()
+    const isAncestor = vi.fn(() => Promise.resolve(false))
     const recreated = workflowRun(githubRepositoryId, { headBranch: branchName })
     function discover(
       at: string,
@@ -493,6 +566,7 @@ describe("discoverGitHubWorkflowRuns", () => {
       return discoverGitHubWorkflowRuns(
         {
           database: prisma,
+          isAncestor,
           listBranchHeads: heads,
           listWorkflowRuns: () => Promise.resolve([recreated]),
           logger: { warn: vi.fn() },
@@ -522,6 +596,7 @@ describe("discoverGitHubWorkflowRuns", () => {
       { branchDeletedAt: null, name: "Welcome", description: "Saved description" },
     )
     expect(await prisma.build.findMany({ where: { prototypeId: prototype.id } })).toEqual(builds)
+    expect(isAncestor).not.toHaveBeenCalled()
     await expect(
       prepareGitHubBuild(prisma, {
         ...input,
@@ -529,5 +604,400 @@ describe("discoverGitHubWorkflowRuns", () => {
         run: { ...input.run, runId: BigInt(recreated.id), createdAt: recreated.createdAt },
       }),
     ).resolves.toMatchObject({ status: "ready" })
+  })
+
+  it("restores the same identity when GitHub proves the retired head is an ancestor", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-11-18T12:00:00Z"))
+    const branch = await createBranchFixture()
+    await prisma.prototype.update({
+      where: { id: branch.prototypeId },
+      data: { name: "Welcome", registeredAt: new Date(), description: "Retained" },
+    })
+    await branch.retire()
+    vi.setSystemTime(new Date("2026-11-18T12:01:00Z"))
+    const head = "b".repeat(40)
+    const isAncestor = vi.fn(() => Promise.resolve(true))
+
+    await branch.poll(head, { isAncestor })
+
+    expect(isAncestor).toHaveBeenCalledWith(
+      branch.repository.githubRepositoryId,
+      branch.input.commitSha,
+      head,
+    )
+    expect(await branch.read()).toMatchObject({
+      branchDeletedAt: null,
+      branchHeadSha: head,
+      name: "Welcome",
+      description: "Retained",
+      registeredAt: new Date("2026-11-18T12:00:00Z"),
+    })
+    expect(await prisma.prototype.count()).toBe(1)
+  })
+
+  it("isolates an unrelated replacement from every older identity and rejects historical imports", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-11-18T12:00:00Z"))
+    const branch = await createBranchFixture()
+    const head = "b".repeat(40)
+    const older = await prisma.prototype.create({
+      data: {
+        repositoryId: branch.repository.id,
+        branchName: branch.input.branchName,
+        branchDeletedAt: new Date("2026-11-18T09:00:00Z"),
+        retiredHeadSha: head,
+        name: "Older matching generation",
+      },
+    })
+    const author = await prisma.user.create({ data: {} })
+    await prisma.prototype.update({
+      where: { id: branch.prototypeId },
+      data: {
+        name: "Saved prototype",
+        description: "Saved description",
+        startPage: "/saved",
+        authorId: author.id,
+        registeredAt: new Date(),
+      },
+    })
+    await prisma.build.update({
+      where: { id: branch.buildId },
+      data: { state: "successful" },
+    })
+    await prisma.reviewThread.create({
+      data: {
+        repositoryId: branch.repository.id,
+        prototypeId: branch.prototypeId,
+        buildId: branch.buildId,
+        anchor: { schemaVersion: 1, kind: "element", selector: "#content" },
+        comments: {
+          create: { authorId: author.id, authorLogin: "mona", body: "Retained review" },
+        },
+      },
+    })
+    await prisma.shareLink.create({
+      data: {
+        prototypeId: branch.prototypeId,
+        buildId: branch.buildId,
+        createdById: author.id,
+        createdByLogin: "mona",
+        publicId: randomUUID(),
+        label: "Retained link",
+        expiresAt: new Date("2026-12-18T12:00:00Z"),
+      },
+    })
+    await branch.retire()
+    const history = await prisma.prototype.findUniqueOrThrow({
+      where: { id: branch.prototypeId },
+      include: { builds: true, reviewThreads: { include: { comments: true } }, shareLinks: true },
+    })
+    vi.setSystemTime(new Date("2026-11-18T12:01:00Z"))
+    const isAncestor = vi.fn(() => Promise.resolve(false))
+
+    await branch.poll(head, { isAncestor })
+
+    const replacement = await prisma.prototype.findFirstOrThrow({
+      where: { repositoryId: branch.repository.id, branchDeletedAt: null },
+      include: { builds: true, reviewThreads: true, shareLinks: true },
+    })
+    expect(replacement).toMatchObject({
+      branchName: branch.input.branchName,
+      branchHeadSha: head,
+      branchIdentityStartedAt: new Date("2026-11-18T12:00:00Z"),
+      registeredAt: null,
+      authorId: null,
+      description: null,
+      startPage: null,
+      currentBuildId: null,
+      builds: [],
+      reviewThreads: [],
+      shareLinks: [],
+    })
+    expect([branch.prototypeId, older.id]).not.toContain(replacement.id)
+    expect(replacement.name === null || replacement.name === branch.input.branchName).toBe(true)
+    expect(isAncestor.mock.calls).toEqual([
+      [branch.repository.githubRepositoryId, branch.input.commitSha, head],
+    ])
+    expect(
+      await prisma.prototype.findUniqueOrThrow({
+        where: { id: branch.prototypeId },
+        include: { builds: true, reviewThreads: { include: { comments: true } }, shareLinks: true },
+      }),
+    ).toEqual(history)
+    expect(await prisma.prototype.findUniqueOrThrow({ where: { id: older.id } })).toEqual(older)
+
+    const rejected = await prepareGitHubBuild(prisma, {
+      ...branch.input,
+      commitSha: "c".repeat(40),
+      run: { ...branch.input.run, runId: 101n },
+    })
+    expect(rejected.status).not.toBe("ready")
+    expect(await prisma.build.count({ where: { prototypeId: replacement.id } })).toBe(0)
+    const historicalRun = workflowRun(branch.repository.githubRepositoryId, {
+      headBranch: branch.input.branchName,
+      headSha: "c".repeat(40),
+      createdAt: branch.input.run.createdAt,
+    })
+    const recreatedRun = workflowRun(branch.repository.githubRepositoryId, {
+      headBranch: branch.input.branchName,
+      headSha: "d".repeat(40),
+      createdAt: new Date("2026-11-18T12:00:30Z"),
+    })
+    expect(
+      await branch.poll(head, {
+        listWorkflowRuns: () => Promise.resolve([historicalRun, recreatedRun]),
+      }),
+    ).toEqual([
+      { githubRepositoryId: branch.repository.githubRepositoryId, runId: recreatedRun.id },
+    ])
+    const current = await prepareGitHubBuild(prisma, {
+      ...branch.input,
+      commitSha: head,
+      run: { ...branch.input.run, runId: 102n },
+    })
+    if (current.status !== "ready") throw new Error("The confirmed current head must import.")
+    expect(await prisma.build.findUniqueOrThrow({ where: { id: current.buildId } })).toMatchObject({
+      prototypeId: replacement.id,
+      number: 1,
+    })
+
+    vi.setSystemTime(new Date("2026-11-18T12:02:00Z"))
+    await branch.retire()
+    vi.setSystemTime(new Date("2026-11-18T12:03:00Z"))
+    const compareAgain = vi.fn(() => Promise.resolve(false))
+    await branch.poll(head, { isAncestor: compareAgain })
+    expect(compareAgain).not.toHaveBeenCalled()
+    expect(
+      await prisma.prototype.findFirstOrThrow({
+        where: { repositoryId: branch.repository.id, branchDeletedAt: null },
+      }),
+    ).toMatchObject({ id: replacement.id, registeredAt: null, description: null })
+    expect(await prisma.prototype.count()).toBe(3)
+  })
+
+  it("creates a separate unbuilt identity when the retired head is unknown", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-11-18T12:00:00Z"))
+    const repository = await createRepository()
+    const branchName = "proto/unbuilt"
+    await prisma.$transaction((transaction) =>
+      retireGitHubBranch(transaction, {
+        githubRepositoryId: repository.githubRepositoryId,
+        branchName,
+      }),
+    )
+    const retired = await prisma.prototype.findFirstOrThrow({
+      where: { repositoryId: repository.id, branchName },
+    })
+    const isAncestor = vi.fn(() => Promise.resolve(true))
+    vi.setSystemTime(new Date("2026-11-18T12:01:00Z"))
+
+    await discoverGitHubWorkflowRuns(
+      {
+        database: prisma,
+        listBranchHeads: () => Promise.resolve([{ branchName, commitSha: "a".repeat(40) }]),
+        listWorkflowRuns: () => Promise.resolve([]),
+        isAncestor,
+        logger: { warn: vi.fn() },
+      },
+      { createdAfter },
+    )
+
+    expect(isAncestor).not.toHaveBeenCalled()
+    expect(await prisma.prototype.findUniqueOrThrow({ where: { id: retired.id } })).toEqual(retired)
+    const active = await prisma.prototype.findFirstOrThrow({
+      where: { repositoryId: repository.id, branchName, branchDeletedAt: null },
+    })
+    expect(active.id).not.toBe(retired.id)
+    expect(active).toMatchObject({ registeredAt: null, currentBuildId: null })
+    expect(await prisma.build.count()).toBe(0)
+  })
+
+  it("does not let a settled old Build suppress recovery for a separate identity at the same SHA", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-11-18T12:00:00Z"))
+    const branch = await createBranchFixture()
+    await prisma.build.update({
+      where: { id: branch.buildId },
+      data: { state: "successful", workflowCompletedAt: new Date() },
+    })
+    await branch.retire()
+    await prisma.prototype.update({
+      where: { id: branch.prototypeId },
+      data: { retiredHeadSha: null },
+    })
+    const run = workflowRun(branch.repository.githubRepositoryId, {
+      id: Number(branch.input.run.runId),
+      headBranch: branch.input.branchName,
+      headSha: branch.input.commitSha,
+      createdAt: branch.input.run.createdAt,
+    })
+    vi.setSystemTime(new Date("2026-11-18T12:01:00Z"))
+    const isAncestor = vi.fn(() => Promise.resolve(true))
+
+    expect(
+      await branch.poll(run.headSha, {
+        isAncestor,
+        listWorkflowRuns: () => Promise.resolve([run]),
+      }),
+    ).toEqual([{ githubRepositoryId: branch.repository.githubRepositoryId, runId: run.id }])
+    expect(isAncestor).not.toHaveBeenCalled()
+    const replacement = await prisma.prototype.findFirstOrThrow({
+      where: { repositoryId: branch.repository.id, branchDeletedAt: null },
+    })
+    expect(replacement.id).not.toBe(branch.prototypeId)
+    const prepared = await prepareGitHubBuild(prisma, branch.input)
+    if (prepared.status !== "ready") throw new Error("The confirmed current head must import.")
+    expect(prepared.buildId).not.toBe(branch.buildId)
+    expect(await prisma.build.findUniqueOrThrow({ where: { id: prepared.buildId } })).toMatchObject(
+      {
+        prototypeId: replacement.id,
+        commitSha: run.headSha,
+      },
+    )
+    expect(await prisma.build.findUniqueOrThrow({ where: { id: branch.buildId } })).toMatchObject({
+      prototypeId: branch.prototypeId,
+      state: "successful",
+    })
+  })
+
+  it("leaves retired history untouched and warns when ancestry cannot be established", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-11-18T12:00:00Z"))
+    const branch = await createBranchFixture()
+    await branch.retire()
+    const retired = await branch.read()
+    const warn = vi.fn()
+    const error = new Error("GitHub comparison unavailable")
+    vi.setSystemTime(new Date("2026-11-18T12:01:00Z"))
+
+    await branch.poll("b".repeat(40), {
+      isAncestor: vi.fn(() => Promise.reject(error)),
+      logger: { warn },
+    })
+
+    expect(await branch.read()).toEqual(retired)
+    expect(await prisma.prototype.count()).toBe(1)
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        err: error,
+        githubRepositoryId: branch.repository.githubRepositoryId,
+      }),
+      expect.any(String),
+    )
+  })
+
+  it("does not overwrite a newer observation with a stale comparison for the same owner", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-11-18T12:00:00Z"))
+    const branch = await createBranchFixture()
+    await branch.retire()
+    vi.setSystemTime(new Date("2026-11-18T12:01:00Z"))
+    let newer = await branch.read()
+
+    await branch.poll("b".repeat(40), {
+      isAncestor: vi.fn(async () => {
+        await branch.poll("c".repeat(40), { isAncestor: vi.fn(() => Promise.resolve(true)) })
+        newer = await branch.read()
+        return true
+      }),
+    })
+
+    expect(await branch.read()).toEqual(newer)
+    expect(newer).toMatchObject({ branchDeletedAt: null, branchHeadSha: "c".repeat(40) })
+    expect(await prisma.prototype.count()).toBe(1)
+  })
+
+  it("does not overwrite a newer observation of the same SHA with a stale listing", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-11-18T12:00:00Z"))
+    const branch = await createBranchFixture()
+    const before = await branch.read()
+    let newer = before
+    const stale = "b".repeat(40)
+    vi.setSystemTime(new Date("2026-11-18T12:01:00Z"))
+
+    await branch.poll(stale, {
+      listBranchHeads: async () => {
+        await branch.poll()
+        newer = await branch.read()
+        return [{ branchName: branch.input.branchName, commitSha: stale }]
+      },
+    })
+
+    expect(newer.branchPresenceRevision).toBeGreaterThan(before.branchPresenceRevision)
+    expect(await branch.read()).toEqual(newer)
+    expect(newer.branchHeadSha).toBe(branch.input.commitSha)
+  })
+
+  it("does not apply stale comparison evidence to a replaced owner", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-11-18T12:00:00Z"))
+    const branch = await createBranchFixture()
+    await branch.retire()
+    vi.setSystemTime(new Date("2026-11-18T12:01:00Z"))
+    let replacementId: string | undefined
+
+    await branch.poll("b".repeat(40), {
+      isAncestor: vi.fn(async () => {
+        await branch.poll("c".repeat(40))
+        replacementId = (
+          await prisma.prototype.findFirstOrThrow({
+            where: { repositoryId: branch.repository.id, branchDeletedAt: null },
+          })
+        ).id
+        return true
+      }),
+    })
+
+    expect(replacementId).toBeDefined()
+    const active = await prisma.prototype.findMany({ where: { branchDeletedAt: null } })
+    expect(active).toMatchObject([{ id: replacementId, branchHeadSha: "c".repeat(40) }])
+    expect((await branch.read()).branchDeletedAt).not.toBeNull()
+    expect(await prisma.prototype.count()).toBe(2)
+  })
+
+  it("keeps the first retirement head fixed when an older run is imported before redelivery", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-11-18T12:00:00Z"))
+    const branch = await createBranchFixture()
+    vi.setSystemTime(new Date("2026-11-18T12:00:30Z"))
+    const historical = await prepareGitHubBuild(prisma, {
+      ...branch.input,
+      commitSha: "b".repeat(40),
+      run: { ...branch.input.run, runId: 99n, createdAt: new Date("2026-11-18T09:00:00Z") },
+    })
+    expect(historical.status).toBe("ready")
+    vi.setSystemTime(new Date("2026-11-18T12:01:00Z"))
+    await branch.retire()
+    const retired = await branch.read()
+    expect(retired.retiredHeadSha).toBe(branch.input.commitSha)
+    vi.setSystemTime(new Date("2026-11-18T12:02:00Z"))
+
+    await prepareGitHubBuild(prisma, {
+      ...branch.input,
+      commitSha: "c".repeat(40),
+      run: { ...branch.input.run, runId: 98n, createdAt: new Date("2026-11-18T08:00:00Z") },
+    })
+    await branch.retire()
+
+    expect(await branch.read()).toMatchObject({
+      retiredHeadSha: branch.input.commitSha,
+      branchDeletedAt: new Date("2026-11-18T12:02:00Z"),
+      registeredAt: null,
+    })
+    expect((await branch.read()).branchPresenceRevision).toBeGreaterThan(
+      retired.branchPresenceRevision,
+    )
+    vi.setSystemTime(new Date("2026-11-18T12:03:00Z"))
+    const isAncestor = vi.fn(() => Promise.resolve(false))
+    await branch.poll("b".repeat(40), { isAncestor })
+    expect(isAncestor).toHaveBeenCalledWith(
+      branch.repository.githubRepositoryId,
+      branch.input.commitSha,
+      "b".repeat(40),
+    )
+    expect((await branch.read()).branchDeletedAt).not.toBeNull()
   })
 })

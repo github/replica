@@ -41,6 +41,11 @@ const branchHeadsSchema = z.array(
     commit: z.looseObject({ sha: z.string().regex(/^[0-9a-f]{40}$/) }),
   }),
 )
+const comparisonSchema = z.looseObject({
+  status: z.enum(["ahead", "behind", "diverged"]),
+  base_commit: z.looseObject({ sha: z.string().regex(/^[0-9a-f]{40}$/) }),
+  merge_base_commit: z.looseObject({ sha: z.string().regex(/^[0-9a-f]{40}$/) }),
+})
 const artifactsSchema = z.looseObject({
   total_count: z.number().int().nonnegative(),
   artifacts: z.array(
@@ -180,6 +185,30 @@ export function createGitHubActionsClient(
       throw new GitHubProviderRequestError({
         cause: new Error("Branch discovery exceeded its ten-page limit."),
       })
+    },
+
+    /** A shared ancestor is insufficient: the complete saved head must be contained. */
+    async isAncestor(base: string, head: string): Promise<boolean> {
+      if (!/^[0-9a-f]{40}$/.test(base) || !/^[0-9a-f]{40}$/.test(head)) {
+        throw new GitHubProviderRequestError({ cause: new Error("Invalid branch ancestry SHA.") })
+      }
+      if (base === head) return true
+      const comparison = await parse(
+        comparisonSchema,
+        await send(`${repositoryPath}/compare/${base}...${head}`, await installationToken()),
+      )
+      const mergeBase = comparison.merge_base_commit.sha
+      if (
+        comparison.base_commit.sha !== base ||
+        (comparison.status === "ahead") !== (mergeBase === base) ||
+        (comparison.status === "behind" && mergeBase !== head) ||
+        (comparison.status === "diverged" && mergeBase === head)
+      ) {
+        throw new GitHubProviderRequestError({
+          cause: new Error("GitHub returned contradictory branch ancestry."),
+        })
+      }
+      return comparison.status === "ahead"
     },
 
     /** Returns the run, or null when GitHub no longer has it for this repository. */

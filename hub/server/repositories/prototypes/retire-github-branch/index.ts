@@ -1,8 +1,9 @@
 import type { Prisma } from "../../../generated/prisma/client.ts"
 
 /**
- * Keeps a tombstone even when deletion arrives before the branch's first import. Branch
- * discovery restores it only from a complete listing taken after this deletion.
+ * Keeps a tombstone even when deletion arrives before the branch's first import.
+ * The first retirement fixes the continuity anchor; later historical imports or delete
+ * deliveries must not replace it.
  */
 export async function retireGitHubBranch(
   database: Prisma.TransactionClient,
@@ -22,20 +23,36 @@ export async function retireGitHubBranch(
   const where = { repositoryId: repository.id, branchName: input.branchName }
   const existing = await database.prototype.findFirst({
     where,
-    orderBy: [{ branchDeletedAt: { sort: "desc", nulls: "first" } }, { id: "desc" }],
-    select: { id: true },
+    orderBy: [
+      { branchDeletedAt: { sort: "desc", nulls: "first" } },
+      { branchPresenceRevision: "desc" },
+      { id: "desc" },
+    ],
+    select: {
+      id: true,
+      branchDeletedAt: true,
+      branchHeadSha: true,
+      currentBuild: { select: { commitSha: true } },
+    },
   })
   if (existing) {
     // A repeated deletion refreshes the tombstone so an older branch listing cannot restore it.
     await database.prototype.update({
       where: { id: existing.id },
-      data: { branchDeletedAt: new Date() },
+      data: {
+        branchDeletedAt: new Date(),
+        branchPresenceRevision: { increment: 1 },
+        ...(!existing.branchDeletedAt
+          ? { retiredHeadSha: existing.branchHeadSha ?? existing.currentBuild?.commitSha ?? null }
+          : {}),
+      },
     })
   } else {
     await database.prototype.create({
       data: {
         ...where,
         branchDeletedAt: new Date(),
+        branchPresenceRevision: 1,
         replica: input.branchName === repository.defaultBranch,
       },
     })

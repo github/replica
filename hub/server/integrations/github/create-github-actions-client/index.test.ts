@@ -288,4 +288,79 @@ describe("createGitHubActionsClient", () => {
       await expect(client.listBranchHeads()).rejects.toThrow(GitHubProviderRequestError)
     },
   )
+
+  it("recognizes an identical head without requesting GitHub evidence", async () => {
+    const fetch = respond(() => Response.json({}))
+    const client = createGitHubActionsClient(input, { fetch })
+    const sha = "a".repeat(40)
+
+    await expect(client.isAncestor(sha, sha)).resolves.toBe(true)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { status: "ahead", mergeBase: "a", expected: true },
+    { status: "behind", mergeBase: "b", expected: false },
+    { status: "diverged", mergeBase: "c", expected: false },
+  ])("returns $expected for verified $status ancestry", async ({ status, mergeBase, expected }) => {
+    const base = "a".repeat(40)
+    const head = "b".repeat(40)
+    const fetch = respond((url) => {
+      expect(url.pathname).toBe(`/repositories/56/compare/${base}...${head}`)
+      return Response.json({
+        status,
+        base_commit: { sha: base },
+        merge_base_commit: { sha: mergeBase.repeat(40) },
+      })
+    })
+    const client = createGitHubActionsClient(input, { fetch })
+
+    await expect(client.isAncestor(base, head)).resolves.toBe(expected)
+  })
+
+  it.each([
+    {},
+    { status: "ahead", base_commit: { sha: "a".repeat(40) } },
+    {
+      status: "ahead",
+      base_commit: { sha: "c".repeat(40) },
+      merge_base_commit: { sha: "a".repeat(40) },
+    },
+    {
+      status: "ahead",
+      base_commit: { sha: "a".repeat(40) },
+      merge_base_commit: { sha: "c".repeat(40) },
+    },
+    {
+      status: "identical",
+      base_commit: { sha: "a".repeat(40) },
+      merge_base_commit: { sha: "a".repeat(40) },
+    },
+    {
+      status: "behind",
+      base_commit: { sha: "a".repeat(40) },
+      merge_base_commit: { sha: "a".repeat(40) },
+    },
+    {
+      status: "diverged",
+      base_commit: { sha: "a".repeat(40) },
+      merge_base_commit: { sha: "b".repeat(40) },
+    },
+  ])("rejects malformed or contradictory comparison evidence %#", async (comparison) => {
+    const fetch = respond(() => Response.json(comparison))
+    const client = createGitHubActionsClient(input, { fetch })
+
+    await expect(client.isAncestor("a".repeat(40), "b".repeat(40))).rejects.toThrow(
+      GitHubProviderRequestError,
+    )
+  })
+
+  it.each([404, 503])("does not interpret HTTP %s as ancestry evidence", async (status) => {
+    const fetch = respond(() => new Response("{}", { status }))
+    const client = createGitHubActionsClient(input, { fetch })
+
+    await expect(client.isAncestor("a".repeat(40), "b".repeat(40))).rejects.toThrow(
+      GitHubProviderRequestError,
+    )
+  })
 })

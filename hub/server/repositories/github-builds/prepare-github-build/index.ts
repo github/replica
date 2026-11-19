@@ -77,9 +77,18 @@ export async function prepareGitHubBuild(
               id: true,
               currentBuildId: true,
               currentBuildRunCreatedAt: true,
+              branchIdentityStartedAt: true,
+              branchHeadSha: true,
               currentBuild: { select: { createdAt: true, workflowCreatedAt: true } },
             },
           })
+          if (
+            prototype?.branchIdentityStartedAt &&
+            run.createdAt <= prototype.branchIdentityStartedAt &&
+            input.commitSha !== prototype.branchHeadSha
+          ) {
+            return { status: "deleted-branch" as const }
+          }
           if (!prototype) {
             const retired = await transaction.prototype.findFirst({
               where: {
@@ -99,7 +108,13 @@ export async function prepareGitHubBuild(
                 name: input.branchName,
                 replica: input.branchName === repository.defaultBranch,
               },
-              select: { id: true, currentBuildId: true, currentBuildRunCreatedAt: true },
+              select: {
+                id: true,
+                currentBuildId: true,
+                currentBuildRunCreatedAt: true,
+                branchIdentityStartedAt: true,
+                branchHeadSha: true,
+              },
             })),
             currentBuild: null,
           }
@@ -180,7 +195,12 @@ export async function prepareGitHubBuild(
           if (build.state !== "superseded" && !alreadyCurrent && selectsNewRun) {
             await transaction.prototype.update({
               where: { id: prototype.id },
-              data: { currentBuildId: build.id, currentBuildRunCreatedAt: run.createdAt },
+              data: {
+                currentBuildId: build.id,
+                currentBuildRunCreatedAt: run.createdAt,
+                branchHeadSha: input.commitSha,
+                branchPresenceRevision: { increment: 1 },
+              },
             })
           }
 
