@@ -6,6 +6,7 @@ import hashlib
 import json
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -483,6 +484,11 @@ class _PostgresCursor:
                     row["version"],
                 )
             return
+        if query.startswith("SELECT 1 FROM replica_decision_jobs"):
+            scope, job_id = parameters
+            if (scope, job_id) in self.database.sql_jobs:
+                self._one = (1,)
+            return
         if query.startswith("INSERT INTO replica_decision_jobs"):
             scope, job_id, record, create_key, create_digest = parameters
             self.database.sql_jobs[(scope, job_id)] = {
@@ -925,6 +931,40 @@ class AzureBlobTasksetConnectorTest(unittest.TestCase):
 
         self.assertEqual(losing_request.exception.code, "idempotency_conflict")
         self.assertEqual(blobs.blobs, winner_blobs)
+
+    def test_concurrent_resolution_atomically_publishes_one_cache(self):
+        directory = write_taskset(
+            self,
+            [
+                make_task(1, answer=True),
+                make_task(2, split="test", answer=True),
+            ],
+        )
+        scope = RuntimeScope("tenant-one", "github/acme/repo")
+        blobs = _BlobService()
+        writer = AzureBlobTasksetConnector(blobs, scope)
+        registered = writer.register(
+            taskset_bundle(directory),
+            _context(scope, "register-concurrent"),
+        )
+        writer.close()
+        connector = AzureBlobTasksetConnector(blobs, scope)
+        self.addCleanup(connector.close)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = tuple(
+                executor.map(
+                    lambda operation: connector.resolve(
+                        registered.reference,
+                        _context(scope, operation),
+                    ),
+                    ("resolve-one", "resolve-two"),
+                )
+            )
+
+        self.assertEqual(results[0], results[1])
+        self.assertEqual(results[0].reference, registered.reference)
+        self.assertEqual(results[0].digest, registered.digest)
 
 
 class AzurePostgresConnectorTest(unittest.TestCase):

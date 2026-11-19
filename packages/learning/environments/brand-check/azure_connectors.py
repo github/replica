@@ -578,27 +578,37 @@ class AzureBlobTasksetConnector(_AzureScopedConnector):
         root = self._cache_root / digest.value
         if not root.is_dir():
             archive = _download_bytes(self.container, self._name(digest))
-            root.mkdir(mode=0o700)
+            staging = self._cache_root / f".{digest.value}.{uuid.uuid4().hex}"
+            staging.mkdir(mode=0o700)
             try:
                 with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as source:
-                    _extract_taskset_archive(source, root)
-                taskset = load_taskset(root)
+                    _extract_taskset_archive(source, staging)
+                staged_taskset = load_taskset(staging)
+                if taskset_digest(staged_taskset) != digest:
+                    raise TasksetError(
+                        "The stored taskset no longer matches its immutable identity."
+                    )
+                try:
+                    staging.rename(root)
+                except OSError:
+                    if not root.is_dir():
+                        raise
             except (tarfile.TarError, TasksetError, OSError):
-                shutil.rmtree(root, ignore_errors=True)
                 raise ConnectorError(
                     "taskset_damaged",
                     "The stored taskset is invalid.",
                     category="integrity",
                 ) from None
-        else:
-            try:
-                taskset = load_taskset(root)
-            except TasksetError:
-                raise ConnectorError(
-                    "taskset_damaged",
-                    "The stored taskset is invalid.",
-                    category="integrity",
-                ) from None
+            finally:
+                shutil.rmtree(staging, ignore_errors=True)
+        try:
+            taskset = load_taskset(root)
+        except TasksetError:
+            raise ConnectorError(
+                "taskset_damaged",
+                "The stored taskset is invalid.",
+                category="integrity",
+            ) from None
         if taskset_digest(taskset) != digest:
             raise ConnectorError(
                 "taskset_damaged",
@@ -739,6 +749,11 @@ class AzurePostgresJobConnector(_AzurePostgresConnector):
                 )
                 self._execute(
                     cursor,
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                    (f"replica-decision-job:{self.scope_key}:{job_id}",),
+                )
+                self._execute(
+                    cursor,
                     """
                     SELECT job_id, create_request_digest, record, version
                     FROM replica_decision_jobs
@@ -756,6 +771,20 @@ class AzurePostgresJobConnector(_AzurePostgresConnector):
                             category="conflict",
                         )
                     return dict(_loaded_json(retry[2]), version=retry[3])
+                self._execute(
+                    cursor,
+                    """
+                    SELECT 1 FROM replica_decision_jobs
+                    WHERE scope_key = %s AND job_id = %s
+                    """,
+                    (self.scope_key, job_id),
+                )
+                if cursor.fetchone() is not None:
+                    raise ConnectorError(
+                        "job_exists",
+                        "The job already exists.",
+                        category="conflict",
+                    )
                 self._execute(
                     cursor,
                     """
@@ -1149,6 +1178,14 @@ class AzurePostgresCandidateConnector(_AzurePostgresConnector):
             with self._transaction() as cursor:
                 self._execute(
                     cursor,
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                    (
+                        "replica-decision-candidate:"
+                        f"{self.scope_key}:{candidate.id}",
+                    ),
+                )
+                self._execute(
+                    cursor,
                     """
                     SELECT digest, descriptor FROM replica_decision_candidates
                     WHERE scope_key = %s AND candidate_id = %s
@@ -1504,6 +1541,11 @@ class AzureContainerAppsTrainingConnector:
                     category="unavailable",
                     retryable=True,
                 ) from error
+            try:
+                check_context(context)
+            except ConnectorError:
+                self._cancel(execution_id, token)
+                raise
             state = status.get("state")
             if state in _TERMINAL_JOB_STATES:
                 break
