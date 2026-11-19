@@ -65,3 +65,12 @@ describe("GitHub Build recovery schedules", () => {
     },
   )
 })
+
+describe("GitHub webhook recovery schedule", () => {
+  it("checks for missed deliveries every minute without stacking retries", () => {
+    const schedule = jobSchedules.find((candidate) => candidate.id === "github-webhook-recovery")
+    expect(schedule?.repeat).toEqual({ every: 60_000 })
+    expect(schedule?.definition.options).toEqual({ attempts: 1 })
+    expect(jobProcessors.scheduled.map(({ name }) => name)).toContain(schedule?.definition.name)
+  })
+})

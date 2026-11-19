@@ -14,6 +14,7 @@ import type {
 import { logger } from "../integrations/pino/index.ts"
 import { discoverGitHubWorkflowRunsJob } from "./discover-github-workflow-runs/index.ts"
 import { importGitHubWorkflowRunJob } from "./import-github-workflow-run/index.ts"
+import { recoverGitHubWebhookDeliveriesJob } from "./recover-github-webhook-deliveries/index.ts"
 import { reconcileGitHubInstallation } from "./reconcile-github-installation/index.ts"
 import { retryGitHubBuildsAwaitingImport } from "./retry-github-builds-awaiting-import/index.ts"
 
@@ -37,6 +38,13 @@ const githubWorkflowRunDiscovery: JobDefinition<Record<string, never>> = {
   options: { attempts: 3, backoff: { type: "exponential", delay: 60_000 } },
 }
 
+// Runs every minute, so a failed run waits for the next one instead of retrying.
+const githubWebhookRecovery: JobDefinition<Record<string, never>> = {
+  name: "recover-github-webhook-deliveries",
+  schema: z.object({}).strict(),
+  options: { attempts: 1 },
+}
+
 export const jobProcessors: Record<JobQueueName, JobProcessor[]> = {
   "on-demand": [
     learning.run,
@@ -52,6 +60,7 @@ export const jobProcessors: Record<JobQueueName, JobProcessor[]> = {
     createJobProcessor(githubInstallationReconciliation, reconcileGitHubInstallation),
     createJobProcessor(githubBuildImportRetry, retryGitHubBuildsAwaitingImport),
     createJobProcessor(githubWorkflowRunDiscovery, discoverGitHubWorkflowRunsJob),
+    createJobProcessor(githubWebhookRecovery, recoverGitHubWebhookDeliveriesJob),
   ],
 }
 
@@ -84,5 +93,11 @@ export const jobSchedules: {
     definition: githubWorkflowRunDiscovery,
     payload: {},
     repeat: { every: 5 * 60 * 1_000 },
+  },
+  {
+    id: "github-webhook-recovery",
+    definition: githubWebhookRecovery,
+    payload: {},
+    repeat: { every: 60_000 },
   },
 ]
