@@ -11,9 +11,13 @@ license = "MIT"
 requires-python = ">=3.10"
 dependencies = ["openenv-core==0.3.0"]
 
+[project.optional-dependencies]
+model = ["pillow", "torch", "torchvision", "transformers>=5.14"]
+
 [project.scripts]
 server = "replica_brand_check.server.app:main"
 replica-decision-runtime = "replica_brand_check.runtime_server:main"
+replica-d1-omni-smoke = "replica_brand_check.d1_smoke:main"
 
 [tool.setuptools]
 packages = ["replica_brand_check", "replica_brand_check.server"]
