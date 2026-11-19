@@ -668,9 +668,7 @@ export function createDecisionModelStore(
                   },
                 }
               : {}),
-            ...(item.retention
-              ? { retention: item.retention as Prisma.InputJsonObject }
-              : {}),
+            ...(item.retention ? { retention: item.retention as Prisma.InputJsonObject } : {}),
           })),
           pendingItems: receipt.pendingItems.map((item) => ({ ...item })),
           failures: receipt.failures.map((item) => ({ ...item })),

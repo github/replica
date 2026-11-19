@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import hmac
 import json
 import os
@@ -30,6 +31,11 @@ _SAFE_TOKEN = re.compile(r"^[\x21-\x7e]+$")
 _TASKSET_ROUTE = re.compile(r"^/v1/tasksets/([0-9a-f]{64})$")
 _CANCEL_ROUTE = re.compile(r"^/v1/jobs/(job_[A-Za-z0-9]+)/cancel$")
 _IDEMPOTENCY_KEY = re.compile(r"^[\x21-\x7e]{1,200}$")
+
+
+def _request_fingerprint(operation: str, body: dict[str, Any]) -> str:
+    encoded = json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
+    return f"{operation}:{hashlib.sha256(encoded).hexdigest()}"
 
 
 def _stop(_signum: int, _frame: Any) -> None:
@@ -172,9 +178,7 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                     max_credits=body.get("maxCredits"),
                     budget_mode=body.get("budgetMode", "hard"),
                     taskset_digest=body.get("tasksetDigest"),
-                    idempotency_key=self._idempotency_key(
-                        f"submit:{body.get('tasksetDigest')}:{body.get('backend', 'fixture')}"
-                    ),
+                    idempotency_key=self._idempotency_key(_request_fingerprint("submit", body)),
                 )
                 self._send(202, job)
                 return
@@ -209,7 +213,9 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                     200,
                     self.server.runtime.evaluate(
                         body,
-                        idempotency_key=self._idempotency_key("evaluation"),
+                        idempotency_key=self._idempotency_key(
+                            _request_fingerprint("evaluation", body)
+                        ),
                     ),
                 )
                 return

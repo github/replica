@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { z } from "zod"
 
 import { createDecisionModelStore } from "../../domains/decision-model/create-decision-model-store/index.ts"
 import { prisma } from "../../integrations/prisma/index.ts"
@@ -98,20 +99,29 @@ describe("decision runtime deletions", () => {
     })
 
     expect(await reopened.listPendingDeletions!()).toEqual([])
-    expect(
-      await prisma.decisionRuntimeDeletion.findUniqueOrThrow({
-        where: { id: deletion.id },
-        select: { receipt: true },
-      }),
-    ).toEqual({
-      receipt: expect.objectContaining({
-        items: [
-          expect.objectContaining({
-            storage: { connector: "local", reference: "candidate:1" },
-            retention: { mode: "delete_on_withdrawal" },
-          }),
-        ],
-      }),
+    const savedReceipt = z
+      .object({
+        items: z.array(
+          z
+            .object({
+              storage: z.object({ connector: z.string(), reference: z.string() }),
+              retention: z.object({ mode: z.string() }),
+            })
+            .loose(),
+        ),
+      })
+      .loose()
+      .parse(
+        (
+          await prisma.decisionRuntimeDeletion.findUniqueOrThrow({
+            where: { id: deletion.id },
+            select: { receipt: true },
+          })
+        ).receipt,
+      )
+    expect(savedReceipt.items[0]).toMatchObject({
+      storage: { connector: "local", reference: "candidate:1" },
+      retention: { mode: "delete_on_withdrawal" },
     })
     expect(
       await prisma.securityAudit.count({

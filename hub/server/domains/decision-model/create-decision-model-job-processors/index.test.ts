@@ -150,16 +150,26 @@ describe("createDecisionModelJobProcessors()", () => {
     const input = dependencies("RUNNING")
     const job = await input.store.getJob(repositoryId, jobId)
     if (!job) throw new Error("Expected the training job fixture.")
-    vi.mocked(input.store.getJob).mockResolvedValue({
+    const getJob = vi.fn().mockResolvedValue({
       ...job,
       state: "SUBMITTING",
     })
-    vi.mocked(input.prepareTaskset).mockRejectedValue(
-      new DecisionRuntimeError(
-        "deletion_revoked",
-        "The decision runtime rejected revoked training data.",
-      ),
-    )
+    const prepareTaskset = vi
+      .fn()
+      .mockRejectedValue(
+        new DecisionRuntimeError(
+          "deletion_revoked",
+          "The decision runtime rejected revoked training data.",
+        ),
+      )
+    const updateJobState = vi
+      .fn()
+      .mockImplementation((update: { state: DecisionTrainingJobRecord["state"] }) =>
+        Promise.resolve({ ...job, state: update.state }),
+      )
+    input.store.getJob = getJob
+    input.prepareTaskset = prepareTaskset
+    input.store.updateJobState = updateJobState
     const processors = createDecisionModelJobProcessors({
       databaseUrl: "postgresql://localhost/replica",
       dependencies: input,
@@ -168,7 +178,7 @@ describe("createDecisionModelJobProcessors()", () => {
     })
 
     await expect(processors.run.process({ repositoryId, jobId })).resolves.toBeUndefined()
-    expect(input.store.updateJobState).toHaveBeenCalledWith(
+    expect(updateJobState).toHaveBeenCalledWith(
       expect.objectContaining({
         jobId,
         state: "CANCELLED",
