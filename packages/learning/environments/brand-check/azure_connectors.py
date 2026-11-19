@@ -125,6 +125,10 @@ class AzureTelemetrySink(Protocol):
 
 
 RetentionHook = Callable[[str, Mapping[str, str]], None]
+CancellationFailureHook = Callable[
+    [str, OperationContext, Exception],
+    None,
+]
 ConnectionFactory = Callable[[], Any]
 
 _TERMINAL_JOB_STATES = {"succeeded", "failed", "cancelled"}
@@ -590,7 +594,15 @@ class AzureBlobTasksetConnector(_AzureScopedConnector):
                     category="conflict",
                 )
         if self.retention_hook is not None:
-            self.retention_hook(name, metadata)
+            try:
+                self.retention_hook(name, metadata)
+            except Exception as error:
+                raise ConnectorError(
+                    "retention_hook_failed",
+                    "The taskset retention policy was not recorded.",
+                    category="unavailable",
+                    retryable=True,
+                ) from error
         return self.resolve(f"taskset:{digest.value}", context)
 
     def resolve(self, reference: str, context: OperationContext) -> TasksetArtifact:
@@ -1515,12 +1527,14 @@ class AzureContainerAppsTrainingConnector:
         supports_hard_credit_budget: bool = True,
         poll_interval_seconds: float = 2,
         sleep: Callable[[float], None] = time.sleep,
+        cancellation_failure_hook: CancellationFailureHook,
     ):
         self.transport = transport
         self.job_name = job_name
         self.supports_hard_credit_budget = supports_hard_credit_budget
         self.poll_interval_seconds = poll_interval_seconds
         self.sleep = sleep
+        self.cancellation_failure_hook = cancellation_failure_hook
 
     def train(
         self,
@@ -1584,7 +1598,7 @@ class AzureContainerAppsTrainingConnector:
             try:
                 check_context(context)
             except ConnectorError:
-                self._cancel(execution_id, token)
+                self._cancel(execution_id, token, context)
                 raise
             try:
                 status = self.transport.status(
@@ -1595,7 +1609,7 @@ class AzureContainerAppsTrainingConnector:
                 try:
                     check_context(context)
                 except ConnectorError:
-                    self._cancel(execution_id, token)
+                    self._cancel(execution_id, token, context)
                     raise
                 raise ConnectorError(
                     "azure_training_unavailable",
@@ -1606,7 +1620,7 @@ class AzureContainerAppsTrainingConnector:
             try:
                 check_context(context)
             except ConnectorError:
-                self._cancel(execution_id, token)
+                self._cancel(execution_id, token, context)
                 raise
             state = status.get("state")
             if state in _TERMINAL_JOB_STATES:
@@ -1631,11 +1645,30 @@ class AzureContainerAppsTrainingConnector:
             )
         return _training_result(status, context, self.name)
 
-    def _cancel(self, execution_id: str, token: str | None) -> None:
+    def _cancel(
+        self,
+        execution_id: str,
+        token: str | None,
+        context: OperationContext,
+    ) -> None:
+        failure: Exception | None = None
+        for attempt in range(3):
+            try:
+                self.transport.cancel(execution_id, bearer_token=token)
+                return
+            except Exception as error:
+                failure = error
+                if attempt < 2:
+                    self.sleep(0.1 * (attempt + 1))
+        assert failure is not None
         try:
-            self.transport.cancel(execution_id, bearer_token=token)
-        except Exception:
-            pass
+            self.cancellation_failure_hook(execution_id, context, failure)
+        except Exception as error:
+            raise ConnectorError(
+                "azure_training_cancellation_unrecorded",
+                "Azure training cancellation failed and could not be scheduled for recovery.",
+                category="internal",
+            ) from error
 
 
 class AzureEndpointInferenceConnector:

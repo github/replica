@@ -721,11 +721,17 @@ class _PostgresCursor:
 
 
 class _TrainingClient:
-    def __init__(self, cancellation=None, fail_after_cancellation=False):
+    def __init__(
+        self,
+        cancellation=None,
+        fail_after_cancellation=False,
+        cancel_failures=0,
+    ):
         self.requests = []
         self.cancelled = []
         self._cancellation = cancellation
         self._fail_after_cancellation = fail_after_cancellation
+        self._cancel_failures = cancel_failures
         self._polls = 0
 
     def start(self, job_name, request, *, bearer_token):
@@ -779,6 +785,9 @@ class _TrainingClient:
     def cancel(self, job_id, *, bearer_token):
         del bearer_token
         self.cancelled.append(job_id)
+        if self._cancel_failures > 0:
+            self._cancel_failures -= 1
+            raise RuntimeError("cancel unavailable")
 
 
 class _InferenceClient:
@@ -1190,6 +1199,7 @@ class AzureExecutionConnectorTest(unittest.TestCase):
             "replica-training",
             poll_interval_seconds=0,
             sleep=lambda _: None,
+            cancellation_failure_hook=lambda *_: None,
         )
         context = _context(
             self.scope,
@@ -1233,6 +1243,7 @@ class AzureExecutionConnectorTest(unittest.TestCase):
             "replica-training",
             poll_interval_seconds=0,
             sleep=lambda _: None,
+            cancellation_failure_hook=lambda *_: None,
         )
         context = _context(
             self.scope,
@@ -1262,6 +1273,7 @@ class AzureExecutionConnectorTest(unittest.TestCase):
             "replica-training",
             poll_interval_seconds=0,
             sleep=lambda _: None,
+            cancellation_failure_hook=lambda *_: None,
         )
         context = _context(
             self.scope,
@@ -1282,6 +1294,43 @@ class AzureExecutionConnectorTest(unittest.TestCase):
 
         self.assertEqual(cancelled.exception.category, "cancelled")
         self.assertEqual(client.cancelled, ["training-1"])
+
+    def test_failed_remote_cancellation_is_durably_scheduled(self):
+        cancellation = Cancellation()
+        client = _TrainingClient(cancellation, cancel_failures=3)
+        scheduled = []
+        connector = AzureContainerAppsTrainingConnector(
+            client,
+            "replica-training",
+            poll_interval_seconds=0,
+            sleep=lambda _: None,
+            cancellation_failure_hook=lambda execution_id, context, error: scheduled.append(
+                (execution_id, context.operation_id, type(error).__name__)
+            ),
+        )
+        context = _context(
+            self.scope,
+            "schedule-cancel-recovery",
+            cancellation=cancellation,
+            max_credits=7,
+            budget_mode="hard",
+        )
+
+        with self.assertRaises(ConnectorError) as cancelled:
+            connector.train(
+                SimpleNamespace(metadata={"digest": "taskset-one"}, tasks=()),
+                Path("unused-work-directory"),
+                max_updates=3,
+                context=context,
+                credential=None,
+            )
+
+        self.assertEqual(cancelled.exception.category, "cancelled")
+        self.assertEqual(client.cancelled, ["training-1"] * 3)
+        self.assertEqual(
+            scheduled,
+            [("training-1", context.operation_id, "RuntimeError")],
+        )
 
     def test_inference_checks_generation_and_reports_cold_start_readiness(self):
         client = _InferenceClient(
@@ -1513,6 +1562,7 @@ def _conformance_fixture():
         "replica-training",
         poll_interval_seconds=0,
         sleep=lambda _: None,
+        cancellation_failure_hook=lambda *_: None,
     )
     inference_client = _InferenceClient(
         {"state": "ready", "coldStart": False, "generation": 1}
