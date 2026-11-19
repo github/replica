@@ -41,3 +41,17 @@ export class AdmissionPersistenceError extends Error {
     this.name = "AdmissionPersistenceError"
   }
 }
+
+export class AdmissionUnavailableError extends Error {
+  constructor(options?: ErrorOptions) {
+    super("Hub admission is temporarily unavailable.", options)
+    this.name = "AdmissionUnavailableError"
+  }
+}
+
+export class SessionTerminationConflictError extends Error {
+  constructor(options?: ErrorOptions) {
+    super("The session could not be ended while protected work was running.", options)
+    this.name = "SessionTerminationConflictError"
+  }
+}

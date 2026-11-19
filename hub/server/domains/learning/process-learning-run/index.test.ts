@@ -204,12 +204,39 @@ describe("processLearningRun()", () => {
 
     expect(deps.commands.some((arguments_) => arguments_[0] === "label")).toBe(true)
     expect(deps.commands.some((arguments_) => arguments_[0] === "consolidate")).toBe(false)
+    expect(deps.progress).toEqual([
+      {
+        id: "11111111-2222-4333-8444-555555555555",
+        input: {
+          commentsConsidered: 4,
+          commentsLabeled: 3,
+          commentsRemaining: 1,
+          copilotRequests: 2,
+          aiCredits: "0.0025",
+        },
+      },
+    ])
     expect(deps.finished[0]).toMatchObject({
       input: {
         state: "FAILED",
         failureCode: "not_authorized",
       },
     })
+  })
+
+  it("retries a transient authority deadlock after labeling", async () => {
+    const authorizeRepositoryAdministration = vi
+      .fn()
+      .mockResolvedValueOnce(true)
+      .mockRejectedValueOnce({ code: "40P01" })
+      .mockResolvedValueOnce(true)
+    const deps = dependencies({ authorizeRepositoryAdministration })
+
+    await processLearningRun("11111111-2222-4333-8444-555555555555", deps)
+
+    expect(authorizeRepositoryAdministration).toHaveBeenCalledTimes(3)
+    expect(deps.commands.some((arguments_) => arguments_[0] === "consolidate")).toBe(true)
+    expect(deps.finished[0]).toMatchObject({ input: { state: "SUCCEEDED" } })
   })
 
   it("preserves partial label usage when Copilot fails", async () => {

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import type { Logger } from "pino"
 
+import type { Prisma } from "../../../../generated/prisma/client.ts"
 import { getCopilotConnectionStatus } from "../../../../domains/copilot-connection/get-copilot-connection-status/index.ts"
 import { ReviewCommentError } from "../../../../domains/review-comments/errors.ts"
 import { executeLearningDecision } from "../../../../domains/learning/execute-learning-decision/index.ts"
@@ -15,6 +16,7 @@ import { enqueueJob } from "../../../../integrations/bullmq/enqueue-job/index.ts
 import { LearningCommandError } from "../../../../integrations/learning/run-learning-command/errors.ts"
 import { withLearningExecutionLock } from "../../../../integrations/postgres/with-learning-execution-lock/index.ts"
 import { prisma } from "../../../../integrations/prisma/index.ts"
+import { classifyPrismaTransactionError } from "../../../../integrations/prisma/classify-transaction-error/index.ts"
 import { getCopilotConnectionState } from "../../../../repositories/copilot-connection-states/get-copilot-connection-state/index.ts"
 import { getCopilotConnection } from "../../../../repositories/copilot-connections/get-copilot-connection/index.ts"
 import { createLearningRun } from "../../../../repositories/learning-runs/create-learning-run/index.ts"
@@ -31,6 +33,7 @@ import { readWithPersistedRepositoryScope } from "../../product/read-with-persis
 import type { resolveRepositoryScope } from "../../product/resolve-repository-scope/index.ts"
 import { LearningsError } from "../errors.ts"
 import { isDefinitiveDecisionRejection } from "../is-definitive-decision-rejection/index.ts"
+import { runWithBoundedRetries } from "../../../../domains/identity/run-with-bounded-retries/index.ts"
 import type { CurrentSessionDependencies } from "../../auth/types.ts"
 import type { LearningsRouteDependencies } from "../types.ts"
 
@@ -47,6 +50,27 @@ export async function createLearningsRouteDependencies(
     throw new Error("HUB_APPLICATION_ORIGIN and DATABASE_URL are required for the Learnings API.")
   }
   const source = options.source ?? createReviewCommentLearningSource(prisma, applicationOrigin)
+
+  async function runRepositoryAuthorityTransaction<Result>(
+    operation: (transaction: Prisma.TransactionClient) => Promise<Result>,
+  ): Promise<Result> {
+    try {
+      return await runWithBoundedRetries(
+        () => prisma.$transaction(operation),
+        (error) => classifyPrismaTransactionError(error) === "retryable",
+      )
+    } catch (error) {
+      if (classifyPrismaTransactionError(error) === "retryable") {
+        throw new LearningsError(
+          503,
+          "repository_authority_unavailable",
+          "Repository access is temporarily unavailable. Try again.",
+          { cause: error },
+        )
+      }
+      throw error
+    }
+  }
 
   function findRepository(
     viewer: Parameters<typeof resolveRepositoryScope>[0],
@@ -99,7 +123,7 @@ export async function createLearningsRouteDependencies(
     applicationOrigin,
     currentSession,
     authorizeRepositoryAdministration: (input) =>
-      prisma.$transaction((transaction) =>
+      runRepositoryAuthorityTransaction((transaction) =>
         lockRepositoryAdministratorAuthority(transaction, input),
       ),
     auditRepositoryAdministrationDenial: async ({ actorMembershipId, operation, repositoryId }) => {
@@ -140,7 +164,7 @@ export async function createLearningsRouteDependencies(
     listRuns: (repositoryId) => listLearningRuns(prisma, repositoryId, new Date()),
     requestRun: async ({ actorMembershipId, repositoryId, requestedById, sessionDigest }) => {
       if (
-        !(await prisma.$transaction((transaction) =>
+        !(await runRepositoryAuthorityTransaction((transaction) =>
           lockRepositoryAdministratorSession(transaction, {
             membershipId: actorMembershipId,
             repositoryId,
@@ -185,7 +209,7 @@ export async function createLearningsRouteDependencies(
           { cause: error },
         )
       }
-      const requested = await prisma.$transaction(async (transaction) => {
+      const requested = await runRepositoryAuthorityTransaction(async (transaction) => {
         if (
           !(await lockRepositoryAdministratorSession(transaction, {
             membershipId: actorMembershipId,
@@ -308,11 +332,12 @@ export async function createLearningsRouteDependencies(
       try {
         const result = await withLearningExecutionLock({
           databaseUrl,
+          protectSessionAuthority: true,
           run: async (signal) => {
             if (!(await findRepository(viewer, input.repositoryId))) {
               throw new LearningsError(404, "repository_not_found", "Repository not found.")
             }
-            const authorized = await prisma.$transaction(async (transaction) => {
+            const authorized = await runRepositoryAuthorityTransaction(async (transaction) => {
               if (
                 !(await lockRepositoryAdministratorSession(transaction, {
                   membershipId: actorMembershipId,

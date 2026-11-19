@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest"
 import { restoreHubSession } from "../../../../domains/admission/restore-hub-session"
 import { runSessionRestoreTransaction } from "../../../../domains/admission/run-session-restore-transaction"
 import { syncGitHubInstallationRepositories } from "../../../../domains/admission/sync-github-installation-repositories"
+import { AdmissionUnavailableError } from "../../../../domains/admission/errors"
 import { createEntraAuthenticationContext } from "../../../../domains/authentication/create-entra-authentication-context"
 import { createGitHubAuthenticationContext } from "../../../../domains/authentication/create-github-authentication-context"
 import { activateGitHubRepositoryScoping } from "../../../../domains/identity/activate-github-repository-scoping"
@@ -74,25 +75,6 @@ function discovery(overrides: Record<string, unknown> = {}) {
 }
 
 const validDiscovery = vi.fn<typeof fetch>(() => Promise.resolve(discovery()))
-
-async function waitForRepositoryAuthorityLockRequest(inspector: Client) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    const result = await inspector.query<{ waiting: boolean }>(
-      `SELECT EXISTS (
-         SELECT 1
-         FROM pg_locks
-         WHERE locktype = 'advisory'
-           AND classid = 1919242348
-           AND objid = 3
-           AND NOT granted
-           AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
-       ) AS waiting`,
-    )
-    if (result.rows[0]?.waiting) return
-    await new Promise<void>((resolve) => setImmediate(resolve))
-  }
-  throw new Error("Timed out waiting for the repository authority lock request.")
-}
 
 async function seedConfiguredProviders(configuration: NodeJS.ProcessEnv) {
   const contexts = [
@@ -386,8 +368,7 @@ describe("createAuthenticationRouteDependencies()", () => {
       })
       const freshDigest = "6".repeat(64)
       const authorityLock = new Client({ connectionString: getDatabaseUrl() })
-      const inspector = new Client({ connectionString: getDatabaseUrl() })
-      await Promise.all([authorityLock.connect(), inspector.connect()])
+      await authorityLock.connect()
       await authorityLock.query("SELECT pg_advisory_lock_shared(1919242348, 3)")
       const admission = dependencies.github!.callback.admit({
         proof: completed.proof,
@@ -396,15 +377,20 @@ describe("createAuthenticationRouteDependencies()", () => {
         sessionDigest: freshDigest,
         sessionId: randomUUID(),
       })
-      void admission.catch(() => {})
       try {
-        await waitForRepositoryAuthorityLockRequest(inspector)
+        await expect(admission).rejects.toBeInstanceOf(AdmissionUnavailableError)
       } finally {
         await authorityLock.query("SELECT pg_advisory_unlock_shared(1919242348, 3)")
-        await Promise.all([authorityLock.end(), inspector.end()])
-        await admission.catch(() => {})
+        await authorityLock.end()
       }
-      await admission
+      const admitted = await dependencies.github!.callback.admit({
+        proof: completed.proof,
+        providerAssignment: completed.providerAssignment,
+        repositoryAccess: completed.repositoryAccess,
+        sessionDigest: freshDigest,
+        sessionId: randomUUID(),
+      })
+      expect(admitted.expiresAt).toBeInstanceOf(Date)
       const connected = await prisma.repository.findUniqueOrThrow({
         where: { githubRepositoryId: 1001n },
       })

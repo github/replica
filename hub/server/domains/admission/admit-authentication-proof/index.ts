@@ -8,6 +8,7 @@ import {
   AdmissionDeniedError,
   AdmissionPersistenceError,
   AdmissionTransactionConflictError,
+  AdmissionUnavailableError,
 } from "../errors.ts"
 import type { AdmissionRepositories } from "../run-admission-transaction/types.ts"
 import type {
@@ -357,14 +358,20 @@ export async function admitAuthenticationProof(
             ),
           {
             repositoryAuthorityChange:
-              input.providerKey === "github" && input.repositoryAccess !== undefined,
+              input.providerAssignment !== undefined ||
+              (input.providerKey === "github" && input.repositoryAccess !== undefined),
           },
         ),
       (error) => error instanceof AdmissionTransactionConflictError,
     )
   } catch (error) {
     const denial = error instanceof AdmissionDeniedError
-    const primary = denial ? error : new AdmissionPersistenceError({ cause: error })
+    const unavailable = error instanceof AdmissionTransactionConflictError
+    const primary = denial
+      ? error
+      : unavailable
+        ? new AdmissionUnavailableError({ cause: error })
+        : new AdmissionPersistenceError({ cause: error })
     try {
       await dependencies.writeAudit(
         denial

@@ -2,10 +2,12 @@ import { Client } from "pg"
 
 export async function withLearningExecutionLock<T>({
   databaseUrl,
+  protectSessionAuthority = false,
   run,
   signal,
 }: {
   databaseUrl: string
+  protectSessionAuthority?: boolean
   run: (
     signal: AbortSignal,
     controls: {
@@ -42,6 +44,9 @@ export async function withLearningExecutionLock<T>({
     )
     if (!result.rows[0]?.locked) throw new Error("Another learning operation is still running.")
     await client.query("SELECT pg_advisory_lock_shared(1919242348, 3)")
+    if (protectSessionAuthority) {
+      await client.query("SELECT pg_advisory_lock_shared(1919242348, 4)")
+    }
     controller.signal.throwIfAborted()
     running = run(controller.signal, {
       runWithoutRepositoryAuthorityLock: async <Result>(operation: () => Promise<Result>) => {

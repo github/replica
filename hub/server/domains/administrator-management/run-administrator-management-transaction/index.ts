@@ -1,6 +1,7 @@
 import { Prisma } from "../../../generated/prisma/client.ts"
 
 import { classifyPrismaTransactionError } from "../../../integrations/prisma/classify-transaction-error/index.ts"
+import { lockSessionAuthorityChanges } from "../../../repositories/hub-sessions/lock-session-authority-changes/index.ts"
 import { AdministratorManagementTransactionConflictError } from "../errors.ts"
 import { createAdministratorManagementRepositories } from "../create-administrator-management-repositories/index.ts"
 import type {
@@ -14,7 +15,10 @@ export function runAdministratorManagementTransaction<Result>(
 ): Promise<Result> {
   return database
     .$transaction(
-      (transaction) => operation(createAdministratorManagementRepositories(transaction)),
+      async (transaction) => {
+        await lockSessionAuthorityChanges(transaction, { timeoutMs: 500 })
+        return operation(createAdministratorManagementRepositories(transaction))
+      },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     )
     .catch((error: unknown) => {

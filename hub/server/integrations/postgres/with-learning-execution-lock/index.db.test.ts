@@ -64,6 +64,7 @@ describe("withLearningExecutionLock()", () => {
         await finish.promise
       },
     })
+
     void learning.catch(() => {})
 
     try {
@@ -84,6 +85,49 @@ describe("withLearningExecutionLock()", () => {
     } finally {
       finish.resolve()
       await learning.catch(() => {})
+      await authorityChange.query("ROLLBACK").catch(() => {})
+      await authorityChange.end()
+    }
+  })
+
+  it.each([
+    {
+      protectSessionAuthority: false,
+      available: true,
+      name: "allows session changes during a run",
+    },
+    {
+      protectSessionAuthority: true,
+      available: false,
+      name: "blocks session changes during a decision",
+    },
+  ])("$name", async ({ protectSessionAuthority, available }) => {
+    const databaseUrl = getDatabaseUrl()
+    const entered = deferred<void>()
+    const finish = deferred<void>()
+    const authorityChange = new Client({ connectionString: databaseUrl })
+    await authorityChange.connect()
+    const learning = withLearningExecutionLock({
+      databaseUrl,
+      protectSessionAuthority,
+      run: async () => {
+        entered.resolve()
+        await finish.promise
+      },
+    })
+    void learning.catch(() => {})
+
+    try {
+      await Promise.race([entered.promise, learning])
+      await authorityChange.query("BEGIN")
+      const result = await authorityChange.query<{ locked: boolean }>(
+        "SELECT pg_try_advisory_xact_lock(1919242348, 4) AS locked",
+      )
+      expect(result.rows).toEqual([{ locked: available }])
+      await authorityChange.query("ROLLBACK")
+    } finally {
+      finish.resolve()
+      await learning
       await authorityChange.query("ROLLBACK").catch(() => {})
       await authorityChange.end()
     }

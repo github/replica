@@ -9,24 +9,42 @@ export async function lockRepositoryAdministratorAuthority(
   database: Pick<Prisma.TransactionClient, "$queryRaw">,
   input: { membershipId: string; repositoryId: string },
 ): Promise<boolean> {
-  const rows = await database.$queryRaw<Array<{ authorized: boolean }>>`
-    SELECT TRUE AS "authorized"
-    FROM "repository_access_grants" AS access_grant
-    INNER JOIN "memberships" AS membership
-      ON membership."id" = access_grant."membership_id"
-    INNER JOIN "repositories" AS repository
-      ON repository."id" = access_grant."repository_id"
-    INNER JOIN "authentication_providers" AS provider
-      ON provider."key" = 'github'
-    WHERE access_grant."membership_id" = ${input.membershipId}::uuid
-      AND access_grant."repository_id" = ${input.repositoryId}::uuid
-      AND access_grant."access_level" = 'ADMIN'::"RepositoryAccessLevel"
-      AND membership."lifecycle" = 'ACTIVE'::"MembershipLifecycle"
-      AND repository."removed_at" IS NULL
-      AND repository."github_repository_id" IS NOT NULL
-      AND provider."enabled" = TRUE
-      AND provider."selected_revision_id" IS NOT NULL
-    FOR SHARE OF access_grant, membership, repository, provider
+  const [provider] = await database.$queryRaw<
+    Array<{ enabled: boolean; selectedRevisionId: string | null }>
+  >`
+    SELECT "enabled", "selected_revision_id" AS "selectedRevisionId"
+    FROM "authentication_providers"
+    WHERE "key" = 'github'
+    FOR SHARE
   `
-  return rows.length === 1
+  if (!provider?.enabled || !provider.selectedRevisionId) return false
+
+  const [membership] = await database.$queryRaw<Array<{ lifecycle: string }>>`
+    SELECT "lifecycle"::text
+    FROM "memberships"
+    WHERE "id" = ${input.membershipId}::uuid
+    FOR SHARE
+  `
+  if (membership?.lifecycle !== "ACTIVE") return false
+
+  const [repository] = await database.$queryRaw<
+    Array<{ githubRepositoryId: bigint | null; removedAt: Date | null }>
+  >`
+    SELECT
+      "github_repository_id" AS "githubRepositoryId",
+      "removed_at" AS "removedAt"
+    FROM "repositories"
+    WHERE "id" = ${input.repositoryId}::uuid
+    FOR SHARE
+  `
+  if (repository?.removedAt !== null || repository.githubRepositoryId === null) return false
+
+  const [grant] = await database.$queryRaw<Array<{ accessLevel: string }>>`
+    SELECT "access_level"::text AS "accessLevel"
+    FROM "repository_access_grants"
+    WHERE "membership_id" = ${input.membershipId}::uuid
+      AND "repository_id" = ${input.repositoryId}::uuid
+    FOR SHARE
+  `
+  return grant?.accessLevel === "ADMIN"
 }

@@ -1,6 +1,7 @@
 import { Prisma } from "../../../generated/prisma/client.ts"
 
 import { classifyPrismaTransactionError } from "../../../integrations/prisma/classify-transaction-error/index.ts"
+import { lockSessionAuthorityChanges } from "../../../repositories/hub-sessions/lock-session-authority-changes/index.ts"
 import { lockRepositoryAdministrationChanges } from "../../../repositories/repository-access/lock-repository-administration-changes/index.ts"
 import { createAdmissionRepositories } from "../create-admission-repositories/index.ts"
 import { AdmissionTransactionConflictError } from "../errors.ts"
@@ -15,7 +16,8 @@ export function runAdmissionTransaction<Result>(
     .$transaction(
       async (transaction) => {
         if (options.repositoryAuthorityChange) {
-          await lockRepositoryAdministrationChanges(transaction)
+          await lockRepositoryAdministrationChanges(transaction, { timeoutMs: 500 })
+          await lockSessionAuthorityChanges(transaction, { timeoutMs: 500 })
         }
         return operation(createAdmissionRepositories(transaction))
       },

@@ -2,6 +2,7 @@ import { Prisma } from "../../../generated/prisma/client.ts"
 
 import { classifyPrismaTransactionError } from "../../../integrations/prisma/classify-transaction-error/index.ts"
 import { getSensitiveAuthorizationAuditData } from "../../../repositories/sensitive-authorizations/get-sensitive-authorization-audit-data/index.ts"
+import { lockSessionAuthorityChanges } from "../../../repositories/hub-sessions/lock-session-authority-changes/index.ts"
 import { lockSensitiveAuthorization } from "../../../repositories/sensitive-authorizations/lock-sensitive-authorization/index.ts"
 import { verifySensitiveAuthorization } from "../../../repositories/sensitive-authorizations/verify-sensitive-authorization/index.ts"
 import { createAdmissionRepositories } from "../../admission/create-admission-repositories/index.ts"
@@ -17,8 +18,9 @@ export function runAdministratorAuthorizationVerificationTransaction<Result>(
 ): Promise<Result> {
   return database
     .$transaction(
-      (transaction) =>
-        operation({
+      async (transaction) => {
+        await lockSessionAuthorityChanges(transaction, { timeoutMs: 500 })
+        return operation({
           ...createAdmissionRepositories(transaction),
           canVerifySensitiveAuthorization: async (input) =>
             Boolean(await verifySensitiveAuthorization(transaction, input, "check")),
@@ -36,7 +38,8 @@ export function runAdministratorAuthorizationVerificationTransaction<Result>(
             await lockSensitiveAuthorization(transaction, input.sensitiveAuthorizationId)
             return verifySensitiveAuthorization(transaction, input)
           },
-        }),
+        })
+      },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     )
     .catch((error: unknown) => {

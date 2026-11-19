@@ -511,6 +511,52 @@ describe("createGitHubWebhookRouteDependencies()", () => {
     expect(await repositoryGrants(partiallyAffected.membershipId)).toEqual([retained.id])
   })
 
+  it("invalidates cached admin grants when a team's repository permission is edited", async () => {
+    const revisionId = await createProvider("github")
+    const changed = await createRepository(1001, "changed-permission")
+    const retained = await createRepository(1002, "retained")
+    const member = await createMember({
+      provider: "github",
+      providerRevisionId: revisionId,
+      repositoryIds: [changed.id, retained.id],
+      subject: "101",
+    })
+    await prisma.repositoryAccessGrant.update({
+      data: { accessLevel: "ADMIN" },
+      where: {
+        membershipId_repositoryId: {
+          membershipId: member.membershipId,
+          repositoryId: changed.id,
+        },
+      },
+    })
+
+    await expect(
+      handleWebhook("team", {
+        action: "edited",
+        changes: {
+          repository: {
+            permissions: { from: { admin: true, pull: true, push: true } },
+          },
+        },
+        installation: { id: 700 },
+        repository: { id: 1001 },
+        team: { id: 77 },
+      }),
+    ).resolves.toBe(true)
+
+    expect(await repositoryGrants(member.membershipId)).toEqual([retained.id])
+    await expect(restore(member.sessions[0]!.digest)).resolves.toMatchObject({
+      membershipId: member.membershipId,
+    })
+    await expect(
+      prisma.repository.findUniqueOrThrow({
+        select: { removedAt: true },
+        where: { id: changed.id },
+      }),
+    ).resolves.toEqual({ removedAt: null })
+  })
+
   it.each([
     {
       event: "membership",
@@ -1540,6 +1586,12 @@ describe("createGitHubWebhookRouteDependencies()", () => {
       name: "a removed team's repository grant",
       retainAnother: true,
     },
+    {
+      disconnect: false,
+      kind: "teamPermission",
+      name: "an edited team's repository permission",
+      retainAnother: true,
+    },
   ] as const)(
     "does not regrant $name from an older in-flight GitHub access snapshot",
     async ({ disconnect, kind, retainAnother }) => {
@@ -1619,6 +1671,20 @@ describe("createGitHubWebhookRouteDependencies()", () => {
           name: "team",
           payload: {
             action: "removed_from_repository",
+            installation: { id: 700 },
+            repository: { id: 1001 },
+            team: { id: 77 },
+          },
+        },
+        teamPermission: {
+          name: "team",
+          payload: {
+            action: "edited",
+            changes: {
+              repository: {
+                permissions: { from: { admin: true, pull: true, push: true } },
+              },
+            },
             installation: { id: 700 },
             repository: { id: 1001 },
             team: { id: 77 },

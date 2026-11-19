@@ -34,6 +34,12 @@ const teamRepositoryEvent = z.looseObject({
   repository: z.looseObject({ id: githubId.nullish() }).nullish(),
   team,
 })
+const teamRepositoryPermissionEvent = z.looseObject({
+  action: z.literal("edited"),
+  changes: z.looseObject({ repository: z.looseObject({}) }),
+  repository: z.looseObject({ id: githubId }),
+  team,
+})
 const teamDeletedEvent = z.looseObject({
   action: z.literal("deleted"),
   team,
@@ -156,6 +162,20 @@ export function createGitHubWebhookRouteDependencies(input: {
               disconnect: false,
               githubRepositoryIds:
                 repositoryId === null || repositoryId === undefined ? "all" : [repositoryId],
+            },
+            input.provider,
+          )
+          return true
+        }
+        if (name === "team" && action.data.action === "edited") {
+          const event = teamRepositoryPermissionEvent.safeParse(payload)
+          if (!event.success) return false
+          await revokeGitHubRepositoryAccess(
+            prisma,
+            {
+              delivery: receipt,
+              disconnect: false,
+              githubRepositoryIds: [event.data.repository.id],
             },
             input.provider,
           )

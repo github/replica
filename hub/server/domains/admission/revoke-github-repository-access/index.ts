@@ -2,6 +2,7 @@ import type { PrismaClient } from "../../../generated/prisma/client.ts"
 
 import { classifyPrismaTransactionError } from "../../../integrations/prisma/classify-transaction-error/index.ts"
 import { advanceGitHubRepositoryAccessState } from "../../../repositories/github-repository-access-states/advance-github-repository-access-state/index.ts"
+import { lockSessionAuthorityChanges } from "../../../repositories/hub-sessions/lock-session-authority-changes/index.ts"
 import { claimGitHubWebhookDelivery } from "../../../repositories/github-webhook-deliveries/claim-github-webhook-delivery/index.ts"
 import type { GitHubWebhookDelivery } from "../../../repositories/github-webhook-deliveries/types.ts"
 import { markRepositoriesDisconnected } from "../../../repositories/repository-access/mark-repositories-disconnected/index.ts"
@@ -27,6 +28,7 @@ export async function revokeGitHubRepositoryAccess(
     () =>
       database.$transaction(async (transaction) => {
         await lockRepositoryAdministrationChanges(transaction)
+        await lockSessionAuthorityChanges(transaction)
         await requireCurrentGitHubInstallation(transaction, provider)
         if (input.delivery && !(await claimGitHubWebhookDelivery(transaction, input.delivery))) {
           return

@@ -102,6 +102,54 @@ describe("HubApplication()", () => {
     expect(screen.getByRole("button", { name: "Sign in with GitHub" })).toBeInTheDocument()
   })
 
+  it("offers a fresh sign-in after callback authority contention", async () => {
+    window.history.replaceState({}, "", "/?authentication=unavailable")
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) =>
+        Promise.resolve(
+          requestUrl(input).endsWith("/api/auth/providers")
+            ? Response.json({ providers: ["github"] })
+            : new Response(null, { status: 401 }),
+        ),
+      ),
+    )
+
+    renderApplication()
+
+    expect(
+      await screen.findByText(
+        "Sign-in is temporarily unavailable. Start sign-in again to continue.",
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Sign in with GitHub" })).toBeInTheDocument()
+  })
+
+  it.each([
+    [
+      "authorization_unavailable",
+      "Verification is temporarily unavailable. Return to settings and start the administrator action again.",
+    ],
+    ["sign_out_unavailable", "Sign-out is temporarily unavailable. Try again."],
+  ])("shows %s feedback while retaining the active session", async (result, message) => {
+    window.history.replaceState({}, "", `/?authentication=${result}`)
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) =>
+        Promise.resolve(
+          requestUrl(input).endsWith("/api/auth/providers")
+            ? Response.json({ providers: ["github"] })
+            : Response.json(restoredAdministrator),
+        ),
+      ),
+    )
+
+    renderApplication()
+
+    expect(await screen.findByText(message)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument()
+  })
+
   it("shows a restore error without a false callback success notice", async () => {
     window.history.replaceState({}, "", "/?authentication=success")
     vi.stubGlobal(

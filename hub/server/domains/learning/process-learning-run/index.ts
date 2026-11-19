@@ -3,7 +3,9 @@ import { tmpdir } from "node:os"
 import { resolve } from "node:path"
 import { z } from "zod"
 
+import { classifyPrismaTransactionError } from "../../../integrations/prisma/classify-transaction-error/index.ts"
 import { LearningCommandError } from "../../../integrations/learning/run-learning-command/errors.ts"
+import { runWithBoundedRetries } from "../../identity/run-with-bounded-retries/index.ts"
 
 const grantListSchema = z.array(
   z
@@ -119,6 +121,12 @@ export async function processLearningRun(
 ) {
   const run = await dependencies.getRun(runId)
   if (!run || !["QUEUED", "RUNNING"].includes(run.state)) return
+  function authorizeRepositoryAdministration(membershipId: string, repositoryId: string) {
+    return runWithBoundedRetries(
+      () => dependencies.authorizeRepositoryAdministration(membershipId, repositoryId),
+      (error) => classifyPrismaTransactionError(error) === "retryable",
+    )
+  }
   try {
     await dependencies.withLock(async (signal, { runWithoutRepositoryAuthorityLock }) => {
       if (run.state === "QUEUED" && !(await dependencies.claim(runId, dependencies.now()))) return
@@ -129,7 +137,7 @@ export async function processLearningRun(
       if (
         !actor ||
         !current.requestedByMembershipId ||
-        !(await dependencies.authorizeRepositoryAdministration(
+        !(await authorizeRepositoryAdministration(
           current.requestedByMembershipId,
           current.repositoryId,
         ))
@@ -259,8 +267,15 @@ export async function processLearningRun(
         }
         throw error
       }
+      await dependencies.updateProgress(runId, {
+        commentsConsidered: labeled.considered,
+        commentsLabeled: labeled.labeled,
+        commentsRemaining: labeled.remaining,
+        copilotRequests: labeled.usage.requests,
+        aiCredits: credits(labeled.usage.nanoAiu),
+      })
       if (
-        !(await dependencies.authorizeRepositoryAdministration(
+        !(await authorizeRepositoryAdministration(
           current.requestedByMembershipId,
           current.repositoryId,
         ))
@@ -270,13 +285,6 @@ export async function processLearningRun(
           "The person who requested this run is no longer a repository administrator.",
         )
       }
-      await dependencies.updateProgress(runId, {
-        commentsConsidered: labeled.considered,
-        commentsLabeled: labeled.labeled,
-        commentsRemaining: labeled.remaining,
-        copilotRequests: labeled.usage.requests,
-        aiCredits: credits(labeled.usage.nanoAiu),
-      })
       const consolidated = consolidateSchema.parse(
         await dependencies.runCommand(
           [

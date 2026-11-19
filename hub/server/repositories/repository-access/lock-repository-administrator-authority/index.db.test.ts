@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest"
+import pg from "pg"
 
 import { RepositoryAccessLevel } from "../../../generated/prisma/client"
 import { prisma } from "../../../integrations/prisma"
+import { getDatabaseUrl } from "../../../../test/database/get-database-url"
+import { waitForBlockedQuery } from "../../../../test/database/wait-for-blocked-query"
 import { lockRepositoryAdministratorAuthority } from "."
 
 async function createAuthority(accessLevel: RepositoryAccessLevel) {
@@ -50,6 +53,48 @@ describe("lockRepositoryAdministratorAuthority()", () => {
     const { membership, repository } = await createAuthority(RepositoryAccessLevel.ADMIN)
 
     await expect(authorize(membership.id, repository.id)).resolves.toBe(true)
+  })
+
+  it("locks repository before grant while overlapping admission changes", async () => {
+    const { grant, membership, repository } = await createAuthority(RepositoryAccessLevel.ADMIN)
+    const repositoryHolder = new pg.Client({ connectionString: getDatabaseUrl() })
+    const contender = new pg.Client({ connectionString: getDatabaseUrl() })
+    const inspector = new pg.Client({ connectionString: getDatabaseUrl() })
+    await Promise.all([repositoryHolder.connect(), contender.connect(), inspector.connect()])
+    let holderOpen = false
+    let contenderOpen = false
+    let authorization: ReturnType<typeof authorize> | null = null
+    try {
+      await repositoryHolder.query("BEGIN")
+      holderOpen = true
+      await repositoryHolder.query("SELECT id FROM repositories WHERE id = $1 FOR UPDATE", [
+        repository.id,
+      ])
+      const { pid } = (
+        await repositoryHolder.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")
+      ).rows[0]!
+      authorization = authorize(membership.id, repository.id)
+      void authorization.catch(() => {})
+      await waitForBlockedQuery(inspector, pid, 'FROM "repositories"')
+
+      await contender.query("BEGIN")
+      contenderOpen = true
+      await contender.query(
+        "SELECT id FROM repository_access_grants WHERE id = $1 FOR UPDATE NOWAIT",
+        [grant.id],
+      )
+      await contender.query("ROLLBACK")
+      contenderOpen = false
+
+      await repositoryHolder.query("COMMIT")
+      holderOpen = false
+      await expect(authorization).resolves.toBe(true)
+    } finally {
+      if (contenderOpen) await contender.query("ROLLBACK")
+      if (holderOpen) await repositoryHolder.query("ROLLBACK")
+      if (authorization) await Promise.allSettled([authorization])
+      await Promise.all([repositoryHolder.end(), contender.end(), inspector.end()])
+    }
   })
 
   it.each([

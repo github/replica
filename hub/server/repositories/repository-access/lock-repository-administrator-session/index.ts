@@ -6,42 +6,121 @@ import type { Prisma } from "../../../generated/prisma/client.ts"
  */
 export async function lockRepositoryAdministratorSession(
   database: Pick<Prisma.TransactionClient, "$queryRaw">,
-  input: { membershipId: string; repositoryId: string; sessionDigest: string },
+  input: {
+    membershipId: string
+    repositoryId: string
+    sessionDigest: string
+  },
 ): Promise<boolean> {
-  const rows = await database.$queryRaw<Array<{ authorized: boolean }>>`
-    SELECT TRUE AS "authorized"
+  const [candidate] = await database.$queryRaw<
+    Array<{
+      membershipId: string
+      providerKey: string
+      providerRevisionId: string
+      revocationRevision: number
+      sessionId: string
+    }>
+  >`
+    SELECT
+      session."id" AS "sessionId",
+      session."membership_id" AS "membershipId",
+      session."provider_revision_id" AS "providerRevisionId",
+      session."revocation_revision" AS "revocationRevision",
+      provider."key" AS "providerKey"
     FROM "hub_sessions" AS session
-    INNER JOIN "memberships" AS membership
-      ON membership."id" = session."membership_id"
-    INNER JOIN "session_revocation_states" AS revocation
-      ON revocation."key" = 'global'
-    INNER JOIN "authentication_provider_revisions" AS session_revision
-      ON session_revision."id" = session."provider_revision_id"
-    INNER JOIN "authentication_providers" AS session_provider
-      ON session_provider."id" = session_revision."provider_id"
-    INNER JOIN "repository_access_grants" AS access_grant
-      ON access_grant."membership_id" = membership."id"
-    INNER JOIN "repositories" AS repository
-      ON repository."id" = access_grant."repository_id"
-    INNER JOIN "authentication_providers" AS github_provider
-      ON github_provider."key" = 'github'
+    INNER JOIN "authentication_provider_revisions" AS revision
+      ON revision."id" = session."provider_revision_id"
+    INNER JOIN "authentication_providers" AS provider
+      ON provider."id" = revision."provider_id"
     WHERE session."digest" = ${input.sessionDigest}
-      AND session."membership_id" = ${input.membershipId}::uuid
-      AND session."ended_at" IS NULL
-      AND session."expires_at" > clock_timestamp()
-      AND session."revocation_revision" = revocation."revision"
-      AND membership."lifecycle" = 'ACTIVE'::"MembershipLifecycle"
-      AND session_provider."enabled" = TRUE
-      AND session_provider."selected_revision_id" = session_revision."id"
-      AND access_grant."repository_id" = ${input.repositoryId}::uuid
-      AND access_grant."access_level" = 'ADMIN'::"RepositoryAccessLevel"
-      AND repository."removed_at" IS NULL
-      AND repository."github_repository_id" IS NOT NULL
-      AND github_provider."enabled" = TRUE
-      AND github_provider."selected_revision_id" IS NOT NULL
-    FOR UPDATE OF session
-    FOR SHARE OF membership, revocation, session_revision, session_provider,
-      access_grant, repository, github_provider
   `
-  return rows.length === 1
+  if (!candidate || candidate.membershipId !== input.membershipId) return false
+
+  const providers = await database.$queryRaw<
+    Array<{ enabled: boolean; key: string; selectedRevisionId: string | null }>
+  >`
+    SELECT
+      "enabled",
+      "key",
+      "selected_revision_id" AS "selectedRevisionId"
+    FROM "authentication_providers"
+    WHERE "key" IN ('github', ${candidate.providerKey})
+    ORDER BY "key"
+    FOR SHARE
+  `
+  const githubProvider = providers.find(({ key }) => key === "github")
+  const sessionProvider = providers.find(({ key }) => key === candidate.providerKey)
+  if (
+    !githubProvider?.enabled ||
+    !githubProvider.selectedRevisionId ||
+    !sessionProvider?.enabled ||
+    sessionProvider.selectedRevisionId !== candidate.providerRevisionId
+  ) {
+    return false
+  }
+
+  const [revocation] = await database.$queryRaw<Array<{ revision: number }>>`
+    SELECT "revision"
+    FROM "session_revocation_states"
+    WHERE "key" = 'global'
+    FOR SHARE
+  `
+  if (revocation?.revision !== candidate.revocationRevision) return false
+
+  const [membership] = await database.$queryRaw<Array<{ lifecycle: string }>>`
+    SELECT "lifecycle"::text
+    FROM "memberships"
+    WHERE "id" = ${input.membershipId}::uuid
+    FOR SHARE
+  `
+  if (membership?.lifecycle !== "ACTIVE") return false
+
+  const [session] = await database.$queryRaw<
+    Array<{
+      id: string
+      membershipId: string
+      providerRevisionId: string
+      revocationRevision: number
+    }>
+  >`
+    SELECT
+      "id",
+      "membership_id" AS "membershipId",
+      "provider_revision_id" AS "providerRevisionId",
+      "revocation_revision" AS "revocationRevision"
+    FROM "hub_sessions"
+    WHERE "digest" = ${input.sessionDigest}
+      AND "ended_at" IS NULL
+      AND "expires_at" > clock_timestamp()
+    FOR UPDATE
+  `
+  if (
+    session?.id !== candidate.sessionId ||
+    session.membershipId !== input.membershipId ||
+    session.providerRevisionId !== candidate.providerRevisionId ||
+    session.revocationRevision !== revocation.revision
+  ) {
+    return false
+  }
+
+  const [repository] = await database.$queryRaw<
+    Array<{ githubRepositoryId: bigint | null; removedAt: Date | null }>
+  >`
+    SELECT
+      "github_repository_id" AS "githubRepositoryId",
+      "removed_at" AS "removedAt"
+    FROM "repositories"
+    WHERE "id" = ${input.repositoryId}::uuid
+    FOR SHARE
+  `
+  if (repository?.removedAt !== null || repository.githubRepositoryId === null) return false
+
+  const [grant] = await database.$queryRaw<Array<{ accessLevel: string }>>`
+    SELECT "access_level"::text AS "accessLevel"
+    FROM "repository_access_grants"
+    WHERE "membership_id" = ${input.membershipId}::uuid
+      AND "repository_id" = ${input.repositoryId}::uuid
+    FOR SHARE
+  `
+  return grant?.accessLevel === "ADMIN"
 }

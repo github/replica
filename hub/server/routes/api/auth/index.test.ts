@@ -6,7 +6,11 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createApp } from "../../../create-app"
 import { admitAuthenticationProof } from "../../../domains/admission/admit-authentication-proof"
-import { AdmissionDeniedError } from "../../../domains/admission/errors"
+import {
+  AdmissionDeniedError,
+  AdmissionUnavailableError,
+  SessionTerminationConflictError,
+} from "../../../domains/admission/errors"
 import type { AdmissionRepositories } from "../../../domains/admission/run-admission-transaction/types"
 import { createGitHubRepositoryDenialNotice } from "../../../domains/authentication/create-github-repository-denial-notice"
 import { AuthenticationProofError } from "../../../domains/authentication/errors"
@@ -621,6 +625,7 @@ describe("authenticationRoutes()", () => {
         externalIdentityId: "identity-id",
       },
     })
+
     admitSession.mockResolvedValue({ expiresAt: new Date("2030-01-01T00:00:00Z") })
     const state = "s".repeat(32)
     const browserBinding = "b".repeat(32)
@@ -641,6 +646,34 @@ describe("authenticationRoutes()", () => {
         code: "provider-code",
         state,
       })
+    })
+  })
+
+  it("redirects to a fresh sign-in state when admission authority is busy", async () => {
+    const { dependencies, completeProof, admitSession } = routeDependencies()
+    completeProof.mockResolvedValue({
+      purpose: "SIGN_IN",
+      proof: {
+        authorizationAttemptId: "attempt-id",
+        externalIdentityId: "identity-id",
+      },
+    })
+    admitSession.mockRejectedValue(new AdmissionUnavailableError())
+    const state = "s".repeat(32)
+    const browserBinding = "b".repeat(32)
+
+    await withServer(dependencies, async (baseUrl) => {
+      const callback = new URL("/api/auth/github/callback", baseUrl)
+      callback.searchParams.set("code", "test-code")
+      callback.searchParams.set("state", state)
+      const response = await fetch(callback, {
+        headers: { cookie: `hub_auth_browser=${browserBinding}` },
+        redirect: "manual",
+      })
+
+      expect(response.status).toBe(303)
+      expect(response.headers.get("location")).toBe("/?authentication=unavailable")
+      expect(response.headers.get("set-cookie")).toContain("Max-Age=0")
     })
   })
 
@@ -680,6 +713,35 @@ describe("authenticationRoutes()", () => {
         sensitiveAuthorizationId,
       })
       expect(admitSession).not.toHaveBeenCalled()
+      expect(response.headers.get("set-cookie")).not.toContain("hub_session=")
+    })
+  })
+
+  it("returns a busy administrator callback to the active session with retry guidance", async () => {
+    const { completeProof, dependencies, verifyAdministratorAuthorization } = routeDependencies()
+    completeProof.mockResolvedValue({
+      purpose: "ADMINISTRATOR_MANAGEMENT",
+      sensitiveAuthorizationId: "00000000-0000-4000-8000-000000000020",
+      proof: {
+        authorizationAttemptId: "00000000-0000-4000-8000-000000000010",
+        externalIdentityId: "00000000-0000-4000-8000-000000000012",
+      },
+    })
+    verifyAdministratorAuthorization.mockRejectedValue(new AdmissionUnavailableError())
+
+    await withServer(dependencies, async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/auth/github/callback?code=provider-code&state=${"s".repeat(32)}`,
+        {
+          headers: {
+            cookie: `hub_auth_browser=${"b".repeat(32)}; hub_session=retained-session`,
+          },
+          redirect: "manual",
+        },
+      )
+
+      expect(response.status).toBe(303)
+      expect(response.headers.get("location")).toBe("/?authentication=authorization_unavailable")
       expect(response.headers.get("set-cookie")).not.toContain("hub_session=")
     })
   })
@@ -1070,6 +1132,49 @@ describe("authenticationRoutes()", () => {
 
       expect(response.status).toBe(204)
       expect(endSession).not.toHaveBeenCalled()
+    })
+  })
+
+  it("keeps the session cookie when sign-out authority is busy", async () => {
+    const { dependencies, endSession } = routeDependencies()
+    endSession.mockRejectedValue(new SessionTerminationConflictError())
+    await withServer(dependencies, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/auth/session/sign-out`, {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          cookie: "hub_session=session-value",
+          origin: dependencies.signOut.applicationOrigin,
+        },
+      })
+
+      expect(response.status).toBe(503)
+      expect(response.headers.get("retry-after")).toBe("1")
+      expect(response.headers.get("set-cookie")).toBeNull()
+      expect(await response.json()).toEqual({
+        error: "Sign-out is temporarily unavailable. Try again.",
+      })
+    })
+  })
+
+  it("returns a busy native sign-out to the active session with retry guidance", async () => {
+    const { dependencies, endSession } = routeDependencies()
+    endSession.mockRejectedValue(new SessionTerminationConflictError())
+    await withServer(dependencies, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/auth/session/sign-out`, {
+        method: "POST",
+        headers: {
+          accept: "text/html",
+          cookie: "hub_session=session-value",
+          origin: dependencies.signOut.applicationOrigin,
+        },
+        redirect: "manual",
+      })
+
+      expect(response.status).toBe(303)
+      expect(response.headers.get("location")).toBe("/?authentication=sign_out_unavailable")
+      expect(response.headers.get("retry-after")).toBe("1")
+      expect(response.headers.get("set-cookie")).toBeNull()
     })
   })
 

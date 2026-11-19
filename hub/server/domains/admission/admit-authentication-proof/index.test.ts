@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
-import { AdmissionPersistenceError, AdmissionTransactionConflictError } from "../errors"
+import {
+  AdmissionPersistenceError,
+  AdmissionTransactionConflictError,
+  AdmissionUnavailableError,
+} from "../errors"
 import type { AdmissionDeniedError } from "../errors"
 import type { AdmissionRepositories } from "../run-admission-transaction/types"
 import { admitAuthenticationProof } from "."
@@ -121,7 +125,7 @@ describe("admitAuthenticationProof()", () => {
         runTransaction,
         writeAudit,
       }),
-    ).rejects.toBeInstanceOf(AdmissionPersistenceError)
+    ).rejects.toBeInstanceOf(AdmissionUnavailableError)
 
     expect(runTransaction).toHaveBeenCalledTimes(3)
     expect(writeAudit).toHaveBeenCalledOnce()

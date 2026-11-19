@@ -2,6 +2,7 @@ import type { RequestHandler } from "express"
 import { z } from "zod"
 
 import { readLearningSession } from "../read-learning-session/index.ts"
+import { respondLearningError } from "../respond-learning-error/index.ts"
 import type { LearningsRouteDependencies } from "../types.ts"
 
 export function get(dependencies: LearningsRouteDependencies): RequestHandler {
@@ -127,7 +128,7 @@ export function get(dependencies: LearningsRouteDependencies): RequestHandler {
         runs: runSummary.runs,
       })
     } catch (error) {
-      next(error)
+      if (!respondLearningError(response, error)) next(error)
     }
   }
 }

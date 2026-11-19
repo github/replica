@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { hashAuthenticationValue } from "../../../domains/authentication/hash-authentication-value"
 import { LearningCommandError } from "../../../integrations/learning/run-learning-command/errors.ts"
+import { LearningsError } from "./errors.ts"
 import { post as postDecision } from "./decision/post/index.ts"
 import { get as getLearnings } from "./get/index.ts"
 import { post as postRun } from "./runs/post/index.ts"
@@ -78,6 +79,37 @@ async function withRoute(
 const headers = { cookie: "hub_session=current-session" }
 
 describe("learning routes", () => {
+  it("returns retryable feedback when repository authority cannot be read", async () => {
+    const deps = dependencies({
+      authorizeRepositoryAdministration: vi
+        .fn()
+        .mockRejectedValue(
+          new LearningsError(
+            503,
+            "repository_authority_unavailable",
+            "Repository access is temporarily unavailable. Try again.",
+          ),
+        ),
+    })
+
+    await withRoute(
+      "get",
+      "/api/repositories/:repositoryId/learnings",
+      getLearnings(deps),
+      async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/api/repositories/${repositoryId}/learnings`, {
+          headers,
+        })
+
+        expect(response.status).toBe(503)
+        expect(await response.json()).toEqual({
+          code: "repository_authority_unavailable",
+          error: "Repository access is temporarily unavailable. Try again.",
+        })
+      },
+    )
+  })
+
   it("returns no learning data or permissions to a Hub administrator without repository authority", async () => {
     const administrator = { ...session, role: "ADMINISTRATOR" as const }
     const findRepository = vi.fn().mockResolvedValue(repository)
