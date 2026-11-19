@@ -31,6 +31,11 @@ jobs:
       AZURE_DEPLOYMENT_STORAGE_PRINCIPAL_ID: ${{ vars.AZURE_DEPLOYMENT_STORAGE_PRINCIPAL_ID }}
       AZURE_RUNTIME_DATABASE_SECRET_URL: ${{ vars.AZURE_RUNTIME_DATABASE_SECRET_URL }}
       AZURE_SETUP_DATABASE_SECRET_URL: ${{ vars.AZURE_SETUP_DATABASE_SECRET_URL }}
+      AZURE_HUB_APPLICATION_ORIGIN: ${{ vars.AZURE_HUB_APPLICATION_ORIGIN }}
+      AZURE_GITHUB_APP_ID: ${{ vars.AZURE_GITHUB_APP_ID }}
+      AZURE_GITHUB_CLIENT_ID: ${{ vars.AZURE_GITHUB_CLIENT_ID }}
+      AZURE_GITHUB_APP_INSTALLATION_ID: ${{ vars.AZURE_GITHUB_APP_INSTALLATION_ID }}
+      AZURE_GITHUB_PROVIDER_REVISION: ${{ vars.AZURE_GITHUB_PROVIDER_REVISION }}
       AZURE_RUNTIME_ENVIRONMENT_JSON: ${{ vars.AZURE_RUNTIME_ENVIRONMENT_JSON }}
       AZURE_RUNTIME_SECRET_REFERENCES_JSON: ${{ vars.AZURE_RUNTIME_SECRET_REFERENCES_JSON }}
       AZURE_STATE_RESOURCE_GROUP: ${{ vars.AZURE_STATE_RESOURCE_GROUP }}
@@ -148,6 +153,15 @@ jobs:
             return value
           }
           const environment = record("AZURE_RUNTIME_ENVIRONMENT_JSON")
+          const optional = (name) => process.env[name]?.trim() || undefined
+          const positiveInteger = (name, maximum) => {
+            const value = optional(name)
+            if (value === undefined) return undefined
+            if (!/^[1-9][0-9]*$/.test(value) || BigInt(value) > BigInt(maximum)) {
+              throw new Error(`${name} must be a positive integer no greater than ${maximum}.`)
+            }
+            return value
+          }
           const reserved = new Set([
             "DATABASE_URL",
             "DATABASE_RUNTIME_ROLE",
@@ -163,11 +177,19 @@ jobs:
             "AZURE_STORAGE_CONTAINER",
             "AZURE_CLIENT_ID",
             "AZURE_KEY_VAULT_SECRET_REFERENCES",
+            "HUB_APPLICATION_ORIGIN",
+            "GITHUB_APP_ID",
+            "GITHUB_CLIENT_ID",
+            "GITHUB_APP_INSTALLATION_ID",
+            "GITHUB_PROVIDER_REVISION",
           ])
           for (const [name, value] of Object.entries(environment)) {
             if (
               !/^[A-Z][A-Z0-9_]{0,40}$/.test(name) ||
               reserved.has(name) ||
+              /(^|_)(SECRET|TOKEN|PASSWORD|PASSWD|PASSPHRASE|CREDENTIAL|APIKEY|KEY)S?(_|$)/.test(
+                name,
+              ) ||
               typeof value !== "string"
             ) {
               throw new Error(
@@ -175,12 +197,117 @@ jobs:
               )
             }
           }
+          const runnerTemp = required("RUNNER_TEMP")
+          const keyVaultId = required("AZURE_KEY_VAULT_ID")
           const references = record("AZURE_RUNTIME_SECRET_REFERENCES_JSON")
           if (Object.keys(references).some((name) => Object.hasOwn(environment, name))) {
             throw new Error("Runtime environment settings and secret references cannot share names.")
           }
-          const runnerTemp = required("RUNNER_TEMP")
-          const keyVaultId = required("AZURE_KEY_VAULT_ID")
+          if (Object.keys(references).length > 63) {
+            throw new Error("AZURE_RUNTIME_SECRET_REFERENCES_JSON supports at most 63 references.")
+          }
+          const referenceIdentity = (reference) => {
+            if (
+              typeof reference !== "object" ||
+              reference === null ||
+              Array.isArray(reference) ||
+              Object.keys(reference).some((key) => !["key_vault_id", "secret_id"].includes(key)) ||
+              typeof reference.key_vault_id !== "string" ||
+              typeof reference.secret_id !== "string" ||
+              !/^\/subscriptions\/[^/]+\/resourceGroups\/[^/]+\/providers\/Microsoft\.KeyVault\/vaults\/[A-Za-z0-9-]{1,24}$/.test(
+                reference.key_vault_id,
+              ) ||
+              !/^https:\/\/[A-Za-z0-9-]{1,24}\.vault\.azure\.net\/secrets\/[A-Za-z0-9-]{1,127}(\/[A-Fa-f0-9]{32})?$/.test(
+                reference.secret_id,
+              )
+            ) {
+              throw new Error(
+                "AZURE_RUNTIME_SECRET_REFERENCES_JSON contains an invalid Key Vault reference.",
+              )
+            }
+            const vault = reference.key_vault_id.split("/").at(-1).toLowerCase()
+            const url = new URL(reference.secret_id)
+            if (url.hostname.toLowerCase() !== `${vault}.vault.azure.net`) {
+              throw new Error(
+                "AZURE_RUNTIME_SECRET_REFERENCES_JSON contains a mismatched Key Vault reference.",
+              )
+            }
+            return `${reference.key_vault_id}/secrets/${url.pathname.split("/")[2]}`.toLowerCase()
+          }
+          const referenceNames = new Set()
+          for (const [name, reference] of Object.entries(references)) {
+            if (
+              !/^[A-Z][A-Z0-9_]{0,40}$/.test(name) ||
+              reserved.has(name) ||
+              ["GITHUB_APP_ID", "GITHUB_CLIENT_ID", "GITHUB_APP_INSTALLATION_ID", "GITHUB_PROVIDER_REVISION"].includes(
+                name,
+              )
+            ) {
+              throw new Error(
+                "AZURE_RUNTIME_SECRET_REFERENCES_JSON contains an invalid or reserved setting.",
+              )
+            }
+            referenceNames.add(referenceIdentity(reference))
+          }
+          if (
+            referenceNames.has(
+              referenceIdentity({
+                key_vault_id: keyVaultId,
+                secret_id: required("AZURE_SETUP_DATABASE_SECRET_URL"),
+              }),
+            )
+          ) {
+            throw new Error("Runtime secret references cannot use the setup database secret.")
+          }
+          const hubOrigin = optional("AZURE_HUB_APPLICATION_ORIGIN")
+          if (hubOrigin !== undefined) {
+            let parsed
+            try {
+              parsed = new URL(hubOrigin)
+            } catch {
+              throw new Error("AZURE_HUB_APPLICATION_ORIGIN must be an exact HTTPS origin.")
+            }
+            if (
+              parsed.protocol !== "https:" ||
+              parsed.username ||
+              parsed.password ||
+              parsed.pathname !== "/" ||
+              parsed.search ||
+              parsed.hash ||
+              parsed.hostname !== parsed.hostname.toLowerCase() ||
+              parsed.origin !== hubOrigin
+            ) {
+              throw new Error("AZURE_HUB_APPLICATION_ORIGIN must be an exact HTTPS origin.")
+            }
+          }
+          const githubAppId = positiveInteger("AZURE_GITHUB_APP_ID", Number.MAX_SAFE_INTEGER)
+          const githubInstallationId = positiveInteger(
+            "AZURE_GITHUB_APP_INSTALLATION_ID",
+            Number.MAX_SAFE_INTEGER,
+          )
+          const githubRevisionText = positiveInteger(
+            "AZURE_GITHUB_PROVIDER_REVISION",
+            2147483647,
+          )
+          const githubClientId = optional("AZURE_GITHUB_CLIENT_ID")
+          if (
+            githubClientId !== undefined &&
+            (githubClientId.length > 200 || /\s/u.test(githubClientId))
+          ) {
+            throw new Error(
+              "AZURE_GITHUB_CLIENT_ID must contain 1–200 non-whitespace characters.",
+            )
+          }
+          if (
+            (Object.hasOwn(references, "GITHUB_APP_PRIVATE_KEY_BASE64") ||
+              Object.hasOwn(references, "GITHUB_APP_PRIVATE_KEY")) &&
+            !githubAppId
+          ) {
+            throw new Error("A GitHub App private-key reference requires AZURE_GITHUB_APP_ID.")
+          }
+          if (Object.hasOwn(references, "GITHUB_CLIENT_SECRET") && !githubClientId) {
+            throw new Error("A GitHub client-secret reference requires AZURE_GITHUB_CLIENT_ID.")
+          }
           writeFileSync(
             join(runnerTemp, "installation.tfvars.json"),
             JSON.stringify({
@@ -204,6 +331,15 @@ jobs:
                 key_vault_id: keyVaultId,
                 secret_id: required("AZURE_SETUP_DATABASE_SECRET_URL"),
               },
+              ...(hubOrigin ? { hub_application_origin: hubOrigin } : {}),
+              ...(githubAppId ? { github_app_id: githubAppId } : {}),
+              ...(githubClientId ? { github_client_id: githubClientId } : {}),
+              ...(githubInstallationId
+                ? { github_app_installation_id: githubInstallationId }
+                : {}),
+              ...(githubRevisionText
+                ? { github_provider_revision: Number(githubRevisionText) }
+                : {}),
               runtime_environment_variables: environment,
               runtime_secret_references: references,
             }),

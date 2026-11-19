@@ -310,6 +310,11 @@ Store these non-secret values as Environment variables:
 | `AZURE_DEPLOYMENT_STORAGE_PRINCIPAL_ID` | Object ID of the deployment principal already recorded by Terraform for the installation storage grant. Preserve this value so a release does not replace that grant. |
 | `AZURE_RUNTIME_DATABASE_SECRET_URL` | Versioned or unversioned Key Vault URL for the runtime database URL. |
 | `AZURE_SETUP_DATABASE_SECRET_URL` | Different Key Vault URL for the migration database URL. |
+| `AZURE_HUB_APPLICATION_ORIGIN` | Optional exact public HTTPS origin. Use the named input instead of the generic runtime map. |
+| `AZURE_GITHUB_APP_ID` | Optional numeric GitHub App ID used for repository access and organization Copilot. |
+| `AZURE_GITHUB_CLIENT_ID` | Optional GitHub App client ID used for sign-in. |
+| `AZURE_GITHUB_APP_INSTALLATION_ID` | Optional numeric installation ID used for repository access. This is separate from the Copilot organization installation setting. |
+| `AZURE_GITHUB_PROVIDER_REVISION` | Optional positive GitHub provider revision. Increment it when sign-in credentials or references change. |
 | `AZURE_RUNTIME_ENVIRONMENT_JSON` | JSON object matching `runtime_environment_variables`; use `{}` when no additional non-secret runtime settings are configured. |
 | `AZURE_RUNTIME_SECRET_REFERENCES_JSON` | JSON object matching `runtime_secret_references`; use `{}` when no additional runtime settings are configured. |
 | `AZURE_STATE_RESOURCE_GROUP` | Terraform backend resource group. |
@@ -320,21 +325,19 @@ Store these non-secret values as Environment variables:
 
 Key Vault URLs are references, not secret values. Do not put secret values in GitHub variables, GitHub secrets, workflow inputs, repository files, or installation JSON. The workflow writes only references and non-secret coordinates to private temporary files and does not upload plans or configuration artifacts.
 
-Put public runtime configuration in `AZURE_RUNTIME_ENVIRONMENT_JSON`. The workflow and Terraform accept only uppercase environment names of at most 41 characters, reject deployment-owned names, require string values, and reject names also used by secret references. Authentication and organization Copilot examples include:
+Use the named Environment variables for Hub's public origin and GitHub App identity, client, repository installation, and provider revision. They follow the same validated Terraform inputs as the guided installer and cannot be duplicated in the generic runtime map.
+
+Put other public runtime configuration in `AZURE_RUNTIME_ENVIRONMENT_JSON`. The workflow and Terraform accept only uppercase environment names of at most 41 characters, reject deployment-owned and credential-named settings, require string values, and reject names also used by secret references. Entra and organization Copilot examples include:
 
 ```json
 {
-  "HUB_APPLICATION_ORIGIN": "https://hub.example.com",
   "HUB_TRUSTED_PROXY_HOPS": "1",
-  "GITHUB_CLIENT_ID": "github-oauth-client-id",
-  "GITHUB_PROVIDER_REVISION": "1",
   "ENTRA_OIDC_ISSUER": "https://login.microsoftonline.com/TENANT/v2.0",
   "ENTRA_OIDC_CLIENT_ID": "entra-client-id",
   "ENTRA_OIDC_PROVIDER_REVISION": "1",
   "ENTRA_OIDC_CLIENT_AUTHENTICATION": "managed-identity",
   "ENTRA_OIDC_MANAGED_IDENTITY_CLIENT_ID": "managed-identity-client-id",
   "REPLICA_COPILOT_AUTHENTICATION": "github-app-installation",
-  "GITHUB_APP_ID": "github-app-id",
   "REPLICA_COPILOT_GITHUB_ORGANIZATION": "organization",
   "REPLICA_COPILOT_GITHUB_INSTALLATION_ID": "12345678"
 }
@@ -356,7 +359,7 @@ The installer creates `postgres-runtime-url` and `postgres-migration-url`. Store
     "key_vault_id": "/subscriptions/.../resourceGroups/.../providers/Microsoft.KeyVault/vaults/...",
     "secret_id": "https://YOUR-VAULT.vault.azure.net/secrets/hub-bootstrap-secret/VERSION"
   },
-  "GITHUB_APP_PRIVATE_KEY": {
+  "GITHUB_APP_PRIVATE_KEY_BASE64": {
     "key_vault_id": "/subscriptions/.../resourceGroups/.../providers/Microsoft.KeyVault/vaults/...",
     "secret_id": "https://YOUR-VAULT.vault.azure.net/secrets/github-app-private-key/VERSION"
   },
@@ -369,7 +372,7 @@ The installer creates `postgres-runtime-url` and `postgres-migration-url`. Store
 
 Use `ENTRA_OIDC_CLIENT_SECRET` as a secret reference only when Entra uses `client-secret`; managed-identity mode keeps its client ID in the non-secret map. Increment authentication provider revisions before re-enabling a removed provider or intentionally invalidating in-flight attempts. Prefer versioned secret URLs so a credential change is explicit in the reviewed Terraform plan.
 
-The final GitHub App setup branch remains a narrow follow-up. After it lands, map its accepted public App and installation values into `AZURE_RUNTIME_ENVIRONMENT_JSON`, map only its private key or other credentials into `AZURE_RUNTIME_SECRET_REFERENCES_JSON`, verify the Hub identity's secret-level grants, and add a credential-free setup-state check if that branch defines one. Do not guess its final secret names or couple this workflow to unpublished setup code.
+The guided GitHub App setup contract is now part of the base. Use the documented Key Vault secret names for client, private-key, webhook, encryption, and bootstrap values, or preserve equivalent existing references. The release identity manages only their URLs and secret-level role assignments; it does not read their values. The workflow cannot check `/api/settings/github/status` without a Hub administrator session, so authenticated setup-state verification remains a separate operator smoke test rather than a release-identity permission.
 
 ### Grant least-privilege Azure access
 

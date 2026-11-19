@@ -219,6 +219,28 @@ describe("checkWorkflows()", () => {
         delete workflow.jobs.deploy.env.AZURE_RUNTIME_ENVIRONMENT_JSON
       },
     },
+    {
+      name: "a missing named GitHub App coordinate",
+      mutate(workflow: Workflow) {
+        assert(workflow.jobs.deploy.env)
+        delete workflow.jobs.deploy.env.AZURE_GITHUB_APP_ID
+      },
+    },
+    {
+      name: "deployment configuration that moves GitHub App identity into the generic map",
+      mutate(workflow: Workflow) {
+        const configuration = workflow.jobs.deploy.steps?.find(
+          (step) => step.name === "Prepare non-secret deployment configuration",
+        )
+        assert(configuration?.run)
+        const mutated = configuration.run.replace(
+          "...(githubAppId ? { github_app_id: githubAppId } : {}),",
+          "",
+        )
+        assert.notEqual(mutated, configuration.run)
+        configuration.run = mutated
+      },
+    },
   ])("rejects an Azure deployment workflow with $name", ({ mutate }) => {
     const { directory, path, workflow } = deploymentFixture()
     mutate(workflow)

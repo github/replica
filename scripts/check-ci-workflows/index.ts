@@ -168,6 +168,19 @@ export function checkWorkflows(root: string): void {
     "${{ vars.AZURE_RUNTIME_ENVIRONMENT_JSON }}",
     "Deployment must read non-secret runtime settings from the protected Environment",
   )
+  for (const name of [
+    "AZURE_HUB_APPLICATION_ORIGIN",
+    "AZURE_GITHUB_APP_ID",
+    "AZURE_GITHUB_CLIENT_ID",
+    "AZURE_GITHUB_APP_INSTALLATION_ID",
+    "AZURE_GITHUB_PROVIDER_REVISION",
+  ]) {
+    assert.equal(
+      deploy.env?.[name],
+      `\${{ vars.${name} }}`,
+      `Deployment must read ${name} from the protected Environment`,
+    )
+  }
   assert(!JSON.stringify(deployment).includes("secrets."), "Deployment must not read GitHub secrets")
   assert(
     deploy.steps?.every(
@@ -201,6 +214,11 @@ export function checkWorkflows(root: string): void {
     configuration?.run?.includes("deployment_storage_principal_id: required(") &&
       configuration.run.includes('"AZURE_DEPLOYMENT_STORAGE_PRINCIPAL_ID"') &&
       configuration.run.includes('record("AZURE_RUNTIME_ENVIRONMENT_JSON")') &&
+      configuration.run.includes("hub_application_origin: hubOrigin") &&
+      configuration.run.includes("github_app_id: githubAppId") &&
+      configuration.run.includes("github_client_id: githubClientId") &&
+      configuration.run.includes("github_app_installation_id: githubInstallationId") &&
+      configuration.run.includes("github_provider_revision: Number(githubRevisionText)") &&
       configuration.run.includes("runtime_environment_variables: environment") &&
       configuration.run.includes("runtime_secret_references: references"),
     "Deployment must preserve the storage principal and separate public runtime settings from secret references",
