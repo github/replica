@@ -80,7 +80,7 @@ def _artifact(data: bytes, **metadata) -> Artifact:
 
 
 def _candidate(name: str) -> Candidate:
-    artifact = _artifact(name.encode())
+    artifact = _artifact(name.encode(), name="adapter.bin")
     manifest = {"name": name, "artifact": str(artifact.digest)}
     identity = hashlib.sha256()
     identity.update(
@@ -806,12 +806,13 @@ class _ConformanceInferenceConnector:
         self.name = connector.name
 
     def predict(self, adapter, request, *, context, credential):
-        return self.connector.predict(
+        answers = self.connector.predict(
             adapter,
             dict(request, expectedGeneration=1),
             context=context,
             credential=credential,
         )
+        return dict(answers, operationId=context.operation_id)
 
 
 class _IdentityClient:
@@ -1135,6 +1136,21 @@ class AzurePostgresConnectorTest(unittest.TestCase):
             )
         self.assertEqual(stale.exception.code, "promotion_generation_conflict")
         self.assertEqual(candidates.current(_context(self.scope, "current")), promoted)
+        first_path = candidates.artifact_path(
+            first.id,
+            "adapter.bin",
+            _context(self.scope, "materialize-one"),
+        )
+        second_path = candidates.artifact_path(
+            first.id,
+            "adapter.bin",
+            _context(self.scope, "materialize-two"),
+        )
+        self.assertEqual(first_path, second_path)
+        self.assertEqual(first_path.read_bytes(), b"one")
+        cache_root = candidates._cache_root
+        candidates.close()
+        self.assertFalse(cache_root.exists())
 
 
 class AzureExecutionConnectorTest(unittest.TestCase):
@@ -1298,7 +1314,7 @@ class AzureExecutionConnectorTest(unittest.TestCase):
             credential=credential,
         )
         self.assertEqual(response["learning-one"], {"yes": 0.8, "no": 0.2})
-        self.assertEqual(response["operationId"], context.operation_id)
+        self.assertNotIn("operationId", response)
         self.assertEqual(len(client.requests), 1)
         self.assertNotIn("training", client.requests[0]["request"])
         self.assertNotIn("admin", client.requests[0]["request"])

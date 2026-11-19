@@ -1167,6 +1167,13 @@ class AzurePostgresCandidateConnector(_AzurePostgresConnector):
     ):
         super().__init__(connection_factory, scope)
         self.artifacts = artifacts
+        self._cache_root = Path(tempfile.mkdtemp(prefix="replica-azure-candidates-"))
+
+    def close(self) -> None:
+        shutil.rmtree(self._cache_root, ignore_errors=True)
+
+    def __del__(self) -> None:
+        self.close()
 
     def put(self, candidate: Candidate, context: OperationContext) -> Candidate:
         self._check(context)
@@ -1457,10 +1464,26 @@ class AzurePostgresCandidateConnector(_AzurePostgresConnector):
                 "The candidate artifact was not found.",
                 category="not_found",
             )
-        directory = Path(tempfile.mkdtemp(prefix="replica-azure-candidate-"))
+        directory = self._cache_root / candidate_id
+        directory.mkdir(parents=True, exist_ok=True)
         path = directory / name
-        path.write_bytes(artifact.data)
-        os.chmod(path, 0o400)
+        if not path.is_file():
+            staging = directory / f".{name}.{uuid.uuid4().hex}"
+            staging.write_bytes(artifact.data)
+            os.chmod(staging, 0o400)
+            try:
+                staging.rename(path)
+            except OSError:
+                if not path.is_file():
+                    raise
+            finally:
+                staging.unlink(missing_ok=True)
+        if _digest(path.read_bytes()) != artifact.digest:
+            raise ConnectorError(
+                "candidate_cache_damaged",
+                "The cached candidate artifact is invalid.",
+                category="integrity",
+            )
         return path
 
 
@@ -1728,7 +1751,7 @@ class AzureEndpointInferenceConnector:
                 "The customer inference endpoint returned invalid answers.",
                 category="integrity",
             )
-        return dict(answers, operationId=context.operation_id)
+        return dict(answers)
 
 
 class AzureManagedIdentityCredentialConnector(_AzureScopedConnector):
@@ -1866,6 +1889,10 @@ class AzureConnectorBundle:
     connectors: RuntimeConnectors
     scope: RuntimeScope
     postgres_schema: str = AZURE_POSTGRES_SCHEMA
+
+    def close(self) -> None:
+        self.connectors.tasksets.close()
+        self.connectors.candidates.close()
 
 
 def create_azure_connector_bundle(
