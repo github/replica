@@ -17,6 +17,7 @@ export function useReviewLiveUpdates(channel: string | null, refresh: () => void
     const url = new URL("/api/realtime", window.location.href)
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
     let active = true
+    let accessDenied = false
     let socket: WebSocket
     let timer: ReturnType<typeof setTimeout>
     let backoff = 1000
@@ -44,23 +45,30 @@ export function useReviewLiveUpdates(channel: string | null, refresh: () => void
         } else if (frame.type === "event" && frame.channel === channel) {
           refresh()
         } else if (frame.type === "error") {
+          accessDenied = true
           socket.close()
         }
       })
-      socket.addEventListener("close", () => {
+      socket.addEventListener("close", ({ code }) => {
         if (!active) return
+        accessDenied ||= code === 4403
         refresh()
+        if (accessDenied) return
         timer = setTimeout(connect, backoff)
         backoff = Math.min(backoff * 2, 15_000)
       })
     }
 
+    function refreshOnFocus() {
+      if (!accessDenied) refresh()
+    }
+
     connect()
-    window.addEventListener("focus", refresh)
+    window.addEventListener("focus", refreshOnFocus)
     return () => {
       active = false
       clearTimeout(timer)
-      window.removeEventListener("focus", refresh)
+      window.removeEventListener("focus", refreshOnFocus)
       if (socket.readyState < WebSocket.CLOSING) socket.close()
     }
   }, [channel, refresh])

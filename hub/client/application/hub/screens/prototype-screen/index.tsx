@@ -130,7 +130,10 @@ export function PrototypeScreen({
   })
   const { notificationId, messageId, commentId } = query
   const channel =
-    !mock && /^[\da-f-]{36}$/i.test(data.repository.id) && /^[\da-f-]{36}$/i.test(data.prototype.id)
+    !mock &&
+    !pageData.reviewReadOnly &&
+    /^[\da-f-]{36}$/i.test(data.repository.id) &&
+    /^[\da-f-]{36}$/i.test(data.prototype.id)
       ? `review:${data.repository.id}:${data.prototype.id}`
       : null
   useReviewLiveUpdates(channel, review.comments.refreshComments)

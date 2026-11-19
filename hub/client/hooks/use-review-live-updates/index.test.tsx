@@ -3,7 +3,7 @@ import { expect, it, vi } from "vitest"
 
 import { useReviewLiveUpdates } from "."
 
-it("re-fetches confirmed subscriptions and reconnects without consuming review data from the socket", () => {
+function installSockets() {
   vi.useFakeTimers()
   const sockets: TestSocket[] = []
   class TestSocket extends EventTarget {
@@ -14,16 +14,22 @@ it("re-fetches confirmed subscriptions and reconnects without consuming review d
       super()
       sockets.push(this)
     }
-    close() {
+    close(code = 1000) {
       this.readyState = 3
-      this.dispatchEvent(new Event("close"))
+      this.dispatchEvent(new CloseEvent("close", { code }))
     }
     receive(frame: unknown) {
       this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(frame) }))
     }
   }
   vi.stubGlobal("WebSocket", TestSocket)
-  const channel = "review:repository:prototype"
+  return sockets
+}
+
+const channel = "review:repository:prototype"
+
+it("re-fetches confirmed subscriptions and reconnects without consuming review data from the socket", () => {
+  const sockets = installSockets()
   const refresh = vi.fn()
   renderHook(() => useReviewLiveUpdates(channel, refresh))
   const first = sockets[0]
@@ -50,3 +56,25 @@ it("re-fetches confirmed subscriptions and reconnects without consuming review d
   expect(second.send).toHaveBeenCalledWith(JSON.stringify({ type: "subscribe", channel }))
   expect(refresh).toHaveBeenCalledTimes(4)
 })
+
+it.each(["subscribe denial", "access revoked"])(
+  "refreshes once and stops retrying after %s",
+  (denial) => {
+    const sockets = installSockets()
+    const refresh = vi.fn()
+    const { rerender } = renderHook(({ scope }) => useReviewLiveUpdates(scope, refresh), {
+      initialProps: { scope: channel },
+    })
+    const first = sockets[0]!
+    if (denial === "subscribe denial") first.receive({ type: "error", code: "FORBIDDEN" })
+    else first.close(4403)
+
+    vi.advanceTimersByTime(60_000)
+    window.dispatchEvent(new Event("focus"))
+    expect(sockets).toHaveLength(1)
+    expect(refresh).toHaveBeenCalledTimes(1)
+
+    rerender({ scope: "review:repository:other-prototype" })
+    expect(sockets).toHaveLength(2)
+  },
+)

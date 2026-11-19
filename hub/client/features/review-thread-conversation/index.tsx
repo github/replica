@@ -43,6 +43,7 @@ export function ReviewThreadConversation({
   mutation,
   copy,
   readOnly = false,
+  notificationId,
   notificationMessageId,
   onNotificationMessageOpened,
   onClose,
@@ -62,6 +63,7 @@ export function ReviewThreadConversation({
   const messagesScrollTopRef = useRef(0)
   const openedActivityVersionRef = useRef(thread.root.activityVersion)
   const focusedNotificationMessage = useRef<number | undefined>(undefined)
+  const openedNotification = useRef<number | undefined>(undefined)
   const attemptedReadVersionRef = useRef<number | null>(null)
   const readPendingRef = useRef(false)
   const unreadPendingRef = useRef(false)
@@ -185,15 +187,19 @@ export function ReviewThreadConversation({
   }, [onMarkRead, thread.unread, thread.root.viewerLastSeenActivityVersion])
 
   useEffect(() => {
-    if (!notificationMessageId || focusedNotificationMessage.current === notificationMessageId)
-      return
+    if (!notificationId || !notificationMessageId) return
     const target = cardRef.current?.querySelector<HTMLElement>('[data-notification-target="true"]')
     if (!target) return
-    focusedNotificationMessage.current = notificationMessageId
-    target.scrollIntoView?.({ block: "nearest" })
-    target.focus({ preventScroll: true })
-    onNotificationMessageOpened?.(notificationMessageId)
-  }, [cardRef, notificationMessageId, onNotificationMessageOpened, thread])
+    if (focusedNotificationMessage.current !== notificationMessageId) {
+      focusedNotificationMessage.current = notificationMessageId
+      target.scrollIntoView?.({ block: "nearest" })
+      target.focus({ preventScroll: true })
+    }
+    if (onNotificationMessageOpened && openedNotification.current !== notificationId) {
+      openedNotification.current = notificationId
+      onNotificationMessageOpened(notificationMessageId)
+    }
+  }, [cardRef, notificationId, notificationMessageId, onNotificationMessageOpened, thread])
 
   async function markUnread() {
     if (!onMarkUnread || readPendingRef.current || unreadPendingRef.current || mutation !== null) {
@@ -394,7 +400,11 @@ export function ReviewThreadConversation({
             <ReviewThreadMessage
               key={comment.id}
               comment={comment}
-              notificationTarget={comment.id === notificationMessageId && !comment.deletedAt}
+              notificationTarget={
+                Boolean(notificationId) &&
+                comment.id === notificationMessageId &&
+                !comment.deletedAt
+              }
               mutation={mutation}
               copy={copy}
               editing={state.editingCommentId === comment.id}

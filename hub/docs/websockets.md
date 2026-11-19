@@ -92,7 +92,7 @@ Oversized incoming messages close with code 1009. Excess message rates close wit
 
 ## Review delivery
 
-Review pages subscribe to `review:<repository UUID>:<prototype UUID>` using the Hub session cookie and exact application origin. Hub checks the live session, repository permission, and prototype eligibility before accepting the subscription, before sending an invalidation, and at the connection heartbeat. Losing access closes the subscription. The browser re-fetches through the authenticated HTTP endpoint and clears loaded reviews if access is no longer available.
+Review pages subscribe to `review:<repository UUID>:<prototype UUID>` using the Hub session cookie and exact application origin when the workspace allows review. Hub checks the live session, repository permission, and prototype eligibility before accepting the subscription, before sending an invalidation, and at the connection heartbeat. An explicit access denial stops retries for the current subscription. The browser makes a final authenticated HTTP read and clears loaded reviews if access is no longer available.
 
 A PostgreSQL trigger signals the repository and prototype when a thread is created or its collaboration version changes. PostgreSQL sends the signal only after the transaction commits. Each API process holds one `LISTEN` connection to that same database and sends `changed` with a `null` payload to its own authorized subscribers. No message bodies, anchors, reactions, receipt state, or identities travel on the socket. Rollbacks, thread read receipts, and Inbox reads do not send a signal.
 

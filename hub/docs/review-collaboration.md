@@ -51,6 +51,8 @@ Inbox lists only the viewer's accessible activity and returns a total unread cou
 
 `GET /api/notifications/inbox` accepts `unread`, `limit`, and `before`. `GET /api/notifications/:notificationId` returns one authorized notice. `PATCH /api/notifications/:notificationId` accepts `{ notification: { read, version } }`.
 
+Opening a notice marks that notice as read once its target message is shown, even when another notice already focused the same message.
+
 When a saved conversation changes, PostgreSQL sends a scoped [WebSocket invalidation](websockets.md#review-delivery). The browser reloads authorized conversation data without closing its current draft, and reloads again after reconnecting. Thread receipts and Inbox read changes do not send review invalidations.
 
 ## Learning snapshot seam

@@ -182,7 +182,7 @@ function renderConversation(
     onMarkUnread: vi.fn(() => Promise.resolve(true)),
   }
   const initialThread = overrides.thread ?? THREAD
-  function conversation(thread: ReviewThread) {
+  function conversation(thread: ReviewThread, props = overrides) {
     return (
       <div style={{ position: "relative", width: 900, height: 700 }}>
         {withMarkers && overrides.anchorPoint ? (
@@ -223,7 +223,7 @@ function renderConversation(
             mutation={null}
             copy={COPY}
             {...callbacks}
-            {...overrides}
+            {...props}
             thread={thread}
           />
         </div>
@@ -231,14 +231,37 @@ function renderConversation(
     )
   }
   const rendered = render(conversation(initialThread))
+  let currentProps = overrides
   return {
     ...callbacks,
     unmount: rendered.unmount,
-    refreshThread: (thread: ReviewThread) => rendered.rerender(conversation(thread)),
+    refreshThread: (thread: ReviewThread) => rendered.rerender(conversation(thread, currentProps)),
+    openNotification: (notificationId: number) => {
+      currentProps = { ...currentProps, notificationId }
+      rendered.rerender(conversation(initialThread, currentProps))
+    },
   }
 }
 
 describe("ReviewThreadConversation()", () => {
+  it("acknowledges each notice for the same visible message without refocusing it", () => {
+    const onNotificationMessageOpened = vi.fn()
+    const { openNotification, refreshThread } = renderConversation({
+      notificationId: 1,
+      notificationMessageId: THREAD.root.id,
+      onNotificationMessageOpened,
+    })
+    expect(onNotificationMessageOpened).toHaveBeenCalledExactlyOnceWith(THREAD.root.id)
+
+    const reply = screen.getByRole("textbox", { name: "Reply" })
+    reply.focus()
+    expect(reply).toHaveFocus()
+    openNotification(2)
+    refreshThread({ ...THREAD })
+    expect(onNotificationMessageOpened.mock.calls).toEqual([[THREAD.root.id], [THREAD.root.id]])
+    expect(reply).toHaveFocus()
+  })
+
   it.each(["returned", "rejected"])(
     "shows a %s reaction failure during editing and after canceling",
     async (failure) => {

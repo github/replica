@@ -177,7 +177,8 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
           mutation={review.comments.mutation}
           copy={data.reviewComments.copy}
           readOnly={data.reviewReadOnly}
-          notificationMessageId={data.initialNotificationId ? data.initialCommentId : undefined}
+          notificationId={data.initialNotificationId}
+          notificationMessageId={data.initialCommentId}
           onNotificationMessageOpened={onNotificationMessageOpened}
           onClose={review.closeThread}
           onDraftStateChange={review.setConversationDraftActive}
