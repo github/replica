@@ -2510,7 +2510,12 @@ class LearningStore {
       ],
     })
     assertValid("exportManifest", manifest)
-    if (!preview)
+    if (preview)
+      await this.#audit(context, "export.create", [], {
+        purpose,
+        reason: `Previewed ephemeral export ${manifest.id} with digest ${manifest.digest}.`,
+      })
+    else
       await this.#append(
         "exports",
         [manifest],

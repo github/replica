@@ -590,6 +590,7 @@ describe("createHubDecisionTasksetSource()", () => {
       { viewport: "narrow", theme: "light" },
       { viewport: "narrow", theme: "dark" },
     ])
+    expect(prepared.state.imagesNote).not.toContain(prepared.route)
     expect(prepared.images).toHaveLength(4)
     expect(prepared.questionDigest).toMatch(/^sha256:[0-9a-f]{64}$/)
     expect(prepared.screenshotSetDigest).toMatch(/^sha256:[0-9a-f]{64}$/)

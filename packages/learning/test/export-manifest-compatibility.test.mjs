@@ -44,6 +44,33 @@ function providerThatStoresHistoricalExports() {
 }
 
 describe("historical export manifests", () => {
+  it("audits preview exports without retaining them as deletion follow-ups", async () => {
+    const provider = createInMemoryProvider()
+    const store = await createLearningStore({ provider, clock: () => NOW })
+    const grant = await store.addGrant(PERSON, {
+      purposes: ["review"],
+      sources: ["hub_review_comments"],
+      basis: "The team agreed to review its Hub comments.",
+    })
+    await store.importHubReviewComments(AGENT, weekOneLog(), { grantIds: [grant.id] })
+
+    const preview = await store.exportRecords(PERSON, {
+      purpose: "review",
+      destination: "/tmp/ephemeral-review.json",
+      preview: true,
+    })
+
+    assert.deepEqual(await provider.readRecords("exports", { scope: SCOPE }), [])
+    const audits = await provider.readRecords("audit", {
+      scope: SCOPE,
+      operations: ["export.create"],
+    })
+    assert.equal(audits.at(-1).outcome, "ok")
+    assert.match(audits.at(-1).reason, new RegExp(preview.manifest.id))
+    assert.match(audits.at(-1).reason, new RegExp(preview.manifest.digest))
+    assert.equal((await store.verify(PERSON)).ok, true)
+  })
+
   it("remain valid during verification, withdrawal, and redaction", async () => {
     const provider = providerThatStoresHistoricalExports()
     const store = await createLearningStore({ provider, clock: () => NOW })

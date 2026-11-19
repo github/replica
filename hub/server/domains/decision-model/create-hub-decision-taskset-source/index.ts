@@ -921,7 +921,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
           imagesNote: screenshots
             .map(
               (screenshot, index) =>
-                `Image ${index + 1} is route ${JSON.stringify(screenshot.route)} at ${screenshot.viewport.width} by ${screenshot.viewport.height} or taller in ${screenshot.theme} theme.`,
+                `Image ${index + 1} is ${screenshot.viewport.width} by ${screenshot.viewport.height} or taller in ${screenshot.theme} theme.`,
             )
             .join(" "),
         },
