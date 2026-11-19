@@ -2,17 +2,17 @@ import { UnrecoverableError } from "bullmq"
 import { z } from "zod"
 
 import { parseJobPayload } from "../parse-job-payload/index.ts"
-import type { JobDefinition, JobProcessor } from "../types.ts"
+import type { JobDefinition, JobProcessor, JobProcessorContext } from "../types.ts"
 
 /** Bind typed domain input without making queue producers import execution code. */
 export function createJobProcessor<T>(
   definition: JobDefinition<T>,
-  process: (data: T) => Promise<unknown>,
+  process: (data: T, context: JobProcessorContext) => Promise<unknown>,
   shouldRetry?: (error: unknown) => boolean,
 ): JobProcessor {
   return {
     name: definition.name,
-    async process(payload) {
+    async process(payload, context) {
       let data: T
       try {
         data = parseJobPayload(definition, payload)
@@ -21,7 +21,12 @@ export function createJobProcessor<T>(
         throw error
       }
       try {
-        return await process(data)
+        return await process(data, {
+          defer: (delayMs) =>
+            context
+              ? context.defer(delayMs)
+              : Promise.reject(new Error("Job deferral requires a running worker.")),
+        })
       } catch (error) {
         if (shouldRetry && !shouldRetry(error)) {
           throw new UnrecoverableError("Job failed with a nonretryable error.")

@@ -140,7 +140,7 @@ On `SIGINT` or `SIGTERM`, the API stops accepting requests and allows active req
 
 The API and frontend do not start background consumers. After starting PostgreSQL, run `npm run setup` once, then start `npm run worker:on-demand` and `npm run worker:scheduled` in separate terminals. Both use `DATABASE_URL`; their concurrency settings are in `.env.example`.
 
-The scheduled worker reconciles the configured GitHub installation every 15 minutes and runs [GitHub Build recovery](github-actions-builds.md#recovery). See [Background jobs](background-jobs.md) for definitions, shutdown, migrations, and the compiled commands intended for separate deployment services.
+The scheduled worker reconciles the configured GitHub installation every 15 minutes and runs [GitHub Build recovery](github-actions-builds.md#recovery). When `REPLICA_LEARNING_AUTOMATIC_RUNS=true`, it also discovers due learning repositories daily at 02:00 UTC and executes automatic runs without consuming on-demand capacity. See [Background jobs](background-jobs.md) for definitions, shutdown, migrations, and the compiled commands intended for separate deployment services.
 
 ## Database lifecycle
 

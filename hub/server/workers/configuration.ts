@@ -1,7 +1,9 @@
 import { z } from "zod"
 
 import { createLearningJobProcessors } from "../domains/learning/create-learning-job-processors/index.ts"
+import { scheduledMaintenancePriority } from "../domains/learning/jobs/priorities.ts"
 import { recoverLearningRunsJob } from "../domains/learning/jobs/recover-learning-runs.ts"
+import { scheduleLearningRunsJob } from "../domains/learning/jobs/schedule-learning-runs.ts"
 import { getGitHubWorkflowRunJobDefinition } from "../domains/github-builds/get-github-workflow-run-job-definition/index.ts"
 import { getLocalBuildJobDefinition } from "../domains/local-builds/get-local-build-job-definition/index.ts"
 import { createJobProcessor } from "../integrations/bullmq/create-job-processor/index.ts"
@@ -23,7 +25,11 @@ const learning = createLearningJobProcessors(process.env, logger)
 const githubInstallationReconciliation: JobDefinition<Record<string, never>> = {
   name: "reconcile-github-installation",
   schema: z.object({}).strict(),
-  options: { attempts: 3, backoff: { type: "exponential", delay: 60_000 } },
+  options: {
+    attempts: 3,
+    backoff: { type: "exponential", delay: 60_000 },
+    priority: scheduledMaintenancePriority,
+  },
 }
 
 const githubBuildImportRetry: JobDefinition<Record<string, never>> = {
@@ -56,7 +62,9 @@ export const jobProcessors: Record<JobQueueName, JobProcessor[]> = {
     createJobProcessor(getGitHubWorkflowRunJobDefinition(), importGitHubWorkflowRunJob),
   ],
   scheduled: [
+    learning.scheduledRun,
     learning.recover,
+    learning.schedule,
     createJobProcessor(githubInstallationReconciliation, reconcileGitHubInstallation),
     createJobProcessor(githubBuildImportRetry, retryGitHubBuildsAwaitingImport),
     createJobProcessor(githubWorkflowRunDiscovery, discoverGitHubWorkflowRunsJob),
@@ -75,6 +83,12 @@ export const jobSchedules: {
     definition: recoverLearningRunsJob,
     payload: {},
     repeat: { every: 60_000 },
+  },
+  {
+    id: "learning-run-daily",
+    definition: scheduleLearningRunsJob,
+    payload: {},
+    repeat: { pattern: "0 2 * * *", tz: "UTC" },
   },
   {
     id: "github-installation-reconciliation",

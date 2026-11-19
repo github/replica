@@ -136,6 +136,7 @@ export const learningsResponseSchema = z.discriminatedUnion("accessDenied", [
           })
           .strict(),
       ]),
+      automaticRunsEnabled: z.boolean(),
       usageCredits: credits,
       runAvailable: z.boolean(),
       loadError: z.string().min(1).nullable(),

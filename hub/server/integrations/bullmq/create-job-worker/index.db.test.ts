@@ -6,7 +6,7 @@ import { getDatabaseUrl } from "../../../../test/database/get-database-url"
 import { openQueue } from "../../../../test/jobs/open-queue"
 import { createJobProcessor } from "../create-job-processor"
 import { enqueueJob } from "../enqueue-job"
-import type { JobDefinition, JobProcessor, JobQueueName } from "../types"
+import type { JobDefinition, JobProcessor, JobProcessorContext, JobQueueName } from "../types"
 import { upsertJobSchedule } from "../upsert-job-schedule"
 import { createJobWorker } from "."
 
@@ -142,6 +142,32 @@ describe("job processing with PostgreSQL", () => {
     )
   }, 15_000)
 
+  it("delays expected contention without consuming the retry budget", async () => {
+    const queue = openQueue("scheduled")
+    const definition = {
+      name: "deferred",
+      schema: z.object({ value: z.string() }),
+      options: { attempts: 1 },
+    }
+    const process = vi.fn(async ({ value }: { value: string }, context: JobProcessorContext) => {
+      if (process.mock.calls.length === 1) await context.defer(20)
+      return value
+    })
+    const { start } = await openWorker("scheduled", [createJobProcessor(definition, process)])
+    const job = await enqueueJob(queue, definition, { value: "completed after deferral" })
+    start()
+
+    await vi.waitFor(
+      async () => {
+        expect(await job.getState()).toBe("completed")
+      },
+      { timeout: 5_000 },
+    )
+
+    expect(process).toHaveBeenCalledTimes(2)
+    expect((await queue.getJob(job.id!))?.attemptsMade).toBe(1)
+  }, 15_000)
+
   it("keeps a stable schedule id while updating its payload, interval, and job defaults", async () => {
     const queue = openQueue("scheduled")
     const definition = {
@@ -236,6 +262,53 @@ describe("job processing with PostgreSQL", () => {
     } finally {
       release?.()
     }
+  }, 15_000)
+
+  it("runs scheduled maintenance before a waiting automatic backlog", async () => {
+    const queue = openQueue("scheduled")
+    const definition = { name: "prioritized", schema: z.object({ label: z.string() }) }
+    const processed: string[] = []
+    let release: (() => void) | undefined
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const process = vi.fn(async ({ label }: { label: string }) => {
+      processed.push(label)
+      if (label === "automatic-active") await gate
+    })
+    const { start } = await openWorker("scheduled", [createJobProcessor(definition, process)])
+    const active = await enqueueJob(
+      queue,
+      definition,
+      { label: "automatic-active" },
+      { priority: 10 },
+    )
+    const waiting = await enqueueJob(
+      queue,
+      definition,
+      { label: "automatic-waiting" },
+      { priority: 10 },
+    )
+    start()
+
+    await vi.waitFor(() => expect(process).toHaveBeenCalledTimes(1), { timeout: 5_000 })
+    const maintenance = await enqueueJob(
+      queue,
+      definition,
+      { label: "maintenance" },
+      { priority: 1 },
+    )
+    release?.()
+    await vi.waitFor(
+      async () => {
+        expect(await active.getState()).toBe("completed")
+        expect(await waiting.getState()).toBe("completed")
+        expect(await maintenance.getState()).toBe("completed")
+      },
+      { timeout: 5_000 },
+    )
+
+    expect(processed).toEqual(["automatic-active", "maintenance", "automatic-waiting"])
   }, 15_000)
 
   it("validates producer data and honors per-job overrides alongside definition defaults", async () => {

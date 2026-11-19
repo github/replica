@@ -5,7 +5,7 @@ export async function listLearningRuns(
   repositoryId: string,
   now: Date,
 ) {
-  const [records, usage] = await Promise.all([
+  const [records, usage, active] = await Promise.all([
     database.learningRun.findMany({
       where: { repositoryId },
       include: { requestedBy: { include: { profile: true } } },
@@ -19,9 +19,18 @@ export async function listLearningRuns(
       },
       _sum: { aiCredits: true },
     }),
+    database.learningRun.findFirst({
+      where: { repositoryId, state: { in: ["QUEUED", "RUNNING"] } },
+      select: { scheduled: true, state: true },
+    }),
   ])
   return {
-    active: records.some((record) => record.state === "QUEUED" || record.state === "RUNNING"),
+    active: active
+      ? {
+          scheduled: active.scheduled,
+          state: active.state as "QUEUED" | "RUNNING",
+        }
+      : null,
     usageCredits: usage._sum.aiCredits?.toString() ?? "0",
     runs: records.map((record) => ({
       id: record.number,

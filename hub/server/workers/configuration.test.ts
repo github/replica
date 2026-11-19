@@ -17,12 +17,26 @@ describe("learning worker configuration", () => {
       "import-github-workflow-run",
     ])
     expect(jobProcessors.scheduled.map(({ name }) => name)).toContain("learning.recover-runs")
+    expect(jobProcessors.scheduled.map(({ name }) => name)).toEqual(
+      expect.arrayContaining(["learning.run", "learning.schedule-runs"]),
+    )
     expect(jobSchedules).toContainEqual(
       expect.objectContaining({
         id: "learning-run-recovery",
         repeat: { every: 60_000 },
       }),
     )
+    const recovery = jobSchedules.find((schedule) => schedule.id === "learning-run-recovery")
+    expect(recovery?.definition.options?.priority).toBe(1)
+    const daily = jobSchedules.find((schedule) => schedule.id === "learning-run-daily")
+    expect(daily?.definition.name).toBe("learning.schedule-runs")
+    expect(daily?.definition.options).toEqual({
+      attempts: 3,
+      backoff: { type: "exponential", delay: 60_000 },
+      priority: 1,
+    })
+    expect(daily?.payload).toEqual({})
+    expect(daily?.repeat).toEqual({ pattern: "0 2 * * *", tz: "UTC" })
   })
 })
 
@@ -37,6 +51,7 @@ describe("GitHub installation reconciliation schedule", () => {
     expect(schedule?.definition.options).toEqual({
       attempts: 3,
       backoff: { type: "exponential", delay: 60_000 },
+      priority: 1,
     })
   })
 

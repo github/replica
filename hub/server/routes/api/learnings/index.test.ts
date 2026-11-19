@@ -33,6 +33,7 @@ function dependencies(
 ): LearningsRouteDependencies {
   return {
     applicationOrigin: "http://127.0.0.1:5173",
+    automaticRunsEnabled: false,
     currentSession: { restore: vi.fn().mockResolvedValue(session) },
     findRepository: vi.fn().mockResolvedValue(repository),
     authorizeRepositoryAdministration: vi.fn().mockResolvedValue(true),
@@ -45,7 +46,7 @@ function dependencies(
       recall: { text: "", count: 0 },
     }),
     getCopilot: vi.fn().mockResolvedValue({ state: "connected", connectedBy: "mona" }),
-    listRuns: vi.fn().mockResolvedValue({ runs: [], usageCredits: "0", active: false }),
+    listRuns: vi.fn().mockResolvedValue({ runs: [], usageCredits: "0", active: null }),
     decide: vi.fn().mockResolvedValue({ notice: "Learning accepted." }),
     redactComment: vi.fn().mockResolvedValue(undefined),
     serializeReviewCommentDeletion: (operation) => operation(),
@@ -195,6 +196,7 @@ describe("learning routes", () => {
       usage: { credits: "0.021", requests: 1 },
     }
     const deps = dependencies({
+      automaticRunsEnabled: true,
       getOverview: vi.fn().mockResolvedValue({
         loadError: null,
         identityReviewCount: 1,
@@ -205,7 +207,7 @@ describe("learning routes", () => {
       listRuns: vi.fn().mockResolvedValue({
         runs: [run],
         usageCredits: "0.021",
-        active: false,
+        active: null,
       }),
     })
 
@@ -228,6 +230,7 @@ describe("learning routes", () => {
           },
           permissions: { viewEvidence: true, decide: true, requestRun: false },
           copilot: { state: "connected", connectedBy: "mona" },
+          automaticRunsEnabled: true,
           usageCredits: "0.021",
           runAvailable: false,
           loadError: null,
@@ -237,6 +240,43 @@ describe("learning routes", () => {
           recall: { text: "Approved team learnings", count: 0 },
           runs: [run],
         })
+      },
+    )
+  })
+
+  it.each([
+    {
+      label: "a queued automatic run",
+      active: { scheduled: true, state: "QUEUED" as const },
+      expected: true,
+    },
+    {
+      label: "a running automatic run",
+      active: { scheduled: true, state: "RUNNING" as const },
+      expected: false,
+    },
+    {
+      label: "queued user-requested work",
+      active: { scheduled: false, state: "QUEUED" as const },
+      expected: false,
+    },
+  ])("reports explicit runs as $expected with $label", async ({ active, expected }) => {
+    const deps = dependencies({
+      requestRun: vi.fn(),
+      listRuns: vi.fn().mockResolvedValue({ runs: [], usageCredits: "0", active }),
+    })
+
+    await withRoute(
+      "get",
+      "/api/repositories/:repositoryId/learnings",
+      getLearnings(deps),
+      async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/api/repositories/${repositoryId}/learnings`, {
+          headers,
+        })
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toMatchObject({ runAvailable: expected })
       },
     )
   })

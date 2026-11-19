@@ -11,10 +11,10 @@ describe("claimLearningRun()", () => {
     const database = { learningRun: { updateMany } }
     const startedAt = new Date("2026-11-13T10:00:00Z")
 
-    await expect(claimLearningRun(database, "run-1", startedAt)).resolves.toBe(true)
-    await expect(claimLearningRun(database, "run-1", startedAt)).resolves.toBe(false)
+    await expect(claimLearningRun(database, "run-1", startedAt, true)).resolves.toBe(true)
+    await expect(claimLearningRun(database, "run-1", startedAt, true)).resolves.toBe(false)
     expect(updateMany).toHaveBeenNthCalledWith(1, {
-      where: { id: "run-1", state: "QUEUED" },
+      where: { id: "run-1", state: "QUEUED", scheduled: true },
       data: { state: "RUNNING", startedAt },
     })
   })

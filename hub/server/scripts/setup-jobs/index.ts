@@ -6,6 +6,7 @@ import { z } from "zod"
 import { createJobQueue } from "../../integrations/bullmq/create-job-queue/index.ts"
 import { migrateJobDatabase } from "../../integrations/bullmq/migrate-job-database/index.ts"
 import { upsertJobSchedule } from "../../integrations/bullmq/upsert-job-schedule/index.ts"
+import { reprioritizeScheduledLearningJobs } from "../../domains/learning/reprioritize-scheduled-learning-jobs/index.ts"
 import { logger } from "../../integrations/pino/index.ts"
 import { jobSchedules } from "../../workers/configuration.ts"
 
@@ -14,6 +15,7 @@ export async function setupJobs() {
   const schemaVersion = await migrateJobDatabase(databaseUrl)
   const queue = createJobQueue({ name: "scheduled", databaseUrl, logger })
   try {
+    await reprioritizeScheduledLearningJobs(queue)
     for (const schedule of jobSchedules) {
       await upsertJobSchedule(queue, schedule)
     }

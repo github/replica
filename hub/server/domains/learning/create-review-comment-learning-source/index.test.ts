@@ -86,6 +86,9 @@ describe("createReviewCommentLearningSource()", () => {
       body: null,
       deletedAt: capturedAt.toISOString(),
     })
+    expect(result.reviewActivitySnapshot).toEqual({
+      "77777777-7777-4777-8777-777777777777": 1,
+    })
   })
 
   it("resolves only evidence whose source and observed comment version match", async () => {

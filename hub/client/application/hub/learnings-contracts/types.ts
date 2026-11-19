@@ -66,6 +66,7 @@ export type LearningsResponse =
         | { state: "connected"; connectedBy: string | null }
         | { state: "not-connected" }
         | { state: "refused"; refusedAt: string | null }
+      automaticRunsEnabled: boolean
       usageCredits: string
       runAvailable: boolean
       loadError: string | null

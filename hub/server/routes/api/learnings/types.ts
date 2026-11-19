@@ -30,6 +30,7 @@ export interface LearningRun {
 
 export interface LearningsRouteDependencies {
   applicationOrigin: string
+  automaticRunsEnabled: boolean
   currentSession: CurrentSessionDependencies
   findRepository(
     viewer: ProductViewer,
@@ -63,7 +64,7 @@ export interface LearningsRouteDependencies {
   listRuns(repositoryId: string): Promise<{
     runs: LearningRun[]
     usageCredits: string
-    active: boolean
+    active: { scheduled: boolean; state: "QUEUED" | "RUNNING" } | null
   }>
   requestRun?: (input: {
     actorMembershipId: string

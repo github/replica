@@ -16,7 +16,20 @@ describe("readLearningConfiguration()", () => {
       key: "unconfigured",
       configurationDigest: null,
     })
+    expect(configuration.automaticRuns).toBe(false)
     await expect(configuration.copilotCredentialProvider.getCredential()).resolves.toBeNull()
+  })
+
+  it("enables automatic runs only through the explicit boolean setting", async () => {
+    const applicationRoot = resolve(`server/domains/learning/.root-test-${randomUUID()}`)
+    onTestFinished(() => rm(applicationRoot, { force: true, recursive: true }))
+
+    await expect(
+      readLearningConfiguration({ REPLICA_LEARNING_AUTOMATIC_RUNS: "true" }, applicationRoot),
+    ).resolves.toMatchObject({ automaticRuns: true })
+    await expect(
+      readLearningConfiguration({ REPLICA_LEARNING_AUTOMATIC_RUNS: "sometimes" }, applicationRoot),
+    ).rejects.toThrow("REPLICA_LEARNING_AUTOMATIC_RUNS must be true or false.")
   })
 
   it("rejects an environment token without explicit local authentication mode", async () => {

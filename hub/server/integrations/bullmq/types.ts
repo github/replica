@@ -18,7 +18,11 @@ export interface JobDefinition<T> {
 
 export interface JobProcessor {
   name: string
-  process: (payload: unknown) => Promise<unknown>
+  process: (payload: unknown, context?: JobProcessorContext) => Promise<unknown>
+}
+
+export interface JobProcessorContext {
+  defer(delayMs: number): Promise<never>
 }
 
 export type JobQueue = Queue<
