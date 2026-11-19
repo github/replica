@@ -89,6 +89,6 @@ Choose settings against the development split. Score the test split only once af
 
 See [Train d1-omni-600M](../packages/learning/environments/brand-check/README.md#train-d1-omni-600m) for the reference results, or [Connect a trainer](../packages/learning/environments/brand-check/README.md#connect-a-trainer) to use another OpenEnv trainer.
 
-## 4. Exercise the reference runtime
+## 4. Run the customer-specific model in the reference runtime
 
-The [single-node reference runtime](../packages/learning/environments/brand-check/README.md#run-the-single-node-reference-runtime) lets an operator exercise the complete job, candidate, promotion, rollback, and inference lifecycle on customer-controlled infrastructure. Its deterministic fixture backend is for development and tests only; it proves the runtime contract without claiming model quality or adding the real d1 backend.
+The [single-node reference runtime](../packages/learning/environments/brand-check/README.md#run-the-single-node-reference-runtime) runs the complete job, candidate, promotion, rollback, and inference lifecycle on customer-controlled infrastructure. Its default deterministic fixture backend is for development and tests only and remains ineligible for production promotion. Install the optional model dependencies and configure `--d1-model` to train d1-omni on NVIDIA CUDA or Apple silicon MPS, keep only the adapter and evaluation report in runtime storage, promote it explicitly, and serve the pinned base model plus that adapter. CPU mode supports an opt-in forward-pass smoke check and low-volume inference, not real training or a model-quality claim.

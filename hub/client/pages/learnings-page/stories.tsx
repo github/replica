@@ -77,8 +77,7 @@ const data: LearningsPageData = {
     },
   },
   status: {
-    message:
-      "Hub looks for learnings once a day when there are new comments, using the Copilot connection @octocat made.",
+    message: "Hub looks for learnings when you choose Find learnings now.",
     refused: false,
     activity: null,
     usage: "Copilot used 0.147 AI credits for this repository in the last 30 days.",

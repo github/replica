@@ -142,7 +142,7 @@ ${recalled.map((entry, index) => `${index + 1}. [rule] ${entry.content}`).join("
       .filter((entry) => entry.repositoryId === repositoryId)
       .sort((left, right) => Date.parse(right.startedAt) - Date.parse(left.startedAt))
     const repositoryRuns = allRepositoryRuns.slice(0, 10)
-    const active = allRepositoryRuns.some(
+    const active = allRepositoryRuns.find(
       (entry) => entry.state === "queued" || entry.state === "running",
     )
     const usageSince = Date.now() - 30 * 24 * 60 * 60 * 1000
@@ -157,12 +157,15 @@ ${recalled.map((entry, index) => `${index + 1}. [rule] ${entry.content}`).join("
       copilot: copilot.connected
         ? { state: "connected", connectedBy: copilot.connectedBy }
         : { state: "not-connected" },
+      automaticRunsEnabled: false,
       usageCredits: addDecimalStrings(
         allRepositoryRuns.flatMap((run) =>
           run.usage && Date.parse(run.startedAt) >= usageSince ? [run.usage.credits] : [],
         ),
       ),
-      runAvailable: copilot.connected && !active,
+      runAvailable:
+        copilot.connected &&
+        (!active || (active.startedBy.type === "daily" && active.state === "queued")),
       loadError: null,
       identityReviewCount: 0,
       suggestions: suggestions

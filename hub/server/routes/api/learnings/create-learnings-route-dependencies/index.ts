@@ -121,6 +121,7 @@ export async function createLearningsRouteDependencies(
 
   return {
     applicationOrigin,
+    automaticRunsEnabled: configuration.automaticRuns,
     currentSession,
     authorizeRepositoryAdministration: (input) =>
       runRepositoryAuthorityTransaction((transaction) =>
@@ -232,8 +233,9 @@ export async function createLearningsRouteDependencies(
           requestedById,
           requestedByMembershipId: actorMembershipId,
           snapshotDigest: snapshot.digest,
+          reviewActivitySnapshot: snapshot.reviewActivitySnapshot,
         })
-        if (result.created) {
+        if (result.created || result.promoted) {
           await createSecurityAudit(transaction, {
             id: randomUUID(),
             type: "learning_run",
@@ -252,7 +254,7 @@ export async function createLearningsRouteDependencies(
           "Repository administrator access is required.",
         )
       }
-      const { run, created } = requested
+      const { run, created, promoted } = requested
       const queue = createJobQueue({ name: "on-demand", databaseUrl, logger })
       try {
         await enqueueJob(
@@ -262,7 +264,7 @@ export async function createLearningsRouteDependencies(
           { jobId: `learning-run-${run.id}` },
         )
       } catch (error) {
-        if (created) {
+        if (created || promoted) {
           await finishLearningRun(prisma, run.id, {
             state: "FAILED",
             failureCode: "enqueue_failed",
@@ -288,7 +290,10 @@ export async function createLearningsRouteDependencies(
       } finally {
         await queue.close()
       }
-      return { notice: created ? "Learning run requested." : "Learning run already in progress." }
+      return {
+        notice:
+          created || promoted ? "Learning run requested." : "Learning run already in progress.",
+      }
     },
     redactComment: async ({ repositoryId, commentId, actorLogin }) => {
       const queue = createJobQueue({ name: "on-demand", databaseUrl, logger })

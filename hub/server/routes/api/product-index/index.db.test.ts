@@ -930,7 +930,7 @@ describe("real product index", () => {
       vi.spyOn(learnings, "listRuns").mockResolvedValue({
         runs: [],
         usageCredits: "0",
-        active: false,
+        active: null,
       })
 
       const path =

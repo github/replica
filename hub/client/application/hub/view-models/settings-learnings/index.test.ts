@@ -35,6 +35,7 @@ describe("settingsLearnings()", () => {
       capabilities: { administerHub: false, administerRepository: true },
       permissions: { viewEvidence: true, decide: true, requestRun: true },
       copilot: { state: "connected", connectedBy: null },
+      automaticRunsEnabled: false,
       usageCredits: "0",
       runAvailable: true,
       loadError: null,

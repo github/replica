@@ -14,6 +14,7 @@ const grantListSchema = z.array(
         .object({
           id: z.string().min(1),
           sources: z.array(z.string()),
+          grantedBy: z.object({ kind: z.string(), id: z.string().min(1) }).loose(),
         })
         .loose(),
       activePurposes: z.array(z.string()),
@@ -57,11 +58,13 @@ function credits(nanoAiu: number) {
 export async function processLearningRun(
   runId: string,
   dependencies: {
-    claim(runId: string, startedAt: Date): Promise<boolean>
+    expectedScheduled: boolean
+    claim(runId: string, startedAt: Date, scheduled: boolean): Promise<boolean>
     capture(repositoryId: string): Promise<{
       collection: unknown
       digest: string
       capturedAt: Date
+      reviewActivitySnapshot: Record<string, number>
     }>
     finish(
       runId: string,
@@ -85,10 +88,13 @@ export async function processLearningRun(
       snapshotDigest: string
       startedAt: Date | null
       state: "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED"
+      scheduled: boolean
       requestedBy: { profile: { login: string | null } | null } | null
       requestedByMembershipId: string | null
     } | null>
     now(): Date
+    hasPendingUserRun(): Promise<boolean>
+    isRepositoryAvailable(repositoryId: string): Promise<boolean>
     prepare(repositoryId: string): Promise<{ directory: string; repositoryScope: string }>
     authorizeRepositoryAdministration(membershipId: string, repositoryId: string): Promise<boolean>
     refuseCredential?(): Promise<void>
@@ -121,6 +127,7 @@ export async function processLearningRun(
 ) {
   const run = await dependencies.getRun(runId)
   if (!run || !["QUEUED", "RUNNING"].includes(run.state)) return
+  if (run.scheduled !== dependencies.expectedScheduled) return
   function authorizeRepositoryAdministration(membershipId: string, repositoryId: string) {
     return runWithBoundedRetries(
       () => dependencies.authorizeRepositoryAdministration(membershipId, repositoryId),
@@ -129,23 +136,35 @@ export async function processLearningRun(
   }
   try {
     await dependencies.withLock(async (signal, { runWithoutRepositoryAuthorityLock }) => {
-      if (run.state === "QUEUED" && !(await dependencies.claim(runId, dependencies.now()))) return
+      if (dependencies.expectedScheduled && (await dependencies.hasPendingUserRun())) {
+        throw new Error("User-requested learning work is waiting.")
+      }
+      if (
+        run.state === "QUEUED" &&
+        !(await dependencies.claim(runId, dependencies.now(), dependencies.expectedScheduled))
+      ) {
+        return
+      }
       const current = await dependencies.getRun(runId)
       if (!current) throw new Error("The claimed learning run disappeared.")
       if (current.state !== "RUNNING") return
-      const actor = current.requestedBy?.profile?.login
-      if (
-        !actor ||
-        !current.requestedByMembershipId ||
-        !(await authorizeRepositoryAdministration(
-          current.requestedByMembershipId,
-          current.repositoryId,
-        ))
-      ) {
-        throw new LearningCommandError(
-          "not_authorized",
-          "The person who requested this run is no longer a repository administrator.",
-        )
+      let actor: string | null = null
+      if (!current.scheduled) {
+        const requester = current.requestedBy?.profile?.login
+        if (
+          !requester ||
+          !current.requestedByMembershipId ||
+          !(await authorizeRepositoryAdministration(
+            current.requestedByMembershipId,
+            current.repositoryId,
+          ))
+        ) {
+          throw new LearningCommandError(
+            "not_authorized",
+            "The person who requested this run is no longer a repository administrator.",
+          )
+        }
+        actor = `human:${requester}`
       }
       const snapshot = await dependencies.capture(current.repositoryId)
       if (snapshot.digest !== current.snapshotDigest) {
@@ -162,7 +181,10 @@ export async function processLearningRun(
       const sourceGrants = grants.filter((entry) =>
         entry.grant.sources.includes("hub_review_comments"),
       )
-      let grantIds = sourceGrants
+      const humanSourceGrants = sourceGrants.filter(
+        (entry) => entry.grant.grantedBy.kind === "human",
+      )
+      let grantIds = humanSourceGrants
         .filter(
           (entry) =>
             !entry.expired &&
@@ -171,10 +193,16 @@ export async function processLearningRun(
         )
         .map((entry) => entry.grant.id)
       if (grantIds.length === 0) {
-        if (sourceGrants.length > 0) {
+        if (humanSourceGrants.length > 0) {
           throw new LearningCommandError(
             "grant_inactive",
             "Consent to use this repository's review comments ended.",
+          )
+        }
+        if (current.scheduled) {
+          throw new LearningCommandError(
+            "grant_required",
+            "A repository administrator must request the first learning run.",
           )
         }
         const grant = addedGrantSchema.parse(
@@ -191,7 +219,7 @@ export async function processLearningRun(
               "--basis",
               "A repository administrator explicitly requested this learning run.",
               "--by",
-              `human:${actor}`,
+              actor!,
               ...common,
             ],
             { signal },
@@ -275,14 +303,19 @@ export async function processLearningRun(
         aiCredits: credits(labeled.usage.nanoAiu),
       })
       if (
-        !(await authorizeRepositoryAdministration(
-          current.requestedByMembershipId,
-          current.repositoryId,
-        ))
+        current.scheduled
+          ? !(await dependencies.isRepositoryAvailable(current.repositoryId))
+          : !current.requestedByMembershipId ||
+            !(await authorizeRepositoryAdministration(
+              current.requestedByMembershipId,
+              current.repositoryId,
+            ))
       ) {
         throw new LearningCommandError(
           "not_authorized",
-          "The person who requested this run is no longer a repository administrator.",
+          current.scheduled
+            ? "The repository is no longer available for automatic learning."
+            : "The person who requested this run is no longer a repository administrator.",
         )
       }
       const consolidated = consolidateSchema.parse(
@@ -322,9 +355,12 @@ export async function processLearningRun(
   } catch (error) {
     if (
       error instanceof Error &&
-      error.message === "Another learning operation is still running."
+      [
+        "Another learning operation is still running.",
+        "User-requested learning work is waiting.",
+      ].includes(error.message)
     ) {
-      throw error
+      return "deferred" as const
     }
     const current = await dependencies.getRun(runId)
     if (current?.state === "QUEUED") throw error

@@ -1,4 +1,4 @@
-import { createPostgresBackend, UnrecoverableError, Worker } from "bullmq"
+import { createPostgresBackend, DelayedError, UnrecoverableError, Worker } from "bullmq"
 import type { JobProgress, PostgresConnectionOptions, PostgresQueueBackend } from "bullmq"
 import { z } from "zod"
 
@@ -28,10 +28,15 @@ export function createJobWorker({
     PostgresConnectionOptions
   >(
     name,
-    async (job) => {
+    async (job, token) => {
       const processor = handlers.get(job.name)
       if (!processor) throw new UnrecoverableError("Job name is not registered for this worker.")
-      return await processor.process(job.data)
+      return await processor.process(job.data, {
+        defer: async (delayMs) => {
+          await job.moveToDelayed(Date.now() + delayMs, token)
+          throw new DelayedError()
+        },
+      })
     },
     { connection: getJobConnection(databaseUrl), concurrency, autorun: false },
     createPostgresBackend,

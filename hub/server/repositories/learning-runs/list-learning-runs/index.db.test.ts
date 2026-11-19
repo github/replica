@@ -50,7 +50,7 @@ describe("listLearningRuns()", () => {
     const result = await listLearningRuns(prisma, repositoryId, new Date("2026-11-13T10:00:00Z"))
 
     expect(result.usageCredits).toBe("0.021")
-    expect(result.active).toBe(false)
+    expect(result.active).toBeNull()
     expect(result.runs).toHaveLength(2)
     expect(result.runs[0]?.startedBy).toEqual({ type: "user", login: "mona" })
     expect(result.runs[0]?.state).toBe("succeeded")
@@ -85,6 +85,24 @@ describe("listLearningRuns()", () => {
         },
       }),
     ).rejects.toThrow()
+  })
+
+  it("returns whether the active run can be promoted", async () => {
+    const repositoryId = randomUUID()
+    await prisma.repository.create({
+      data: { id: repositoryId, nameWithOwner: "team/promotion", defaultBranch: "main" },
+    })
+    await prisma.learningRun.create({
+      data: {
+        repositoryId,
+        scheduled: true,
+        snapshotDigest: `sha256:${"a".repeat(64)}`,
+      },
+    })
+
+    const result = await listLearningRuns(prisma, repositoryId, new Date("2026-11-13T10:00:00Z"))
+
+    expect(result.active).toEqual({ scheduled: true, state: "QUEUED" })
   })
 
   it("accumulates recovered labeling work without replacing earlier usage", async () => {

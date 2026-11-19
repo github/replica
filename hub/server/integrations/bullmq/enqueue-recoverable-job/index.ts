@@ -1,3 +1,5 @@
+import type { JobsOptions } from "bullmq"
+
 import type { JobDefinition, JobQueue } from "../types.ts"
 import { enqueueJob } from "../enqueue-job/index.ts"
 
@@ -6,6 +8,7 @@ export async function enqueueRecoverableJob<T>(
   definition: JobDefinition<T>,
   payload: T,
   jobId: string,
+  options: Pick<JobsOptions, "priority"> = {},
 ) {
   const existing = await queue.getJob(jobId)
   if (existing) {
@@ -13,8 +16,11 @@ export async function enqueueRecoverableJob<T>(
     if (state === "failed" || state === "completed") {
       await existing.remove()
     } else {
+      if (options.priority !== undefined && ["waiting", "prioritized", "delayed"].includes(state)) {
+        await existing.changePriority({ priority: options.priority })
+      }
       return existing
     }
   }
-  return enqueueJob(queue, definition, payload, { jobId })
+  return enqueueJob(queue, definition, payload, { jobId, ...options })
 }

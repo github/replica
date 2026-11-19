@@ -215,6 +215,15 @@ class LocalRuntime:
         self.observability = self.connectors.observability
         self.training_connectors = dict(self.connectors.training)
         self.inference_connectors = dict(self.connectors.inference)
+        self._inference_capacity = {
+            name: threading.BoundedSemaphore(limit)
+            for name, connector in self.inference_connectors.items()
+            if isinstance(
+                limit := getattr(connector, "max_concurrent_inference", None),
+                int,
+            )
+            and limit > 0
+        }
         self._lock = threading.RLock()
         self._job_cancellations: dict[str, Cancellation] = {}
         self._tasksets: OrderedDict[str, TasksetArtifact] = OrderedDict()
@@ -611,10 +620,30 @@ class LocalRuntime:
             return None
         return promotion
 
-    def ready(self) -> None:
-        """Fail unless the promoted candidate is intact and its backend can serve requests."""
+    def ready(self) -> dict[str, Any]:
+        """Return readiness detail after checking the promoted candidate and backend."""
         promotion = self.promotion()
-        self._promotable_candidate(promotion["candidateId"])
+        manifest = self._promotable_candidate(promotion["candidateId"])
+        connector = self.inference_connectors[manifest["backend"]]
+        readiness = getattr(connector, "readiness", lambda: None)()
+        if readiness is None:
+            return {"status": "ready"}
+        if not readiness.get("inference", False):
+            reason = readiness.get("status")
+            if not isinstance(reason, str) or not re.fullmatch(
+                r"[a-z][a-z0-9_]{0,63}",
+                reason,
+            ):
+                reason = "backend_unavailable"
+            raise RuntimeFailure(
+                reason,
+                f"Promoted candidate backend {manifest['backend']} is not ready for inference.",
+                503,
+            )
+        return {
+            "status": "ready",
+            "backend": readiness,
+        }
 
     def evaluate(
         self, request: Mapping[str, Any], *, timeout_seconds: float = 120
@@ -648,13 +677,28 @@ class LocalRuntime:
             raise _runtime_connector_failure(error) from None
         started = time.monotonic()
         operation_error: Exception | None = None
+        capacity = self._inference_capacity.get(manifest["backend"])
+        acquired = capacity is None or capacity.acquire(blocking=False)
+        if not acquired:
+            shutil.rmtree(work, ignore_errors=True)
+            raise RuntimeFailure(
+                "capacity_temporarily_unavailable",
+                f"Promoted candidate backend {manifest['backend']} is already serving "
+                "its maximum concurrent inference requests.",
+                503,
+            )
         try:
-            credential = self._acquire_credential("inference", context)
+            credential = (
+                self._acquire_credential("inference", context)
+                if getattr(connector, "requires_credential", True)
+                else None
+            )
+            project_request = getattr(connector, "project_request", _backend_request)
             answers = dict(
                 _run_inference(
                     connector,
                     adapter,
-                    _backend_request(request),
+                    project_request(request),
                     work_directory=work,
                     context=context,
                     credential=credential,
@@ -665,6 +709,8 @@ class LocalRuntime:
         except Exception as error:
             operation_error = error
         finally:
+            if capacity is not None:
+                capacity.release()
             shutil.rmtree(work, ignore_errors=True)
         try:
             self._record_usage(
@@ -746,7 +792,11 @@ class LocalRuntime:
             shutil.rmtree(work, ignore_errors=True)
             work.mkdir(mode=0o700)
             connector = self.training_connectors[job["backend"]]
-            credential = self._acquire_credential("training", context)
+            credential = (
+                self._acquire_credential("training", context)
+                if getattr(connector, "requires_credential", True)
+                else None
+            )
             try:
                 taskset = self._resolve_taskset(job["tasksetDigest"]).taskset
             except RuntimeFailure as error:

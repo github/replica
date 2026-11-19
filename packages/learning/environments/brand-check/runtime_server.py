@@ -16,7 +16,10 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .connectors import RuntimeScope
+from .d1_connector import D1OmniBackend, taskset_learning_texts
+from .local_connectors import taskset_digest
 from .runtime import ENVIRONMENTS, FixtureBackend, LocalRuntime, RuntimeFailure
+from .taskset import load_taskset
 
 TOKEN_VARIABLE = "REPLICA_RUNTIME_TOKEN"
 MIN_TOKEN_LENGTH = 32
@@ -329,13 +332,29 @@ def main() -> None:
         default="development",
         help="runtime environment; fixture candidates cannot be promoted in production",
     )
+    parser.add_argument(
+        "--d1-model",
+        type=Path,
+        help=(
+            "reviewed local LiquidAI/d1-omni-600M directory at the pinned revision; "
+            "omit for the fixture-only installation"
+        ),
+    )
     args = parser.parse_args()
     token = runtime_token(dict(os.environ))
     os.environ.pop(TOKEN_VARIABLE, None)
+    backends: dict[str, Any] = {"fixture": FixtureBackend()}
+    if args.d1_model is not None:
+        taskset = load_taskset(args.taskset)
+        backends["d1-omni"] = D1OmniBackend(
+            args.d1_model,
+            expected_taskset_digest=str(taskset_digest(taskset)),
+            expected_learning_texts=taskset_learning_texts(taskset),
+        )
     runtime = LocalRuntime(
         args.state,
         args.taskset,
-        {"fixture": FixtureBackend()},
+        backends,
         environment=args.environment,
         scope=RuntimeScope(args.tenant, args.repository),
     )

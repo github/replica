@@ -20,6 +20,7 @@ class EpisodesTest(unittest.TestCase):
 
         observation = Episodes(load_taskset(write_taskset(self, [task]))).reset()
         state = {key: value for key, value in task["state"].items() if key != "rules"}
+        state["imageRoles"] = ["candidate"]
 
         self.assertEqual(
             observation,

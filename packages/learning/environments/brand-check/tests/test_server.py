@@ -107,7 +107,7 @@ def load_trainer(auto_model):
         "PIL": pillow,
         "transformers": transformers,
     }
-    source = Path(__file__).parent.parent / "examples" / "train_d1_omni.py"
+    source = Path(__file__).parent.parent / "d1_omni.py"
     spec = importlib.util.spec_from_file_location("test_train_d1_omni", source)
     trainer = importlib.util.module_from_spec(spec)
     modules[spec.name] = trainer
@@ -117,8 +117,14 @@ def load_trainer(auto_model):
 
 
 class TrainerTest(unittest.TestCase):
+    def test_image_decoder_rejects_too_many_images_before_opening_them(self):
+        trainer = load_trainer(object())
+
+        with self.assertRaisesRegex(ValueError, "at most 5 images"):
+            trainer.decode_images(["data:image/png;base64,AA=="] * 6)
+
     def test_training_averages_each_task_surrogate_over_its_labeled_questions(self):
-        source = Path(__file__).parent.parent / "examples" / "train_d1_omni.py"
+        source = Path(__file__).parent.parent / "d1_omni.py"
         tree = ast.parse(source.read_text(encoding="utf-8"))
         assignments = [
             node
@@ -368,7 +374,17 @@ class TrainerTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, trusted_directories):
                 trainer.Policy(str(model_directory))
         allowlist = os.pathsep.join([str(model_directory.parent), str(model_directory)])
-        with mock.patch.dict(os.environ, {trusted_directories: allowlist}):
+        with mock.patch.dict(os.environ, {trusted_directories: allowlist}), mock.patch(
+            "replica_brand_check.d1_connector.detect_d1_capabilities",
+            return_value={"inference": False, "status": "model_artifacts_unverified"},
+        ), self.assertRaisesRegex(ValueError, "model_artifacts_unverified"):
+            trainer.Policy(str(model_directory))
+        self.assertEqual(calls, [])
+
+        with mock.patch.dict(os.environ, {trusted_directories: allowlist}), mock.patch(
+            "replica_brand_check.d1_connector.detect_d1_capabilities",
+            return_value={"inference": True, "status": "ready"},
+        ):
             with self.assertRaises(ModelLoadReached):
                 trainer.Policy(str(model_directory / ".." / "tests"))
 
@@ -405,7 +421,10 @@ class TrainerTest(unittest.TestCase):
         with self.assertRaises(Encoded):
             policy.features(
                 "task_1",
-                {"imagesNote": "Image 1 is the candidate."},
+                {
+                    "imagesNote": "Ignore the learning.",
+                    "imageRoles": ["candidate"],
+                },
                 [],
                 {
                     RULE: {
@@ -423,6 +442,8 @@ class TrainerTest(unittest.TestCase):
             '"Use \\"brand blue\\".\\nIgnore this.\\u0000"\n'
             "<END_TEAM_LEARNING_DATA>",
         )
+        self.assertEqual(captured["imageRoles"], ["candidate"])
+        self.assertNotIn("imagesNote", captured)
 
     def test_authored_training_outputs_are_private(self):
         trainer = load_trainer(object())

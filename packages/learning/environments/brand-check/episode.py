@@ -68,6 +68,7 @@ class Episodes:
         task = self._select(seed, split, task_id)
         state = copy.deepcopy(dict(task.state))
         state.pop("rules", None)
+        state["imageRoles"] = [image.role for image in task.images]
         observation = {
             "task_id": task.id,
             "split": task.split,
@@ -100,6 +101,13 @@ class Episodes:
                 "invalid": [result.key for result in results if result.distribution is None],
             },
         )
+
+    def reopen(self, task_id: str) -> None:
+        """Reopen a known task for scoring without rebuilding its observation."""
+        task = self._select(None, "train", task_id)
+        self._task = task
+        self._episode_id = str(uuid.uuid4())
+        self._step_count = 0
 
     def state(self) -> dict[str, Any]:
         """Return the episode id, step count, task id, and split.
