@@ -1792,7 +1792,7 @@ def _run_backend(
         while process.is_alive():
             if context.cancellation.requested:
                 cancellation_event.set()
-                process.join(1)
+                process.join(5)
                 context.cancellation.raise_if_requested()
             remaining = context.deadline - time.monotonic()
             if remaining <= 0:
@@ -1801,7 +1801,7 @@ def _run_backend(
             process.join(min(0.05, remaining))
         if process.is_alive():
             cancellation_event.set()
-            process.join(1)
+            process.join(5)
         if timed_out:
             if process.is_alive():
                 _stop_process(process)
