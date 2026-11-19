@@ -18,6 +18,7 @@ export async function cancelDecisionTraining(
   const job = await dependencies.store.getJob(input.repositoryId, input.jobId)
   if (!job) throw new DecisionModelError(404, "job_not_found", "Training job not found.")
   if (["SUCCEEDED", "FAILED", "CANCELLED"].includes(job.state)) return job
+  let runtimeUsage
   if (job.runtimeJobId) {
     let runtimeJob
     try {
@@ -65,10 +66,12 @@ export async function cancelDecisionTraining(
         "The decision runtime did not cancel the training job.",
       )
     }
+    runtimeUsage = runtimeJob.usage
   }
   return dependencies.store.updateJobState({
     jobId: job.id,
     state: "CANCELLED",
+    usage: runtimeUsage,
     audit: {
       actorMembershipId: input.actorMembershipId,
       outcome: "cancelled",

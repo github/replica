@@ -320,6 +320,18 @@ describe("decision training orchestration", () => {
       id: "runtime-job-1",
       state: "cancelled",
       tasksetDigest,
+      usage: [
+        {
+          connector: "customer-gpu",
+          kind: "training_credits",
+          quantity: 1.5,
+          unit: "credits",
+          cost: 0.15,
+          currency: "USD",
+          source: "customer-runtime",
+          metadata: {},
+        },
+      ],
     })
     const getTrainingJob = vi.fn()
     const deps = dependencies({
@@ -516,6 +528,18 @@ describe("decision training orchestration", () => {
       id: "runtime-job-1",
       state: "cancelled",
       tasksetDigest,
+      usage: [
+        {
+          connector: "customer-gpu",
+          kind: "training_credits",
+          quantity: 1.5,
+          unit: "credits",
+          cost: 0.15,
+          currency: "USD",
+          source: "customer-runtime",
+          metadata: {},
+        },
+      ],
     })
     const updateJobState = vi.fn().mockResolvedValue(job({ state: "CANCELLED" }))
     const deps = dependencies({
@@ -541,6 +565,18 @@ describe("decision training orchestration", () => {
     expect(updateJobState).toHaveBeenCalledWith({
       jobId,
       state: "CANCELLED",
+      usage: [
+        {
+          connector: "customer-gpu",
+          kind: "training_credits",
+          quantity: 1.5,
+          unit: "credits",
+          cost: 0.15,
+          currency: "USD",
+          source: "customer-runtime",
+          metadata: {},
+        },
+      ],
       audit: {
         actorMembershipId: membershipId,
         outcome: "cancelled",
