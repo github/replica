@@ -229,8 +229,14 @@ class D1CapabilityTest(unittest.TestCase):
                     "os.environ",
                     {"REPLICA_TRUSTED_MODEL_DIRS": str(Path(__file__).parent.resolve())},
                 ), mock.patch(
-                    "replica_brand_check.d1_connector.MODEL_ARTIFACTS",
-                    {},
+                    "replica_brand_check.d1_connector._model_artifact_status",
+                    return_value={
+                        "artifactsAvailable": True,
+                        "missingArtifacts": [],
+                        "artifactsVerified": True,
+                        "unverifiedArtifacts": [],
+                        "unexpectedPythonArtifacts": [],
+                    },
                 ), mock.patch(
                     "replica_brand_check.d1_connector._downloaded_model_revision",
                     return_value=BASE_MODEL_REVISION,
@@ -346,6 +352,11 @@ class D1CapabilityTest(unittest.TestCase):
             )
             (model / "config.json").write_bytes(b"changed")
             damaged = detect_d1_capabilities(model)
+            (model / "unreviewed.py").write_text(
+                "raise RuntimeError('must not execute')\n",
+                encoding="utf-8",
+            )
+            extra_code = detect_d1_capabilities(model)
 
         self.assertEqual(ready["status"], "ready")
         self.assertTrue(ready["modelDirectory"]["artifactsVerified"])
@@ -354,6 +365,11 @@ class D1CapabilityTest(unittest.TestCase):
         self.assertEqual(
             damaged["modelDirectory"]["unverifiedArtifacts"],
             ["config.json"],
+        )
+        self.assertEqual(extra_code["status"], "model_artifacts_unverified")
+        self.assertEqual(
+            extra_code["modelDirectory"]["unexpectedPythonArtifacts"],
+            ["unreviewed.py"],
         )
 
     def test_reports_a_broken_torch_install_as_an_unavailable_dependency(self):

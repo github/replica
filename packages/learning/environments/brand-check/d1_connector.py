@@ -561,7 +561,12 @@ class D1OmniBackend:
                 category="integrity",
             )
         if not capability["modelDirectory"]["artifactsVerified"]:
-            damaged = ", ".join(capability["modelDirectory"]["unverifiedArtifacts"])
+            damaged = ", ".join(
+                [
+                    *capability["modelDirectory"]["unverifiedArtifacts"],
+                    *capability["modelDirectory"]["unexpectedPythonArtifacts"],
+                ]
+            )
             raise ConnectorError(
                 "base_model_artifacts_unverified",
                 f"The pinned d1-omni model artifacts do not match: {damaged}.",
@@ -646,6 +651,23 @@ def _downloaded_model_revision(model_path: Path) -> str | None:
 def _model_artifact_status(model_path: Path) -> dict[str, Any]:
     missing = []
     unverified = []
+    expected_python = {
+        Path(artifact)
+        for artifact in MODEL_ARTIFACTS
+        if artifact.endswith(".py")
+    }
+    try:
+        actual_python = {
+            path.relative_to(model_path)
+            for path in model_path.rglob("*.py")
+            if ".cache" not in path.relative_to(model_path).parts
+        }
+    except OSError:
+        actual_python = set()
+    unexpected_python = sorted(
+        str(path)
+        for path in actual_python - expected_python
+    )
     for artifact, expected_digest in MODEL_ARTIFACTS.items():
         path = model_path / artifact
         if not path.is_file() or path.is_symlink():
@@ -664,8 +686,9 @@ def _model_artifact_status(model_path: Path) -> dict[str, Any]:
     return {
         "artifactsAvailable": not missing,
         "missingArtifacts": missing,
-        "artifactsVerified": not missing and not unverified,
+        "artifactsVerified": not missing and not unverified and not unexpected_python,
         "unverifiedArtifacts": unverified,
+        "unexpectedPythonArtifacts": unexpected_python,
     }
 
 
