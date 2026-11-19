@@ -1048,9 +1048,11 @@ describe("createGitHubWebhookRouteDependencies()", () => {
   })
 
   it("queues a Replica workflow import before recording the delivery", async () => {
+    await createRepository(1001, "workflows")
     const enqueueWorkflowRunImport = vi.fn(() => Promise.resolve())
     const dependencies = createGitHubWebhookRouteDependencies({
       enqueueWorkflowRunImport,
+      readBuildWorkflowPaths: () => Promise.resolve([".github/workflows/replica.yml"]),
       installationId: "700",
       provider: githubProvider,
       syncRepositories: () => Promise.resolve(),
@@ -1093,8 +1095,10 @@ describe("createGitHubWebhookRouteDependencies()", () => {
   })
 
   it("leaves a workflow delivery unrecorded when queueing fails so GitHub can redeliver it", async () => {
+    await createRepository(1001, "workflows")
     const dependencies = createGitHubWebhookRouteDependencies({
       enqueueWorkflowRunImport: () => Promise.reject(new Error("Queue unavailable.")),
+      readBuildWorkflowPaths: () => Promise.resolve([".github/workflows/replica.yml"]),
       installationId: "700",
       provider: githubProvider,
       syncRepositories: () => Promise.resolve(),
@@ -1111,6 +1115,152 @@ describe("createGitHubWebhookRouteDependencies()", () => {
       dependencies.handleEvent("workflow_run", payload, deliveryFor(payload)),
     ).rejects.toThrow("Queue unavailable.")
     expect(await prisma.gitHubWebhookDelivery.count()).toBe(0)
+  })
+
+  it("queues only selected workflow callers while leaving completed jobs for the worker to verify", async () => {
+    await createRepository(1001, "custom-workflows")
+    const readBuildWorkflowPaths = vi.fn(() =>
+      Promise.resolve([".github/workflows/publish-proto.yml", ".github/workflows/preview.yaml"]),
+    )
+    const enqueueWorkflowRunImport = vi.fn(() => Promise.resolve())
+    const dependencies = createGitHubWebhookRouteDependencies({
+      installationId: "700",
+      provider: githubProvider,
+      syncRepositories: () => Promise.resolve(),
+      webhookSecret: "webhook-secret-for-tests",
+      readBuildWorkflowPaths,
+      enqueueWorkflowRunImport,
+    })
+    for (const [index, path] of [
+      ".github/workflows/publish-proto.yml@refs/heads/proto/custom",
+      ".github/workflows/preview.yaml",
+      ".github/workflows/replica.yml",
+      ".github/workflows/publish-proto.yml-extra",
+      ".github/workflows/nested/publish-proto.yml",
+    ].entries()) {
+      const payload = {
+        action: "completed",
+        repository: { id: 1001 },
+        workflow_run: { id: 50 + index, path },
+      }
+      await expect(
+        dependencies.handleEvent("workflow_run", payload, deliveryFor(payload)),
+      ).resolves.toBe(index < 2)
+    }
+    const readsBeforeJob = readBuildWorkflowPaths.mock.calls.length
+    const job = {
+      action: "completed",
+      repository: { id: 1001 },
+      workflow_job: { run_id: 99 },
+    }
+    await expect(dependencies.handleEvent("workflow_job", job, deliveryFor(job))).resolves.toBe(
+      true,
+    )
+
+    for (const [index, runId] of [50, 51, 99].entries()) {
+      expect(enqueueWorkflowRunImport).toHaveBeenNthCalledWith(
+        index + 1,
+        { githubRepositoryId: 1001, runId },
+        expect.any(String),
+      )
+    }
+    expect(readBuildWorkflowPaths).toHaveBeenCalledWith(1001)
+    expect(readBuildWorkflowPaths).toHaveBeenCalledTimes(readsBeforeJob)
+    expect(await prisma.gitHubWebhookDelivery.count()).toBe(3)
+  })
+
+  it.each(["unknown", "disconnected"])(
+    "does not read configuration for an %s repository's workflow",
+    async (state) => {
+      if (state === "disconnected") {
+        const repository = await createRepository(1001, "removed-workflows")
+        await prisma.repository.update({
+          where: { id: repository.id },
+          data: { removedAt: new Date() },
+        })
+      }
+      const readBuildWorkflowPaths = vi.fn(() =>
+        Promise.reject(new Error("Must not contact an unconnected repository.")),
+      )
+      const enqueueWorkflowRunImport = vi.fn(() => Promise.resolve())
+      const dependencies = createGitHubWebhookRouteDependencies({
+        installationId: "700",
+        provider: githubProvider,
+        syncRepositories: () => Promise.resolve(),
+        webhookSecret: "webhook-secret-for-tests",
+        readBuildWorkflowPaths,
+        enqueueWorkflowRunImport,
+      })
+      const payload = {
+        action: "completed",
+        repository: { id: 1001 },
+        workflow_run: { id: 55, path: ".github/workflows/replica.yml" },
+      }
+
+      await expect(
+        dependencies.handleEvent("workflow_run", payload, deliveryFor(payload)),
+      ).resolves.toBe(false)
+      expect(readBuildWorkflowPaths).not.toHaveBeenCalled()
+      expect(enqueueWorkflowRunImport).not.toHaveBeenCalled()
+      expect(await prisma.gitHubWebhookDelivery.count()).toBe(0)
+    },
+  )
+
+  it("fails clearly when workflow selection is unwired instead of silently ignoring a valid run", async () => {
+    await createRepository(1001, "unwired-workflows")
+    const enqueueWorkflowRunImport = vi.fn(() => Promise.resolve())
+    const dependencies = createGitHubWebhookRouteDependencies({
+      installationId: "700",
+      provider: githubProvider,
+      syncRepositories: () => Promise.resolve(),
+      webhookSecret: "webhook-secret-for-tests",
+      enqueueWorkflowRunImport,
+    })
+    const payload = {
+      action: "completed",
+      repository: { id: 1001 },
+      workflow_run: { id: 55, path: ".github/workflows/replica.yml" },
+    }
+
+    await expect(
+      dependencies.handleEvent("workflow_run", payload, deliveryFor(payload)),
+    ).rejects.toThrow(/workflow.*(selection|configur|reader)|readBuildWorkflowPaths/i)
+    expect(enqueueWorkflowRunImport).not.toHaveBeenCalled()
+    expect(await prisma.gitHubWebhookDelivery.count()).toBe(0)
+  })
+
+  it("leaves configuration failures visible and unrecorded for later redelivery", async () => {
+    await createRepository(1001, "invalid-workflows")
+    let unavailable = true
+    const enqueueWorkflowRunImport = vi.fn(() => Promise.resolve())
+    const dependencies = createGitHubWebhookRouteDependencies({
+      installationId: "700",
+      provider: githubProvider,
+      syncRepositories: () => Promise.resolve(),
+      webhookSecret: "webhook-secret-for-tests",
+      enqueueWorkflowRunImport,
+      readBuildWorkflowPaths: () =>
+        unavailable
+          ? Promise.reject(new Error(".github/replica.json builds.workflows is invalid."))
+          : Promise.resolve([".github/workflows/publish.yml"]),
+    })
+    const payload = {
+      action: "completed",
+      repository: { id: 1001 },
+      workflow_run: { id: 55, path: ".github/workflows/publish.yml" },
+    }
+    const delivery = deliveryFor(payload)
+
+    await expect(dependencies.handleEvent("workflow_run", payload, delivery)).rejects.toThrow(
+      "builds.workflows",
+    )
+    expect(enqueueWorkflowRunImport).not.toHaveBeenCalled()
+    expect(await prisma.gitHubWebhookDelivery.count()).toBe(0)
+
+    unavailable = false
+    await expect(dependencies.handleEvent("workflow_run", payload, delivery)).resolves.toBe(true)
+    expect(enqueueWorkflowRunImport).toHaveBeenCalledOnce()
+    expect(await prisma.gitHubWebhookDelivery.count()).toBe(1)
   })
 
   it("applies simultaneous copies of one delivery only once", async () => {

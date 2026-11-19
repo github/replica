@@ -81,8 +81,10 @@ async function createFixture() {
     actor: { id: 9, login: "octocat", avatarUrl: null },
   }
   const packages = new Map<string, Buffer>()
+  const workflowPaths = [".github/workflows/replica.yml"]
   const hooks: { beforeDownload?: (id: number) => Promise<void> } = {}
   const client = {
+    getBuildWorkflowPaths: () => Promise.resolve([...workflowPaths]),
     getWorkflowRun: () => Promise.resolve({ ...run }),
     listRunArtifacts: (_runId: number, name: string) =>
       Promise.resolve<GitHubWorkflowArtifact[]>(
@@ -122,10 +124,152 @@ async function createFixture() {
       orderBy: { id: "asc" },
     })
   }
-  return { run, packages, hooks, importRun, findBuild, findAnalyticsEvents, storage, client }
+  return {
+    run,
+    packages,
+    hooks,
+    importRun,
+    findBuild,
+    findAnalyticsEvents,
+    storage,
+    client,
+    workflowPaths,
+  }
 }
 
 describe("importGitHubWorkflowRun", () => {
+  it("imports a selected custom caller from its webhook without letting a competing selected workflow replace its dist", async () => {
+    const fixture = await createFixture()
+    fixture.workflowPaths.splice(
+      0,
+      1,
+      ".github/workflows/publish-proto.yml",
+      ".github/workflows/preview.yaml",
+    )
+    fixture.run.path = ".github/workflows/publish-proto.yml@refs/heads/proto/custom"
+    fixture.run.headBranch = "proto/custom"
+    const originalDist = distPackage("<h1>Selected caller</h1>")
+    const originalDigest = extractDistPackage(originalDist).distDigest
+    fixture.packages.set(distArtifactName, originalDist)
+    const enqueued: GitHubWorkflowRunJob[] = []
+    const webhooks = createGitHubWebhookRouteDependencies({
+      installationId: "700",
+      provider: { configurationDigest: "test-provider", revision: 1 },
+      webhookSecret: "webhook-secret-for-tests",
+      syncRepositories: () => Promise.resolve(),
+      readBuildWorkflowPaths: () => fixture.client.getBuildWorkflowPaths(),
+      enqueueWorkflowRunImport: (job) => {
+        enqueued.push(job)
+        return Promise.resolve()
+      },
+    })
+    const payload = {
+      action: "in_progress",
+      repository: { id: fixture.run.repositoryId },
+      workflow_run: { id: fixture.run.id, path: fixture.run.path },
+    }
+
+    await expect(
+      webhooks.handleEvent("workflow_run", payload, {
+        id: randomUUID(),
+        payloadDigest: createHash("sha256").update(JSON.stringify(payload)).digest("hex"),
+      }),
+    ).resolves.toBe(true)
+    expect(enqueued).toHaveLength(1)
+    await expect(fixture.importRun(enqueued[0])).resolves.toEqual({
+      dist: "imported",
+      screenshots: "absent",
+    })
+    const original = await fixture.findBuild()
+    expect(original.prototype.registeredAt).toBeInstanceOf(Date)
+
+    fixture.run.id += 1
+    fixture.run.path = ".github/workflows/preview.yaml"
+    fixture.run.createdAt = new Date("2026-01-01T00:02:00Z")
+    const competingDist = distPackage("<h1>Competing caller</h1>")
+    fixture.packages.set(distArtifactName, competingDist)
+    fixture.packages.set(
+      screenshotArtifactName,
+      screenshotPackage(extractDistPackage(competingDist).distDigest),
+    )
+
+    await expect(fixture.importRun()).resolves.toEqual({
+      dist: "unchanged",
+      screenshots: "digest-mismatch",
+    })
+    expect(await fixture.findBuild()).toMatchObject({
+      id: original.id,
+      githubWorkflowRunId: original.githubWorkflowRunId,
+      distDigest: originalDigest,
+      artifacts: original.artifacts,
+      state: "successful",
+    })
+    const preview = await readBuildPreviewFile(
+      { acceptsHtml: true, buildId: original.id, requestPath: "/" },
+      {
+        storage: fixture.storage,
+        findArtifact: (buildId, file) => findBuildArtifact(prisma, buildId, file),
+      },
+    )
+    expect(preview.status).toBe("ok")
+    if (preview.status === "ok") {
+      expect(Buffer.from(preview.bytes).toString()).toContain("<h1>Selected caller</h1>")
+      expect(Buffer.from(preview.bytes).toString()).not.toContain("Competing caller")
+    }
+
+    fixture.packages.set(screenshotArtifactName, screenshotPackage(originalDigest))
+    await expect(fixture.importRun()).resolves.toEqual({
+      dist: "unchanged",
+      screenshots: "attached",
+    })
+    expect((await fixture.findBuild()).artifacts.map((artifact) => artifact.path)).toContain(
+      "screenshots/desktop.png",
+    )
+  })
+
+  it("does not fetch workflow configuration or runs for a disconnected repository", async () => {
+    const fixture = await createFixture()
+    await prisma.repository.update({
+      where: { githubRepositoryId: fixture.run.repositoryId },
+      data: { removedAt: new Date() },
+    })
+    const selection = vi.spyOn(fixture.client, "getBuildWorkflowPaths")
+    const getRun = vi.spyOn(fixture.client, "getWorkflowRun")
+
+    await expect(fixture.importRun()).resolves.toEqual({ dist: "ignored", screenshots: "absent" })
+    expect(selection).not.toHaveBeenCalled()
+    expect(getRun).not.toHaveBeenCalled()
+  })
+
+  it("propagates configuration failures before reading or preparing a workflow run", async () => {
+    const fixture = await createFixture()
+    vi.spyOn(fixture.client, "getBuildWorkflowPaths").mockRejectedValue(
+      new Error(".github/replica.json builds.workflows is invalid."),
+    )
+    const getRun = vi.spyOn(fixture.client, "getWorkflowRun")
+
+    await expect(fixture.importRun()).rejects.toThrow("builds.workflows")
+    expect(getRun).not.toHaveBeenCalled()
+    expect(await prisma.build.count()).toBe(0)
+  })
+
+  it.each([
+    { path: ".github/workflows/replica.yml" },
+    { path: ".github/workflows/publish-proto.yml-extra" },
+    { event: "pull_request" },
+    { headBranch: null },
+    { headBranch: "replica/install-workflow" },
+    { repositoryId: 0 },
+    { headSha: "not-an-immutable-commit" },
+  ])("keeps existing run safety checks for custom workflow selection: %j", async (changes) => {
+    const fixture = await createFixture()
+    fixture.workflowPaths.splice(0, 1, ".github/workflows/publish-proto.yml")
+    Object.assign(fixture.run, { path: ".github/workflows/publish-proto.yml" }, changes)
+
+    await expect(fixture.importRun()).resolves.toEqual({ dist: "ignored", screenshots: "absent" })
+    expect(await prisma.build.count()).toBe(0)
+  })
+
   it("serves the dist preview after a completed job while the workflow is still running", async () => {
     const fixture = await createFixture()
     fixture.run.headBranch = "proto/welcome/nested"

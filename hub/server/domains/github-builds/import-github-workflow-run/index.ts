@@ -1,6 +1,7 @@
 import { completeGitHubBuildFailure } from "../../../repositories/github-builds/complete-github-build-failure/index.ts"
 import { markGitHubBuildRunning } from "../../../repositories/github-builds/mark-github-build-running/index.ts"
 import { recordGitHubBuildRunCompletion } from "../../../repositories/github-builds/record-github-build-run-completion/index.ts"
+import { findConnectedGitHubRepository } from "../../../repositories/repository-access/find-connected-github-repository/index.ts"
 import { BuildPackageError } from "../../build-artifacts/errors.ts"
 import { extractScreenshotPackage } from "../../build-artifacts/extract-screenshot-package/index.ts"
 import { registerImportedPrototype } from "../../prototypes/register-imported-prototype/index.ts"
@@ -41,10 +42,19 @@ export async function importGitHubWorkflowRun(
   job: GitHubWorkflowRunJob,
 ): Promise<ImportGitHubWorkflowRunResult> {
   const { client, database, logger } = dependencies
+  if (!(await findConnectedGitHubRepository(database, job.githubRepositoryId))) {
+    return { dist: "ignored", screenshots: "absent" }
+  }
+  const workflowPaths = await client.getBuildWorkflowPaths()
   const found = await client.getWorkflowRun(job.runId)
   if (!found) return { dist: "ignored", screenshots: "absent" }
   const run = found
-  const prepared = await prepareGitHubWorkflowRunBuild(database, job.githubRepositoryId, run)
+  const prepared = await prepareGitHubWorkflowRunBuild(
+    database,
+    job.githubRepositoryId,
+    run,
+    workflowPaths,
+  )
   if (prepared.status !== "ready") return { dist: "ignored", screenshots: "absent" }
   const { buildId, buildRun, distDigest, ownsBuild, state } = prepared
   const completed = run.status === "completed"

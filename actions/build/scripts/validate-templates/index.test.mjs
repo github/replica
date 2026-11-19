@@ -12,6 +12,20 @@ const template = {
 }
 
 describe("validateTemplates()", () => {
+  it("allows build selection beside Hub and templates without packaging either setting", () => {
+    const metadata = {
+      version: 1,
+      hub: { origin: "https://replica.example.com" },
+      builds: { workflows: [".github/workflows/publish-proto.yml"] },
+    }
+
+    assert.deepEqual(validateTemplates({ ...metadata, templates: [template] }), {
+      version: 1,
+      templates: [template],
+    })
+    assert.equal(validateTemplates(metadata), null)
+  })
+
   it("preserves local paths, query strings and fragments but removes Hub metadata", () => {
     assert.deepEqual(
       validateTemplates({

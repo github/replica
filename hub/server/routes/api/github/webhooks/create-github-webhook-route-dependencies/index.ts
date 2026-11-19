@@ -1,11 +1,11 @@
 import { z } from "zod"
 
 import type { GitHubWorkflowRunJob } from "../../../../../domains/github-builds/get-github-workflow-run-job-definition/index.ts"
-import { replicaWorkflowPath } from "../../../../../domains/github-builds/constants.ts"
 import { revokeGitHubRepositoryAccess } from "../../../../../domains/admission/revoke-github-repository-access/index.ts"
 import { recordGitHubBranchDeletion } from "../../../../../domains/prototypes/record-github-branch-deletion/index.ts"
 import { prisma } from "../../../../../integrations/prisma/index.ts"
 import { claimGitHubWebhookDelivery } from "../../../../../repositories/github-webhook-deliveries/claim-github-webhook-delivery/index.ts"
+import { findConnectedGitHubRepository } from "../../../../../repositories/repository-access/find-connected-github-repository/index.ts"
 import type { GitHubWebhookRouteDependencies } from "../types.ts"
 
 const githubId = z.number().int().positive()
@@ -81,6 +81,7 @@ export function createGitHubWebhookRouteDependencies(input: {
   syncRepositories: () => Promise<unknown>
   /** Enqueues idempotently by key, so a redelivered event cannot import twice. */
   enqueueWorkflowRunImport?: (job: GitHubWorkflowRunJob, key: string) => Promise<unknown>
+  readBuildWorkflowPaths?: (githubRepositoryId: number) => Promise<string[]>
 }): GitHubWebhookRouteDependencies {
   async function syncRepositories() {
     await input.syncRepositories()
@@ -138,10 +139,14 @@ export function createGitHubWebhookRouteDependencies(input: {
         let job: GitHubWorkflowRunJob
         if (name === "workflow_run") {
           const event = workflowRunEvent.safeParse(payload)
-          if (
-            !event.success ||
-            event.data.workflow_run.path.split("@")[0] !== replicaWorkflowPath
-          ) {
+          if (!event.success) return false
+          const githubRepositoryId = event.data.repository.id
+          if (!(await findConnectedGitHubRepository(prisma, githubRepositoryId))) return false
+          if (!input.readBuildWorkflowPaths) {
+            throw new Error("GitHub Build workflow configuration reader is required.")
+          }
+          const paths = await input.readBuildWorkflowPaths(githubRepositoryId)
+          if (!paths.includes(event.data.workflow_run.path.split("@")[0] ?? "")) {
             return false
           }
           job = { githubRepositoryId: event.data.repository.id, runId: event.data.workflow_run.id }

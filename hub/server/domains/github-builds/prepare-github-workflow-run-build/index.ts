@@ -1,7 +1,6 @@
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
 import type { GitHubWorkflowRun } from "../../../integrations/github/create-github-actions-client/types.ts"
 import { prepareGitHubBuild } from "../../../repositories/github-builds/prepare-github-build/index.ts"
-import { replicaWorkflowPath } from "../constants.ts"
 
 /**
  * Finds or creates the Build for a Replica workflow branch push run, using GitHub's
@@ -11,11 +10,12 @@ export async function prepareGitHubWorkflowRunBuild(
   database: PrismaClient,
   githubRepositoryId: number,
   run: GitHubWorkflowRun,
+  workflowPaths: string[],
 ) {
   const branchName = run.headBranch
   if (
     run.repositoryId !== githubRepositoryId ||
-    run.path.split("@")[0] !== replicaWorkflowPath ||
+    !workflowPaths.includes(run.path.split("@")[0] ?? "") ||
     run.event !== "push" ||
     !branchName ||
     branchName === "replica/install-workflow" ||

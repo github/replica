@@ -218,6 +218,8 @@ try {
               const context = createGitHubAuthenticationContext(authenticationEnvironment)
               const { createGitHubWebhookRouteDependencies } =
                 await import("./routes/api/github/webhooks/create-github-webhook-route-dependencies/index.ts")
+              const { createGitHubActionsClient } =
+                await import("./integrations/github/create-github-actions-client/index.ts")
               githubWebhooks = createGitHubWebhookRouteDependencies({
                 installationId: appCredentials.installationId,
                 provider: {
@@ -226,6 +228,11 @@ try {
                 },
                 syncRepositories: () => setup.syncRepositories(),
                 webhookSecret: appCredentials.webhookSecret,
+                readBuildWorkflowPaths: (githubRepositoryId) =>
+                  createGitHubActionsClient({
+                    ...appCredentials,
+                    githubRepositoryId,
+                  }).getBuildWorkflowPaths(),
                 enqueueWorkflowRunImport: async (job, deliveryId) => {
                   const { enqueueGitHubWorkflowRunImport } =
                     await import("./domains/github-builds/enqueue-github-workflow-run-import/index.ts")
