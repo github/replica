@@ -51,6 +51,7 @@
   display: none;
 }
 
+.repository-selector__trigger:disabled [data-testid="Button-trailing-visual"],
 .repository-selector--collapsed
   .repository-selector__trigger
   [data-testid="Button-trailing-visual"] {

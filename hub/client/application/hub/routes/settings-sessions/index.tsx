@@ -2,6 +2,7 @@ import { useState } from "react"
 import { useNavigate } from "react-router"
 
 import { SessionRevocationPage } from "@pages/session-revocation-page"
+import { loadAdministratorWorkspace } from "@application/hub/load-administrator-workspace"
 import { navigateToExternalUrl } from "@application/hub/navigate-to-external-url"
 import { ApiContractError } from "@application/hub/requests/api-contract-error"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
@@ -10,6 +11,7 @@ import { getSessionRevocationStatus } from "@application/hub/requests/get-sessio
 import { sessionRevocationErrorMessage } from "@application/hub/session-revocation-error-message"
 import { startSessionRevocationAuthorization } from "@application/hub/requests/start-session-revocation-authorization"
 import { SettingsRouteScreen } from "@application/hub/screens/settings-route-screen"
+import { resourcePath } from "@application/hub/view-models/resource-path"
 import { sessionRevocationPageData } from "@application/hub/view-models/session-revocation-page-data"
 
 import { settingsController } from "../settings-controller"
@@ -40,10 +42,14 @@ export async function clientLoader(
   if (session.role !== "ADMINISTRATOR") {
     throw new Response("Administrator access is required.", { status: 403 })
   }
-  const { status } = await getSessionRevocationStatus(args.request)
+  const [{ status }, workspace] = await Promise.all([
+    getSessionRevocationStatus(args.request),
+    loadAdministratorWorkspace(args.request, session, "sessions"),
+  ])
   return {
     surface: "session-revocation",
     page: sessionRevocationPageData(session, status, {
+      workspace,
       notice:
         result === "cancelled" ? "Session revocation was cancelled. No sessions ended." : null,
     }),
@@ -91,7 +97,13 @@ export default function SettingsSessions({
             submitter instanceof HTMLElement ? submitter : undefined,
           )
           if (form.get("cancelled") === "1") {
-            void navigate("/settings/sessions?result=cancelled")
+            void navigate(
+              resourcePath("/settings/sessions", new URLSearchParams(), {
+                result: "cancelled",
+                repositoryId:
+                  loaderData.page.administrationWorkspace?.repository?.selectedRepositoryId ?? null,
+              }),
+            )
             return
           }
           if (form.get("confirmed") !== "1") {

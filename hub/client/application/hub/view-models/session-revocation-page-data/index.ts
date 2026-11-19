@@ -1,8 +1,7 @@
 import type { SessionRevocationPageData } from "@pages/session-revocation-page/types"
 import type { CurrentHubSession } from "@application/hub/administrator-contracts/types"
 import type { SessionRevocationStatus } from "@application/hub/session-revocation-contracts/types"
-
-import { administratorWorkspace } from "../administrator-workspace"
+import type { HubAdministrationWorkspaceData } from "@features/hub-administration-workspace/types"
 
 function countLabel(count: number, singular: string, plural: string) {
   return `${count} ${count === 1 ? singular : plural}`
@@ -12,6 +11,7 @@ export function sessionRevocationPageData(
   session: CurrentHubSession | null,
   status: SessionRevocationStatus | null,
   input: {
+    workspace?: HubAdministrationWorkspaceData
     authorizationId?: string
     error?: string | null
     notice?: string | null
@@ -32,7 +32,7 @@ export function sessionRevocationPageData(
       ].join(", ")
     : null
   return {
-    administrationWorkspace: session ? administratorWorkspace(session, "sessions") : null,
+    administrationWorkspace: input.workspace ?? null,
     authenticatedWorkspace: null,
     pageTitle: ended ? "All existing Hub sessions ended" : "End all Hub sessions",
     heading: ended ? "All existing Hub sessions ended" : "End all Hub sessions",

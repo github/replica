@@ -3,6 +3,7 @@ import { useCallback, useState } from "react"
 import { HubAdminsPage } from "@pages/hub-admins-page"
 import { administratorErrorMessage } from "@application/hub/administrator-error-message"
 import { beginAdministratorAuthorization } from "@application/hub/begin-administrator-authorization"
+import { loadAdministratorWorkspace } from "@application/hub/load-administrator-workspace"
 import { ApiContractError } from "@application/hub/requests/api-contract-error"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
 import { getAdministrators } from "@application/hub/requests/get-administrators"
@@ -22,11 +23,14 @@ export async function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "re
   if (session.role !== "ADMINISTRATOR") {
     throw new Response("Administrator access is required.", { status: 403 })
   }
-  const response = await getAdministrators(request, before)
+  const [response, workspace] = await Promise.all([
+    getAdministrators(request, before),
+    loadAdministratorWorkspace(request, session, "admins"),
+  ])
   const result = url.searchParams.get("result")
   return {
     page: administratorsPageData(
-      session,
+      workspace,
       response,
       before,
       result === "changed"

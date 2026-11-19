@@ -1,7 +1,7 @@
 import { useState } from "react"
 
 import { BookIcon, LinkExternalIcon, PlusIcon, QuestionIcon } from "@primer/octicons-react"
-import { Button, Heading, Text } from "@primer/react-brand"
+import { Button, Heading, InlineLink, Text } from "@primer/react-brand"
 
 import { HubAlert } from "@components/hub-alert"
 import { HubToast } from "@components/hub-toast"
@@ -72,6 +72,15 @@ export function WelcomePage({ data }: { data: WelcomePageData }) {
                 </Heading>
                 <Text as="p" className="welcome-page__card-description">
                   {data.videoDescription}
+                  {data.videoEmbedUrl && data.videoWatchUrl ? (
+                    <>
+                      {" "}
+                      <InlineLink href={data.videoWatchUrl} target="_blank" rel="noreferrer">
+                        Watch on YouTube
+                      </InlineLink>
+                      .
+                    </>
+                  ) : null}
                 </Text>
                 {data.videoUrl && failedVideoUrl === data.videoUrl ? (
                   <HubAlert title={data.videoFailed} variant="warning" />

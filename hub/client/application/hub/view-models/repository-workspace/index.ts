@@ -9,7 +9,7 @@ export function repositoryWorkspace(
   repository: RepositoryRecord,
   search: URLSearchParams,
   real = false,
-): RepositoryWorkspaceData {
+) {
   const browseTemplates = real
     ? workspace.repositories.find(({ id }) => id === repository.id)?.capabilities?.browseTemplates
     : workspace.capabilities?.createPrototypes
@@ -41,5 +41,5 @@ export function repositoryWorkspace(
     repositorySelectorLabel: `Choose repository. ${repository.nameWithOwner} selected`,
     selectedRepositoryId: String(repository.id),
     selectedSection: "prototypes",
-  }
+  } satisfies RepositoryWorkspaceData
 }

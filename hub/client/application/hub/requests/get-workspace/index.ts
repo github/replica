@@ -1,3 +1,5 @@
+import { z } from "zod"
+
 import { workspaceResponseSchema } from "@application/hub/contracts"
 
 import { requestJson } from "../request-json"
@@ -8,11 +10,11 @@ export function getWorkspace(request: Request) {
   const selected = z
     .uuid()
     .safeParse(
-      page.pathname.match(/^\/repositories\/([^/]+)/)?.[1] ?? page.searchParams.get("repositoryId"),
+      page.pathname.match(/^\/repositories\/([^/]+)/i)?.[1] ??
+        page.searchParams.get("repositoryId"),
     )
-  if (selected.success) target.searchParams.set("repositoryId", selected.data)
+  if (selected.success) target.searchParams.set("repositoryId", selected.data.toLowerCase())
   return requestJson(target, workspaceResponseSchema, {
     signal: request.signal,
   })
 }
-import { z } from "zod"

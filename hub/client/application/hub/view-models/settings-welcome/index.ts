@@ -26,15 +26,15 @@ export function welcomeData(
 ): WelcomePageData {
   const videoUrl: unknown = import.meta.env.VITE_WELCOME_VIDEO_URL
   const videoPosterUrl: unknown = import.meta.env.VITE_WELCOME_VIDEO_POSTER_URL
+  const defaultVideo = "J2Z28CwIfsA"
+  const customVideo = typeof videoUrl === "string" && videoUrl ? videoUrl : null
   return {
     workspace,
     heading: "Getting started with Replica",
     description: "Turn an idea into an interactive prototype.",
-    videoUrl: typeof videoUrl === "string" && videoUrl ? videoUrl : null,
-    videoEmbedUrl:
-      real || (typeof videoUrl === "string" && videoUrl)
-        ? null
-        : "https://www.youtube-nocookie.com/embed/J2Z28CwIfsA",
+    videoUrl: customVideo,
+    videoEmbedUrl: customVideo ? null : `https://www.youtube-nocookie.com/embed/${defaultVideo}`,
+    videoWatchUrl: customVideo ? undefined : `https://www.youtube.com/watch?v=${defaultVideo}`,
     videoPosterUrl: typeof videoPosterUrl === "string" && videoPosterUrl ? videoPosterUrl : null,
     videoLabel: "Learn how Replica works",
     videoDescription:
@@ -50,8 +50,11 @@ export function welcomeData(
     setupDescription: "Create, try, and share your first prototype step by step.",
     setupPath: "https://github.com/github/replica/blob/main/docs/getting-started.md",
     createLabel: "Create prototype",
-    createDescription: "Turn an idea into a prototype with GitHub Copilot.",
-    createUnavailable: "Creating a prototype here requires a connected GitHub repository.",
+    createDescription:
+      real && workspace.currentUser.provider === "local"
+        ? "Draft a prototype brief and copy it for your coding agent."
+        : "Turn an idea into a prototype with GitHub Copilot.",
+    createUnavailable: "Choose a repository where you can create prototypes.",
     hideLabel: "Hide welcome",
     hideDescription: "Hide Welcome from the sidebar. You can still visit /welcome.",
     hidePath: hidden

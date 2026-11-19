@@ -18,6 +18,7 @@ export function workspaceNavigation(
   const welcomeVisible = real
     ? workspace.welcomeHidden === false
     : !workspace.navigation?.welcomeHidden
+  const context = { repositoryId }
   return {
     accountMenuLabel: `Account menu for ${
       workspace.viewer.provider && workspace.viewer.provider !== "github"
@@ -34,19 +35,18 @@ export function workspaceNavigation(
     productName: "Replica Hub",
     navigationLabel: repositoryId === null ? "Hub navigation" : "Repository navigation",
     settingsNavigationLabel: "Security and settings",
-    canvasConnectionsPath: real ? "/canvas/connections" : undefined,
-    repositoriesLabel: "Repositories",
+    canvasConnectionsPath: real ? resourcePath("/canvas/connections", search, context) : undefined,
+    emptyRepositoryLabel: real && repositoryId === null ? "No repository selected" : undefined,
+    repositoriesLabel: real ? "Prototypes" : "Repositories",
     repositoriesPath: "/repositories",
     signOutLabel: "Sign out",
     signOutPath: real ? "/api/auth/session/sign-out" : "/session",
     systemThemeLabel: "System",
     welcomeLabel: "Welcome",
-    welcomePath: welcomeVisible ? resourcePath("/welcome", search, { repositoryId }) : null,
+    welcomePath: welcomeVisible ? resourcePath("/welcome", search, context) : null,
     notificationsLabel: real ? "Inbox" : "Notifications",
     notificationsPath:
-      !real || inboxConnected
-        ? resourcePath("/notifications", search, { repositoryId })
-        : undefined,
+      !real || inboxConnected ? resourcePath("/notifications", search, context) : undefined,
     notificationInbox: inboxConnected
       ? { ...notificationInboxConfiguration, connected: true }
       : undefined,
@@ -56,18 +56,30 @@ export function workspaceNavigation(
     administrationLinks: admin
       ? real
         ? [
-            { section: "admins", label: "Hub administrators", path: "/settings/administrators" },
+            {
+              section: "admins",
+              label: "Hub administrators",
+              path: resourcePath("/settings/administrators", search, context),
+            },
             ...(workspace.publicSharingSettingsAvailable
               ? [
                   {
                     section: "sharing" as const,
                     label: "Public sharing",
-                    path: "/settings/sharing",
+                    path: resourcePath("/settings/sharing", search, context),
                   },
                 ]
               : []),
-            { section: "sessions", label: "End all Hub sessions", path: "/settings/sessions" },
-            { section: "copilot", label: "Copilot connection", path: "/settings/copilot" },
+            {
+              section: "sessions",
+              label: "End all Hub sessions",
+              path: resourcePath("/settings/sessions", search, context),
+            },
+            {
+              section: "copilot",
+              label: "Copilot connection",
+              path: resourcePath("/settings/copilot", search, context),
+            },
           ]
         : [
             {
@@ -100,9 +112,9 @@ export function workspaceNavigation(
     securityAuditLabel: "Security audit",
     securityAuditPath: real
       ? repositoryAdmin && repositoryId
-        ? `/settings/audit?scope=repository&repositoryId=${encodeURIComponent(repositoryId)}`
+        ? resourcePath("/settings/audit?scope=repository", search, context)
         : admin
-          ? "/settings/audit?scope=hub"
+          ? resourcePath("/settings/audit?scope=hub", search, context)
           : null
       : admin || repositoryId !== null
         ? resourcePath("/settings/audit", search, {

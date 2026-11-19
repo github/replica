@@ -87,7 +87,27 @@ async function renderApplication(path: string, handlers: Parameters<typeof setup
   vi.stubEnv("MODE", "development")
   vi.stubEnv("DEV", true)
   const requests: string[] = []
-  const server = setupServer(...handlers)
+  const server = setupServer(
+    ...handlers,
+    http.get(`${window.location.origin}/api/workspace`, () =>
+      HttpResponse.json({
+        viewer: {
+          id: session().userId,
+          login: session().login,
+          name: session().name,
+          provider: session().provider,
+          avatarUrl: null,
+        },
+        repositories: [],
+        capabilities: {
+          createPrototypes: false,
+          reviewPrototypes: false,
+          manageSharing: false,
+          administerHub: true,
+        },
+      }),
+    ),
+  )
   server.events.on("request:start", ({ request }) => {
     const url = new URL(request.url)
     requests.push(`${request.method} ${url.pathname}${url.search}`)
