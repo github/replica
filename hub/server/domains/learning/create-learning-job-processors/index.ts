@@ -31,6 +31,7 @@ import { deleteLearningDecisionOperation } from "../../../repositories/learning-
 import { listLearningDecisionOperations } from "../../../repositories/learning-decision-operations/list-learning-decision-operations/index.ts"
 import { updateLearningRunProgress } from "../../../repositories/learning-runs/update-learning-run-progress/index.ts"
 import { isEffectiveAdministrator } from "../../../repositories/memberships/is-effective-administrator/index.ts"
+import { lockRepositoryAdministratorAuthority } from "../../../repositories/repository-access/lock-repository-administrator-authority/index.ts"
 import { listDeletedReviewComments } from "../../../repositories/review-comments/list-deleted-review-comments/index.ts"
 import { markReviewCommentLearningRedacted } from "../../../repositories/review-comments/mark-review-comment-learning-redacted/index.ts"
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
@@ -73,7 +74,10 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
       finish: (id, input) => finishLearningRun(prisma, id, input),
       getRun: (id) => getLearningRun(prisma, id),
       now: () => new Date(),
-      isAdministrator: (membershipId) => isEffectiveAdministrator(prisma, membershipId),
+      authorizeRepositoryAdministration: (membershipId, repositoryId) =>
+        prisma.$transaction((transaction) =>
+          lockRepositoryAdministratorAuthority(transaction, { membershipId, repositoryId }),
+        ),
       prepare: (repositoryId) =>
         prepareLearningStore({
           applicationRoot: process.cwd(),

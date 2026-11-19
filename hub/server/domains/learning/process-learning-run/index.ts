@@ -88,7 +88,7 @@ export async function processLearningRun(
     } | null>
     now(): Date
     prepare(repositoryId: string): Promise<{ directory: string; repositoryScope: string }>
-    isAdministrator(membershipId: string): Promise<boolean>
+    authorizeRepositoryAdministration(membershipId: string, repositoryId: string): Promise<boolean>
     refuseCredential?(): Promise<void>
     runCommand(
       arguments_: string[],
@@ -105,13 +105,22 @@ export async function processLearningRun(
         aiCredits: string
       },
     ): Promise<unknown>
-    withLock<T>(run: (signal: AbortSignal) => Promise<T>): Promise<T>
+    withLock<T>(
+      run: (
+        signal: AbortSignal,
+        controls: {
+          runWithoutRepositoryAuthorityLock: <Result>(
+            operation: () => Promise<Result>,
+          ) => Promise<Result>
+        },
+      ) => Promise<T>,
+    ): Promise<T>
   },
 ) {
   const run = await dependencies.getRun(runId)
   if (!run || !["QUEUED", "RUNNING"].includes(run.state)) return
   try {
-    await dependencies.withLock(async (signal) => {
+    await dependencies.withLock(async (signal, { runWithoutRepositoryAuthorityLock }) => {
       if (run.state === "QUEUED" && !(await dependencies.claim(runId, dependencies.now()))) return
       const current = await dependencies.getRun(runId)
       if (!current) throw new Error("The claimed learning run disappeared.")
@@ -120,11 +129,14 @@ export async function processLearningRun(
       if (
         !actor ||
         !current.requestedByMembershipId ||
-        !(await dependencies.isAdministrator(current.requestedByMembershipId))
+        !(await dependencies.authorizeRepositoryAdministration(
+          current.requestedByMembershipId,
+          current.repositoryId,
+        ))
       ) {
         throw new LearningCommandError(
           "not_authorized",
-          "The person who requested this run is no longer an administrator.",
+          "The person who requested this run is no longer a repository administrator.",
         )
       }
       const snapshot = await dependencies.capture(current.repositoryId)
@@ -216,18 +228,20 @@ export async function processLearningRun(
       let labeled: z.infer<typeof labelSchema>
       try {
         labeled = labelSchema.parse(
-          await dependencies.runCommand(
-            [
-              "label",
-              "--since",
-              new Date(snapshot.capturedAt.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString(),
-              "--limit",
-              "400",
-              "--max-requests",
-              "10",
-              ...common,
-            ],
-            { ...credential, signal, timeoutMs: 30 * 60 * 1000 },
+          await runWithoutRepositoryAuthorityLock(() =>
+            dependencies.runCommand(
+              [
+                "label",
+                "--since",
+                new Date(snapshot.capturedAt.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString(),
+                "--limit",
+                "400",
+                "--max-requests",
+                "10",
+                ...common,
+              ],
+              { ...credential, signal, timeoutMs: 30 * 60 * 1000 },
+            ),
           ),
         )
       } catch (error) {
@@ -244,6 +258,17 @@ export async function processLearningRun(
           }
         }
         throw error
+      }
+      if (
+        !(await dependencies.authorizeRepositoryAdministration(
+          current.requestedByMembershipId,
+          current.repositoryId,
+        ))
+      ) {
+        throw new LearningCommandError(
+          "not_authorized",
+          "The person who requested this run is no longer a repository administrator.",
+        )
       }
       await dependencies.updateProgress(runId, {
         commentsConsidered: labeled.considered,

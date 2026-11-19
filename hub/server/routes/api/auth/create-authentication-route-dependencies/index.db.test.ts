@@ -1,4 +1,5 @@
 import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto"
+import { Client } from "pg"
 import { describe, expect, it, vi } from "vitest"
 
 import { restoreHubSession } from "../../../../domains/admission/restore-hub-session"
@@ -11,6 +12,7 @@ import { getSelectedProviderRevision } from "../../../../domains/identity/get-se
 import { runProviderRevisionTransaction } from "../../../../domains/identity/run-provider-revision-transaction"
 import { Prisma } from "../../../../generated/prisma/client"
 import { prisma } from "../../../../integrations/prisma"
+import { getDatabaseUrl } from "../../../../../test/database/get-database-url"
 import { findAuthenticationProvider } from "../../../../repositories/authentication-providers/find-authentication-provider"
 import { listOpenGitHubSessionMemberships } from "../../../../repositories/hub-sessions/list-open-github-session-memberships"
 import { withFailingSecurityAudit } from "../../../../../test/database/with-failing-security-audit"
@@ -72,6 +74,25 @@ function discovery(overrides: Record<string, unknown> = {}) {
 }
 
 const validDiscovery = vi.fn<typeof fetch>(() => Promise.resolve(discovery()))
+
+async function waitForRepositoryAuthorityLockRequest(inspector: Client) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const result = await inspector.query<{ waiting: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM pg_locks
+         WHERE locktype = 'advisory'
+           AND classid = 1919242348
+           AND objid = 3
+           AND NOT granted
+           AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+       ) AS waiting`,
+    )
+    if (result.rows[0]?.waiting) return
+    await new Promise<void>((resolve) => setImmediate(resolve))
+  }
+  throw new Error("Timed out waiting for the repository authority lock request.")
+}
 
 async function seedConfiguredProviders(configuration: NodeJS.ProcessEnv) {
   const contexts = [
@@ -364,13 +385,26 @@ describe("createAuthenticationRouteDependencies()", () => {
         state,
       })
       const freshDigest = "6".repeat(64)
-      await dependencies.github!.callback.admit({
+      const authorityLock = new Client({ connectionString: getDatabaseUrl() })
+      const inspector = new Client({ connectionString: getDatabaseUrl() })
+      await Promise.all([authorityLock.connect(), inspector.connect()])
+      await authorityLock.query("SELECT pg_advisory_lock_shared(1919242348, 3)")
+      const admission = dependencies.github!.callback.admit({
         proof: completed.proof,
         providerAssignment: completed.providerAssignment,
         repositoryAccess: completed.repositoryAccess,
         sessionDigest: freshDigest,
         sessionId: randomUUID(),
       })
+      void admission.catch(() => {})
+      try {
+        await waitForRepositoryAuthorityLockRequest(inspector)
+      } finally {
+        await authorityLock.query("SELECT pg_advisory_unlock_shared(1919242348, 3)")
+        await Promise.all([authorityLock.end(), inspector.end()])
+        await admission.catch(() => {})
+      }
+      await admission
       const connected = await prisma.repository.findUniqueOrThrow({
         where: { githubRepositoryId: 1001n },
       })

@@ -452,6 +452,27 @@ describe("presentSecurityAudit()", () => {
         outcome: "success",
       }),
     },
+    ...(["learning_overview", "learning_run", "learning_decision"] as const).map((operation) => ({
+      label: `repository administration ${operation} denial`,
+      event: {
+        actorMembershipId,
+        id: auditId,
+        operation,
+        reason: "authority_missing",
+        repositoryId: providerId,
+        type: "repository_administration_denied",
+      },
+      expected: expectedRecord({
+        action: `repository.administration.${operation}.denied`,
+        actor: { membershipId: actorMembershipId },
+        context: {
+          operation,
+          reason: "authority_missing",
+          repositoryId: providerId,
+        },
+        outcome: "denied",
+      }),
+    })),
     ...(
       [
         ["connected", "success", true, undefined],

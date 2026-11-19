@@ -69,21 +69,68 @@ describe("withLearningExecutionLock()", () => {
     try {
       await Promise.race([entered.promise, learning])
       await authorityChange.query("BEGIN")
-      let authorityLockAcquired = false
-      const lock = authorityChange.query("SELECT pg_advisory_xact_lock(1919242348, 3)").then(() => {
-        authorityLockAcquired = true
-      })
-      await new Promise<void>((resolve) => setImmediate(resolve))
-      expect(authorityLockAcquired).toBe(false)
+      const blocked = await authorityChange.query<{ locked: boolean }>(
+        "SELECT pg_try_advisory_xact_lock(1919242348, 3) AS locked",
+      )
+      expect(blocked.rows).toEqual([{ locked: false }])
 
       finish.resolve()
       await learning
-      await lock
-      expect(authorityLockAcquired).toBe(true)
+      const released = await authorityChange.query<{ locked: boolean }>(
+        "SELECT pg_try_advisory_xact_lock(1919242348, 3) AS locked",
+      )
+      expect(released.rows).toEqual([{ locked: true }])
       await authorityChange.query("ROLLBACK")
     } finally {
       finish.resolve()
       await learning.catch(() => {})
+      await authorityChange.query("ROLLBACK").catch(() => {})
+      await authorityChange.end()
+    }
+  })
+
+  it("allows repository authority changes while a long learning phase runs", async () => {
+    const databaseUrl = getDatabaseUrl()
+    const entered = deferred<void>()
+    const finishPhase = deferred<void>()
+    const resumed = deferred<void>()
+    const finishRun = deferred<void>()
+    const authorityChange = new Client({ connectionString: databaseUrl })
+    await authorityChange.connect()
+    const learning = withLearningExecutionLock({
+      databaseUrl,
+      run: async (_signal, { runWithoutRepositoryAuthorityLock }) => {
+        await runWithoutRepositoryAuthorityLock(async () => {
+          entered.resolve()
+          await finishPhase.promise
+        })
+        resumed.resolve()
+        await finishRun.promise
+      },
+    })
+    void learning.catch(() => {})
+
+    try {
+      await Promise.race([entered.promise, learning])
+      await authorityChange.query("BEGIN")
+      const available = await authorityChange.query<{ locked: boolean }>(
+        "SELECT pg_try_advisory_xact_lock(1919242348, 3) AS locked",
+      )
+      expect(available.rows).toEqual([{ locked: true }])
+      await authorityChange.query("ROLLBACK")
+
+      finishPhase.resolve()
+      await Promise.race([resumed.promise, learning])
+      await authorityChange.query("BEGIN")
+      const protectedAgain = await authorityChange.query<{ locked: boolean }>(
+        "SELECT pg_try_advisory_xact_lock(1919242348, 3) AS locked",
+      )
+      expect(protectedAgain.rows).toEqual([{ locked: false }])
+      await authorityChange.query("ROLLBACK")
+    } finally {
+      finishPhase.resolve()
+      finishRun.resolve()
+      await learning
       await authorityChange.query("ROLLBACK").catch(() => {})
       await authorityChange.end()
     }

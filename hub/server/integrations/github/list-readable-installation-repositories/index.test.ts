@@ -4,10 +4,11 @@ import { listReadableInstallationRepositories } from "."
 
 function repository(permissions: {
   admin: boolean
-  maintain: boolean
+  maintain?: boolean
   pull: boolean
   push: boolean
-  triage: boolean
+  triage?: boolean
+  [key: string]: unknown
 }) {
   return {
     id: 17,
@@ -62,6 +63,31 @@ describe("listReadableInstallationRepositories()", () => {
     )
 
     await expect(listReadableInstallationRepositories(request, 42, "user-token")).rejects.toThrow()
+  })
+
+  it("accepts required permissions when optional and unknown flags differ by GitHub version", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        total_count: 1,
+        repositories: [
+          repository({
+            admin: false,
+            pull: true,
+            push: false,
+            security_events: true,
+          }),
+        ],
+      }),
+    )
+
+    await expect(listReadableInstallationRepositories(request, 42, "user-token")).resolves.toEqual([
+      {
+        accessLevel: "READ",
+        defaultBranch: "main",
+        githubRepositoryId: 17,
+        nameWithOwner: "octo/example",
+      },
+    ])
   })
 
   it("fails closed when a listed repository has no readable permission", async () => {

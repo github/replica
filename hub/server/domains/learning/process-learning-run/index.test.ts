@@ -19,8 +19,19 @@ function dependencies(overrides: Partial<Dependencies> = {}) {
     requestedBy: { profile: { login: "mona" } },
     requestedByMembershipId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
   }
-  async function withLock<T>(operation: (signal: AbortSignal) => Promise<T>) {
-    return await operation(new AbortController().signal)
+  async function withLock<T>(
+    operation: (
+      signal: AbortSignal,
+      controls: {
+        runWithoutRepositoryAuthorityLock: <Result>(
+          operation: () => Promise<Result>,
+        ) => Promise<Result>
+      },
+    ) => Promise<T>,
+  ) {
+    return await operation(new AbortController().signal, {
+      runWithoutRepositoryAuthorityLock: async (run) => await run(),
+    })
   }
   const base: Dependencies = {
     claim: vi.fn(() => {
@@ -38,7 +49,7 @@ function dependencies(overrides: Partial<Dependencies> = {}) {
     }),
     getRun: vi.fn().mockImplementation(() => Promise.resolve(run)),
     now: vi.fn(() => new Date("2026-11-13T10:00:00Z")),
-    isAdministrator: vi.fn().mockResolvedValue(true),
+    authorizeRepositoryAdministration: vi.fn().mockResolvedValue(true),
     prepare: vi.fn().mockResolvedValue({
       directory: "/private/repository",
       repositoryScope: "github.com/repositories/repository",
@@ -79,12 +90,22 @@ function dependencies(overrides: Partial<Dependencies> = {}) {
 }
 
 describe("processLearningRun()", () => {
-  it("claims once, imports with redaction, records usage, and finishes success", async () => {
+  it("runs for a Hub member with repository administrator authority", async () => {
     const deps = dependencies()
 
     await processLearningRun("11111111-2222-4333-8444-555555555555", deps)
 
     expect(deps.claim).toHaveBeenCalledOnce()
+    expect(deps.authorizeRepositoryAdministration).toHaveBeenNthCalledWith(
+      1,
+      "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    )
+    expect(deps.authorizeRepositoryAdministration).toHaveBeenNthCalledWith(
+      2,
+      "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    )
     expect(deps.commands.find((arguments_) => arguments_[0] === "import")).toContain(
       "--redact-deleted",
     )
@@ -156,14 +177,33 @@ describe("processLearningRun()", () => {
     expect(deps.finished).toEqual([])
   })
 
-  it("fails before store writes when the requester's authority was revoked", async () => {
+  it("does not substitute Hub administration after repository authority is revoked", async () => {
     const deps = dependencies({
-      isAdministrator: vi.fn().mockResolvedValue(false),
+      authorizeRepositoryAdministration: vi.fn().mockResolvedValue(false),
     })
 
     await processLearningRun("11111111-2222-4333-8444-555555555555", deps)
 
     expect(deps.runCommand).not.toHaveBeenCalled()
+    expect(deps.finished[0]).toMatchObject({
+      input: {
+        state: "FAILED",
+        failureCode: "not_authorized",
+      },
+    })
+  })
+
+  it("stops after labeling when repository authority is revoked during that phase", async () => {
+    const authorizeRepositoryAdministration = vi
+      .fn()
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
+    const deps = dependencies({ authorizeRepositoryAdministration })
+
+    await processLearningRun("11111111-2222-4333-8444-555555555555", deps)
+
+    expect(deps.commands.some((arguments_) => arguments_[0] === "label")).toBe(true)
+    expect(deps.commands.some((arguments_) => arguments_[0] === "consolidate")).toBe(false)
     expect(deps.finished[0]).toMatchObject({
       input: {
         state: "FAILED",

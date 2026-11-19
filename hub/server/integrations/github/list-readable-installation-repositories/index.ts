@@ -11,15 +11,13 @@ const repositoriesSchema = z.looseObject({
       default_branch: z.string().min(1).max(255),
       full_name: z.string().min(3).max(255),
       id: z.number().int().positive(),
-      permissions: z
-        .object({
-          admin: z.boolean(),
-          maintain: z.boolean(),
-          pull: z.boolean(),
-          push: z.boolean(),
-          triage: z.boolean(),
-        })
-        .strict(),
+      permissions: z.looseObject({
+        admin: z.boolean(),
+        maintain: z.boolean().optional(),
+        pull: z.boolean(),
+        push: z.boolean(),
+        triage: z.boolean().optional(),
+      }),
     }),
   ),
 })

@@ -2,8 +2,7 @@ import type { Prisma } from "../../../generated/prisma/client.ts"
 
 /**
  * Serializes repository-authority changes against external learning operations.
- * The matching shared session lock is held outside database transactions while a
- * package command runs, so provider evidence cannot be revoked mid-mutation.
+ * The matching shared session lock protects authority-sensitive package mutations.
  */
 export async function lockRepositoryAdministrationChanges(
   database: Pick<Prisma.TransactionClient, "$executeRaw">,

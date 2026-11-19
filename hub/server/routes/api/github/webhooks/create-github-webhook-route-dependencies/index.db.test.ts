@@ -956,7 +956,7 @@ describe("createGitHubWebhookRouteDependencies()", () => {
     ).toBe(2)
   })
 
-  it("removes only the collaborator's grant while another connected grant keeps the session usable", async () => {
+  it("invalidates only an edited collaborator grant while another grant keeps the session usable", async () => {
     const revisionId = await createProvider("github")
     const removed = await createRepository(1001, "removed-access")
     const retained = await createRepository(1002, "retained-access")
@@ -975,7 +975,8 @@ describe("createGitHubWebhookRouteDependencies()", () => {
 
     await expect(
       handleWebhook("member", {
-        action: "removed",
+        action: "edited",
+        changes: { permission: { from: "admin" } },
         installation: { id: 700 },
         member: { id: 101 },
         repository: { id: 1001 },
@@ -1589,7 +1590,8 @@ describe("createGitHubWebhookRouteDependencies()", () => {
         collaborator: {
           name: "member",
           payload: {
-            action: "removed",
+            action: "edited",
+            changes: { permission: { from: "admin" } },
             installation: { id: 700 },
             member: { id: 101 },
             repository: { id: 1001 },

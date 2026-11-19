@@ -14,7 +14,7 @@ const installationRepositoriesEvent = z.looseObject({
   repositories_removed: z.array(z.looseObject({ id: githubId })).optional(),
 })
 const memberEvent = z.looseObject({
-  action: z.literal("removed"),
+  action: z.enum(["edited", "removed"]),
   member: z.looseObject({ id: githubId }),
   repository: z.looseObject({ id: githubId }),
 })
@@ -101,7 +101,7 @@ export function createGitHubWebhookRouteDependencies(input: {
         return true
       }
       if (name === "member") {
-        if (action.data.action !== "removed") return false
+        if (action.data.action !== "edited" && action.data.action !== "removed") return false
         const event = memberEvent.parse(payload)
         await revokeGitHubRepositoryAccess(
           prisma,
