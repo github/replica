@@ -203,6 +203,31 @@ describe("importGitHubWorkflowRun", () => {
     ])
   })
 
+  it("marks a run complete only after its final screenshot pass", async () => {
+    const fixture = await createFixture()
+    fixture.packages.set(distArtifactName, distPackage())
+    await fixture.importRun()
+    expect((await fixture.findBuild()).workflowCompletedAt).toBeNull()
+
+    fixture.run.status = "completed"
+    fixture.run.conclusion = "success"
+    fixture.run.updatedAt = new Date("2026-01-01T00:05:00Z")
+    fixture.packages.set(
+      screenshotArtifactName,
+      screenshotPackage(extractDistPackage(distPackage()).distDigest),
+    )
+    fixture.hooks.beforeDownload = () => Promise.reject(new Error("GitHub is unavailable"))
+    await expect(fixture.importRun()).rejects.toThrow("GitHub is unavailable")
+    expect((await fixture.findBuild()).workflowCompletedAt).toBeNull()
+
+    fixture.hooks.beforeDownload = undefined
+    await expect(fixture.importRun()).resolves.toEqual({
+      dist: "unchanged",
+      screenshots: "attached",
+    })
+    expect((await fixture.findBuild()).workflowCompletedAt).toEqual(fixture.run.updatedAt)
+  })
+
   it("keeps a successful Build unchanged when a re-run uploads a different dist", async () => {
     const fixture = await createFixture()
     fixture.packages.set(distArtifactName, distPackage())

@@ -3,6 +3,7 @@ import { completeGitHubBuildSuccess } from "../../../repositories/github-builds/
 import { attachGitHubBuildScreenshots } from "../../../repositories/github-builds/attach-github-build-screenshots/index.ts"
 import { markGitHubBuildRunning } from "../../../repositories/github-builds/mark-github-build-running/index.ts"
 import { prepareGitHubBuild } from "../../../repositories/github-builds/prepare-github-build/index.ts"
+import { recordGitHubBuildRunCompletion } from "../../../repositories/github-builds/record-github-build-run-completion/index.ts"
 import type {
   GitHubWorkflowArtifact,
   GitHubWorkflowRun,
@@ -119,7 +120,7 @@ export async function importGitHubWorkflowRun(
     const imported = await completeGitHubBuildSuccess(database, {
       buildId,
       run: buildRun,
-      completedAt: run.updatedAt,
+      completedAt,
       distDigest: extracted.distDigest,
       artifacts,
     })
@@ -151,5 +152,10 @@ export async function importGitHubWorkflowRun(
   }
 
   const dist = await importDist()
-  return { dist, screenshots: await importScreenshots() }
+  const screenshots = await importScreenshots()
+  // Screenshot errors throw before this, so recovery keeps retrying until they attach.
+  if (completedAt) {
+    await recordGitHubBuildRunCompletion(database, { buildId, run: buildRun, completedAt })
+  }
+  return { dist, screenshots }
 }

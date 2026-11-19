@@ -10,7 +10,7 @@ export async function completeGitHubBuildSuccess(
   input: {
     buildId: string
     run: Pick<GitHubBuildRun, "runId" | "runAttempt">
-    completedAt: Date
+    completedAt: Date | null
     distDigest: string
     artifacts: StoredGitHubBuildArtifact[]
   },
@@ -25,13 +25,14 @@ export async function completeGitHubBuildSuccess(
     const active = await transaction.build.findFirst({ where: owned, select: { startedAt: true } })
     if (!active) return false
     // Completing first locks the row, so a run that lost ownership cannot add artifacts.
+    const finishedAt = new Date()
     const result = await transaction.build.updateMany({
       where: owned,
       data: {
         state: "successful",
         distDigest: input.distDigest,
-        startedAt: active.startedAt ?? input.completedAt,
-        finishedAt: new Date(),
+        startedAt: active.startedAt ?? finishedAt,
+        finishedAt,
         workflowCompletedAt: input.completedAt,
         failureSummary: null,
       },

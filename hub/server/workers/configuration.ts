@@ -14,11 +14,18 @@ import type {
 import { logger } from "../integrations/pino/index.ts"
 import { importGitHubWorkflowRunJob } from "./import-github-workflow-run/index.ts"
 import { reconcileGitHubInstallation } from "./reconcile-github-installation/index.ts"
+import { retryGitHubBuildsAwaitingImport } from "./retry-github-builds-awaiting-import/index.ts"
 
 const learning = createLearningJobProcessors(process.env, logger)
 
 const githubInstallationReconciliation: JobDefinition<Record<string, never>> = {
   name: "reconcile-github-installation",
+  schema: z.object({}).strict(),
+  options: { attempts: 3, backoff: { type: "exponential", delay: 60_000 } },
+}
+
+const githubBuildImportRetry: JobDefinition<Record<string, never>> = {
+  name: "retry-github-builds-awaiting-import",
   schema: z.object({}).strict(),
   options: { attempts: 3, backoff: { type: "exponential", delay: 60_000 } },
 }
@@ -36,6 +43,7 @@ export const jobProcessors: Record<JobQueueName, JobProcessor[]> = {
   scheduled: [
     learning.recover,
     createJobProcessor(githubInstallationReconciliation, reconcileGitHubInstallation),
+    createJobProcessor(githubBuildImportRetry, retryGitHubBuildsAwaitingImport),
   ],
 }
 
@@ -56,5 +64,11 @@ export const jobSchedules: {
     definition: githubInstallationReconciliation,
     payload: {},
     repeat: { every: 60 * 60 * 1_000 },
+  },
+  {
+    id: "github-build-import-retry",
+    definition: githubBuildImportRetry,
+    payload: {},
+    repeat: { every: 5 * 60 * 1_000 },
   },
 ]

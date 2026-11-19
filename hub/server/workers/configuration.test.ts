@@ -54,3 +54,11 @@ describe("GitHub installation reconciliation schedule", () => {
     await expect(processor.process({ unexpected: true })).rejects.toBeInstanceOf(UnrecoverableError)
   })
 })
+
+describe("GitHub Build recovery schedules", () => {
+  it("retries Builds awaiting import every five minutes", () => {
+    const schedule = jobSchedules.find(({ id }) => id === "github-build-import-retry")
+    expect(schedule?.repeat).toEqual({ every: 5 * 60 * 1_000 })
+    expect(jobProcessors.scheduled.map(({ name }) => name)).toContain(schedule?.definition.name)
+  })
+})
