@@ -116,12 +116,15 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
           "Set-Cookie",
           clearAuthenticationCookie(browserAuthenticationCookieName, dependencies.secureCookie),
         )
-        response.redirect(
-          303,
-          readCookie(request, hubSessionCookieName)
-            ? "/?authentication=authorization_unavailable"
-            : "/?authentication=unavailable",
-        )
+        response.setHeader("Retry-After", "1")
+        response
+          .status(503)
+          .type("text/plain")
+          .send(
+            readCookie(request, hubSessionCookieName)
+              ? "Verification is temporarily unavailable. Return to Hub settings and start the administrator action again."
+              : "Sign-in is temporarily unavailable. Return to Replica Hub and start sign-in again.",
+          )
         return
       }
       if (error instanceof AdmissionDeniedError || error instanceof AuthenticationProofError) {

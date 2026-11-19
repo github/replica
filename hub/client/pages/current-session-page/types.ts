@@ -1,5 +1,4 @@
 export interface CurrentSessionPageData {
-  alert?: string | null
   heading: string
   description: string
   notice: string | null

@@ -15,7 +15,6 @@ export function CurrentSessionPage({ data }: { data: CurrentSessionPageData }) {
           {data.heading}
         </Heading>
         <Text as="p">{data.description}</Text>
-        {data.alert ? <HubAlert title={data.alert} variant="warning" /> : null}
         {data.notice ? <HubAlert title={data.notice} variant="success" /> : null}
         <Text as="p">
           <strong>{data.roleLabel}</strong>

@@ -27,26 +27,4 @@ describe("CurrentSessionPage()", () => {
     expect(form).toHaveAttribute("action", "/api/auth/session/sign-out")
     expect(form?.querySelector("input")).toBeNull()
   })
-
-  it("shows retryable session action feedback as a warning", () => {
-    render(
-      <ThemeProvider>
-        <CurrentSessionPage
-          data={{
-            alert: "Sign-out is temporarily unavailable. Try again.",
-            heading: "Signed in",
-            description: "Current membership is active.",
-            notice: null,
-            roleLabel: "Administrator",
-            signOutLabel: "Sign out",
-            signOutPath: "/api/auth/session/sign-out",
-          }}
-        />
-      </ThemeProvider>,
-    )
-
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "Sign-out is temporarily unavailable. Try again.",
-    )
-  })
 })

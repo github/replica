@@ -10,7 +10,6 @@ const meta = {
     data: {
       heading: "Signed in to Replica Hub",
       description: "Your Hub session is active and will be checked against current membership.",
-      alert: null,
       notice: null,
       roleLabel: "Administrator",
       administratorLabel: "Manage Hub administrators",
@@ -42,25 +41,6 @@ export const CallbackSucceeded: Story = {
     data: {
       ...meta.args.data,
       notice: "Sign-in succeeded and Replica Hub restored your active session.",
-    },
-  },
-}
-
-export const AuthorizationUnavailable: Story = {
-  args: {
-    data: {
-      ...meta.args.data,
-      alert:
-        "Verification is temporarily unavailable. Return to settings and start the administrator action again.",
-    },
-  },
-}
-
-export const SignOutUnavailable: Story = {
-  args: {
-    data: {
-      ...meta.args.data,
-      alert: "Sign-out is temporarily unavailable. Try again.",
     },
   },
 }

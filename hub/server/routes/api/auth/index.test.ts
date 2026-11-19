@@ -671,9 +671,13 @@ describe("authenticationRoutes()", () => {
         redirect: "manual",
       })
 
-      expect(response.status).toBe(303)
-      expect(response.headers.get("location")).toBe("/?authentication=unavailable")
+      expect(response.status).toBe(503)
+      expect(response.headers.get("content-type")).toContain("text/plain")
+      expect(response.headers.get("retry-after")).toBe("1")
       expect(response.headers.get("set-cookie")).toContain("Max-Age=0")
+      expect(await response.text()).toBe(
+        "Sign-in is temporarily unavailable. Return to Replica Hub and start sign-in again.",
+      )
     })
   })
 
@@ -740,9 +744,13 @@ describe("authenticationRoutes()", () => {
         },
       )
 
-      expect(response.status).toBe(303)
-      expect(response.headers.get("location")).toBe("/?authentication=authorization_unavailable")
+      expect(response.status).toBe(503)
+      expect(response.headers.get("content-type")).toContain("text/plain")
+      expect(response.headers.get("retry-after")).toBe("1")
       expect(response.headers.get("set-cookie")).not.toContain("hub_session=")
+      expect(await response.text()).toBe(
+        "Verification is temporarily unavailable. Return to Hub settings and start the administrator action again.",
+      )
     })
   })
 
@@ -1171,10 +1179,13 @@ describe("authenticationRoutes()", () => {
         redirect: "manual",
       })
 
-      expect(response.status).toBe(303)
-      expect(response.headers.get("location")).toBe("/?authentication=sign_out_unavailable")
+      expect(response.status).toBe(503)
+      expect(response.headers.get("content-type")).toContain("text/plain")
       expect(response.headers.get("retry-after")).toBe("1")
       expect(response.headers.get("set-cookie")).toBeNull()
+      expect(await response.text()).toBe(
+        "Sign-out is temporarily unavailable. Return to Replica Hub and try again.",
+      )
     })
   })
 

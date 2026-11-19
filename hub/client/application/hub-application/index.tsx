@@ -165,12 +165,6 @@ export function HubApplication() {
     return (
       <CurrentSessionPage
         data={{
-          alert:
-            authentication === "authorization_unavailable"
-              ? "Verification is temporarily unavailable. Return to settings and start the administrator action again."
-              : authentication === "sign_out_unavailable"
-                ? "Sign-out is temporarily unavailable. Try again."
-                : null,
           heading: "Signed in to Replica Hub",
           description: "This session is checked against your current Hub membership.",
           notice:
@@ -198,11 +192,9 @@ export function HubApplication() {
             ? "Replica Hub could not restore your session. Sign in again to continue."
             : authentication === "denied"
               ? "Sign-in could not be completed, or this account is not an active Hub member."
-              : authentication === "unavailable"
-                ? "Sign-in is temporarily unavailable. Start sign-in again to continue."
-                : authentication === "no_repository_access"
-                  ? "Your GitHub account cannot read any repository connected to this Hub. Ask a repository owner for access, then sign in again."
-                  : null,
+              : authentication === "no_repository_access"
+                ? "Your GitHub account cannot read any repository connected to this Hub. Ask a repository owner for access, then sign in again."
+                : null,
         badge: "Collaborative prototyping",
         badgeAlternate: "Built for feedback",
         description: "Sign in with an active Replica Hub membership.",
