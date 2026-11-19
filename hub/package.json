@@ -34,7 +34,7 @@
     "@thoughtbot/superglue": "1.0.3",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "react-redux": "9.3.0",
+    "react-redux": "9.3.1",
     "zod": "4.6.6"
   },
   "devDependencies": {
