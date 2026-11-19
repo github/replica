@@ -445,10 +445,16 @@ describe("replica-learning decision", () => {
         .sort(),
       bundle.collections.map((collection) => collection.id).sort(),
     )
-    assert.deepEqual(
-      JSON.parse(readFileSync(path.join(directory, "taskset.json"), "utf8")).counts,
-      result.counts,
+    const tasksetManifest = JSON.parse(
+      readFileSync(path.join(directory, "taskset.json"), "utf8"),
     )
+    assert.deepEqual(tasksetManifest.counts, result.counts)
+    assert.equal(tasksetManifest.provenance.exportDigest, bundle.manifest.digest)
+    assert.deepEqual(
+      tasksetManifest.provenance.grantIds,
+      bundle.grants.map((grant) => grant.id).sort(),
+    )
+    assert.deepEqual(tasksetManifest.retention, { mode: "delete_on_withdrawal" })
   })
 
   it("finds the later Build by when Builds were made, not by their numbers", async () => {
