@@ -40,6 +40,8 @@ async function createEvaluation(
       maxSeconds: 300,
       budgetCredits: "10",
       consentGrantId: "grant-1",
+      trainingExportId: "export-1",
+      evidenceDigest: digest,
       exportDigest: digest,
       repeatableReviewSnapshotDigest: digest,
       questionDigest: digest,

@@ -666,6 +666,7 @@ export interface LearningStore {
       expired: boolean
     }>
   >
+  listWithdrawals(context: LearningContext): Promise<GrantWithdrawal[]>
   withdrawGrant(
     context: LearningContext,
     grantId: string,

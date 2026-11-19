@@ -231,7 +231,7 @@ export function createDecisionModelRouteDependencies(
       const currentPromotion = overview.promotion
       const evaluations = await Promise.all(
         overview.evaluations.map(async (evaluation) => {
-          const summary = evaluationSummarySchema.parse(evaluation.summary)
+          const summary = evaluationSummarySchema.safeParse(evaluation.summary)
           return {
             id: evaluation.id,
             build: {
@@ -244,18 +244,29 @@ export function createDecisionModelRouteDependencies(
               runtimeCandidateId: evaluation.candidate.runtimeCandidateId,
               generation: Number(evaluation.promotionGeneration),
             },
-            findings: await Promise.all(
-              summary.findings.map(async (finding) => ({
-                ...finding,
-                learning: {
-                  id: finding.learning.id,
-                  text: await options.tasksetSource.getLearningText({
-                    repositoryId: input.repositoryId,
-                    learningId: finding.learning.id,
-                  }),
-                },
-              })),
-            ),
+            questionDigest: evaluation.questionDigest,
+            screenshotSetDigest: evaluation.screenshotSetDigest,
+            responseDigest: evaluation.responseDigest,
+            findingsAvailable: summary.success,
+            findings: summary.success
+              ? await Promise.all(
+                  summary.data.findings.map(async (finding) => ({
+                    ...finding,
+                    explanation:
+                      finding.explanation ??
+                      (finding.breaksProbability > finding.followsProbability
+                        ? "Across the submitted captured views, the promoted decision model found the Build more likely to break the learning than follow it."
+                        : "Across the submitted captured views, the promoted decision model found the Build at least as likely to follow the learning as break it."),
+                    learning: {
+                      id: finding.learning.id,
+                      text: await options.tasksetSource.getLearningText({
+                        repositoryId: input.repositoryId,
+                        learningId: finding.learning.id,
+                      }),
+                    },
+                  })),
+                )
+              : [],
             createdAt: evaluation.createdAt.toISOString(),
           }
         }),
@@ -327,37 +338,7 @@ export function createDecisionModelRouteDependencies(
           membershipId: promotion.promotedByMembershipId,
           createdAt: promotion.createdAt.toISOString(),
         })),
-        evaluations: overview.evaluations.map((evaluation) => {
-          const summary = evaluationSummarySchema.safeParse(evaluation.summary)
-          return {
-            id: evaluation.id,
-            build: {
-              id: evaluation.buildId,
-              number: evaluation.build.number,
-              prototypeId: evaluation.build.prototypeId,
-            },
-            model: {
-              id: evaluation.candidateId,
-              runtimeCandidateId: evaluation.candidate.runtimeCandidateId,
-              generation: Number(evaluation.promotionGeneration),
-            },
-            questionDigest: evaluation.questionDigest,
-            screenshotSetDigest: evaluation.screenshotSetDigest,
-            responseDigest: evaluation.responseDigest,
-            findingsAvailable: summary.success,
-            findings: summary.success
-              ? summary.data.findings.map((finding) => ({
-                  ...finding,
-                  explanation:
-                    finding.explanation ??
-                    (finding.breaksProbability > finding.followsProbability
-                      ? "Across the submitted captured views, the promoted decision model found the Build more likely to break the learning than follow it."
-                      : "Across the submitted captured views, the promoted decision model found the Build at least as likely to follow the learning as break it."),
-                }))
-              : [],
-            createdAt: evaluation.createdAt.toISOString(),
-          }
-        }),
+        evaluations,
         deletions: (overview.deletions ?? []).map((deletion) => ({
           id: deletion.id,
           state: deletion.state.toLowerCase() as "pending" | "completed" | "failed",

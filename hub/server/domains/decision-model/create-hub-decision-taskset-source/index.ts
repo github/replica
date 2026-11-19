@@ -24,6 +24,7 @@ import { prepareLearningStore } from "../../learning/prepare-learning-store/inde
 import { captureRepositoryReviewSnapshot } from "../../review-comments/capture-repository-review-snapshot/index.ts"
 import { listDecisionTrainingBuilds } from "../../../repositories/decision-training-builds/list-decision-training-builds/index.ts"
 import { findDecisionEvaluationBuild } from "../../../repositories/decision-training-builds/find-decision-evaluation-build/index.ts"
+import { listDecisionWithdrawalSources } from "../../../repositories/decision-training-jobs/list-decision-withdrawal-sources/index.ts"
 import { withLearningExecutionLock } from "../../../integrations/postgres/with-learning-execution-lock/index.ts"
 import { DecisionModelError } from "../errors.ts"
 import { digestDecisionTasksetUpload } from "../digest-decision-taskset-upload/index.ts"
@@ -61,6 +62,17 @@ const grantListSchema = z.array(
     .loose(),
 )
 const importSchema = z.object({ complete: z.boolean(), problems: z.array(z.string()) }).loose()
+const withdrawalsSchema = z.array(
+  z
+    .object({
+      id: z.string(),
+      grantId: z.string(),
+      purposes: z.array(z.string()),
+      withdrawnBy: z.object({ id: z.string() }).loose(),
+      reason: z.string().optional(),
+    })
+    .loose(),
+)
 const exportManifestSchema = z
   .object({
     id: z.string(),
@@ -667,6 +679,87 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
   let tasksetSource: DecisionTasksetPreparationSource
   return {
     tasksetSource: (tasksetSource = {
+      async hasTrainingConsent({ repositoryId, consentGrantId }) {
+        const store = await learningStore(repositoryId)
+        const grants = grantListSchema.parse(
+          await command([
+            "grants",
+            "list",
+            "--dir",
+            store.directory,
+            "--repository",
+            store.repositoryScope,
+          ]),
+        )
+        return grants.some(
+          ({ grant, activePurposes, expired }) =>
+            grant.id === consentGrantId &&
+            !expired &&
+            activePurposes.includes("training") &&
+            grant.sources.includes("hub_review_comments"),
+        )
+      },
+      async getLearningText({ repositoryId, learningId }) {
+        const store = await learningStore(repositoryId)
+        const result = z
+          .object({
+            record: z.object({ content: z.string().nullable() }).loose(),
+            withheld: z.boolean(),
+          })
+          .loose()
+          .parse(
+            await command([
+              "show",
+              learningId,
+              "--actor",
+              "system:replica-hub",
+              "--dir",
+              store.directory,
+              "--repository",
+              store.repositoryScope,
+            ]),
+          )
+        return result.withheld ? null : result.record.content
+      },
+      async listTrainingWithdrawals() {
+        const pending = []
+        for (const repository of await listDecisionWithdrawalSources(options.database)) {
+          const store = await learningStore(repository.id)
+          const withdrawals = withdrawalsSchema.parse(
+            await command([
+              "grants",
+              "withdrawals",
+              "--dir",
+              store.directory,
+              "--repository",
+              store.repositoryScope,
+            ]),
+          )
+          for (const withdrawal of withdrawals) {
+            if (!withdrawal.purposes.includes("training")) continue
+            const login = withdrawal.withdrawnBy.id.replace(/^(?:github|human):/, "")
+            const job =
+              repository.decisionTrainingJobs.find(
+                (candidate) =>
+                  candidate.consentGrantId === withdrawal.grantId &&
+                  candidate.requestedByMembership?.user.profile?.login === login,
+              ) ??
+              repository.decisionTrainingJobs.find(
+                (candidate) => candidate.consentGrantId === withdrawal.grantId,
+              )
+            if (!job?.requestedByMembershipId) continue
+            pending.push({
+              repositoryId: repository.id,
+              actorMembershipId: job.requestedByMembershipId,
+              actorLogin: login,
+              selectors: { grantId: withdrawal.grantId },
+              reason: withdrawal.reason ?? "Training consent was withdrawn.",
+              idempotencyKey: `withdrawal:${withdrawal.id}`,
+            })
+          }
+        }
+        return pending
+      },
       async preflight({ repositoryId, actorMembershipId }): Promise<DecisionTrainingPreflight> {
         const [trainingExport, buildArtifacts] = await Promise.all([
           tasksetSource.exportTrainingEvidence({
@@ -814,6 +907,8 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
                 return {
                   bytes: new Uint8Array(),
                   consentGrantId: null,
+                  trainingExportId: `export_${review.digest.slice("sha256:".length, 24 + "sha256:".length)}`,
+                  evidenceDigest: digestJson([]),
                   digest: sha256(new Uint8Array()),
                   repeatableReviewSnapshotDigest: review.digest,
                 }
@@ -876,9 +971,22 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
                 >
                 const stable = stableExport(bundle, review.digest)
                 const bytes = new TextEncoder().encode(canonicalJson(stable))
+                const manifest = exportManifestSchema.parse(stable.manifest)
                 return {
                   bytes,
                   consentGrantId: trainingGrantIds[0]!,
+                  trainingExportId: manifest.id,
+                  evidenceDigest: digestJson(
+                    manifest.records
+                      .filter((record) =>
+                        ["collection", "episode", "event"].includes(
+                          (record as { kind?: string }).kind ?? "",
+                        ),
+                      )
+                      .map((record) => (record as { digest?: string }).digest)
+                      .filter((value): value is string => Boolean(value))
+                      .sort(),
+                  ),
                   digest: sha256(bytes),
                   repeatableReviewSnapshotDigest: review.digest,
                 }

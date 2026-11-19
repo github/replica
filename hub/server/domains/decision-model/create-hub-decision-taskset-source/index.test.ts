@@ -11,6 +11,7 @@ import { runLearningCommand } from "../../../integrations/learning/run-learning-
 import { withLearningExecutionLock } from "../../../integrations/postgres/with-learning-execution-lock"
 import { listDecisionTrainingBuilds } from "../../../repositories/decision-training-builds/list-decision-training-builds"
 import { findDecisionEvaluationBuild } from "../../../repositories/decision-training-builds/find-decision-evaluation-build"
+import { listDecisionWithdrawalSources } from "../../../repositories/decision-training-jobs/list-decision-withdrawal-sources"
 import { createHubDecisionTasksetSource } from "."
 
 vi.mock("../../learning/create-hub-review-collection", () => ({
@@ -33,6 +34,9 @@ vi.mock("../../../repositories/decision-training-builds/list-decision-training-b
 }))
 vi.mock("../../../repositories/decision-training-builds/find-decision-evaluation-build", () => ({
   findDecisionEvaluationBuild: vi.fn(),
+}))
+vi.mock("../../../repositories/decision-training-jobs/list-decision-withdrawal-sources", () => ({
+  listDecisionWithdrawalSources: vi.fn(),
 }))
 
 const repositoryId = "11111111-1111-4111-8111-111111111111"
@@ -130,9 +134,52 @@ function decodeArchive(bytes: Uint8Array) {
 }
 
 describe("createHubDecisionTasksetSource()", () => {
+  it("maps training grant withdrawals to idempotent runtime deletion selectors", async () => {
+    vi.mocked(listDecisionWithdrawalSources).mockResolvedValue([
+      {
+        id: repositoryId,
+        decisionTrainingJobs: [
+          {
+            consentGrantId: "grant-training",
+            requestedByMembershipId: "44444444-4444-4444-8444-444444444444",
+            requestedByMembership: {
+              user: { profile: { login: "mona" } },
+            },
+          },
+        ],
+      },
+    ] as never)
+    vi.mocked(prepareLearningStore).mockResolvedValue({
+      directory: "/private/learning/repository",
+      repositoryScope: `github.com/repositories/${repositoryId}`,
+    })
+    vi.mocked(runLearningCommand).mockResolvedValue([
+      {
+        id: "withdrawal-1",
+        grantId: "grant-training",
+        purposes: ["training"],
+        withdrawnBy: { id: "github:mona" },
+        reason: "The repository administrator withdrew training consent.",
+      },
+    ])
+
+    await expect(source(storage({})).listTrainingWithdrawals()).resolves.toEqual([
+      {
+        repositoryId,
+        actorMembershipId: "44444444-4444-4444-8444-444444444444",
+        actorLogin: "mona",
+        selectors: { grantId: "grant-training" },
+        reason: "The repository administrator withdrew training consent.",
+        idempotencyKey: "withdrawal:withdrawal-1",
+      },
+    ])
+  })
+
   it("reports deterministic eligible evidence, task, split, and label counts", async () => {
     vi.mocked(withLearningExecutionLock).mockImplementation(({ run }) =>
-      run(new AbortController().signal),
+      run(new AbortController().signal, {
+        runWithoutRepositoryAuthorityLock: (operation) => operation(),
+      }),
     )
     vi.mocked(prepareLearningStore).mockResolvedValue({
       directory: "/private/learning/repository",
@@ -280,7 +327,9 @@ describe("createHubDecisionTasksetSource()", () => {
     const otherRepositoryId = "99999999-9999-4999-8999-999999999999"
     const privateEvidence = "Do not expose this private learning"
     vi.mocked(withLearningExecutionLock).mockImplementation(({ run }) =>
-      run(new AbortController().signal),
+      run(new AbortController().signal, {
+        runWithoutRepositoryAuthorityLock: (operation) => operation(),
+      }),
     )
     vi.mocked(prepareLearningStore).mockResolvedValue({
       directory: "/private/learning/repository",
@@ -353,7 +402,9 @@ describe("createHubDecisionTasksetSource()", () => {
 
   it("exports repository-scoped learning evidence deterministically on retry", async () => {
     vi.mocked(withLearningExecutionLock).mockImplementation(({ run }) =>
-      run(new AbortController().signal),
+      run(new AbortController().signal, {
+        runWithoutRepositoryAuthorityLock: (operation) => operation(),
+      }),
     )
     vi.mocked(prepareLearningStore).mockResolvedValue({
       directory: "/private/learning/repository",

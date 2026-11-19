@@ -19,6 +19,7 @@ import { readGitHubAppConfiguration } from "./domains/authentication/read-github
 import { createReviewDirectory } from "./integrations/github/create-review-directory/index.ts"
 import { resolveLocalSignInEnvironment } from "./domains/authentication/resolve-local-sign-in-environment/index.ts"
 import { startTelemetry } from "./integrations/opentelemetry/start-telemetry/index.ts"
+import { createDecisionRuntimeClient } from "./integrations/decision-runtime/create-decision-runtime-client/index.ts"
 import { logger } from "./integrations/pino/index.ts"
 import { isMissingDatabaseSchema } from "./integrations/prisma/is-missing-database-schema/index.ts"
 import { runApi } from "./run-api/index.ts"
@@ -177,8 +178,8 @@ try {
               })
               decisionModels = createDecisionModelRouteDependencies({
                 applicationOrigin,
-                baseUrl: decisionRuntimeConfiguration.baseUrl,
-                credentialProvider: decisionRuntimeConfiguration.credentialProvider,
+                runtimeForRepository: () =>
+                  createDecisionRuntimeClient(decisionRuntimeConfiguration),
                 currentSession: authentication.currentSession,
                 databaseUrl,
                 logger,

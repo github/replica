@@ -271,6 +271,8 @@ describe("replica-learning CLI: the first learning milestone", () => {
         "--json",
       ])
     ).json()
+    const withdrawals = (await ok(repo, ["grants", "withdrawals", "--json"])).json()
+    assert.equal(withdrawals.at(-1).id, withdrawn.withdrawal.id)
     assert.deepEqual(withdrawn.memoriesNeedingRebuild, [proposal.id])
     assert.equal(withdrawn.exportsToFollowUp.length, 1)
     assert.match((await ok(repo, ["recall"])).stdout, /No accepted learnings apply yet/)

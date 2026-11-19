@@ -42,6 +42,7 @@ Inspect
 
 Consent (a person decides; --by github:<login>)
   grants list
+  grants withdrawals
   grants add --purpose <p>... --basis <text> --by <id> [--source <s>]... [--expires <time>]
              [--evidence-from <time>] [--evidence-until <time>]
   grants withdraw <grant-id> --purpose <p>... --by <id> [--reason <text>]
@@ -236,9 +237,10 @@ async function run(session) {
       return doctor(session)
     case "grants":
       if (sub === "list") return listGrants(session)
+      if (sub === "withdrawals") return listWithdrawals(session)
       if (sub === "add") return addGrant(session)
       if (sub === "withdraw") return withdrawGrant(session)
-      throw new UsageError("Use grants list, grants add, or grants withdraw.")
+      throw new UsageError("Use grants list, grants withdrawals, grants add, or grants withdraw.")
     case "import":
       if (sub === "hub-comments") return importHub(session)
       throw new UsageError("Use import hub-comments <log.json>.")
@@ -519,6 +521,12 @@ async function listGrants(session) {
           .join("\n")
       : "No grants. Record one with grants add before importing evidence.",
   )
+}
+
+async function listWithdrawals(session) {
+  const { store } = await open(session)
+  const withdrawals = await store.listWithdrawals(context(session, actor(session)))
+  session.out(withdrawals, `${withdrawals.length} grant withdrawal(s).`)
 }
 
 async function addGrant(session) {

@@ -888,6 +888,12 @@ class LearningStore {
     }))
   }
 
+  /** Every durable withdrawal in scope, for a host that reconciles external copies. */
+  async listWithdrawals(context) {
+    assertContext(context)
+    return this.#read("withdrawals", context)
+  }
+
   /**
    * End purposes of a grant. Evidence covered only by those purposes stops serving them at
    * once, and learnings built on it stop being recalled. The result lists those learnings and

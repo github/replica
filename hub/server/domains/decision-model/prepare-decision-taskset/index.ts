@@ -53,6 +53,13 @@ export interface DecisionTasksetPreparationSource {
   }>
 }
 
+export function preflightDecisionTaskset(
+  input: { repositoryId: string; actorMembershipId: string },
+  source: DecisionTasksetPreparationSource,
+) {
+  return source.preflight(input)
+}
+
 function digest(bytes: Uint8Array): string {
   return `sha256:${createHash("sha256").update(bytes).digest("hex")}`
 }
