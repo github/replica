@@ -56,6 +56,100 @@ variable "acr_id" {
   description = "Optional existing ACR resource ID. No registry is created or deleted."
 }
 
+variable "enable_decision_runtime" {
+  type        = bool
+  default     = false
+  description = "Provision the customer-operated Azure decision connector path."
+}
+
+variable "decision_training_job_id" {
+  type        = string
+  default     = null
+  description = "Existing customer-operated scale-to-zero Container Apps GPU Job resource ID."
+
+  validation {
+    condition     = !var.enable_decision_runtime || (var.decision_training_job_id != null && can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\\.App/jobs/[^/]+$", var.decision_training_job_id)))
+    error_message = "Enable the decision runtime only with an existing Container Apps Job resource ID."
+  }
+}
+
+variable "decision_training_job_name" {
+  type        = string
+  default     = null
+  description = "Existing customer-operated scale-to-zero Container Apps GPU Job name."
+
+  validation {
+    condition     = !var.enable_decision_runtime || (var.decision_training_job_name != null && can(regex("^[a-z][a-z0-9-]{1,30}[a-z0-9]$", var.decision_training_job_name)))
+    error_message = "Enable the decision runtime only with a valid Container Apps Job name."
+  }
+}
+
+variable "decision_training_principal_id" {
+  type        = string
+  default     = null
+  description = "Object ID of the managed identity attached only to the customer training job."
+
+  validation {
+    condition     = !var.enable_decision_runtime || (var.decision_training_principal_id != null && can(regex("^[0-9a-fA-F-]{36}$", var.decision_training_principal_id)))
+    error_message = "Enable the decision runtime only with the training job managed identity object ID."
+  }
+}
+
+variable "decision_training_broker_url" {
+  type        = string
+  default     = null
+  description = "Exact HTTPS URL of the customer broker that starts and cancels only the fixed training job template."
+
+  validation {
+    condition     = !var.enable_decision_runtime || (var.decision_training_broker_url != null && can(regex("^https://[a-z0-9.-]+(?::[1-9][0-9]{0,4})?$", var.decision_training_broker_url)))
+    error_message = "Enable the decision runtime only with an exact HTTPS training broker URL."
+  }
+}
+
+variable "decision_training_control_scope" {
+  type        = string
+  default     = null
+  description = "Customer broker resource ID receiving the runtime identity invocation grant."
+
+  validation {
+    condition     = !var.enable_decision_runtime || (var.decision_training_control_scope != null && startswith(var.decision_training_control_scope, "/subscriptions/"))
+    error_message = "Enable the decision runtime only with the customer training broker resource ID."
+  }
+}
+
+variable "decision_training_control_role_definition_id" {
+  type        = string
+  default     = null
+  description = "Customer-defined broker invocation role; it must not grant direct job reads, writes, secret listing, or execution overrides."
+
+  validation {
+    condition     = !var.enable_decision_runtime || (var.decision_training_control_role_definition_id != null && strcontains(var.decision_training_control_role_definition_id, "/providers/Microsoft.Authorization/roleDefinitions/"))
+    error_message = "Enable the decision runtime only with a broker invocation role definition ID."
+  }
+}
+
+variable "decision_inference_scope" {
+  type        = string
+  default     = null
+  description = "Customer endpoint resource ID receiving the inference-only identity grant."
+
+  validation {
+    condition     = !var.enable_decision_runtime || (var.decision_inference_scope != null && startswith(var.decision_inference_scope, "/subscriptions/"))
+    error_message = "Enable the decision runtime only with a customer inference endpoint resource ID."
+  }
+}
+
+variable "decision_inference_role_definition_id" {
+  type        = string
+  default     = null
+  description = "Customer-defined inference-only Azure role definition ID; it must not grant training or endpoint administration."
+
+  validation {
+    condition     = !var.enable_decision_runtime || (var.decision_inference_role_definition_id != null && strcontains(var.decision_inference_role_definition_id, "/providers/Microsoft.Authorization/roleDefinitions/"))
+    error_message = "Enable the decision runtime only with an inference-only role definition ID."
+  }
+}
+
 variable "postgres_admin_password" {
   type        = string
   default     = null
@@ -150,6 +244,9 @@ locals {
     "CLIENT_DIRECTORY", "SHUTDOWN_TIMEOUT_MS", "ARTIFACT_STORAGE_PROVIDER",
     "ARTIFACT_STORAGE_DIRECTORY", "AZURE_STORAGE_ACCOUNT", "AZURE_STORAGE_CONTAINER",
     "AZURE_CLIENT_ID", "AZURE_KEY_VAULT_SECRET_REFERENCES",
+    "AZURE_DECISION_STORAGE_CONTAINER", "AZURE_DECISION_RUNTIME_CLIENT_ID",
+    "AZURE_DECISION_INFERENCE_CLIENT_ID", "AZURE_DECISION_TRAINING_BROKER",
+    "AZURE_DECISION_TRAINING_JOB",
   ]
 }
 

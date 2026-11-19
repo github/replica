@@ -19,6 +19,22 @@ resource "azurerm_user_assigned_identity" "setup" {
   tags                = local.tags
 }
 
+resource "azurerm_user_assigned_identity" "decision_runtime" {
+  count               = var.enable_decision_runtime ? 1 : 0
+  name                = "${var.name}-decision-runtime"
+  resource_group_name = azurerm_resource_group.hub.name
+  location            = var.location
+  tags                = local.tags
+}
+
+resource "azurerm_user_assigned_identity" "decision_inference" {
+  count               = var.enable_decision_runtime ? 1 : 0
+  name                = "${var.name}-decision-inference"
+  resource_group_name = azurerm_resource_group.hub.name
+  location            = var.location
+  tags                = local.tags
+}
+
 resource "azurerm_role_assignment" "runtime_secrets" {
   for_each             = local.runtime_secret_scopes
   scope                = each.value
@@ -50,4 +66,32 @@ resource "azurerm_role_assignment" "setup_image_pull" {
   scope                = var.acr_id
   role_definition_name = "AcrPull"
   principal_id         = azurerm_user_assigned_identity.setup.principal_id
+}
+
+resource "azurerm_role_assignment" "decision_runtime_artifacts" {
+  count                = var.enable_decision_runtime ? 1 : 0
+  scope                = "${azurerm_storage_account.artifacts.id}/blobServices/default/containers/${azurerm_storage_container.decision[0].name}"
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = azurerm_user_assigned_identity.decision_runtime[0].principal_id
+}
+
+resource "azurerm_role_assignment" "decision_training_artifacts" {
+  count                = var.enable_decision_runtime ? 1 : 0
+  scope                = "${azurerm_storage_account.artifacts.id}/blobServices/default/containers/${azurerm_storage_container.decision[0].name}"
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = var.decision_training_principal_id
+}
+
+resource "azurerm_role_assignment" "decision_training_control" {
+  count              = var.enable_decision_runtime ? 1 : 0
+  scope              = var.decision_training_control_scope
+  role_definition_id = var.decision_training_control_role_definition_id
+  principal_id       = azurerm_user_assigned_identity.decision_runtime[0].principal_id
+}
+
+resource "azurerm_role_assignment" "decision_inference" {
+  count              = var.enable_decision_runtime ? 1 : 0
+  scope              = var.decision_inference_scope
+  role_definition_id = var.decision_inference_role_definition_id
+  principal_id       = azurerm_user_assigned_identity.decision_inference[0].principal_id
 }

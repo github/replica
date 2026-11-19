@@ -36,6 +36,14 @@ resource "azurerm_storage_container" "releases" {
   depends_on            = [azurerm_role_assignment.deployment_storage]
 }
 
+resource "azurerm_storage_container" "decision" {
+  count                 = var.enable_decision_runtime ? 1 : 0
+  name                  = "decision-runtime"
+  storage_account_id    = azurerm_storage_account.artifacts.id
+  container_access_type = "private"
+  depends_on            = [azurerm_role_assignment.deployment_storage]
+}
+
 resource "azurerm_storage_blob" "release_lock" {
   name                   = "deployment.lock"
   storage_account_name   = azurerm_storage_account.artifacts.name

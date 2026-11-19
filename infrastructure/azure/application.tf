@@ -38,6 +38,13 @@ locals {
     try(trimspace(local.authentication_environment["HUB_APPLICATION_ORIGIN"]), "") != "" ||
     contains(keys(var.runtime_secret_references), "HUB_APPLICATION_ORIGIN")
   )
+  decision_runtime_environment = var.enable_decision_runtime ? {
+    AZURE_DECISION_STORAGE_CONTAINER   = azurerm_storage_container.decision[0].name
+    AZURE_DECISION_RUNTIME_CLIENT_ID   = azurerm_user_assigned_identity.decision_runtime[0].client_id
+    AZURE_DECISION_INFERENCE_CLIENT_ID = azurerm_user_assigned_identity.decision_inference[0].client_id
+    AZURE_DECISION_TRAINING_BROKER     = var.decision_training_broker_url
+    AZURE_DECISION_TRAINING_JOB        = var.decision_training_job_name
+  } : {}
 
   runtime_environment = merge({
     NODE_ENV                  = "production"
@@ -54,7 +61,7 @@ locals {
       { DATABASE_URL = var.runtime_database_secret.secret_id },
       { for name, reference in var.runtime_secret_references : name => reference.secret_id },
     ))
-  }, local.github_environment)
+  }, local.github_environment, local.decision_runtime_environment)
 }
 
 resource "azurerm_container_app" "hub" {
@@ -67,8 +74,14 @@ resource "azurerm_container_app" "hub" {
   tags                         = local.tags
 
   identity {
-    type         = "UserAssigned"
-    identity_ids = [azurerm_user_assigned_identity.hub.id]
+    type = "UserAssigned"
+    identity_ids = concat(
+      [azurerm_user_assigned_identity.hub.id],
+      var.enable_decision_runtime ? [
+        azurerm_user_assigned_identity.decision_runtime[0].id,
+        azurerm_user_assigned_identity.decision_inference[0].id,
+      ] : [],
+    )
   }
 
   dynamic "registry" {
@@ -149,6 +162,9 @@ resource "azurerm_container_app" "hub" {
     azurerm_role_assignment.artifacts,
     azurerm_role_assignment.image_pull,
     azurerm_role_assignment.runtime_secrets,
+    azurerm_role_assignment.decision_runtime_artifacts,
+    azurerm_role_assignment.decision_training_control,
+    azurerm_role_assignment.decision_inference,
   ]
 }
 
