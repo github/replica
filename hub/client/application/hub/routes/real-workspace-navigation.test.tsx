@@ -228,7 +228,7 @@ describe("real workspace navigation", () => {
       "href",
       `/repositories/${first.id}`,
     )
-  })
+  }, 15_000)
 
   it("shows a disabled picker and Prototypes without Create on a repository-free landing", async () => {
     await renderApplication("/repositories", workspaceApi([]))

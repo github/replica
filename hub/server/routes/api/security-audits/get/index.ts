@@ -4,7 +4,6 @@ import { z } from "zod"
 import { hubSessionCookieName } from "../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../../../integrations/express/read-cookie/index.ts"
 import { GitHubProviderRequestError } from "../../../../integrations/github/errors.ts"
-import { prisma } from "../../../../integrations/prisma/index.ts"
 import { listSecurityAudits } from "../../../../repositories/security-audits/list-security-audits/index.ts"
 import type {
   AdministratorRouteDependencies,
@@ -105,6 +104,7 @@ export function get(
           initial &&
           (await readProductWithCurrentAuthority(initial, cookie, session, async (viewer) => {
             if ((await product.getRepositoryPermission?.(viewer, id)) !== "admin") return null
+            const { prisma } = await import("../../../../integrations/prisma/index.ts")
             const records = await listSecurityAudits(prisma, { before, limit, repositoryId: id })
             return (await product.isRepositoryVisible(viewer, id)) ? records : null
           }))

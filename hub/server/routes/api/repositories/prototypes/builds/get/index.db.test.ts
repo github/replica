@@ -181,6 +181,7 @@ describe("prototype Build history API", () => {
             membershipId: viewer.membership.id,
             userId: viewer.user.id,
             provider,
+            reviewInboxAvailable: true,
             login: viewer.login,
             name: null,
             role: "MEMBER",

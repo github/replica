@@ -76,11 +76,11 @@ function actorFor(record: SecurityAuditListRecord) {
     case "canvas_connection.renew":
     case "canvas_connection.revoke":
     case "canvas_connection.activity":
-    case "analytics_destination.add":
-    case "analytics_destination.edit":
+    case "analytics_destination.create":
+    case "analytics_destination.update":
     case "analytics_destination.pause":
     case "analytics_destination.resume":
-    case "analytics_destination.disconnect":
+    case "analytics_destination.delete":
     case "share_link.revoked": {
       const parsed = actorContextSchema.safeParse(record.context)
       return parsed.success ? { membershipId: parsed.data.actorMembershipId } : null
