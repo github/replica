@@ -1,11 +1,12 @@
 import { execFile } from "node:child_process"
 import { randomBytes, randomUUID } from "node:crypto"
-import { readFile, readdir } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import pg from "pg"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, onTestFinished } from "vitest"
 
 const migrationTestTimeoutMs = 60_000
 
@@ -30,23 +31,38 @@ describe("local Build pipeline migration", () => {
           const hubRoot = fileURLToPath(new URL("../../../", import.meta.url))
           const migrationDirectory = join(hubRoot, "schema/migrations")
           const localBuildMigration = "20261202120000_local_build_pipeline"
+          const base = await mkdtemp(join(tmpdir(), "replica-local-build-migrations-"))
+          onTestFinished(() => rm(base, { recursive: true, force: true }))
+          const baseMigrationsDirectory = join(base, "migrations")
+          const baseConfig = join(base, "prisma.config.mjs")
+          await mkdir(baseMigrationsDirectory)
+          await writeFile(
+            baseConfig,
+            `export default {
+              schema: ${JSON.stringify(join(hubRoot, "schema"))},
+              migrations: { path: "migrations" },
+              datasource: { url: process.env.DATABASE_URL },
+            }\n`,
+          )
           const baseMigrations = (await readdir(migrationDirectory, { withFileTypes: true }))
             .filter((entry) => entry.isDirectory() && entry.name < localBuildMigration)
             .map((entry) => entry.name)
-            .sort()
-          for (const migrationName of baseMigrations) {
-            const migration = await readFile(
-              join(migrationDirectory, migrationName, "migration.sql"),
-              "utf8",
-            )
-            if (migrationName === "20261104190000_entra_oidc_authentication") {
-              const statements = migration.split("\n")
-              await database.query(statements.slice(0, 2).join("\n"))
-              await database.query(statements.slice(2).join("\n"))
-            } else {
-              await database.query(migration)
-            }
+          async function copyMigration(name: string) {
+            await cp(join(migrationDirectory, name), join(baseMigrationsDirectory, name), {
+              recursive: true,
+            })
           }
+          await Promise.all([...baseMigrations, "migration_lock.toml"].map(copyMigration))
+          const run = promisify(execFile)
+          const options = {
+            cwd: hubRoot,
+            env: { ...process.env, DATABASE_URL: databaseUrl.toString() },
+            timeout: migrationTestTimeoutMs,
+          }
+          async function deploy(config: string) {
+            await run("prisma", ["migrate", "deploy", "--config", config], options)
+          }
+          await deploy(baseConfig)
 
           const repositoryId = randomUUID()
           const prototypeId = randomUUID()
@@ -70,41 +86,8 @@ describe("local Build pipeline migration", () => {
             [buildId, prototypeId, "a".repeat(40)],
           )
 
-          const options = {
-            cwd: hubRoot,
-            env: { ...process.env, DATABASE_URL: databaseUrl.toString() },
-            timeout: migrationTestTimeoutMs,
-          }
-          const run = promisify(execFile)
-          for (const migrationName of baseMigrations) {
-            await run(
-              "prisma",
-              [
-                "migrate",
-                "resolve",
-                "--applied",
-                migrationName,
-                "--config",
-                join(hubRoot, "prisma7.config.ts"),
-              ],
-              options,
-            )
-          }
-          await database.query(
-            await readFile(join(migrationDirectory, localBuildMigration, "migration.sql"), "utf8"),
-          )
-          await run(
-            "prisma",
-            [
-              "migrate",
-              "resolve",
-              "--applied",
-              localBuildMigration,
-              "--config",
-              join(hubRoot, "prisma7.config.ts"),
-            ],
-            options,
-          )
+          await copyMigration(localBuildMigration)
+          await deploy(baseConfig)
           await database.query(
             `UPDATE repositories SET local_path = '/workspace/design' WHERE id = $1`,
             [repositoryId],
@@ -124,11 +107,7 @@ describe("local Build pipeline migration", () => {
              VALUES ($1, $2, 1, 'running', $3, clock_timestamp())`,
             [remoteBuildId, remotePrototypeId, "b".repeat(40)],
           )
-          await run(
-            "prisma",
-            ["migrate", "deploy", "--config", join(hubRoot, "prisma7.config.ts")],
-            options,
-          )
+          await deploy(join(hubRoot, "prisma7.config.ts"))
 
           expect(
             (
