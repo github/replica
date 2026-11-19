@@ -54,6 +54,8 @@ The deployment-wide Copilot connection API and retained `/settings/copilot` fron
 
 The [learning foundation](learning-foundation.md) validates private storage, isolates the command's environment and temporary state, bounds output and execution time, and provides a PostgreSQL execution lock plus repository-store preparation primitive. Current GitHub admin permission supplies reusable repository-management authority independently from Hub deployment administration. The repository API uses that authority to read exact review evidence, accepted guidance, recall, and persisted run history; record accept, edit, reject, and retire decisions through the package store; and queue explicit runs. Workers import complete [review backend](review-collaboration.md) snapshots, label and consolidate within fixed bounds, preserve usage and failures, and redact deleted comment text.
 
+The [decision-model control plane](decision-model-control-plane.md) adds provider-neutral contracts for customer-operated training and inference. It persists repository opt-in, bounded settings, pinned evidence and artifact digests, runtime references, promotion generations, Build evaluation references, and usage metadata. Runtime credentials, private tasksets, screenshots, adapters, reports, and weights stay outside PostgreSQL. Activation waits for the adapter from stored Build screenshots to the decision Builds contract and matching runtime transfer and cancellation endpoints.
+
 ## Frontend
 
 ```mermaid

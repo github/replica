@@ -270,6 +270,7 @@ class LocalRuntime:
         max_credits: float,
         budget_mode: str = "hard",
         taskset_digest: str | None = None,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         """Persist and enqueue one bounded job, returning its initial state."""
         _check_limits(max_updates, max_seconds, max_credits, budget_mode)
@@ -299,7 +300,8 @@ class LocalRuntime:
             taskset_digest if taskset_digest is not None else self.taskset_digest
         )
         self._resolve_taskset(selected_taskset)
-        job_id = f"job_{uuid.uuid4().hex}"
+        submission_key = idempotency_key or f"submit_{uuid.uuid4().hex}"
+        job_id = f"job_{hashlib.sha256(submission_key.encode()).hexdigest()[:32]}"
         job = {
             "schemaVersion": JOB_SCHEMA,
             "id": job_id,
@@ -321,12 +323,32 @@ class LocalRuntime:
             owner=RuntimeOwner("service", "decision-runtime"),
             max_credits=max_credits,
             budget_mode=budget_mode,
+            idempotency_key=submission_key,
         )
-        try:
-            stored = dict(self.connectors.jobs.create(job_id, job, context))
-        except ConnectorError as error:
-            raise _runtime_connector_failure(error) from None
         with self._lock:
+            existing = False
+            try:
+                try:
+                    stored = dict(self.connectors.jobs.get(job_id, context))
+                    existing = True
+                except ConnectorError as error:
+                    if error.category != "not_found":
+                        raise
+                if existing:
+                    if (
+                        stored.get("backend") != job["backend"]
+                        or stored.get("tasksetDigest") != job["tasksetDigest"]
+                        or stored.get("limits") != job["limits"]
+                    ):
+                        raise ConnectorError(
+                            "idempotency_conflict",
+                            "The idempotency key was reused with different input.",
+                            category="conflict",
+                        )
+                    return _public_job(stored)
+                stored = dict(self.connectors.jobs.create(job_id, job, context))
+            except ConnectorError as error:
+                raise _runtime_connector_failure(error) from None
             self._job_cancellations[job_id] = Cancellation()
             self._executor.submit(self._run_job, job_id)
         return _public_job(stored)
@@ -646,7 +668,11 @@ class LocalRuntime:
         }
 
     def evaluate(
-        self, request: Mapping[str, Any], *, timeout_seconds: float = 120
+        self,
+        request: Mapping[str, Any],
+        *,
+        timeout_seconds: float = 120,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         """Answer one prototype page with the promoted candidate."""
         _check_request(request)
@@ -664,6 +690,7 @@ class LocalRuntime:
             f"inference_{uuid.uuid4().hex}",
             max_seconds=timeout_seconds,
             owner=RuntimeOwner("service", "decision-runtime"),
+            idempotency_key=idempotency_key,
         )
         work = self.state_directory / "work" / context.operation_id
         work.mkdir(mode=0o700)

@@ -1,0 +1,79 @@
+import { withTelemetrySpan } from "../../../integrations/opentelemetry/with-telemetry-span/index.ts"
+import { DecisionModelError } from "../errors.ts"
+import type { DecisionModelDependencies } from "../types.ts"
+
+export async function requestDecisionTraining(
+  input: {
+    repositoryId: string
+    actorMembershipId: string
+    idempotencyKey: string
+  },
+  dependencies: DecisionModelDependencies,
+) {
+  return withTelemetrySpan(
+    "decision.training.request",
+    { "replica.repository.id": input.repositoryId },
+    async () => {
+      await dependencies.authorization.requireRepositoryAdministrator({
+        membershipId: input.actorMembershipId,
+        repositoryId: input.repositoryId,
+      })
+      const existing = await dependencies.store.getJobByIdempotencyKey?.(
+        input.repositoryId,
+        input.idempotencyKey,
+      )
+      if (existing) return { created: false, job: existing }
+      const configuration = await dependencies.store.getConfiguration(input.repositoryId)
+      if (!configuration?.enabled) {
+        throw new DecisionModelError(
+          409,
+          "configuration_disabled",
+          "Decision-model training is not enabled for this repository.",
+        )
+      }
+      const since = new Date(dependencies.now())
+      since.setUTCDate(1)
+      since.setUTCHours(0, 0, 0, 0)
+      const usage = await dependencies.store.getMonthlyUsageCredits(input.repositoryId, since)
+      if (Number(usage) >= Number(configuration.monthlyBudgetCredits)) {
+        throw new DecisionModelError(
+          409,
+          "budget_exceeded",
+          "The repository decision-model budget has been reached.",
+        )
+      }
+      const taskset = await dependencies.prepareTaskset(input)
+      if (!taskset.consentGrantId) {
+        throw new DecisionModelError(
+          409,
+          "consent_required",
+          "An active training-purpose consent grant is required.",
+        )
+      }
+      if (
+        await dependencies.store.isTasksetRevoked?.({
+          repositoryId: input.repositoryId,
+          exportId: taskset.trainingExportId,
+          grantId: taskset.consentGrantId,
+          evidenceDigest: taskset.evidenceDigest,
+          tasksetDigest: taskset.tasksetDigest,
+        })
+      ) {
+        throw new DecisionModelError(
+          409,
+          "deletion_revoked",
+          "Decision-model use is blocked by a runtime deletion.",
+        )
+      }
+      const result = await dependencies.store.createOrGetJob({
+        repositoryId: input.repositoryId,
+        requestedByMembershipId: input.actorMembershipId,
+        idempotencyKey: input.idempotencyKey,
+        configurationGeneration: configuration.generation,
+        settings: configuration,
+        taskset,
+      })
+      return result
+    },
+  )
+}

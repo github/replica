@@ -1,0 +1,22 @@
+model DecisionModelConfiguration {
+  // ID columns
+  id           String @id @default(uuid()) @db.Uuid
+  repositoryId String @unique @map("repository_id") @db.Uuid
+
+  // Relations
+  repository Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  // Attribute columns
+  enabled              Boolean @default(false)
+  generation           Int     @default(1)
+  backend              String  @db.VarChar(100)
+  maxUpdates           Int     @map("max_updates")
+  maxSeconds           Int     @map("max_seconds")
+  monthlyBudgetCredits Decimal @map("monthly_budget_credits") @db.Decimal(20, 9)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("decision_model_configurations")
+}

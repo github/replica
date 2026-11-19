@@ -13,6 +13,7 @@ import threading
 import time
 import unittest
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from multiprocessing.util import Finalize
 from pathlib import Path
@@ -1008,6 +1009,45 @@ class LocalRuntimeTest(unittest.TestCase):
 
         self.assertEqual(invalid.exception.code, "invalid_input")
         self.assertEqual(invalid.exception.status, 400)
+
+    def test_submit_reuses_one_job_for_the_same_idempotency_key(self):
+        runtime = self._runtime()
+
+        first = runtime.submit(
+            backend="fixture",
+            max_updates=8,
+            max_seconds=5,
+            max_credits=8,
+            idempotency_key="same-submission",
+        )
+        second = runtime.submit(
+            backend="fixture",
+            max_updates=8,
+            max_seconds=5,
+            max_credits=8,
+            idempotency_key="same-submission",
+        )
+
+        self.assertEqual(second["id"], first["id"])
+
+    def test_concurrent_submit_enqueues_one_idempotent_job(self):
+        runtime = self._runtime()
+
+        def submit():
+            return runtime.submit(
+                backend="fixture",
+                max_updates=8,
+                max_seconds=5,
+                max_credits=8,
+                idempotency_key="concurrent-submission",
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(lambda _index: submit(), range(2)))
+
+        self.assertEqual(results[0]["id"], results[1]["id"])
+        self._wait_for_job(runtime, results[0]["id"])
+        self.assertEqual(len(list((self.state_dir / "candidates").iterdir())), 1)
 
     def test_refuses_a_second_runtime_without_changing_the_first_jobs(self):
         runtime = self._runtime()

@@ -3,6 +3,7 @@ import "dotenv/config"
 import { createConfiguredArtifactStorage } from "./domains/artifacts/create-configured-artifact-storage/index.ts"
 import { LocalSignInConfigurationError } from "./domains/authentication/errors.ts"
 import { readLearningConfiguration } from "./domains/learning/read-learning-configuration/index.ts"
+import { readDecisionRuntimeConfiguration } from "./domains/decision-model/read-decision-runtime-configuration/index.ts"
 import { LearningConfigurationError } from "./domains/learning/errors.ts"
 import {
   LocalDevelopmentConfigurationError,
@@ -39,7 +40,10 @@ try {
   const configuration = parseRuntimeConfig(process.env)
   const localDevelopment = readLocalDevelopmentConfiguration(process.env)
   await prepareLocalDevelopment(localDevelopment)
-  if (configuration.mode !== "setup") await readLearningConfiguration(process.env)
+  if (configuration.mode !== "setup") {
+    await readLearningConfiguration(process.env)
+    readDecisionRuntimeConfiguration(process.env)
+  }
   const storage =
     configuration.mode !== "setup" && configuration.hasArtifactStorage
       ? await createConfiguredArtifactStorage(process.env)
