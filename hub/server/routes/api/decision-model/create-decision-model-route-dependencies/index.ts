@@ -62,10 +62,7 @@ const evaluationSummarySchema = z
     findings: z.array(
       z
         .object({
-          learning: z
-            .object({ id: z.string(), text: z.string().nullable().optional() })
-            .strict()
-            .transform(({ id }) => ({ id })),
+          learning: z.object({ id: z.string() }).strict(),
           route: z.string(),
           views: z.array(
             z
@@ -232,48 +229,37 @@ export function createDecisionModelRouteDependencies(
         dependencies.preflightTaskset(input),
       ])
       const currentPromotion = overview.promotion
-      const evaluations = await Promise.all(
-        overview.evaluations.map(async (evaluation) => {
-          const summary = evaluationSummarySchema.safeParse(evaluation.summary)
-          return {
-            id: evaluation.id,
-            build: {
-              id: evaluation.buildId,
-              number: evaluation.build.number,
-              prototypeId: evaluation.build.prototypeId,
-            },
-            model: {
-              id: evaluation.candidateId,
-              runtimeCandidateId: evaluation.candidate.runtimeCandidateId,
-              generation: Number(evaluation.promotionGeneration),
-            },
-            questionDigest: evaluation.questionDigest,
-            screenshotSetDigest: evaluation.screenshotSetDigest,
-            responseDigest: evaluation.responseDigest,
-            findingsAvailable: summary.success,
-            findings: summary.success
-              ? await Promise.all(
-                  summary.data.findings.map(async (finding) => ({
-                    ...finding,
-                    explanation:
-                      finding.explanation ??
-                      (finding.breaksProbability > finding.followsProbability
-                        ? "Across the submitted captured views, the promoted decision model found the Build more likely to break the learning than follow it."
-                        : "Across the submitted captured views, the promoted decision model found the Build at least as likely to follow the learning as break it."),
-                    learning: {
-                      id: finding.learning.id,
-                      text: await options.tasksetSource.getLearningText({
-                        repositoryId: input.repositoryId,
-                        learningId: finding.learning.id,
-                      }),
-                    },
-                  })),
-                )
-              : [],
-            createdAt: evaluation.createdAt.toISOString(),
-          }
-        }),
-      )
+      const evaluations = overview.evaluations.map((evaluation) => {
+        const summary = evaluationSummarySchema.safeParse(evaluation.summary)
+        return {
+          id: evaluation.id,
+          build: {
+            id: evaluation.buildId,
+            number: evaluation.build.number,
+            prototypeId: evaluation.build.prototypeId,
+          },
+          model: {
+            id: evaluation.candidateId,
+            runtimeCandidateId: evaluation.candidate.runtimeCandidateId,
+            generation: Number(evaluation.promotionGeneration),
+          },
+          questionDigest: evaluation.questionDigest,
+          screenshotSetDigest: evaluation.screenshotSetDigest,
+          responseDigest: evaluation.responseDigest,
+          findingsAvailable: summary.success,
+          findings: summary.success
+            ? summary.data.findings.map((finding) => ({
+                ...finding,
+                explanation:
+                  finding.explanation ??
+                  (finding.breaksProbability > finding.followsProbability
+                    ? "Across the submitted captured views, the promoted decision model found the Build more likely to break the learning than follow it."
+                    : "Across the submitted captured views, the promoted decision model found the Build at least as likely to follow the learning as break it."),
+              }))
+            : [],
+          createdAt: evaluation.createdAt.toISOString(),
+        }
+      })
       return {
         preflight,
         configuration: overview.configuration
