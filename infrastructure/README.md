@@ -662,6 +662,8 @@ The optional path adds:
 
 The pinned AzureRM provider does not yet accept Azure's serverless GPU workload profile types, so this module does not claim to provision the GPU job. Create it separately with a reviewed Azure deployment using a manual trigger, one execution replica, no automatic retry, a hard execution timeout, and zero idle GPU capacity. Put a broker in front of the job that accepts only the bounded Replica payload and starts or cancels that fixed template. The broker must reject image, command, environment, identity, registry, secret, and resource overrides. Do not grant Hub Container Apps Jobs Operator. The job's immutable training image owns the model and GPU implementation. It must accept the connector's operation, scope, taskset, deadline, `maxUpdates`, `maxCredits`, and budget mode payload; write immutable adapter and report artifacts; stop before the deadline or hard credit limit; and return measured usage and cost when Azure supplies them.
 
+The storage account keeps normal 14-day soft-delete recovery and permits an authorized workflow to permanently delete soft-deleted versions. A decision-container lifecycle rule removes superseded versions after `decision_artifact_version_retention_days`, default 30. Hub's runtime identity does not receive permanent-delete authority. Use a separate short-lived withdrawal identity to recheck the affected export, permanently delete the current taskset or candidate Blobs and every version, and write the result to the customer's audit system.
+
 The inference role is intentionally not created here because its exact actions depend on the customer endpoint service. Define a custom role with only readiness and prediction actions, assign its ID through `decision_inference_role_definition_id`, and verify it cannot create, update, deploy, train, list credentials, or change endpoint access. The inference connector checks the expected promotion generation before every prediction and reports cold start separately.
 
 Exact authorized cloud walkthrough still required before production:
@@ -674,8 +676,9 @@ Exact authorized cloud walkthrough still required before production:
 6. Run `initialize_azure_postgres` through the existing migration role, then exercise create, retry, lease expiry, cancellation, candidate persistence, promotion conflict, rollback, restart recovery, and consent-withdrawal deletion.
 7. Upload a private taskset through managed identity, train one bounded candidate, and compare the job's reported usage and cost with Azure Monitor and Cost Management.
 8. Deploy or select the customer inference endpoint, apply the custom invocation-only role, measure cold-start readiness, and prove a stale expected generation cannot score.
-9. Inspect Log Analytics and the configured OpenTelemetry/Pino sink to confirm signals contain operation IDs, bounded usage, cost, status, and hashed scope only—never screenshots, prompts, learnings, artifacts, tokens, or credential material.
-10. Test retention, Blob version recovery, PostgreSQL point-in-time restore, identity revocation, endpoint outage, GPU quota exhaustion, and owned-resource teardown.
+9. Exercise the dedicated withdrawal workflow and verify that the current taskset or candidate Blob, its soft-deleted copy, and every prior version are permanently unavailable while unrelated data remains.
+10. Inspect Log Analytics and the configured OpenTelemetry/Pino sink to confirm signals contain operation IDs, bounded usage, cost, status, and hashed scope only—never screenshots, prompts, learnings, artifacts, tokens, or credential material.
+11. Test retention, Blob version recovery, PostgreSQL point-in-time restore, identity revocation, endpoint outage, GPU quota exhaustion, and owned-resource teardown.
 
 Local Terraform and mocked connector tests do not perform this walkthrough and do not claim a live Azure deployment.
 

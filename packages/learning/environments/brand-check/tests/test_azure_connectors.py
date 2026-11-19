@@ -131,6 +131,7 @@ class ResourceNotFoundError(Exception):
 class _BlobService:
     def __init__(self):
         self.blobs = {}
+        self.versions = {}
 
     def upload_blob(
         self,
@@ -144,6 +145,13 @@ class _BlobService:
         del kwargs
         if name in self.blobs and not overwrite:
             raise ResourceExistsError(name)
+        if name in self.blobs:
+            self.versions.setdefault(name, []).append(
+                {
+                    "id": f"version-{len(self.versions.get(name, [])) + 1}",
+                    **self.blobs[name],
+                }
+            )
         self.blobs[name] = {
             "data": bytes(data),
             "metadata": dict(metadata or {}),
@@ -155,7 +163,21 @@ class _BlobService:
         except KeyError:
             raise ResourceNotFoundError(name) from None
 
-    def delete_blob(self, name):
+    def list_blob_versions(self, name):
+        return tuple(version["id"] for version in self.versions.get(name, ()))
+
+    def delete_blob(self, name, *, version_id=None, permanent=False):
+        if not permanent:
+            raise AssertionError("withdrawal deletion must be permanent")
+        if version_id is not None:
+            versions = self.versions.get(name, [])
+            remaining = [
+                version for version in versions if version["id"] != version_id
+            ]
+            if len(remaining) == len(versions):
+                raise ResourceNotFoundError(f"{name}?versionid={version_id}")
+            self.versions[name] = remaining
+            return
         if self.blobs.pop(name, None) is None:
             raise ResourceNotFoundError(name)
 
@@ -847,6 +869,27 @@ class AzureBlobArtifactConnectorTest(unittest.TestCase):
             artifact,
         )
         self.assertEqual(len(blobs.blobs), 2)
+
+    def test_withdrawal_deletes_current_blobs_and_every_version(self):
+        blobs = _BlobService()
+        scope = RuntimeScope("tenant-one", "github/acme/repo")
+        connector = AzureBlobArtifactConnector(blobs, scope)
+        artifact = _artifact(b"withdrawn report", kind="candidate-report")
+        connector.put(artifact, _context(scope, "put-withdrawn"))
+        names = tuple(blobs.blobs)
+        for name in names:
+            blobs.upload_blob(
+                name,
+                blobs.blobs[name]["data"],
+                overwrite=True,
+                metadata=blobs.blobs[name]["metadata"],
+            )
+        self.assertTrue(any(blobs.versions.values()))
+
+        connector.delete(artifact.digest, _context(scope, "delete-withdrawn"))
+
+        self.assertFalse(blobs.blobs)
+        self.assertFalse(any(blobs.versions.values()))
 
 
 class AzureBlobTasksetConnectorTest(unittest.TestCase):

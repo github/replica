@@ -62,7 +62,15 @@ class AzureBlobContainer(Protocol):
 
     def download_blob(self, name: str) -> Any: ...
 
-    def delete_blob(self, name: str) -> Any: ...
+    def list_blob_versions(self, name: str) -> Sequence[str]: ...
+
+    def delete_blob(
+        self,
+        name: str,
+        *,
+        version_id: str | None = None,
+        permanent: bool = False,
+    ) -> Any: ...
 
 
 class AzureTokenProvider(Protocol):
@@ -379,12 +387,20 @@ class AzureBlobArtifactConnector(_AzureScopedConnector):
         return artifact
 
     def delete(self, digest: ContentDigest, context: OperationContext) -> None:
-        """Retention hook for an operator-authorized deletion workflow."""
+        """Permanently remove every Blob version for an authorized withdrawal."""
         self._check(context)
         name = self._name(digest)
         for target in (name, f"{name}.json"):
             try:
-                self.container.delete_blob(target)
+                versions = tuple(self.container.list_blob_versions(target))
+                for version_id in versions:
+                    check_context(context)
+                    self.container.delete_blob(
+                        target,
+                        version_id=version_id,
+                        permanent=True,
+                    )
+                self.container.delete_blob(target, permanent=True)
             except Exception as error:
                 if not _is_missing(error):
                     raise ConnectorError(
@@ -713,6 +729,14 @@ class AzurePostgresJobConnector(_AzurePostgresConnector):
         saved = dict(_json_value(record), version=1)
         try:
             with self._transaction() as cursor:
+                self._execute(
+                    cursor,
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                    (
+                        "replica-decision-create:"
+                        f"{self.scope_key}:{context.idempotency_key}",
+                    ),
+                )
                 self._execute(
                     cursor,
                     """
@@ -1501,7 +1525,7 @@ class AzureContainerAppsTrainingConnector:
                 "The Azure training job failed.",
                 category="internal",
             )
-        return _training_result(status, context, self.name, execution_id)
+        return _training_result(status, context, self.name)
 
     def _cancel(self, execution_id: str, token: str | None) -> None:
         try:
@@ -1867,7 +1891,6 @@ def _training_result(
     status: Mapping[str, Any],
     context: OperationContext,
     connector: str,
-    execution_id: str,
 ) -> TrainingResult:
     result = status.get("result")
     if not isinstance(result, Mapping):
@@ -1896,11 +1919,11 @@ def _training_result(
                 cost=float(item["cost"]) if item.get("cost") is not None else None,
                 currency=item.get("currency"),
                 metadata={
-                    "azure.execution_id": execution_id,
                     **{
                         key: value
                         for key, value in item.get("metadata", {}).items()
                         if key in _SAFE_USAGE_METADATA
+                        and not key.startswith("azure.")
                     },
                 },
                 source="azure",
@@ -1926,7 +1949,9 @@ def _training_result(
         context.budget_mode == "hard"
         and context.max_credits is not None
         and sum(
-            item.quantity for item in usage if item.kind == "credits"
+            item.quantity
+            for item in usage
+            if item.kind == "training_credits" and item.unit == "credits"
         )
         > context.max_credits
     ):

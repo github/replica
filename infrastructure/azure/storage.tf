@@ -14,10 +14,32 @@ resource "azurerm_storage_account" "artifacts" {
   blob_properties {
     versioning_enabled = true
     delete_retention_policy {
-      days = 14
+      days                     = 14
+      permanent_delete_enabled = true
     }
+
     container_delete_retention_policy {
       days = 14
+    }
+  }
+}
+
+resource "azurerm_storage_management_policy" "artifacts" {
+  storage_account_id = azurerm_storage_account.artifacts.id
+
+  rule {
+    name    = "expire-decision-artifact-versions"
+    enabled = true
+
+    filters {
+      prefix_match = ["decision-runtime/"]
+      blob_types   = ["blockBlob"]
+    }
+
+    actions {
+      version {
+        delete_after_days_since_creation = var.decision_artifact_version_retention_days
+      }
     }
   }
 }

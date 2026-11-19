@@ -369,7 +369,7 @@ The mapping keeps the provider-neutral lifecycle unchanged:
 
 | Contract | Azure reference |
 | --- | --- |
-| Taskset and artifact | A private Azure Blob container with shared-key access disabled. Keys start with a repository scope hash, bytes are verified against SHA-256 digests, and conditional creates reject replacement. Storage versioning and soft-delete policy support operator retention and recovery; `delete` and the optional retention callback are explicit withdrawal/retention hooks. |
+| Taskset and artifact | A private Azure Blob container with shared-key access disabled. Keys start with a repository scope hash, bytes are verified against SHA-256 digests, and conditional creates reject replacement. Storage versioning and soft delete support recovery, and a lifecycle rule expires superseded decision versions. The optional retention callback records customer policy. An authorized withdrawal purger calls `delete`, which permanently removes the current Blob and every version. |
 | Job | Tables in the installation's existing PostgreSQL database hold the job record, compare-and-swap version, create idempotency key, durable cancellation, and expiring fenced lease. Run `initialize_azure_postgres` from the existing migration boundary; do not create another database service. |
 | Candidate and promotion | Candidate artifacts and reports use Blob; immutable descriptors and append-only promotion generations use PostgreSQL. Promotion and rollback compare the expected generation in the same transaction. |
 | Training | `AzureContainerAppsTrainingConnector` starts one manual Azure job execution, passes the deadline and credit limits, polls a bounded execution, and cancels Azure work when the runtime is cancelled or expires. The job result is authoritative for usage and cost when Azure supplies them. The transport can be replaced by Azure Machine Learning without changing the runtime contract. |
@@ -393,6 +393,7 @@ Serverless GPU regions and quota are limited. A T4 profile is cheaper and smalle
 - The service uses plain HTTP. Bind it to localhost as shown, or put customer-operated TLS and authentication in front of it before another host can connect.
 - A backend is trusted code. The reference runtime checks the taskset first and bounds time and updates, but a later model backend can read the screenshots and return candidate artifacts.
 - The Azure inference identity must be separate from the training and runtime identities. Its customer-defined role may invoke the selected endpoint only. Do not assign Azure ML Contributor, Data Scientist, Container Apps Jobs Operator, Blob contributor, or another training/administration role to that identity.
+- Do not give the runtime identity permanent-delete permission. Run withdrawal deletion through a separate customer workflow that rechecks the affected export, uses a dedicated short-lived identity, calls the connector's permanent version deletion, and records the result in the customer's audit system.
 
 ## Train d1-omni-600M
 

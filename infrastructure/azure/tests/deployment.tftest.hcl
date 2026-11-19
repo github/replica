@@ -275,6 +275,8 @@ run "decision_runtime_uses_private_data_scale_to_zero_gpu_and_split_identities" 
       azurerm_storage_container.decision[0].container_access_type == "private" &&
       !azurerm_storage_account.artifacts.shared_access_key_enabled &&
       azurerm_storage_account.artifacts.blob_properties[0].versioning_enabled &&
+      azurerm_storage_account.artifacts.blob_properties[0].delete_retention_policy[0].permanent_delete_enabled &&
+      azurerm_storage_management_policy.artifacts.rule[0].actions[0].version[0].delete_after_days_since_creation == var.decision_artifact_version_retention_days &&
       azurerm_role_assignment.decision_runtime_artifacts[0].scope == "${azurerm_storage_account.artifacts.id}/blobServices/default/containers/decision-runtime" &&
       azurerm_role_assignment.decision_training_artifacts[0].scope == "${azurerm_storage_account.artifacts.id}/blobServices/default/containers/decision-runtime"
     )

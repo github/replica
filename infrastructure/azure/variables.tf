@@ -62,6 +62,17 @@ variable "enable_decision_runtime" {
   description = "Provision the customer-operated Azure decision connector path."
 }
 
+variable "decision_artifact_version_retention_days" {
+  type        = number
+  default     = 30
+  description = "Maximum retention for superseded decision artifact versions; authorized withdrawal uses permanent deletion sooner."
+
+  validation {
+    condition     = var.decision_artifact_version_retention_days >= 1 && var.decision_artifact_version_retention_days <= 365 && floor(var.decision_artifact_version_retention_days) == var.decision_artifact_version_retention_days
+    error_message = "Decision artifact version retention must be an integer from 1 to 365 days."
+  }
+}
+
 variable "decision_training_job_id" {
   type        = string
   default     = null
