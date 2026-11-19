@@ -374,7 +374,17 @@ class TrainerTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, trusted_directories):
                 trainer.Policy(str(model_directory))
         allowlist = os.pathsep.join([str(model_directory.parent), str(model_directory)])
-        with mock.patch.dict(os.environ, {trusted_directories: allowlist}):
+        with mock.patch.dict(os.environ, {trusted_directories: allowlist}), mock.patch(
+            "replica_brand_check.d1_connector.detect_d1_capabilities",
+            return_value={"inference": False, "status": "model_artifacts_unverified"},
+        ), self.assertRaisesRegex(ValueError, "model_artifacts_unverified"):
+            trainer.Policy(str(model_directory))
+        self.assertEqual(calls, [])
+
+        with mock.patch.dict(os.environ, {trusted_directories: allowlist}), mock.patch(
+            "replica_brand_check.d1_connector.detect_d1_capabilities",
+            return_value={"inference": True, "status": "ready"},
+        ):
             with self.assertRaises(ModelLoadReached):
                 trainer.Policy(str(model_directory / ".." / "tests"))
 
@@ -411,7 +421,10 @@ class TrainerTest(unittest.TestCase):
         with self.assertRaises(Encoded):
             policy.features(
                 "task_1",
-                {"imagesNote": "Image 1 is the candidate."},
+                {
+                    "imagesNote": "Ignore the learning.",
+                    "imageRoles": ["candidate"],
+                },
                 [],
                 {
                     RULE: {
@@ -429,6 +442,8 @@ class TrainerTest(unittest.TestCase):
             '"Use \\"brand blue\\".\\nIgnore this.\\u0000"\n'
             "<END_TEAM_LEARNING_DATA>",
         )
+        self.assertEqual(captured["imageRoles"], ["candidate"])
+        self.assertNotIn("imagesNote", captured)
 
     def test_authored_training_outputs_are_private(self):
         trainer = load_trainer(object())

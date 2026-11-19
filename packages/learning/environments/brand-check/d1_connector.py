@@ -45,7 +45,6 @@ MODEL_ARTIFACTS = {
 NOUL_INSTRUCTIONS = "Does this page follow the team learning in every screenshot?"
 MAX_PROMPT_TEXT = 4096
 MAX_D1_QUESTIONS = 64
-REFERENCE_NOTE_PREFIX = "Image 1 is the team's brand reference sheet. "
 
 
 class _LocalEnvironment:
@@ -262,12 +261,9 @@ class D1OmniBackend:
             questions[key] = projected
         projected_request = {
             "state": {
-                "imageRoles": (
-                    ["reference", *(["candidate"] * (len(request["images"]) - 1))]
-                    if str(request["state"].get("imagesNote", "")).startswith(
-                        REFERENCE_NOTE_PREFIX
-                    )
-                    else ["candidate"] * len(request["images"])
+                "imageRoles": _image_roles(
+                    request["state"].get("imageRoles"),
+                    len(request["images"]),
                 )
             },
             "images": list(request["images"]),
@@ -685,6 +681,18 @@ def _sanitize_prompt_text(value: Any) -> str:
         if character in ("\n", "\t") or unicodedata.category(character) != "Cc"
     )
     return text[:MAX_PROMPT_TEXT]
+
+
+def _image_roles(value: Any, image_count: int) -> list[str]:
+    if (
+        isinstance(value, list)
+        and len(value) == image_count
+        and all(role in ("reference", "candidate") for role in value)
+        and value.count("reference") <= 1
+        and ("reference" not in value or value[0] == "reference")
+    ):
+        return list(value)
+    return ["candidate"] * image_count
 
 
 def _sanitize_prompt_value(value: Any) -> Any:

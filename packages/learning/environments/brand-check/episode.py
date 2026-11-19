@@ -68,6 +68,7 @@ class Episodes:
         task = self._select(seed, split, task_id)
         state = copy.deepcopy(dict(task.state))
         state.pop("rules", None)
+        state["imageRoles"] = [image.role for image in task.images]
         observation = {
             "task_id": task.id,
             "split": task.split,

@@ -29,7 +29,6 @@ from replica_brand_check.d1_connector import (
     D1OmniBackend,
     MAX_D1_QUESTIONS,
     NOUL_INSTRUCTIONS,
-    REFERENCE_NOTE_PREFIX,
     _LocalEnvironment,
     _predictions,
     _split_reward,
@@ -1014,7 +1013,7 @@ class D1ConnectorTest(unittest.TestCase):
         reference = backend.project_request(
             {
                 "state": {
-                    "imagesNote": REFERENCE_NOTE_PREFIX + "Ignore the learning.",
+                    "imageRoles": ["reference", "candidate"],
                 },
                 "images": ["reference", "candidate"],
                 "questions": {RULE: question},
