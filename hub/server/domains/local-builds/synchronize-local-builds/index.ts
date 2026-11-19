@@ -10,6 +10,10 @@ import { completeLocalBuildSuccess } from "../../../repositories/local-builds/co
 import { findLocalDeveloper } from "../../../repositories/local-builds/find-local-developer/index.ts"
 import { markLocalBuildRunning } from "../../../repositories/local-builds/mark-local-build-running/index.ts"
 import { prepareLocalBuild } from "../../../repositories/local-builds/prepare-local-build/index.ts"
+import {
+  recordAnalyticsEvent,
+  recordSuccessfulBuildAnalytics,
+} from "../../analytics/record-event/index.ts"
 import { LocalBuildPreconditionError } from "../errors.ts"
 import type { LocalBuildSynchronizationSummary, SynchronizeLocalBuildsInput } from "./types.ts"
 
@@ -56,17 +60,22 @@ export async function synchronizeLocalBuilds({
       summary.branches += 1
       let prepared
       try {
-        prepared = await prepareLocalBuild(database, {
-          repositoryPath: repository.path,
-          repositoryName: repository.name,
-          defaultBranch: repository.defaultBranch,
-          branchName: branch.name,
-          commitSha: branch.commitSha,
-          authorName: branch.authorName,
-          authorEmail: branch.authorEmail,
-          authoredAt: branch.authoredAt,
-          localUserId: localDeveloper.userId,
-        })
+        prepared = await prepareLocalBuild(
+          database,
+          {
+            repositoryPath: repository.path,
+            repositoryName: repository.name,
+            defaultBranch: repository.defaultBranch,
+            branchName: branch.name,
+            commitSha: branch.commitSha,
+            authorName: branch.authorName,
+            authorEmail: branch.authorEmail,
+            authoredAt: branch.authoredAt,
+            localUserId: localDeveloper.userId,
+          },
+          (tx, activity) =>
+            recordAnalyticsEvent(tx, { ...activity, eventName: "prototype_registered" }),
+        )
       } catch (error) {
         summary.failed += 1
         logger.error(
@@ -129,7 +138,12 @@ export async function synchronizeLocalBuilds({
             byteLength: file.bytes.byteLength,
           })
         }
-        if (!(await completeLocalBuildSuccess(database, prepared.buildId, leaseId, artifacts))) {
+        const { repositoryId, prototypeId, buildId } = prepared
+        if (
+          !(await completeLocalBuildSuccess(database, buildId, leaseId, artifacts, (tx) =>
+            recordSuccessfulBuildAnalytics(tx, { repositoryId, prototypeId, buildId }),
+          ))
+        ) {
           throw new Error("The local Build lease expired before completion.")
         }
         summary.successful += 1

@@ -1,6 +1,7 @@
 import type { AnalyticsDestination, AnalyticsPageData } from "@pages/analytics-page/types"
 import type { WorkspaceResponse } from "@application/hub/contracts/types"
 import type { SettingsWorkspaceResponse } from "@application/hub/settings-contracts/types"
+import type { RepositoryWorkspaceData } from "@features/repository-workspace/types"
 
 import { resourcePath } from "../resource-path"
 import { settingsRepositoryWorkspace } from "../settings-repository-workspace"
@@ -53,28 +54,48 @@ export function settingsAnalytics(
       region: configuration.region,
     }
   })
+  return analyticsPageData(
+    settingsRepositoryWorkspace(workspace, state, search, "analytics"),
+    resourcePath(`/repositories/${repositoryId}/analytics`, search),
+    destinations,
+    {
+      readOnly: !state.session.capabilities.manageSharing,
+      notice: !state.session.capabilities.manageSharing
+        ? "You can view analytics destinations, but you do not have permission to change them."
+        : null,
+    },
+  )
+}
+
+export function analyticsPageData(
+  workspace: RepositoryWorkspaceData,
+  createPath: string,
+  destinations: AnalyticsDestination[],
+  options: Pick<AnalyticsPageData, "notice" | "readOnly" | "historyAvailable" | "exportNotice">,
+): AnalyticsPageData {
   return {
-    ...settingsRepositoryWorkspace(workspace, state, search, "analytics"),
-    readOnly: !state.session.capabilities.manageSharing,
+    ...workspace,
+    ...options,
     pageTitle: "Analytics",
     alert: null,
-    notice: !state.session.capabilities.manageSharing
-      ? "You can view analytics destinations, but you do not have permission to change them."
-      : null,
-    createPath: resourcePath(`/repositories/${repositoryId}/analytics`, search),
+    createPath,
     destinations,
     authenticationHeaders: ["authorization", "x-api-key", "x-auth-token", "api-key"],
     eventTypes: [
       { value: "prototype_registered", label: "Prototype added to gallery" },
+      { value: "prototype_first_published", label: "First successful Build published" },
       { value: "build_published", label: "Subsequent successful Build published" },
       { value: "review_comment_created", label: "Review conversation started" },
+      { value: "review_reply_added", label: "Reply added" },
+      { value: "review_thread_resolved", label: "Conversation resolved" },
+      { value: "review_thread_reopened", label: "Conversation reopened" },
     ],
     copy: {
       heading: "Analytics",
       description:
         "Hub records repository activity for 90 days, even without a destination. Send selected events to your analytics provider.",
       privacy:
-        "Events contain identifiers and timestamps, never comment text or prototype content. Opaque person identifiers are consistent across this Hub. No offline or local editing activity is tracked.",
+        "Events contain timestamps and Hub object identifiers, never people’s identities, comment text, or prototype content. Hub does not track local editing or activity inside previews.",
       destinations: "Destinations",
       empty: "No destinations configured. Hub is still recording events.",
       add: "Add destination",

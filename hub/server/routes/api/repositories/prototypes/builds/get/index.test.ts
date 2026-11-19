@@ -17,7 +17,9 @@ type ProductMocks = {
       | "reviewComments"
       | "findLocalPrototypeManagement"
       | "findPrototypeManagement"
+      | "analytics"
       | "getRepositoryPermission"
+      | "getVerifiedRepositoryPermission"
     >
   ]: Mock<ProductRouteDependencies[Key]>
 }

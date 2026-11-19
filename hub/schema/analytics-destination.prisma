@@ -1,0 +1,25 @@
+model AnalyticsDestination {
+  // ID columns
+  id           String @id @default(uuid()) @db.Uuid
+  repositoryId String @map("repository_id") @db.Uuid
+
+  // Relations
+  repository Repository          @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  deliveries AnalyticsDelivery[]
+
+  // Attribute columns
+  provider                AnalyticsProvider
+  destinationKey          String               @map("destination_key") @db.VarChar(128)
+  enabled                 Boolean              @default(true)
+  eventTypes              AnalyticsEventName[] @map("event_types")
+  revision                Int                  @default(1)
+  configurationCiphertext String               @map("configuration_ciphertext")
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([id, repositoryId])
+  @@unique([repositoryId, destinationKey])
+  @@map("analytics_destinations")
+}

@@ -10,11 +10,13 @@ vi.mock("./reconcile-github-installation", () => ({
 
 describe("learning worker configuration", () => {
   it("keeps learning and local Build work on their intended queues", () => {
-    expect(jobProcessors["on-demand"].map(({ name }) => name)).toEqual([
-      "learning.run",
-      "learning.redact-review-comment",
-      "synchronize-local-builds",
-    ])
+    expect(jobProcessors["on-demand"].map(({ name }) => name)).toEqual(
+      expect.arrayContaining([
+        "learning.run",
+        "learning.redact-review-comment",
+        "synchronize-local-builds",
+      ]),
+    )
     expect(jobProcessors.scheduled.map(({ name }) => name)).toContain("learning.recover-runs")
     expect(jobSchedules).toContainEqual(
       expect.objectContaining({
@@ -22,6 +24,21 @@ describe("learning worker configuration", () => {
         repeat: { every: 60_000 },
       }),
     )
+  })
+
+  describe("analytics worker configuration", () => {
+    it("uses scheduled recovery and retention without running external sends there", () => {
+      expect(jobProcessors["on-demand"].map(({ name }) => name)).toContain(
+        "deliver-analytics-event",
+      )
+      expect(jobProcessors.scheduled.map(({ name }) => name)).not.toContain(
+        "deliver-analytics-event",
+      )
+      for (const id of ["analytics-delivery-recovery", "analytics-event-retention"]) {
+        const schedule = jobSchedules.find((entry) => entry.id === id)
+        expect(jobProcessors.scheduled.map(({ name }) => name)).toContain(schedule?.definition.name)
+      }
+    })
   })
 })
 

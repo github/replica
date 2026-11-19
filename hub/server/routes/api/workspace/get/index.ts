@@ -73,6 +73,14 @@ export function get(
             (current.sessionProvider === "local" && current.role === "ADMINISTRATOR" && localPath))
             ? { managePrototypeListings: true }
             : {}),
+          ...(product.analytics &&
+          ((repository.id === selected?.id && permission === "admin") ||
+            (product.analytics.localAdministration &&
+              current.sessionProvider === "local" &&
+              current.role === "ADMINISTRATOR" &&
+              localPath))
+            ? { manageAnalytics: true }
+            : {}),
           ...(repository.id === selected?.id
             ? {
                 administerRepository: permission === "admin",

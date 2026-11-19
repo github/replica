@@ -20,9 +20,10 @@ export async function authorizeHostedShareLinkRequest(
     repositoryId,
     prototypeId,
     viewer: initial,
-    getRepositoryPermission: () => {
-      if (!product?.getRepositoryPermission) throw new GitHubProviderRequestError()
-      return product.getRepositoryPermission(initial, repositoryId)
+    getRepositoryPermission: async () => {
+      const permission = await product?.getVerifiedRepositoryPermission?.(initial, repositoryId)
+      if (!permission) throw new GitHubProviderRequestError()
+      return permission
     },
   })
 

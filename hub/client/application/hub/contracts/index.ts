@@ -39,6 +39,7 @@ export const repositorySchema = z.object({
       repositoryPermissionUnavailable: z.boolean().optional(),
       browseTemplates: z.boolean().optional(),
       local: z.boolean().optional(),
+      manageAnalytics: z.boolean().optional(),
     })
     .optional(),
 })

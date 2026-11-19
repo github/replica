@@ -21,8 +21,12 @@ export const settingsQuerySchema = z.object({
 
 export const analyticsEventSchema = z.enum([
   "prototype_registered",
+  "prototype_first_published",
   "build_published",
   "review_comment_created",
+  "review_reply_added",
+  "review_thread_resolved",
+  "review_thread_reopened",
 ])
 
 export const analyticsConfigurationSchema = z
@@ -30,7 +34,7 @@ export const analyticsConfigurationSchema = z
     provider: z.enum(["segment", "mixpanel", "custom"]),
     region: z.enum(["us", "eu", "in", "custom"]),
     name: z.string().trim().max(64).default(""),
-    eventTypes: z.array(analyticsEventSchema).min(1, "Choose at least one event.").max(3),
+    eventTypes: z.array(analyticsEventSchema).min(1, "Choose at least one event.").max(7),
     history: z.enum(["new", "retained"]),
   })
   .strict()

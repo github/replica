@@ -19,6 +19,7 @@ import { templateRoutes } from "./api/repositories/templates/index.ts"
 import { canBrowseTemplates } from "./api/product/template-repository-access/index.ts"
 import { get as handleRepositoryAuthorsGet } from "./api/repositories/authors/get/index.ts"
 import { get as handleRepositoryGet } from "./api/repositories/show/get/index.ts"
+import { mountRepositoryAnalytics } from "./api/repositories/analytics/index.ts"
 import { get as handlePrototypeGet } from "./api/repositories/prototypes/show/get/index.ts"
 import { patch as handlePrototypePatch } from "./api/repositories/prototypes/show/patch/index.ts"
 import { get as handleBuildHistoryGet } from "./api/repositories/prototypes/builds/get/index.ts"
@@ -120,6 +121,8 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
   if (authentication) {
     if (product) {
       app.use("/api/canvas", canvasRoutes(authentication.signOut.applicationOrigin, product))
+      if (product.analytics)
+        mountRepositoryAnalytics(app, authentication.currentSession, product, product.analytics)
       app.get(
         "/api/workspace",
         handleWorkspaceGet(authentication.currentSession, product, Boolean(publicSharing)),

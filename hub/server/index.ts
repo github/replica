@@ -146,7 +146,19 @@ try {
             learnings = learningDependencies
             const { createProductRouteDependencies } =
               await import("./routes/api/product/create-product-route-dependencies/index.ts")
+            const { readAnalyticsSettings } =
+              await import("./domains/analytics/read-settings/index.ts")
+            const localAnalyticsAdministration = Boolean(
+              authentication.local &&
+              authenticationEnvironment.NODE_ENV === "development" &&
+              authenticationEnvironment.HUB_LOCAL_MODE === "true",
+            )
             product = createProductRouteDependencies({
+              analyticsSettings: readAnalyticsSettings(
+                authenticationEnvironment,
+                localAnalyticsAdministration,
+              ),
+              localAnalyticsAdministration,
               applicationOrigin: previewConfigured
                 ? authenticationEnvironment.HUB_APPLICATION_ORIGIN
                 : undefined,

@@ -451,6 +451,7 @@ export async function createAuthenticationRouteDependencies(
           externalIdentityId: session.externalIdentityId,
           membershipId: session.membershipId,
           userId: session.userId,
+          externalIdentityId: session.externalIdentityId,
           role: session.role,
           ...profile,
         }

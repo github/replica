@@ -21,6 +21,7 @@ Hub is being rebuilt. The [Hub overview](../README.md) describes what the baseli
 - [Background jobs](background-jobs.md): PostgreSQL queues, workers, schedules, setup, and test isolation.
 - [Learning foundation](learning-foundation.md): Copilot connection, private storage, secure command execution, and deferred repository seams.
 - [Review collaboration backend](review-collaboration.md): persisted threads, product APIs, authorization, deletion state, and the learning snapshot seam.
+- [Repository Analytics](analytics.md): event retention, destination settings, access, and outbound delivery.
 - [WebSocket updates](websockets.md): local broadcasts, subscriptions, access hooks, and connection limits.
 - [Testing and operations](testing-and-operations.md): baseline checks and their limits.
 - [Storybook](storybook.md): retained presentation, fixtures, and screenshot evidence.

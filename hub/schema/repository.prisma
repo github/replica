@@ -13,6 +13,9 @@ model Repository {
   securityAudits             SecurityAudit[]
   canvasPairings             CanvasPairing[]
   canvasGrants               CanvasGrant[]
+  analyticsEvents            AnalyticsEvent[]
+  analyticsDestinations      AnalyticsDestination[]
+  analyticsState             AnalyticsRepositoryState?
 
   // Attribute columns
   githubRepositoryId BigInt?   @unique @map("github_repository_id")

@@ -22,6 +22,7 @@ import type {
 import type { RepositoryReviewAccess } from "../../../domains/review-comments/authorize-repository-review/index.ts"
 import type { RepositoryPermission } from "../../../integrations/github/read-repository-permission/types.ts"
 import type { findDefaultTemplateBuild } from "../../../repositories/build-artifacts/find-default-template-build/index.ts"
+import type { AnalyticsRouteDependencies } from "../repositories/analytics/types.ts"
 
 export interface ReviewAccessActor extends ReviewRouteActor {
   provider: string
@@ -44,11 +45,17 @@ export interface ProductViewer {
 }
 
 export interface ProductRouteDependencies {
-  /** Fresh, installation-bound permission. `none` proves loss for this exact GitHub identity. */
+  analytics?: AnalyticsRouteDependencies
+  /** Fresh, installation-bound permission. An unavailable or inaccessible grant can return none. */
   getRepositoryPermission?(
     viewer: ProductViewer,
     repositoryId: string,
   ): Promise<RepositoryPermission>
+  /** Unlike the capability result, null is inconclusive and cannot revoke existing shares. */
+  getVerifiedRepositoryPermission?(
+    viewer: ProductViewer,
+    repositoryId: string,
+  ): Promise<RepositoryPermission | null>
   reviewComments?: ReviewCommentService
   authorizeReviewAccess?(
     repositoryId: string,

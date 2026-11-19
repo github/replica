@@ -49,6 +49,7 @@ export function AnalyticsPage({ data }: { data: AnalyticsPageData }) {
             {copy.privacy}
           </Text>
           {data.alert ? <HubAlert title={data.alert} variant="critical" /> : null}
+          {data.exportNotice ? <HubAlert title={data.exportNotice} variant="info" /> : null}
           {data.notice ? (
             data.readOnly ? (
               <HubAlert title={data.notice} variant="info" />
@@ -226,7 +227,7 @@ export function AnalyticsPage({ data }: { data: AnalyticsPageData }) {
                       </FormControl>
                     ))}
                   </fieldset>
-                  {!destination ? (
+                  {!destination && data.historyAvailable !== false ? (
                     <>
                       <FormControl id={`${prefix}-history`} required>
                         <FormControl.Label>{copy.history}</FormControl.Label>

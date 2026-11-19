@@ -1,4 +1,7 @@
 import { Prisma } from "../../../../generated/prisma/client.ts"
+import { createAnalyticsDestinationService } from "../../../../domains/analytics/create-destination-service/index.ts"
+import { recordAnalyticsEvent } from "../../../../domains/analytics/record-event/index.ts"
+import type { AnalyticsSettings } from "../../../../domains/analytics/types.ts"
 import { restoreHubSession } from "../../../../domains/admission/restore-hub-session/index.ts"
 import { runSessionRestoreTransaction } from "../../../../domains/admission/run-session-restore-transaction/index.ts"
 import { createBuildPreviewOrigin } from "../../../../domains/build-preview/create-build-preview-origin/index.ts"
@@ -42,12 +45,16 @@ import {
   isWelcomeHidden,
 } from "../../../../repositories/users/welcome-preference/index.ts"
 import { canWriteRepository } from "../../../../utils/can-write-repository/index.ts"
+import { localDeveloperIdentity } from "../../../../utils/local-developer-identity/index.ts"
+import type { AnalyticsViewer } from "../../repositories/analytics/types.ts"
 import { readWithPersistedRepositoryScope } from "../read-with-persisted-repository-scope/index.ts"
 import { resolvePersistedRepositoryScope } from "../resolve-persisted-repository-scope/index.ts"
 import type { resolveRepositoryScope } from "../resolve-repository-scope/index.ts"
 import type { ProductViewer, WorkspaceProductRouteDependencies } from "../types.ts"
 
 interface CreateProductRouteDependenciesOptions {
+  analyticsSettings?: AnalyticsSettings
+  localAnalyticsAdministration?: boolean
   applicationOrigin?: string
   githubRepositoryCredentials?: RepositoryPermissionInput["credentials"]
   requestGitHub?: typeof fetch
@@ -69,6 +76,8 @@ interface CreateProductRouteDependenciesOptions {
 }
 
 export function createProductRouteDependencies({
+  analyticsSettings,
+  localAnalyticsAdministration = false,
   applicationOrigin,
   githubRepositoryCredentials,
   requestGitHub,
@@ -137,8 +146,8 @@ export function createProductRouteDependencies({
     viewer: ProductViewer,
     repositoryId: string,
     branchName?: string,
-  ): Promise<{ permission: RepositoryPermission; accessRevision: number | null }> {
-    const denied = { permission: "none", accessRevision: null } as const
+  ): Promise<{ permission: RepositoryPermission | null; accessRevision: number | null }> {
+    const denied = { permission: null, accessRevision: null }
     const { revision } = await readGitHubRepositoryAccessState(prisma)
     const repository = await readScoped(viewer, (repositoryScope) =>
       prisma.repository.findFirst({
@@ -186,8 +195,39 @@ export function createProductRouteDependencies({
   }
   async function getRepositoryPermission(viewer: ProductViewer, repositoryId: string) {
     if (permissionOverride) return permissionOverride(viewer, repositoryId)
-    return (await getRepositoryPermissionEvidence(viewer, repositoryId)).permission
+    return (await getRepositoryPermissionEvidence(viewer, repositoryId)).permission ?? "none"
   }
+  async function isLocalAnalyticsAdministrator(
+    viewer: Pick<AnalyticsViewer, "sessionProvider" | "role" | "userId" | "externalIdentityId">,
+    repositoryId: string,
+    database: Pick<Prisma.TransactionClient, "repository" | "externalIdentity"> = prisma,
+  ) {
+    if (
+      !localAnalyticsAdministration ||
+      viewer.sessionProvider !== "local" ||
+      viewer.role !== "ADMINISTRATOR" ||
+      !viewer.externalIdentityId
+    )
+      return false
+    const repository = await database.repository.findFirst({
+      where: {
+        id: repositoryId,
+        removedAt: null,
+        githubRepositoryId: null,
+        localPath: { not: null },
+      },
+      select: { id: true },
+    })
+    if (!repository) return false
+    return Boolean(
+      await database.externalIdentity.findFirst({
+        where: { ...localDeveloperIdentity, id: viewer.externalIdentityId, userId: viewer.userId },
+        select: { id: true },
+      }),
+    )
+  }
+  const analytics =
+    analyticsSettings && createAnalyticsDestinationService(prisma, analyticsSettings)
   const authorizeReview =
     authorizeReviewMutation ??
     (async (
@@ -232,6 +272,10 @@ export function createProductRouteDependencies({
       : undefined
   return {
     getRepositoryPermission,
+    async getVerifiedRepositoryPermission(viewer, repositoryId) {
+      if (permissionOverride) return permissionOverride(viewer, repositoryId)
+      return (await getRepositoryPermissionEvidence(viewer, repositoryId)).permission
+    },
     templates: {
       findBuild: (viewer, repositoryId, buildId) =>
         readScoped(viewer, (repositoryScope) =>
@@ -253,6 +297,28 @@ export function createProductRouteDependencies({
           return true
         }),
     },
+    analytics:
+      analyticsSettings && analytics
+        ? {
+            applicationOrigin: analyticsSettings.applicationOrigin,
+            localAdministration: localAnalyticsAdministration,
+            isLocalAdministrator: isLocalAnalyticsAdministrator,
+            list: (repositoryId) => analytics.list(repositoryId),
+            mutate: (actor, mutation, digest) =>
+              analytics.mutate(actor, mutation, async (transaction) => {
+                await lockAuthority(transaction)
+                const viewer = await restoreSession(
+                  transaction,
+                  joinTransaction(transaction),
+                  digest,
+                )
+                return (
+                  viewer?.membershipId === actor.membershipId &&
+                  (await isLocalAnalyticsAdministrator(viewer, actor.repositoryId, transaction))
+                )
+              }),
+          }
+        : undefined,
     reviewComments: createReviewCommentService(prisma, authorizeReview, {
       onDeleted: onReviewCommentDeleted,
       withDeleteLock: withReviewCommentDeleteLock,
@@ -370,7 +436,7 @@ export function createProductRouteDependencies({
                     !prototype.registeredAt &&
                     prototype.hosted &&
                     (!registrationPermission ||
-                      !canWriteRepository(registrationPermission.permission) ||
+                      !canWriteRepository(registrationPermission.permission ?? "none") ||
                       registrationPermission.accessRevision !== revision ||
                       hostedDraft?.branchName !== prototype.branchName ||
                       initial?.externalIdentityId !== viewer.externalIdentityId ||
@@ -388,7 +454,16 @@ export function createProductRouteDependencies({
                   }
                   return prototype
                 },
-                updatePrototype: (id, data) => updatePrototypeMetadata(transaction, id, data),
+                updatePrototype: async (id, data) => {
+                  await updatePrototypeMetadata(transaction, id, data)
+                  if (data.registeredAt) {
+                    await recordAnalyticsEvent(transaction, {
+                      repositoryId: input.repositoryId,
+                      prototypeId: id,
+                      eventName: "prototype_registered",
+                    })
+                  }
+                },
                 findDetail: async (repositoryId, prototypeId, viewer) =>
                   findPrototypeDetail(
                     joined,

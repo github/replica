@@ -39,6 +39,8 @@ export type AnalyticsDestination =
 
 export interface AnalyticsPageData extends RepositoryWorkspaceData {
   readOnly?: boolean
+  historyAvailable?: boolean
+  exportNotice?: string
   pageTitle: string
   alert: string | null
   notice: string | null

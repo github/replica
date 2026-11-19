@@ -13,10 +13,17 @@ export function repositoryWorkspace(
   const browseTemplates = real
     ? workspace.repositories.find(({ id }) => id === repository.id)?.capabilities?.browseTemplates
     : workspace.capabilities?.createPrototypes
+  const canManageAnalytics =
+    repository.capabilities?.manageAnalytics ||
+    workspace.repositories.find((entry) => entry.id === repository.id)?.capabilities
+      ?.manageAnalytics
   return {
     ...workspaceNavigation(workspace, repository.id, search, real),
     analyticsLabel: "Analytics",
-    analyticsPath: real ? null : resourcePath(`/repositories/${repository.id}/analytics`, search),
+    analyticsPath:
+      real && !canManageAnalytics
+        ? null
+        : resourcePath(`/repositories/${repository.id}/analytics`, search),
     learningsLabel: "Learnings",
     learningsPath: real ? null : resourcePath(`/repositories/${repository.id}/learnings`, search),
     newPrototypeLabel: "Create",
