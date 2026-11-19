@@ -25,7 +25,12 @@ from replica_brand_check.connectors import (
     RuntimeScope,
     TrainingResult,
 )
-from replica_brand_check.runtime import FixtureBackend, LocalRuntime, RuntimeFailure
+from replica_brand_check.runtime import (
+    TASKSET_CACHE_LIMIT,
+    FixtureBackend,
+    LocalRuntime,
+    RuntimeFailure,
+)
 from replica_brand_check.runtime_server import RuntimeHTTPServer, runtime_token
 from replica_brand_check.taskset import MAX_IMAGE_BYTES
 from tests.support import PNG, RULE, make_task, taskset_upload, write_taskset
@@ -1188,6 +1193,40 @@ class LocalRuntimeTest(unittest.TestCase):
         runtime.ready()
         response = runtime.evaluate(self._request())
 
+        self.assertEqual(response["candidateId"], finished["candidateId"])
+
+    def test_bounds_parsed_tasksets_without_rehashing_the_promoted_taskset(self):
+        runtime = self._runtime()
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(backend="fixture", max_updates=4, max_seconds=5)["id"],
+        )
+        runtime.promote(finished["candidateId"], promoted_by="test-operator")
+        uploaded_digests = []
+        for index in range(TASKSET_CACHE_LIMIT + 1):
+            task = make_task(100 + index, answer=True)
+            task["questions"][RULE]["instructions"] = f"Uploaded taskset {index}"
+            directory = write_taskset(
+                self,
+                [task, make_task(200 + index, split="test", answer=True)],
+            )
+            digest, upload = taskset_upload(directory)
+            registered = runtime.register_taskset(
+                digest,
+                upload,
+                idempotency_key=f"upload-{index}",
+            )
+            uploaded_digests.append(registered["digest"])
+
+        (self.taskset_dir / "images" / "screen.png").write_bytes(
+            b"changed after activation"
+        )
+        runtime.ready()
+        response = runtime.evaluate(self._request())
+
+        self.assertLessEqual(len(runtime._tasksets), TASKSET_CACHE_LIMIT)
+        self.assertNotIn(uploaded_digests[0], runtime._tasksets)
+        self.assertIn(uploaded_digests[-1], runtime._tasksets)
         self.assertEqual(response["candidateId"], finished["candidateId"])
 
     def test_http_upload_registers_a_private_taskset_for_jobs_and_restart(self):

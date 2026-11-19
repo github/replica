@@ -22,6 +22,7 @@ import shutil
 import threading
 import time
 import uuid
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -66,6 +67,7 @@ MAX_UPDATES = 100_000
 MIN_SECONDS = 1
 MAX_SECONDS = 86_400
 ENVIRONMENTS = ("development", "test", "production")
+TASKSET_CACHE_LIMIT = 2
 _QUESTION_KEY = re.compile(r"^[A-Za-z0-9_]{1,64}$")
 
 
@@ -211,7 +213,8 @@ class LocalRuntime:
         self.inference_connectors = dict(self.connectors.inference)
         self._lock = threading.RLock()
         self._job_cancellations: dict[str, Cancellation] = {}
-        self._tasksets: dict[str, TasksetArtifact] = {}
+        self._tasksets: OrderedDict[str, TasksetArtifact] = OrderedDict()
+        self._verified_taskset_directories: dict[str, Path] = {}
         try:
             self.taskset = None
             self.taskset_digest = None
@@ -309,7 +312,7 @@ class LocalRuntime:
         )
         try:
             registered = self.connectors.tasksets.register(bundle, context)
-            self._tasksets[str(registered.digest)] = registered
+            self._cache_taskset(registered)
             self._record_usage(
                 context,
                 connector=type(self.connectors.tasksets).__name__,
@@ -970,7 +973,7 @@ class LocalRuntime:
     def _promotable_candidate(self, candidate_id: str) -> dict[str, Any]:
         candidate = self.candidate(candidate_id)["manifest"]
         try:
-            self._resolve_taskset(candidate["tasksetDigest"])
+            self._verify_taskset(candidate["tasksetDigest"])
         except RuntimeFailure as error:
             if error.code not in (
                 "taskset_damaged",
@@ -1016,11 +1019,14 @@ class LocalRuntime:
 
     def _resolve_taskset(self, digest: str):
         normalized = _taskset_digest_value(digest)
-        cached = self._tasksets.get(normalized)
-        if cached is not None:
-            if cached.taskset.directory.is_dir():
-                return cached
-            self._tasksets.pop(normalized, None)
+        with self._lock:
+            cached = self._tasksets.get(normalized)
+            if cached is not None:
+                if cached.taskset.directory.is_dir():
+                    self._tasksets.move_to_end(normalized)
+                    return cached
+                self._tasksets.pop(normalized, None)
+                self._verified_taskset_directories.pop(normalized, None)
         try:
             resolved = self.connectors.tasksets.resolve(
                 f"taskset:{ContentDigest('sha256', normalized.removeprefix('sha256:')).value}",
@@ -1030,7 +1036,7 @@ class LocalRuntime:
                     owner=RuntimeOwner("service", "decision-runtime"),
                 ),
             )
-            self._tasksets[normalized] = resolved
+            self._cache_taskset(resolved)
             return resolved
         except (ValueError, ConnectorError) as error:
             if isinstance(error, ConnectorError):
@@ -1039,6 +1045,26 @@ class LocalRuntime:
                 "taskset_digest_invalid",
                 "tasksetDigest must be a SHA-256 digest.",
             ) from None
+
+    def _verify_taskset(self, digest: str) -> None:
+        normalized = _taskset_digest_value(digest)
+        with self._lock:
+            directory = self._verified_taskset_directories.get(normalized)
+            if directory is not None:
+                if directory.is_dir():
+                    return
+                self._verified_taskset_directories.pop(normalized, None)
+                self._tasksets.pop(normalized, None)
+        self._resolve_taskset(normalized)
+
+    def _cache_taskset(self, artifact: TasksetArtifact) -> None:
+        digest = str(artifact.digest)
+        with self._lock:
+            self._verified_taskset_directories[digest] = artifact.taskset.directory
+            self._tasksets[digest] = artifact
+            self._tasksets.move_to_end(digest)
+            while len(self._tasksets) > TASKSET_CACHE_LIMIT:
+                self._tasksets.popitem(last=False)
 
     def _acquire_credential(
         self, audience: str, context: OperationContext
