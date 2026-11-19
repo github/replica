@@ -229,6 +229,22 @@ describe("replica-learning CLI: the first learning milestone", () => {
       assert.match(refused.stderr, /purpose_not_granted/)
     }
     assert.equal(existsSync(path.join(repo, ".replica", "learning", "exports")), false)
+    const previewPath = path.join(".replica", "training-preview.json")
+    const previewed = (
+      await ok(repo, [
+        "export",
+        "--purpose",
+        "instruction",
+        "--by",
+        "github:ana-designer",
+        "--preview",
+        "--out",
+        previewPath,
+        "--json",
+      ])
+    ).json()
+    assert.equal(previewed.counts.memories, 1)
+    assert.equal(existsSync(path.join(repo, previewPath)), true)
     const exported = (
       await ok(repo, [
         "export",

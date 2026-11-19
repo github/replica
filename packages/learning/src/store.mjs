@@ -2269,7 +2269,7 @@ class LearningStore {
    * With contents "learnings", only accepted learnings and the grants that permit their
    * evidence leave; episodes and their review comments stay in the store.
    */
-  async exportRecords(context, { purpose, destination, contents = "all" } = {}) {
+  async exportRecords(context, { purpose, destination, contents = "all", preview = false } = {}) {
     assertContext(context)
     requireHuman(context, "export learning records")
     if (!PURPOSES.includes(purpose))
@@ -2282,11 +2282,12 @@ class LearningStore {
     const now = this.#now()
     const { eligibility, grants } = await this.#eligibility(context, now)
     if (!eligibility.purposeGranted(context.scope, purpose)) {
-      await this.#audit(context, "export.create", [], {
-        purpose,
-        outcome: "refused",
-        reason: `No grant permits ${purpose}.`,
-      })
+      if (!preview)
+        await this.#audit(context, "export.create", [], {
+          purpose,
+          outcome: "refused",
+          reason: `No grant permits ${purpose}.`,
+        })
       throw new LearningError(
         "purpose_not_granted",
         `No active grant in this scope permits ${purpose}.`,
@@ -2509,18 +2510,19 @@ class LearningStore {
       ],
     })
     assertValid("exportManifest", manifest)
-    await this.#append(
-      "exports",
-      [manifest],
-      [
-        this.#auditEntry(
-          context,
-          "export.create",
-          [{ kind: "export", id: manifest.id, digest: manifest.digest }],
-          { purpose },
-        ),
-      ],
-    )
+    if (!preview)
+      await this.#append(
+        "exports",
+        [manifest],
+        [
+          this.#auditEntry(
+            context,
+            "export.create",
+            [{ kind: "export", id: manifest.id, digest: manifest.digest }],
+            { purpose },
+          ),
+        ],
+      )
     return {
       manifest,
       bundle: { manifest, grants: exportedGrants, collections, episodes, memories },

@@ -79,7 +79,7 @@ Use
                                   --task-file - reads the task from standard input;
                                   --preview shows a person what an agent would get,
                                   unaudited
-  export --purpose <p> --by <id> [--out <file>] [--learnings-only]
+  export --purpose <p> --by <id> [--out <file>] [--learnings-only] [--preview]
 
 Decision model
   decision models                 Base models suggested for checking screenshots
@@ -1110,6 +1110,7 @@ async function exportRecords(session) {
     purpose,
     destination,
     contents: session.values["learnings-only"] ? "learnings" : "all",
+    preview: session.values.preview === true,
   })
   await mkdir(path.dirname(destination), { recursive: true, mode: 0o700 })
   await writeFile(destination, `${JSON.stringify(bundle, null, 2)}\n`, {

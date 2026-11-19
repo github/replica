@@ -842,6 +842,8 @@ export interface LearningStore {
       purpose: Purpose
       destination: string
       contents?: "all" | "learnings"
+      /** Prepare the exact bundle without recording an export or export audit. */
+      preview?: boolean
     },
   ): Promise<{
     manifest: ExportManifest

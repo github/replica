@@ -70,7 +70,7 @@ function storage(
   }
 }
 
-function source(artifactStorage: ArtifactStorage) {
+function hubSource(artifactStorage: ArtifactStorage) {
   return createHubDecisionTasksetSource({
     applicationRoot: process.cwd(),
     artifactStorage,
@@ -80,7 +80,11 @@ function source(artifactStorage: ArtifactStorage) {
     hubOrigin: "https://hub.example.test",
     learningRoot: "server/domains/decision-model/create-hub-decision-taskset-source/.learning",
     staticDirectories: [],
-  }).tasksetSource
+  })
+}
+
+function source(artifactStorage: ArtifactStorage) {
+  return hubSource(artifactStorage).tasksetSource
 }
 
 function artifact(kind: "manifest" | "screenshot", path: string, key: string, bytes: Uint8Array) {
@@ -113,11 +117,221 @@ function decodeArchive(bytes: Uint8Array) {
     schemaVersion: string
     builds: { builds: Array<{ screenshots: Array<Record<string, unknown>> }> }
     files: Array<Record<string, unknown>>
-    issues: string[]
+    issues: { code: string }[]
   }
 }
 
 describe("createHubDecisionTasksetSource()", () => {
+  it("reports deterministic eligible evidence, task, split, and label counts", async () => {
+    vi.mocked(withLearningExecutionLock).mockImplementation(({ run }) =>
+      run(new AbortController().signal),
+    )
+    vi.mocked(prepareLearningStore).mockResolvedValue({
+      directory: "/private/learning/repository",
+      repositoryScope: `github.com/repositories/${repositoryId}`,
+    })
+    vi.mocked(captureRepositoryReviewSnapshot).mockResolvedValue({
+      repository: { id: repositoryId },
+      threads: [],
+    } as never)
+    vi.mocked(createHubReviewCollection).mockReturnValue({
+      collection: { schemaVersion: "replica.learning-collection/v1", records: [] },
+      digest: `sha256:${"b".repeat(64)}`,
+    } as never)
+    vi.mocked(runLearningCommand).mockImplementation(async (arguments_) => {
+      if (arguments_[0] === "grants") {
+        return [
+          {
+            grant: { id: "grant-training", sources: ["hub_review_comments"] },
+            activePurposes: ["training"],
+            expired: false,
+          },
+        ]
+      }
+      if (arguments_[0] === "import") return { complete: true, problems: [] }
+      const output = arguments_[arguments_.indexOf("--out") + 1]!
+      if (arguments_[0] === "export") {
+        await writeFile(
+          output,
+          JSON.stringify({
+            manifest: {
+              id: "volatile",
+              createdAt: "2026-01-05T00:00:00.000Z",
+              digest: `sha256:${"a".repeat(64)}`,
+              records: [],
+              excluded: [{ reason: "event-redacted", count: 2 }],
+            },
+            grants: [],
+            collections: [],
+            episodes: [],
+            memories: [],
+          }),
+        )
+        return {}
+      }
+      await mkdir(join(output, "images"), { recursive: true })
+      await writeFile(
+        join(output, "taskset.json"),
+        JSON.stringify({
+          counts: { tasks: 10, train: 6, dev: 2, test: 2, follows: 7, breaks: 3 },
+          skipped: { "status-ambiguous": 2, "learning-over-limit": 1 },
+        }),
+      )
+      await writeFile(
+        join(output, "tasks.jsonl"),
+        `${JSON.stringify({
+          questions: {
+            mem_111111111111111111111111: { type: "noul" },
+            mem_222222222222222222222222: { type: "noul" },
+          },
+        })}\n`,
+      )
+      return {}
+    })
+    const captures = {
+      "root-desktop": createPng(),
+      "root-desktop-dark": createPng(),
+      "root-narrow": createPng(390, 844),
+      "root-narrow-dark": createPng(390, 844),
+    }
+    const artifacts = [
+      artifact("screenshot", "screenshots/desktop.png", "root-desktop", captures["root-desktop"]),
+      artifact(
+        "screenshot",
+        "screenshots/desktop-dark.png",
+        "root-desktop-dark",
+        captures["root-desktop-dark"],
+      ),
+      artifact("screenshot", "screenshots/narrow.png", "root-narrow", captures["root-narrow"]),
+      artifact(
+        "screenshot",
+        "screenshots/narrow-dark.png",
+        "root-narrow-dark",
+        captures["root-narrow-dark"],
+      ),
+    ]
+    vi.mocked(listDecisionTrainingBuilds).mockResolvedValue(repository(artifacts))
+    const decisionSource = hubSource(storage(captures))
+
+    const first = await decisionSource.tasksetSource.preflight({
+      repositoryId,
+      actorMembershipId: "44444444-4444-4444-8444-444444444444",
+    })
+    const second = await decisionSource.tasksetSource.preflight({
+      repositoryId,
+      actorMembershipId: "44444444-4444-4444-8444-444444444444",
+    })
+
+    expect(first).toEqual(second)
+    expect(first).toMatchObject({
+      state: "ready",
+      counts: {
+        prototypes: 1,
+        builds: 1,
+        pages: 1,
+        screenshots: 4,
+        questions: 2,
+        tasks: 10,
+        train: 6,
+        dev: 2,
+        test: 2,
+        follows: 7,
+        breaks: 3,
+      },
+      reasons: [
+        { code: "event-redacted", count: 2 },
+        { code: "learning-over-limit", count: 1 },
+        { code: "status-ambiguous", count: 2 },
+      ],
+    })
+    expect(first.digests.reviewSnapshot).toBe(`sha256:${"b".repeat(64)}`)
+    expect(first.digests.export).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect(first.digests.buildSet).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect(first.digests.questionSet).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect(first.digests.taskset).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect(
+      vi
+        .mocked(runLearningCommand)
+        .mock.calls.map(([arguments_]) => arguments_)
+        .filter(([command]) => command === "export"),
+    ).toEqual([expect.arrayContaining(["--preview"]), expect.arrayContaining(["--preview"])])
+  })
+
+  it("reports withheld, corrupt, and missing evidence without exposing evidence or another repository", async () => {
+    const otherRepositoryId = "99999999-9999-4999-8999-999999999999"
+    const privateEvidence = "Do not expose this private learning"
+    vi.mocked(withLearningExecutionLock).mockImplementation(({ run }) =>
+      run(new AbortController().signal),
+    )
+    vi.mocked(prepareLearningStore).mockResolvedValue({
+      directory: "/private/learning/repository",
+      repositoryScope: `github.com/repositories/${repositoryId}`,
+    })
+    vi.mocked(captureRepositoryReviewSnapshot).mockResolvedValue({
+      repository: { id: repositoryId },
+      threads: [],
+    } as never)
+    vi.mocked(createHubReviewCollection).mockReturnValue({
+      collection: {
+        schemaVersion: "replica.learning-collection/v1",
+        records: [{ repositoryId: otherRepositoryId, content: privateEvidence }],
+      },
+      digest: `sha256:${"c".repeat(64)}`,
+    } as never)
+    vi.mocked(runLearningCommand).mockResolvedValue([])
+    const artifacts = [
+      artifact("screenshot", "screenshots/desktop.png", "corrupt", Uint8Array.of(1, 2, 3)),
+      artifact("screenshot", "screenshots/narrow.png", "missing", png),
+    ]
+    vi.mocked(listDecisionTrainingBuilds).mockImplementation((_, requestedRepositoryId) => {
+      expect(requestedRepositoryId).toBe(repositoryId)
+      return Promise.resolve(repository(artifacts)) as never
+    })
+
+    const result = await hubSource(
+      storage({ corrupt: Uint8Array.of(1, 2, 3), missing: "not-found" }),
+    ).tasksetSource.preflight({
+      repositoryId,
+      actorMembershipId: "44444444-4444-4444-8444-444444444444",
+    })
+
+    expect(result).toMatchObject({
+      state: "blocked",
+      counts: {
+        prototypes: 1,
+        builds: 1,
+        pages: 0,
+        screenshots: 0,
+        questions: 0,
+        tasks: 0,
+        train: 0,
+        dev: 0,
+        test: 0,
+        follows: 0,
+        breaks: 0,
+      },
+      reasons: [
+        { code: "artifact-corrupt", count: 1 },
+        { code: "artifact-missing", count: 1 },
+        { code: "consent-withheld", count: 1 },
+        { code: "screenshot-coverage-incomplete", count: 1 },
+      ],
+      digests: {
+        export: null,
+        reviewSnapshot: `sha256:${"c".repeat(64)}`,
+        questionSet: null,
+        taskset: null,
+      },
+    })
+    expect(JSON.stringify(result)).not.toContain(privateEvidence)
+    expect(JSON.stringify(result)).not.toContain(otherRepositoryId)
+    expect(runLearningCommand).toHaveBeenCalledTimes(1)
+    expect(runLearningCommand).toHaveBeenCalledWith(
+      expect.arrayContaining(["--repository", `github.com/repositories/${repositoryId}`]),
+      expect.anything(),
+    )
+  })
+
   it("exports repository-scoped learning evidence deterministically on retry", async () => {
     vi.mocked(withLearningExecutionLock).mockImplementation(({ run }) =>
       run(new AbortController().signal),
@@ -209,6 +423,13 @@ describe("createHubDecisionTasksetSource()", () => {
         "training",
       ]),
     ])
+    expect(
+      vi
+        .mocked(runLearningCommand)
+        .mock.calls.map(([arguments_]) => arguments_)
+        .filter(([command]) => command === "export")
+        .some((arguments_) => arguments_.includes("--preview")),
+    ).toBe(false)
   })
 
   it("maps root and template captures to exact routes, viewports, themes, media, and digests", async () => {
@@ -319,6 +540,62 @@ describe("createHubDecisionTasksetSource()", () => {
     expect(archive.files[0]).toMatchObject({ mediaType: "image/png", digest: digest(png) })
   })
 
+  it("prepares deterministic Build views with the learning IDs and text used at evaluation", async () => {
+    const learningId = "mem_111111111111111111111111"
+    const captures = {
+      "root-narrow-dark": createPng(390, 844),
+      "root-desktop": createPng(),
+      "root-narrow": createPng(390, 844),
+      "root-desktop-dark": createPng(),
+    }
+    const artifacts = [
+      artifact(
+        "screenshot",
+        "screenshots/narrow-dark.png",
+        "root-narrow-dark",
+        captures["root-narrow-dark"],
+      ),
+      artifact("screenshot", "screenshots/desktop.png", "root-desktop", captures["root-desktop"]),
+      artifact("screenshot", "screenshots/narrow.png", "root-narrow", captures["root-narrow"]),
+      artifact(
+        "screenshot",
+        "screenshots/desktop-dark.png",
+        "root-desktop-dark",
+        captures["root-desktop-dark"],
+      ),
+    ]
+    vi.mocked(listDecisionTrainingBuilds).mockResolvedValue(repository(artifacts))
+    vi.mocked(prepareLearningStore).mockResolvedValue({
+      directory: "/private/learning/repository",
+      repositoryScope: `github.com/repositories/${repositoryId}`,
+    })
+    vi.mocked(runLearningCommand).mockResolvedValue({
+      questions: {
+        [learningId]: {
+          type: "noul",
+          learning_text: "Use the approved account heading.",
+        },
+      },
+      rules: [{ id: learningId, text: "Use the approved account heading." }],
+    })
+
+    const prepared = await hubSource(storage(captures)).prepareBuildEvaluation({
+      repositoryId,
+      buildId,
+    })
+
+    expect(prepared.route).toBe("/")
+    expect(prepared.views).toEqual([
+      { viewport: "desktop", theme: "light" },
+      { viewport: "desktop", theme: "dark" },
+      { viewport: "narrow", theme: "light" },
+      { viewport: "narrow", theme: "dark" },
+    ])
+    expect(prepared.images).toHaveLength(4)
+    expect(prepared.questionDigest).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect(prepared.screenshotSetDigest).toMatch(/^sha256:[0-9a-f]{64}$/)
+  })
+
   it("refuses a Build selection that changes while artifacts are being read", async () => {
     const artifacts = [artifact("screenshot", "screenshots/desktop.png", "capture", png)]
     vi.mocked(listDecisionTrainingBuilds)
@@ -331,9 +608,9 @@ describe("createHubDecisionTasksetSource()", () => {
   })
 
   it.each([
-    ["missing", "not-found" as const, png.byteLength, "not-found"],
-    ["storage unavailable", "unavailable" as const, png.byteLength, "unavailable"],
-    ["corrupt", Uint8Array.of(1, 2, 3), 3, "corrupt"],
+    ["missing", "not-found" as const, png.byteLength, "artifact-missing"],
+    ["storage unavailable", "unavailable" as const, png.byteLength, "artifact-unavailable"],
+    ["corrupt", Uint8Array.of(1, 2, 3), 3, "artifact-corrupt"],
   ])(
     "marks a %s screenshot set incomplete instead of producing a taskset",
     async (_, result, size, issue) => {
@@ -345,7 +622,11 @@ describe("createHubDecisionTasksetSource()", () => {
       const buildSet = await tasksetSource.readBuildArtifacts(repositoryId)
 
       expect(buildSet.complete).toBe(false)
-      expect(decodeArchive(buildSet.bytes).issues.join(" ")).toContain(issue)
+      expect(
+        decodeArchive(buildSet.bytes)
+          .issues.map(({ code }) => code)
+          .join(" "),
+      ).toContain(issue)
       await expect(
         tasksetSource.createTaskset({
           trainingExport: new TextEncoder().encode("{}"),
@@ -418,7 +699,7 @@ describe("createHubDecisionTasksetSource()", () => {
     const second = await tasksetSource.createTaskset({ trainingExport, builds })
 
     expect(first).toEqual(second)
-    expect(first.tasksetDigest).toBe(digest(first.archive))
+    expect(first.tasksetDigest).toMatch(/^sha256:[0-9a-f]{64}$/)
     expect(runLearningCommand).toHaveBeenNthCalledWith(
       1,
       expect.arrayContaining(["decision", "taskset", "--export", "--builds", "--out"]),
@@ -427,19 +708,10 @@ describe("createHubDecisionTasksetSource()", () => {
     for (const directory of temporaryDirectories) {
       await expect(stat(directory)).rejects.toMatchObject({ code: "ENOENT" })
     }
-    const archived = JSON.parse(new TextDecoder().decode(first.archive)) as {
-      schemaVersion: string
-      files: Array<{ path: string; bytes: string }>
-    }
-    expect(archived.schemaVersion).toBe("replica.decision-taskset-archive/v1")
-    expect(
-      JSON.parse(
-        Buffer.from(
-          archived.files.find(({ path }) => path === "taskset.json")!.bytes,
-          "base64",
-        ).toString("utf8"),
-      ),
-    ).toMatchObject({ createdAt: "2026-01-05T00:00:00.000Z" })
+    expect(first.upload.schemaVersion).toBe("replica.decision-taskset-upload/v1")
+    expect(first.upload.manifest).toMatchObject({ createdAt: "2026-01-05T00:00:00.000Z" })
+    expect(first.upload.tasks).toHaveLength(1)
+    expect(first.upload.images).toHaveLength(1)
   })
 
   it("removes private staging when taskset creation fails", async () => {

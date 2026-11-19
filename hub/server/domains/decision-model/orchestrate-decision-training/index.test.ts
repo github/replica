@@ -1148,6 +1148,8 @@ describe("decision training orchestration", () => {
               ],
               followsProbability: 0.82,
               breaksProbability: 0.18,
+              explanation:
+                "Across the submitted captured views, the promoted decision model found the Build at least as likely to follow the learning as break it.",
             },
           ],
         },

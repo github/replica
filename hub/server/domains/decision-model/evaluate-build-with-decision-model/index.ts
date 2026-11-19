@@ -67,6 +67,10 @@ export async function evaluateBuildWithDecisionModel(
           views: prepared.views,
           followsProbability: evaluation.followsProbability,
           breaksProbability: evaluation.breaksProbability,
+          explanation:
+            evaluation.breaksProbability > evaluation.followsProbability
+              ? "Across the submitted captured views, the promoted decision model found the Build more likely to break the learning than follow it."
+              : "Across the submitted captured views, the promoted decision model found the Build at least as likely to follow the learning as break it.",
         }
       })
       const saved = await dependencies.store.saveBuildEvaluation({

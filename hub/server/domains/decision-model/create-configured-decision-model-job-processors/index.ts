@@ -53,9 +53,14 @@ export function createConfiguredDecisionModelJobProcessors(
           import("../prepare-decision-taskset/index.ts").then(({ prepareDecisionTaskset }) =>
             prepareDecisionTaskset(input, source.tasksetSource),
           ),
+        preflightTaskset: (input) =>
+          import("../prepare-decision-taskset/index.ts").then(({ preflightDecisionTaskset }) =>
+            preflightDecisionTaskset(input, source.tasksetSource),
+          ),
         prepareBuildEvaluation: (input) => source.prepareBuildEvaluation(input),
         runtime: createDecisionRuntimeClient(runtimeConfiguration),
         store: createDecisionModelStore(prisma),
+        withControlLock: (operation) => operation(new AbortController().signal),
       },
     })
   }

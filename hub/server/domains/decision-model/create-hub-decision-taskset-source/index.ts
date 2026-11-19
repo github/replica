@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { chmod, mkdir, mkdtemp, opendir, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { z } from "zod"
@@ -14,7 +14,11 @@ import { listDecisionTrainingBuilds } from "../../../repositories/decision-train
 import { withLearningExecutionLock } from "../../../integrations/postgres/with-learning-execution-lock/index.ts"
 import { DecisionModelError } from "../errors.ts"
 import type { DecisionTasksetPreparationSource } from "../prepare-decision-taskset/index.ts"
-import type { PreparedBuildEvaluation } from "../types.ts"
+import type {
+  DecisionTrainingPreflight,
+  PreparedBuildEvaluation,
+  PreparedDecisionTaskset,
+} from "../types.ts"
 
 const maximumPrototypes = 200
 const maximumBuildsPerPrototype = 200
@@ -49,11 +53,30 @@ const exportManifestSchema = z
     createdAt: z.string(),
     digest: z.string(),
     records: z.array(z.unknown()),
+    excluded: z
+      .array(
+        z
+          .object({
+            reason: z.string().min(1).max(100),
+            count: z.number().int().positive(),
+          })
+          .strict(),
+      )
+      .default([]),
   })
   .loose()
 const tasksetManifestSchema = z
   .object({
-    counts: z.object({ tasks: z.number().int().nonnegative() }).loose(),
+    counts: z
+      .object({
+        tasks: z.number().int().nonnegative(),
+        train: z.number().int().nonnegative().default(0),
+        dev: z.number().int().nonnegative().default(0),
+        test: z.number().int().nonnegative().default(0),
+        follows: z.number().int().nonnegative().default(0),
+        breaks: z.number().int().nonnegative().default(0),
+      })
+      .loose(),
     skipped: z.record(z.string(), z.number().int().nonnegative()),
   })
   .loose()
@@ -98,7 +121,15 @@ interface BuildSetArchive {
     mediaType: "image/png"
     bytes: string
   }[]
-  issues: string[]
+  issues: {
+    code:
+      | "artifact-corrupt"
+      | "artifact-missing"
+      | "artifact-too-large"
+      | "artifact-unavailable"
+      | "artifact-unmapped"
+      | "screenshot-coverage-incomplete"
+  }[]
 }
 
 function sha256(bytes: Uint8Array | string): string {
@@ -235,47 +266,46 @@ function snapshotTime(snapshot: Awaited<ReturnType<typeof captureRepositoryRevie
     : new Date("1970-01-01T00:00:00.000Z")
 }
 
-async function archiveDirectory(directory: string) {
-  const files: { path: string; digest: string; bytes: string }[] = []
-  let totalBytes = 0
-  async function visit(current: string, parent = ""): Promise<void> {
-    const entries = []
-    const handle = await opendir(current)
-    for await (const entry of handle) entries.push(entry)
-    entries.sort((left, right) => left.name.localeCompare(right.name))
-    for (const entry of entries) {
-      const relative = parent ? `${parent}/${entry.name}` : entry.name
-      const absolute = join(current, entry.name)
-      const details = await stat(absolute)
-      if (details.isDirectory()) {
-        await visit(absolute, relative)
-      } else if (details.isFile()) {
-        if (files.length >= maximumTasksetFiles) {
-          throw new DecisionModelError(
-            409,
-            "taskset_drift",
-            "The decision taskset has too many files.",
-          )
-        }
-        const bytes = await readFile(absolute)
-        totalBytes += bytes.byteLength
-        if (totalBytes > maximumTasksetBytes) {
-          throw new DecisionModelError(409, "taskset_drift", "The decision taskset is too large.")
-        }
-        files.push({ path: relative, digest: sha256(bytes), bytes: bytes.toString("base64") })
-      } else {
-        throw new DecisionModelError(
-          409,
-          "taskset_drift",
-          "The decision taskset contains an unsupported file.",
-        )
-      }
-    }
+async function readTasksetUpload(directory: string): Promise<PreparedDecisionTaskset["upload"]> {
+  const manifest = JSON.parse(await readFile(join(directory, "taskset.json"), "utf8")) as Record<
+    string,
+    unknown
+  >
+  const tasks = (await readFile(join(directory, "tasks.jsonl"), "utf8"))
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+  const imageNames = (await readdir(join(directory, "images"))).sort()
+  if (imageNames.length + 2 > maximumTasksetFiles) {
+    throw new DecisionModelError(409, "taskset_drift", "The decision taskset has too many files.")
   }
-  await visit(directory)
-  return new TextEncoder().encode(
-    canonicalJson({ schemaVersion: "replica.decision-taskset-archive/v1", files }),
-  )
+  let totalBytes =
+    Buffer.byteLength(canonicalJson(manifest)) + Buffer.byteLength(canonicalJson(tasks))
+  const images = []
+  for (const name of imageNames) {
+    const path = `images/${name}`
+    const bytes = await readFile(join(directory, path))
+    totalBytes += bytes.byteLength
+    if (totalBytes > maximumTasksetBytes) {
+      throw new DecisionModelError(409, "taskset_drift", "The decision taskset is too large.")
+    }
+    images.push({
+      path,
+      mediaType: name.endsWith(".webp")
+        ? "image/webp"
+        : name.endsWith(".jpg") || name.endsWith(".jpeg")
+          ? "image/jpeg"
+          : "image/png",
+      digest: sha256(bytes),
+      dataBase64: bytes.toString("base64"),
+    })
+  }
+  return {
+    schemaVersion: "replica.decision-taskset-upload/v1",
+    manifest,
+    tasks,
+    images,
+  }
 }
 
 function buildSelection(
@@ -341,7 +371,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
       )
     }
     const files: BuildSetArchive["files"] = []
-    const issues: string[] = []
+    const issues: BuildSetArchive["issues"] = []
     const builds = []
     let totalBytes = 0
     for (const prototype of repository.prototypes) {
@@ -370,9 +400,16 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
           if (result.status === "ok" && result.bytes.byteLength === manifest.byteLength) {
             manifestBytes = result.bytes
           } else if (result.status === "ok") {
-            issues.push(`Build ${build.id} manifest is corrupt.`)
+            issues.push({ code: "artifact-corrupt" })
           } else {
-            issues.push(`Build ${build.id} manifest is ${result.status}.`)
+            issues.push({
+              code:
+                result.status === "not-found"
+                  ? "artifact-missing"
+                  : result.status === "too-large"
+                    ? "artifact-too-large"
+                    : "artifact-unavailable",
+            })
           }
         }
         let templates: Map<string, string>
@@ -380,7 +417,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
           templates = parseTemplates(manifestBytes)
         } catch {
           templates = new Map()
-          issues.push(`Build ${build.id} manifest is corrupt.`)
+          issues.push({ code: "artifact-corrupt" })
         }
         const screenshots = []
         for (const artifact of artifacts.filter((item) => item.kind === "screenshot")) {
@@ -407,19 +444,26 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
           }
           const descriptor = screenshotDescriptor(artifact.path, templates)
           if (!descriptor) {
-            issues.push(`Build ${build.id} has an unmapped screenshot ${artifact.path}.`)
+            issues.push({ code: "artifact-unmapped" })
             continue
           }
           const result = await options.artifactStorage.read(artifact.storageKey)
           if (result.status !== "ok") {
-            issues.push(`Build ${build.id} screenshot ${artifact.path} is ${result.status}.`)
+            issues.push({
+              code:
+                result.status === "not-found"
+                  ? "artifact-missing"
+                  : result.status === "too-large"
+                    ? "artifact-too-large"
+                    : "artifact-unavailable",
+            })
             continue
           }
           if (
             result.bytes.byteLength !== artifact.byteLength ||
             !validPngDimensions(result.bytes, descriptor.viewport)
           ) {
-            issues.push(`Build ${build.id} screenshot ${artifact.path} is corrupt.`)
+            issues.push({ code: "artifact-corrupt" })
             continue
           }
           totalBytes += result.bytes.byteLength
@@ -465,7 +509,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
             new Set(routeScreenshots.map((screenshot) => `${screenshot.size}/${screenshot.theme}`))
               .size !== 4
           ) {
-            issues.push(`Build ${build.id} route ${route} has incomplete screenshot coverage.`)
+            issues.push({ code: "screenshot-coverage-incomplete" })
           }
         }
         builds.push({
@@ -503,13 +547,152 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
         builds,
       },
       files,
-      issues: [...new Set(issues)].sort(),
+      issues: issues.sort(({ code: left }, { code: right }) =>
+        left < right ? -1 : left > right ? 1 : 0,
+      ),
     }
   }
 
+  function buildCoverage(bundle: BuildSetArchive) {
+    const prototypes = new Set(bundle.builds.builds.map((build) => build.prototypeId))
+    const pages = new Set(
+      bundle.builds.builds.flatMap((build) =>
+        build.screenshots.map((screenshot) => `${build.id}\0${screenshot.route}`),
+      ),
+    )
+    return {
+      prototypes: prototypes.size,
+      builds: bundle.builds.builds.length,
+      pages: pages.size,
+      screenshots: bundle.files.length,
+    }
+  }
+
+  function reasonCounts(codes: string[]) {
+    const counts = new Map<string, number>()
+    for (const code of codes) counts.set(code, (counts.get(code) ?? 0) + 1)
+    return [...counts]
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([code, count]) => ({ code, count }))
+  }
+
+  function exportReasons(bytes: Uint8Array) {
+    if (!bytes.byteLength) return []
+    const bundle = z
+      .object({ manifest: exportManifestSchema })
+      .loose()
+      .parse(JSON.parse(new TextDecoder().decode(bytes)))
+    return bundle.manifest.excluded.flatMap(({ reason, count }) =>
+      Array.from({ length: count }, () => reason),
+    )
+  }
+
+  function readPreparedTaskset(upload: PreparedDecisionTaskset["upload"]) {
+    const manifest = tasksetManifestSchema.parse(upload.manifest)
+    const firstTask = upload.tasks[0] as { questions?: Record<string, unknown> } | undefined
+    return { manifest, questions: firstTask?.questions ?? {} }
+  }
+
+  let tasksetSource: DecisionTasksetPreparationSource
   return {
-    tasksetSource: {
-      async exportTrainingEvidence({ repositoryId, actorMembershipId }) {
+    tasksetSource: (tasksetSource = {
+      async preflight({ repositoryId, actorMembershipId }): Promise<DecisionTrainingPreflight> {
+        const [trainingExport, buildArtifacts] = await Promise.all([
+          tasksetSource.exportTrainingEvidence({
+            repositoryId,
+            actorMembershipId,
+            preview: true,
+          }),
+          tasksetSource.readBuildArtifacts(repositoryId),
+        ])
+        const buildBundle = JSON.parse(
+          new TextDecoder().decode(buildArtifacts.bytes),
+        ) as BuildSetArchive
+        const coverage = buildCoverage(buildBundle)
+        const reasons = [
+          ...(trainingExport.consentGrantId ? [] : ["consent-withheld"]),
+          ...exportReasons(trainingExport.bytes),
+          ...buildBundle.issues.map(({ code }) => code),
+        ]
+        const emptyCounts = {
+          ...coverage,
+          questions: 0,
+          samples: 0,
+          tasks: 0,
+          train: 0,
+          dev: 0,
+          test: 0,
+          follows: 0,
+          breaks: 0,
+        }
+        if (!trainingExport.consentGrantId || !buildArtifacts.complete) {
+          const counted = reasonCounts(reasons)
+          return {
+            state: "blocked",
+            counts: emptyCounts,
+            warnings: counted.map(({ code, count }) => ({ code, count, message: code })),
+            reasons: counted,
+            digests: {
+              export: trainingExport.consentGrantId ? trainingExport.digest : null,
+              reviewSnapshot: trainingExport.repeatableReviewSnapshotDigest,
+              buildSet: buildArtifacts.digest,
+              questionSet: null,
+              taskset: null,
+            },
+          }
+        }
+        try {
+          const taskset = await tasksetSource.createTaskset({
+            trainingExport: trainingExport.bytes,
+            builds: buildArtifacts.bytes,
+          })
+          const prepared = readPreparedTaskset(taskset.upload)
+          const skipped = [
+            ...reasons,
+            ...Object.entries(prepared.manifest.skipped).flatMap(([code, count]) =>
+              Array.from({ length: count }, () => code),
+            ),
+          ]
+          const counted = reasonCounts(skipped)
+          return {
+            state: skipped.some((code) => incompleteEvidenceReasons.has(code))
+              ? "blocked"
+              : "ready",
+            counts: {
+              ...coverage,
+              questions: Object.keys(prepared.questions).length,
+              samples: prepared.manifest.counts.tasks,
+              ...prepared.manifest.counts,
+            },
+            warnings: counted.map(({ code, count }) => ({ code, count, message: code })),
+            reasons: counted,
+            digests: {
+              export: trainingExport.digest,
+              reviewSnapshot: trainingExport.repeatableReviewSnapshotDigest,
+              buildSet: buildArtifacts.digest,
+              questionSet: taskset.questionDigest,
+              taskset: taskset.tasksetDigest,
+            },
+          }
+        } catch (error) {
+          if (!(error instanceof DecisionModelError) || error.code !== "taskset_drift") throw error
+          const counted = reasonCounts([...reasons, "evidence-incomplete"])
+          return {
+            state: "blocked",
+            counts: emptyCounts,
+            warnings: counted.map(({ code, count }) => ({ code, count, message: code })),
+            reasons: counted,
+            digests: {
+              export: trainingExport.digest,
+              reviewSnapshot: trainingExport.repeatableReviewSnapshotDigest,
+              buildSet: buildArtifacts.digest,
+              questionSet: null,
+              taskset: null,
+            },
+          }
+        }
+      },
+      async exportTrainingEvidence({ repositoryId, actorMembershipId, preview = false }) {
         return withLearningExecutionLock({
           databaseUrl: options.databaseUrl,
           run: async (signal) => {
@@ -582,6 +765,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
                   "training",
                   "--by",
                   `human:${actorMembershipId}`,
+                  ...(preview ? ["--preview"] : []),
                   "--out",
                   exportPath,
                   ...common,
@@ -621,7 +805,9 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
             throw new DecisionModelError(
               409,
               "taskset_drift",
-              `The Build screenshot set is incomplete: ${bundle.issues.join(" ")}`,
+              `The Build screenshot set is incomplete: ${bundle.issues
+                .map(({ code }) => code)
+                .join(", ")}.`,
             )
           }
           const exportPath = join(temporary, "training-export.json")
@@ -689,27 +875,27 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
             ).createdAt,
           }
           await writeFile(tasksetPath, `${JSON.stringify(normalized, null, 2)}\n`, { mode: 0o600 })
-          const firstTask = JSON.parse(
-            (await readFile(join(output, "tasks.jsonl"), "utf8")).split("\n")[0]!,
-          ) as { questions: unknown }
-          const archive = await archiveDirectory(output)
+          const upload = await readTasksetUpload(output)
+          const firstTask = upload.tasks[0] as { questions?: unknown } | undefined
           return {
-            archive,
-            questionDigest: digestJson(firstTask.questions),
-            tasksetDigest: sha256(archive),
+            upload,
+            questionDigest: digestJson(firstTask?.questions ?? {}),
+            tasksetDigest: digestJson(upload),
           }
         } finally {
           await rm(temporary, { recursive: true, force: true })
         }
       },
-    },
+    }),
     async prepareBuildEvaluation({ repositoryId, buildId }) {
       const buildSet = await readBuildSet(repositoryId, buildId)
       if (buildSet.issues.length) {
         throw new DecisionModelError(
           409,
           "taskset_drift",
-          `The Build screenshot set is incomplete: ${buildSet.issues.join(" ")}`,
+          `The Build screenshot set is incomplete: ${buildSet.issues
+            .map(({ code }) => code)
+            .join(", ")}.`,
         )
       }
       const store = await learningStore(repositoryId)
@@ -725,11 +911,15 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
         store.repositoryScope,
       ])) as { questions: Record<string, unknown> }
       const build = buildSet.builds.builds[0]!
+      const route = build.screenshots.some((screenshot) => screenshot.route === "/")
+        ? "/"
+        : build.screenshots[0]!.route
+      const screenshots = build.screenshots.filter((screenshot) => screenshot.route === route)
       const files = new Map(buildSet.files.map((file) => [file.path, file]))
-      const orderedFiles = build.screenshots.map((screenshot) => files.get(screenshot.path)!)
+      const orderedFiles = screenshots.map((screenshot) => files.get(screenshot.path)!)
       return {
         state: {
-          imagesNote: build.screenshots
+          imagesNote: screenshots
             .map(
               (screenshot, index) =>
                 `Image ${index + 1} is route ${JSON.stringify(screenshot.route)} at ${screenshot.viewport.width} by ${screenshot.viewport.height} or taller in ${screenshot.theme} theme.`,
@@ -738,9 +928,11 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
         },
         images: orderedFiles.map((file) => `data:${file.mediaType};base64,${file.bytes}`),
         questions: questions.questions,
+        route,
+        views: screenshots.map(({ size, theme }) => ({ viewport: size, theme })),
         questionDigest: digestJson(questions.questions),
         screenshotSetDigest: digestJson({
-          build,
+          build: { ...build, screenshots },
           files: orderedFiles.map(({ path, digest, mediaType }) => ({
             path,
             digest,

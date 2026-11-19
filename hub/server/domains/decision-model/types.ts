@@ -29,18 +29,34 @@ export interface PreparedDecisionTaskset {
 }
 
 export interface DecisionTrainingPreflight {
+  state: "ready" | "blocked"
   counts: {
     prototypes: number
     builds: number
+    pages: number
     screenshots: number
     questions: number
     samples: number
+    tasks: number
+    train: number
+    dev: number
+    test: number
+    follows: number
+    breaks: number
   }
   warnings: {
     code: string
     message: string
     count?: number
   }[]
+  reasons: { code: string; count: number }[]
+  digests: {
+    export: string | null
+    reviewSnapshot: string
+    buildSet: string
+    questionSet: string | null
+    taskset: string | null
+  }
 }
 
 export interface PreparedBuildEvaluation {
@@ -68,6 +84,7 @@ export interface DecisionBuildEvaluationFinding {
   }[]
   followsProbability: number
   breaksProbability: number
+  explanation: string
 }
 
 export interface DecisionTrainingJobRecord {
