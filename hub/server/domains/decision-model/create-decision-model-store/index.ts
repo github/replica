@@ -528,7 +528,7 @@ export function createDecisionModelStore(
         await database.decisionRuntimeDeletion.findFirst({
           where: {
             repositoryId: input.repositoryId,
-            state: { in: ["PENDING", "COMPLETED"] },
+            state: { in: ["PENDING", "COMPLETED", "FAILED"] },
             OR: [
               { exportId: input.exportId },
               { grantId: input.grantId },
@@ -559,7 +559,7 @@ export function createDecisionModelStore(
         await database.decisionRuntimeDeletion.findFirst({
           where: {
             repositoryId,
-            state: { in: ["PENDING", "COMPLETED"] },
+            state: { in: ["PENDING", "COMPLETED", "FAILED"] },
             OR: [
               { exportId: candidate.trainingJob.trainingExportId },
               { grantId: candidate.trainingJob.consentGrantId },
