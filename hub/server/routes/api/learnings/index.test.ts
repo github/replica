@@ -5,7 +5,9 @@ import express from "express"
 import type { RequestHandler } from "express"
 import { describe, expect, it, vi } from "vitest"
 
+import { hashAuthenticationValue } from "../../../domains/authentication/hash-authentication-value"
 import { LearningCommandError } from "../../../integrations/learning/run-learning-command/errors.ts"
+import { LearningsError } from "./errors.ts"
 import { post as postDecision } from "./decision/post/index.ts"
 import { get as getLearnings } from "./get/index.ts"
 import { post as postRun } from "./runs/post/index.ts"
@@ -23,7 +25,7 @@ const session = {
   provider: "github",
   login: "mona",
   name: "Mona",
-  role: "ADMINISTRATOR" as const,
+  role: "MEMBER" as const,
 }
 
 function dependencies(
@@ -33,6 +35,8 @@ function dependencies(
     applicationOrigin: "http://127.0.0.1:5173",
     currentSession: { restore: vi.fn().mockResolvedValue(session) },
     findRepository: vi.fn().mockResolvedValue(repository),
+    authorizeRepositoryAdministration: vi.fn().mockResolvedValue(true),
+    auditRepositoryAdministrationDenial: vi.fn().mockResolvedValue(undefined),
     getOverview: vi.fn().mockResolvedValue({
       loadError: null,
       identityReviewCount: 1,
@@ -75,15 +79,49 @@ async function withRoute(
 const headers = { cookie: "hub_session=current-session" }
 
 describe("learning routes", () => {
-  it("returns no learning data or permissions to a signed-in non-administrator", async () => {
-    const member = { ...session, role: "MEMBER" as const }
+  it("returns retryable feedback when repository authority cannot be read", async () => {
+    const deps = dependencies({
+      authorizeRepositoryAdministration: vi
+        .fn()
+        .mockRejectedValue(
+          new LearningsError(
+            503,
+            "repository_authority_unavailable",
+            "Repository access is temporarily unavailable. Try again.",
+          ),
+        ),
+    })
+
+    await withRoute(
+      "get",
+      "/api/repositories/:repositoryId/learnings",
+      getLearnings(deps),
+      async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/api/repositories/${repositoryId}/learnings`, {
+          headers,
+        })
+
+        expect(response.status).toBe(503)
+        expect(await response.json()).toEqual({
+          code: "repository_authority_unavailable",
+          error: "Repository access is temporarily unavailable. Try again.",
+        })
+      },
+    )
+  })
+
+  it("returns no learning data or permissions to a Hub administrator without repository authority", async () => {
+    const administrator = { ...session, role: "ADMINISTRATOR" as const }
     const findRepository = vi.fn().mockResolvedValue(repository)
     const getOverview = vi.fn()
     const getCopilot = vi.fn()
     const listRuns = vi.fn()
+    const auditRepositoryAdministrationDenial = vi.fn().mockResolvedValue(undefined)
     const deps = dependencies({
-      currentSession: { restore: vi.fn().mockResolvedValue(member) },
+      currentSession: { restore: vi.fn().mockResolvedValue(administrator) },
       findRepository,
+      authorizeRepositoryAdministration: vi.fn().mockResolvedValue(false),
+      auditRepositoryAdministrationDenial,
       getOverview,
       getCopilot,
       listRuns,
@@ -102,16 +140,24 @@ describe("learning routes", () => {
         expect(await response.json()).toEqual({
           accessDenied: true,
           repository,
-          canAdministerHub: false,
+          capabilities: {
+            administerHub: true,
+            administerRepository: false,
+          },
         })
         expect(getOverview).not.toHaveBeenCalled()
         expect(getCopilot).not.toHaveBeenCalled()
         expect(listRuns).not.toHaveBeenCalled()
+        expect(auditRepositoryAdministrationDenial).toHaveBeenCalledWith({
+          actorMembershipId: administrator.membershipId,
+          operation: "learning_overview",
+          repositoryId,
+        })
       },
     )
   })
 
-  it("maps the administrator overview, exact evidence, and run history", async () => {
+  it("maps the repository administrator overview for a Hub member", async () => {
     const evidence = {
       eventId: "review-comment-17",
       commentId: 17,
@@ -176,8 +222,11 @@ describe("learning routes", () => {
         expect(await response.json()).toEqual({
           accessDenied: false,
           repository,
-          canAdministerHub: true,
-          permissions: { decide: true, requestRun: false },
+          capabilities: {
+            administerHub: false,
+            administerRepository: true,
+          },
+          permissions: { viewEvidence: true, decide: true, requestRun: false },
           copilot: { state: "connected", connectedBy: "mona" },
           usageCredits: "0.021",
           runAvailable: false,
@@ -188,6 +237,59 @@ describe("learning routes", () => {
           recall: { text: "Approved team learnings", count: 0 },
           runs: [run],
         })
+      },
+    )
+  })
+
+  it("does not expose loaded learning data after repository authority is lost", async () => {
+    const getOverview = vi.fn().mockResolvedValue({
+      loadError: null,
+      identityReviewCount: 0,
+      suggestions: [{ id: "private-suggestion" }],
+      learnings: [],
+      recall: { text: "private recall", count: 1 },
+    })
+    const getCopilot = vi.fn().mockResolvedValue({ state: "connected", connectedBy: "mona" })
+    const listRuns = vi.fn().mockResolvedValue({
+      runs: [{ id: 17 }],
+      usageCredits: "12.5",
+      active: false,
+    })
+    const deps = dependencies({
+      authorizeRepositoryAdministration: vi
+        .fn()
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false),
+      getOverview,
+      getCopilot,
+      listRuns,
+    })
+
+    await withRoute(
+      "get",
+      "/api/repositories/:repositoryId/learnings",
+      getLearnings(deps),
+      async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/api/repositories/${repositoryId}/learnings`, {
+          headers,
+        })
+        const body = await response.text()
+
+        expect(response.status).toBe(200)
+        expect(JSON.parse(body)).toEqual({
+          accessDenied: true,
+          repository,
+          capabilities: {
+            administerHub: false,
+            administerRepository: false,
+          },
+        })
+        expect(getOverview).toHaveBeenCalledOnce()
+        expect(getCopilot).toHaveBeenCalledOnce()
+        expect(listRuns).toHaveBeenCalledOnce()
+        expect(body).not.toContain("private-suggestion")
+        expect(body).not.toContain("private recall")
+        expect(body).not.toContain("12.5")
       },
     )
   })
@@ -237,7 +339,151 @@ describe("learning routes", () => {
           actorMembershipId: session.membershipId,
           repositoryId,
           requestedById: session.userId,
+          sessionDigest: hashAuthenticationValue("current-session"),
         })
+      },
+    )
+  })
+
+  it.each([
+    {
+      name: "run",
+      path: `/api/repositories/${repositoryId}/learnings/runs`,
+      body: undefined,
+      mutation: "requestRun" as const,
+      operation: "learning_run" as const,
+    },
+    {
+      name: "decision",
+      path: `/api/repositories/${repositoryId}/learnings/mem_1/decision`,
+      body: {
+        decision: "reject",
+        digest: `sha256:${"a".repeat(64)}`,
+        reason: "This private reason must not be audited.",
+      },
+      mutation: "decide" as const,
+      operation: "learning_decision" as const,
+    },
+  ])(
+    "returns a typed denial and does not reach the $name mutation boundary",
+    async ({ path, body, mutation, operation }) => {
+      const administrator = { ...session, role: "ADMINISTRATOR" as const }
+      const requestRun = vi.fn()
+      const decide = vi.fn()
+      const auditRepositoryAdministrationDenial = vi.fn().mockResolvedValue(undefined)
+      const deps = dependencies({
+        currentSession: { restore: vi.fn().mockResolvedValue(administrator) },
+        authorizeRepositoryAdministration: vi.fn().mockResolvedValue(false),
+        auditRepositoryAdministrationDenial,
+        requestRun,
+        decide,
+      })
+      const handler = mutation === "requestRun" ? postRun(deps) : postDecision(deps)
+
+      await withRoute(
+        "post",
+        path.replace(repositoryId, ":repositoryId").replace("mem_1", ":learningId"),
+        handler,
+        async (baseUrl) => {
+          const response = await fetch(`${baseUrl}${path}`, {
+            method: "POST",
+            headers: body ? { ...headers, "content-type": "application/json" } : headers,
+            body: body ? JSON.stringify(body) : undefined,
+          })
+
+          expect(response.status).toBe(403)
+          expect(await response.json()).toEqual({
+            code: "repository_administrator_required",
+            error: "Repository administrator access is required.",
+          })
+          expect(requestRun).not.toHaveBeenCalled()
+          expect(decide).not.toHaveBeenCalled()
+          expect(auditRepositoryAdministrationDenial).toHaveBeenCalledWith({
+            actorMembershipId: administrator.membershipId,
+            operation,
+            repositoryId,
+          })
+        },
+      )
+    },
+  )
+
+  it.each([
+    {
+      name: "run",
+      path: `/api/repositories/${repositoryId}/learnings/runs`,
+      body: undefined,
+      mutation: "requestRun" as const,
+    },
+    {
+      name: "decision",
+      path: `/api/repositories/${repositoryId}/learnings/mem_1/decision`,
+      body: { decision: "retire", reason: "Obsolete." },
+      mutation: "decide" as const,
+    },
+  ])(
+    "fails the $name closed when repository authority is lost on recheck",
+    async ({ path, body, mutation }) => {
+      const requestRun = vi.fn()
+      const decide = vi.fn()
+      const authorizeRepositoryAdministration = vi
+        .fn()
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false)
+      const deps = dependencies({ authorizeRepositoryAdministration, requestRun, decide })
+      const handler = mutation === "requestRun" ? postRun(deps) : postDecision(deps)
+
+      await withRoute(
+        "post",
+        path.replace(repositoryId, ":repositoryId").replace("mem_1", ":learningId"),
+        handler,
+        async (baseUrl) => {
+          const response = await fetch(`${baseUrl}${path}`, {
+            method: "POST",
+            headers: body ? { ...headers, "content-type": "application/json" } : headers,
+            body: body ? JSON.stringify(body) : undefined,
+          })
+
+          expect(response.status).toBe(403)
+          expect(await response.json()).toMatchObject({
+            code: "repository_administrator_required",
+          })
+          expect(authorizeRepositoryAdministration).toHaveBeenCalledTimes(2)
+          expect(requestRun).not.toHaveBeenCalled()
+          expect(decide).not.toHaveBeenCalled()
+        },
+      )
+    },
+  )
+
+  it("does not reach a decision mutation after the Hub session is revoked", async () => {
+    const decide = vi.fn()
+    const deps = dependencies({
+      currentSession: {
+        restore: vi.fn().mockResolvedValueOnce(session).mockResolvedValueOnce(null),
+      },
+      decide,
+    })
+
+    await withRoute(
+      "post",
+      "/api/repositories/:repositoryId/learnings/:learningId/decision",
+      postDecision(deps),
+      async (baseUrl) => {
+        const response = await fetch(
+          `${baseUrl}/api/repositories/${repositoryId}/learnings/mem_1/decision`,
+          {
+            method: "POST",
+            headers: { ...headers, "content-type": "application/json" },
+            body: JSON.stringify({ decision: "retire", reason: "Obsolete." }),
+          },
+        )
+
+        expect(response.status).toBe(403)
+        expect(await response.json()).toMatchObject({
+          code: "repository_administrator_required",
+        })
+        expect(decide).not.toHaveBeenCalled()
       },
     )
   })
@@ -362,6 +608,7 @@ describe("learning routes", () => {
             actor: "human:mona",
             actorMembershipId: session.membershipId,
             decision: input,
+            sessionDigest: hashAuthenticationValue("current-session"),
           })
         },
       )

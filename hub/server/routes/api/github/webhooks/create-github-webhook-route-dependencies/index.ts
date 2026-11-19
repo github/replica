@@ -18,7 +18,7 @@ const installationRepositoriesEvent = z.looseObject({
   repositories_removed: z.array(z.looseObject({ id: githubId })).optional(),
 })
 const memberEvent = z.looseObject({
-  action: z.literal("removed"),
+  action: z.enum(["edited", "removed"]),
   member: z.looseObject({ id: githubId }),
   repository: z.looseObject({ id: githubId }),
 })
@@ -47,6 +47,12 @@ const workflowJobEvent = z.looseObject({
   action: z.literal("completed"),
   repository: z.looseObject({ id: githubId }),
   workflow_job: z.looseObject({ run_id: githubId }),
+})
+const teamRepositoryPermissionEvent = z.looseObject({
+  action: z.literal("edited"),
+  changes: z.looseObject({ repository: z.looseObject({}) }),
+  repository: z.looseObject({ id: githubId }),
+  team,
 })
 const teamDeletedEvent = z.looseObject({
   action: z.literal("deleted"),
@@ -189,7 +195,7 @@ export function createGitHubWebhookRouteDependencies(input: {
         return true
       }
       if (name === "member") {
-        if (action.data.action !== "removed") return false
+        if (action.data.action !== "edited" && action.data.action !== "removed") return false
         const event = memberEvent.parse(payload)
         await revokeGitHubRepositoryAccess(
           prisma,
@@ -244,6 +250,20 @@ export function createGitHubWebhookRouteDependencies(input: {
               disconnect: false,
               githubRepositoryIds:
                 repositoryId === null || repositoryId === undefined ? "all" : [repositoryId],
+            },
+            input.provider,
+          )
+          return true
+        }
+        if (name === "team" && action.data.action === "edited") {
+          const event = teamRepositoryPermissionEvent.safeParse(payload)
+          if (!event.success) return false
+          await revokeGitHubRepositoryAccess(
+            prisma,
+            {
+              delivery: receipt,
+              disconnect: false,
+              githubRepositoryIds: [event.data.repository.id],
             },
             input.provider,
           )

@@ -96,15 +96,31 @@ export const learningsResponseSchema = z.discriminatedUnion("accessDenied", [
     .object({
       accessDenied: z.literal(true),
       repository: repositorySchema,
-      canAdministerHub: z.boolean(),
+      capabilities: z
+        .object({
+          administerHub: z.boolean(),
+          administerRepository: z.literal(false),
+        })
+        .strict(),
     })
     .strict(),
   z
     .object({
       accessDenied: z.literal(false),
       repository: repositorySchema,
-      canAdministerHub: z.boolean(),
-      permissions: z.object({ decide: z.boolean(), requestRun: z.boolean() }).strict(),
+      capabilities: z
+        .object({
+          administerHub: z.boolean(),
+          administerRepository: z.literal(true),
+        })
+        .strict(),
+      permissions: z
+        .object({
+          viewEvidence: z.boolean(),
+          decide: z.boolean(),
+          requestRun: z.boolean(),
+        })
+        .strict(),
       copilot: z.discriminatedUnion("state", [
         z
           .object({

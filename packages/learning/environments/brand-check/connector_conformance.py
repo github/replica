@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import time
 import unittest
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -20,9 +21,11 @@ from .connectors import (
     RuntimeConnectors,
     RuntimeOwner,
     RuntimeScope,
+    TasksetBundle,
     TrainingResult,
     Usage,
 )
+from .taskset import read_image
 
 
 @dataclass(frozen=True)
@@ -33,6 +36,8 @@ class ConnectorConformanceFixture:
     scope: RuntimeScope
     other_repository_scope: RuntimeScope
     other_tenant_scope: RuntimeScope
+    taskset_bundle: TasksetBundle
+    taskset_digest: ContentDigest
     taskset_reference: str
     usage: Callable[[], Sequence[Usage]]
 
@@ -50,6 +55,10 @@ def connector_conformance(
 
     return unittest.TestSuite(
         [
+            case(
+                "registers immutable scoped tasksets",
+                _taskset_registration(create_fixture),
+            ),
             case("isolates tenant and repository scope", _scope_isolation(create_fixture)),
             case("stores immutable content by digest", _immutable_artifacts(create_fixture)),
             case("stores immutable scoped candidates", _immutable_candidates(create_fixture)),
@@ -82,10 +91,148 @@ def connector_conformance(
                 "propagates context through training and inference",
                 _execution_context(create_fixture),
             ),
+            case(
+                "enforces hard training budgets and returns authoritative usage",
+                _training_budget(create_fixture),
+            ),
             case("restricts credentials to scope and operation", _credentials(create_fixture)),
             case("attributes usage and cost to the operation", _usage(create_fixture)),
         ]
     )
+
+
+def _taskset_registration(create_fixture):
+    def run(case):
+        fixture = create_fixture()
+        context = _context(
+            fixture.scope,
+            "taskset-register",
+            idempotency_key="taskset-register",
+        )
+        registered = fixture.connectors.tasksets.register(
+            fixture.taskset_bundle,
+            context,
+        )
+        case.assertEqual(registered.digest, fixture.taskset_digest)
+        case.assertEqual(registered.reference, f"taskset:{registered.digest.value}")
+        case.assertEqual(
+            _validated_taskset_digest(registered.taskset),
+            fixture.taskset_digest,
+        )
+        case.assertEqual(
+            {
+                image.name: (image.media_type, image.digest, read_image(image))
+                for task in registered.taskset.tasks
+                for image in task.images
+            },
+            {
+                image.path: (image.media_type, str(image.digest), image.data)
+                for image in fixture.taskset_bundle.images
+            },
+        )
+        case.assertEqual(
+            fixture.connectors.tasksets.register(fixture.taskset_bundle, context),
+            registered,
+        )
+        changed = replace(
+            fixture.taskset_bundle,
+            manifest={**fixture.taskset_bundle.manifest, "exportId": "changed"},
+            digest=registered.digest,
+        )
+        with case.assertRaises(ConnectorError) as immutable:
+            fixture.connectors.tasksets.register(
+                changed,
+                _context(
+                    fixture.scope,
+                    "taskset-register-changed",
+                    idempotency_key="taskset-register-changed",
+                ),
+            )
+        case.assertEqual(immutable.exception.category, "conflict")
+        with case.assertRaises(ConnectorError) as retry_conflict:
+            fixture.connectors.tasksets.register(
+                changed,
+                _context(
+                    fixture.scope,
+                    "taskset-register-reused-key",
+                    idempotency_key="taskset-register",
+                ),
+            )
+        case.assertEqual(retry_conflict.exception.category, "conflict")
+        incorrect_digest = replace(
+            fixture.taskset_bundle,
+            digest=ContentDigest("sha256", "0" * 64),
+        )
+        with case.assertRaises(ConnectorError) as mismatch:
+            fixture.connectors.tasksets.register(
+                incorrect_digest,
+                _context(
+                    fixture.scope,
+                    "taskset-register-wrong-digest",
+                    idempotency_key="taskset-register-wrong-digest",
+                ),
+            )
+        case.assertIn(mismatch.exception.category, ("conflict", "invalid_input"))
+        case.assertEqual(
+            fixture.connectors.tasksets.resolve(
+                registered.reference,
+                _context(fixture.scope, "taskset-resolve"),
+            ),
+            registered,
+        )
+        for label, scope in (
+            ("repository", fixture.other_repository_scope),
+            ("tenant", fixture.other_tenant_scope),
+        ):
+            with case.assertRaises(ConnectorError) as refused:
+                fixture.connectors.tasksets.register(
+                    fixture.taskset_bundle,
+                    _context(scope, f"taskset-register-other-{label}"),
+                )
+            case.assertEqual(refused.exception.category, "unauthorized")
+            with case.assertRaises(ConnectorError) as hidden:
+                fixture.connectors.tasksets.resolve(
+                    registered.reference,
+                    _context(scope, f"taskset-resolve-other-{label}"),
+                )
+            case.assertEqual(hidden.exception.category, "not_found")
+
+    return run
+
+
+def _validated_taskset_digest(taskset) -> ContentDigest:
+    identity = {
+        "manifest": dict(taskset.metadata),
+        "tasks": [
+            {
+                "id": task.id,
+                "split": task.split,
+                "state": dict(task.state),
+                "images": [
+                    {
+                        "role": image.role,
+                        "path": image.name,
+                        "mediaType": image.media_type,
+                        "digest": image.digest,
+                        "size": image.size,
+                        "theme": image.theme,
+                    }
+                    for image in task.images
+                ],
+                "questions": {
+                    key: dict(question.spec) for key, question in task.questions.items()
+                },
+                "labels": dict(task.labels),
+                "provenance": dict(task.provenance),
+            }
+            for task in taskset.tasks
+        ],
+    }
+    data = (
+        json.dumps(identity, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        + "\n"
+    ).encode()
+    return ContentDigest("sha256", hashlib.sha256(data).hexdigest())
 
 
 def _scope_isolation(create_fixture):
@@ -303,6 +450,17 @@ def _promotion_generations(create_fixture):
             context=first_promotion_context,
         )
         case.assertEqual(repeated, generation_one)
+        with case.assertRaises(ConnectorError) as changed_owner:
+            fixture.connectors.candidates.promote(
+                first.id,
+                expected_generation=0,
+                operation="promote",
+                context=replace(
+                    first_promotion_context,
+                    owner=RuntimeOwner("worker", "another-operator"),
+                ),
+            )
+        case.assertEqual(changed_owner.exception.category, "conflict")
         generation_two = fixture.connectors.candidates.promote(
             second.id,
             expected_generation=1,
@@ -328,7 +486,7 @@ def _promotion_generations(create_fixture):
         )
         with case.assertRaises(ConnectorError) as current_stale:
             fixture.connectors.candidates.promote(
-                second.id,
+                "candidate_missing",
                 expected_generation=0,
                 operation="promote",
                 context=_context(fixture.scope, "current-candidate-stale"),
@@ -342,6 +500,64 @@ def _promotion_generations(create_fixture):
                 context=_context(fixture.scope, "stale-promotion"),
             )
         case.assertEqual(stale.exception.category, "conflict")
+
+    return run
+
+
+def _training_budget(create_fixture):
+    def run(case):
+        fixture = create_fixture()
+        for name, connector in fixture.connectors.training.items():
+            context = _context(
+                fixture.scope,
+                f"training-budget-{name}",
+                max_credits=1,
+                budget_mode="hard",
+            )
+            credential = fixture.connectors.credentials.acquire("training", context)
+            with TemporaryDirectory() as work:
+                if connector.supports_hard_credit_budget:
+                    result = connector.train(
+                        fixture.connectors.tasksets.resolve(
+                            fixture.taskset_reference,
+                            context,
+                        ).taskset,
+                        Path(work),
+                        max_updates=2,
+                        context=context,
+                        credential=credential,
+                    )
+                    case.assertTrue(result.usage)
+                    credits = [
+                        item
+                        for item in result.usage
+                        if item.kind == "training_credits" and item.unit == "credits"
+                    ]
+                    case.assertTrue(credits)
+                    case.assertLessEqual(sum(item.quantity for item in credits), 1)
+                    for item in result.usage:
+                        case.assertEqual(item.operation_id, context.operation_id)
+                        case.assertEqual(item.scope, context.scope)
+                        case.assertEqual(item.connector, connector.name)
+                        case.assertNotEqual(item.source, "estimate")
+                        case.assertIsNotNone(item.cost)
+                        case.assertIsInstance(item.currency, str)
+                        case.assertTrue(item.currency.strip())
+                else:
+                    with case.assertRaises(ConnectorError) as unsupported:
+                        connector.train(
+                            fixture.connectors.tasksets.resolve(
+                                fixture.taskset_reference,
+                                context,
+                            ).taskset,
+                            Path(work),
+                            max_updates=2,
+                            context=context,
+                            credential=credential,
+                        )
+                    case.assertEqual(
+                        unsupported.exception.code, "hard_budget_unsupported"
+                    )
 
     return run
 
@@ -395,6 +611,23 @@ def _job_cancellation(create_fixture):
             "job_cancel",
             ttl_seconds=5,
             context=_context(fixture.scope, "cancel-job-lease"),
+        )
+        with case.assertRaises(ConnectorError) as cross_scope:
+            fixture.connectors.jobs.cancel(
+                "job_cancel",
+                expected_version=created["version"],
+                context=_context(
+                    fixture.other_tenant_scope,
+                    "cancel-job-other-tenant",
+                ),
+            )
+        case.assertIn(cross_scope.exception.category, ("not_found", "unauthorized"))
+        case.assertEqual(
+            fixture.connectors.jobs.get(
+                "job_cancel",
+                _context(fixture.scope, "cancel-job-after-other-tenant"),
+            ),
+            created,
         )
         cancelled = fixture.connectors.jobs.cancel(
             "job_cancel",
@@ -699,6 +932,8 @@ def _context(
     idempotency_key: str | None = None,
     deadline: float | None = None,
     cancellation: Cancellation | None = None,
+    max_credits: float | None = None,
+    budget_mode: str = "none",
 ) -> OperationContext:
     return OperationContext(
         operation_id=operation_id,
@@ -707,6 +942,8 @@ def _context(
         owner=RuntimeOwner("worker", "conformance"),
         deadline=deadline if deadline is not None else time.monotonic() + 5,
         cancellation=cancellation or Cancellation(),
+        max_credits=max_credits,
+        budget_mode=budget_mode,
     )
 
 

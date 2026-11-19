@@ -136,6 +136,7 @@ function installationRepository(repository: {
 }) {
   if (repository.githubRepositoryId === null) throw new Error("Missing GitHub repository ID.")
   return {
+    accessLevel: "ADMIN" as const,
     defaultBranch: repository.defaultBranch,
     githubRepositoryId: Number(repository.githubRepositoryId),
     nameWithOwner: repository.nameWithOwner,
@@ -224,6 +225,13 @@ async function signInWithGitHubAccess(input: {
           default_branch: repository.defaultBranch,
           full_name: repository.nameWithOwner,
           id: Number(repository.githubRepositoryId),
+          permissions: {
+            admin: true,
+            maintain: true,
+            pull: true,
+            push: true,
+            triage: true,
+          },
         })),
       }),
     )
@@ -501,6 +509,52 @@ describe("createGitHubWebhookRouteDependencies()", () => {
     })
     await expect(restore(affected.sessions[0]!.digest)).resolves.toBeNull()
     expect(await repositoryGrants(partiallyAffected.membershipId)).toEqual([retained.id])
+  })
+
+  it("invalidates cached admin grants when a team's repository permission is edited", async () => {
+    const revisionId = await createProvider("github")
+    const changed = await createRepository(1001, "changed-permission")
+    const retained = await createRepository(1002, "retained")
+    const member = await createMember({
+      provider: "github",
+      providerRevisionId: revisionId,
+      repositoryIds: [changed.id, retained.id],
+      subject: "101",
+    })
+    await prisma.repositoryAccessGrant.update({
+      data: { accessLevel: "ADMIN" },
+      where: {
+        membershipId_repositoryId: {
+          membershipId: member.membershipId,
+          repositoryId: changed.id,
+        },
+      },
+    })
+
+    await expect(
+      handleWebhook("team", {
+        action: "edited",
+        changes: {
+          repository: {
+            permissions: { from: { admin: true, pull: true, push: true } },
+          },
+        },
+        installation: { id: 700 },
+        repository: { id: 1001 },
+        team: { id: 77 },
+      }),
+    ).resolves.toBe(true)
+
+    expect(await repositoryGrants(member.membershipId)).toEqual([retained.id])
+    await expect(restore(member.sessions[0]!.digest)).resolves.toMatchObject({
+      membershipId: member.membershipId,
+    })
+    await expect(
+      prisma.repository.findUniqueOrThrow({
+        select: { removedAt: true },
+        where: { id: changed.id },
+      }),
+    ).resolves.toEqual({ removedAt: null })
   })
 
   it.each([
@@ -1105,7 +1159,7 @@ describe("createGitHubWebhookRouteDependencies()", () => {
     ).toBe(2)
   })
 
-  it("removes only the collaborator's grant while another connected grant keeps the session usable", async () => {
+  it("invalidates only an edited collaborator grant while another grant keeps the session usable", async () => {
     const revisionId = await createProvider("github")
     const removed = await createRepository(1001, "removed-access")
     const retained = await createRepository(1002, "retained-access")
@@ -1124,7 +1178,8 @@ describe("createGitHubWebhookRouteDependencies()", () => {
 
     await expect(
       handleWebhook("member", {
-        action: "removed",
+        action: "edited",
+        changes: { permission: { from: "admin" } },
         installation: { id: 700 },
         member: { id: 101 },
         repository: { id: 1001 },
@@ -1688,6 +1743,12 @@ describe("createGitHubWebhookRouteDependencies()", () => {
       name: "a removed team's repository grant",
       retainAnother: true,
     },
+    {
+      disconnect: false,
+      kind: "teamPermission",
+      name: "an edited team's repository permission",
+      retainAnother: true,
+    },
   ] as const)(
     "does not regrant $name from an older in-flight GitHub access snapshot",
     async ({ disconnect, kind, retainAnother }) => {
@@ -1727,6 +1788,7 @@ describe("createGitHubWebhookRouteDependencies()", () => {
       })
       const staleRepositories = (retainAnother ? [removed, retained] : [removed]).map(
         (repository) => ({
+          accessLevel: "ADMIN" as const,
           defaultBranch: repository.defaultBranch,
           githubRepositoryId: Number(repository.githubRepositoryId),
           nameWithOwner: repository.nameWithOwner,
@@ -1737,7 +1799,8 @@ describe("createGitHubWebhookRouteDependencies()", () => {
         collaborator: {
           name: "member",
           payload: {
-            action: "removed",
+            action: "edited",
+            changes: { permission: { from: "admin" } },
             installation: { id: 700 },
             member: { id: 101 },
             repository: { id: 1001 },
@@ -1765,6 +1828,20 @@ describe("createGitHubWebhookRouteDependencies()", () => {
           name: "team",
           payload: {
             action: "removed_from_repository",
+            installation: { id: 700 },
+            repository: { id: 1001 },
+            team: { id: 77 },
+          },
+        },
+        teamPermission: {
+          name: "team",
+          payload: {
+            action: "edited",
+            changes: {
+              repository: {
+                permissions: { from: { admin: true, pull: true, push: true } },
+              },
+            },
             installation: { id: 700 },
             repository: { id: 1001 },
             team: { id: 77 },
@@ -1858,6 +1935,13 @@ describe("GitHub repository access", () => {
               default_branch: repository.defaultBranch,
               full_name: repository.nameWithOwner,
               id: 1001,
+              permissions: {
+                admin: true,
+                maintain: true,
+                pull: true,
+                push: true,
+                triage: true,
+              },
             },
           ],
         }),
@@ -2392,7 +2476,12 @@ describe("syncGitHubInstallationRepositories()", () => {
     const staleSnapshot = [
       installationRepository(removed),
       installationRepository(retained),
-      { defaultBranch: "main", githubRepositoryId: 1003, nameWithOwner: "team/stale-only" },
+      {
+        accessLevel: "ADMIN" as const,
+        defaultBranch: "main",
+        githubRepositoryId: 1003,
+        nameWithOwner: "team/stale-only",
+      },
     ]
     const freshSnapshot = [installationRepository(retained)]
     const fetchRepositories = vi

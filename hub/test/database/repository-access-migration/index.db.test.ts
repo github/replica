@@ -88,6 +88,49 @@ async function withExactMigrationBase(
 
 describe("repository access migration", () => {
   it(
+    "backfills every existing repository grant as READ",
+    async () => {
+      await withExactMigrationBase(
+        ["20261204120000_repository_access_levels"],
+        async (database, deploy) => {
+          const userId = randomUUID()
+          const membershipId = randomUUID()
+          const repositoryId = randomUUID()
+          const grantId = randomUUID()
+          await database.query(`INSERT INTO users (id) VALUES ($1)`, [userId])
+          await database.query(`INSERT INTO memberships (id, user_id) VALUES ($1, $2)`, [
+            membershipId,
+            userId,
+          ])
+          await database.query(
+            `INSERT INTO repositories
+             (id, github_repository_id, name_with_owner, default_branch)
+             VALUES ($1, 1001, 'team/design', 'main')`,
+            [repositoryId],
+          )
+          await database.query(
+            `INSERT INTO repository_access_grants
+             (id, membership_id, repository_id, observed_at)
+             VALUES ($1, $2, $3, clock_timestamp())`,
+            [grantId, membershipId, repositoryId],
+          )
+
+          await deploy()
+
+          const grants = await database.query(
+            `SELECT id, access_level::text
+             FROM repository_access_grants
+             WHERE id = $1`,
+            [grantId],
+          )
+          expect(grants.rows).toEqual([{ id: grantId, access_level: "READ" }])
+        },
+      )
+    },
+    migrationTestTimeoutMs,
+  )
+
+  it(
     "preserves existing identity, session, repository, prototype, Build, and audit records",
     async () => {
       await withExactMigrationBase(
@@ -95,6 +138,7 @@ describe("repository access migration", () => {
           "20261201120000_repository_access_grants",
           "20261201150000_github_webhook_deliveries",
           "20261202120000_github_scoping_activation",
+          "20261204120000_repository_access_levels",
         ],
         async (database, deploy) => {
           const providerId = randomUUID()

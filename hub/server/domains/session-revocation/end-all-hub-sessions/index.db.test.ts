@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 import { getDatabaseUrl } from "../../../../test/database/get-database-url"
 import { waitForBlockedQuery } from "../../../../test/database/wait-for-blocked-query"
 import { continueAdministratorAuthorization } from "../../../domains/administrator-authorization/continue-administrator-authorization"
+import { SessionRevocationUnavailableError } from "../../../domains/session-revocation/errors"
 import { prisma } from "../../../integrations/prisma"
 import { getSessionRevocationStatus } from "../../../repositories/session-revocation-states/get-session-revocation-status"
 import { endAllHubSessions } from "."
@@ -28,6 +29,25 @@ async function createProvider() {
     where: { id: providerId },
   })
   return { providerId, providerRevisionId }
+}
+
+async function waitForSessionAuthorityChange(inspector: pg.Client) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const result = await inspector.query<{ waiting: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM pg_locks
+         WHERE locktype = 'advisory'
+           AND classid = 1919242348
+           AND objid = 4
+           AND NOT granted
+           AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+       ) AS waiting`,
+    )
+    if (result.rows[0]?.waiting) return
+    await new Promise<void>((resolve) => setTimeout(resolve, 10))
+  }
+  throw new Error("Timed out waiting for the session authority change.")
 }
 
 async function createMember(input: { administrator?: boolean; login: string }) {
@@ -176,6 +196,46 @@ async function createFixture(input: { authorizationExpired?: boolean } = {}) {
 }
 
 describe("endAllHubSessions()", () => {
+  it("waits for the learning authority boundary before global revocation", async () => {
+    const fixture = await createFixture()
+    const learning = new pg.Client({ connectionString: getDatabaseUrl() })
+    const inspector = new pg.Client({ connectionString: getDatabaseUrl() })
+    await Promise.all([learning.connect(), inspector.connect()])
+    let sharedLockHeld = false
+    let revocation: ReturnType<typeof endAllHubSessions> | null = null
+    try {
+      await learning.query("SELECT pg_advisory_lock_shared(1919242348, 4)")
+      sharedLockHeld = true
+      revocation = endAllHubSessions(prisma, {
+        authorizationId: fixture.authorizationId,
+        hubSessionId: fixture.actorSessionId,
+      })
+      void revocation.catch(() => {})
+      await waitForSessionAuthorityChange(inspector)
+      await expect(revocation).rejects.toBeInstanceOf(SessionRevocationUnavailableError)
+
+      await expect(getSessionRevocationStatus(prisma)).resolves.toMatchObject({
+        activeSessionCount: 2,
+        revision: fixture.revision,
+      })
+
+      await learning.query("SELECT pg_advisory_unlock_shared(1919242348, 4)")
+      sharedLockHeld = false
+      await expect(
+        endAllHubSessions(prisma, {
+          authorizationId: fixture.authorizationId,
+          hubSessionId: fixture.actorSessionId,
+        }),
+      ).resolves.toMatchObject({ revision: fixture.revision + 1 })
+    } finally {
+      if (sharedLockHeld) {
+        await learning.query("SELECT pg_advisory_unlock_shared(1919242348, 4)")
+      }
+      if (revocation) await Promise.allSettled([revocation])
+      await Promise.all([learning.end(), inspector.end()])
+    }
+  })
+
   it("waits for revocation authority before locking the actor session or membership", async () => {
     const fixture = await createFixture()
     const authority = new pg.Client({ connectionString: getDatabaseUrl() })
@@ -243,11 +303,9 @@ describe("endAllHubSessions()", () => {
   it("serializes administrator continuation with global session revocation", async () => {
     const fixture = await createFixture()
     const authority = new pg.Client({ connectionString: getDatabaseUrl() })
-    const contender = new pg.Client({ connectionString: getDatabaseUrl() })
     const inspector = new pg.Client({ connectionString: getDatabaseUrl() })
-    await Promise.all([authority.connect(), contender.connect(), inspector.connect()])
+    await Promise.all([authority.connect(), inspector.connect()])
     let authorityOpen = false
-    let contenderOpen = false
     let revocation: ReturnType<typeof endAllHubSessions> | null = null
     let continuation: ReturnType<typeof continueAdministratorAuthorization> | null = null
     try {
@@ -267,11 +325,7 @@ describe("endAllHubSessions()", () => {
         (value) => ({ status: "fulfilled" as const, value }),
         (reason: unknown) => ({ status: "rejected" as const, reason }),
       )
-      const revocationPid = await waitForBlockedQuery(
-        inspector,
-        authorityPid,
-        "session_revocation_states",
-      )
+      await waitForBlockedQuery(inspector, authorityPid, "session_revocation_states")
       continuation = continueAdministratorAuthorization(prisma, {
         hubSessionId: fixture.actorSessionId,
         id: fixture.otherAuthorizationId,
@@ -282,15 +336,7 @@ describe("endAllHubSessions()", () => {
         (value) => ({ status: "fulfilled" as const, value }),
         (reason: unknown) => ({ status: "rejected" as const, reason }),
       )
-      await waitForBlockedQuery(inspector, revocationPid, "authentication_providers")
-
-      await contender.query("BEGIN")
-      contenderOpen = true
-      await contender.query("SELECT id FROM hub_sessions WHERE id = $1 FOR UPDATE NOWAIT", [
-        fixture.actorSessionId,
-      ])
-      await contender.query("COMMIT")
-      contenderOpen = false
+      await waitForSessionAuthorityChange(inspector)
 
       await authority.query("COMMIT")
       authorityOpen = false
@@ -312,11 +358,10 @@ describe("endAllHubSessions()", () => {
         }),
       ).toBe(0)
     } finally {
-      if (contenderOpen) await contender.query("ROLLBACK")
       if (authorityOpen) await authority.query("ROLLBACK")
       if (revocation) await Promise.allSettled([revocation])
       if (continuation) await Promise.allSettled([continuation])
-      await Promise.all([authority.end(), contender.end(), inspector.end()])
+      await Promise.all([authority.end(), inspector.end()])
     }
   })
 

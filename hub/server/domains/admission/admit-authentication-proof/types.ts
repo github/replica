@@ -11,8 +11,9 @@ export interface AdmitAuthenticationProofInput {
     role: "MEMBER" | "ADMINISTRATOR" | null
   }
   providerKey: string
-  /** Repositories GitHub reports the person can read; omitted for other providers. */
+  /** Current GitHub repository access evidence; omitted for other providers. */
   repositoryAccess?: Array<{
+    accessLevel: "READ" | "TRIAGE" | "WRITE" | "MAINTAIN" | "ADMIN"
     defaultBranch: string
     githubRepositoryId: number
     nameWithOwner: string

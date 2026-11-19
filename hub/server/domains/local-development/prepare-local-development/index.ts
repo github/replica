@@ -1,5 +1,5 @@
 import { lstat, mkdir, mkdtemp, readdir, rename, rm, stat } from "node:fs/promises"
-import { basename, join } from "node:path"
+import { basename, dirname, join } from "node:path"
 
 import { runCommand as runProcessCommand } from "../../../integrations/process/run-command/index.ts"
 import { LocalDevelopmentPreparationError } from "../errors.ts"
@@ -31,17 +31,25 @@ export async function prepareLocalDevelopment(
   dependencies: PrepareLocalDevelopmentDependencies = {},
 ): Promise<PrepareLocalDevelopmentResult | undefined> {
   if (!configuration.enabled) return
+  const { createPrototypeScript } = configuration
   const execute = dependencies.runCommand ?? runProcessCommand
+  const npmEntrypoint =
+    process.platform === "win32"
+      ? (process.env.npm_execpath ??
+        join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js"))
+      : undefined
+  const npmCommand = npmEntrypoint ? process.execPath : "npm"
+  const npmArguments = npmEntrypoint ? [npmEntrypoint] : []
   async function runCommand(input: Parameters<typeof execute>[0]) {
     try {
       await execute(input)
     } catch {
       const stage =
-        input.command === "npm"
+        input.command === "npm" || input.arguments[0] === npmEntrypoint
           ? "install dependencies"
           : input.arguments.includes("install") && input.arguments.includes("chromium")
             ? "install Chromium"
-            : input.command === "bash"
+            : input.arguments[0] === createPrototypeScript
               ? "create the Starter repository"
               : input.command === "git"
                 ? "create the Starter history"
@@ -61,8 +69,8 @@ export async function prepareLocalDevelopment(
 
   if (!(await exists(join(configuration.buildActionDirectory, "node_modules/playwright")))) {
     await runCommand({
-      command: "npm",
-      arguments: ["ci", "--ignore-scripts", "--omit=dev", "--engine-strict"],
+      command: npmCommand,
+      arguments: [...npmArguments, "ci", "--ignore-scripts", "--omit=dev", "--engine-strict"],
       cwd: configuration.buildActionDirectory,
     })
   }
@@ -80,8 +88,8 @@ export async function prepareLocalDevelopment(
   const checkout = join(stagingDirectory, exampleDirectoryName)
   try {
     await runCommand({
-      command: "bash",
-      arguments: [configuration.createPrototypeScript, checkout],
+      command: process.execPath,
+      arguments: [createPrototypeScript, checkout],
       cwd: configuration.sourceRoot,
       environment: {
         ...process.env,
@@ -124,8 +132,8 @@ export async function prepareLocalDevelopment(
       environment: { ...process.env, ...gitEnvironment },
     })
     await runCommand({
-      command: "npm",
-      arguments: ["ci", "--engine-strict"],
+      command: npmCommand,
+      arguments: [...npmArguments, "ci", "--engine-strict"],
       cwd: checkout,
     })
     await runCommand({

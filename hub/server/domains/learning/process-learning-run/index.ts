@@ -3,7 +3,9 @@ import { tmpdir } from "node:os"
 import { resolve } from "node:path"
 import { z } from "zod"
 
+import { classifyPrismaTransactionError } from "../../../integrations/prisma/classify-transaction-error/index.ts"
 import { LearningCommandError } from "../../../integrations/learning/run-learning-command/errors.ts"
+import { runWithBoundedRetries } from "../../identity/run-with-bounded-retries/index.ts"
 
 const grantListSchema = z.array(
   z
@@ -88,7 +90,7 @@ export async function processLearningRun(
     } | null>
     now(): Date
     prepare(repositoryId: string): Promise<{ directory: string; repositoryScope: string }>
-    isAdministrator(membershipId: string): Promise<boolean>
+    authorizeRepositoryAdministration(membershipId: string, repositoryId: string): Promise<boolean>
     refuseCredential?(): Promise<void>
     runCommand(
       arguments_: string[],
@@ -105,13 +107,28 @@ export async function processLearningRun(
         aiCredits: string
       },
     ): Promise<unknown>
-    withLock<T>(run: (signal: AbortSignal) => Promise<T>): Promise<T>
+    withLock<T>(
+      run: (
+        signal: AbortSignal,
+        controls: {
+          runWithoutRepositoryAuthorityLock: <Result>(
+            operation: () => Promise<Result>,
+          ) => Promise<Result>
+        },
+      ) => Promise<T>,
+    ): Promise<T>
   },
 ) {
   const run = await dependencies.getRun(runId)
   if (!run || !["QUEUED", "RUNNING"].includes(run.state)) return
+  function authorizeRepositoryAdministration(membershipId: string, repositoryId: string) {
+    return runWithBoundedRetries(
+      () => dependencies.authorizeRepositoryAdministration(membershipId, repositoryId),
+      (error) => classifyPrismaTransactionError(error) === "retryable",
+    )
+  }
   try {
-    await dependencies.withLock(async (signal) => {
+    await dependencies.withLock(async (signal, { runWithoutRepositoryAuthorityLock }) => {
       if (run.state === "QUEUED" && !(await dependencies.claim(runId, dependencies.now()))) return
       const current = await dependencies.getRun(runId)
       if (!current) throw new Error("The claimed learning run disappeared.")
@@ -120,11 +137,14 @@ export async function processLearningRun(
       if (
         !actor ||
         !current.requestedByMembershipId ||
-        !(await dependencies.isAdministrator(current.requestedByMembershipId))
+        !(await authorizeRepositoryAdministration(
+          current.requestedByMembershipId,
+          current.repositoryId,
+        ))
       ) {
         throw new LearningCommandError(
           "not_authorized",
-          "The person who requested this run is no longer an administrator.",
+          "The person who requested this run is no longer a repository administrator.",
         )
       }
       const snapshot = await dependencies.capture(current.repositoryId)
@@ -216,18 +236,20 @@ export async function processLearningRun(
       let labeled: z.infer<typeof labelSchema>
       try {
         labeled = labelSchema.parse(
-          await dependencies.runCommand(
-            [
-              "label",
-              "--since",
-              new Date(snapshot.capturedAt.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString(),
-              "--limit",
-              "400",
-              "--max-requests",
-              "10",
-              ...common,
-            ],
-            { ...credential, signal, timeoutMs: 30 * 60 * 1000 },
+          await runWithoutRepositoryAuthorityLock(() =>
+            dependencies.runCommand(
+              [
+                "label",
+                "--since",
+                new Date(snapshot.capturedAt.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString(),
+                "--limit",
+                "400",
+                "--max-requests",
+                "10",
+                ...common,
+              ],
+              { ...credential, signal, timeoutMs: 30 * 60 * 1000 },
+            ),
           ),
         )
       } catch (error) {
@@ -252,6 +274,17 @@ export async function processLearningRun(
         copilotRequests: labeled.usage.requests,
         aiCredits: credits(labeled.usage.nanoAiu),
       })
+      if (
+        !(await authorizeRepositoryAdministration(
+          current.requestedByMembershipId,
+          current.repositoryId,
+        ))
+      ) {
+        throw new LearningCommandError(
+          "not_authorized",
+          "The person who requested this run is no longer a repository administrator.",
+        )
+      }
       const consolidated = consolidateSchema.parse(
         await dependencies.runCommand(
           [

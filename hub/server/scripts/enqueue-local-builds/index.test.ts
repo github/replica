@@ -36,7 +36,7 @@ describe("enqueueLocalBuilds()", () => {
     }
     const configuration = {
       buildActionDirectory: "/configured/build-action",
-      createPrototypeScript: "/repository/scripts/create-prototype-repo.sh",
+      createPrototypeScript: "/repository/scripts/create-prototype-repo.mjs",
       enabled: true as const,
       root: "/configured/prototypes",
       sourceRoot: "/repository",

@@ -3,6 +3,8 @@ import pg from "pg"
 import { describe, expect, it } from "vitest"
 
 import { waitForBlockedQuery } from "../../../test/database/wait-for-blocked-query"
+import { getDatabaseUrl } from "../../../test/database/get-database-url"
+import { AdministratorManagementUnavailableError } from "../administrator-management/errors"
 import { prisma } from "../../integrations/prisma"
 import { searchAdministratorCandidates } from "../../repositories/memberships/search-administrator-candidates"
 import { createSecurityAudit } from "../../repositories/security-audits/create-security-audit"
@@ -246,6 +248,59 @@ async function createEntraAuthorizationFixture() {
 }
 
 describe("administrator authorization persistence", () => {
+  it("keeps a busy continuation reusable without recording a denial", async () => {
+    const fixture = await createAuthorizationFixture()
+    const learning = new pg.Client({ connectionString: getDatabaseUrl() })
+    await learning.connect()
+    let sharedLockHeld = false
+    try {
+      await learning.query("SELECT pg_advisory_lock_shared(1919242348, 4)")
+      sharedLockHeld = true
+
+      await expect(
+        continueAdministratorAuthorization(prisma, {
+          hubSessionId: fixture.hubSessionId,
+          id: fixture.authorizationId,
+          operation: fixture.operation,
+          targetMembershipIds: [fixture.target.membershipId],
+        }),
+      ).rejects.toBeInstanceOf(AdministratorManagementUnavailableError)
+
+      await expect(
+        prisma.sensitiveAuthorization.findUniqueOrThrow({
+          select: { continuedAt: true },
+          where: { id: fixture.authorizationId },
+        }),
+      ).resolves.toEqual({ continuedAt: null })
+      await expect(
+        prisma.securityAudit.count({
+          where: { action: "administrator.authorization.denied" },
+        }),
+      ).resolves.toBe(0)
+      await expect(
+        prisma.securityAudit.count({
+          where: { action: "membership.administrator_management.failed" },
+        }),
+      ).resolves.toBe(1)
+
+      await learning.query("SELECT pg_advisory_unlock_shared(1919242348, 4)")
+      sharedLockHeld = false
+      await expect(
+        continueAdministratorAuthorization(prisma, {
+          hubSessionId: fixture.hubSessionId,
+          id: fixture.authorizationId,
+          operation: fixture.operation,
+          targetMembershipIds: [fixture.target.membershipId],
+        }),
+      ).resolves.toHaveLength(1)
+    } finally {
+      if (sharedLockHeld) {
+        await learning.query("SELECT pg_advisory_unlock_shared(1919242348, 4)")
+      }
+      await learning.end()
+    }
+  })
+
   it("verifies the real callback binding before confirmation lookup", async () => {
     const fixture = await createAuthorizationFixture("DESIGNATE_ADMINISTRATORS", false)
     const authorizationAttemptId = await createConsumedAuthorizationAttempt({
