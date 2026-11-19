@@ -985,8 +985,7 @@ describe("discoverGitHubWorkflowRuns", () => {
     const branch = await createBranchFixture()
     await branch.retire()
     const retired = await branch.read()
-    const warn =
-      vi.fn<(context: { err: unknown; githubRepositoryId: number }, message: string) => void>()
+    const warn = vi.fn<(...args: unknown[]) => void>()
     const error = new Error("GitHub comparison unavailable")
     vi.setSystemTime(new Date("2026-11-18T12:01:00Z"))
 
@@ -1003,7 +1002,11 @@ describe("discoverGitHubWorkflowRuns", () => {
       }),
       expect.any(String),
     )
-    const loggedError = warn.mock.calls[0]?.[0].err
+    const loggedContext = warn.mock.calls[0]?.[0]
+    if (!loggedContext || typeof loggedContext !== "object" || !("err" in loggedContext)) {
+      throw new Error("Expected a logged error.")
+    }
+    const loggedError = loggedContext.err
     if (!(loggedError instanceof AggregateError)) throw new Error("Expected an aggregate error.")
     const failures: unknown[] = loggedError.errors
     const firstFailure = failures[0]
