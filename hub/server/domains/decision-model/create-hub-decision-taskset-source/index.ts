@@ -752,7 +752,9 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
           for (const withdrawal of withdrawals) {
             if (!withdrawal.purposes.includes("training")) continue
             const login = withdrawal.withdrawnBy.id.replace(/^(?:github|human):/, "")
-            const matchingJobs = repository.decisionTrainingJobs
+            const matchingJobs = repository.decisionTrainingJobs.filter(
+              (candidate) => candidate.consentGrantId === withdrawal.grantId,
+            )
             const matchingActorJob = repository.decisionTrainingJobs.find(
               (candidate) => candidate.requestedByMembership?.user.profile?.login === login,
             )
@@ -766,6 +768,18 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
               actorJob?.requestedByMembershipId ??
               repository.accessGrants[0]?.membershipId
             if (!actorMembershipId) continue
+            if (!matchingJobs.length) {
+              pending.push({
+                repositoryId: repository.id,
+                actorMembershipId,
+                actorLogin: login,
+                selectors: { grantId: withdrawal.grantId },
+                reason: withdrawal.reason ?? "Training consent was withdrawn.",
+                idempotencyKey: `withdrawal:${withdrawal.id}:grant`,
+                authorizationAlreadyEstablished: true,
+              })
+              continue
+            }
             for (const job of matchingJobs) {
               pending.push({
                 repositoryId: repository.id,

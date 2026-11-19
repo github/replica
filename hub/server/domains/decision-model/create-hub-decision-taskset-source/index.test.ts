@@ -215,14 +215,9 @@ describe("createHubDecisionTasksetSource()", () => {
         repositoryId,
         actorMembershipId: "44444444-4444-4444-8444-444444444444",
         actorLogin: "mona",
-        selectors: {
-          exportId: "export-1",
-          grantId: "grant-secondary",
-          evidenceDigest: `sha256:${"e".repeat(64)}`,
-          tasksetDigest: `sha256:${"t".repeat(64)}`,
-        },
+        selectors: { grantId: "grant-secondary" },
         reason: "The repository administrator withdrew training consent.",
-        idempotencyKey: `withdrawal:withdrawal-1:sha256:${"t".repeat(64)}`,
+        idempotencyKey: "withdrawal:withdrawal-1:grant",
         authorizationAlreadyEstablished: true,
       },
     ])
