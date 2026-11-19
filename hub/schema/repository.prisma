@@ -10,6 +10,8 @@ model Repository {
   decisionCandidates         DecisionCandidate[]
   decisionModelPromotions    DecisionModelPromotion[]
   decisionBuildEvaluations   DecisionBuildEvaluation[]
+  decisionRuntimeCopies      DecisionRuntimeCopy[]
+  decisionRuntimeDeletions   DecisionRuntimeDeletion[]
   prototypes                 Prototype[]
   branchHeadObservations     BranchHeadObservation[]
   reviewThreads              ReviewThread[]

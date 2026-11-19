@@ -18,6 +18,11 @@ export async function requestDecisionTraining(
         membershipId: input.actorMembershipId,
         repositoryId: input.repositoryId,
       })
+      const existing = await dependencies.store.getJobByIdempotencyKey?.(
+        input.repositoryId,
+        input.idempotencyKey,
+      )
+      if (existing) return { created: false, job: existing }
       const configuration = await dependencies.store.getConfiguration(input.repositoryId)
       if (!configuration?.enabled) {
         throw new DecisionModelError(
@@ -43,6 +48,21 @@ export async function requestDecisionTraining(
           409,
           "consent_required",
           "An active training-purpose consent grant is required.",
+        )
+      }
+      if (
+        await dependencies.store.isTasksetRevoked?.({
+          repositoryId: input.repositoryId,
+          exportId: taskset.trainingExportId,
+          grantId: taskset.consentGrantId,
+          evidenceDigest: taskset.evidenceDigest,
+          tasksetDigest: taskset.tasksetDigest,
+        })
+      ) {
+        throw new DecisionModelError(
+          409,
+          "deletion_revoked",
+          "Decision-model use is blocked by a runtime deletion.",
         )
       }
       const result = await dependencies.store.createOrGetJob({

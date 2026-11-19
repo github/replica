@@ -2,6 +2,7 @@ export type DecisionRuntimeFailureCode =
   | "authentication_failed"
   | "cancelled"
   | "conflict"
+  | "deletion_revoked"
   | "invalid_response"
   | "not_found"
   | "rate_limited"

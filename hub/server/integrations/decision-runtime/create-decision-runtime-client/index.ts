@@ -49,6 +49,9 @@ const promotion = z
     generation: z.number().int().nonnegative().optional(),
   })
   .loose()
+const promotionMutation = promotion.extend({
+  generation: z.number().int().positive(),
+})
 const evaluationReport = z
   .object({
     meanReward: z.number().nullable(),
@@ -110,6 +113,94 @@ const evaluation = z
     usage: z.array(usage).optional(),
   })
   .loose()
+const deletionSelectors = z
+  .object({
+    exportId: z.string().min(1).max(255).optional(),
+    grantId: z.string().min(1).max(255).optional(),
+    evidenceDigest: digest.optional(),
+    tasksetDigest: digest.optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0)
+const runtimeStorageReference = z
+  .object({
+    connector: z.string().min(1).max(200),
+    reference: z.string().min(1).max(500),
+  })
+  .strict()
+const runtimeRetention = z
+  .object({
+    mode: z.string().min(1).max(50),
+    reason: z.string().min(1).max(500).optional(),
+    legalReason: z.string().min(1).max(500).optional(),
+    authority: z.string().min(1).max(200).optional(),
+    expiresAt: z.iso.datetime().optional(),
+    deletedAt: z.iso.datetime().optional(),
+  })
+  .strict()
+const runtimeCopy = z
+  .object({
+    id: z.string().min(1).max(200),
+    runtimeCopyId: z.string().min(1).max(200),
+    kind: z.string().min(1).max(50),
+    sourceTrainingExportId: z.string().min(1).max(255).optional(),
+    permittingGrantIds: z.array(z.string().min(1).max(255)).optional(),
+    evidenceDigest: digest.nullable().optional(),
+    tasksetDigest: digest.nullable().optional(),
+    useState: z.string().min(1).max(50),
+    promotionState: z.string().min(1).max(50).nullable().optional(),
+    storage: runtimeStorageReference,
+    retention: runtimeRetention,
+    createdAt: z.iso.datetime().nullable().optional(),
+  })
+  .loose()
+const deletionReceipt = z
+  .object({
+    id: z.string().min(1).max(200),
+    state: z.enum(["pending", "completed"]),
+    selectors: deletionSelectors,
+    items: z
+      .array(
+        z
+          .object({
+            kind: z.string().min(1).max(50),
+            runtimeCopyId: z.string().min(1).max(200),
+            state: z.string().min(1).max(50),
+            storage: runtimeStorageReference.optional(),
+            retention: runtimeRetention.optional(),
+          })
+          .strict(),
+      )
+      .default([]),
+    pendingItems: z
+      .array(
+        z
+          .object({
+            kind: z.string(),
+            runtimeCopyId: z.string(),
+            code: z.string(),
+            retryable: z.boolean(),
+          })
+          .strict(),
+      )
+      .default([]),
+    failures: z
+      .array(
+        z
+          .object({
+            kind: z.string(),
+            runtimeCopyId: z.string(),
+            code: z.string(),
+            retryable: z.boolean(),
+          })
+          .strict(),
+      )
+      .default([]),
+    revokedAt: z.iso.datetime().optional(),
+    completedAt: z.iso.datetime().optional(),
+    updatedAt: z.iso.datetime(),
+  })
+  .loose()
 
 interface CreateDecisionRuntimeClientOptions {
   baseUrl: string
@@ -166,6 +257,7 @@ export function createDecisionRuntimeClient({
   ) {
     throw new Error("The decision runtime base URL must be an HTTPS URL without credentials.")
   }
+  if (!parsedBaseUrl.pathname.endsWith("/")) parsedBaseUrl.pathname += "/"
   if (
     !Number.isInteger(timeoutMilliseconds) ||
     timeoutMilliseconds < 1_000 ||
@@ -221,7 +313,7 @@ export function createDecisionRuntimeClient({
     }
     let response: Response
     try {
-      response = await request(new URL(path, parsedBaseUrl), {
+      response = await request(new URL(path.replace(/^\/+/, ""), parsedBaseUrl), {
         method: options.method ?? "GET",
         body: options.body,
         headers: {
@@ -231,6 +323,7 @@ export function createDecisionRuntimeClient({
           ...(options.idempotencyKey ? { "idempotency-key": options.idempotencyKey } : {}),
           ...options.headers,
         },
+        redirect: "manual",
         signal,
       })
     } catch (error) {
@@ -252,16 +345,35 @@ export function createDecisionRuntimeClient({
         "The decision runtime returned an oversized response.",
       )
     }
-    const text = await readBoundedResponse(response, 2 * 1024 * 1024)
+    let text: string
+    try {
+      text = await readBoundedResponse(response, 2 * 1024 * 1024)
+    } catch (error) {
+      if (error instanceof DecisionRuntimeError) throw error
+      if (signal.aborted) {
+        throw new DecisionRuntimeError(
+          options.signal?.aborted ? "cancelled" : "timeout",
+          "The decision runtime response did not complete.",
+          { cause: error },
+        )
+      }
+      throw new DecisionRuntimeError(
+        "unavailable",
+        "The decision runtime response did not complete.",
+        { cause: error },
+      )
+    }
     let body: unknown
     try {
       body = text ? JSON.parse(text) : {}
     } catch (error) {
-      throw new DecisionRuntimeError(
-        "invalid_response",
-        "The decision runtime returned invalid JSON.",
-        { cause: error },
-      )
+      if (!response.ok) body = {}
+      else
+        throw new DecisionRuntimeError(
+          "invalid_response",
+          "The decision runtime returned invalid JSON.",
+          { cause: error },
+        )
     }
     if (!response.ok) {
       const runtimeCode = z
@@ -274,7 +386,9 @@ export function createDecisionRuntimeClient({
           : response.status === 404
             ? "not_found"
             : response.status === 409
-              ? "conflict"
+              ? runtimeCode.success && runtimeCode.data.error.code === "deletion_revoked"
+                ? "deletion_revoked"
+                : "conflict"
               : response.status === 429
                 ? "rate_limited"
                 : response.status >= 500
@@ -424,9 +538,48 @@ export function createDecisionRuntimeClient({
         generation: value.generation ?? 0,
       } satisfies DecisionRuntimePromotion
     },
+    async listRuntimeCopies(input) {
+      const selectors = deletionSelectors.parse(input.selectors)
+      const query = new URLSearchParams({
+        ...selectors,
+        limit: String(input.limit ?? 50),
+        ...(input.cursor ? { cursor: input.cursor } : {}),
+      })
+      return parse(
+        z
+          .object({
+            items: z.array(runtimeCopy),
+            nextCursor: z.string().nullable(),
+          })
+          .loose(),
+        await call(`/v1/runtime-copies?${query}`, { signal: input.signal }),
+      )
+    },
+    async requestDeletion(input) {
+      return parse(
+        deletionReceipt,
+        await call("/v1/deletions", {
+          method: "POST",
+          body: JSON.stringify({
+            selectors: deletionSelectors.parse(input.selectors),
+            requestedBy: input.requestedBy,
+            reason: input.reason,
+          }),
+          contentType: "application/json",
+          idempotencyKey: validateIdempotencyKey(input.idempotencyKey),
+          signal: input.signal,
+        }),
+      )
+    },
+    async getDeletion(id, signal) {
+      return parse(
+        deletionReceipt,
+        await call(`/v1/deletions/${encodeURIComponent(id)}`, { signal }),
+      )
+    },
     async promote(input) {
       const value = parse(
-        promotion,
+        promotionMutation,
         await call("/v1/promotions", {
           method: "POST",
           body: JSON.stringify({
@@ -441,12 +594,12 @@ export function createDecisionRuntimeClient({
       )
       return {
         ...value,
-        generation: value.generation ?? 0,
+        generation: value.generation,
       } satisfies DecisionRuntimePromotion
     },
     async rollback(input) {
       const value = parse(
-        promotion,
+        promotionMutation,
         await call("/v1/rollbacks", {
           method: "POST",
           body: JSON.stringify({
@@ -460,7 +613,7 @@ export function createDecisionRuntimeClient({
       )
       return {
         ...value,
-        generation: value.generation ?? 0,
+        generation: value.generation,
       } satisfies DecisionRuntimePromotion
     },
     async evaluate(input) {

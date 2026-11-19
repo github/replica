@@ -1,5 +1,6 @@
 import type { CurrentSessionDependencies } from "../auth/types.ts"
 import type { DecisionModelSettings } from "../../../domains/decision-model/types.ts"
+import type { DecisionRuntimeDeletionSelectors } from "../../../integrations/decision-runtime/create-decision-runtime-client/types.ts"
 
 export interface DecisionModelOverview {
   preflight: {
@@ -15,7 +16,15 @@ export interface DecisionModelOverview {
   configuration: (DecisionModelSettings & { generation: number }) | null
   jobs: {
     id: string
-    state: "queued" | "submitted" | "running" | "succeeded" | "failed" | "cancelled"
+    state:
+      | "queued"
+      | "submitting"
+      | "cancel_requested"
+      | "submitted"
+      | "running"
+      | "succeeded"
+      | "failed"
+      | "cancelled"
     tasksetDigest: string
     runtimeJobId: string | null
     candidateRuntimeId: string | null
@@ -89,6 +98,46 @@ export interface DecisionModelOverview {
     }[]
     createdAt: string
   }[]
+  deletions: {
+    id: string
+    state: "pending" | "completed" | "failed"
+    selectors: {
+      exportId: string | null
+      grantId: string | null
+      evidenceDigest: string | null
+      tasksetDigest: string | null
+    }
+    pending: number
+    failures: number
+    revokedAt: string | null
+    completedAt: string | null
+    failureCode: string | null
+  }[]
+}
+
+export interface DecisionTrainingJobResponse {
+  id: string
+  state:
+    | "queued"
+    | "submitting"
+    | "cancel_requested"
+    | "submitted"
+    | "running"
+    | "succeeded"
+    | "failed"
+    | "cancelled"
+  runtimeJobId: string | null
+  candidateRuntimeId: string | null
+  failureCode: string | null
+  createdAt: string
+}
+
+export interface DecisionPromotionResponse {
+  candidateId: string
+  runtimeCandidateId: string
+  previousCandidateId: string | null
+  previousRuntimeCandidateId: string | null
+  generation: number
 }
 
 export interface DecisionModelRouteDependencies {
@@ -107,39 +156,53 @@ export interface DecisionModelRouteDependencies {
     repositoryId: string
     actorMembershipId: string
     idempotencyKey: string
-  }): Promise<unknown>
+  }): Promise<{ created: boolean; job: DecisionTrainingJobResponse }>
   getTrainingJob(input: {
     repositoryId: string
     actorMembershipId: string
     jobId: string
-  }): Promise<unknown>
+  }): Promise<DecisionTrainingJobResponse>
   cancelTraining(input: {
     repositoryId: string
     actorMembershipId: string
     jobId: string
-  }): Promise<unknown>
+  }): Promise<DecisionTrainingJobResponse>
   rejectCandidate(input: {
     repositoryId: string
     actorMembershipId: string
     candidateId: string
     reason: string
-  }): Promise<unknown>
+  }): Promise<{ candidateId: string; rejectedAt: string }>
   promote(input: {
     repositoryId: string
     actorMembershipId: string
     actorLogin: string
     candidateId: string
     expectedGeneration: number
-  }): Promise<unknown>
+  }): Promise<DecisionPromotionResponse>
   rollback(input: {
     repositoryId: string
     actorMembershipId: string
     actorLogin: string
     expectedGeneration: number
-  }): Promise<unknown>
+  }): Promise<DecisionPromotionResponse>
   evaluateBuild(input: {
     repositoryId: string
     actorMembershipId: string
     buildId: string
   }): Promise<unknown>
+  withdrawTrainingData(input: {
+    repositoryId: string
+    actorMembershipId: string
+    actorLogin: string
+    selectors: DecisionRuntimeDeletionSelectors
+    reason: string
+    idempotencyKey: string
+  }): Promise<{
+    id: string
+    state: "pending" | "completed"
+    pending: number
+    failures: number
+    completedAt: string | null
+  }>
 }

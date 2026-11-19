@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 
 import { DecisionModelError } from "../errors.ts"
 import type { DecisionModelDependencies } from "../types.ts"
+import { resolveDecisionRuntime } from "../resolve-decision-runtime/index.ts"
 
 export async function promoteDecisionCandidate(
   input: {
@@ -18,6 +19,7 @@ export async function promoteDecisionCandidate(
     repositoryId: input.repositoryId,
   })
   return dependencies.withControlLock(async (signal) => {
+    const runtime = resolveDecisionRuntime(dependencies, input.repositoryId)
     const candidate = await dependencies.store.getCandidate(input.repositoryId, input.candidateId)
     if (!candidate) {
       throw new DecisionModelError(404, "candidate_not_found", "Decision candidate not found.")
@@ -29,6 +31,13 @@ export async function promoteDecisionCandidate(
         "A rejected decision candidate cannot be promoted.",
       )
     }
+    if (await dependencies.store.isCandidateRevoked?.(input.repositoryId, candidate.id)) {
+      throw new DecisionModelError(
+        409,
+        "deletion_revoked",
+        "Decision-model use is blocked by a runtime deletion.",
+      )
+    }
     const current = await dependencies.store.getPromotion(input.repositoryId)
     if ((current?.runtimeGeneration ?? 0) !== input.expectedGeneration) {
       throw new DecisionModelError(
@@ -37,10 +46,10 @@ export async function promoteDecisionCandidate(
         "The promoted decision model changed. Refresh and try again.",
       )
     }
-    const remote = await dependencies.runtime.getPromotion(signal)
+    const remote = await runtime.getPromotion(signal)
     let promotion = remote
     if (remote.generation === input.expectedGeneration) {
-      promotion = await dependencies.runtime.promote({
+      promotion = await runtime.promote({
         candidateId: candidate.runtimeCandidateId,
         promotedBy: input.actorLogin,
         expectedGeneration: input.expectedGeneration,

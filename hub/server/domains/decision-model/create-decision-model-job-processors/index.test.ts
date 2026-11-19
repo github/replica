@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
+import { DecisionRuntimeError } from "../../../integrations/decision-runtime/create-decision-runtime-client/errors.ts"
 import { decisionTrainingRecoverySchedule } from "../jobs/recover-decision-training.ts"
 import type { DecisionModelDependencies, DecisionTrainingJobRecord } from "../types.ts"
 import { createDecisionModelJobProcessors } from "./index.ts"
@@ -22,12 +23,15 @@ function dependencies(state: "RUNNING" | "SUCCEEDED"): DecisionModelDependencies
     maxSeconds: 300,
     budgetCredits: "10",
     consentGrantId: "grant_training",
+    trainingExportId: "export_training",
+    evidenceDigest: `sha256:${"9".repeat(64)}`,
     exportDigest: `sha256:${"a".repeat(64)}`,
     repeatableReviewSnapshotDigest: `sha256:${"e".repeat(64)}`,
     questionDigest: `sha256:${"b".repeat(64)}`,
     buildSetDigest: `sha256:${"c".repeat(64)}`,
     tasksetDigest: `sha256:${"d".repeat(64)}`,
     candidateRuntimeId: null,
+    failureCode: null,
     createdAt: new Date("2026-11-18T12:00:00Z"),
   }
   return {
@@ -35,6 +39,7 @@ function dependencies(state: "RUNNING" | "SUCCEEDED"): DecisionModelDependencies
     now: () => new Date("2026-11-18T12:05:00Z"),
     withControlLock: (operation) => operation(new AbortController().signal),
     preflightTaskset: vi.fn(),
+    hasTrainingConsent: vi.fn().mockResolvedValue(true),
     prepareTaskset: vi.fn(),
     prepareBuildEvaluation: vi.fn(),
     runtime: {
@@ -81,6 +86,9 @@ function dependencies(state: "RUNNING" | "SUCCEEDED"): DecisionModelDependencies
       createOrGetJob: vi.fn(),
       getJob: vi.fn().mockResolvedValue(trainingJob),
       markJobSubmitted: vi.fn(),
+      markJobSubmitting: vi.fn(),
+      requestCancellation: vi.fn(),
+      completeAdministratorCancellation: vi.fn(),
       updateJobState: vi
         .fn()
         .mockImplementation((input: { state: DecisionTrainingJobRecord["state"] }) =>
@@ -136,5 +144,36 @@ describe("createDecisionModelJobProcessors()", () => {
     })
 
     await expect(processors.run.process({ repositoryId, jobId })).resolves.toBeUndefined()
+  })
+
+  it("finishes pre-submission work when the runtime reports deletion revocation", async () => {
+    const input = dependencies("RUNNING")
+    const job = await input.store.getJob(repositoryId, jobId)
+    if (!job) throw new Error("Expected the training job fixture.")
+    vi.mocked(input.store.getJob).mockResolvedValue({
+      ...job,
+      state: "SUBMITTING",
+    })
+    vi.mocked(input.prepareTaskset).mockRejectedValue(
+      new DecisionRuntimeError(
+        "deletion_revoked",
+        "The decision runtime rejected revoked training data.",
+      ),
+    )
+    const processors = createDecisionModelJobProcessors({
+      databaseUrl: "postgresql://localhost/replica",
+      dependencies: input,
+      database: { decisionTrainingJob: {} } as never,
+      logger: { child: () => ({}) } as never,
+    })
+
+    await expect(processors.run.process({ repositoryId, jobId })).resolves.toBeUndefined()
+    expect(input.store.updateJobState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId,
+        state: "CANCELLED",
+        failureCode: "deletion_revoked",
+      }),
+    )
   })
 })

@@ -20,6 +20,8 @@ model DecisionTrainingJob {
   maxSeconds                     Int                      @map("max_seconds")
   budgetCredits                  Decimal                  @map("budget_credits") @db.Decimal(20, 9)
   consentGrantId                 String                   @map("consent_grant_id") @db.VarChar(255)
+  trainingExportId     String                   @map("training_export_id") @db.VarChar(255)
+  evidenceDigest       String                   @map("evidence_digest") @db.VarChar(71)
   exportDigest                   String                   @map("export_digest") @db.VarChar(71)
   repeatableReviewSnapshotDigest String                   @map("repeatable_review_snapshot_digest") @db.VarChar(71)
   questionDigest                 String                   @map("question_digest") @db.VarChar(71)

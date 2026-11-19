@@ -1,5 +1,5 @@
 import type { Prisma } from "../../../generated/prisma/client.ts"
-import type { DecisionRuntimeUsage } from "../../../integrations/decision-runtime/create-decision-runtime-client/types.ts"
+import type { DecisionRuntimeUsage } from "../../../utils/decision-runtime-usage/types.ts"
 
 export async function saveDecisionBuildEvaluation(
   database: Pick<Prisma.TransactionClient, "decisionBuildEvaluation">,

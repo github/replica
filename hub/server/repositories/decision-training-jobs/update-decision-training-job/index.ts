@@ -1,14 +1,17 @@
 import type { DecisionTrainingJobState, Prisma } from "../../../generated/prisma/client.ts"
-import type { DecisionRuntimeUsage } from "../../../integrations/decision-runtime/create-decision-runtime-client/types.ts"
+import type { DecisionRuntimeUsage } from "../../../utils/decision-runtime-usage/types.ts"
 
 function usageData(usage?: DecisionRuntimeUsage[]) {
   if (!usage) return {}
   const creditQuantity = usage
     .filter((record) => record.unit === "credits")
     .reduce((total, record) => total + record.quantity, 0)
+  const hasCreditUsage = usage.some((record) => record.unit === "credits")
   return {
     usageRecords: usage.map((record) => ({ ...record })) as Prisma.InputJsonArray,
-    ...(creditQuantity > 0 ? { usageQuantity: creditQuantity, usageUnit: "credits" } : {}),
+    ...(hasCreditUsage || usage.length === 0
+      ? { usageQuantity: creditQuantity, usageUnit: "credits" }
+      : {}),
   }
 }
 
@@ -31,8 +34,8 @@ export async function updateDecisionTrainingJob(
       },
 ) {
   if ("runtimeJobId" in input) {
-    const updated = await database.decisionTrainingJob.updateMany({
-      where: { id: input.id, state: { in: input.expectedStates } },
+    const submitted = await database.decisionTrainingJob.updateMany({
+      where: { id: input.id, state: "SUBMITTING" },
       data: {
         runtimeJobId: input.runtimeJobId,
         runtimeTasksetId: input.runtimeTasksetId,
@@ -40,8 +43,19 @@ export async function updateDecisionTrainingJob(
         submittedAt: new Date(),
       },
     })
+    const cancelRequested =
+      submitted.count === 0
+        ? await database.decisionTrainingJob.updateMany({
+            where: { id: input.id, state: "CANCEL_REQUESTED", runtimeJobId: null },
+            data: {
+              runtimeJobId: input.runtimeJobId,
+              runtimeTasksetId: input.runtimeTasksetId,
+              submittedAt: new Date(),
+            },
+          })
+        : { count: 0 }
     return {
-      changed: updated.count === 1,
+      changed: submitted.count === 1 || cancelRequested.count === 1,
       job: await database.decisionTrainingJob.findUniqueOrThrow({ where: { id: input.id } }),
     }
   }

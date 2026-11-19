@@ -8,10 +8,11 @@ export async function getDecisionModelOverview(
     | "decisionModelPromotion"
     | "decisionTrainingJob"
     | "decisionBuildEvaluation"
+    | "decisionRuntimeDeletion"
   >,
   repositoryId: string,
 ) {
-  const [configuration, jobs, candidates, promotions, evaluations] = await Promise.all([
+  const [configuration, jobs, candidates, promotions, evaluations, deletions] = await Promise.all([
     database.decisionModelConfiguration.findUnique({ where: { repositoryId } }),
     database.decisionTrainingJob.findMany({
       where: { repositoryId },
@@ -39,6 +40,11 @@ export async function getDecisionModelOverview(
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: 50,
     }),
+    database.decisionRuntimeDeletion.findMany({
+      where: { repositoryId },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 50,
+    }),
   ])
   return {
     configuration,
@@ -47,5 +53,6 @@ export async function getDecisionModelOverview(
     promotions,
     promotion: promotions[0] ?? null,
     evaluations,
+    deletions,
   }
 }

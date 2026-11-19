@@ -39,6 +39,8 @@ describe("decision training job repositories", () => {
       maxSeconds: 300,
       budgetCredits: "10",
       consentGrantId: "grant_training",
+      trainingExportId: "export_training",
+      evidenceDigest: `sha256:${"9".repeat(64)}`,
       exportDigest: `sha256:${"a".repeat(64)}`,
       repeatableReviewSnapshotDigest: `sha256:${"e".repeat(64)}`,
       questionDigest: `sha256:${"b".repeat(64)}`,
@@ -76,7 +78,9 @@ describe("decision training job repositories", () => {
 
   it("atomically reserves the monthly budget and records one request audit", async () => {
     const { membership, repository } = await configuredRepository()
-    const store = createDecisionModelStore(prisma)
+    const store = createDecisionModelStore(prisma, {
+      authorizeRepositoryAdministration: () => Promise.resolve(true),
+    })
     const taskset = {
       upload: {
         schemaVersion: "replica.decision-taskset-upload/v1" as const,
@@ -92,6 +96,8 @@ describe("decision training job repositories", () => {
         ],
       },
       consentGrantId: "grant_training",
+      trainingExportId: "export_training",
+      evidenceDigest: `sha256:${"9".repeat(64)}`,
       exportDigest: `sha256:${"a".repeat(64)}`,
       repeatableReviewSnapshotDigest: `sha256:${"e".repeat(64)}`,
       questionDigest: `sha256:${"b".repeat(64)}`,
@@ -129,7 +135,9 @@ describe("decision training job repositories", () => {
 
   it("does not replace or re-audit a terminal state", async () => {
     const { membership, repository } = await configuredRepository()
-    const store = createDecisionModelStore(prisma)
+    const store = createDecisionModelStore(prisma, {
+      authorizeRepositoryAdministration: () => Promise.resolve(true),
+    })
     const created = await store.createOrGetJob({
       repositoryId: repository.id,
       requestedByMembershipId: membership.id,
@@ -157,6 +165,8 @@ describe("decision training job repositories", () => {
           ],
         },
         consentGrantId: "grant_training",
+        trainingExportId: "export_training",
+        evidenceDigest: `sha256:${"9".repeat(64)}`,
         exportDigest: `sha256:${"a".repeat(64)}`,
         repeatableReviewSnapshotDigest: `sha256:${"e".repeat(64)}`,
         questionDigest: `sha256:${"b".repeat(64)}`,
@@ -189,5 +199,81 @@ describe("decision training job repositories", () => {
     expect(
       await prisma.securityAudit.count({ where: { action: "decision.training.cancelled" } }),
     ).toBe(0)
+  })
+
+  it("keeps an unknown terminal charge reserved and refuses sub-credit balances", async () => {
+    const { membership, repository } = await configuredRepository()
+    const store = createDecisionModelStore(prisma, {
+      authorizeRepositoryAdministration: () => Promise.resolve(true),
+    })
+    const settings = {
+      enabled: true,
+      backend: "fixture",
+      maxUpdates: 8,
+      maxSeconds: 300,
+      monthlyBudgetCredits: "10",
+    }
+    const taskset = {
+      upload: {
+        schemaVersion: "replica.decision-taskset-upload/v1" as const,
+        manifest: {},
+        tasks: [{}],
+        images: [
+          {
+            path: "screenshots/home.png",
+            mediaType: "image/png",
+            digest: `sha256:${"f".repeat(64)}`,
+            dataBase64: "AQID",
+          },
+        ],
+      },
+      consentGrantId: "grant_training",
+      trainingExportId: "export_training",
+      evidenceDigest: `sha256:${"9".repeat(64)}`,
+      exportDigest: `sha256:${"a".repeat(64)}`,
+      repeatableReviewSnapshotDigest: `sha256:${"e".repeat(64)}`,
+      questionDigest: `sha256:${"b".repeat(64)}`,
+      buildSetDigest: `sha256:${"c".repeat(64)}`,
+      tasksetDigest: `sha256:${"d".repeat(64)}`,
+    }
+    const first = await store.createOrGetJob({
+      repositoryId: repository.id,
+      requestedByMembershipId: membership.id,
+      idempotencyKey: "unknown-terminal-usage",
+      configurationGeneration: 1,
+      settings,
+      taskset,
+    })
+    await store.updateJobState({
+      jobId: first.job.id,
+      state: "FAILED",
+      failureCode: "provider_failed",
+    })
+
+    await expect(
+      store.createOrGetJob({
+        repositoryId: repository.id,
+        requestedByMembershipId: membership.id,
+        idempotencyKey: "second-after-unknown",
+        configurationGeneration: 1,
+        settings,
+        taskset,
+      }),
+    ).rejects.toMatchObject({ code: "budget_exceeded" })
+
+    await prisma.decisionTrainingJob.update({
+      where: { id: first.job.id },
+      data: { usageQuantity: "9.5", usageUnit: "credits", budgetCredits: "0" },
+    })
+    await expect(
+      store.createOrGetJob({
+        repositoryId: repository.id,
+        requestedByMembershipId: membership.id,
+        idempotencyKey: "sub-credit-balance",
+        configurationGeneration: 1,
+        settings,
+        taskset,
+      }),
+    ).rejects.toMatchObject({ code: "budget_exceeded" })
   })
 })

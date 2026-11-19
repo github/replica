@@ -18,17 +18,17 @@ flowchart LR
   promotion --> evaluation["Server-side Build evaluation"]
 ```
 
-1. A Hub administrator enables a repository and sets bounded updates, wall time, backend, and monthly credits.
+1. A repository administrator enables a repository and sets bounded updates, wall time, backend, and monthly credits.
 2. Hub prepares a training-purpose export from accepted learnings and a complete repeatable review snapshot.
 3. Hub reads the repository's immutable Build screenshot boundary, creates a private taskset, and pins the consent grant, export, review snapshot, Build set, question set, and taskset digests.
 4. Hub atomically reserves the repository's remaining monthly credits, transfers the taskset through the runtime client, submits one idempotent job with that credit limit, and polls it through BullMQ with a fixed delay and deadline.
 5. Hub stores the runtime job ID, candidate ID, evaluation digests, eligibility, and usage or cost metadata. Model artifacts remain in the customer runtime.
-6. A Hub administrator reviews a candidate and explicitly promotes it or restores the previous candidate. Hub and the runtime both reject a stale promotion generation.
+6. A repository administrator reviews a candidate and explicitly promotes it or restores the previous candidate. Hub and the runtime both reject a stale promotion generation.
 7. Build evaluation sends server-prepared screenshots and questions to the runtime. Hub saves the result only when the runtime used the candidate and generation that Hub recorded as promoted.
 
 ## Access
 
-Repository roles are not modeled yet. The control plane uses current live Hub administrator authority and keeps that decision behind `DecisionModelAuthorization`. A later repository-role implementation replaces this adapter without changing training, promotion, or evaluation domains.
+The control plane uses current repository-administrator authority and keeps that decision behind `DecisionModelAuthorization`. Each read and mutation checks the live membership, connected repository, and administrator-level repository grant.
 
 The administrator API is:
 
@@ -54,9 +54,11 @@ Promotion, rollback, and rejection share one Hub decision-control lock. Runtime 
 
 Saved Build evaluations list the persisted page-level findings. Each finding names the learning, route, and the viewport and theme combinations evaluated together, plus the runtime candidate and promotion generation and the Hub save time. Hub does not claim that a page-level probability came from one particular screenshot.
 
+Training withdrawal is selector-based. Hub records the export, grant, evidence, and taskset identifiers, enumerates content-free copy references from the repository's configured runtime, requests deletion, and persists the durable receipt. Pending and completed revocations block taskset upload, training, promotion, rollback, and evaluation for matching inputs. A scheduled recovery pass polls pending receipts after restart. The overview exposes only safe selectors, state, pending and failure counts, and receipt times; PostgreSQL never stores screenshots, learning text, labels, prompts, adapters, or model bytes from the receipt flow.
+
 ## Runtime connection
 
-`readDecisionRuntimeConfiguration()` accepts one explicit HTTPS base URL and one credential provider. The environment-token provider is the first local and compatibility implementation:
+`readDecisionRuntimeConfiguration()` accepts one explicit HTTPS base URL and one credential provider. Runtime composition selects that connection per repository because each runtime owns one repository-scoped promotion generation. The environment-token provider is the first local and compatibility implementation:
 
 ```sh
 REPLICA_DECISION_RUNTIME_URL=https://decision-runtime.example
@@ -79,6 +81,9 @@ The runtime client requires bounded JSON responses and typed errors. It uses the
 | `POST /v1/promotions` | Promotes a candidate |
 | `POST /v1/rollbacks` | Restores the previous candidate |
 | `POST /v1/evaluations` | Evaluates server-prepared Build screenshots |
+| `GET /v1/runtime-copies` | Enumerates bounded content-free copy references for exact selectors |
+| `POST /v1/deletions` | Revokes matching use and returns a durable deletion receipt |
+| `GET /v1/deletions/:id` | Reads the content-free receipt for recovery |
 
 The reference runtime validates uploaded tasksets, enforces the submitted hard credit limit, returns attributed training usage and cost, and rejects stale promotion or rollback generations. Hub preserves optional values as unknown rather than inventing them.
 

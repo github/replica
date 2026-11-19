@@ -2,6 +2,9 @@ import type {
   DecisionRuntimeCandidate,
   DecisionRuntimeClient,
   DecisionRuntimeTasksetUpload,
+  DecisionRuntimeCopy,
+  DecisionRuntimeDeletionReceipt,
+  DecisionRuntimeDeletionSelectors,
   DecisionRuntimeUsage,
 } from "../../integrations/decision-runtime/create-decision-runtime-client/types.ts"
 
@@ -16,6 +19,8 @@ export interface DecisionModelSettings {
 export interface PreparedDecisionTaskset {
   upload: DecisionRuntimeTasksetUpload
   consentGrantId: string
+  trainingExportId: string
+  evidenceDigest: string
   exportDigest: string
   repeatableReviewSnapshotDigest: string
   questionDigest: string
@@ -73,18 +78,29 @@ export interface DecisionTrainingJobRecord {
   runtimeJobId: string | null
   runtimeTasksetId: string | null
   configurationGeneration: number
-  state: "QUEUED" | "SUBMITTED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED"
+  state:
+    | "QUEUED"
+    | "SUBMITTING"
+    | "CANCEL_REQUESTED"
+    | "SUBMITTED"
+    | "RUNNING"
+    | "SUCCEEDED"
+    | "FAILED"
+    | "CANCELLED"
   backend: string
   maxUpdates: number
   maxSeconds: number
   budgetCredits: string
   consentGrantId: string
+  trainingExportId: string
+  evidenceDigest: string
   exportDigest: string
   repeatableReviewSnapshotDigest: string
   questionDigest: string
   buildSetDigest: string
   tasksetDigest: string
   candidateRuntimeId: string | null
+  failureCode: string | null
   createdAt: Date
 }
 
@@ -128,10 +144,31 @@ export interface DecisionModelStore {
     taskset: PreparedDecisionTaskset
   }): Promise<{ created: boolean; job: DecisionTrainingJobRecord }>
   getJob(repositoryId: string, jobId: string): Promise<DecisionTrainingJobRecord | null>
+  getJobByIdempotencyKey?(
+    repositoryId: string,
+    idempotencyKey: string,
+  ): Promise<DecisionTrainingJobRecord | null>
   markJobSubmitted(input: {
     jobId: string
     runtimeJobId: string
     runtimeTasksetId: string
+  }): Promise<DecisionTrainingJobRecord>
+  markJobSubmitting(jobId: string): Promise<DecisionTrainingJobRecord>
+  requestCancellation(input: {
+    jobId: string
+    actorMembershipId: string
+    repositoryId: string
+  }): Promise<{
+    terminal: boolean
+    job: DecisionTrainingJobRecord
+  }>
+  completeAdministratorCancellation(input: {
+    jobId: string
+    actorMembershipId: string
+    repositoryId: string
+    state: "FAILED" | "CANCELLED"
+    failureCode?: string
+    usage?: DecisionRuntimeUsage[]
   }): Promise<DecisionTrainingJobRecord>
   updateJobState(input: {
     jobId: string
@@ -189,6 +226,7 @@ export interface DecisionModelStore {
     repositoryId: string
     buildId: string
     candidateId: string
+    actorMembershipId: string
     promotionGeneration: number
     questionDigest: string
     screenshotSetDigest: string
@@ -199,6 +237,32 @@ export interface DecisionModelStore {
     }
     usage?: DecisionRuntimeUsage[]
   }): Promise<{ id: string }>
+  isTasksetRevoked?(input: {
+    repositoryId: string
+    exportId: string
+    grantId: string
+    evidenceDigest: string
+    tasksetDigest: string
+  }): Promise<boolean>
+  isCandidateRevoked?(repositoryId: string, candidateId: string): Promise<boolean>
+  createOrGetDeletion?(input: {
+    repositoryId: string
+    requestedByMembershipId: string
+    idempotencyKey: string
+    selectors: DecisionRuntimeDeletionSelectors
+    reason: string
+  }): Promise<{ id: string; runtimeDeletionId: string | null; state: string }>
+  saveRuntimeCopies?(repositoryId: string, copies: DecisionRuntimeCopy[]): Promise<void>
+  updateDeletionReceipt?(deletionId: string, receipt: DecisionRuntimeDeletionReceipt): Promise<void>
+  getDeletion?(id: string): Promise<{
+    id: string
+    repositoryId: string
+    runtimeDeletionId: string | null
+    state: "PENDING" | "COMPLETED" | "FAILED"
+  } | null>
+  listPendingDeletions?(): Promise<
+    { id: string; repositoryId: string; runtimeDeletionId: string | null }[]
+  >
 }
 
 export interface DecisionModelDependencies {
@@ -212,11 +276,27 @@ export interface DecisionModelDependencies {
     repositoryId: string
     actorMembershipId: string
   }): Promise<DecisionTrainingPreflight>
+  hasTrainingConsent(input: {
+    repositoryId: string
+    actorMembershipId: string
+    consentGrantId: string
+  }): Promise<boolean>
   prepareBuildEvaluation(input: {
     repositoryId: string
     buildId: string
   }): Promise<PreparedBuildEvaluation>
-  runtime: DecisionRuntimeClient
+  runtime?: DecisionRuntimeClient
+  runtimeForRepository?: (repositoryId: string) => DecisionRuntimeClient
   store: DecisionModelStore
   withControlLock<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T>
+  listTrainingWithdrawals?(): Promise<
+    {
+      repositoryId: string
+      actorMembershipId: string
+      actorLogin: string
+      selectors: DecisionRuntimeDeletionSelectors
+      reason: string
+      idempotencyKey: string
+    }[]
+  >
 }

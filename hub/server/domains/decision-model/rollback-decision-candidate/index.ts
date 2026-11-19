@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 
 import { DecisionModelError } from "../errors.ts"
 import type { DecisionModelDependencies } from "../types.ts"
+import { resolveDecisionRuntime } from "../resolve-decision-runtime/index.ts"
 
 export async function rollbackDecisionCandidate(
   input: {
@@ -17,6 +18,7 @@ export async function rollbackDecisionCandidate(
     repositoryId: input.repositoryId,
   })
   return dependencies.withControlLock(async (signal) => {
+    const runtime = resolveDecisionRuntime(dependencies, input.repositoryId)
     const current = await dependencies.store.getPromotion(input.repositoryId)
     if (!current || current.runtimeGeneration !== input.expectedGeneration) {
       throw new DecisionModelError(
@@ -57,10 +59,17 @@ export async function rollbackDecisionCandidate(
         "A rejected decision candidate cannot be restored.",
       )
     }
-    const remote = await dependencies.runtime.getPromotion(signal)
+    if (await dependencies.store.isCandidateRevoked?.(input.repositoryId, candidate.id)) {
+      throw new DecisionModelError(
+        409,
+        "deletion_revoked",
+        "Decision-model use is blocked by a runtime deletion.",
+      )
+    }
+    const remote = await runtime.getPromotion(signal)
     let promotion = remote
     if (remote.generation === input.expectedGeneration) {
-      promotion = await dependencies.runtime.rollback({
+      promotion = await runtime.rollback({
         rolledBackBy: input.actorLogin,
         expectedGeneration: input.expectedGeneration,
         idempotencyKey: randomUUID(),

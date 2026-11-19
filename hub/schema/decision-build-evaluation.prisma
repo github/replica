@@ -27,7 +27,7 @@ model DecisionBuildEvaluation {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  @@unique([buildId, promotionGeneration, questionDigest, screenshotSetDigest])
+  @@unique([buildId, promotionGeneration, questionDigest, screenshotSetDigest], map: "decision_build_evaluation_identity")
   @@index([repositoryId, createdAt])
   @@map("decision_build_evaluations")
 }

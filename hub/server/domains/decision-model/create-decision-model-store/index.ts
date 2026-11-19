@@ -12,11 +12,14 @@ import { createOrGetDecisionTrainingJob } from "../../../repositories/decision-t
 import { getDecisionTrainingJob } from "../../../repositories/decision-training-jobs/get-decision-training-job/index.ts"
 import { sumDecisionTrainingUsage } from "../../../repositories/decision-training-jobs/sum-decision-training-usage/index.ts"
 import { updateDecisionTrainingJob } from "../../../repositories/decision-training-jobs/update-decision-training-job/index.ts"
+import { requestDecisionTrainingCancellation } from "../../../repositories/decision-training-jobs/request-decision-training-cancellation/index.ts"
+import { markDecisionTrainingSubmitting } from "../../../repositories/decision-training-jobs/mark-decision-training-submitting/index.ts"
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
+import { lockRepositoryAdministratorAuthority } from "../../../repositories/repository-access/lock-repository-administrator-authority/index.ts"
 import { DecisionModelError } from "../errors.ts"
 import type { DecisionModelStore, DecisionTrainingJobRecord } from "../types.ts"
 
-const activeStates = ["QUEUED", "SUBMITTED", "RUNNING"] as const
+const activeStates = ["QUEUED", "SUBMITTING", "CANCEL_REQUESTED", "SUBMITTED", "RUNNING"] as const
 
 function decimalUnits(value: string): bigint {
   const [whole = "0", fraction = ""] = value.split(".")
@@ -48,17 +51,30 @@ function jobRecord(
     maxSeconds: job.maxSeconds,
     budgetCredits: job.budgetCredits.toString(),
     consentGrantId: job.consentGrantId,
+    trainingExportId: job.trainingExportId,
+    evidenceDigest: job.evidenceDigest,
     exportDigest: job.exportDigest,
     repeatableReviewSnapshotDigest: job.repeatableReviewSnapshotDigest,
     questionDigest: job.questionDigest,
     buildSetDigest: job.buildSetDigest,
     tasksetDigest: job.tasksetDigest,
     candidateRuntimeId: job.candidateRuntimeId,
+    failureCode: job.failureCode,
     createdAt: job.createdAt,
   }
 }
 
-export function createDecisionModelStore(database: PrismaClient): DecisionModelStore {
+export function createDecisionModelStore(
+  database: PrismaClient,
+  options: {
+    authorizeRepositoryAdministration?: (
+      transaction: Prisma.TransactionClient,
+      input: { membershipId: string; repositoryId: string },
+    ) => Promise<boolean>
+  } = {},
+): DecisionModelStore {
+  const authorize =
+    options.authorizeRepositoryAdministration ?? lockRepositoryAdministratorAuthority
   return {
     async getConfiguration(repositoryId) {
       const configuration = await getDecisionModelConfiguration(database, repositoryId)
@@ -84,6 +100,18 @@ export function createDecisionModelStore(database: PrismaClient): DecisionModelS
             WHERE repository_id = ${input.repositoryId}::uuid
             FOR UPDATE
           `
+          if (
+            !(await authorize(transaction, {
+              membershipId: input.requestedByMembershipId,
+              repositoryId: input.repositoryId,
+            }))
+          ) {
+            throw new DecisionModelError(
+              403,
+              "access_denied",
+              "Repository administrator access is required.",
+            )
+          }
           const configuration = await getDecisionModelConfiguration(transaction, input.repositoryId)
           if (
             !configuration?.enabled ||
@@ -104,7 +132,7 @@ export function createDecisionModelStore(database: PrismaClient): DecisionModelS
           const since = new Date()
           since.setUTCDate(1)
           since.setUTCHours(0, 0, 0, 0)
-          const [active, used] = await Promise.all([
+          const [active, used, unknownTerminal] = await Promise.all([
             transaction.decisionTrainingJob.aggregate({
               where: {
                 repositoryId: input.repositoryId,
@@ -122,12 +150,22 @@ export function createDecisionModelStore(database: PrismaClient): DecisionModelS
               },
               _sum: { usageQuantity: true },
             }),
+            transaction.decisionTrainingJob.aggregate({
+              where: {
+                repositoryId: input.repositoryId,
+                createdAt: { gte: since },
+                state: { in: ["SUCCEEDED", "FAILED", "CANCELLED"] },
+                usageQuantity: null,
+              },
+              _sum: { budgetCredits: true },
+            }),
           ])
           const remaining =
-            decimalUnits(configuration.monthlyBudgetCredits.toString()) -
-            decimalUnits(active._sum.budgetCredits?.toString() ?? "0") -
-            decimalUnits(used._sum.usageQuantity?.toString() ?? "0")
-          if (remaining <= 0) {
+            decimalUnits(configuration.monthlyBudgetCredits.toFixed(9)) -
+            decimalUnits(active._sum.budgetCredits?.toFixed(9) ?? "0.000000000") -
+            decimalUnits(unknownTerminal._sum.budgetCredits?.toFixed(9) ?? "0.000000000") -
+            decimalUnits(used._sum.usageQuantity?.toFixed(9) ?? "0.000000000")
+          if (remaining < 1_000_000_000n) {
             throw new DecisionModelError(
               409,
               "budget_exceeded",
@@ -144,6 +182,8 @@ export function createDecisionModelStore(database: PrismaClient): DecisionModelS
             maxSeconds: input.settings.maxSeconds,
             budgetCredits: decimalString(remaining),
             consentGrantId: input.taskset.consentGrantId,
+            trainingExportId: input.taskset.trainingExportId,
+            evidenceDigest: input.taskset.evidenceDigest,
             exportDigest: input.taskset.exportDigest,
             repeatableReviewSnapshotDigest: input.taskset.repeatableReviewSnapshotDigest,
             questionDigest: input.taskset.questionDigest,
@@ -169,6 +209,14 @@ export function createDecisionModelStore(database: PrismaClient): DecisionModelS
       const job = await getDecisionTrainingJob(database, repositoryId, jobId)
       return job ? jobRecord(job) : null
     },
+    async getJobByIdempotencyKey(repositoryId, idempotencyKey) {
+      const job = await getDecisionTrainingJobByIdempotencyKey(
+        database,
+        repositoryId,
+        idempotencyKey,
+      )
+      return job ? jobRecord(job) : null
+    },
     async markJobSubmitted(input) {
       const result = await updateDecisionTrainingJob(database, {
         id: input.jobId,
@@ -177,6 +225,72 @@ export function createDecisionModelStore(database: PrismaClient): DecisionModelS
         expectedStates: ["QUEUED"],
       })
       return jobRecord(result.job)
+    },
+    async markJobSubmitting(jobId) {
+      return jobRecord(await markDecisionTrainingSubmitting(database, jobId))
+    },
+    async requestCancellation(input) {
+      return database.$transaction(async (transaction) => {
+        if (
+          !(await authorize(transaction, {
+            membershipId: input.actorMembershipId,
+            repositoryId: input.repositoryId,
+          }))
+        ) {
+          throw new DecisionModelError(
+            403,
+            "access_denied",
+            "Repository administrator access is required.",
+          )
+        }
+        const result = await requestDecisionTrainingCancellation(transaction, input.jobId)
+        if (result.terminal) {
+          await createSecurityAudit(transaction, {
+            id: randomUUID(),
+            type: "decision_training",
+            actorMembershipId: input.actorMembershipId,
+            outcome: "cancelled",
+            repositoryId: input.repositoryId,
+            jobId: input.jobId,
+          })
+        }
+        return { terminal: result.terminal, job: jobRecord(result.job) }
+      })
+    },
+    async completeAdministratorCancellation(input) {
+      return database.$transaction(async (transaction) => {
+        if (
+          !(await authorize(transaction, {
+            membershipId: input.actorMembershipId,
+            repositoryId: input.repositoryId,
+          }))
+        ) {
+          throw new DecisionModelError(
+            403,
+            "access_denied",
+            "Repository administrator access is required.",
+          )
+        }
+        const result = await updateDecisionTrainingJob(transaction, {
+          id: input.jobId,
+          state: input.state,
+          expectedStates: [...activeStates],
+          failureCode: input.failureCode,
+          usage: input.usage,
+        })
+        if (result.changed) {
+          await createSecurityAudit(transaction, {
+            id: randomUUID(),
+            type: "decision_training",
+            actorMembershipId: input.actorMembershipId,
+            outcome: input.state === "FAILED" ? "failed" : "cancelled",
+            repositoryId: input.repositoryId,
+            jobId: input.jobId,
+            ...(input.failureCode ? { reason: input.failureCode } : {}),
+          })
+        }
+        return jobRecord(result.job)
+      })
     },
     async updateJobState(input) {
       return database.$transaction(async (transaction) => {
@@ -252,6 +366,18 @@ export function createDecisionModelStore(database: PrismaClient): DecisionModelS
     },
     async rejectCandidate(input) {
       return database.$transaction(async (transaction) => {
+        if (
+          !(await authorize(transaction, {
+            membershipId: input.rejectedByMembershipId,
+            repositoryId: input.repositoryId,
+          }))
+        ) {
+          throw new DecisionModelError(
+            403,
+            "access_denied",
+            "Repository administrator access is required.",
+          )
+        }
         await transaction.$queryRaw`
           SELECT id
           FROM decision_candidates
@@ -305,6 +431,18 @@ export function createDecisionModelStore(database: PrismaClient): DecisionModelS
     },
     async savePromotion(input) {
       return database.$transaction(async (transaction) => {
+        if (
+          !(await authorize(transaction, {
+            membershipId: input.promotedByMembershipId,
+            repositoryId: input.repositoryId,
+          }))
+        ) {
+          throw new DecisionModelError(
+            403,
+            "access_denied",
+            "Repository administrator access is required.",
+          )
+        }
         await transaction.$queryRaw`
           SELECT id
           FROM decision_candidates
@@ -350,32 +488,244 @@ export function createDecisionModelStore(database: PrismaClient): DecisionModelS
       })
     },
     async saveBuildEvaluation(input) {
-      const summary: Prisma.InputJsonObject = {
-        findings: input.summary.findings.map((finding) => ({
-          learning: {
-            id: finding.learning.id,
-            text: finding.learning.text,
-          },
-          route: finding.route,
-          views: finding.views.map((view) => ({
-            viewport: view.viewport,
-            theme: view.theme,
+      return database.$transaction(async (transaction) => {
+        if (
+          !(await authorize(transaction, {
+            membershipId: input.actorMembershipId,
+            repositoryId: input.repositoryId,
+          }))
+        ) {
+          throw new DecisionModelError(
+            403,
+            "access_denied",
+            "Repository administrator access is required.",
+          )
+        }
+        const summary: Prisma.InputJsonObject = {
+          findings: input.summary.findings.map((finding) => ({
+            learning: {
+              id: finding.learning.id,
+              text: finding.learning.text,
+            },
+            route: finding.route,
+            views: finding.views.map((view) => ({
+              viewport: view.viewport,
+              theme: view.theme,
+            })),
+            followsProbability: finding.followsProbability,
+            breaksProbability: finding.breaksProbability,
           })),
-          followsProbability: finding.followsProbability,
-          breaksProbability: finding.breaksProbability,
-        })),
-      }
-      return saveDecisionBuildEvaluation(database, {
-        ...input,
-        promotionGeneration: BigInt(input.promotionGeneration),
-        summary,
+        }
+        return saveDecisionBuildEvaluation(transaction, {
+          ...input,
+          promotionGeneration: BigInt(input.promotionGeneration),
+          summary,
+        })
       })
     },
+    async isTasksetRevoked(input) {
+      return Boolean(
+        await database.decisionRuntimeDeletion.findFirst({
+          where: {
+            repositoryId: input.repositoryId,
+            state: { in: ["PENDING", "COMPLETED"] },
+            OR: [
+              { exportId: input.exportId },
+              { grantId: input.grantId },
+              { evidenceDigest: input.evidenceDigest },
+              { tasksetDigest: input.tasksetDigest },
+            ],
+          },
+          select: { id: true },
+        }),
+      )
+    },
+    async isCandidateRevoked(repositoryId, candidateId) {
+      const candidate = await database.decisionCandidate.findFirst({
+        where: { id: candidateId, repositoryId },
+        select: {
+          trainingJob: {
+            select: {
+              trainingExportId: true,
+              consentGrantId: true,
+              evidenceDigest: true,
+              tasksetDigest: true,
+            },
+          },
+        },
+      })
+      if (!candidate) return false
+      return Boolean(
+        await database.decisionRuntimeDeletion.findFirst({
+          where: {
+            repositoryId,
+            state: { in: ["PENDING", "COMPLETED"] },
+            OR: [
+              { exportId: candidate.trainingJob.trainingExportId },
+              { grantId: candidate.trainingJob.consentGrantId },
+              { evidenceDigest: candidate.trainingJob.evidenceDigest },
+              { tasksetDigest: candidate.trainingJob.tasksetDigest },
+            ],
+          },
+          select: { id: true },
+        }),
+      )
+    },
+    async createOrGetDeletion(input) {
+      const selectors = input.selectors
+      const record = await database.decisionRuntimeDeletion.upsert({
+        where: {
+          repositoryId_idempotencyKey: {
+            repositoryId: input.repositoryId,
+            idempotencyKey: input.idempotencyKey,
+          },
+        },
+        create: {
+          repositoryId: input.repositoryId,
+          requestedByMembershipId: input.requestedByMembershipId,
+          idempotencyKey: input.idempotencyKey,
+          exportId: selectors.exportId,
+          grantId: selectors.grantId,
+          evidenceDigest: selectors.evidenceDigest,
+          tasksetDigest: selectors.tasksetDigest,
+          reason: input.reason,
+        },
+        update: {},
+      })
+      return {
+        id: record.id,
+        runtimeDeletionId: record.runtimeDeletionId,
+        state: record.state,
+      }
+    },
+    async saveRuntimeCopies(repositoryId, copies) {
+      await database.$transaction(
+        copies.map((copy) =>
+          database.decisionRuntimeCopy.upsert({
+            where: {
+              repositoryId_runtimeCopyId: {
+                repositoryId,
+                runtimeCopyId: copy.runtimeCopyId,
+              },
+            },
+            create: {
+              repositoryId,
+              runtimeCopyId: copy.runtimeCopyId,
+              kind: copy.kind,
+              runtimeConnector: copy.storage.connector,
+              runtimeReference: copy.storage.reference,
+              exportId: copy.sourceTrainingExportId,
+              grantIds: copy.permittingGrantIds ?? [],
+              evidenceDigest: copy.evidenceDigest,
+              tasksetDigest: copy.tasksetDigest,
+              useState: copy.useState,
+              promotionState: copy.promotionState,
+              retention: copy.retention as Prisma.InputJsonValue,
+              runtimeCreatedAt: copy.createdAt ? new Date(copy.createdAt) : null,
+              disclosedAt: new Date(),
+            },
+            update: {
+              useState: copy.useState,
+              promotionState: copy.promotionState,
+              runtimeConnector: copy.storage.connector,
+              runtimeReference: copy.storage.reference,
+              exportId: copy.sourceTrainingExportId,
+              grantIds: copy.permittingGrantIds ?? [],
+              evidenceDigest: copy.evidenceDigest,
+              tasksetDigest: copy.tasksetDigest,
+              retention: copy.retention as Prisma.InputJsonValue,
+              runtimeCreatedAt: copy.createdAt ? new Date(copy.createdAt) : null,
+              disclosedAt: new Date(),
+            },
+          }),
+        ),
+      )
+    },
+    async updateDeletionReceipt(deletionId, receipt) {
+      await database.$transaction(async (transaction) => {
+        const existing = await transaction.decisionRuntimeDeletion.findUniqueOrThrow({
+          where: { id: deletionId },
+        })
+        const state =
+          receipt.state === "completed"
+            ? "COMPLETED"
+            : receipt.failures.length > 0 && receipt.pendingItems.length === 0
+              ? "FAILED"
+              : "PENDING"
+        const receiptJson: Prisma.InputJsonObject = {
+          id: receipt.id,
+          state: receipt.state,
+          selectors: { ...receipt.selectors },
+          items: receipt.items.map((item) => ({
+            kind: item.kind,
+            runtimeCopyId: item.runtimeCopyId,
+            state: item.state,
+            ...(item.storage
+              ? {
+                  storage: {
+                    connector: item.storage.connector,
+                    reference: item.storage.reference,
+                  },
+                }
+              : {}),
+            ...(item.retention
+              ? { retention: item.retention as Prisma.InputJsonObject }
+              : {}),
+          })),
+          pendingItems: receipt.pendingItems.map((item) => ({ ...item })),
+          failures: receipt.failures.map((item) => ({ ...item })),
+          updatedAt: receipt.updatedAt,
+          ...(receipt.revokedAt ? { revokedAt: receipt.revokedAt } : {}),
+          ...(receipt.completedAt ? { completedAt: receipt.completedAt } : {}),
+        }
+        await transaction.decisionRuntimeDeletion.update({
+          where: { id: deletionId },
+          data: {
+            runtimeDeletionId: receipt.id,
+            state,
+            pendingCount: receipt.pendingItems.length,
+            failureCount: receipt.failures.length,
+            receipt: receiptJson,
+            failureCode: receipt.failures[0]?.code,
+            revokedAt: receipt.revokedAt ? new Date(receipt.revokedAt) : undefined,
+            completedAt: receipt.completedAt ? new Date(receipt.completedAt) : undefined,
+          },
+        })
+        if (existing.state !== state && state !== "PENDING") {
+          await createSecurityAudit(transaction, {
+            id: randomUUID(),
+            type: "decision_runtime_deletion",
+            actorMembershipId: existing.requestedByMembershipId,
+            repositoryId: existing.repositoryId,
+            deletionId,
+            outcome: state === "COMPLETED" ? "completed" : "failed",
+          })
+        }
+      })
+    },
+    async getDeletion(id) {
+      return database.decisionRuntimeDeletion.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          repositoryId: true,
+          runtimeDeletionId: true,
+          state: true,
+        },
+      })
+    },
+    listPendingDeletions: () =>
+      database.decisionRuntimeDeletion.findMany({
+        where: { state: "PENDING" },
+        select: { id: true, repositoryId: true, runtimeDeletionId: true },
+        orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
+        take: 100,
+      }),
   }
 }
 
 function getDecisionTrainingJobByIdempotencyKey(
-  database: Prisma.TransactionClient,
+  database: Pick<Prisma.TransactionClient, "decisionTrainingJob">,
   repositoryId: string,
   idempotencyKey: string,
 ) {

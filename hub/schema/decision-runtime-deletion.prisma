@@ -1,0 +1,38 @@
+model DecisionRuntimeDeletion {
+  // ID columns
+  id                      String @id @default(uuid()) @db.Uuid
+  repositoryId            String @map("repository_id") @db.Uuid
+  requestedByMembershipId String @map("requested_by_membership_id") @db.Uuid
+
+  // Relations
+  repository            Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  requestedByMembership Membership @relation(fields: [requestedByMembershipId], references: [id], onDelete: Restrict)
+
+  // Attribute columns
+  runtimeDeletionId String?                      @map("runtime_deletion_id") @db.VarChar(200)
+  idempotencyKey    String                       @map("idempotency_key") @db.VarChar(100)
+  state             DecisionRuntimeDeletionState @default(PENDING)
+  exportId          String?                      @map("export_id") @db.VarChar(255)
+  grantId           String?                      @map("grant_id") @db.VarChar(255)
+  evidenceDigest    String?                      @map("evidence_digest") @db.VarChar(71)
+  tasksetDigest     String?                      @map("taskset_digest") @db.VarChar(71)
+  reason            String                       @db.VarChar(500)
+  pendingCount      Int                          @default(0) @map("pending_count")
+  failureCount      Int                          @default(0) @map("failure_count")
+  receipt           Json?                        @db.JsonB
+  failureCode       String?                      @map("failure_code") @db.VarChar(100)
+  revokedAt         DateTime?                    @map("revoked_at") @db.Timestamptz(3)
+  completedAt       DateTime?                    @map("completed_at") @db.Timestamptz(3)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([repositoryId, idempotencyKey])
+  @@unique([repositoryId, runtimeDeletionId])
+  @@index([state, updatedAt])
+  @@index([repositoryId, exportId])
+  @@index([repositoryId, grantId])
+  @@index([repositoryId, tasksetDigest])
+  @@map("decision_runtime_deletions")
+}

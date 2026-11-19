@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net"
 import { describe, expect, it, vi } from "vitest"
 
 import { createApp } from "../../../create-app/index.ts"
+import { DecisionModelError } from "../../../domains/decision-model/errors.ts"
 import { createDecisionModelRouteDependencies } from "./create-decision-model-route-dependencies"
 import type { DecisionModelRouteDependencies } from "./types.ts"
 
@@ -11,9 +12,14 @@ const repositoryMocks = vi.hoisted(() => ({
   findActiveRepository: vi.fn(),
   getDecisionModelOverview: vi.fn(),
   isEffectiveAdministrator: vi.fn(),
+  lockRepositoryAdministratorAuthority: vi.fn(),
 }))
 
-vi.mock("../../../integrations/prisma/index.ts", () => ({ prisma: {} }))
+vi.mock("../../../integrations/prisma/index.ts", () => ({
+  prisma: {
+    $transaction: (operation: (transaction: object) => unknown) => operation({}),
+  },
+}))
 vi.mock(
   "../../../repositories/decision-model-configurations/get-decision-model-overview/index.ts",
   () => ({ getDecisionModelOverview: repositoryMocks.getDecisionModelOverview }),
@@ -24,6 +30,12 @@ vi.mock("../../../repositories/memberships/is-effective-administrator/index.ts",
 vi.mock("../../../repositories/prototype-index/find-active-repository/index.ts", () => ({
   findActiveRepository: repositoryMocks.findActiveRepository,
 }))
+vi.mock(
+  "../../../repositories/repository-access/lock-repository-administrator-authority/index.ts",
+  () => ({
+    lockRepositoryAdministratorAuthority: repositoryMocks.lockRepositoryAdministratorAuthority,
+  }),
+)
 
 const repositoryId = "11111111-2222-4333-8444-555555555555"
 const membershipId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -51,6 +63,7 @@ function dependencies(role: "MEMBER" | "ADMINISTRATOR"): DecisionModelRouteDepen
     promote: vi.fn(),
     rollback: vi.fn(),
     evaluateBuild: vi.fn(),
+    withdrawTrainingData: vi.fn(),
   }
 }
 
@@ -72,8 +85,16 @@ async function withApp(
 }
 
 describe("decision-model routes", () => {
-  it("does not expose control-plane state to a Hub member", async () => {
-    const getOverview = vi.fn()
+  it("does not expose control-plane state without repository administration", async () => {
+    const getOverview = vi
+      .fn()
+      .mockRejectedValue(
+        new DecisionModelError(
+          403,
+          "access_denied",
+          "Repository administrator access is required.",
+        ),
+      )
     const deps = { ...dependencies("MEMBER"), getOverview }
 
     await withApp(deps, async (baseUrl) => {
@@ -82,7 +103,10 @@ describe("decision-model routes", () => {
       })
 
       expect(response.status).toBe(403)
-      expect(getOverview).not.toHaveBeenCalled()
+      expect(getOverview).toHaveBeenCalledWith({
+        repositoryId,
+        actorMembershipId: membershipId,
+      })
     })
   })
 
@@ -233,6 +257,7 @@ describe("decision-model routes", () => {
 
   it("lists persisted runtime duration, history, and findings", async () => {
     repositoryMocks.isEffectiveAdministrator.mockResolvedValue(true)
+    repositoryMocks.lockRepositoryAdministratorAuthority.mockResolvedValue(true)
     repositoryMocks.findActiveRepository.mockResolvedValue({ id: repositoryId })
     repositoryMocks.getDecisionModelOverview.mockResolvedValue({
       configuration: null,
@@ -341,12 +366,7 @@ describe("decision-model routes", () => {
     })
     const routeDependencies = createDecisionModelRouteDependencies({
       applicationOrigin: "http://127.0.0.1:5173",
-      baseUrl: "https://runtime.example.test",
-      credentialProvider: {
-        configurationDigest: "configuration-digest",
-        key: "runtime",
-        getCredential: vi.fn(),
-      },
+      runtimeForRepository: vi.fn(),
       currentSession: dependencies("ADMINISTRATOR").currentSession,
       databaseUrl: "postgresql://unused",
       logger: { child: () => ({}) } as never,
@@ -355,6 +375,9 @@ describe("decision-model routes", () => {
           counts: { prototypes: 2, builds: 5, screenshots: 11, questions: 7, samples: 43 },
           warnings: [],
         }),
+        hasTrainingConsent: vi.fn(),
+        getLearningText: vi.fn().mockResolvedValue("Use the compact navigation on settings pages."),
+        listTrainingWithdrawals: vi.fn().mockResolvedValue([]),
         exportTrainingEvidence: vi.fn(),
         readBuildArtifacts: vi.fn(),
         createTaskset: vi.fn(),

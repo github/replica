@@ -3,17 +3,14 @@ import type { Request, Response } from "express"
 import { readDecisionModelSession } from "../read-decision-model-session/index.ts"
 import type { DecisionModelRouteDependencies } from "../types.ts"
 
-export async function readAdministrator(
+export async function readDecisionModelMember(
   request: Request,
   response: Response,
   dependencies: DecisionModelRouteDependencies,
 ) {
   const session = await readDecisionModelSession(request, dependencies)
-  if (!session || session.role !== "ADMINISTRATOR") {
-    response.status(403).json({
-      code: "repository_administrator_required",
-      error: "Repository administrator access is required.",
-    })
+  if (!session) {
+    response.status(401).json({ code: "authentication_required", error: "Sign in to continue." })
     return null
   }
   return session

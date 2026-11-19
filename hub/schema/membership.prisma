@@ -14,6 +14,7 @@ model Membership {
   decisionTrainingJobs       DecisionTrainingJob[]
   decisionModelPromotions    DecisionModelPromotion[]
   rejectedDecisionCandidates DecisionCandidate[]
+  decisionRuntimeDeletions   DecisionRuntimeDeletion[]
   learningDecisionOperations LearningDecisionOperation[]
 
   // Attribute columns

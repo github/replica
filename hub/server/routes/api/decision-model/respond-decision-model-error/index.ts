@@ -1,5 +1,4 @@
 import type { Response } from "express"
-import { ZodError } from "zod"
 
 import { DecisionModelError } from "../../../../domains/decision-model/errors.ts"
 import { DecisionRuntimeError } from "../../../../integrations/decision-runtime/create-decision-runtime-client/errors.ts"
@@ -19,13 +18,6 @@ export function respondDecisionModelError(response: Response, error: unknown): b
             ? 502
             : 503
     response.status(status).json({ code: error.code, error: error.message })
-    return true
-  }
-  if (error instanceof ZodError) {
-    response.status(422).json({
-      code: "invalid_decision_model_request",
-      error: "The decision-model request is not valid.",
-    })
     return true
   }
   return false

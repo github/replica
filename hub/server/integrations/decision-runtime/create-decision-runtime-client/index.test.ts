@@ -59,7 +59,7 @@ describe("createDecisionRuntimeClient()", () => {
     const requestedUrl = typeof url === "string" ? url : url instanceof URL ? url.href : url.url
     const headers = new Headers(init?.headers)
     expect(requestedUrl).toBe(
-      `https://runtime.example.test/v1/tasksets/${tasksetDigest.slice("sha256:".length)}`,
+      `https://runtime.example.test/control/v1/tasksets/${tasksetDigest.slice("sha256:".length)}`,
     )
     expect(init?.method).toBe("PUT")
     expect(init?.body).toBe(JSON.stringify(tasksetUpload))
@@ -275,6 +275,154 @@ describe("createDecisionRuntimeClient()", () => {
       name: "DecisionRuntimeError",
       code,
       message: "The decision runtime rejected the request (provider_code).",
+    })
+  })
+
+  it("preserves the runtime deletion revocation code", async () => {
+    const client = createDecisionRuntimeClient({
+      baseUrl: "https://runtime.example.test",
+      credentialProvider: credentialProvider(),
+      fetch: vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: { code: "deletion_revoked" } }), {
+          status: 409,
+        }),
+      ),
+    })
+
+    await expect(client.getTrainingJob("job-1")).rejects.toMatchObject({
+      name: "DecisionRuntimeError",
+      code: "deletion_revoked",
+    })
+  })
+
+  it("does not follow redirects for authenticated private requests", async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(new Response("", { status: 307, headers: { location: "http://other/" } }))
+    const client = createDecisionRuntimeClient({
+      baseUrl: "https://runtime.example.test/prefix/",
+      credentialProvider: credentialProvider(),
+      fetch,
+    })
+
+    await expect(client.getTrainingJob("job-1")).rejects.toMatchObject({
+      code: "runtime_failure",
+    })
+    expect(fetch.mock.calls[0]?.[1]?.redirect).toBe("manual")
+  })
+
+  it("classifies a non-JSON service error from its HTTP status", async () => {
+    const client = createDecisionRuntimeClient({
+      baseUrl: "https://runtime.example.test",
+      credentialProvider: credentialProvider(),
+      fetch: vi.fn().mockResolvedValue(new Response("<html>down</html>", { status: 503 })),
+    })
+
+    await expect(client.getTrainingJob("job-1")).rejects.toMatchObject({
+      code: "unavailable",
+    })
+  })
+
+  it("maps a response stream failure to runtime unavailability", async () => {
+    const body = new ReadableStream({
+      start(controller) {
+        controller.error(new Error("stream reset"))
+      },
+    })
+    const client = createDecisionRuntimeClient({
+      baseUrl: "https://runtime.example.test",
+      credentialProvider: credentialProvider(),
+      fetch: vi.fn().mockResolvedValue(new Response(body)),
+    })
+
+    await expect(client.getTrainingJob("job-1")).rejects.toMatchObject({
+      code: "unavailable",
+    })
+  })
+
+  it("requires a generation in promotion mutation responses", async () => {
+    const client = createDecisionRuntimeClient({
+      baseUrl: "https://runtime.example.test",
+      credentialProvider: credentialProvider(),
+      fetch: vi
+        .fn()
+        .mockResolvedValue(new Response(JSON.stringify({ candidateId: "candidate-1" }))),
+    })
+
+    await expect(
+      client.promote({
+        candidateId: "candidate-1",
+        promotedBy: "mona",
+        expectedGeneration: 0,
+        idempotencyKey: "promote-1",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_response" })
+  })
+
+  it("uses content-free disclosure and deletion receipt contracts", async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            items: [
+              {
+                id: "copy-1",
+                runtimeCopyId: "copy-1",
+                kind: "taskset",
+                sourceTrainingExportId: "export-1",
+                permittingGrantIds: ["grant-1"],
+                tasksetDigest,
+                useState: "active",
+                storage: { connector: "local", reference: "taskset:1" },
+                retention: { mode: "delete_on_withdrawal" },
+              },
+            ],
+            nextCursor: null,
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "deletion-1",
+            state: "pending",
+            selectors: { grantId: "grant-1" },
+            items: [],
+            pendingItems: [
+              {
+                kind: "candidate",
+                runtimeCopyId: "candidate-1",
+                code: "delete_unavailable",
+                retryable: true,
+              },
+            ],
+            failures: [],
+            revokedAt: "2026-11-19T18:00:00.000Z",
+            updatedAt: "2026-11-19T18:00:00.000Z",
+          }),
+        ),
+      )
+    const client = createDecisionRuntimeClient({
+      baseUrl: "https://runtime.example.test",
+      credentialProvider: credentialProvider(),
+      fetch,
+    })
+
+    await expect(
+      client.listRuntimeCopies!({ selectors: { grantId: "grant-1" } }),
+    ).resolves.toMatchObject({ items: [{ runtimeCopyId: "copy-1" }] })
+    await expect(
+      client.requestDeletion!({
+        selectors: { grantId: "grant-1" },
+        requestedBy: "mona",
+        reason: "training consent withdrawn",
+        idempotencyKey: "delete-grant-1",
+      }),
+    ).resolves.toMatchObject({
+      id: "deletion-1",
+      state: "pending",
+      pendingItems: [{ retryable: true }],
     })
   })
 

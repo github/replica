@@ -1,5 +1,6 @@
 import type { DecisionModelDependencies } from "../types.ts"
 import { DecisionModelError } from "../errors.ts"
+import { resolveDecisionRuntime } from "../resolve-decision-runtime/index.ts"
 
 export async function rejectDecisionCandidate(
   input: {
@@ -15,6 +16,7 @@ export async function rejectDecisionCandidate(
     repositoryId: input.repositoryId,
   })
   return dependencies.withControlLock(async (signal) => {
+    const runtime = resolveDecisionRuntime(dependencies, input.repositoryId)
     const candidate = await dependencies.store.getCandidate(input.repositoryId, input.candidateId)
     if (!candidate) {
       return dependencies.store.rejectCandidate({
@@ -24,7 +26,7 @@ export async function rejectDecisionCandidate(
         reason: input.reason,
       })
     }
-    const promotion = await dependencies.runtime.getPromotion(signal)
+    const promotion = await runtime.getPromotion(signal)
     if (promotion.candidateId === candidate.runtimeCandidateId) {
       throw new DecisionModelError(
         409,

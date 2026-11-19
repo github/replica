@@ -29,7 +29,7 @@ describe("decision-model migration", () => {
         try {
           const hubRoot = fileURLToPath(new URL("../../../", import.meta.url))
           const migrationsRoot = join(hubRoot, "schema/migrations")
-          const decisionMigration = "20261203150000_decision_model_ux_contracts"
+          const decisionMigration = "20261203140000_decision_model_control_plane"
           const baseMigrations = (await readdir(migrationsRoot, { withFileTypes: true }))
             .filter((entry) => entry.isDirectory() && entry.name < decisionMigration)
             .map((entry) => entry.name)
@@ -96,37 +96,112 @@ describe("decision-model migration", () => {
               [randomUUID(), otherRepositoryId],
             ),
           ).rejects.toMatchObject({ code: "23514" })
-          const columns = await database.query<{ column_name: string }>(
-            `SELECT column_name
-             FROM information_schema.columns
-             WHERE table_schema = 'public'
-               AND table_name IN (
-                 'decision_model_configurations',
-                 'decision_training_jobs',
-                 'decision_candidates',
-                 'decision_model_promotions',
-                 'decision_build_evaluations'
-               )`,
+          const userId = randomUUID()
+          const membershipId = randomUUID()
+          const jobId = randomUUID()
+          const otherJobId = randomUUID()
+          const candidateId = randomUUID()
+          await database.query(`INSERT INTO users (id) VALUES ($1)`, [userId])
+          await database.query(`INSERT INTO memberships (id, user_id) VALUES ($1, $2)`, [
+            membershipId,
+            userId,
+          ])
+          await database.query(
+            `INSERT INTO decision_training_jobs
+               (id, repository_id, requested_by_membership_id, idempotency_key,
+                configuration_generation, state, backend, max_updates, max_seconds,
+                budget_credits, consent_grant_id, export_digest,
+                training_export_id, evidence_digest,
+                repeatable_review_snapshot_digest, question_digest, build_set_digest,
+                taskset_digest)
+             VALUES ($1, $2, $3, 'migration-candidate', 1, 'SUCCEEDED', 'fixture',
+                     8, 300, 10, 'grant', $4, $5, $6, $7, $8, $9, $10)`,
+            [
+              jobId,
+              repositoryId,
+              membershipId,
+              `sha256:${"a".repeat(64)}`,
+              "export_training",
+              `sha256:${"9".repeat(64)}`,
+              `sha256:${"b".repeat(64)}`,
+              `sha256:${"c".repeat(64)}`,
+              `sha256:${"d".repeat(64)}`,
+              `sha256:${"e".repeat(64)}`,
+            ],
           )
-          expect(
-            columns.rows.some(({ column_name }) =>
-              /(credential|secret|token|adapter|weight)/.test(column_name),
+          await database.query(
+            `INSERT INTO decision_training_jobs
+               (id, repository_id, requested_by_membership_id, idempotency_key,
+                configuration_generation, state, backend, max_updates, max_seconds,
+                budget_credits, consent_grant_id, export_digest,
+                training_export_id, evidence_digest,
+                repeatable_review_snapshot_digest, question_digest, build_set_digest,
+                taskset_digest)
+             VALUES ($1, $2, $3, 'invalid-rejection-job', 1, 'SUCCEEDED', 'fixture',
+                     8, 300, 10, 'grant', $4, $5, $6, $7, $8, $9, $10)`,
+            [
+              otherJobId,
+              otherRepositoryId,
+              membershipId,
+              `sha256:${"a".repeat(64)}`,
+              "export_training",
+              `sha256:${"9".repeat(64)}`,
+              `sha256:${"b".repeat(64)}`,
+              `sha256:${"c".repeat(64)}`,
+              `sha256:${"d".repeat(64)}`,
+              `sha256:${"e".repeat(64)}`,
+            ],
+          )
+          await database.query(
+            `INSERT INTO decision_candidates
+               (id, repository_id, training_job_id, runtime_candidate_id, taskset_digest,
+                manifest_digest, evaluation_digest, production_eligible,
+                rejected_by_membership_id, rejected_reason, rejected_at)
+             VALUES ($1, $2, $3, 'runtime-candidate', $4, $5, $6, true, $7,
+                     'Not suitable', clock_timestamp())`,
+            [
+              candidateId,
+              repositoryId,
+              jobId,
+              `sha256:${"e".repeat(64)}`,
+              `sha256:${"f".repeat(64)}`,
+              `sha256:${"1".repeat(64)}`,
+              membershipId,
+            ],
+          )
+          await expect(
+            database.query(
+              `INSERT INTO decision_candidates
+                 (id, repository_id, training_job_id, runtime_candidate_id, taskset_digest,
+                  manifest_digest, evaluation_digest, production_eligible)
+               VALUES ($1, $2, $3, 'cross-repository', $4, $5, $6, true)`,
+              [
+                randomUUID(),
+                otherRepositoryId,
+                jobId,
+                `sha256:${"e".repeat(64)}`,
+                `sha256:${"f".repeat(64)}`,
+                `sha256:${"1".repeat(64)}`,
+              ],
             ),
-          ).toBe(false)
-          const candidateColumns = columns.rows.map(({ column_name }) => column_name)
-          expect(candidateColumns).toEqual(
-            expect.arrayContaining([
-              "baseline_mean_reward",
-              "candidate_mean_reward",
-              "baseline_calibration_error",
-              "candidate_calibration_error",
-              "learning_metrics",
-              "duration_seconds",
-              "usage_records",
-              "rejected_reason",
-              "rejected_at",
-            ]),
-          )
+          ).rejects.toMatchObject({ code: "23514" })
+          await expect(
+            database.query(
+              `INSERT INTO decision_candidates
+                 (id, repository_id, training_job_id, runtime_candidate_id, taskset_digest,
+                  manifest_digest, evaluation_digest, production_eligible, rejected_at)
+               VALUES ($1, $2, $3, 'invalid-rejection', $4, $5, $6, true,
+                       clock_timestamp())`,
+              [
+                randomUUID(),
+                otherRepositoryId,
+                jobId,
+                `sha256:${"e".repeat(64)}`,
+                `sha256:${"f".repeat(64)}`,
+                `sha256:${"1".repeat(64)}`,
+              ],
+            ),
+          ).rejects.toMatchObject({ code: "23514" })
         } finally {
           await database.end()
         }

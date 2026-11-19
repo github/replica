@@ -1867,7 +1867,7 @@ class LocalTrainingConnector:
 class LocalInferenceConnector:
     """Project an existing trusted local backend onto bounded inference."""
 
-    def __init__(self, backend: Any):
+    def __init__(self, root: Path, backend: Any):
         self.backend = backend
         self.name = backend.name
         self.requires_credential = getattr(backend, "requires_credential", True)
@@ -1876,6 +1876,11 @@ class LocalInferenceConnector:
             "max_concurrent_inference",
             None,
         )
+        self.idempotency = root / "inference" / ".idempotency"
+        self.idempotency.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(self.idempotency.parent, 0o700)
+        os.chmod(self.idempotency, 0o700)
+        self._lock = threading.RLock()
 
     def readiness(self) -> Mapping[str, Any] | None:
         readiness = getattr(self.backend, "readiness", None)
@@ -1914,19 +1919,58 @@ class LocalInferenceConnector:
     ) -> Mapping[str, Any]:
         del credential
         check_context(context)
-        predict_with_context = getattr(self.backend, "predict_with_context", None)
-        if predict_with_context is not None:
-            return predict_with_context(
-                adapter,
-                request,
-                context=context,
-                timeout_seconds=max(0.0, context.deadline - time.monotonic()),
+        request_digest = str(
+            _digest(
+                _json_bytes(
+                    {
+                        "adapterDigest": hashlib.sha256(adapter.read_bytes()).hexdigest(),
+                        "request": request,
+                    }
+                )
             )
-        return self.backend.predict(
-            adapter,
-            request,
-            timeout_seconds=max(0.0, context.deadline - time.monotonic()),
         )
+        path = self.idempotency / hashlib.sha256(context.idempotency_key.encode()).hexdigest()
+        with self._lock:
+            if path.exists():
+                saved = _read_object(
+                    path,
+                    code="inference_idempotency_not_found",
+                    message="The inference retry record was not found.",
+                )
+                if saved.get("requestDigest") != request_digest:
+                    raise ConnectorError(
+                        "idempotency_conflict",
+                        "The idempotency key was reused with different input.",
+                        category="conflict",
+                    )
+                result = saved.get("result")
+                if not isinstance(result, dict):
+                    raise ConnectorError(
+                        "inference_idempotency_damaged",
+                        "The inference retry record is invalid.",
+                        category="integrity",
+                    )
+                return result
+            predict_with_context = getattr(self.backend, "predict_with_context", None)
+            if predict_with_context is not None:
+                result = predict_with_context(
+                    adapter,
+                    request,
+                    context=context,
+                    timeout_seconds=max(0.0, context.deadline - time.monotonic()),
+                )
+            else:
+                result = self.backend.predict(
+                    adapter,
+                    request,
+                    timeout_seconds=max(0.0, context.deadline - time.monotonic()),
+                )
+            saved_result = dict(_json_data(result))
+            _write_immutable(
+                path,
+                _json_bytes({"requestDigest": request_digest, "result": saved_result}),
+            )
+            return saved_result
 
 
 class LocalCredentialConnector(_ScopedConnector):
@@ -2150,7 +2194,7 @@ def create_local_connector_bundle(
             for name, backend in backends.items()
         }
         inference = {
-            name: LocalInferenceConnector(backend)
+            name: LocalInferenceConnector(root, backend)
             for name, backend in backends.items()
         }
         local_credentials = LocalCredentialConnector(root, scope)

@@ -8,16 +8,8 @@ export interface DecisionRuntimeCredentialProvider {
   }): Promise<{ token: string; expiresAt: Date }>
 }
 
-export interface DecisionRuntimeUsage {
-  connector: string
-  kind: string
-  quantity: number
-  unit: string
-  cost: number | null
-  currency: string | null
-  source: string
-  metadata: Record<string, unknown>
-}
+import type { DecisionRuntimeUsage } from "../../../utils/decision-runtime-usage/types.ts"
+export type { DecisionRuntimeUsage } from "../../../utils/decision-runtime-usage/types.ts"
 
 export interface DecisionRuntimeTasksetUpload {
   schemaVersion: "replica.decision-taskset-upload/v1"
@@ -72,6 +64,46 @@ export interface DecisionRuntimePromotion {
   generation: number
 }
 
+export interface DecisionRuntimeDeletionSelectors {
+  exportId?: string
+  grantId?: string
+  evidenceDigest?: string
+  tasksetDigest?: string
+}
+
+export interface DecisionRuntimeCopy {
+  id: string
+  runtimeCopyId: string
+  kind: string
+  sourceTrainingExportId?: string
+  permittingGrantIds?: string[]
+  evidenceDigest?: string | null
+  tasksetDigest?: string | null
+  useState: string
+  promotionState?: string | null
+  storage: { connector: string; reference: string }
+  retention: Record<string, unknown>
+  createdAt?: string | null
+}
+
+export interface DecisionRuntimeDeletionReceipt {
+  id: string
+  state: "pending" | "completed"
+  selectors: DecisionRuntimeDeletionSelectors
+  items: {
+    kind: string
+    runtimeCopyId: string
+    state: string
+    storage?: { connector: string; reference: string }
+    retention?: Record<string, unknown>
+  }[]
+  pendingItems: { kind: string; runtimeCopyId: string; code: string; retryable: boolean }[]
+  failures: { kind: string; runtimeCopyId: string; code: string; retryable: boolean }[]
+  revokedAt?: string
+  completedAt?: string
+  updatedAt: string
+}
+
 export interface DecisionRuntimeEvaluation {
   id?: string
   candidateId: string
@@ -109,6 +141,20 @@ export interface DecisionRuntimeClient {
   }): Promise<DecisionRuntimeJob>
   getCandidate(id: string, signal?: AbortSignal): Promise<DecisionRuntimeCandidate>
   getPromotion(signal?: AbortSignal): Promise<DecisionRuntimePromotion>
+  listRuntimeCopies?(input: {
+    selectors: DecisionRuntimeDeletionSelectors
+    cursor?: string
+    limit?: number
+    signal?: AbortSignal
+  }): Promise<{ items: DecisionRuntimeCopy[]; nextCursor: string | null }>
+  requestDeletion?(input: {
+    selectors: DecisionRuntimeDeletionSelectors
+    requestedBy: string
+    reason: string
+    idempotencyKey: string
+    signal?: AbortSignal
+  }): Promise<DecisionRuntimeDeletionReceipt>
+  getDeletion?(id: string, signal?: AbortSignal): Promise<DecisionRuntimeDeletionReceipt>
   promote(input: {
     candidateId: string
     promotedBy: string

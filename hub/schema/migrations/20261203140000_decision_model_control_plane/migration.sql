@@ -1,5 +1,7 @@
 CREATE TYPE "DecisionTrainingJobState" AS ENUM (
   'QUEUED',
+  'SUBMITTING',
+  'CANCEL_REQUESTED',
   'SUBMITTED',
   'RUNNING',
   'SUCCEEDED',
@@ -44,6 +46,8 @@ CREATE TABLE "decision_training_jobs" (
   "max_seconds" INTEGER NOT NULL,
   "budget_credits" DECIMAL(20,9) NOT NULL,
   "consent_grant_id" VARCHAR(255) NOT NULL,
+  "training_export_id" VARCHAR(255) NOT NULL,
+  "evidence_digest" VARCHAR(71) NOT NULL,
   "export_digest" VARCHAR(71) NOT NULL,
   "repeatable_review_snapshot_digest" VARCHAR(71) NOT NULL,
   "question_digest" VARCHAR(71) NOT NULL,
@@ -164,7 +168,7 @@ CREATE UNIQUE INDEX "decision_model_promotions_repository_id_runtime_generation_
   ON "decision_model_promotions"("repository_id", "runtime_generation");
 CREATE INDEX "decision_model_promotions_repository_id_created_at_idx"
   ON "decision_model_promotions"("repository_id", "created_at");
-CREATE UNIQUE INDEX "decision_build_evaluations_build_id_promotion_generation_question_digest_screenshot_set_digest_key"
+CREATE UNIQUE INDEX "decision_build_evaluation_identity"
   ON "decision_build_evaluations"(
     "build_id",
     "promotion_generation",
@@ -210,3 +214,73 @@ ALTER TABLE "decision_build_evaluations"
 ALTER TABLE "decision_build_evaluations"
   ADD CONSTRAINT "decision_build_evaluations_candidate_id_fkey"
   FOREIGN KEY ("candidate_id") REFERENCES "decision_candidates"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+CREATE FUNCTION "check_decision_candidate_repository"()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM "decision_training_jobs"
+    WHERE "id" = NEW."training_job_id"
+      AND "repository_id" = NEW."repository_id"
+  ) THEN
+    RAISE EXCEPTION 'decision candidate repository mismatch'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER "decision_candidate_repository_guard"
+BEFORE INSERT OR UPDATE ON "decision_candidates"
+FOR EACH ROW EXECUTE FUNCTION "check_decision_candidate_repository"();
+
+CREATE FUNCTION "check_decision_promotion_repository"()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM "decision_candidates"
+    WHERE "id" = NEW."candidate_id"
+      AND "repository_id" = NEW."repository_id"
+  ) OR (
+    NEW."previous_candidate_id" IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM "decision_candidates"
+      WHERE "id" = NEW."previous_candidate_id"
+        AND "repository_id" = NEW."repository_id"
+    )
+  ) THEN
+    RAISE EXCEPTION 'decision promotion repository mismatch'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER "decision_promotion_repository_guard"
+BEFORE INSERT OR UPDATE ON "decision_model_promotions"
+FOR EACH ROW EXECUTE FUNCTION "check_decision_promotion_repository"();
+
+CREATE FUNCTION "check_decision_evaluation_repository"()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM "decision_candidates"
+    WHERE "id" = NEW."candidate_id"
+      AND "repository_id" = NEW."repository_id"
+  ) OR NOT EXISTS (
+    SELECT 1
+    FROM "builds"
+    JOIN "prototypes" ON "prototypes"."id" = "builds"."prototype_id"
+    WHERE "builds"."id" = NEW."build_id"
+      AND "prototypes"."repository_id" = NEW."repository_id"
+  ) THEN
+    RAISE EXCEPTION 'decision evaluation repository mismatch'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER "decision_evaluation_repository_guard"
+BEFORE INSERT OR UPDATE ON "decision_build_evaluations"
+FOR EACH ROW EXECUTE FUNCTION "check_decision_evaluation_repository"();

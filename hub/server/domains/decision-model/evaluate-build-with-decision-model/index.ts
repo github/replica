@@ -3,9 +3,10 @@ import { createHash } from "node:crypto"
 import { withTelemetrySpan } from "../../../integrations/opentelemetry/with-telemetry-span/index.ts"
 import { DecisionModelError } from "../errors.ts"
 import type { DecisionModelDependencies } from "../types.ts"
+import { resolveDecisionRuntime } from "../resolve-decision-runtime/index.ts"
 
 export async function evaluateBuildWithDecisionModel(
-  input: { repositoryId: string; buildId: string },
+  input: { repositoryId: string; buildId: string; actorMembershipId: string },
   dependencies: DecisionModelDependencies,
 ) {
   return withTelemetrySpan(
@@ -23,6 +24,15 @@ export async function evaluateBuildWithDecisionModel(
           "No decision candidate is promoted for this repository.",
         )
       }
+      if (
+        await dependencies.store.isCandidateRevoked?.(input.repositoryId, promotion.candidateId)
+      ) {
+        throw new DecisionModelError(
+          409,
+          "deletion_revoked",
+          "Decision-model use is blocked by a runtime deletion.",
+        )
+      }
       const prepared = await dependencies.prepareBuildEvaluation(input)
       const idempotencyKey = `evaluation:${createHash("sha256")
         .update(
@@ -34,7 +44,7 @@ export async function evaluateBuildWithDecisionModel(
           ].join("\0"),
         )
         .digest("hex")}`
-      const result = await dependencies.runtime.evaluate({
+      const result = await resolveDecisionRuntime(dependencies, input.repositoryId).evaluate({
         state: prepared.state,
         images: prepared.images,
         questions: prepared.questions,
@@ -51,16 +61,8 @@ export async function evaluateBuildWithDecisionModel(
         )
       }
       const findings = result.evaluations.map((evaluation) => {
-        const question = prepared.questions[evaluation.learningId]
-        const text =
-          question &&
-          typeof question === "object" &&
-          "learning_text" in question &&
-          typeof question.learning_text === "string"
-            ? question.learning_text
-            : null
         return {
-          learning: { id: evaluation.learningId, text },
+          learning: { id: evaluation.learningId, text: null },
           route: prepared.route,
           views: prepared.views,
           followsProbability: evaluation.followsProbability,
@@ -71,6 +73,7 @@ export async function evaluateBuildWithDecisionModel(
         repositoryId: input.repositoryId,
         buildId: input.buildId,
         candidateId: promotion.candidateId,
+        actorMembershipId: input.actorMembershipId,
         promotionGeneration: promotion.runtimeGeneration,
         questionDigest: prepared.questionDigest,
         screenshotSetDigest: prepared.screenshotSetDigest,
@@ -79,7 +82,11 @@ export async function evaluateBuildWithDecisionModel(
         summary: { findings },
         usage: result.usage,
       })
-      return { id: saved.id, ...result }
+      return {
+        ...result,
+        runtimeEvaluationId: result.id ?? null,
+        id: saved.id,
+      }
     },
   )
 }

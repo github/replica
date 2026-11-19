@@ -12,6 +12,8 @@ export async function createOrGetDecisionTrainingJob(
     maxSeconds: number
     budgetCredits: string
     consentGrantId: string
+    trainingExportId: string
+    evidenceDigest: string
     exportDigest: string
     repeatableReviewSnapshotDigest: string
     questionDigest: string

@@ -2,21 +2,23 @@ import type { Logger } from "pino"
 import { z } from "zod"
 
 import { cancelDecisionTraining } from "../../../../domains/decision-model/cancel-decision-training/index.ts"
-import { createCurrentAdministratorDecisionAuthorization } from "../../../../domains/decision-model/create-current-administrator-decision-authorization/index.ts"
 import { createDecisionModelStore } from "../../../../domains/decision-model/create-decision-model-store/index.ts"
 import { evaluateBuildWithDecisionModel } from "../../../../domains/decision-model/evaluate-build-with-decision-model/index.ts"
 import { DecisionModelError } from "../../../../domains/decision-model/errors.ts"
 import { decisionTrainingJob } from "../../../../domains/decision-model/jobs/decision-training.ts"
 import { prepareDecisionTaskset } from "../../../../domains/decision-model/prepare-decision-taskset/index.ts"
-import { preflightDecisionTaskset } from "../../../../domains/decision-model/prepare-decision-taskset/index.ts"
+import { preflightDecisionTaskset } from "../../../../domains/decision-model/preflight-decision-taskset/index.ts"
 import type { DecisionTasksetPreparationSource } from "../../../../domains/decision-model/prepare-decision-taskset/index.ts"
 import { promoteDecisionCandidate } from "../../../../domains/decision-model/promote-decision-candidate/index.ts"
 import { requestDecisionTraining } from "../../../../domains/decision-model/request-decision-training/index.ts"
 import { rejectDecisionCandidate } from "../../../../domains/decision-model/reject-decision-candidate/index.ts"
+import { processDecisionRuntimeDeletion } from "../../../../domains/decision-model/process-decision-runtime-deletion/index.ts"
 import { rollbackDecisionCandidate } from "../../../../domains/decision-model/rollback-decision-candidate/index.ts"
-import type { PreparedBuildEvaluation } from "../../../../domains/decision-model/types.ts"
-import { createDecisionRuntimeClient } from "../../../../integrations/decision-runtime/create-decision-runtime-client/index.ts"
-import type { DecisionRuntimeCredentialProvider } from "../../../../integrations/decision-runtime/create-decision-runtime-client/types.ts"
+import type {
+  DecisionTrainingJobRecord,
+  PreparedBuildEvaluation,
+} from "../../../../domains/decision-model/types.ts"
+import type { DecisionRuntimeClient } from "../../../../integrations/decision-runtime/create-decision-runtime-client/types.ts"
 import { createJobQueue } from "../../../../integrations/bullmq/create-job-queue/index.ts"
 import { enqueueJob } from "../../../../integrations/bullmq/enqueue-job/index.ts"
 import { prisma } from "../../../../integrations/prisma/index.ts"
@@ -26,8 +28,7 @@ import {
 } from "../../../../integrations/postgres/with-decision-model-control-lock/index.ts"
 import { getDecisionModelOverview } from "../../../../repositories/decision-model-configurations/get-decision-model-overview/index.ts"
 import { saveDecisionModelConfiguration } from "../../../../repositories/decision-model-configurations/save-decision-model-configuration/index.ts"
-import { isEffectiveAdministrator } from "../../../../repositories/memberships/is-effective-administrator/index.ts"
-import { findActiveRepository } from "../../../../repositories/prototype-index/find-active-repository/index.ts"
+import { lockRepositoryAdministratorAuthority } from "../../../../repositories/repository-access/lock-repository-administrator-authority/index.ts"
 import type { CurrentSessionDependencies } from "../../auth/types.ts"
 import type { DecisionModelRouteDependencies } from "../types.ts"
 
@@ -80,13 +81,25 @@ const evaluationSummarySchema = z
   .strict()
 
 function presentJobState(
-  state: "QUEUED" | "SUBMITTED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED",
+  state:
+    | "QUEUED"
+    | "SUBMITTING"
+    | "CANCEL_REQUESTED"
+    | "SUBMITTED"
+    | "RUNNING"
+    | "SUCCEEDED"
+    | "FAILED"
+    | "CANCELLED",
 ) {
   switch (state) {
     case "QUEUED":
       return "queued" as const
+    case "SUBMITTING":
+      return "submitting" as const
     case "SUBMITTED":
       return "submitted" as const
+    case "CANCEL_REQUESTED":
+      return "cancel_requested" as const
     case "RUNNING":
       return "running" as const
     case "SUCCEEDED":
@@ -102,10 +115,35 @@ function presentPromotionOperation(operation: "PROMOTE" | "ROLLBACK") {
   return operation === "PROMOTE" ? ("promote" as const) : ("rollback" as const)
 }
 
+function presentJob(job: DecisionTrainingJobRecord) {
+  return {
+    id: job.id,
+    state: presentJobState(job.state),
+    runtimeJobId: job.runtimeJobId,
+    candidateRuntimeId: job.candidateRuntimeId,
+    failureCode: job.failureCode ?? null,
+    createdAt: job.createdAt.toISOString(),
+  }
+}
+
+function presentPromotion(promotion: {
+  candidateId: string
+  runtimeCandidateId: string
+  previousCandidateId: string | null
+  previousRuntimeCandidateId: string | null
+  runtimeGeneration: number
+}) {
+  return {
+    candidateId: promotion.candidateId,
+    runtimeCandidateId: promotion.runtimeCandidateId,
+    previousCandidateId: promotion.previousCandidateId,
+    previousRuntimeCandidateId: promotion.previousRuntimeCandidateId,
+    generation: promotion.runtimeGeneration,
+  }
+}
 interface CreateDecisionModelRouteDependenciesOptions {
   applicationOrigin: string
-  baseUrl: string
-  credentialProvider: DecisionRuntimeCredentialProvider
+  runtimeForRepository(repositoryId: string): DecisionRuntimeClient
   currentSession: CurrentSessionDependencies
   databaseUrl: string
   logger: Logger
@@ -119,16 +157,24 @@ interface CreateDecisionModelRouteDependenciesOptions {
 export function createDecisionModelRouteDependencies(
   options: CreateDecisionModelRouteDependenciesOptions,
 ): DecisionModelRouteDependencies {
-  const runtime = createDecisionRuntimeClient({
-    baseUrl: options.baseUrl,
-    credentialProvider: options.credentialProvider,
-  })
   const store = createDecisionModelStore(prisma)
-  const authorization = createCurrentAdministratorDecisionAuthorization({
-    isEffectiveAdministrator: (membershipId) => isEffectiveAdministrator(prisma, membershipId),
-    isRepositoryVisible: async (repositoryId) =>
-      Boolean(await findActiveRepository(prisma, repositoryId, null)),
-  })
+  const authorization = {
+    requireRepositoryAdministrator: async (input: {
+      membershipId: string
+      repositoryId: string
+    }) => {
+      const authorized = await prisma.$transaction((transaction) =>
+        lockRepositoryAdministratorAuthority(transaction, input),
+      )
+      if (!authorized) {
+        throw new DecisionModelError(
+          403,
+          "access_denied",
+          "Repository administrator access is required.",
+        )
+      }
+    },
+  }
   const dependencies = {
     authorization,
     now: () => new Date(),
@@ -136,9 +182,14 @@ export function createDecisionModelRouteDependencies(
       prepareDecisionTaskset(input, options.tasksetSource),
     preflightTaskset: (input: { repositoryId: string; actorMembershipId: string }) =>
       preflightDecisionTaskset(input, options.tasksetSource),
+    hasTrainingConsent: (input: {
+      repositoryId: string
+      actorMembershipId: string
+      consentGrantId: string
+    }) => options.tasksetSource.hasTrainingConsent(input),
     prepareBuildEvaluation: (input: { repositoryId: string; buildId: string }) =>
       options.prepareBuildEvaluation(input),
-    runtime,
+    runtimeForRepository: (repositoryId: string) => options.runtimeForRepository(repositoryId),
     store,
     withControlLock: async <Result>(operation: (signal: AbortSignal) => Promise<Result>) => {
       try {
@@ -158,6 +209,7 @@ export function createDecisionModelRouteDependencies(
         throw error
       }
     },
+    listTrainingWithdrawals: () => options.tasksetSource.listTrainingWithdrawals(),
   }
   return {
     applicationOrigin: options.applicationOrigin,
@@ -172,6 +224,37 @@ export function createDecisionModelRouteDependencies(
         dependencies.preflightTaskset(input),
       ])
       const currentPromotion = overview.promotion
+      const evaluations = await Promise.all(
+        overview.evaluations.map(async (evaluation) => {
+          const summary = evaluationSummarySchema.parse(evaluation.summary)
+          return {
+            id: evaluation.id,
+            build: {
+              id: evaluation.buildId,
+              number: evaluation.build.number,
+              prototypeId: evaluation.build.prototypeId,
+            },
+            model: {
+              id: evaluation.candidateId,
+              runtimeCandidateId: evaluation.candidate.runtimeCandidateId,
+              generation: Number(evaluation.promotionGeneration),
+            },
+            findings: await Promise.all(
+              summary.findings.map(async (finding) => ({
+                ...finding,
+                learning: {
+                  id: finding.learning.id,
+                  text: await options.tasksetSource.getLearningText({
+                    repositoryId: input.repositoryId,
+                    learningId: finding.learning.id,
+                  }),
+                },
+              })),
+            ),
+            createdAt: evaluation.createdAt.toISOString(),
+          }
+        }),
+      )
       return {
         preflight,
         configuration: overview.configuration
@@ -239,31 +322,42 @@ export function createDecisionModelRouteDependencies(
           membershipId: promotion.promotedByMembershipId,
           createdAt: promotion.createdAt.toISOString(),
         })),
-        evaluations: overview.evaluations.map((evaluation) => ({
-          id: evaluation.id,
-          build: {
-            id: evaluation.buildId,
-            number: evaluation.build.number,
-            prototypeId: evaluation.build.prototypeId,
+        evaluations,
+        deletions: (overview.deletions ?? []).map((deletion) => ({
+          id: deletion.id,
+          state: deletion.state.toLowerCase() as "pending" | "completed" | "failed",
+          selectors: {
+            exportId: deletion.exportId,
+            grantId: deletion.grantId,
+            evidenceDigest: deletion.evidenceDigest,
+            tasksetDigest: deletion.tasksetDigest,
           },
-          model: {
-            id: evaluation.candidateId,
-            runtimeCandidateId: evaluation.candidate.runtimeCandidateId,
-            generation: Number(evaluation.promotionGeneration),
-          },
-          findings: evaluationSummarySchema.parse(evaluation.summary).findings,
-          createdAt: evaluation.createdAt.toISOString(),
+          pending: deletion.pendingCount,
+          failures: deletion.failureCount,
+          revokedAt: deletion.revokedAt?.toISOString() ?? null,
+          completedAt: deletion.completedAt?.toISOString() ?? null,
+          failureCode: deletion.failureCode,
         })),
       }
     },
     async saveSettings(input) {
-      await authorization.requireRepositoryAdministrator({
-        membershipId: input.actorMembershipId,
-        repositoryId: input.repositoryId,
-      })
-      const saved = await saveDecisionModelConfiguration(prisma, {
-        repositoryId: input.repositoryId,
-        ...input.settings,
+      const saved = await prisma.$transaction(async (transaction) => {
+        if (
+          !(await lockRepositoryAdministratorAuthority(transaction, {
+            membershipId: input.actorMembershipId,
+            repositoryId: input.repositoryId,
+          }))
+        ) {
+          throw new DecisionModelError(
+            403,
+            "access_denied",
+            "Repository administrator access is required.",
+          )
+        }
+        return saveDecisionModelConfiguration(transaction, {
+          repositoryId: input.repositoryId,
+          ...input.settings,
+        })
       })
       return {
         enabled: saved.enabled,
@@ -295,8 +389,7 @@ export function createDecisionModelRouteDependencies(
       }
       return {
         created: result.created,
-        jobId: result.job.id,
-        state: result.job.state.toLowerCase(),
+        job: presentJob(result.job),
       }
     },
     async getTrainingJob(input) {
@@ -306,12 +399,22 @@ export function createDecisionModelRouteDependencies(
       })
       const job = await store.getJob(input.repositoryId, input.jobId)
       if (!job) throw new DecisionModelError(404, "job_not_found", "Training job not found.")
-      return { ...job, state: job.state.toLowerCase() }
+      return presentJob(job)
     },
-    cancelTraining: (input) => cancelDecisionTraining(input, dependencies),
-    rejectCandidate: (input) => rejectDecisionCandidate(input, dependencies),
-    promote: (input) => promoteDecisionCandidate(input, dependencies),
-    rollback: (input) => rollbackDecisionCandidate(input, dependencies),
+    cancelTraining: async (input) => presentJob(await cancelDecisionTraining(input, dependencies)),
+    rejectCandidate: async (input) => {
+      const candidate = await rejectDecisionCandidate(input, dependencies)
+      if (!candidate.rejectedAt) {
+        throw new Error("The rejected candidate has no rejection timestamp.")
+      }
+      return {
+        candidateId: candidate.id,
+        rejectedAt: candidate.rejectedAt.toISOString(),
+      }
+    },
+    promote: async (input) => presentPromotion(await promoteDecisionCandidate(input, dependencies)),
+    rollback: async (input) =>
+      presentPromotion(await rollbackDecisionCandidate(input, dependencies)),
     async evaluateBuild(input) {
       await authorization.requireRepositoryAdministrator({
         membershipId: input.actorMembershipId,
@@ -319,5 +422,6 @@ export function createDecisionModelRouteDependencies(
       })
       return evaluateBuildWithDecisionModel(input, dependencies)
     },
+    withdrawTrainingData: (input) => processDecisionRuntimeDeletion(input, dependencies),
   }
 }

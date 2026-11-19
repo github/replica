@@ -92,6 +92,8 @@ Decision-model tables store repository settings, pinned input digests, runtime j
 
 Candidate rows also store the runtime's held-out baseline and candidate metrics, per-learning metric changes, and an optional administrator rejection. Rejection fields must be absent together or include a time and reason. Build evaluation rows keep typed page-level findings in their bounded summary rather than copying screenshot bytes.
 
+Runtime copy rows keep content-free provider references and provenance selectors. Runtime deletion rows keep selectors, pending and failure counts, safe receipt metadata, and completion times. They never store evidence bodies, screenshots, labels, prompts, adapters, or model artifacts.
+
 PostgreSQL `CHECK` expressions accept `NULL` unless the expression explicitly rejects it. Write nullable-branch checks so every invalid `NULL` combination evaluates to false. Design indexes from the real equality, range, ordering, and partial predicates used by lock, restore, and lookup queries.
 
 Validate schema changes on both a fresh database and an upgrade from the exact base. Migration tests should seed representative base records and prove required data, backfills, relationships, and constraints after deployment. Do not enumerate the complete migration, table, column, or index inventory. Split PostgreSQL enum additions from statements that use the new values when transactional enum visibility requires a committed boundary.

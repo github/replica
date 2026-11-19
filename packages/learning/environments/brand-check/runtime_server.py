@@ -172,6 +172,9 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                     max_credits=body.get("maxCredits"),
                     budget_mode=body.get("budgetMode", "hard"),
                     taskset_digest=body.get("tasksetDigest"),
+                    idempotency_key=self._idempotency_key(
+                        f"submit:{body.get('tasksetDigest')}:{body.get('backend', 'fixture')}"
+                    ),
                 )
                 self._send(202, job)
                 return
@@ -202,7 +205,13 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                 )
                 return
             if path in ("/score", "/v1/evaluations"):
-                self._send(200, self.server.runtime.evaluate(body))
+                self._send(
+                    200,
+                    self.server.runtime.evaluate(
+                        body,
+                        idempotency_key=self._idempotency_key("evaluation"),
+                    ),
+                )
                 return
             raise RuntimeFailure("not_found", f"Route {path} was not found.", 404)
         except RuntimeFailure as error:

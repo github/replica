@@ -2,6 +2,7 @@ import { DecisionRuntimeError } from "../../../integrations/decision-runtime/cre
 import { withTelemetrySpan } from "../../../integrations/opentelemetry/with-telemetry-span/index.ts"
 import { DecisionModelError } from "../errors.ts"
 import type { DecisionModelDependencies, DecisionTrainingJobRecord } from "../types.ts"
+import { resolveDecisionRuntime } from "../resolve-decision-runtime/index.ts"
 
 function runtimeDurationSeconds(input: {
   startedAt?: string
@@ -14,6 +15,20 @@ function runtimeDurationSeconds(input: {
     return undefined
   }
   return (completedAt - startedAt) / 1_000
+}
+
+async function cancelOrReadRuntimeJob(
+  runtime: ReturnType<typeof resolveDecisionRuntime>,
+  input: { id: string; idempotencyKey: string },
+) {
+  try {
+    return await runtime.cancelTrainingJob(input)
+  } catch (error) {
+    if (error instanceof DecisionRuntimeError && error.code === "conflict") {
+      return runtime.getTrainingJob(input.id)
+    }
+    throw error
+  }
 }
 
 export async function processDecisionTrainingJob(
@@ -29,7 +44,10 @@ export async function processDecisionTrainingJob(
       if (["SUCCEEDED", "FAILED", "CANCELLED"].includes(job.state)) {
         return { terminal: true, job }
       }
-      if (dependencies.now().getTime() - job.createdAt.getTime() > (job.maxSeconds + 300) * 1_000) {
+      const runtime = resolveDecisionRuntime(dependencies, input.repositoryId)
+      const overdue =
+        dependencies.now().getTime() - job.createdAt.getTime() > (job.maxSeconds + 300) * 1_000
+      if (job.state === "QUEUED" && overdue) {
         return {
           terminal: true,
           job: await dependencies.store.updateJobState({
@@ -49,8 +67,14 @@ export async function processDecisionTrainingJob(
           }),
         }
       }
-      const configuration = await dependencies.store.getConfiguration(input.repositoryId)
-      if (!configuration || configuration.generation !== job.configurationGeneration) {
+      const configuration =
+        job.state === "QUEUED"
+          ? await dependencies.store.getConfiguration(input.repositoryId)
+          : null
+      if (
+        job.state === "QUEUED" &&
+        (!configuration || configuration.generation !== job.configurationGeneration)
+      ) {
         const failed = await dependencies.store.updateJobState({
           jobId: job.id,
           state: "FAILED",
@@ -71,6 +95,25 @@ export async function processDecisionTrainingJob(
       try {
         let current = job
         if (job.state === "QUEUED") {
+          current = await dependencies.store.markJobSubmitting(job.id)
+          if (current.state === "CANCELLED") return { terminal: true, job: current }
+        }
+        if (current.state === "SUBMITTING" || current.state === "CANCEL_REQUESTED") {
+          if (
+            await dependencies.store.isTasksetRevoked?.({
+              repositoryId: job.repositoryId,
+              exportId: job.trainingExportId,
+              grantId: job.consentGrantId,
+              evidenceDigest: job.evidenceDigest,
+              tasksetDigest: job.tasksetDigest,
+            })
+          ) {
+            throw new DecisionModelError(
+              409,
+              "deletion_revoked",
+              "Decision-model use is blocked by a runtime deletion.",
+            )
+          }
           const taskset = await dependencies.prepareTaskset({
             repositoryId: job.repositoryId,
             actorMembershipId: job.requestedByMembershipId ?? "",
@@ -88,18 +131,18 @@ export async function processDecisionTrainingJob(
               "The pinned decision-model inputs changed before submission.",
             )
           }
-          const transferred = await dependencies.runtime.transferTaskset({
+          const transferred = await runtime.transferTaskset({
             upload: taskset.upload,
             tasksetDigest: taskset.tasksetDigest,
-            idempotencyKey: `${job.idempotencyKey}:taskset`,
+            idempotencyKey: `taskset:${job.id}`,
           })
-          const runtimeJob = await dependencies.runtime.submitTraining({
+          const runtimeJob = await runtime.submitTraining({
             backend: job.backend,
             maxUpdates: job.maxUpdates,
             maxSeconds: job.maxSeconds,
             maxCredits: job.budgetCredits,
             tasksetDigest: job.tasksetDigest,
-            idempotencyKey: `${job.idempotencyKey}:job`,
+            idempotencyKey: `submit:${job.id}`,
           })
           if (runtimeJob.tasksetDigest !== job.tasksetDigest) {
             throw new DecisionModelError(
@@ -113,12 +156,37 @@ export async function processDecisionTrainingJob(
             runtimeJobId: runtimeJob.id,
             runtimeTasksetId: transferred.reference,
           })
-          if (current.state === "CANCELLED") {
-            await dependencies.runtime.cancelTrainingJob({
+          if (current.state === "CANCEL_REQUESTED" || overdue) {
+            const cancelled = await cancelOrReadRuntimeJob(runtime, {
               id: runtimeJob.id,
-              idempotencyKey: `${job.idempotencyKey}:cancel-after-submit`,
+              idempotencyKey: `cancel:${job.id}`,
             })
-            return { terminal: true, job: current }
+            return {
+              terminal: true,
+              job: await dependencies.store.updateJobState({
+                jobId: current.id,
+                state: cancelled.state === "failed" || overdue ? "FAILED" : "CANCELLED",
+                failureCode: overdue
+                  ? "polling_deadline_exceeded"
+                  : cancelled.state === "failed"
+                    ? cancelled.error?.code
+                    : undefined,
+                usage: cancelled.usage,
+                ...(current.requestedByMembershipId
+                  ? {
+                      audit: {
+                        actorMembershipId: current.requestedByMembershipId,
+                        outcome:
+                          cancelled.state === "failed" || overdue
+                            ? ("failed" as const)
+                            : ("cancelled" as const),
+                        ...(overdue ? { reason: "polling_deadline_exceeded" } : {}),
+                        repositoryId: current.repositoryId,
+                      },
+                    }
+                  : {}),
+              }),
+            }
           }
           if (current.state === "FAILED" || current.state === "SUCCEEDED") {
             return { terminal: true, job: current }
@@ -131,13 +199,69 @@ export async function processDecisionTrainingJob(
             "The decision runtime job reference is unavailable.",
           )
         }
-        const runtimeJob = await dependencies.runtime.getTrainingJob(current.runtimeJobId)
+        if (
+          current.requestedByMembershipId &&
+          !(await dependencies.hasTrainingConsent({
+            repositoryId: current.repositoryId,
+            actorMembershipId: current.requestedByMembershipId,
+            consentGrantId: current.consentGrantId,
+          }))
+        ) {
+          const cancelled = await cancelOrReadRuntimeJob(runtime, {
+            id: current.runtimeJobId,
+            idempotencyKey: `cancel:${current.id}`,
+          })
+          return {
+            terminal: true,
+            job: await dependencies.store.updateJobState({
+              jobId: current.id,
+              state: cancelled.state === "failed" ? "FAILED" : "CANCELLED",
+              failureCode: "consent_withdrawn",
+              usage: cancelled.usage,
+              audit: {
+                actorMembershipId: current.requestedByMembershipId,
+                outcome: cancelled.state === "failed" ? "failed" : "cancelled",
+                reason: "consent_withdrawn",
+                repositoryId: current.repositoryId,
+              },
+            }),
+          }
+        }
+        const runtimeJob = await runtime.getTrainingJob(current.runtimeJobId)
         if (runtimeJob.tasksetDigest !== current.tasksetDigest) {
           throw new DecisionModelError(
             409,
             "taskset_drift",
             "The decision runtime job no longer matches the pinned taskset.",
           )
+        }
+        if (overdue) {
+          const terminal =
+            runtimeJob.state === "queued" || runtimeJob.state === "running"
+              ? await cancelOrReadRuntimeJob(runtime, {
+                  id: current.runtimeJobId,
+                  idempotencyKey: `cancel:${current.id}`,
+                })
+              : runtimeJob
+          return {
+            terminal: true,
+            job: await dependencies.store.updateJobState({
+              jobId: current.id,
+              state: "FAILED",
+              failureCode: "polling_deadline_exceeded",
+              usage: terminal.usage,
+              ...(current.requestedByMembershipId
+                ? {
+                    audit: {
+                      actorMembershipId: current.requestedByMembershipId,
+                      outcome: "failed" as const,
+                      reason: "polling_deadline_exceeded",
+                      repositoryId: current.repositoryId,
+                    },
+                  }
+                : {}),
+            }),
+          }
         }
         if (runtimeJob.state === "queued" || runtimeJob.state === "running") {
           const updated = await dependencies.store.updateJobState({
@@ -176,7 +300,7 @@ export async function processDecisionTrainingJob(
             "The completed decision runtime job did not name a candidate.",
           )
         }
-        const candidate = await dependencies.runtime.getCandidate(runtimeJob.candidateId)
+        const candidate = await runtime.getCandidate(runtimeJob.candidateId)
         if (candidate.tasksetDigest !== current.tasksetDigest) {
           throw new DecisionModelError(
             409,

@@ -8,9 +8,32 @@ export interface DecisionTasksetPreparationSource {
     repositoryId: string
     actorMembershipId: string
   }): Promise<DecisionTrainingPreflight>
+  hasTrainingConsent(input: {
+    repositoryId: string
+    actorMembershipId: string
+    consentGrantId: string
+  }): Promise<boolean>
+  getLearningText(input: { repositoryId: string; learningId: string }): Promise<string | null>
+  listTrainingWithdrawals(): Promise<
+    {
+      repositoryId: string
+      actorMembershipId: string
+      actorLogin: string
+      selectors: {
+        exportId?: string
+        grantId?: string
+        evidenceDigest?: string
+        tasksetDigest?: string
+      }
+      reason: string
+      idempotencyKey: string
+    }[]
+  >
   exportTrainingEvidence(input: { repositoryId: string; actorMembershipId: string }): Promise<{
     bytes: Uint8Array
     consentGrantId: string | null
+    trainingExportId: string
+    evidenceDigest: string
     digest: string
     repeatableReviewSnapshotDigest: string
   }>
@@ -24,13 +47,6 @@ export interface DecisionTasksetPreparationSource {
     questionDigest: string
     tasksetDigest: string
   }>
-}
-
-export function preflightDecisionTaskset(
-  input: { repositoryId: string; actorMembershipId: string },
-  source: DecisionTasksetPreparationSource,
-) {
-  return source.preflight(input)
 }
 
 function digest(bytes: Uint8Array): string {
@@ -72,6 +88,8 @@ export async function prepareDecisionTaskset(
   return {
     upload: taskset.upload,
     consentGrantId: trainingExport.consentGrantId,
+    trainingExportId: trainingExport.trainingExportId,
+    evidenceDigest: trainingExport.evidenceDigest,
     exportDigest: trainingExport.digest,
     repeatableReviewSnapshotDigest: trainingExport.repeatableReviewSnapshotDigest,
     questionDigest: taskset.questionDigest,

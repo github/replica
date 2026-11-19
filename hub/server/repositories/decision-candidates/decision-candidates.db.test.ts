@@ -22,6 +22,8 @@ describe("decision candidate repositories", () => {
         maxSeconds: 300,
         budgetCredits: "10",
         consentGrantId: "grant_training",
+        trainingExportId: "export_training",
+        evidenceDigest: `sha256:${"9".repeat(64)}`,
         exportDigest: `sha256:${"a".repeat(64)}`,
         repeatableReviewSnapshotDigest: `sha256:${"b".repeat(64)}`,
         questionDigest: `sha256:${"c".repeat(64)}`,
@@ -29,7 +31,9 @@ describe("decision candidate repositories", () => {
         tasksetDigest: `sha256:${"e".repeat(64)}`,
       },
     })
-    const store = createDecisionModelStore(prisma)
+    const store = createDecisionModelStore(prisma, {
+      authorizeRepositoryAdministration: () => Promise.resolve(true),
+    })
 
     const completed = await store.completeJobWithCandidate({
       repositoryId: repository.id,
@@ -154,6 +158,8 @@ describe("decision candidate repositories", () => {
             maxSeconds: 300,
             budgetCredits: "10",
             consentGrantId: "grant_training",
+            trainingExportId: "export_training",
+            evidenceDigest: `sha256:${"9".repeat(64)}`,
             exportDigest: `sha256:${"a".repeat(64)}`,
             repeatableReviewSnapshotDigest: `sha256:${"b".repeat(64)}`,
             questionDigest: `sha256:${"c".repeat(64)}`,
@@ -197,7 +203,9 @@ describe("decision candidate repositories", () => {
         },
       ],
     })
-    const store = createDecisionModelStore(prisma)
+    const store = createDecisionModelStore(prisma, {
+      authorizeRepositoryAdministration: () => Promise.resolve(true),
+    })
 
     const rejected = await store.rejectCandidate({
       repositoryId: repository.id,

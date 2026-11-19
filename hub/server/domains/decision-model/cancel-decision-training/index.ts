@@ -2,6 +2,7 @@ import { DecisionModelError } from "../errors.ts"
 import { processDecisionTrainingJob } from "../process-decision-training-job/index.ts"
 import { DecisionRuntimeError } from "../../../integrations/decision-runtime/create-decision-runtime-client/errors.ts"
 import type { DecisionModelDependencies } from "../types.ts"
+import { resolveDecisionRuntime } from "../resolve-decision-runtime/index.ts"
 
 export async function cancelDecisionTraining(
   input: {
@@ -18,13 +19,23 @@ export async function cancelDecisionTraining(
   const job = await dependencies.store.getJob(input.repositoryId, input.jobId)
   if (!job) throw new DecisionModelError(404, "job_not_found", "Training job not found.")
   if (["SUCCEEDED", "FAILED", "CANCELLED"].includes(job.state)) return job
-  let runtimeUsage
+  const runtime = resolveDecisionRuntime(dependencies, input.repositoryId)
+  if (!job.runtimeJobId) {
+    return (
+      await dependencies.store.requestCancellation({
+        jobId: job.id,
+        actorMembershipId: input.actorMembershipId,
+        repositoryId: input.repositoryId,
+      })
+    ).job
+  }
+  let runtimeUsage: Awaited<ReturnType<typeof runtime.cancelTrainingJob>>["usage"]
   if (job.runtimeJobId) {
     let runtimeJob
     try {
-      runtimeJob = await dependencies.runtime.cancelTrainingJob({
+      runtimeJob = await runtime.cancelTrainingJob({
         id: job.runtimeJobId,
-        idempotencyKey: `${job.idempotencyKey}:cancel`,
+        idempotencyKey: `cancel:${job.id}`,
       })
     } catch (error) {
       if (error instanceof DecisionRuntimeError && error.code === "conflict") {
@@ -46,17 +57,13 @@ export async function cancelDecisionTraining(
       ).job
     }
     if (runtimeJob.state === "failed") {
-      return dependencies.store.updateJobState({
+      return dependencies.store.completeAdministratorCancellation({
         jobId: job.id,
+        actorMembershipId: input.actorMembershipId,
+        repositoryId: input.repositoryId,
         state: "FAILED",
         failureCode: runtimeJob.error?.code,
         usage: runtimeJob.usage,
-        audit: {
-          actorMembershipId: input.actorMembershipId,
-          outcome: "failed",
-          repositoryId: input.repositoryId,
-          ...(runtimeJob.error?.code ? { reason: runtimeJob.error.code } : {}),
-        },
       })
     }
     if (runtimeJob.state !== "cancelled") {
@@ -68,14 +75,11 @@ export async function cancelDecisionTraining(
     }
     runtimeUsage = runtimeJob.usage
   }
-  return dependencies.store.updateJobState({
+  return dependencies.store.completeAdministratorCancellation({
     jobId: job.id,
+    actorMembershipId: input.actorMembershipId,
+    repositoryId: input.repositoryId,
     state: "CANCELLED",
     usage: runtimeUsage,
-    audit: {
-      actorMembershipId: input.actorMembershipId,
-      outcome: "cancelled",
-      repositoryId: input.repositoryId,
-    },
   })
 }

@@ -409,5 +409,20 @@ export function getSecurityAuditData(
           repositoryId: event.repositoryId,
         },
       }
+    case "decision_runtime_deletion":
+      return {
+        id: event.id,
+        action: `decision.runtime_deletion.${event.outcome}`,
+        outcome:
+          event.outcome === "completed"
+            ? SecurityAuditOutcome.SUCCESS
+            : SecurityAuditOutcome.FAILURE,
+        targetType: "decision_runtime_deletion",
+        targetId: event.deletionId,
+        context: {
+          actorMembershipId: event.actorMembershipId,
+          repositoryId: event.repositoryId,
+        },
+      }
   }
 }

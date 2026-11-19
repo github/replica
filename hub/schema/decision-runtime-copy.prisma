@@ -1,0 +1,32 @@
+model DecisionRuntimeCopy {
+  // ID columns
+  id           String @id @default(uuid()) @db.Uuid
+  repositoryId String @map("repository_id") @db.Uuid
+
+  // Relations
+  repository Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  // Attribute columns
+  runtimeCopyId   String    @map("runtime_copy_id") @db.VarChar(200)
+  kind            String    @db.VarChar(50)
+  runtimeConnector String   @map("runtime_connector") @db.VarChar(200)
+  runtimeReference String   @map("runtime_reference") @db.VarChar(500)
+  exportId        String?   @map("export_id") @db.VarChar(255)
+  grantIds        Json      @map("grant_ids") @db.JsonB
+  evidenceDigest  String?   @map("evidence_digest") @db.VarChar(71)
+  tasksetDigest   String?   @map("taskset_digest") @db.VarChar(71)
+  useState        String    @map("use_state") @db.VarChar(50)
+  promotionState  String?   @map("promotion_state") @db.VarChar(50)
+  retention       Json      @db.JsonB
+  runtimeCreatedAt DateTime? @map("runtime_created_at") @db.Timestamptz(3)
+  disclosedAt     DateTime  @map("disclosed_at") @db.Timestamptz(3)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([repositoryId, runtimeCopyId])
+  @@index([repositoryId, exportId])
+  @@index([repositoryId, tasksetDigest])
+  @@map("decision_runtime_copies")
+}

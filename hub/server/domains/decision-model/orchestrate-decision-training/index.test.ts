@@ -2,9 +2,11 @@ import { createHash } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
 import type { DecisionModelDependencies, DecisionTrainingJobRecord } from "../types"
+import type { DecisionRuntimeClient } from "../../../integrations/decision-runtime/create-decision-runtime-client/types"
 import { cancelDecisionTraining } from "../cancel-decision-training"
 import { evaluateBuildWithDecisionModel } from "../evaluate-build-with-decision-model"
-import { preflightDecisionTaskset, prepareDecisionTaskset } from "../prepare-decision-taskset"
+import { preflightDecisionTaskset } from "../preflight-decision-taskset"
+import { prepareDecisionTaskset } from "../prepare-decision-taskset"
 import { processDecisionTrainingJob } from "../process-decision-training-job"
 import { promoteDecisionCandidate } from "../promote-decision-candidate"
 import { rejectDecisionCandidate } from "../reject-decision-candidate"
@@ -48,19 +50,24 @@ function job(overrides: Partial<DecisionTrainingJobRecord> = {}): DecisionTraini
     maxSeconds: 1_800,
     budgetCredits: "100",
     consentGrantId: "consent-1",
+    trainingExportId: "export-1",
+    evidenceDigest: `sha256:${"9".repeat(64)}`,
     exportDigest,
     repeatableReviewSnapshotDigest: `sha256:${"e".repeat(64)}`,
     questionDigest,
     buildSetDigest,
     tasksetDigest,
     candidateRuntimeId: null,
+    failureCode: null,
     createdAt: new Date("2026-11-18T12:00:00Z"),
     ...overrides,
   }
 }
 
-function dependencies(overrides: Partial<DecisionModelDependencies> = {}) {
-  const base: DecisionModelDependencies = {
+function dependencies(
+  overrides: Partial<DecisionModelDependencies> = {},
+): DecisionModelDependencies & { runtime: DecisionRuntimeClient } {
+  const base: DecisionModelDependencies & { runtime: DecisionRuntimeClient } = {
     authorization: {
       requireRepositoryAdministrator: vi.fn().mockResolvedValue(undefined),
     },
@@ -70,6 +77,7 @@ function dependencies(overrides: Partial<DecisionModelDependencies> = {}) {
       counts: { prototypes: 0, builds: 0, screenshots: 0, questions: 0, samples: 0 },
       warnings: [],
     }),
+    hasTrainingConsent: vi.fn().mockResolvedValue(true),
     prepareBuildEvaluation: vi.fn().mockResolvedValue({
       state: {},
       images: [],
@@ -82,6 +90,8 @@ function dependencies(overrides: Partial<DecisionModelDependencies> = {}) {
     prepareTaskset: vi.fn().mockResolvedValue({
       upload: tasksetUpload,
       consentGrantId: "consent-1",
+      trainingExportId: "export-1",
+      evidenceDigest: `sha256:${"9".repeat(64)}`,
       exportDigest,
       repeatableReviewSnapshotDigest: `sha256:${"e".repeat(64)}`,
       questionDigest,
@@ -112,6 +122,9 @@ function dependencies(overrides: Partial<DecisionModelDependencies> = {}) {
       createOrGetJob: vi.fn(),
       getJob: vi.fn(),
       markJobSubmitted: vi.fn(),
+      markJobSubmitting: vi.fn().mockResolvedValue(job({ state: "SUBMITTING" })),
+      requestCancellation: vi.fn(),
+      completeAdministratorCancellation: vi.fn(),
       updateJobState: vi.fn(),
       completeJobWithCandidate: vi.fn(),
       getCandidate: vi.fn(),
@@ -121,7 +134,7 @@ function dependencies(overrides: Partial<DecisionModelDependencies> = {}) {
       saveBuildEvaluation: vi.fn(),
     },
   }
-  return { ...base, ...overrides }
+  return { ...base, ...overrides, runtime: overrides.runtime ?? base.runtime }
 }
 
 function sha256(bytes: Uint8Array) {
@@ -138,6 +151,7 @@ describe("decision training orchestration", () => {
     const deps = dependencies({
       store: { ...dependencies().store, createOrGetJob },
     })
+
     const input = {
       repositoryId,
       actorMembershipId: membershipId,
@@ -158,6 +172,33 @@ describe("decision training orchestration", () => {
       2,
       expect.objectContaining({ idempotencyKey: "repository-1:training-1" }),
     )
+  })
+
+  it("returns an existing request before rechecking mutable creation preconditions", async () => {
+    const existing = job({ state: "SUBMITTED", runtimeJobId: "runtime-job-1" })
+    const prepareTaskset = vi.fn()
+    const getConfiguration = vi.fn()
+    const deps = dependencies({
+      prepareTaskset,
+      store: {
+        ...dependencies().store,
+        getJobByIdempotencyKey: vi.fn().mockResolvedValue(existing),
+        getConfiguration,
+      },
+    })
+
+    await expect(
+      requestDecisionTraining(
+        {
+          repositoryId,
+          actorMembershipId: membershipId,
+          idempotencyKey: existing.idempotencyKey,
+        },
+        deps,
+      ),
+    ).resolves.toEqual({ created: false, job: existing })
+    expect(getConfiguration).not.toHaveBeenCalled()
+    expect(prepareTaskset).not.toHaveBeenCalled()
   })
 
   it("rejects training when the repository has reached its explicit budget", async () => {
@@ -196,6 +237,9 @@ describe("decision training orchestration", () => {
       { repositoryId, actorMembershipId: membershipId },
       {
         preflight: vi.fn(),
+        hasTrainingConsent: vi.fn(),
+        getLearningText: vi.fn(),
+        listTrainingWithdrawals: vi.fn(),
         exportTrainingEvidence: vi.fn().mockResolvedValue({
           bytes: trainingExport,
           consentGrantId: "consent-1",
@@ -315,6 +359,33 @@ describe("decision training orchestration", () => {
     })
   })
 
+  it("does not prepare or transfer a taskset after runtime deletion starts", async () => {
+    const prepareTaskset = vi.fn()
+    const transferTaskset = vi.fn()
+    const updateJobState = vi
+      .fn()
+      .mockImplementation(
+        (input: { state: DecisionTrainingJobRecord["state"]; failureCode?: string }) =>
+          Promise.resolve(job({ state: input.state, failureCode: input.failureCode ?? null })),
+      )
+    const deps = dependencies({
+      prepareTaskset,
+      store: {
+        ...dependencies().store,
+        getJob: vi.fn().mockResolvedValue(job()),
+        isTasksetRevoked: vi.fn().mockResolvedValue(true),
+        updateJobState,
+      },
+      runtime: { ...dependencies().runtime, transferTaskset },
+    })
+
+    await expect(processDecisionTrainingJob({ repositoryId, jobId }, deps)).rejects.toMatchObject({
+      code: "deletion_revoked",
+    })
+    expect(prepareTaskset).not.toHaveBeenCalled()
+    expect(transferTaskset).not.toHaveBeenCalled()
+  })
+
   it("cancels a runtime job when Hub cancellation wins the submission race", async () => {
     const cancelTrainingJob = vi.fn().mockResolvedValue({
       id: "runtime-job-1",
@@ -352,7 +423,8 @@ describe("decision training orchestration", () => {
       store: {
         ...dependencies().store,
         getJob: vi.fn().mockResolvedValue(job()),
-        markJobSubmitted: vi.fn().mockResolvedValue(job({ state: "CANCELLED" })),
+        markJobSubmitted: vi.fn().mockResolvedValue(job({ state: "CANCEL_REQUESTED" })),
+        updateJobState: vi.fn().mockResolvedValue(job({ state: "CANCELLED" })),
       },
     })
 
@@ -363,7 +435,7 @@ describe("decision training orchestration", () => {
 
     expect(cancelTrainingJob).toHaveBeenCalledWith({
       id: "runtime-job-1",
-      idempotencyKey: "repository-1:training-1:cancel-after-submit",
+      idempotencyKey: `cancel:${jobId}`,
     })
     expect(getTrainingJob).not.toHaveBeenCalled()
   })
@@ -374,6 +446,7 @@ describe("decision training orchestration", () => {
       runtimeJobId: "runtime-job-1",
       runtimeTasksetId: "runtime-taskset-1",
     })
+
     const completeJobWithCandidate = vi.fn().mockResolvedValue({
       candidate: {
         id: "candidate-1",
@@ -522,6 +595,84 @@ describe("decision training orchestration", () => {
     })
   })
 
+  it("lets a submitted job finish under its pinned settings", async () => {
+    const getConfiguration = vi.fn()
+    const updateJobState = vi.fn().mockResolvedValue(job({ state: "RUNNING" }))
+    const deps = dependencies({
+      runtime: {
+        ...dependencies().runtime,
+        getTrainingJob: vi.fn().mockResolvedValue({
+          id: "runtime-job-1",
+          state: "running",
+          tasksetDigest,
+        }),
+      },
+      store: {
+        ...dependencies().store,
+        getConfiguration,
+        getJob: vi.fn().mockResolvedValue(
+          job({
+            state: "SUBMITTED",
+            runtimeJobId: "runtime-job-1",
+            runtimeTasksetId: "taskset:runtime",
+          }),
+        ),
+        updateJobState,
+      },
+    })
+
+    await expect(processDecisionTrainingJob({ repositoryId, jobId }, deps)).resolves.toMatchObject({
+      terminal: false,
+      job: { state: "RUNNING" },
+    })
+    expect(getConfiguration).not.toHaveBeenCalled()
+  })
+
+  it("cancels submitted work when training consent is withdrawn", async () => {
+    const getTrainingJob = vi.fn()
+    const getCandidate = vi.fn()
+    const updateJobState = vi.fn().mockResolvedValue(job({ state: "CANCELLED" }))
+    const deps = dependencies({
+      hasTrainingConsent: vi.fn().mockResolvedValue(false),
+      runtime: {
+        ...dependencies().runtime,
+        cancelTrainingJob: vi.fn().mockResolvedValue({
+          id: "runtime-job-1",
+          state: "cancelled",
+          tasksetDigest,
+          usage: [],
+        }),
+        getTrainingJob,
+        getCandidate,
+      },
+      store: {
+        ...dependencies().store,
+        getJob: vi.fn().mockResolvedValue(
+          job({
+            state: "RUNNING",
+            runtimeJobId: "runtime-job-1",
+            runtimeTasksetId: "taskset:runtime",
+          }),
+        ),
+        updateJobState,
+      },
+    })
+
+    await expect(processDecisionTrainingJob({ repositoryId, jobId }, deps)).resolves.toMatchObject({
+      terminal: true,
+      job: { state: "CANCELLED" },
+    })
+    expect(getTrainingJob).not.toHaveBeenCalled()
+    expect(getCandidate).not.toHaveBeenCalled()
+    expect(updateJobState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        state: "CANCELLED",
+        failureCode: "consent_withdrawn",
+        usage: [],
+      }),
+    )
+  })
+
   it("cancels the runtime job idempotently and records the administrator action", async () => {
     const running = job({ state: "RUNNING", runtimeJobId: "runtime-job-1" })
     const cancelTrainingJob = vi.fn().mockResolvedValue({
@@ -541,7 +692,8 @@ describe("decision training orchestration", () => {
         },
       ],
     })
-    const updateJobState = vi.fn().mockResolvedValue(job({ state: "CANCELLED" }))
+
+    const completeAdministratorCancellation = vi.fn().mockResolvedValue(job({ state: "CANCELLED" }))
     const deps = dependencies({
       runtime: {
         ...dependencies().runtime,
@@ -550,7 +702,7 @@ describe("decision training orchestration", () => {
       store: {
         ...dependencies().store,
         getJob: vi.fn().mockResolvedValue(running),
-        updateJobState,
+        completeAdministratorCancellation,
       },
     })
 
@@ -560,10 +712,12 @@ describe("decision training orchestration", () => {
 
     expect(cancelTrainingJob).toHaveBeenCalledWith({
       id: "runtime-job-1",
-      idempotencyKey: "repository-1:training-1:cancel",
+      idempotencyKey: `cancel:${jobId}`,
     })
-    expect(updateJobState).toHaveBeenCalledWith({
+    expect(completeAdministratorCancellation).toHaveBeenCalledWith({
       jobId,
+      actorMembershipId: membershipId,
+      repositoryId,
       state: "CANCELLED",
       usage: [
         {
@@ -577,12 +731,33 @@ describe("decision training orchestration", () => {
           metadata: {},
         },
       ],
-      audit: {
-        actorMembershipId: membershipId,
-        outcome: "cancelled",
-        repositoryId,
+    })
+  })
+
+  it("cancels a queued job without contacting the runtime", async () => {
+    const cancelTrainingJob = vi.fn()
+    const requestCancellation = vi.fn().mockResolvedValue({
+      terminal: true,
+      job: job({ state: "CANCELLED" }),
+    })
+    const deps = dependencies({
+      runtime: { ...dependencies().runtime, cancelTrainingJob },
+      store: {
+        ...dependencies().store,
+        getJob: vi.fn().mockResolvedValue(job()),
+        requestCancellation,
       },
     })
+
+    await expect(
+      cancelDecisionTraining({ repositoryId, jobId, actorMembershipId: membershipId }, deps),
+    ).resolves.toMatchObject({ state: "CANCELLED" })
+    expect(requestCancellation).toHaveBeenCalledWith({
+      jobId,
+      actorMembershipId: membershipId,
+      repositoryId,
+    })
+    expect(cancelTrainingJob).not.toHaveBeenCalled()
   })
 
   it("rejects promotion when the runtime generation changed after Hub's read", async () => {
@@ -842,7 +1017,10 @@ describe("decision training orchestration", () => {
     }
 
     await expect(
-      evaluateBuildWithDecisionModel({ repositoryId, buildId }, deps),
+      evaluateBuildWithDecisionModel(
+        { repositoryId, buildId, actorMembershipId: membershipId },
+        deps,
+      ),
     ).rejects.toMatchObject({ code: "promotion_stale" })
     expect(saveBuildEvaluation).not.toHaveBeenCalled()
   })
@@ -910,8 +1088,14 @@ describe("decision training orchestration", () => {
     }
 
     await expect(
-      evaluateBuildWithDecisionModel({ repositoryId, buildId }, deps),
-    ).resolves.toMatchObject({ id: "runtime-evaluation-1" })
+      evaluateBuildWithDecisionModel(
+        { repositoryId, buildId, actorMembershipId: membershipId },
+        deps,
+      ),
+    ).resolves.toMatchObject({
+      id: "evaluation-record-1",
+      runtimeEvaluationId: "runtime-evaluation-1",
+    })
 
     expect(saveBuildEvaluation).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -925,7 +1109,7 @@ describe("decision training orchestration", () => {
             {
               learning: {
                 id: "learning-1",
-                text: "Use the compact navigation on settings pages.",
+                text: null,
               },
               route: "/settings/profile",
               views: [

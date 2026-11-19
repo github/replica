@@ -91,6 +91,11 @@ function actorFor(record: SecurityAuditListRecord) {
       const parsed = actorContextSchema.safeParse(record.context)
       return parsed.success ? { membershipId: parsed.data.actorMembershipId } : null
     }
+    case "decision.runtime_deletion.completed":
+    case "decision.runtime_deletion.failed": {
+      const parsed = actorContextSchema.safeParse(record.context)
+      return parsed.success ? { membershipId: parsed.data.actorMembershipId } : null
+    }
     default:
       return null
   }
@@ -159,6 +164,22 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
             source: parsed.data.source,
             targetMembershipId: parsed.data.targetMembershipId,
             ...(targetId ? { targetId } : {}),
+          }
+        : {}
+    }
+    case "decision.runtime_deletion.completed":
+    case "decision.runtime_deletion.failed": {
+      const parsed = z
+        .object({
+          actorMembershipId: z.uuid(),
+          repositoryId: z.uuid(),
+        })
+        .strict()
+        .safeParse(record.context)
+      return parsed.success
+        ? {
+            repositoryId: parsed.data.repositoryId,
+            ...(record.targetId ? { deletionId: record.targetId } : {}),
           }
         : {}
     }

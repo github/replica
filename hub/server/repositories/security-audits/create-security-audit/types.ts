@@ -280,6 +280,14 @@ export interface DecisionCandidateRejectionAudit extends SecurityAuditEvent {
   candidateId: string
 }
 
+export interface DecisionRuntimeDeletionAudit extends SecurityAuditEvent {
+  type: "decision_runtime_deletion"
+  actorMembershipId: string
+  repositoryId: string
+  deletionId: string
+  outcome: "completed" | "failed"
+}
+
 export type CreateSecurityAuditEvent =
   | AuthenticationAttemptDeniedAudit
   | BootstrapAttemptDeniedAudit
@@ -314,4 +322,5 @@ export type CreateSecurityAuditEvent =
   | DecisionTrainingAudit
   | DecisionPromotionAudit
   | DecisionCandidateRejectionAudit
+  | DecisionRuntimeDeletionAudit
   | GitHubAppConnectionTestedAudit
