@@ -374,6 +374,7 @@ export function createDecisionModelStore(
             runtimeCandidateId: candidate.runtimeCandidateId,
             tasksetDigest: candidate.tasksetDigest,
             rejectedAt: candidate.rejectedAt,
+            productionEligible: candidate.productionEligible,
           },
           job: jobRecord(result.job),
         }
@@ -388,6 +389,7 @@ export function createDecisionModelStore(
             runtimeCandidateId: candidate.runtimeCandidateId,
             tasksetDigest: candidate.tasksetDigest,
             rejectedAt: candidate.rejectedAt,
+            productionEligible: candidate.productionEligible,
           }
         : null
     },

@@ -70,6 +70,22 @@ Saved Build evaluations list the persisted page-level findings. Each finding nam
 
 Training withdrawal is selector-based. Hub records the export, grant, evidence, and taskset identifiers, enumerates content-free copy references from the repository's configured runtime, requests deletion, and persists the durable receipt. Pending and completed revocations block taskset upload, training, promotion, rollback, and evaluation for matching inputs. A scheduled recovery pass polls pending receipts after restart. The overview exposes only safe selectors, state, pending and failure counts, and receipt times; PostgreSQL never stores screenshots, learning text, labels, prompts, adapters, or model bytes from the receipt flow.
 
+## Agent visual critic
+
+The prototype canvas exposes `evaluate_prototype` for an authoring agent to request explicit visual feedback while iterating. The action accepts only bounded PNG captures for named routes and the supported desktop or narrow, light or dark view combinations. Agents capture those images through the isolated browser canvas or the existing Replica Build capture path. The action never sends the user's prompt, local preview origin, Hub credential, or runtime credential.
+
+The plugin sends the current checkout branch and commit through its approved repository connection. Hub authorization derives the repository, prototype, and matching Build context from that connection rather than accepting repository IDs from the action. The route is registered only when runtime composition supplies this authorization adapter and the final decision-runtime and learning-authority sources.
+
+`POST /api/canvas/decision-model/evaluations` is the plugin-only interface. It uses the approved Canvas bearer credential rather than a browser session or application-origin proof.
+
+For every request, Hub rereads repository enablement, learning consent and eligibility, runtime readiness, the promoted candidate, and its generation. Production guidance requires a production-ready runtime and a production-eligible promoted candidate. A fixture runtime may return unmistakable fixture findings with `guidance.available: false`; consumers must not use them as production guidance.
+
+Hub hashes the screenshot set and reuses a short-lived bounded cache only while the repository, checkout, eligible learning digest, candidate, and promotion generation still match. Session and repository request limits apply to cached and fresh requests. The monthly repository evaluation budget applies only to fresh route evaluations.
+
+Findings return learning ID and text, route, evaluated views, follows and breaks probabilities, candidate and promotion generation, cache status, and a bounded explanation. The explanation always labels the result as unverified authoring guidance. Evaluation does not change code, publish a Build, promote a model, save a review outcome, or verify improvement.
+
+Agents should use findings to inspect a concrete route and decide what to try next. They must not repeatedly optimize screenshots for a higher score, hide variants that disagree, convert a probability into a product requirement, or claim improvement without a reviewer checking the resulting prototype. Call the action again only after an intentional authoring change or when evaluating another selected route or view set.
+
 ## Runtime connection
 
 `readDecisionRuntimeConfiguration()` accepts one explicit HTTPS base URL and one credential provider. Runtime composition selects that connection per repository because each runtime owns one repository-scoped promotion generation. The environment-token provider is the first local and compatibility implementation:
@@ -127,4 +143,4 @@ Candidate review includes absolute baseline and candidate metrics, their changes
 
 ## Non-goals
 
-This layer does not add Azure decision-runtime connectors, automatic promotion, pooled GPUs, multi-region scheduling, browser capture controls, or model artifact storage in Hub.
+This layer does not add Azure decision-runtime connectors, automatic promotion, pooled GPUs, multi-region scheduling, browser capture controls, reviewer-confirmation collection, or model artifact storage in Hub.

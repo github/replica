@@ -82,6 +82,14 @@ When connected to a compatible external Hub service with Copilot configured, eac
 
 Copilot CLI runs extensions only while its extensions feature is on. In Copilot CLI 1.0.96 that is an experimental feature: start Copilot CLI with `--experimental`, or run `/experimental on`. In prompt mode (`copilot -p`), it loads a repository's project copy only when `GITHUB_COPILOT_PROMPT_MODE_EXTENSIONS=true`.
 
+## Agent visual critic
+
+When a compatible Hub has the repository decision runtime enabled, agents can call `evaluate_prototype` on an open canvas with bounded PNG screenshots captured through the browser canvas or Replica Build capture path. Each screenshot names its root-relative route, desktop or narrow viewport, and light or dark theme.
+
+The action uses the repository's approved Hub connection and sends no user prompt, local preview origin, Hub credential, or runtime credential. Results are unverified authoring guidance. They never change code, publish, promote a model, or create a verified review outcome. Fixture results explicitly disable production guidance.
+
+Use the result to inspect one intentional iteration. Do not chase model probabilities, omit disagreeing views, or present the result as reviewer-confirmed improvement.
+
 ## Agent access to Hub comments
 
 Agents can use actions on the existing `replica-prototype` canvas to retrieve conversations for the current prototype or every reviewable prototype in the checkout's repository, across all Builds. Both use the approved repository connection. Repository retrieval requires a Hub deployment with the repository comments API; it needs no migration, MCP server or separate comment store. Open the canvas, but no running or connected local preview is required for comment actions. They reuse the saved Hub selection and approved credentials; missing authorization still requires connecting to Hub. Preview interactions and publishing still require a connected local preview.

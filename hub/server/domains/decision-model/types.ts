@@ -126,6 +126,7 @@ export interface DecisionCandidateRecord {
   runtimeCandidateId: string
   tasksetDigest: string
   rejectedAt: Date | null
+  productionEligible?: boolean
 }
 
 export interface DecisionPromotionRecord {
@@ -316,4 +317,69 @@ export interface DecisionModelDependencies {
       idempotencyKey: string
     }[]
   >
+}
+
+export interface AgentEvaluationScreenshot {
+  route: string
+  viewport: "desktop" | "narrow"
+  theme: "light" | "dark"
+  dataBase64: string
+}
+
+export interface AgentEvaluationAuthority {
+  sessionKey: string
+  repositoryId: string
+  prototypeId: string | null
+  buildId: string | null
+  branch: string
+  commitSha: string
+}
+
+export interface AgentLearningAuthority {
+  consentGranted: boolean
+  questionDigest: string
+  questions: Record<string, { learning_text: string }>
+}
+
+export interface AgentEvaluationResult {
+  evaluationId: string
+  status: "cached" | "fresh"
+  environment: "fixture" | "production"
+  guidance: {
+    available: boolean
+    notice: string
+  }
+  context: Omit<AgentEvaluationAuthority, "sessionKey">
+  model: {
+    candidateId: string
+    runtimeCandidateId: string
+    promotionGeneration: number
+  }
+  screenshotSetDigest: string
+  findings: (DecisionBuildEvaluationFinding & { explanation: string })[]
+}
+
+export interface AgentEvaluationCache {
+  get(key: string): AgentEvaluationResult | null
+  set(key: string, value: AgentEvaluationResult): void
+}
+
+export interface AgentEvaluationLimits {
+  checkRate(input: { sessionKey: string; repositoryId: string }): void
+  reserveFresh(input: { repositoryId: string; credits: number }): void
+}
+
+export interface AgentEvaluationDependencies {
+  cache: AgentEvaluationCache
+  limits: AgentEvaluationLimits
+  readLearningAuthority(input: {
+    repositoryId: string
+    candidateId: string
+    promotionGeneration: number
+  }): Promise<AgentLearningAuthority>
+  readRuntimeReadiness(input: {
+    repositoryId: string
+  }): Promise<{ ready: boolean; environment: "fixture" | "production" }>
+  runtime: DecisionRuntimeClient
+  store: Pick<DecisionModelStore, "getCandidate" | "getConfiguration" | "getPromotion">
 }

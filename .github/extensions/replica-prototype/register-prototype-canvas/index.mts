@@ -704,6 +704,59 @@ export async function registerPrototypeCanvas(
             },
           },
           {
+            name: "evaluate_prototype",
+            description:
+              "Explicitly evaluate supplied bounded PNG screenshots from this prototype against Hub's promoted repository decision model. Capture screenshots through the isolated browser canvas or Replica Build capture path. Sends no user prompt, changes no code, publishes nothing, promotes nothing, and does not create a verified review outcome. Fixture findings are returned only as non-production test data.",
+            inputSchema: {
+              type: "object",
+              additionalProperties: false,
+              required: ["screenshots"],
+              properties: {
+                screenshots: {
+                  type: "array",
+                  minItems: 1,
+                  maxItems: 8,
+                  items: {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["route", "viewport", "theme", "dataBase64"],
+                    properties: {
+                      route: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 2048,
+                        pattern: "^/(?!/)[^?#]*$",
+                      },
+                      viewport: { enum: ["desktop", "narrow"] },
+                      theme: { enum: ["light", "dark"] },
+                      dataBase64: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 2796204,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            handler: async (ctx) => {
+              const entry = requireOpenPrototypeEntry(ctx.instanceId)
+              try {
+                const live = projectLiveState(
+                  await entry.agentCommands.invoke("inspect"),
+                  entry.context.normalizedUrl,
+                )
+                return await entry.prototype.evaluatePrototype({
+                  sessionId: entry.context.sessionId || ctx.sessionId,
+                  currentRoute: live.route ? String(live.route.pathname) : null,
+                  screenshots: isRecord(ctx.input) ? ctx.input.screenshots : null,
+                })
+              } catch (error) {
+                throw toCanvasError("prototype_evaluation_failed", error)
+              }
+            },
+          },
+          {
             name: "click_prototype",
             description:
               "When the user asks to interact with the prototype, click one uniquely matched visible interactive element in the current page. Supply its CSS selector, expected label, and current route from inspect_live. The label matches explicit label attributes or literal element text, not the full accessible-name algorithm. Forms and external links are not supported.",
