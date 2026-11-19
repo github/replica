@@ -9,6 +9,7 @@ import { temporaryDirectory } from "../../test/temporary-directory/index.mjs"
 
 const actionFile = new URL("../../action.yml", import.meta.url)
 const screenshotsActionFile = new URL("../../screenshots/action.yml", import.meta.url)
+const publishActionFile = new URL("../../publish/action.yml", import.meta.url)
 
 function steps(action) {
   return action
@@ -191,6 +192,47 @@ describe("Replica composite action", () => {
     for (const step of list.slice(0, separateUpload)) {
       assert.doesNotMatch(step.body, /npm ci --ignore-scripts|playwright|capture-screenshots/)
     }
+  })
+
+  it("publishes pre-built output with the same dist package as separate mode, without npm or a browser", async () => {
+    const action = await readFile(publishActionFile, "utf8")
+    assert.equal(inputDefault(action, "output-directory"), "dist")
+    const { calls, workspace, runner } = await runAction(action, { outputDirectory: "site" })
+    assert.deepEqual(
+      calls.map((call) => call.command),
+      ["node", "node", "node"],
+    )
+    assert.deepEqual(
+      calls.map((call) => call.args[0].split("/").at(-2)),
+      ["validate-checkout", "prepare-build-output", "create-dist-package"],
+    )
+    assert.deepEqual(calls[1].args.slice(1), [
+      "--root",
+      workspace,
+      "--output-directory",
+      "site",
+      "--output",
+      path.join(runner, "replica-build-root"),
+    ])
+    assert.deepEqual(calls[2].args.slice(1), [
+      "--root",
+      path.join(runner, "replica-build-root"),
+      "--config-root",
+      workspace,
+      "--output",
+      path.join(runner, "replica-build-v1"),
+    ])
+
+    const [publishUpload] = steps(action).filter((step) =>
+      step.uses?.startsWith("actions/upload-artifact@"),
+    )
+    const [separateUpload] = steps(await readFile(actionFile, "utf8")).filter(
+      (step) => step.condition === "inputs.screenshots == 'separate'" && step.uses,
+    )
+    assert.equal(
+      publishUpload.body.trimEnd(),
+      separateUpload.body.replace(/^ {6}if: .+\n/m, "").trimEnd(),
+    )
   })
 
   it("captures separate screenshots from the downloaded dist package", async () => {
