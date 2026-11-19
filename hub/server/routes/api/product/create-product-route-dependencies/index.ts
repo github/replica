@@ -11,6 +11,7 @@ import { prisma } from "../../../../integrations/prisma/index.ts"
 import { lockAuthenticationProvidersForPrototypeEdit } from "../../../../repositories/authentication-providers/lock-authentication-providers-for-prototype-edit/index.ts"
 import { findBuildPreviewTarget } from "../../../../repositories/build-artifacts/find-build-preview-target/index.ts"
 import { lockGitHubRepositoryAccessState } from "../../../../repositories/github-repository-access-states/lock-github-repository-access-state/index.ts"
+import { findLocalPrototypeManagement } from "../../../../repositories/prototype-index/find-local-prototype-management/index.ts"
 import { findRepositoryAuthors } from "../../../../repositories/prototype-index/find-repository-authors/index.ts"
 import { findRepositoryIndex } from "../../../../repositories/prototype-index/find-repository-index/index.ts"
 import { findPrototypeDetail } from "../../../../repositories/prototype-index/find-prototype-detail/index.ts"
@@ -164,6 +165,10 @@ export function createProductRouteDependencies({
       repositoryIsVisible(prisma, repositoryId, viewer),
     listRepositories: (viewer) =>
       readScoped(viewer, (repositoryScope) => listRepositories(prisma, repositoryScope)),
+    findLocalPrototypeManagement: async (viewer, repositoryId) =>
+      viewer.sessionProvider === "local" && viewer.role === "ADMINISTRATOR"
+        ? findLocalPrototypeManagement(prisma, repositoryId)
+        : null,
     findRepositoryIndex: (viewer, repositoryId, filters) =>
       readScoped(viewer, (repositoryScope) =>
         findRepositoryIndex(prisma, repositoryId, filters, repositoryScope),

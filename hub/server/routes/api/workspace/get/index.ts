@@ -34,6 +34,12 @@ export function get(
         capabilities: {
           reviewPrototypes: authorizeRepositoryReview(current, { localPath }).canView,
           manageSharing: current.provider === "local" && Boolean(localPath) && manageSharing,
+          ...(product.findLocalPrototypeManagement &&
+          current.provider === "local" &&
+          current.role === "ADMINISTRATOR" &&
+          localPath
+            ? { managePrototypeListings: true }
+            : {}),
         },
       }))
       response.json({

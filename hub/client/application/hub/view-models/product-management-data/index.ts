@@ -9,14 +9,15 @@ export function productManagementData(
   workspace: WorkspaceResponse,
   response: ProductManagementResponse,
   search: URLSearchParams,
+  real = false,
 ): PrototypeManagementPageData {
   const base = `/repositories/${response.repository.id}`
-  const common = repositoryWorkspace(workspace, response.repository, search)
+  const common = repositoryWorkspace(workspace, response.repository, search, real)
   const path = resourcePath(`${base}/prototypes/manage`, search)
   return {
     ...common,
-    newPrototypePath: response.canCreate ? resourcePath(`${base}/new`, search) : null,
-    alert: response.canCreate
+    newPrototypePath: response.canManage ? common.newPrototypePath : null,
+    alert: response.canManage
       ? null
       : "You can view prototype details, but you do not have permission to change them.",
     backLabel: "Back to prototypes",
@@ -52,8 +53,8 @@ export function productManagementData(
       addDialogHeading: "Add branch to Hub",
       editDialogHeading: "Edit prototype details",
       closeDialogLabel: "Close dialog",
-      nameMaximumLength: 120,
-      descriptionMaximumLength: 4000,
+      nameMaximumLength: real ? 255 : 120,
+      descriptionMaximumLength: real ? 500 : 4000,
       candidateCheckFailed: false,
       candidateCheckFailedLabel: "Hub could not check which branches you can add.",
       candidateLoadingLabel: "Checking branches you can add...",
@@ -70,7 +71,10 @@ export function productManagementData(
       unlisted: response.candidates.map((candidate) => ({
         ...candidate,
         id: String(candidate.id),
-        path: resourcePath(`${base}/candidates/${candidate.id}/registration`, search),
+        path: resourcePath(
+          `${base}/${real ? "prototypes" : "candidates"}/${candidate.id}/registration`,
+          search,
+        ),
       })),
       registered: response.registered.map((prototype) => ({
         id: String(prototype.id),

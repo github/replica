@@ -76,6 +76,19 @@ Job tests use each worker's resolved `DATABASE_URL`, never `TEST_DATABASE_URL`. 
 
 Use `test/database/get-database-url` to read the worker URL and `test/jobs/open-queue` for a queue that closes at test completion. Tests that reset data mid-case must create and close their queues explicitly before resetting.
 
+## Local browser smoke test
+
+Run this check on Linux with `playwright-cli` and its Chromium browser installed. Point `TEST_DATABASE_URL` at a disposable PostgreSQL server on loopback with permission to create and drop databases. From `hub/`:
+
+```sh
+npm run build:runtime
+npm run test:local
+```
+
+The test starts the built client and Express on one loopback port and uses the database harness to create an isolated worker database. It signs in as the fixed local administrator, adds a discovered draft through **Edit prototype listings**, and checks that the gallery still shows it after reload. It checks both successful and unbuilt states, enables public sharing, and verifies that a link opens the saved Build in a separate signed-out browser and stops opening after revocation. No `.env` or external account is needed. The test removes its database, private storage, and browser session.
+
+The test seeds a small SQL fixture and saved preview bytes, not a Git history. Use the [local Build workflow](development.md#build-local-prototype-repositories) to check Git discovery, Build execution, screenshot capture, and packaging separately. Use the [mock frontend](frontend.md#start-with-mock-data) to explore slow or failing responses, not as evidence that the real API persists changes.
+
 ## Shared code
 
 The extension and build action still use Hub's Controls and canvas code. Keep their checks working:

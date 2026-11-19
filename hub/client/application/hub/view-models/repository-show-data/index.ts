@@ -26,6 +26,10 @@ export function repositoryShowData(
           ? "Selected user"
           : "All users"
   const count = data.pagination.totalCount
+  const canManageListings = options.real
+    ? workspace.repositories.find(({ id }) => id === data.repository.id)?.capabilities
+        ?.managePrototypeListings
+    : workspace.capabilities?.createPrototypes
 
   return {
     ...repositoryWorkspace(workspace, data.repository, search, options.real),
@@ -37,7 +41,7 @@ export function repositoryShowData(
     galleryViewLabel: "Gallery view",
     listViewLabel: "List view",
     managePrototypesLabel: "Edit prototype listings",
-    managePrototypesPath: workspace.capabilities?.createPrototypes
+    managePrototypesPath: canManageListings
       ? resourcePath(`${path}/prototypes/manage`, search)
       : undefined,
     prototypeColumnLabel: "Prototype",

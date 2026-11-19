@@ -53,6 +53,7 @@
     "storybook:build": "storybook build --disable-telemetry --output-dir storybook-static",
     "test": "vitest run --project=node --project=browser",
     "test:database": "vitest run --project=node-database --project=browser-database --passWithNoTests",
+    "test:local": "vitest run --project=local-smoke --maxWorkers=1",
     "typecheck": "react-router typegen && tsc --noEmit && tsc --project ../.github/extensions/replica-prototype/tsconfig.json"
   },
   "dependencies": {

@@ -9,6 +9,7 @@ import type {
   RepositoryIndexFilters,
 } from "../../../repositories/prototype-index/find-repository-index/index.ts"
 import type { findPrototypeDetail } from "../../../repositories/prototype-index/find-prototype-detail/index.ts"
+import type { findLocalPrototypeManagement } from "../../../repositories/prototype-index/find-local-prototype-management/index.ts"
 import type { listRepositories } from "../../../repositories/prototype-index/list-repositories/index.ts"
 import type {
   BuildPreviewTarget,
@@ -47,6 +48,11 @@ export interface ProductRouteDependencies {
   ): Promise<RepositoryReviewAccess>
   isRepositoryVisible(viewer: ProductViewer, repositoryId: string): Promise<boolean>
   listRepositories(viewer: ProductViewer): ReturnType<typeof listRepositories>
+  findLocalPrototypeManagement?(
+    this: void,
+    viewer: ProductViewer,
+    repositoryId: string,
+  ): ReturnType<typeof findLocalPrototypeManagement>
   findRepositoryIndex(
     viewer: ProductViewer,
     repositoryId: string,

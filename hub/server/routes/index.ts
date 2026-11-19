@@ -26,6 +26,7 @@ import { post as handleReviewCommentReplyPost } from "./api/repositories/prototy
 import { post as handleReviewThreadResolutionPost } from "./api/repositories/prototypes/review-comments/resolution/post/index.ts"
 import { delete_ as handleReviewThreadResolutionDelete } from "./api/repositories/prototypes/review-comments/resolution/delete/index.ts"
 import { get as handleBuildPreviewAccessGet } from "./api/repositories/prototypes/builds/access/get/index.ts"
+import { get as handlePrototypeManagementGet } from "./api/repositories/prototype-management/get/index.ts"
 import { get as handleBuildPreviewAuthorizeGet } from "./build-preview/authorize/get/index.ts"
 import { get as handleBuildPreviewServeGet } from "./build-preview/serve/get/index.ts"
 import { get as handleSharePreviewAuthorizeGet } from "./build-preview/share-authorize/get/index.ts"
@@ -115,6 +116,15 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
         "/api/repositories/:repositoryId/authors",
         handleRepositoryAuthorsGet(authentication.currentSession, product),
       )
+      if (product.findLocalPrototypeManagement) {
+        app.get(
+          "/api/repositories/:repositoryId/prototype-management",
+          handlePrototypeManagementGet(
+            authentication.currentSession,
+            product.findLocalPrototypeManagement,
+          ),
+        )
+      }
       app.get(
         "/api/repositories/:repositoryId/prototypes/:prototypeId",
         handlePrototypeGet(authentication.currentSession, product),

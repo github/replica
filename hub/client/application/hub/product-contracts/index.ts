@@ -50,7 +50,7 @@ export const productMetadataInputSchema = prototypeDetailsSchema
   .strict()
 
 export const productCandidateSchema = z.object({
-  id: identifier,
+  id: z.union([identifier, recordIdentifierSchema]),
   branchName: z.string().min(1),
   name: z.string().min(1),
   description: z.string().nullable(),
@@ -59,9 +59,13 @@ export const productCandidateSchema = z.object({
 
 export const productManagementResponseSchema = z.object({
   repository: repositorySchema,
-  registered: z.array(prototypeSchema.extend({ startPage: productStartPageSchema })),
+  registered: z.array(
+    prototypeSchema
+      .pick({ id: true, branchName: true, name: true, description: true, canEdit: true })
+      .extend({ startPage: productStartPageSchema }),
+  ),
   candidates: z.array(productCandidateSchema),
-  canCreate: z.boolean(),
+  canManage: z.boolean(),
 })
 
 export const productShareLinkSchema = z.object({
