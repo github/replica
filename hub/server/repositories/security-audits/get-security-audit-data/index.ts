@@ -355,5 +355,18 @@ export function getSecurityAuditData(
           ...(event.reason ? { reason: event.reason } : {}),
         },
       }
+    case "repository_administration_denied":
+      return {
+        id: event.id,
+        action: `repository.administration.${event.operation}.denied`,
+        outcome: SecurityAuditOutcome.DENIED,
+        targetType: "repository",
+        targetId: event.repositoryId,
+        context: {
+          actorMembershipId: event.actorMembershipId,
+          operation: event.operation,
+          reason: event.reason,
+        },
+      }
   }
 }

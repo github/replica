@@ -2,7 +2,11 @@ import { z } from "zod"
 
 import { parseProviderKey } from "../../../utils/parse-provider-key/index.ts"
 import { applyProviderAssignmentEvidence } from "../../admission/apply-provider-assignment-evidence/index.ts"
-import { AdmissionDeniedError, AdmissionTransactionConflictError } from "../../admission/errors.ts"
+import {
+  AdmissionDeniedError,
+  AdmissionTransactionConflictError,
+  AdmissionUnavailableError,
+} from "../../admission/errors.ts"
 import { runWithBoundedRetries } from "../../identity/run-with-bounded-retries/index.ts"
 import type { AdministratorAuthorizationVerificationTransaction } from "../run-administrator-authorization-verification-transaction/types.ts"
 import type { CreateSecurityAuditEvent } from "../../../repositories/security-audits/create-security-audit/types.ts"
@@ -196,12 +200,7 @@ export async function verifyAdministratorAuthorization(
       (error) => error instanceof AdmissionTransactionConflictError,
     )
   } catch (error) {
-    const reason =
-      error instanceof AdmissionDeniedError
-        ? error.reason
-        : error instanceof AdmissionTransactionConflictError
-          ? "retry_exhausted"
-          : null
+    const reason = error instanceof AdmissionDeniedError ? error.reason : null
     if (reason) {
       const authorization = await dependencies.getAuthorizationAuditData(
         input.sensitiveAuthorizationId,
@@ -227,6 +226,8 @@ export async function verifyAdministratorAuthorization(
         }
       }
     }
-    throw error
+    throw error instanceof AdmissionTransactionConflictError
+      ? new AdmissionUnavailableError({ cause: error })
+      : error
   }
 }

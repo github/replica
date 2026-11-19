@@ -24,8 +24,8 @@ describe("Learnings contracts", () => {
         nameWithOwner: "github/prototype",
         defaultBranch: "main",
       },
-      canAdministerHub: false,
-      permissions: { decide: true, requestRun: true },
+      capabilities: { administerHub: false, administerRepository: true },
+      permissions: { viewEvidence: true, decide: true, requestRun: true },
       copilot: { state: "connected" as const, connectedBy: "hub-admin" },
       automaticRunsEnabled: false,
       usageCredits: "0.0735",
@@ -100,33 +100,36 @@ describe("Learnings contracts", () => {
     expect(learningsResponseSchema.parse(response)).toEqual(response)
   })
 
-  it("keeps denied responses free of suggestion, evidence, and permission data", () => {
-    const repository = {
-      id: "2001",
-      nameWithOwner: "github/prototype",
-      defaultBranch: "main",
-    }
-    expect(
-      learningsResponseSchema.parse({
+  it.each([false, true])(
+    "keeps denied responses free of learning data when Hub administration is %s",
+    (canAdministerHub) => {
+      const repository = {
+        id: "2001",
+        nameWithOwner: "github/prototype",
+        defaultBranch: "main",
+      }
+      expect(
+        learningsResponseSchema.parse({
+          accessDenied: true,
+          repository,
+          capabilities: { administerHub: canAdministerHub, administerRepository: false },
+        }),
+      ).toEqual({
         accessDenied: true,
         repository,
-        canAdministerHub: false,
-      }),
-    ).toEqual({
-      accessDenied: true,
-      repository,
-      canAdministerHub: false,
-    })
-    expect(
-      learningsResponseSchema.safeParse({
-        accessDenied: true,
-        repository,
-        canAdministerHub: false,
-        permissions: { decide: false, requestRun: false },
-        suggestions: [{ evidence: [evidence] }],
-      }).success,
-    ).toBe(false)
-  })
+        capabilities: { administerHub: canAdministerHub, administerRepository: false },
+      })
+      expect(
+        learningsResponseSchema.safeParse({
+          accessDenied: true,
+          repository,
+          capabilities: { administerHub: canAdministerHub, administerRepository: false },
+          permissions: { viewEvidence: false, decide: false, requestRun: false },
+          suggestions: [{ evidence: [evidence] }],
+        }).success,
+      ).toBe(false)
+    },
+  )
 
   it.each([
     ["accept", { decision: "accept", digest }],
@@ -156,10 +159,11 @@ describe("Learnings contracts", () => {
           nameWithOwner: "github/prototype",
           defaultBranch: "main",
         },
-        canAdministerHub: false,
+        capabilities: { administerHub: false, administerRepository: false },
       }),
       accessDenied: false as const,
-      permissions: { decide: true, requestRun: true },
+      capabilities: { administerHub: false, administerRepository: true },
+      permissions: { viewEvidence: true, decide: true, requestRun: true },
       copilot: { state: "not-connected" as const },
       automaticRunsEnabled: false,
       usageCredits: "0",

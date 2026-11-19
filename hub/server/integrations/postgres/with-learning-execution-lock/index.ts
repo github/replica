@@ -2,11 +2,20 @@ import { Client } from "pg"
 
 export async function withLearningExecutionLock<T>({
   databaseUrl,
+  protectSessionAuthority = false,
   run,
   signal,
 }: {
   databaseUrl: string
-  run: (signal: AbortSignal) => Promise<T>
+  protectSessionAuthority?: boolean
+  run: (
+    signal: AbortSignal,
+    controls: {
+      runWithoutRepositoryAuthorityLock: <Result>(
+        operation: () => Promise<Result>,
+      ) => Promise<Result>
+    },
+  ) => Promise<T>
   signal?: AbortSignal
 }) {
   const client = new Client({ connectionString: databaseUrl, connectionTimeoutMillis: 5_000 })
@@ -34,8 +43,26 @@ export async function withLearningExecutionLock<T>({
       "SELECT pg_try_advisory_lock(1919242348, 2) AS locked",
     )
     if (!result.rows[0]?.locked) throw new Error("Another learning operation is still running.")
+    await client.query("SELECT pg_advisory_lock_shared(1919242348, 3)")
+    if (protectSessionAuthority) {
+      await client.query("SELECT pg_advisory_lock_shared(1919242348, 4)")
+    }
     controller.signal.throwIfAborted()
-    running = run(controller.signal)
+    running = run(controller.signal, {
+      runWithoutRepositoryAuthorityLock: async <Result>(operation: () => Promise<Result>) => {
+        const unlocked = await client.query<{ unlocked: boolean }>(
+          "SELECT pg_advisory_unlock_shared(1919242348, 3) AS unlocked",
+        )
+        if (!unlocked.rows[0]?.unlocked) {
+          throw new Error("Hub could not release its repository authority lock.")
+        }
+        try {
+          return await operation()
+        } finally {
+          await client.query("SELECT pg_advisory_lock_shared(1919242348, 3)")
+        }
+      },
+    })
     return await Promise.race([running, connectionFailed])
   } finally {
     controller.abort()

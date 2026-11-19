@@ -131,7 +131,10 @@ ${recalled.map((entry, index) => `${index + 1}. [rule] ${entry.content}`).join("
       return learningsResponseSchema.parse({
         accessDenied: true,
         repository,
-        canAdministerHub: context.session.read().capabilities.administerHub,
+        capabilities: {
+          administerHub: context.session.read().capabilities.administerHub,
+          administerRepository: false,
+        },
       })
     }
     const copilot = options.copilot()
@@ -146,8 +149,11 @@ ${recalled.map((entry, index) => `${index + 1}. [rule] ${entry.content}`).join("
     return learningsResponseSchema.parse({
       accessDenied: false,
       repository,
-      canAdministerHub: context.session.read().capabilities.administerHub,
-      permissions: { decide: true, requestRun: true },
+      capabilities: {
+        administerHub: context.session.read().capabilities.administerHub,
+        administerRepository: true,
+      },
+      permissions: { viewEvidence: true, decide: true, requestRun: true },
       copilot: copilot.connected
         ? { state: "connected", connectedBy: copilot.connectedBy }
         : { state: "not-connected" },

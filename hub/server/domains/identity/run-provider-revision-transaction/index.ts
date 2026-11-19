@@ -5,7 +5,9 @@ import { disableAuthenticationProvider } from "../../../repositories/authenticat
 import { enableAuthenticationProvider } from "../../../repositories/authentication-providers/enable-authentication-provider/index.ts"
 import { findAuthenticationProvider } from "../../../repositories/authentication-providers/find-authentication-provider/index.ts"
 import { lockAuthenticationProvidersForReconciliation } from "../../../repositories/authentication-providers/lock-authentication-providers-for-reconciliation/index.ts"
+import { lockSessionAuthorityChanges } from "../../../repositories/hub-sessions/lock-session-authority-changes/index.ts"
 import { selectAuthenticationProviderRevision } from "../../../repositories/authentication-providers/select-authentication-provider-revision/index.ts"
+import { lockRepositoryAdministrationChanges } from "../../../repositories/repository-access/lock-repository-administration-changes/index.ts"
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
 import { disconnectCopilotConnectionWithoutEffectiveAdministrator } from "../../../repositories/copilot-connection-state/disconnect-copilot-connection-without-effective-administrator/index.ts"
 import { incrementSessionRevocationState } from "../../../repositories/session-revocation-states/increment-session-revocation-state/index.ts"
@@ -25,8 +27,10 @@ export function runProviderRevisionTransaction<Result>(
 ): Promise<Result> {
   return database
     .$transaction(
-      (transaction) =>
-        operation({
+      async (transaction) => {
+        await lockRepositoryAdministrationChanges(transaction)
+        await lockSessionAuthorityChanges(transaction)
+        return operation({
           activateGitHubRepositoryScoping: () => activateGitHubRepositoryScoping(transaction),
           createAuthenticationProvider: (input) => createAuthenticationProvider(transaction, input),
           createAuthenticationProviderRevision: (input) =>
@@ -43,7 +47,8 @@ export function runProviderRevisionTransaction<Result>(
             lockAuthenticationProvidersForReconciliation(transaction),
           selectAuthenticationProviderRevision: (input) =>
             selectAuthenticationProviderRevision(transaction, input),
-        }),
+        })
+      },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     )
     .catch((error: unknown) => {

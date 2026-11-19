@@ -7,6 +7,7 @@ import { createSecurityAudit } from "../../../repositories/security-audits/creat
 import { getSensitiveAuthorizationAuditData } from "../../../repositories/sensitive-authorizations/get-sensitive-authorization-audit-data/index.ts"
 import { lockAuthenticationProvidersForSessionAuthority } from "../../../repositories/authentication-providers/lock-authentication-providers-for-session-authority/index.ts"
 import { lockLiveHubSession } from "../../../repositories/hub-sessions/lock-live-hub-session/index.ts"
+import { lockSessionAuthorityChanges } from "../../../repositories/hub-sessions/lock-session-authority-changes/index.ts"
 import { lockSessionRevocationStateForUpdate } from "../../../repositories/session-revocation-states/lock-session-revocation-state-for-update/index.ts"
 import { lockSensitiveAuthorization } from "../../../repositories/sensitive-authorizations/lock-sensitive-authorization/index.ts"
 import { markSensitiveAuthorizationContinued } from "../../../repositories/sensitive-authorizations/mark-sensitive-authorization-continued/index.ts"
@@ -15,8 +16,8 @@ import { createAdministratorManagementRepositories } from "../../administrator-m
 import { designateHubAdministratorsWithRepositories } from "../../administrator-management/designate-hub-administrators-with-repositories/index.ts"
 import {
   AdministratorManagementDeniedError,
-  AdministratorManagementPersistenceError,
   AdministratorManagementTransactionConflictError,
+  AdministratorManagementUnavailableError,
 } from "../../administrator-management/errors.ts"
 import { revokeHubAdministratorWithRepositories } from "../../administrator-management/revoke-hub-administrator-with-repositories/index.ts"
 import { runWithBoundedRetries } from "../../identity/run-with-bounded-retries/index.ts"
@@ -55,6 +56,7 @@ export async function continueAdministratorAuthorization(
         database
           .$transaction(
             async (transaction) => {
+              await lockSessionAuthorityChanges(transaction, { timeoutMs: 500 })
               await lockAuthenticationProvidersForSessionAuthority(transaction)
               if (!(await lockSessionRevocationStateForUpdate(transaction))) {
                 throw new AdministratorAuthorizationDeniedError("session_mismatch")
@@ -150,6 +152,7 @@ export async function continueAdministratorAuthorization(
       (error) => error instanceof AdministratorManagementTransactionConflictError,
     )
   } catch (error) {
+    const unavailable = error instanceof AdministratorManagementTransactionConflictError
     const reason =
       error instanceof AdministratorAuthorizationDeniedError
         ? error.reason
@@ -182,16 +185,18 @@ export async function continueAdministratorAuthorization(
               type: "administrator_management_failed",
             })
           }
-          await createSecurityAudit(transaction, {
-            actorMembershipId: authorization.actorMembershipId,
-            authorizationId: input.id,
-            id: randomUUID(),
-            operation: authorization.operation,
-            phase: reason === "expired" || authorization.expired ? "expired" : "denied",
-            reason,
-            targetCount: authorization.targetCount,
-            type: "administrator_authorization",
-          })
+          if (!unavailable) {
+            await createSecurityAudit(transaction, {
+              actorMembershipId: authorization.actorMembershipId,
+              authorizationId: input.id,
+              id: randomUUID(),
+              operation: authorization.operation,
+              phase: reason === "expired" || authorization.expired ? "expired" : "denied",
+              reason,
+              targetCount: authorization.targetCount,
+              type: "administrator_authorization",
+            })
+          }
         })
       } catch (auditError) {
         throw new AggregateError(
@@ -201,8 +206,6 @@ export async function continueAdministratorAuthorization(
         )
       }
     }
-    throw error instanceof AdministratorManagementTransactionConflictError
-      ? new AdministratorManagementPersistenceError({ cause: error })
-      : error
+    throw unavailable ? new AdministratorManagementUnavailableError({ cause: error }) : error
   }
 }

@@ -25,7 +25,7 @@ export function settingsLearnings(
       createPrototypes: workspace.capabilities?.createPrototypes ?? false,
       reviewPrototypes: workspace.capabilities?.reviewPrototypes ?? false,
       manageSharing: workspace.capabilities?.manageSharing ?? false,
-      administerHub: state.canAdministerHub,
+      administerHub: state.capabilities.administerHub,
     },
   }
   const shared = {

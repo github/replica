@@ -40,6 +40,15 @@ export interface LearningsRouteDependencies {
     nameWithOwner: string
     defaultBranch: string
   } | null>
+  authorizeRepositoryAdministration(input: {
+    membershipId: string
+    repositoryId: string
+  }): Promise<boolean>
+  auditRepositoryAdministrationDenial(input: {
+    actorMembershipId: string
+    operation: "learning_overview" | "learning_run" | "learning_decision"
+    repositoryId: string
+  }): Promise<void>
   getOverview(input: { repositoryId: string; viewer: string }): Promise<{
     loadError: string | null
     identityReviewCount: number
@@ -61,6 +70,7 @@ export interface LearningsRouteDependencies {
     actorMembershipId: string
     repositoryId: string
     requestedById: string
+    sessionDigest: string
   }) => Promise<{ notice: string }>
   decide(input: {
     repositoryId: string
@@ -68,6 +78,7 @@ export interface LearningsRouteDependencies {
     actor: string
     actorMembershipId: string
     decision: LearningDecision
+    sessionDigest: string
   }): Promise<{ notice: string }>
   redactComment(input: {
     repositoryId: string

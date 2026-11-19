@@ -3,3 +3,7 @@ export interface ConnectedRepositoryEvidence {
   githubRepositoryId: number
   nameWithOwner: string
 }
+
+export interface RepositoryAccessEvidence extends ConnectedRepositoryEvidence {
+  accessLevel: "READ" | "TRIAGE" | "WRITE" | "MAINTAIN" | "ADMIN"
+}

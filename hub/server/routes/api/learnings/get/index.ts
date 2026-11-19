@@ -2,6 +2,7 @@ import type { RequestHandler } from "express"
 import { z } from "zod"
 
 import { readLearningSession } from "../read-learning-session/index.ts"
+import { respondLearningError } from "../respond-learning-error/index.ts"
 import type { LearningsRouteDependencies } from "../types.ts"
 
 export function get(dependencies: LearningsRouteDependencies): RequestHandler {
@@ -25,7 +26,13 @@ export function get(dependencies: LearningsRouteDependencies): RequestHandler {
         response.status(404).json({ code: "repository_not_found", error: "Repository not found." })
         return
       }
-      if (initial.role !== "ADMINISTRATOR") {
+      let viewer = initial
+      if (
+        !(await dependencies.authorizeRepositoryAdministration({
+          membershipId: viewer.membershipId,
+          repositoryId: repository.id,
+        }))
+      ) {
         const current = await readLearningSession(request, dependencies)
         if (!current || current.membershipId !== initial.membershipId) {
           response.status(401).json({ code: "sign_in_required", error: "Sign in to continue." })
@@ -38,14 +45,34 @@ export function get(dependencies: LearningsRouteDependencies): RequestHandler {
             .json({ code: "repository_not_found", error: "Repository not found." })
           return
         }
-        response.json({ accessDenied: true, repository: visible, canAdministerHub: false })
-        return
+        if (
+          !(await dependencies.authorizeRepositoryAdministration({
+            membershipId: current.membershipId,
+            repositoryId: repository.id,
+          }))
+        ) {
+          await dependencies.auditRepositoryAdministrationDenial({
+            actorMembershipId: current.membershipId,
+            operation: "learning_overview",
+            repositoryId: repository.id,
+          })
+          response.json({
+            accessDenied: true,
+            repository: visible,
+            capabilities: {
+              administerHub: current.role === "ADMINISTRATOR",
+              administerRepository: false,
+            },
+          })
+          return
+        }
+        viewer = current
       }
 
       const [overview, copilot, runSummary] = await Promise.all([
         dependencies.getOverview({
           repositoryId: repository.id,
-          viewer: `human:${initial.login}`,
+          viewer: `human:${viewer.login}`,
         }),
         dependencies.getCopilot(),
         dependencies.listRuns(repository.id),
@@ -59,8 +86,25 @@ export function get(dependencies: LearningsRouteDependencies): RequestHandler {
         response.status(404).json({ code: "repository_not_found", error: "Repository not found." })
         return
       }
-      if (current.role !== "ADMINISTRATOR") {
-        response.json({ accessDenied: true, repository, canAdministerHub: false })
+      if (
+        !(await dependencies.authorizeRepositoryAdministration({
+          membershipId: current.membershipId,
+          repositoryId: repository.id,
+        }))
+      ) {
+        await dependencies.auditRepositoryAdministrationDenial({
+          actorMembershipId: current.membershipId,
+          operation: "learning_overview",
+          repositoryId: repository.id,
+        })
+        response.json({
+          accessDenied: true,
+          repository,
+          capabilities: {
+            administerHub: current.role === "ADMINISTRATOR",
+            administerRepository: false,
+          },
+        })
         return
       }
       const runAvailable =
@@ -71,8 +115,15 @@ export function get(dependencies: LearningsRouteDependencies): RequestHandler {
       response.json({
         accessDenied: false,
         repository,
-        canAdministerHub: true,
-        permissions: { decide: true, requestRun: dependencies.requestRun !== undefined },
+        capabilities: {
+          administerHub: current.role === "ADMINISTRATOR",
+          administerRepository: true,
+        },
+        permissions: {
+          viewEvidence: true,
+          decide: true,
+          requestRun: dependencies.requestRun !== undefined,
+        },
         copilot,
         automaticRunsEnabled: dependencies.automaticRunsEnabled,
         usageCredits: runSummary.usageCredits,
@@ -81,7 +132,7 @@ export function get(dependencies: LearningsRouteDependencies): RequestHandler {
         runs: runSummary.runs,
       })
     } catch (error) {
-      next(error)
+      if (!respondLearningError(response, error)) next(error)
     }
   }
 }

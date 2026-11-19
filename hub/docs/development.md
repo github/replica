@@ -114,6 +114,8 @@ The filesystem provider requires the Linux protections described in [Artifact st
 npm run local:builds
 ```
 
+Starter preparation invokes the [Node.js creator](../../scripts/create-prototype-repo.mjs), not Bash. On Windows, dependency installation runs npm's JavaScript entrypoint through Node.js, using `npm_execpath` when supplied or the npm bundled beside Node.js. These setup fixes do not remove the Linux filesystem requirement or Docker isolation for local Builds.
+
 Alternatively, after `npm run setup`, enqueue the same scan and run the local on-demand worker:
 
 ```sh

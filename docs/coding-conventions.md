@@ -17,6 +17,10 @@ These rules apply across Replica. Follow the affected project's guidance for its
 
 For TypeScript modules, import the function or component directory without `/index.ts` or `/index.tsx` when the project's tools resolve directory imports. Native Node.js ES modules require explicit file paths; keep those paths in code run directly by Node.
 
+## Cross-platform scripts
+
+Scripts used outside Linux must run on Windows, macOS, and Linux without Bash, Git Bash, or WSL. Use Node.js for shared setup and contributor scripts, with native paths and portable subprocess calls. Bash is appropriate for scripts that run only in an explicitly Linux environment, such as a Linux container or CI job; document that requirement.
+
 ## Tests
 
 - Test behavior through public interfaces.

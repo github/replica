@@ -1,7 +1,10 @@
 import type { RequestHandler } from "express"
 import { z } from "zod"
 
-import { AdministratorManagementDeniedError } from "../../../../../../domains/administrator-management/errors.ts"
+import {
+  AdministratorManagementDeniedError,
+  AdministratorManagementUnavailableError,
+} from "../../../../../../domains/administrator-management/errors.ts"
 import { AdministratorAuthorizationDeniedError } from "../../../../../../domains/administrator-authorization/errors.ts"
 import type { AdministratorRouteDependencies } from "../../../../auth/types.ts"
 import { readAdministratorSession } from "../../../read-administrator-session/index.ts"
@@ -36,6 +39,13 @@ export function post(dependencies: AdministratorRouteDependencies): RequestHandl
       })
       response.json({ result })
     } catch (error) {
+      if (error instanceof AdministratorManagementUnavailableError) {
+        response.setHeader("Retry-After", "1")
+        response
+          .status(503)
+          .json({ error: "Administrator changes are temporarily unavailable. Try again." })
+        return
+      }
       if (
         error instanceof AdministratorAuthorizationDeniedError ||
         error instanceof AdministratorManagementDeniedError
