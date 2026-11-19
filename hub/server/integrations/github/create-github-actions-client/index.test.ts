@@ -26,7 +26,9 @@ describe("createGitHubActionsClient", () => {
     await client.listRunArtifacts(7, "replica-build-v1")
     await client.listRunArtifacts(7, "replica-screenshots-v1")
 
-    const tokenCalls = fetch.mock.calls.filter(([url]) => (url as URL).href.includes("access_tokens"))
+    const tokenCalls = fetch.mock.calls.filter(([url]) =>
+      (url as URL).href.includes("access_tokens"),
+    )
     expect(tokenCalls).toHaveLength(1)
     expect(JSON.parse(tokenCalls[0]?.[1]?.body as string)).toEqual({
       repository_ids: [56],

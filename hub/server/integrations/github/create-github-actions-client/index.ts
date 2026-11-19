@@ -133,7 +133,10 @@ export function createGitHubActionsClient(
   return {
     /** Returns the run, or null when GitHub no longer has it for this repository. */
     async getWorkflowRun(runId: number): Promise<GitHubWorkflowRun | null> {
-      const response = await send(`${repositoryPath}/actions/runs/${runId}`, await installationToken())
+      const response = await send(
+        `${repositoryPath}/actions/runs/${runId}`,
+        await installationToken(),
+      )
       if (response.status === 404) return null
       const run = await parse(runSchema, response)
       const actor = run.triggering_actor ?? run.actor

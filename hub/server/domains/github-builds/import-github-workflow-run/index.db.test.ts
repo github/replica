@@ -308,10 +308,12 @@ describe("importGitHubWorkflowRun", () => {
     fixture.run.headSha = "a".repeat(40)
     fixture.run.createdAt = new Date("2026-01-03T00:00:00Z")
     await fixture.importRun()
-    const current = () =>
-      prisma.prototype
-        .findUniqueOrThrow({ where: { id: first.prototypeId } })
-        .then((p) => p.currentBuildId)
+    async function current() {
+      const prototype = await prisma.prototype.findUniqueOrThrow({
+        where: { id: first.prototypeId },
+      })
+      return prototype.currentBuildId
+    }
     await expect(current()).resolves.toBe(first.id)
 
     fixture.run.id = secondRunId

@@ -75,15 +75,18 @@ describe("extractDistPackage", () => {
 
   describe("size limits shared with the build action", () => {
     const mebibyte = 1024 * 1024
-    const dist = () =>
-      [0, 1, 2, 3].map((index) => ({
+    function dist() {
+      return [0, 1, 2, 3].map((index) => ({
         name: index === 0 ? "dist/index.html" : `dist/chunk-${index}.js`,
         bytes: Buffer.alloc(25 * mebibyte),
       }))
-    const screenshot = (name: string, bytes: number) => ({
-      name: `screenshots/${name}.png`,
-      bytes: Buffer.concat([png, Buffer.alloc(bytes - png.length)]),
-    })
+    }
+    function screenshot(name: string, bytes: number) {
+      return {
+        name: `screenshots/${name}.png`,
+        bytes: Buffer.concat([png, Buffer.alloc(bytes - png.length)]),
+      }
+    }
 
     it("accepts a legacy package with full dist output and screenshots", () => {
       const archive = createZipArchive([

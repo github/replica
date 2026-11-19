@@ -40,11 +40,7 @@ export function readZipArchive(archive: Buffer, limits: ZipArchiveLimits): ZipAr
   const entryCount = archive.readUInt16LE(end + 10)
   const directorySize = archive.readUInt32LE(end + 12)
   const directoryOffset = archive.readUInt32LE(end + 16)
-  if (
-    entryCount === 0xffff ||
-    directorySize === 0xffffffff ||
-    directoryOffset === 0xffffffff
-  ) {
+  if (entryCount === 0xffff || directorySize === 0xffffffff || directoryOffset === 0xffffffff) {
     throw new ZipArchiveError("ZIP64 packages are not supported.")
   }
   if (disk !== 0 || directoryDisk !== 0 || diskEntries !== entryCount) {
@@ -113,7 +109,10 @@ export function readZipArchive(archive: Buffer, limits: ZipArchiveLimits): ZipAr
       throw new ZipArchiveError(`${name} has an invalid local header.`)
     }
     const dataStart =
-      localOffset + 30 + archive.readUInt16LE(localOffset + 26) + archive.readUInt16LE(localOffset + 28)
+      localOffset +
+      30 +
+      archive.readUInt16LE(localOffset + 26) +
+      archive.readUInt16LE(localOffset + 28)
     if (dataStart + compressedSize > directoryOffset) {
       throw new ZipArchiveError(`${name} extends beyond the package data.`)
     }
