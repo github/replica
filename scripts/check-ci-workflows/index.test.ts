@@ -127,7 +127,7 @@ describe("documented prototype workflow", () => {
       permissions?: Record<string, string>
     }
 
-    expect(workflow.on).toHaveProperty("push")
+    expect(workflow.on).toMatchObject({ push: { branches: ["**"] } })
     expect(workflow.permissions).toEqual({ contents: "read" })
     const { publish, screenshots } = workflow.jobs
     assert(publish?.steps && screenshots?.steps)

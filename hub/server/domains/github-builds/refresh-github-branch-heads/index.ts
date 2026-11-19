@@ -20,18 +20,24 @@ export async function refreshGitHubBranchHeads(
   const observed = await listGitHubBranchIdentities(database, githubRepositoryId)
   const observedAt = new Date()
   const heads = await listBranchHeads(githubRepositoryId)
+  const failures: Error[] = []
   for (const head of heads) {
-    const owner = observed.get(head.branchName) ?? null
-    let resumeRetired = false
-    if (owner?.branchDeletedAt && owner.retiredHeadSha) {
-      resumeRetired =
-        owner.retiredHeadSha === head.commitSha ||
-        (await isAncestor(githubRepositoryId, owner.retiredHeadSha, head.commitSha))
+    try {
+      const owner = observed.get(head.branchName) ?? null
+      let resumeRetired = false
+      if (owner?.branchDeletedAt && owner.retiredHeadSha) {
+        resumeRetired =
+          owner.retiredHeadSha === head.commitSha ||
+          (await isAncestor(githubRepositoryId, owner.retiredHeadSha, head.commitSha))
+      }
+      await recordGitHubBranchHeads(database, {
+        githubRepositoryId,
+        heads: [{ ...head, observed: owner, resumeRetired }],
+        observedAt,
+      })
+    } catch (error) {
+      failures.push(new Error(`Could not refresh branch ${head.branchName}.`, { cause: error }))
     }
-    await recordGitHubBranchHeads(database, {
-      githubRepositoryId,
-      heads: [{ ...head, observed: owner, resumeRetired }],
-      observedAt,
-    })
   }
+  if (failures.length > 0) throw new AggregateError(failures, "GitHub branch head refresh failed.")
 }

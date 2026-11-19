@@ -29,9 +29,9 @@ describe("GitHub branch identity migration", () => {
           await database.connect()
           const hubRoot = fileURLToPath(new URL("../../../", import.meta.url))
           const migrations = join(hubRoot, "schema/migrations")
-          const identityMigration = "20261216120000_github_branch_identity"
+          const firstPullRequestMigration = "20261210120000_github_workflow_builds"
           const base = (await readdir(migrations, { withFileTypes: true }))
-            .filter((entry) => entry.isDirectory() && entry.name < identityMigration)
+            .filter((entry) => entry.isDirectory() && entry.name < firstPullRequestMigration)
             .map(({ name }) => name)
             .sort()
           for (const migrationName of base) {
@@ -104,10 +104,8 @@ describe("GitHub branch identity migration", () => {
              VALUES ($1, $2, $3, $4, $5, 'Retained link', 'mona', '2099-01-01T00:00:00Z')`,
             [randomUUID(), selectedPrototypeId, selectedBuildId, userId, randomUUID()],
           )
-          const prototypesQuery = `SELECT id, repository_id, branch_name, name, description,
-            start_page, author_id, registered_at, branch_deleted_at, current_build_id,
-            current_build_run_created_at, created_at, updated_at FROM prototypes ORDER BY id`
-          const prototypesBefore = await database.query(prototypesQuery)
+          const repositoriesBefore = await database.query("SELECT * FROM repositories ORDER BY id")
+          const prototypesBefore = await database.query("SELECT * FROM prototypes ORDER BY id")
           const buildsBefore = await database.query("SELECT * FROM builds ORDER BY id")
           const linksBefore = await database.query("SELECT * FROM share_links ORDER BY id")
 
@@ -139,16 +137,22 @@ describe("GitHub branch identity migration", () => {
             options,
           )
 
-          expect((await database.query(prototypesQuery)).rows).toEqual(prototypesBefore.rows)
-          expect((await database.query("SELECT * FROM builds ORDER BY id")).rows).toEqual(
-            buildsBefore.rows,
-          )
-          expect((await database.query("SELECT * FROM share_links ORDER BY id")).rows).toEqual(
-            linksBefore.rows,
-          )
+          for (const [table, before] of [
+            ["repositories", repositoriesBefore],
+            ["prototypes", prototypesBefore],
+            ["builds", buildsBefore],
+            ["share_links", linksBefore],
+          ] as const) {
+            const after = await database.query(`SELECT * FROM ${table} ORDER BY id`)
+            expect(after.rows).toHaveLength(before.rows.length)
+            for (const [index, row] of before.rows.entries()) {
+              expect(after.rows[index]).toMatchObject(row)
+            }
+          }
           const identities = await database.query(
             `SELECT id, retired_head_sha, branch_head_sha, branch_presence_revision,
-                    branch_identity_started_at FROM prototypes`,
+                    branch_identity_started_at, current_build_run_created_at,
+                    current_build_run_id FROM prototypes`,
           )
           expect(identities.rows).toEqual(
             expect.arrayContaining([
@@ -158,6 +162,8 @@ describe("GitHub branch identity migration", () => {
                 branch_head_sha: null,
                 branch_presence_revision: 0,
                 branch_identity_started_at: null,
+                current_build_run_created_at: null,
+                current_build_run_id: null,
               },
               {
                 id: unknownPrototypeId,
@@ -165,6 +171,8 @@ describe("GitHub branch identity migration", () => {
                 branch_head_sha: null,
                 branch_presence_revision: 0,
                 branch_identity_started_at: null,
+                current_build_run_created_at: null,
+                current_build_run_id: null,
               },
               {
                 id: activePrototypeId,
@@ -172,9 +180,28 @@ describe("GitHub branch identity migration", () => {
                 branch_head_sha: null,
                 branch_presence_revision: 0,
                 branch_identity_started_at: null,
+                current_build_run_created_at: null,
+                current_build_run_id: null,
               },
             ]),
           )
+          const checkpointId = randomUUID()
+          await database.query(
+            "INSERT INTO github_webhook_recovery_checkpoints (id, app_id) VALUES ($1, $2)",
+            [checkpointId, "123"],
+          )
+          await expect(
+            database.query(
+              "INSERT INTO github_webhook_recovery_checkpoints (id, app_id) VALUES ($1, $2)",
+              [randomUUID(), "123"],
+            ),
+          ).rejects.toMatchObject({ code: "23505" })
+          await expect(
+            database.query(
+              "INSERT INTO github_webhook_recovery_checkpoints (id, app_id) VALUES ($1, $2)",
+              [checkpointId, "456"],
+            ),
+          ).rejects.toMatchObject({ code: "23505" })
         } finally {
           await database.end()
         }

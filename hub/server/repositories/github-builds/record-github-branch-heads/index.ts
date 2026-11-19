@@ -1,4 +1,5 @@
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
+import { compareTimestampAndId } from "../../../utils/compare-timestamp-and-id/index.ts"
 
 /**
  * Preserves branch histories across deletion. Network evidence names the exact owner
@@ -42,7 +43,8 @@ export async function recordGitHubBranchHeads(
           branchPresenceRevision: true,
           currentBuildId: true,
           currentBuildRunCreatedAt: true,
-          currentBuild: { select: { workflowCreatedAt: true } },
+          currentBuildRunId: true,
+          currentBuild: { select: { workflowCreatedAt: true, githubWorkflowRunId: true } },
           updatedAt: true,
         },
       })
@@ -67,7 +69,9 @@ export async function recordGitHubBranchHeads(
             branchHeadSha: head.commitSha,
             branchPresenceRevision: owner.branchPresenceRevision + 1,
           },
-          include: { currentBuild: { select: { workflowCreatedAt: true } } },
+          include: {
+            currentBuild: { select: { workflowCreatedAt: true, githubWorkflowRunId: true } },
+          },
         })
       } else if (owner) {
         prototype = await transaction.prototype.update({
@@ -78,7 +82,9 @@ export async function recordGitHubBranchHeads(
             branchHeadSha: head.commitSha,
             branchPresenceRevision: { increment: 1 },
           },
-          include: { currentBuild: { select: { workflowCreatedAt: true } } },
+          include: {
+            currentBuild: { select: { workflowCreatedAt: true, githubWorkflowRunId: true } },
+          },
         })
       }
       if (!prototype) return
@@ -87,21 +93,27 @@ export async function recordGitHubBranchHeads(
         where: {
           prototypeId_commitSha: { prototypeId: prototype.id, commitSha: head.commitSha },
         },
-        select: { id: true, state: true, workflowCreatedAt: true },
+        select: { id: true, state: true, workflowCreatedAt: true, githubWorkflowRunId: true },
       })
       if (!build || build.state === "superseded") return
       if (prototype.currentBuildId !== build.id) {
-        const latestRunAt = [
-          build.workflowCreatedAt,
-          prototype.currentBuildRunCreatedAt,
-          prototype.currentBuild?.workflowCreatedAt,
-        ].reduce<Date | null>(
-          (latest, time) => (time && (!latest || time > latest) ? time : latest),
-          null,
+        const latestRun = [
+          { createdAt: build.workflowCreatedAt, id: build.githubWorkflowRunId },
+          { createdAt: prototype.currentBuildRunCreatedAt, id: prototype.currentBuildRunId },
+          {
+            createdAt: prototype.currentBuild?.workflowCreatedAt ?? null,
+            id: prototype.currentBuild?.githubWorkflowRunId ?? null,
+          },
+        ].reduce((latest, candidate) =>
+          compareTimestampAndId(candidate, latest) > 0 ? candidate : latest,
         )
         await transaction.prototype.update({
           where: { id: prototype.id },
-          data: { currentBuildId: build.id, currentBuildRunCreatedAt: latestRunAt },
+          data: {
+            currentBuildId: build.id,
+            currentBuildRunCreatedAt: latestRun.createdAt,
+            currentBuildRunId: latestRun.id,
+          },
         })
       }
       const identity = {

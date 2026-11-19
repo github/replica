@@ -35,13 +35,7 @@ export async function prepareGitHubWorkflowRunBuild(
     branchName,
     commitSha: run.headSha,
     run: buildRun,
-    author: run.actor
-      ? {
-          providerUserId: String(run.actor.id),
-          login: run.actor.login,
-          avatarUrl: run.actor.avatarUrl,
-        }
-      : null,
+    author: null,
   })
   if (prepared.status !== "ready") return prepared
   return { ...prepared, buildRun }

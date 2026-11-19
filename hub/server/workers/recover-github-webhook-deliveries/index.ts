@@ -5,8 +5,10 @@ import { logger } from "../../integrations/pino/index.ts"
 /** Asks GitHub to redeliver webhooks that could not reach the Hub. */
 export async function recoverGitHubWebhookDeliveriesJob(): Promise<void> {
   if (!readAuthenticationConfigurationState(process.env).githubSettingsPresent) return
-  const credentials = readGitHubAppConfiguration(process.env).appCredentials
-  if (!credentials) return
+  const configuration = readGitHubAppConfiguration(process.env)
+  if (configuration.app === "not_configured") return
+  const credentials = configuration.appCredentials
+  if (!credentials) throw new Error("GitHub App installation settings are incomplete or invalid.")
 
   const [{ recoverGitHubWebhookDeliveries }, { createGitHubWebhookDeliveriesClient }, { prisma }] =
     await Promise.all([

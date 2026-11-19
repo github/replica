@@ -12,7 +12,8 @@ export async function settleGitHubWebhookRedeliveries(
     deliveredIds,
     maximumAttempts,
     now,
-  }: { deliveredIds: string[]; maximumAttempts: number; now: Date },
+    staleBefore,
+  }: { deliveredIds: string[]; maximumAttempts: number; now: Date; staleBefore: Date },
 ): Promise<void> {
   const activeIds = (
     await database.gitHubWebhookRedelivery.findMany({
@@ -37,6 +38,12 @@ export async function settleGitHubWebhookRedeliveries(
   })
   await database.gitHubWebhookRedelivery.updateMany({
     data: { state: "failed", failureCode: "attempts_exhausted" },
-    where: { attempts: { gte: maximumAttempts }, retryAt: { lte: now }, state: "waiting" },
+    where: {
+      attempts: { gte: maximumAttempts },
+      OR: [
+        { retryAt: { lte: now }, state: "waiting" },
+        { state: "requesting", updatedAt: { lte: staleBefore } },
+      ],
+    },
   })
 }

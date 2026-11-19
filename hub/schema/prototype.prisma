@@ -28,6 +28,7 @@ model Prototype {
   replica                  Boolean   @default(false)
   // Creation time of the workflow run that last selected the current Build.
   currentBuildRunCreatedAt DateTime? @map("current_build_run_created_at") @db.Timestamptz(3)
+  currentBuildRunId        BigInt?   @map("current_build_run_id")
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

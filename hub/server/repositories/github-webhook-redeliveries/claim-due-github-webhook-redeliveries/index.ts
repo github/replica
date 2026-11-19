@@ -7,13 +7,24 @@ import type { ClaimedGitHubWebhookRedelivery } from "../types.ts"
  */
 export async function claimDueGitHubWebhookRedeliveries(
   database: Pick<PrismaClient, "gitHubWebhookRedelivery">,
-  { limit, now, staleBefore }: { limit: number; now: Date; staleBefore: Date },
+  {
+    limit,
+    maximumAttempts,
+    now,
+    staleBefore,
+  }: {
+    limit: number
+    maximumAttempts: number
+    now: Date
+    staleBefore: Date
+  },
 ): Promise<ClaimedGitHubWebhookRedelivery[]> {
   const due = await database.gitHubWebhookRedelivery.findMany({
     orderBy: { retryAt: "asc" },
     select: { attempts: true, githubDeliveryId: true, id: true, state: true },
     take: limit,
     where: {
+      attempts: { lt: maximumAttempts },
       OR: [
         { retryAt: { lte: now }, state: { in: ["pending", "waiting"] } },
         { state: "requesting", updatedAt: { lte: staleBefore } },
@@ -24,7 +35,11 @@ export async function claimDueGitHubWebhookRedeliveries(
   for (const row of due) {
     const { count } = await database.gitHubWebhookRedelivery.updateMany({
       data: { attempts: { increment: 1 }, state: "requesting" },
-      where: { attempts: row.attempts, id: row.id, state: row.state },
+      where: {
+        attempts: { equals: row.attempts, lt: maximumAttempts },
+        id: row.id,
+        state: row.state,
+      },
     })
     if (count === 1) {
       claimed.push({

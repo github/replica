@@ -59,8 +59,11 @@ describe("recoverGitHubWebhookDeliveries", () => {
     const timedOut = delivery({ statusCode: 0, event: "installation" })
     const branchDeleted = delivery({ event: "delete" })
     const deletedByPush = delivery({ event: "push" })
+    const unauthorized = delivery({ statusCode: 401, event: "installation" })
+    const forbidden = delivery({ statusCode: 403, event: "installation_repositories" })
+    const notFound = delivery({ statusCode: 404, event: "organization" })
     const laterDelivered = delivery()
-    const received = delivery()
+    const received = delivery({ statusCode: 403, event: "installation" })
     const ignored = [
       delivery({ statusCode: 400 }),
       delivery({ event: "check_run" }),
@@ -69,20 +72,42 @@ describe("recoverGitHubWebhookDeliveries", () => {
       delivery({ guid: "not-a-uuid" }),
     ]
     await prisma.gitHubWebhookDelivery.create({
-      data: { id: received.guid, event: "workflow_job", payloadDigest: "a".repeat(64) },
+      data: { id: received.guid, event: received.event, payloadDigest: "a".repeat(64) },
     })
     const recovery = dependencies([
       [{ ...laterDelivered, id: deliveryId++, statusCode: 200 }],
-      [missed, timedOut, branchDeleted, deletedByPush, laterDelivered, received, ...ignored],
+      [
+        missed,
+        timedOut,
+        branchDeleted,
+        deletedByPush,
+        unauthorized,
+        forbidden,
+        notFound,
+        laterDelivered,
+        received,
+        ...ignored,
+      ],
     ])
 
     await expect(recoverGitHubWebhookDeliveries(recovery)).resolves.toBe(true)
 
     expect(recovery.redeliver.mock.calls.map(([id]) => id).sort()).toEqual(
-      [missed.id, timedOut.id, branchDeleted.id, deletedByPush.id].sort(),
+      [
+        missed.id,
+        timedOut.id,
+        branchDeleted.id,
+        deletedByPush.id,
+        unauthorized.id,
+        forbidden.id,
+        notFound.id,
+      ].sort(),
     )
-    expect(await prisma.gitHubWebhookRedelivery.count()).toBe(4)
+    expect(await prisma.gitHubWebhookRedelivery.count()).toBe(7)
     expect(await redelivery(missed.guid)).toMatchObject({ state: "waiting", attempts: 1 })
+    for (const failed of [unauthorized, forbidden, notFound]) {
+      expect(await redelivery(failed.guid)).toMatchObject({ state: "waiting", attempts: 1 })
+    }
   })
 
   it("settles a redelivery once the Hub receives it and does not request it again", async () => {
@@ -149,6 +174,46 @@ describe("recoverGitHubWebhookDeliveries", () => {
       attempts: 2,
       retryAt: new Date(now.getTime() + 2 * minute),
     })
+  })
+
+  it("settles an abandoned final request without sending another while retrying lower attempts", async () => {
+    const now = new Date()
+    const exhausted = delivery()
+    const retryable = delivery()
+    const received = delivery()
+    for (const [attempt, attempts] of [
+      [exhausted, 12],
+      [retryable, 10],
+      [received, 12],
+    ] as const) {
+      await prisma.gitHubWebhookRedelivery.create({
+        data: {
+          id: attempt.guid,
+          githubDeliveryId: attempt.id,
+          event: attempt.event,
+          state: "requesting",
+          attempts,
+          retryAt: new Date(now.getTime() + minute),
+          expiresAt: new Date(now.getTime() + day),
+          updatedAt: new Date(now.getTime() - 6 * minute),
+        },
+      })
+    }
+    await prisma.gitHubWebhookDelivery.create({
+      data: { id: received.guid, event: received.event, payloadDigest: "a".repeat(64) },
+    })
+    const recovery = dependencies([], { now: () => now })
+
+    await recoverGitHubWebhookDeliveries(recovery)
+
+    expect(recovery.redeliver.mock.calls.map(([id]) => id)).toEqual([retryable.id])
+    expect(await redelivery(exhausted.guid)).toMatchObject({
+      state: "failed",
+      attempts: 12,
+      failureCode: "attempts_exhausted",
+    })
+    expect(await redelivery(retryable.guid)).toMatchObject({ state: "waiting", attempts: 11 })
+    expect(await redelivery(received.guid)).toMatchObject({ state: "succeeded", attempts: 12 })
   })
 
   it("skips the run while another worker holds the lease", async () => {

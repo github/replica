@@ -24,15 +24,19 @@ export async function redeliverGitHubWebhookDeliveries(
   lease: GitHubWebhookRecoveryLease,
   deliveredIds: string[],
 ): Promise<void> {
+  const currentTime = now()
+  const staleBefore = new Date(currentTime.getTime() - webhookRecoveryLeaseMs)
   await settleGitHubWebhookRedeliveries(database, {
     deliveredIds,
     maximumAttempts: maximumWebhookRedeliveryAttempts,
-    now: now(),
+    now: currentTime,
+    staleBefore,
   })
   const claimed = await claimDueGitHubWebhookRedeliveries(database, {
     limit: webhookRedeliveriesPerRun,
-    now: now(),
-    staleBefore: new Date(now().getTime() - webhookRecoveryLeaseMs),
+    maximumAttempts: maximumWebhookRedeliveryAttempts,
+    now: currentTime,
+    staleBefore,
   })
   for (const redelivery of claimed) {
     if (!(await lease.renew())) return

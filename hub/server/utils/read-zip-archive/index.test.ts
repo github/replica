@@ -70,4 +70,17 @@ describe("readZipArchive", () => {
     archive.writeUInt32LE(10, central + 24)
     expect(() => readZipArchive(archive, limits)).toThrow(ZipArchiveError)
   })
+
+  it("rejects distinct entries pointing at the same compressed data", () => {
+    const archive = createZipArchive([
+      { name: "dist/a", bytes: "same" },
+      { name: "dist/b", bytes: "same" },
+    ])
+    const signature = Buffer.from([0x50, 0x4b, 0x01, 0x02])
+    const first = archive.indexOf(signature)
+    const second = archive.indexOf(signature, first + 4)
+    archive.writeUInt32LE(archive.readUInt32LE(first + 42), second + 42)
+
+    expect(() => readZipArchive(archive, limits)).toThrow("overlapping")
+  })
 })

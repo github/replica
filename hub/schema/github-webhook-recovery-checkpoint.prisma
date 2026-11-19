@@ -1,9 +1,10 @@
 model GitHubWebhookRecoveryCheckpoint {
   // ID columns
-  appId   String  @id @map("app_id") @db.VarChar(100)
+  id      String  @id @default(uuid()) @db.Uuid
   leaseId String? @map("lease_id") @db.Uuid
 
   // Attribute columns
+  appId  String  @unique @map("app_id") @db.VarChar(100)
   cursor String? @db.VarChar(2048)
 
   // Timestamp columns

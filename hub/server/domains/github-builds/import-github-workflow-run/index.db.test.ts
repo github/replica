@@ -16,6 +16,7 @@ import { readBuildPreviewFile } from "../../build-preview/read-build-preview-fil
 import { distArtifactName, screenshotArtifactName } from "../constants.ts"
 import { discoverGitHubWorkflowRuns } from "../discover-github-workflow-runs"
 import type { GitHubWorkflowRunJob } from "../get-github-workflow-run-job-definition"
+import { refreshGitHubBranchHeads } from "../refresh-github-branch-heads"
 import { importGitHubWorkflowRun } from "./index.ts"
 
 const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1])
@@ -166,7 +167,6 @@ describe("importGitHubWorkflowRun", () => {
       number: 1,
       commitSha: "a".repeat(40),
       githubWorkflowRunId: BigInt(fixture.run.id),
-      authorLogin: "octocat",
       distDigest: extractDistPackage(distPackage()).distDigest,
     })
     expect(build.prototype.currentBuildId).toBe(build.id)
@@ -185,6 +185,33 @@ describe("importGitHubWorkflowRun", () => {
     )
     expect(preview.status).toBe("ok")
     if (preview.status === "ok") expect(Buffer.from(preview.bytes).toString()).toContain("Home")
+  })
+
+  it("keeps a run queued until GitHub reports it in progress", async () => {
+    const fixture = await createFixture()
+    fixture.run.status = "queued"
+
+    await fixture.importRun()
+    expect(await fixture.findBuild()).toMatchObject({ state: "queued", startedAt: null })
+
+    fixture.run.status = "in_progress"
+    await fixture.importRun()
+    expect(await fixture.findBuild()).toMatchObject({ state: "running" })
+  })
+
+  it("does not save the run actor as the commit author", async () => {
+    const fixture = await createFixture()
+
+    await fixture.importRun()
+
+    expect(await fixture.findBuild()).toMatchObject({
+      authorProvider: null,
+      authorIssuer: null,
+      authorProviderUserId: null,
+      authorLogin: null,
+      authorName: null,
+      authorAvatarUrl: null,
+    })
   })
 
   it("attaches late screenshots only when they depict the imported dist", async () => {
@@ -715,6 +742,28 @@ describe("importGitHubWorkflowRun", () => {
     expect(prototype.builds.map((build) => build.number)).toEqual([1, 2])
   })
 
+  it("keeps the higher run ID selected when a lower ID arrives at the same timestamp", async () => {
+    const fixture = await createFixture()
+    fixture.run.id = 200
+    fixture.packages.set(distArtifactName, distPackage())
+    await fixture.importRun()
+    const selected = await fixture.findBuild()
+
+    fixture.run.id -= 1
+    fixture.run.headSha = "b".repeat(40)
+    await fixture.importRun()
+
+    const prototype = await prisma.prototype.findUniqueOrThrow({
+      where: { id: selected.prototypeId },
+      include: { builds: true },
+    })
+    expect(prototype.builds).toHaveLength(2)
+    expect(prototype).toMatchObject({
+      currentBuildId: selected.id,
+      branchHeadSha: "a".repeat(40),
+    })
+  })
+
   it("records no artifacts when a newer attempt takes over during the download", async () => {
     const fixture = await createFixture()
     await fixture.importRun()
@@ -760,6 +809,129 @@ describe("importGitHubWorkflowRun", () => {
     await fixture.importRun()
     await expect(current()).resolves.toBe(first.id)
     expect(firstRunId).toBeLessThan(secondRunId)
+  })
+
+  it("keeps a reused Build selected over an older same-time run's redelivery", async () => {
+    const fixture = await createFixture()
+    fixture.run.id = 200
+    fixture.packages.set(distArtifactName, distPackage())
+    await fixture.importRun()
+    const first = await fixture.findBuild()
+
+    fixture.run.id += 1
+    fixture.run.headSha = "b".repeat(40)
+    await fixture.importRun()
+    const second = await prisma.build.findUniqueOrThrow({
+      where: {
+        prototypeId_commitSha: { prototypeId: first.prototypeId, commitSha: "b".repeat(40) },
+      },
+    })
+    fixture.run.id += 1
+    fixture.run.headSha = "a".repeat(40)
+    await fixture.importRun()
+    const olderSelectingRunId = fixture.run.id
+    fixture.run.id += 1
+    fixture.run.headSha = "b".repeat(40)
+    await fixture.importRun()
+
+    fixture.run.id = olderSelectingRunId
+    fixture.run.headSha = "a".repeat(40)
+    await fixture.importRun()
+
+    expect(
+      await prisma.prototype.findUniqueOrThrow({ where: { id: first.prototypeId } }),
+    ).toMatchObject({
+      currentBuildId: second.id,
+      branchHeadSha: "b".repeat(40),
+    })
+  })
+
+  it("keeps a polled prior commit selected when its later run is redelivered", async () => {
+    const fixture = await createFixture()
+    fixture.run.id = 200
+    fixture.packages.set(distArtifactName, distPackage())
+    await fixture.importRun()
+    const first = await fixture.findBuild()
+
+    fixture.run.id += 1
+    fixture.run.headSha = "b".repeat(40)
+    await fixture.importRun()
+    const second = await prisma.build.findUniqueOrThrow({
+      where: {
+        prototypeId_commitSha: { prototypeId: first.prototypeId, commitSha: "b".repeat(40) },
+      },
+    })
+    fixture.run.id += 1
+    await fixture.importRun()
+    expect(
+      await prisma.prototype.findUniqueOrThrow({ where: { id: first.prototypeId } }),
+    ).toMatchObject({
+      currentBuildId: second.id,
+      branchHeadSha: "b".repeat(40),
+    })
+    await refreshGitHubBranchHeads(
+      {
+        database: prisma,
+        listBranchHeads: () =>
+          Promise.resolve([{ branchName: fixture.run.headBranch!, commitSha: "a".repeat(40) }]),
+        isAncestor: () => Promise.resolve(false),
+      },
+      fixture.run.repositoryId,
+    )
+    expect(
+      await prisma.prototype.findUniqueOrThrow({ where: { id: first.prototypeId } }),
+    ).toMatchObject({
+      currentBuildId: first.id,
+      branchHeadSha: "a".repeat(40),
+    })
+
+    await fixture.importRun()
+
+    expect(
+      await prisma.prototype.findUniqueOrThrow({ where: { id: first.prototypeId } }),
+    ).toMatchObject({
+      currentBuildId: first.id,
+      branchHeadSha: "a".repeat(40),
+    })
+  })
+
+  it("processes a same-run attempt without undoing a polled head", async () => {
+    const fixture = await createFixture()
+    fixture.run.id = 200
+    fixture.packages.set(distArtifactName, distPackage())
+    await fixture.importRun()
+    const first = await fixture.findBuild()
+    fixture.run.id += 1
+    fixture.run.headSha = "b".repeat(40)
+    await fixture.importRun()
+    const second = await prisma.build.findUniqueOrThrow({
+      where: {
+        prototypeId_commitSha: { prototypeId: first.prototypeId, commitSha: "b".repeat(40) },
+      },
+    })
+    await refreshGitHubBranchHeads(
+      {
+        database: prisma,
+        listBranchHeads: () =>
+          Promise.resolve([{ branchName: fixture.run.headBranch!, commitSha: "a".repeat(40) }]),
+        isAncestor: () => Promise.resolve(false),
+      },
+      fixture.run.repositoryId,
+    )
+
+    fixture.run.runAttempt = 2
+    await fixture.importRun()
+
+    expect(await prisma.build.findUniqueOrThrow({ where: { id: second.id } })).toMatchObject({
+      state: "successful",
+      githubWorkflowRunAttempt: 2,
+    })
+    expect(
+      await prisma.prototype.findUniqueOrThrow({ where: { id: first.prototypeId } }),
+    ).toMatchObject({
+      currentBuildId: first.id,
+      branchHeadSha: "a".repeat(40),
+    })
   })
 
   it("keeps a failed Build failed when the same attempt is delivered again", async () => {

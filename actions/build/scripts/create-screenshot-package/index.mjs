@@ -11,10 +11,13 @@ import { requiredPathArgument } from "../required-path-argument/index.mjs"
 export async function createScreenshotPackage(screenshots, distPackage, output) {
   const manifest = await readTemplates(distPackage, "templates.json")
   const distDigest = await digestDistPackage(distPackage)
+  const screenshotManifest = JSON.stringify({ version: 1, distDigest })
 
   await rm(output, { force: true, recursive: true })
-  const bytes = await copyScreenshots(screenshots, manifest, path.join(output, "screenshots"))
-  await writeFile(path.join(output, "screenshots.json"), JSON.stringify({ version: 1, distDigest }))
+  const bytes = await copyScreenshots(screenshots, manifest, path.join(output, "screenshots"), {
+    usedBytes: Buffer.byteLength(screenshotManifest),
+  })
+  await writeFile(path.join(output, "screenshots.json"), screenshotManifest)
 
   return { bytes, distDigest }
 }

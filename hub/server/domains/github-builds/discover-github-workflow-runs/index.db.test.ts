@@ -7,6 +7,7 @@ import type { GitHubWorkflowRun } from "../../../integrations/github/create-gith
 import { prisma } from "../../../integrations/prisma"
 import { prepareGitHubBuild } from "../../../repositories/github-builds/prepare-github-build"
 import { retireGitHubBranch } from "../../../repositories/prototypes/retire-github-branch"
+import { refreshGitHubBranchHeads } from "../refresh-github-branch-heads"
 import { discoverGitHubWorkflowRuns, type DiscoverGitHubWorkflowRunsDependencies } from "."
 
 const createdAfter = new Date(Date.now() - 60 * 60 * 1_000)
@@ -127,6 +128,52 @@ async function createBranchFixture() {
 }
 
 describe("discoverGitHubWorkflowRuns", () => {
+  it("refreshes other branch heads when one ancestry lookup fails", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-11-18T12:00:00Z"))
+    const first = await createBranchFixture()
+    await first.retire()
+    const secondInput = {
+      ...first.input,
+      branchName: "proto/healthy",
+      commitSha: "c".repeat(40),
+      run: { ...first.input.run, runId: 101n },
+    }
+    const second = await prepareGitHubBuild(prisma, secondInput)
+    if (second.status !== "ready") throw new Error("The second fixture Build must exist.")
+    await prisma.$transaction((transaction) =>
+      retireGitHubBranch(transaction, {
+        githubRepositoryId: first.repository.githubRepositoryId,
+        branchName: secondInput.branchName,
+        deletedHeadSha: secondInput.commitSha,
+      }),
+    )
+    vi.setSystemTime(new Date("2026-11-18T12:01:00Z"))
+    const failure = new Error("GitHub comparison unavailable")
+
+    await expect(
+      refreshGitHubBranchHeads(
+        {
+          database: prisma,
+          listBranchHeads: () =>
+            Promise.resolve([
+              { branchName: first.input.branchName, commitSha: "b".repeat(40) },
+              { branchName: secondInput.branchName, commitSha: secondInput.commitSha },
+            ]),
+          isAncestor: () => Promise.reject(failure),
+        },
+        first.repository.githubRepositoryId,
+      ),
+    ).rejects.toThrow("GitHub branch head refresh failed")
+
+    expect((await first.read()).branchDeletedAt).not.toBeNull()
+    expect(
+      await prisma.prototype.findFirstOrThrow({
+        where: { repositoryId: first.repository.id, branchName: secondInput.branchName },
+      }),
+    ).toMatchObject({ branchDeletedAt: null, currentBuildId: second.buildId })
+  })
+
   it("queues runs whose Build is missing or can still change", async () => {
     const repository = await createRepository()
     const id = repository.githubRepositoryId
@@ -938,7 +985,8 @@ describe("discoverGitHubWorkflowRuns", () => {
     const branch = await createBranchFixture()
     await branch.retire()
     const retired = await branch.read()
-    const warn = vi.fn()
+    const warn =
+      vi.fn<(context: { err: unknown; githubRepositoryId: number }, message: string) => void>()
     const error = new Error("GitHub comparison unavailable")
     vi.setSystemTime(new Date("2026-11-18T12:01:00Z"))
 
@@ -951,11 +999,16 @@ describe("discoverGitHubWorkflowRuns", () => {
     expect(await prisma.prototype.count()).toBe(1)
     expect(warn).toHaveBeenCalledWith(
       expect.objectContaining({
-        err: error,
         githubRepositoryId: branch.repository.githubRepositoryId,
       }),
       expect.any(String),
     )
+    const loggedError = warn.mock.calls[0]?.[0].err
+    if (!(loggedError instanceof AggregateError)) throw new Error("Expected an aggregate error.")
+    const failures: unknown[] = loggedError.errors
+    const firstFailure = failures[0]
+    if (!(firstFailure instanceof Error)) throw new Error("Expected a branch refresh error.")
+    expect(firstFailure.cause).toBe(error)
   })
 
   it("does not overwrite a newer observation with a stale comparison for the same owner", async () => {

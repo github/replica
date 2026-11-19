@@ -1,4 +1,5 @@
 import { type BuildState, Prisma, type PrismaClient } from "../../../generated/prisma/client.ts"
+import { compareTimestampAndId } from "../../../utils/compare-timestamp-and-id/index.ts"
 import type { PrepareGitHubBuildInput, PreparedGitHubBuild } from "./types.ts"
 
 const transientErrorCodes = new Set(["P2002", "P2034"])
@@ -26,13 +27,25 @@ function ownsExistingBuild(
  * A reused Build keeps its original run time, so the run that selected it is tracked
  * separately. Local Builds have no run time and use their creation time.
  */
-function currentSelectedAt(prototype: {
+function currentSelection(prototype: {
   currentBuildRunCreatedAt: Date | null
-  currentBuild: { createdAt: Date; workflowCreatedAt: Date | null } | null
+  currentBuildRunId: bigint | null
+  currentBuild: {
+    createdAt: Date
+    workflowCreatedAt: Date | null
+    githubWorkflowRunId: bigint | null
+  } | null
 }) {
-  const { currentBuild, currentBuildRunCreatedAt } = prototype
-  const buildCreatedAt = currentBuild?.workflowCreatedAt ?? currentBuild?.createdAt
-  return Math.max(currentBuildRunCreatedAt?.getTime() ?? 0, buildCreatedAt?.getTime() ?? 0)
+  const watermark = {
+    createdAt: prototype.currentBuildRunCreatedAt,
+    id: prototype.currentBuildRunId,
+  }
+  const build = {
+    createdAt:
+      prototype.currentBuild?.workflowCreatedAt ?? prototype.currentBuild?.createdAt ?? null,
+    id: prototype.currentBuild?.githubWorkflowRunId ?? null,
+  }
+  return compareTimestampAndId(watermark, build) >= 0 ? watermark : build
 }
 
 /**
@@ -77,9 +90,12 @@ export async function prepareGitHubBuild(
               id: true,
               currentBuildId: true,
               currentBuildRunCreatedAt: true,
+              currentBuildRunId: true,
               branchIdentityStartedAt: true,
               branchHeadSha: true,
-              currentBuild: { select: { createdAt: true, workflowCreatedAt: true } },
+              currentBuild: {
+                select: { createdAt: true, workflowCreatedAt: true, githubWorkflowRunId: true },
+              },
             },
           })
           if (
@@ -112,6 +128,7 @@ export async function prepareGitHubBuild(
                 id: true,
                 currentBuildId: true,
                 currentBuildRunCreatedAt: true,
+                currentBuildRunId: true,
                 branchIdentityStartedAt: true,
                 branchHeadSha: true,
               },
@@ -185,19 +202,18 @@ export async function prepareGitHubBuild(
           }
 
           // A late event for an older run must not replace a newer current Build.
-          const alreadyCurrent =
-            prototype.currentBuildId === build.id &&
-            prototype.currentBuildRunCreatedAt?.getTime() === run.createdAt.getTime()
-          const selectedAt = currentSelectedAt(prototype)
           const selectsNewRun =
-            run.createdAt.getTime() > selectedAt ||
-            (run.createdAt.getTime() === selectedAt && existing?.githubWorkflowRunId !== run.runId)
-          if (build.state !== "superseded" && !alreadyCurrent && selectsNewRun) {
+            compareTimestampAndId(
+              { createdAt: run.createdAt, id: run.runId },
+              currentSelection(prototype),
+            ) > 0
+          if (build.state !== "superseded" && selectsNewRun) {
             await transaction.prototype.update({
               where: { id: prototype.id },
               data: {
                 currentBuildId: build.id,
                 currentBuildRunCreatedAt: run.createdAt,
+                currentBuildRunId: run.runId,
                 branchHeadSha: input.commitSha,
                 branchPresenceRevision: { increment: 1 },
               },

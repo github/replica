@@ -36,6 +36,19 @@ describe("validateCheckout()", () => {
     await validateCheckout(root)
   })
 
+  it("accepts branch refs and reflogs with names resembling Git metadata", async () => {
+    const root = await gitRepository()
+    for (const prefix of ["refs/heads", "logs/refs/heads"]) {
+      const refs = path.join(root, ".git", prefix, "proto")
+      await mkdir(path.join(refs, "config"), { recursive: true })
+      await writeFile(path.join(refs, "config", "mobile"), "branch data\n")
+      await writeFile(path.join(refs, "commondir"), "branch data\n")
+      await writeFile(path.join(refs, "config.worktree"), "branch data\n")
+    }
+
+    await validateCheckout(root)
+  })
+
   it("runs the action guard before npm lifecycle and build scripts without leaking authorization", async () => {
     const action = await readFile(path.join(actionRoot, "action.yml"), "utf8")
     const guard = /run: (node [^\n]+validate-checkout[^\n]+)/.exec(action)

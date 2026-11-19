@@ -14,22 +14,30 @@ const unsafeCheckout =
 /** Rejects persisted Git authentication before repository-controlled scripts run. */
 export async function validateCheckout(root) {
   root = await realpath(root)
-  const pending = [{ directory: root, metadata: false }]
+  const pending = [{ directory: root, metadata: false, metadataRoot: false, candidates: false }]
   const visited = new Set()
 
   for (let current = pending.pop(); current; current = pending.pop()) {
-    const { directory, metadata } = current
-    const identity = `${metadata}:${directory}`
+    const { directory, metadata, metadataRoot, candidates } = current
+    const identity = `${metadata}:${metadataRoot}:${candidates}:${directory}`
 
     if (visited.has(identity)) continue
     visited.add(identity)
 
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const entries = await readdir(directory, { withFileTypes: true })
+    const gitRoot =
+      metadataRoot ||
+      (candidates &&
+        entries.some((entry) => ["HEAD", "config"].includes(entry.name) && entry.isFile()))
+    for (const entry of entries) {
       const location = path.join(directory, entry.name)
       const gitMetadata = metadata || entry.name === ".git"
-      const config = metadata && ["config", "config.worktree"].includes(entry.name)
+      const config = metadata && gitRoot && ["config", "config.worktree"].includes(entry.name)
 
-      if ((entry.name === ".git" && entry.isFile()) || (metadata && entry.name === "commondir")) {
+      if (
+        (entry.name === ".git" && entry.isFile()) ||
+        (metadata && gitRoot && entry.name === "commondir")
+      ) {
         if (!entry.isFile()) throw new Error(unsafeCheckout)
         const content = await readFile(location, "utf8")
         const reference =
@@ -53,7 +61,7 @@ export async function validateCheckout(root) {
           throw new Error(unsafeCheckout)
         }
 
-        pending.push({ directory: target, metadata: true })
+        pending.push({ directory: target, metadata: true, metadataRoot: true, candidates: false })
         continue
       }
 
@@ -66,7 +74,15 @@ export async function validateCheckout(root) {
       }
 
       if (entry.isDirectory()) {
-        pending.push({ directory: location, metadata: gitMetadata })
+        pending.push({
+          directory: location,
+          metadata: gitMetadata,
+          metadataRoot: entry.name === ".git",
+          candidates:
+            metadata &&
+            ((gitRoot && ["modules", "worktrees"].includes(entry.name)) ||
+              (candidates && !gitRoot)),
+        })
       } else if (config) {
         let output
 

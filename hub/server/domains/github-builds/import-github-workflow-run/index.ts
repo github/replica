@@ -91,7 +91,9 @@ export async function importGitHubWorkflowRun(
 
   async function missingDist(reason: string) {
     if (!completed) {
-      await markGitHubBuildRunning(database, buildId, buildRun)
+      if (run.status === "in_progress") {
+        await markGitHubBuildRunning(database, buildId, buildRun)
+      }
       return "pending" as const
     }
     return fail(

@@ -11,7 +11,14 @@ import type { GitHubWebhookRecoveryDependencies, GitHubWebhookRecoveryLease } fr
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function transient(statusCode: number) {
-  return statusCode === 0 || statusCode === 429 || statusCode >= 500
+  return (
+    statusCode === 0 ||
+    statusCode === 401 ||
+    statusCode === 403 ||
+    statusCode === 404 ||
+    statusCode === 429 ||
+    (statusCode >= 500 && statusCode <= 599)
+  )
 }
 
 /**

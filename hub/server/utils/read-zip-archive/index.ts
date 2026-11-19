@@ -54,6 +54,15 @@ export function readZipArchive(archive: Buffer, limits: ZipArchiveLimits): ZipAr
   }
 
   const entries: ZipArchiveEntry[] = []
+  const pending: {
+    name: string
+    localOffset: number
+    dataStart: number
+    compressedSize: number
+    method: number
+    size: number
+    checksum: number
+  }[] = []
   const names = new Set<string>()
   let totalBytes = 0
   let offset = directoryOffset
@@ -116,6 +125,16 @@ export function readZipArchive(archive: Buffer, limits: ZipArchiveLimits): ZipAr
     if (dataStart + compressedSize > directoryOffset) {
       throw new ZipArchiveError(`${name} extends beyond the package data.`)
     }
+    pending.push({ name, localOffset, dataStart, compressedSize, method, size, checksum })
+  }
+  const ranges = [...pending].sort((a, b) => a.localOffset - b.localOffset)
+  for (let index = 1; index < ranges.length; index += 1) {
+    const previous = ranges[index - 1]!
+    if (ranges[index]!.localOffset < previous.dataStart + previous.compressedSize) {
+      throw new ZipArchiveError("The package contains overlapping file records.")
+    }
+  }
+  for (const { name, dataStart, compressedSize, method, size, checksum } of pending) {
     const compressed = archive.subarray(dataStart, dataStart + compressedSize)
     let bytes: Buffer
     try {
