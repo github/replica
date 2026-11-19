@@ -79,4 +79,39 @@ describe("createGitHubActionsClient", () => {
     await expect(client.downloadArtifact(9, 100)).rejects.toThrow(GitHubProviderRequestError)
     await expect(client.getWorkflowRun(7)).resolves.toBeNull()
   })
+
+  it("lists recent Replica push runs and treats a missing workflow as none", async () => {
+    const run = {
+      id: 7,
+      run_attempt: 2,
+      path: ".github/workflows/replica.yml",
+      event: "push",
+      head_branch: "main",
+      head_sha: "a".repeat(40),
+      status: "completed",
+      conclusion: "success",
+      html_url: "https://github.com/o/r/actions/runs/7",
+      created_at: "2026-01-02T00:00:00Z",
+      updated_at: "2026-01-02T00:05:00Z",
+      repository: { id: 56 },
+      actor: { id: 1, login: "octocat", avatar_url: null },
+    }
+    let missing = false
+    const fetch = respond(() =>
+      missing
+        ? new Response("{}", { status: 404 })
+        : new Response(JSON.stringify({ total_count: 1, workflow_runs: [run] })),
+    )
+    const client = createGitHubActionsClient(input, { fetch })
+
+    const runs = await client.listWorkflowRuns(new Date("2026-01-01T00:00:00Z"))
+    missing = true
+
+    expect(runs).toEqual([expect.objectContaining({ id: 7, runAttempt: 2, status: "completed" })])
+    const [url] = fetch.mock.calls.at(-1) as unknown as [URL]
+    expect(url.pathname).toBe("/repositories/56/actions/workflows/replica.yml/runs")
+    expect(url.searchParams.get("event")).toBe("push")
+    expect(url.searchParams.get("created")).toBe(">=2026-01-01T00:00:00.000Z")
+    await expect(client.listWorkflowRuns(new Date())).resolves.toEqual([])
+  })
 })

@@ -56,9 +56,12 @@ describe("GitHub installation reconciliation schedule", () => {
 })
 
 describe("GitHub Build recovery schedules", () => {
-  it("retries Builds awaiting import every five minutes", () => {
-    const schedule = jobSchedules.find(({ id }) => id === "github-build-import-retry")
-    expect(schedule?.repeat).toEqual({ every: 5 * 60 * 1_000 })
-    expect(jobProcessors.scheduled.map(({ name }) => name)).toContain(schedule?.definition.name)
-  })
+  it.each(["github-build-import-retry", "github-workflow-run-discovery"])(
+    "runs %s every five minutes",
+    (id) => {
+      const schedule = jobSchedules.find((candidate) => candidate.id === id)
+      expect(schedule?.repeat).toEqual({ every: 5 * 60 * 1_000 })
+      expect(jobProcessors.scheduled.map(({ name }) => name)).toContain(schedule?.definition.name)
+    },
+  )
 })

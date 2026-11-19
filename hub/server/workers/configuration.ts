@@ -12,6 +12,7 @@ import type {
   JobScheduleRepeat,
 } from "../integrations/bullmq/types.ts"
 import { logger } from "../integrations/pino/index.ts"
+import { discoverGitHubWorkflowRunsJob } from "./discover-github-workflow-runs/index.ts"
 import { importGitHubWorkflowRunJob } from "./import-github-workflow-run/index.ts"
 import { reconcileGitHubInstallation } from "./reconcile-github-installation/index.ts"
 import { retryGitHubBuildsAwaitingImport } from "./retry-github-builds-awaiting-import/index.ts"
@@ -30,6 +31,12 @@ const githubBuildImportRetry: JobDefinition<Record<string, never>> = {
   options: { attempts: 3, backoff: { type: "exponential", delay: 60_000 } },
 }
 
+const githubWorkflowRunDiscovery: JobDefinition<Record<string, never>> = {
+  name: "discover-github-workflow-runs",
+  schema: z.object({}).strict(),
+  options: { attempts: 3, backoff: { type: "exponential", delay: 60_000 } },
+}
+
 export const jobProcessors: Record<JobQueueName, JobProcessor[]> = {
   "on-demand": [
     learning.run,
@@ -44,6 +51,7 @@ export const jobProcessors: Record<JobQueueName, JobProcessor[]> = {
     learning.recover,
     createJobProcessor(githubInstallationReconciliation, reconcileGitHubInstallation),
     createJobProcessor(githubBuildImportRetry, retryGitHubBuildsAwaitingImport),
+    createJobProcessor(githubWorkflowRunDiscovery, discoverGitHubWorkflowRunsJob),
   ],
 }
 
@@ -68,6 +76,12 @@ export const jobSchedules: {
   {
     id: "github-build-import-retry",
     definition: githubBuildImportRetry,
+    payload: {},
+    repeat: { every: 5 * 60 * 1_000 },
+  },
+  {
+    id: "github-workflow-run-discovery",
+    definition: githubWorkflowRunDiscovery,
     payload: {},
     repeat: { every: 5 * 60 * 1_000 },
   },

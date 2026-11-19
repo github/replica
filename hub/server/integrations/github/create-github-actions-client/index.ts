@@ -33,6 +33,7 @@ const runSchema = z.looseObject({
   actor: actorSchema,
   triggering_actor: actorSchema,
 })
+const runsSchema = z.looseObject({ workflow_runs: z.array(runSchema) })
 const artifactsSchema = z.looseObject({
   total_count: z.number().int().nonnegative(),
   artifacts: z.array(
@@ -45,6 +46,25 @@ const artifactsSchema = z.looseObject({
   ),
 })
 const maximumArtifactPages = 10
+
+function mapRun(run: z.infer<typeof runSchema>): GitHubWorkflowRun {
+  const actor = run.triggering_actor ?? run.actor
+  return {
+    id: run.id,
+    runAttempt: run.run_attempt,
+    path: run.path,
+    event: run.event,
+    headBranch: run.head_branch,
+    headSha: run.head_sha,
+    status: run.status,
+    conclusion: run.conclusion,
+    htmlUrl: run.html_url,
+    createdAt: new Date(run.created_at),
+    updatedAt: new Date(run.updated_at),
+    repositoryId: run.repository.id,
+    actor: actor ? { id: actor.id, login: actor.login, avatarUrl: actor.avatar_url ?? null } : null,
+  }
+}
 
 async function readBounded(response: Response, maximumBytes: number) {
   const declared = Number(response.headers.get("content-length"))
@@ -138,25 +158,25 @@ export function createGitHubActionsClient(
         await installationToken(),
       )
       if (response.status === 404) return null
-      const run = await parse(runSchema, response)
-      const actor = run.triggering_actor ?? run.actor
-      return {
-        id: run.id,
-        runAttempt: run.run_attempt,
-        path: run.path,
-        event: run.event,
-        headBranch: run.head_branch,
-        headSha: run.head_sha,
-        status: run.status,
-        conclusion: run.conclusion,
-        htmlUrl: run.html_url,
-        createdAt: new Date(run.created_at),
-        updatedAt: new Date(run.updated_at),
-        repositoryId: run.repository.id,
-        actor: actor
-          ? { id: actor.id, login: actor.login, avatarUrl: actor.avatar_url ?? null }
-          : null,
-      }
+      return mapRun(await parse(runSchema, response))
+    },
+
+    /**
+     * Lists the newest page of push runs of the Replica workflow created at or after
+     * createdAfter. Returns none when the repository has no Replica workflow.
+     */
+    async listWorkflowRuns(createdAfter: Date, perPage = 50): Promise<GitHubWorkflowRun[]> {
+      const query = new URLSearchParams({
+        event: "push",
+        created: `>=${createdAfter.toISOString()}`,
+        per_page: String(perPage),
+      })
+      const response = await send(
+        `${repositoryPath}/actions/workflows/replica.yml/runs?${query}`,
+        await installationToken(),
+      )
+      if (response.status === 404) return []
+      return (await parse(runsSchema, response)).workflow_runs.map(mapRun)
     },
 
     async listRunArtifacts(runId: number, name: string): Promise<GitHubWorkflowArtifact[]> {
