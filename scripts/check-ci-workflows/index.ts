@@ -168,6 +168,16 @@ export function checkWorkflows(root: string): void {
     "${{ vars.AZURE_RUNTIME_ENVIRONMENT_JSON }}",
     "Deployment must read non-secret runtime settings from the protected Environment",
   )
+  assert.equal(
+    deploy.env?.AZURE_RUNTIME_SECRET_REFERENCES_JSON,
+    "${{ vars.AZURE_RUNTIME_SECRET_REFERENCES_JSON }}",
+    "Deployment must read secret references from the protected Environment",
+  )
+  assert.equal(
+    deploy.env?.AZURE_INSTALLATION_SETTINGS_JSON,
+    "${{ vars.AZURE_INSTALLATION_SETTINGS_JSON }}",
+    "Deployment must read installation settings from the protected Environment",
+  )
   for (const name of [
     "AZURE_HUB_APPLICATION_ORIGIN",
     "AZURE_GITHUB_APP_ID",
@@ -213,13 +223,22 @@ export function checkWorkflows(root: string): void {
   assert(
     configuration?.run?.includes("deployment_storage_principal_id: required(") &&
       configuration.run.includes('"AZURE_DEPLOYMENT_STORAGE_PRINCIPAL_ID"') &&
-      configuration.run.includes('record("AZURE_RUNTIME_ENVIRONMENT_JSON")') &&
       configuration.run.includes("hub_application_origin: hubOrigin") &&
       configuration.run.includes("github_app_id: githubAppId") &&
       configuration.run.includes("github_client_id: githubClientId") &&
       configuration.run.includes("github_app_installation_id: githubInstallationId") &&
       configuration.run.includes("github_provider_revision: Number(githubRevisionText)") &&
-      configuration.run.includes("runtime_environment_variables: environment") &&
+      configuration.run.includes('record("AZURE_RUNTIME_ENVIRONMENT_JSON", true)') &&
+      configuration.run.includes('record("AZURE_RUNTIME_SECRET_REFERENCES_JSON", true)') &&
+      configuration.run.includes('record("AZURE_INSTALLATION_SETTINGS_JSON", true)') &&
+      configuration.run.includes("postgres_sku: installationSettings.postgres_sku") &&
+      configuration.run.includes("postgres_version: installationSettings.postgres_version") &&
+      configuration.run.includes(
+        "backup_retention_days: installationSettings.backup_retention_days",
+      ) &&
+      configuration.run.includes(
+        "    custom_hostname: customHostname,\n    certificate_id: certificateId,\n    runtime_environment_variables: environment,",
+      ) &&
       configuration.run.includes("runtime_secret_references: references"),
     "Deployment must preserve the storage principal and separate public runtime settings from secret references",
   )

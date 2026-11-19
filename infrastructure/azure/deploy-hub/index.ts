@@ -153,7 +153,7 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
     deploy: boolean,
     installation?: Installation,
     target?: string,
-  ): void {
+  ): DeploymentPlan {
     const arguments_ = [
       "plan",
       "-input=false",
@@ -182,6 +182,7 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
     if (installation && planned.variables.name?.value !== installation.name) {
       throw new Error("The variable file selects a different installation.")
     }
+    return planned
   }
   function apply(): void {
     terraform(["apply", "-input=false", "-lock-timeout=60s", planPath])
@@ -212,7 +213,34 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
     }
     throw new Error("Setup timed out. Check or stop the execution before releasing the lock.")
   }
-  async function waitReady(installation: Installation): Promise<void> {
+  function authenticationConfigured(planned: DeploymentPlan): boolean {
+    const environment = planned.variables.runtime_environment_variables?.value
+    const references = planned.variables.runtime_secret_references?.value
+    const publicSettings =
+      typeof environment === "object" && environment !== null
+        ? (environment as Record<string, unknown>)
+        : {}
+    const secretReferences =
+      typeof references === "object" && references !== null
+        ? (references as Record<string, unknown>)
+        : {}
+    const githubClientId =
+      planned.variables.github_client_id?.value ?? publicSettings.GITHUB_CLIENT_ID
+    const githubConfigured =
+      typeof githubClientId === "string" &&
+      githubClientId.length > 0 &&
+      Object.hasOwn(secretReferences, "GITHUB_CLIENT_SECRET")
+    const entraConfigured =
+      typeof publicSettings.ENTRA_OIDC_ISSUER === "string" &&
+      publicSettings.ENTRA_OIDC_ISSUER.length > 0 &&
+      typeof publicSettings.ENTRA_OIDC_CLIENT_ID === "string" &&
+      publicSettings.ENTRA_OIDC_CLIENT_ID.length > 0
+    return githubConfigured || entraConfigured
+  }
+  async function waitReady(
+    installation: Installation,
+    expectsAuthenticationProviders: boolean,
+  ): Promise<void> {
     const app = azure<ContainerApp>("containerapp", "show", ...appArguments(installation))
     const revision = app?.properties?.latestRevisionName
     if (typeof revision !== "string" || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(revision)) {
@@ -287,6 +315,7 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
       [
         "/api/auth/providers",
         async (response: Response) => {
+          if (response.status === 404) return !expectsAuthenticationProviders
           if (response.status !== 200) return false
           const value: unknown = await response.json()
           return (
@@ -306,7 +335,7 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
         })
       } catch {
         throw new Error(
-          "Hub post-deployment checks failed. Keep the release lock and investigate.",
+          `Hub post-deployment check ${path} failed before receiving an HTTP response. Keep the release lock and investigate.`,
         )
       }
       let valid = false
@@ -319,7 +348,7 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
       }
       if (!valid)
         throw new Error(
-          "Hub post-deployment checks failed. Keep the release lock and investigate.",
+          `Hub post-deployment check ${path} returned HTTP ${response.status} with an invalid response. Keep the release lock and investigate.`,
         )
     }
   }
@@ -384,10 +413,10 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
     plan(installation.app_created, installation, "azurerm_container_app_job.setup")
     apply()
     await setup(installation)
-    plan(true, installation)
+    const rollout = plan(true, installation)
     apply()
     installation = readInstallation()
-    await waitReady(installation)
+    await waitReady(installation, authenticationConfigured(rollout))
     azureCommand(
       "storage",
       "blob",

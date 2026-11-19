@@ -59,8 +59,10 @@ function installationScenario({
   },
   httpStatuses = [200],
   healthStatus = 200,
+  healthBody = null,
   authenticationStatus = 200,
   authenticationBody = { providers: ["github", "entra"] },
+  authenticationConfigured = false,
   commandFailure,
   commandOutput,
   onPlan,
@@ -73,8 +75,10 @@ function installationScenario({
   revisionResponse?: unknown
   httpStatuses?: number[]
   healthStatus?: number
+  healthBody?: string | null
   authenticationStatus?: number
   authenticationBody?: unknown
+  authenticationConfigured?: boolean
   commandFailure?: { args: string[]; error: Error; occurrence?: number }
   commandOutput?: { args: string[]; stdout: string }
   onPlan?: (path: string) => void
@@ -127,6 +131,14 @@ function installationScenario({
             variables: {
               name: { value: installation.name },
               subscription_id: { value: installation.subscription_id },
+              ...(authenticationConfigured
+                ? {
+                    github_client_id: { value: "synthetic-client" },
+                    runtime_secret_references: {
+                      value: { GITHUB_CLIENT_SECRET: { secret_id: "synthetic-reference" } },
+                    },
+                  }
+                : {}),
             },
             resource_changes: [],
           })
@@ -205,7 +217,7 @@ function installationScenario({
       httpRequests.push({ url: String(url), init })
       events.push(["HTTPS", String(url)])
       if (String(url).endsWith("/api/health"))
-        return new Response(null, { status: healthStatus })
+        return new Response(healthBody, { status: healthStatus })
       if (String(url).endsWith("/api/auth/providers")) {
         if (typeof authenticationBody === "string")
           return new Response(authenticationBody, {
@@ -407,11 +419,12 @@ describe("deployHub()", () => {
     assert.ok(!events.some((event) => event[0] === "HTTPS"))
   })
 
-  it("runs setup before the first Hub app and verifies its already-active revision without activating it again", async () => {
+  it("completes the first release when provider discovery returns 404", async () => {
     const { args, events } = installationScenario({
       appCreated: false,
       httpStatuses: [503, 200],
-      authenticationBody: { providers: [] },
+      authenticationStatus: 404,
+      authenticationBody: "synthetic-private-provider-response",
     })
     mock.method(console, "warn", () => undefined)
 
@@ -844,14 +857,6 @@ describe("deployHub()", () => {
       },
     },
     {
-      name: "the health endpoint is unavailable",
-      scenario: { healthStatus: 503 },
-    },
-    {
-      name: "provider discovery is unavailable",
-      scenario: { authenticationStatus: 503 },
-    },
-    {
       name: "provider discovery is not JSON",
       scenario: { authenticationBody: "not-json" },
     },
@@ -869,6 +874,59 @@ describe("deployHub()", () => {
 
       assert.ok(!events.some((event) => event.includes("release")))
       assert.match(JSON.stringify(output), /lease is retained/)
+    })
+  }
+
+  for (const {
+    name,
+    path,
+    status,
+    scenario,
+  } of [
+    {
+      name: "health check",
+      path: "/api/health",
+      status: 503,
+      scenario: {
+        healthStatus: 503,
+        healthBody: "synthetic-private-health-response",
+      },
+    },
+    {
+      name: "provider discovery",
+      path: "/api/auth/providers",
+      status: 502,
+      scenario: {
+        authenticationStatus: 502,
+        authenticationBody: "synthetic-private-provider-response",
+      },
+    },
+    {
+      name: "configured provider discovery",
+      path: "/api/auth/providers",
+      status: 404,
+      scenario: {
+        authenticationConfigured: true,
+        authenticationStatus: 404,
+        authenticationBody: "synthetic-private-provider-response",
+      },
+    },
+  ]) {
+    it(`reports the failed ${name} endpoint and status without its response body`, async () => {
+      const { args, events } = installationScenario(scenario)
+      const output: unknown[][] = []
+      mock.method(console, "error", (...args: unknown[]) => output.push(args))
+
+      await assert.rejects(deployHub(args), (error: unknown) => {
+        assert.ok(error instanceof Error)
+        assert.match(error.message, new RegExp(`${path}.*HTTP ${status}`))
+        assert.doesNotMatch(error.message, /synthetic-private/)
+        return true
+      })
+
+      assert.ok(!events.some((event) => event.includes("release")))
+      assert.match(JSON.stringify(output), /lease is retained/)
+      assert.doesNotMatch(JSON.stringify(output), /synthetic-private/)
     })
   }
 

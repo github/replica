@@ -50,7 +50,7 @@ When a command gains a dependency or build prerequisite, update its local setup 
 
 All CI workflows run on every pull request and push to `main`. Do not skip checks based on changed paths or add jobs that only combine other jobs' results. Configure branch protection to require the individual checks.
 
-Hub reports lint, types, unit tests, database tests, the frontend/API build, Storybook, and Controls/extension checks separately. Only the database test command starts PostgreSQL. The new Hub has no production-image or release jobs.
+Hub reports lint, types, unit tests, database tests, the frontend/API build, Storybook, and Controls/extension checks separately. Only the database test command starts PostgreSQL. Image smoke testing remains independent CI; the protected Azure release workflow is manual and is not a required pull request or push check.
 
 Maintainers must update branch rules when required checks change. Editing a workflow does not update those rules.
 

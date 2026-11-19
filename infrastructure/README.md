@@ -315,6 +315,7 @@ Store these non-secret values as Environment variables:
 | `AZURE_GITHUB_CLIENT_ID` | Optional GitHub App client ID used for sign-in. |
 | `AZURE_GITHUB_APP_INSTALLATION_ID` | Optional numeric installation ID used for repository access. This is separate from the Copilot organization installation setting. |
 | `AZURE_GITHUB_PROVIDER_REVISION` | Optional positive GitHub provider revision. Increment it when sign-in credentials or references change. |
+| `AZURE_INSTALLATION_SETTINGS_JSON` | Required JSON object preserving `postgres_sku`, `postgres_version`, `backup_retention_days`, `custom_hostname`, and `certificate_id`. Use `null` for both custom-domain fields when no custom hostname is configured. |
 | `AZURE_RUNTIME_ENVIRONMENT_JSON` | JSON object matching `runtime_environment_variables`; use `{}` when no additional non-secret runtime settings are configured. |
 | `AZURE_RUNTIME_SECRET_REFERENCES_JSON` | JSON object matching `runtime_secret_references`; use `{}` when no additional runtime settings are configured. |
 | `AZURE_STATE_RESOURCE_GROUP` | Terraform backend resource group. |
@@ -323,7 +324,19 @@ Store these non-secret values as Environment variables:
 | `AZURE_STATE_KEY` | Application module state key. |
 | `NPM_REGISTRY` | Optional HTTPS npm proxy used only during the container build. |
 
-Key Vault URLs are references, not secret values. Do not put secret values in GitHub variables, GitHub secrets, workflow inputs, repository files, or installation JSON. The workflow writes only references and non-secret coordinates to private temporary files and does not upload plans or configuration artifacts.
+Key Vault URLs are references, not secret values. Do not put secret values in GitHub variables, GitHub secrets, workflow inputs, repository files, or installation JSON. The workflow writes only references and non-secret coordinates to private temporary files and does not upload plans or configuration artifacts. Configure both runtime JSON variables explicitly; use `{}` only to deliberately remove every optional public setting or secret reference.
+
+Copy the current private installation settings without changing their values. For example:
+
+```json
+{
+  "postgres_sku": "B_Standard_B1ms",
+  "postgres_version": "17",
+  "backup_retention_days": 14,
+  "custom_hostname": null,
+  "certificate_id": null
+}
+```
 
 Use the named Environment variables for Hub's public origin and GitHub App identity, client, repository installation, and provider revision. They follow the same validated Terraform inputs as the guided installer and cannot be duplicated in the generic runtime map.
 
@@ -363,9 +376,9 @@ The installer creates `postgres-runtime-url` and `postgres-migration-url`. Store
     "key_vault_id": "/subscriptions/.../resourceGroups/.../providers/Microsoft.KeyVault/vaults/...",
     "secret_id": "https://YOUR-VAULT.vault.azure.net/secrets/github-app-private-key/VERSION"
   },
-  "REPLICA_COPILOT_TOKEN": {
+  "GITHUB_WEBHOOK_SECRET": {
     "key_vault_id": "/subscriptions/.../resourceGroups/.../providers/Microsoft.KeyVault/vaults/...",
-    "secret_id": "https://YOUR-VAULT.vault.azure.net/secrets/replica-copilot-token/VERSION"
+    "secret_id": "https://YOUR-VAULT.vault.azure.net/secrets/github-webhook-secret/VERSION"
   }
 }
 ```
@@ -382,6 +395,7 @@ The deployment identity needs:
 - `Storage Blob Data Contributor` on the installation storage account for the release lease.
 - `AcrPush` on the installation ACR.
 - Resource read and update permission for the existing application resource group.
+- Resource metadata read permission on the installation Key Vault. This does not grant secret-value access.
 - Permission to create and remove role assignments at the application resource group, ACR, and each referenced Key Vault secret scope. Use a custom role when available; otherwise scope `Role Based Access Control Administrator` to only those resources.
 
 Grant the workflow identity state, installation Blob, and ACR access before its first run; it needs those permissions before Terraform can initialize, acquire the release lease, or publish an image. Keep the installer's Terraform-managed installation storage grant unchanged. Read its non-secret principal with `terraform -chdir=infrastructure/azure state show 'azurerm_role_assignment.deployment_storage[0]'` against the protected application backend, then set `AZURE_DEPLOYMENT_STORAGE_PRINCIPAL_ID` to that `principal_id`. A mismatched value plans a replacement and the release guard stops before setup. Migrating or removing the original grant requires a separately reviewed access change outside the release.

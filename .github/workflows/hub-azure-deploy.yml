@@ -36,6 +36,7 @@ jobs:
       AZURE_GITHUB_CLIENT_ID: ${{ vars.AZURE_GITHUB_CLIENT_ID }}
       AZURE_GITHUB_APP_INSTALLATION_ID: ${{ vars.AZURE_GITHUB_APP_INSTALLATION_ID }}
       AZURE_GITHUB_PROVIDER_REVISION: ${{ vars.AZURE_GITHUB_PROVIDER_REVISION }}
+      AZURE_INSTALLATION_SETTINGS_JSON: ${{ vars.AZURE_INSTALLATION_SETTINGS_JSON }}
       AZURE_RUNTIME_ENVIRONMENT_JSON: ${{ vars.AZURE_RUNTIME_ENVIRONMENT_JSON }}
       AZURE_RUNTIME_SECRET_REFERENCES_JSON: ${{ vars.AZURE_RUNTIME_SECRET_REFERENCES_JSON }}
       AZURE_STATE_RESOURCE_GROUP: ${{ vars.AZURE_STATE_RESOURCE_GROUP }}
@@ -138,9 +139,12 @@ jobs:
             if (!value) throw new Error(`Missing required GitHub Environment variable: ${name}`)
             return value
           }
-          const record = (name) => {
+          const record = (name, required = false) => {
             const source = process.env[name]?.trim()
-            if (!source) return {}
+            if (!source) {
+              if (required) throw new Error(`${name} must be configured as a JSON object.`)
+              return {}
+            }
             const value = JSON.parse(source)
             if (
               typeof value !== "object" ||
@@ -152,7 +156,54 @@ jobs:
             }
             return value
           }
-          const environment = record("AZURE_RUNTIME_ENVIRONMENT_JSON")
+          const environment = record("AZURE_RUNTIME_ENVIRONMENT_JSON", true)
+          const installationSettings = record("AZURE_INSTALLATION_SETTINGS_JSON", true)
+          const installationKeys = [
+            "postgres_sku",
+            "postgres_version",
+            "backup_retention_days",
+            "custom_hostname",
+            "certificate_id",
+          ]
+          if (
+            Object.keys(installationSettings).length !== installationKeys.length ||
+            installationKeys.some((name) => !Object.hasOwn(installationSettings, name))
+          ) {
+            throw new Error(
+              "AZURE_INSTALLATION_SETTINGS_JSON must explicitly contain every supported installation setting.",
+            )
+          }
+          const sku =
+            /^(?:B_Standard_B(?:(?:1|2|4|8|12|16|20)ms|2s)|GP_Standard_D(?:(?:2|4|8|16|32|48|64)s_v3|(?:2|4|8|16|32|48|64)ds_v4|(?:2|4|8|16|32|48|64|96)(?:ds|ads)_v5)|MO_Standard_E(?:(?:2|4|8|16|20|32|48|64)s_v3|(?:2|4|6|8|16|20|32|48|64)ds_v4|(?:2|4|8|16|20|32|48|64|96)ds_v5|(?:2|4|8|16|32|48|64|96)ads_v5))$/
+          if (
+            typeof installationSettings.postgres_sku !== "string" ||
+            !sku.test(installationSettings.postgres_sku) ||
+            typeof installationSettings.postgres_version !== "string" ||
+            !/^(?:11|12|13|14|15|16|17)$/.test(installationSettings.postgres_version) ||
+            !Number.isInteger(installationSettings.backup_retention_days) ||
+            installationSettings.backup_retention_days < 7 ||
+            installationSettings.backup_retention_days > 35
+          ) {
+            throw new Error("AZURE_INSTALLATION_SETTINGS_JSON contains invalid PostgreSQL settings.")
+          }
+          const { custom_hostname: customHostname, certificate_id: certificateId } =
+            installationSettings
+          if (
+            (customHostname === null) !== (certificateId === null) ||
+            (customHostname !== null &&
+              (typeof customHostname !== "string" ||
+                !/^(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}$/.test(
+                  customHostname,
+                ) ||
+                typeof certificateId !== "string" ||
+                !/^\/subscriptions\/[A-Fa-f0-9-]{36}\/resourceGroups\/[^/]+\/providers\/Microsoft\.App\/managedEnvironments\/[^/]+\/certificates\/[^/]+$/.test(
+                  certificateId,
+                )))
+          ) {
+            throw new Error(
+              "AZURE_INSTALLATION_SETTINGS_JSON must supply both custom_hostname and certificate_id, or null for both.",
+            )
+          }
           const optional = (name) => process.env[name]?.trim() || undefined
           const positiveInteger = (name, maximum) => {
             const value = optional(name)
@@ -199,7 +250,7 @@ jobs:
           }
           const runnerTemp = required("RUNNER_TEMP")
           const keyVaultId = required("AZURE_KEY_VAULT_ID")
-          const references = record("AZURE_RUNTIME_SECRET_REFERENCES_JSON")
+          const references = record("AZURE_RUNTIME_SECRET_REFERENCES_JSON", true)
           if (Object.keys(references).some((name) => Object.hasOwn(environment, name))) {
             throw new Error("Runtime environment settings and secret references cannot share names.")
           }
@@ -340,6 +391,11 @@ jobs:
               ...(githubRevisionText
                 ? { github_provider_revision: Number(githubRevisionText) }
                 : {}),
+              postgres_sku: installationSettings.postgres_sku,
+              postgres_version: installationSettings.postgres_version,
+              backup_retention_days: installationSettings.backup_retention_days,
+              custom_hostname: customHostname,
+              certificate_id: certificateId,
               runtime_environment_variables: environment,
               runtime_secret_references: references,
             }),

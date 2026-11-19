@@ -220,6 +220,50 @@ describe("checkWorkflows()", () => {
       },
     },
     {
+      name: "a missing protected runtime secret-reference mapping",
+      mutate(workflow: Workflow) {
+        assert(workflow.jobs.deploy.env)
+        delete workflow.jobs.deploy.env.AZURE_RUNTIME_SECRET_REFERENCES_JSON
+      },
+    },
+    {
+      name: "runtime environment generation that defaults a missing mapping",
+      mutate(workflow: Workflow) {
+        const configuration = workflow.jobs.deploy.steps?.find(
+          (step) => step.name === "Prepare non-secret deployment configuration",
+        )
+        assert(configuration?.run)
+        const mutated = configuration.run.replace(
+          'record("AZURE_RUNTIME_ENVIRONMENT_JSON", true)',
+          'record("AZURE_RUNTIME_ENVIRONMENT_JSON")',
+        )
+        assert.notEqual(mutated, configuration.run)
+        configuration.run = mutated
+      },
+    },
+    {
+      name: "runtime secret-reference generation that defaults a missing mapping",
+      mutate(workflow: Workflow) {
+        const configuration = workflow.jobs.deploy.steps?.find(
+          (step) => step.name === "Prepare non-secret deployment configuration",
+        )
+        assert(configuration?.run)
+        const mutated = configuration.run.replace(
+          'record("AZURE_RUNTIME_SECRET_REFERENCES_JSON", true)',
+          'record("AZURE_RUNTIME_SECRET_REFERENCES_JSON")',
+        )
+        assert.notEqual(mutated, configuration.run)
+        configuration.run = mutated
+      },
+    },
+    {
+      name: "a missing protected installation-settings mapping",
+      mutate(workflow: Workflow) {
+        assert(workflow.jobs.deploy.env)
+        delete workflow.jobs.deploy.env.AZURE_INSTALLATION_SETTINGS_JSON
+      },
+    },
+    {
       name: "a missing named GitHub App coordinate",
       mutate(workflow: Workflow) {
         assert(workflow.jobs.deploy.env)
@@ -244,6 +288,28 @@ describe("checkWorkflows()", () => {
   ])("rejects an Azure deployment workflow with $name", ({ mutate }) => {
     const { directory, path, workflow } = deploymentFixture()
     mutate(workflow)
+    writeFileSync(path, stringify(workflow))
+
+    expect(() => checkWorkflows(directory)).toThrow()
+  })
+
+  it.each([
+    "postgres_sku: installationSettings.postgres_sku",
+    "postgres_version: installationSettings.postgres_version",
+    "backup_retention_days: installationSettings.backup_retention_days",
+    "custom_hostname: customHostname",
+    "certificate_id: certificateId",
+  ])("rejects deployment configuration that omits %s", (field) => {
+    const { directory, path, workflow } = deploymentFixture()
+    const configuration = workflow.jobs.deploy.steps?.find(
+      (step) => step.name === "Prepare non-secret deployment configuration",
+    )
+    assert(configuration?.run)
+    const fieldIndex = configuration.run.lastIndexOf(field)
+    assert.ok(fieldIndex >= 0)
+    configuration.run =
+      configuration.run.slice(0, fieldIndex) +
+      configuration.run.slice(fieldIndex + field.length)
     writeFileSync(path, stringify(workflow))
 
     expect(() => checkWorkflows(directory)).toThrow()
