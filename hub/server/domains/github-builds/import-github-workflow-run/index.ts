@@ -1,6 +1,7 @@
 import { completeGitHubBuildFailure } from "../../../repositories/github-builds/complete-github-build-failure/index.ts"
 import { markGitHubBuildRunning } from "../../../repositories/github-builds/mark-github-build-running/index.ts"
 import { recordGitHubBuildRunCompletion } from "../../../repositories/github-builds/record-github-build-run-completion/index.ts"
+import { registerImportedPrototype } from "../../prototypes/register-imported-prototype/index.ts"
 import type {
   GitHubWorkflowArtifact,
   GitHubWorkflowRun,
@@ -98,6 +99,9 @@ export async function importGitHubWorkflowRun(
   }
 
   const dist = await importDist()
+  if (dist === "imported" || state === "successful") {
+    await registerImportedPrototype(database, buildId)
+  }
   const screenshots = await importScreenshots()
   // Screenshot errors throw before this, so recovery keeps retrying until they attach.
   if (completedAt) {

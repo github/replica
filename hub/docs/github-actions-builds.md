@@ -14,6 +14,8 @@ Webhooks give the fastest import. Without webhook reachability, [recovery](#reco
 
 Save this as `.github/workflows/replica.yml` in a connected prototype repository. Replace the build steps with the repository's own build; they must write static output, with an `index.html`, to `dist` or to the directory set in `output-directory`.
 
+The example runs on every pushed branch, including nested `proto/` branches. If you restrict workflow branches, include `branches: ['proto/**']` to cover names such as `proto/settings/mobile`. Add patterns for any other branches users track manually; a branch without a workflow run cannot produce an imported Build.
+
 The example pins both Replica actions to the same implementation revision. That revision must be available on GitHub before enabling the workflow in another repository. When upgrading, replace both references with the same reviewed commit.
 
 ```yaml
@@ -37,7 +39,7 @@ jobs:
           node-version: 24
       - run: npm ci
       - run: npm run build
-      - uses: github/replica/actions/build/publish@d4d34c0810fe95177211269248c453fe019fb6aa
+      - uses: github/replica/actions/build/publish@c63a34cfbffce9f55aec3bd1716fd92a1cefb7c0
 
   screenshots:
     needs: publish
@@ -46,7 +48,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: github/replica/actions/build/screenshots@d4d34c0810fe95177211269248c453fe019fb6aa
+      - uses: github/replica/actions/build/screenshots@c63a34cfbffce9f55aec3bd1716fd92a1cefb7c0
 ```
 
 The publish action validates and packages the output and uploads `replica-build-v1`. It installs no npm packages and no browser. Its completed-job event queues the Hub import while the dependent screenshot job downloads that exact artifact and uploads `replica-screenshots-v1`. The preview becomes available after webhook delivery, queue processing, and artifact import, not immediately on upload. If the build or artifact upload fails, GitHub skips screenshots and Hub records the failed Build.
@@ -97,6 +99,16 @@ GitHub lists named artifacts across rerun attempts. For a rerun, import only acc
 
 Storage keys derive from the Build, file path, and content. Retries reuse identical objects, a key with different bytes stops the import, and keys are never deleted. Unreferenced keys left by an interrupted import are harmless.
 
+## Automatic prototype registration
+
+A successful imported Build on a branch starting with `proto/` automatically registers that branch's Prototype. The rule is case-sensitive and includes nested names such as `proto/settings/mobile`. Both webhook imports and recovery use the same registration path. Queued or failed Builds do not register a new Prototype.
+
+Registration sets the existing `Prototype.registeredAt` timestamp and uses the branch name only when no name has been saved. Repeated imports preserve that timestamp and never replace a saved name, description, or other prototype metadata. Repository and prototype locks serialize registration with metadata edits.
+
+Other branches still import Builds but remain unregistered until a user tracks them manually in Hub. The default branch, reserved `replica/install-workflow` branch, internal replica owners, and deleted branches never auto-register. Stale imports cannot recreate a retired branch's Prototype. Existing registrations are not removed or reclassified.
+
+Gallery and prototype-list queries are unchanged. `registeredAt !== null` remains the registration contract, alongside their existing repository, branch, and visibility checks.
+
 ## Artifact contracts
 
 `replica-build-v1` contains `dist/**` and an optional `templates.json` (version 1, at most 12 entries, at most 16 KiB). Hub extracts and validates templates with the dist; the templates API is separate.
@@ -116,7 +128,7 @@ GitHub does not retry failed webhook deliveries, so scheduled jobs recover misse
 | Schedule         | Job                                   | Purpose                                                                                                                                                           |
 | ---------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Every minute     | `recover-github-webhook-deliveries`   | Scans the App's recent webhook deliveries from a saved checkpoint and asks GitHub to redeliver workflow, installation, and access events that Hub never recorded. |
-| Every 5 minutes  | `discover-github-workflow-runs`       | Polls branch heads and recent Replica workflow runs for connected repositories and enqueues unsettled runs, so Builds arrive even without webhooks.       |
+| Every 5 minutes  | `discover-github-workflow-runs`       | Polls branch heads and recent Replica workflow runs for connected repositories and enqueues unsettled runs, so Builds arrive even without webhooks.               |
 | Every 5 minutes  | `retry-github-builds-awaiting-import` | Re-enqueues recent GitHub Builds whose dist import or final screenshot pass is still owed.                                                                        |
 | Every 15 minutes | `reconcile-github-installation`       | Refreshes the installation's repository list.                                                                                                                     |
 

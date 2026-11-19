@@ -10,7 +10,7 @@ export interface PrepareGitHubBuildInput {
 }
 
 export type PreparedGitHubBuild =
-  | { status: "unknown-repository" }
+  | { status: "unknown-repository" | "deleted-branch" }
   | {
       status: "ready"
       buildId: string

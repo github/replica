@@ -58,7 +58,7 @@ export async function prepareGitHubBuild(
         async (transaction) => {
           const repository = await transaction.repository.findFirst({
             where: { githubRepositoryId: BigInt(input.githubRepositoryId), removedAt: null },
-            select: { id: true },
+            select: { id: true, defaultBranch: true },
           })
           if (!repository) return { status: "unknown-repository" as const }
 
@@ -75,13 +75,24 @@ export async function prepareGitHubBuild(
               currentBuild: { select: { createdAt: true, workflowCreatedAt: true } },
             },
           })
+          if (!prototype) {
+            const retired = await transaction.prototype.findFirst({
+              where: {
+                repositoryId: repository.id,
+                branchName: input.branchName,
+                branchDeletedAt: { not: null },
+              },
+              select: { id: true },
+            })
+            if (retired) return { status: "deleted-branch" as const }
+          }
           prototype ??= {
             ...(await transaction.prototype.create({
               data: {
                 repositoryId: repository.id,
                 branchName: input.branchName,
                 name: input.branchName,
-                registeredAt: new Date(),
+                replica: input.branchName === repository.defaultBranch,
               },
               select: { id: true, currentBuildId: true, currentBuildRunCreatedAt: true },
             })),
