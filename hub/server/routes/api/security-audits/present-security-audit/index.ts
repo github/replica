@@ -65,6 +65,17 @@ function actorFor(record: SecurityAuditListRecord) {
     }
     case "prototype.registered":
     case "share_link.created":
+    case "canvas_pairing.create":
+    case "canvas_pairing.approve":
+    case "canvas_pairing.consume":
+    case "canvas_connection.renew":
+    case "canvas_connection.revoke":
+    case "canvas_connection.activity":
+    case "analytics_destination.add":
+    case "analytics_destination.edit":
+    case "analytics_destination.pause":
+    case "analytics_destination.resume":
+    case "analytics_destination.disconnect":
     case "share_link.revoked": {
       const parsed = actorContextSchema.safeParse(record.context)
       return parsed.success ? { membershipId: parsed.data.actorMembershipId } : null

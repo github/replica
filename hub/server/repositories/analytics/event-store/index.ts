@@ -50,6 +50,22 @@ export async function setFirstPublishedAt(
   return result.count > 0
 }
 
+export async function isAnalyticsPrototype(
+  tx: Prisma.TransactionClient,
+  repositoryId: string,
+  prototypeId: string,
+) {
+  const prototype = await tx.prototype.findFirst({
+    where: { id: prototypeId, repositoryId, replica: false },
+    select: { branchName: true, repository: { select: { defaultBranch: true } } },
+  })
+  return Boolean(
+    prototype &&
+    prototype.branchName !== prototype.repository.defaultBranch &&
+    prototype.branchName !== "replica/install-workflow",
+  )
+}
+
 export function findAnalyticsReviewBuild(
   tx: Prisma.TransactionClient,
   repositoryId: string,

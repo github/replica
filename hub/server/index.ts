@@ -187,7 +187,7 @@ try {
                     hostedReady: Boolean(
                       preview &&
                       authentication?.github &&
-                      typeof product?.getRepositoryPermission === "function",
+                      typeof product?.getVerifiedRepositoryPermission === "function",
                     ),
                   },
             )

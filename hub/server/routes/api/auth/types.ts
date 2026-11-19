@@ -92,7 +92,6 @@ export interface CurrentSessionDependencies {
     userId: string
     provider: string
     sessionProvider: string | null
-    externalIdentityId?: string | null
     login: string
     name: string | null
     role: "MEMBER" | "ADMINISTRATOR"

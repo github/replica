@@ -1,3 +1,4 @@
+import { recordSuccessfulBuildAnalytics } from "../../analytics/record-event/index.ts"
 import {
   finishHostedImport,
   type HostedImportClaim,
@@ -17,8 +18,11 @@ export async function publishHostedBuild(
 ) {
   return withHostedBuildRepository(authority, async (transaction) => {
     if (!(await finishHostedImport(transaction, claim, artifactId, artifacts))) return false
-    // Publication observers belong here, in the same transaction:
-    // { repositoryId: authority.repository.id, prototypeId: claim.prototypeId, buildId: claim.id }
+    await recordSuccessfulBuildAnalytics(transaction, {
+      repositoryId: authority.repository.id,
+      prototypeId: claim.prototypeId,
+      buildId: claim.id,
+    })
     return true
   })
 }

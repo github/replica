@@ -71,14 +71,15 @@ export function get(
 
       const eligibility =
         product.getRepositoryPermission && initial.sessionProvider === "github"
-          ? await readProductWithCurrentAuthority(
-              initial,
-              cookie,
-              session,
-              async (viewer) =>
-                (await product.isRepositoryVisible(viewer, repositoryId.data)) &&
-                (await canHandOffToCopilot(product, viewer, repositoryId.data)),
-            )
+          ? await readProductWithCurrentAuthority(initial, cookie, session, async (viewer) => {
+              if (!(await product.isRepositoryVisible(viewer, repositoryId.data))) return false
+              try {
+                return await canHandOffToCopilot(product, viewer, repositoryId.data)
+              } catch (error) {
+                if (error instanceof GitHubProviderRequestError) return false
+                throw error
+              }
+            })
           : { result: false }
       if (!eligibility) {
         response.status(401).json({ error: "Sign in to continue." })

@@ -68,6 +68,51 @@ Object(async (page) => {
     await admin.getByRole("row").filter({ hasText: "prototype.registered" }).waitFor()
     await admin.goto(galleryUrl, { waitUntil: "domcontentloaded" })
 
+    const navigation = admin.getByRole("navigation", { name: "Repository navigation", exact: true })
+    const welcomeLink = navigation.getByRole("link", { name: "Welcome", exact: true })
+    await welcomeLink.click()
+    const hideWelcome = admin.getByRole("button", { name: "Hide welcome", exact: false })
+    await hideWelcome.waitFor()
+    const welcomePageUrl = admin.url()
+    await hideWelcome.click()
+    await welcomeLink.waitFor({ state: "hidden" })
+    await admin.goto(welcomePageUrl, { waitUntil: "domcontentloaded" })
+    await admin
+      .getByRole("heading", { name: "Getting started with Replica", exact: true })
+      .waitFor()
+    if (await welcomeLink.count()) throw new Error("Welcome was not hidden after reload.")
+
+    await navigation.getByRole("link", { name: "Create", exact: true }).click()
+    const templates = admin.getByRole("region", { name: "Templates", exact: true })
+    await templates.getByRole("link", { name: "Open template: Field notes", exact: true }).click()
+    await admin
+      .locator("iframe")
+      .contentFrame()
+      .getByRole("heading", { name: "Field notes template", exact: true })
+      .waitFor()
+    await adminContext.grantPermissions(["clipboard-read", "clipboard-write"], {
+      origin: root.origin,
+    })
+    await admin.getByRole("button", { name: "Branch from here", exact: true }).click()
+    const brief = "Add a trail map to the field notes."
+    await admin
+      .getByPlaceholder("What changes would you like to make?", { exact: true })
+      .fill(brief)
+    await admin
+      .getByRole("button", { name: "Copy prompt", exact: true })
+      .and(admin.locator("button:enabled"))
+      .click()
+    await admin.waitForFunction(async (submittedBrief) => {
+      const prompt = await navigator.clipboard.readText()
+      return prompt.includes(submittedBrief) && prompt.includes("/field-notes")
+    }, brief)
+    await admin.goto(galleryUrl, { waitUntil: "domcontentloaded" })
+
+    await admin.getByRole("link", { name: "Canvas connections", exact: true }).click()
+    await admin.getByRole("heading", { name: "Canvas connections", exact: true }).waitFor()
+    await admin.getByText(/^No active connections\./).waitFor()
+    await admin.goto(galleryUrl, { waitUntil: "domcontentloaded" })
+
     await admin.getByRole("radio", { name: "List view", exact: true }).press("Space")
     function row(name) {
       return prototypes

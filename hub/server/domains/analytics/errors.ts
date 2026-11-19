@@ -1,8 +1,8 @@
 export class AnalyticsSettingsError extends Error {
-  constructor(
-    readonly status: 404 | 409 | 422 | 503,
-    message: string,
-  ) {
+  readonly status: 404 | 409 | 422 | 503
+
+  constructor(status: AnalyticsSettingsError["status"], message: string) {
     super(message)
+    this.status = status
   }
 }

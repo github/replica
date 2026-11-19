@@ -127,7 +127,7 @@ async function startHub(
       applicationOrigin: preview.applicationOrigin,
       previewBaseOrigin: preview.previewBaseOrigin,
     }),
-    getRepositoryPermission,
+    getVerifiedRepositoryPermission: getRepositoryPermission,
   }
   const server = createServer(
     createApp({

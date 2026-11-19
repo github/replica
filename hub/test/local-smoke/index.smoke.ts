@@ -100,7 +100,16 @@ it("serves and revokes a saved Build through the real local Hub", async () => {
       }
       try {
         await browser("open", hubUrl, "--idle-timeout=90000")
-        const { stdout } = await browser("--raw", "run-code", `--filename=${browserScript}`)
+        const { stdout } = await browser("--raw", "run-code", `--filename=${browserScript}`).catch(
+          (error: unknown) => {
+            if (error instanceof Error && "stdout" in error && typeof error.stdout === "string") {
+              throw new Error(`The browser smoke did not finish.\n${error.stdout.trim()}`, {
+                cause: error,
+              })
+            }
+            throw error
+          },
+        )
         if (stdout.trim() !== JSON.stringify("local smoke passed")) {
           throw new Error(`The browser smoke did not finish.\n${stdout}`)
         }

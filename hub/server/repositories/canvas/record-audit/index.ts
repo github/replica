@@ -24,11 +24,11 @@ export function recordCanvasAudit(
     data: {
       action,
       outcome,
+      repositoryId,
       targetType: action.startsWith("canvas_pairing.") ? "canvas_pairing" : "canvas_connection",
       targetId: pairingId ?? (connectionId === undefined ? null : String(connectionId)),
       context: {
         source,
-        ...(repositoryId ? { repositoryId } : {}),
         ...(actorMembershipId ? { actorMembershipId } : {}),
         ...(pairingId ? { pairingId } : {}),
         ...(connectionId === undefined ? {} : { connectionId }),

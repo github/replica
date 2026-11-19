@@ -1,6 +1,7 @@
 import type { Prisma } from "../../../generated/prisma/client.ts"
 import {
   findAnalyticsReviewBuild,
+  isAnalyticsPrototype,
   persistAnalyticsEvent,
   setFirstPublishedAt,
 } from "../../../repositories/analytics/event-store/index.ts"
@@ -72,6 +73,7 @@ export async function recordSuccessfulBuildAnalytics(
   tx: Prisma.TransactionClient,
   input: BuildActivity,
 ) {
+  if (!(await isAnalyticsPrototype(tx, input.repositoryId, input.prototypeId))) return
   const first = await setFirstPublishedAt(tx, input.repositoryId, input.prototypeId, new Date())
   return recordAnalyticsEvent(tx, {
     ...input,

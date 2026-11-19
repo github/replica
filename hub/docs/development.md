@@ -123,7 +123,7 @@ npm run local:worker
 
 Each scan considers committed heads for the default branch and every other local branch. Hub creates one stable local repository and branch prototype, records the observed head, and creates at most one Build for that exact commit. An unchanged successful or failed head is not rebuilt. A queued or interrupted running Build may resume. Discovery and Build failures are isolated so another repository can still finish.
 
-From a discovered local repository's gallery, choose **Edit prototype listings** to add a draft branch to Hub or change a listed prototype's details. Adding a branch makes it appear in the gallery without creating or changing a Build. The default branch, replicas, deleted branches, and the reserved installation branch do not appear in the list. Hosted repositories do not have this local management screen.
+From a discovered repository's gallery, choose **Edit prototype listings** to add a draft branch to Hub or change a listed prototype's details. Adding a branch makes it appear in the gallery without creating or changing a Build. The default branch, replicas, deleted branches, and the reserved installation branch do not appear in the list. For a GitHub-backed repository, Hub confirms current Write, Maintain, or Admin permission and checks that a branch still exists before adding it.
 
 The runner uses an isolated detached Git worktree for the exact commit, so working-tree changes and untracked files do not enter the Build. Successful packages store validated `dist` files, screenshots, and the optional template manifest as immutable artifact bytes. Hub records failed state and a bounded error summary when validation, the prototype build, screenshots, packaging, storage, or persistence fails.
 

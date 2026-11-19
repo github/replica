@@ -23,8 +23,11 @@ export type AnalyticsTransport = (
 ) => Promise<{ status: number; body: string } | null>
 
 export class AnalyticsTransportError extends Error {
-  constructor(readonly code: "unsafe_endpoint" | "network_error" | "response_too_large") {
+  readonly code: "unsafe_endpoint" | "network_error" | "response_too_large"
+
+  constructor(code: AnalyticsTransportError["code"]) {
     super(code)
+    this.code = code
   }
 }
 
