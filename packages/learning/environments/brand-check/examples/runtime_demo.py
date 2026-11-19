@@ -159,6 +159,7 @@ def main() -> int:
             backend="fixture",
             max_updates=4,
             max_seconds=30,
+            max_credits=4,
             taskset_digest=registered["digest"],
         )
         while runtime.job(running["id"])["state"] == "queued":
@@ -167,6 +168,7 @@ def main() -> int:
             backend="fixture",
             max_updates=4,
             max_seconds=30,
+            max_credits=4,
             taskset_digest=registered["digest"],
         )
         cancellation = runtime.cancel(
@@ -183,6 +185,7 @@ def main() -> int:
                 backend="fixture",
                 max_updates=updates,
                 max_seconds=30,
+                max_credits=updates,
                 taskset_digest=registered["digest"],
             )
             while True:
@@ -193,9 +196,23 @@ def main() -> int:
             if job["state"] != "succeeded":
                 raise RuntimeError(job["error"]["message"])
             jobs.append(job)
-        first = runtime.promote(jobs[0]["candidateId"], promoted_by="demo-operator")
-        second = runtime.promote(jobs[1]["candidateId"], promoted_by="demo-operator")
-        rollback = runtime.rollback(rolled_back_by="demo-operator")
+        first = runtime.promote(
+            jobs[0]["candidateId"],
+            promoted_by="demo-operator",
+            expected_generation=0,
+            idempotency_key="demo-promote-first",
+        )
+        second = runtime.promote(
+            jobs[1]["candidateId"],
+            promoted_by="demo-operator",
+            expected_generation=first["generation"],
+            idempotency_key="demo-promote-second",
+        )
+        rollback = runtime.rollback(
+            rolled_back_by="demo-operator",
+            expected_generation=second["generation"],
+            idempotency_key="demo-rollback",
+        )
         candidate = runtime.candidate(rollback["candidateId"])
         encoded = base64.b64encode(PNG).decode()
         response = runtime.evaluate(

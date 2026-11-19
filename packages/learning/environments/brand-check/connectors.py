@@ -117,16 +117,27 @@ class OperationContext:
     owner: RuntimeOwner
     deadline: float
     cancellation: Cancellation
+    max_credits: float | None = None
+    budget_mode: str = "none"
 
     def __post_init__(self) -> None:
         if (
             not self.operation_id.strip()
             or not self.idempotency_key.strip()
             or not math.isfinite(self.deadline)
+            or (
+                self.max_credits is not None
+                and (
+                    not math.isfinite(self.max_credits)
+                    or self.max_credits <= 0
+                )
+            )
+            or self.budget_mode not in ("none", "hard", "unmetered_local")
+            or (self.budget_mode == "none") != (self.max_credits is None)
         ):
             raise ValueError(
                 "Operation context needs operation and idempotency identifiers "
-                "and a finite deadline."
+                "and valid deadline and budget limits."
             )
 
 
@@ -271,6 +282,7 @@ class Usage:
     cost: float | None = None
     currency: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    source: str = "connector"
 
     def __post_init__(self) -> None:
         if (
@@ -278,6 +290,7 @@ class Usage:
             or not self.connector.strip()
             or not self.kind.strip()
             or not self.unit.strip()
+            or not self.source.strip()
             or not math.isfinite(self.quantity)
             or self.quantity < 0
             or (self.cost is None) != (self.currency is None)
@@ -299,6 +312,7 @@ class TrainingResult:
     candidate_report: Mapping[str, Any]
     metadata: Mapping[str, Any]
     updates_completed: int
+    usage: Sequence[Usage] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -308,6 +322,7 @@ class TrainingResult:
             or isinstance(self.updates_completed, bool)
             or not isinstance(self.updates_completed, int)
             or self.updates_completed < 0
+            or not isinstance(self.usage, Sequence)
         ):
             raise ValueError(
                 "Training result needs a safe adapter name, bytes, and measured updates."
@@ -392,6 +407,7 @@ class CandidateConnector(Protocol):
 class TrainingConnector(Protocol):
     name: str
     production_eligible: bool
+    supports_hard_credit_budget: bool
 
     def train(
         self,

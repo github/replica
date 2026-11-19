@@ -66,6 +66,9 @@ MIN_UPDATES = 1
 MAX_UPDATES = 100_000
 MIN_SECONDS = 1
 MAX_SECONDS = 86_400
+MIN_CREDITS = 1
+MAX_CREDITS = 1_000_000
+BUDGET_MODES = ("hard", "unmetered_local")
 ENVIRONMENTS = ("development", "test", "production")
 TASKSET_CACHE_LIMIT = 2
 _QUESTION_KEY = re.compile(r"^[A-Za-z0-9_]{1,64}$")
@@ -105,6 +108,7 @@ class FixtureBackend:
 
     name = "fixture"
     production_eligible = False
+    supports_hard_credit_budget = True
 
     def train(
         self,
@@ -235,6 +239,7 @@ class LocalRuntime:
             work = self.state_directory / "work"
             work.mkdir(parents=True, exist_ok=True, mode=0o700)
             os.chmod(work, 0o700)
+            self._recover_pending_promotions()
             self._recover_interrupted_jobs()
         except Exception:
             if hasattr(self, "_executor"):
@@ -253,10 +258,12 @@ class LocalRuntime:
         backend: str = "fixture",
         max_updates: int,
         max_seconds: float,
+        max_credits: float,
+        budget_mode: str = "hard",
         taskset_digest: str | None = None,
     ) -> dict[str, Any]:
         """Persist and enqueue one bounded job, returning its initial state."""
-        _check_limits(max_updates, max_seconds)
+        _check_limits(max_updates, max_seconds, max_credits, budget_mode)
         if not isinstance(backend, str):
             raise RuntimeFailure("invalid_input", "backend must be a string.")
         if backend not in self.backends:
@@ -264,6 +271,20 @@ class LocalRuntime:
                 "backend_unknown",
                 f"Backend {json.dumps(backend)} is not configured. Choose one of "
                 f"{', '.join(sorted(self.backends))}.",
+            )
+        connector = self.training_connectors[backend]
+        if budget_mode == "hard" and not connector.supports_hard_credit_budget:
+            raise RuntimeFailure(
+                "hard_budget_unsupported",
+                f"Backend {json.dumps(backend)} cannot enforce maxCredits. "
+                "Select budgetMode unmetered_local only for an explicitly unsupported local run.",
+                409,
+            )
+        if budget_mode == "unmetered_local" and self.environment == "production":
+            raise RuntimeFailure(
+                "unmetered_budget_forbidden",
+                "unmetered_local training is available only in development and test.",
+                409,
             )
         selected_taskset = _taskset_digest_value(
             taskset_digest if taskset_digest is not None else self.taskset_digest
@@ -276,7 +297,12 @@ class LocalRuntime:
             "state": "queued",
             "backend": backend,
             "tasksetDigest": selected_taskset,
-            "limits": {"maxUpdates": max_updates, "maxSeconds": float(max_seconds)},
+            "limits": {
+                "maxUpdates": max_updates,
+                "maxSeconds": float(max_seconds),
+                "maxCredits": float(max_credits),
+                "budgetMode": budget_mode,
+            },
             "createdAt": _now(),
             "updatedAt": _now(),
         }
@@ -284,6 +310,8 @@ class LocalRuntime:
             job_id,
             max_seconds=max_seconds,
             owner=RuntimeOwner("service", "decision-runtime"),
+            max_credits=max_credits,
+            budget_mode=budget_mode,
         )
         try:
             stored = dict(self.connectors.jobs.create(job_id, job, context))
@@ -464,80 +492,99 @@ class LocalRuntime:
             )
         return {"manifest": manifest, "evaluation": report}
 
-    def promote(self, candidate_id: str, *, promoted_by: str) -> dict[str, Any]:
+    def promote(
+        self,
+        candidate_id: str,
+        *,
+        promoted_by: str,
+        expected_generation: int,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
         """Explicitly make one candidate the version inference serves."""
-        candidate = self._promotable_candidate(candidate_id)
         if not isinstance(promoted_by, str) or not promoted_by.strip():
             raise RuntimeFailure("invalid_input", "promotedBy must name the operator.")
+        expected_generation = _expected_generation(expected_generation)
         with self._lock:
             context = self._operation_context(
                 f"promote_{uuid.uuid4().hex}",
                 max_seconds=30,
                 owner=RuntimeOwner("human", promoted_by.strip()),
+                idempotency_key=idempotency_key,
             )
-            try:
-                recovered = self.local_connectors.candidates.recover_promotion(
-                    context
-                )
-            except ConnectorError as error:
-                raise _runtime_connector_failure(error) from None
+            self._recover_pending_promotions(context)
             current = self.promotion(required=False)
-            if current and current["candidateId"] == candidate_id:
-                return current
-            if recovered:
-                raise RuntimeFailure(
-                    "promotion_recovered",
-                    "The previous promotion completed after its pointer write failed. Retry the requested promotion.",
-                    409,
-                )
+            current_generation = current["generation"] if current else 0
+            if current_generation == expected_generation:
+                self._promotable_candidate(candidate_id)
             try:
-                self.connectors.candidates.promote(
+                result = self.connectors.candidates.promote(
                     candidate_id,
-                    expected_generation=current["generation"] if current else 0,
+                    expected_generation=expected_generation,
                     operation="promote",
                     context=context,
                 )
-                promotion = self.local_connectors.candidates.promotion_json(context)
+                promotion = self.local_connectors.candidates.promotion_json(
+                    context,
+                    generation=result.generation,
+                )
             except ConnectorError as error:
                 raise _runtime_connector_failure(error) from None
             assert promotion is not None
             return promotion
 
-    def rollback(self, *, rolled_back_by: str) -> dict[str, Any]:
+    def rollback(
+        self,
+        *,
+        rolled_back_by: str,
+        expected_generation: int,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
         """Promote the immediately previous candidate as a new explicit generation."""
         if not isinstance(rolled_back_by, str) or not rolled_back_by.strip():
             raise RuntimeFailure("invalid_input", "rolledBackBy must name the operator.")
+        expected_generation = _expected_generation(expected_generation)
         with self._lock:
             context = self._operation_context(
                 f"rollback_{uuid.uuid4().hex}",
                 max_seconds=30,
                 owner=RuntimeOwner("human", rolled_back_by.strip()),
+                idempotency_key=idempotency_key,
             )
+            self._recover_pending_promotions(context)
+            current = self.promotion()
             try:
-                recovered = self.local_connectors.candidates.recover_promotion(
-                    context
+                retry = self.local_connectors.candidates.promotion_retry_json(
+                    context,
+                    expected_generation=expected_generation,
+                    operation="rollback",
                 )
             except ConnectorError as error:
                 raise _runtime_connector_failure(error) from None
-            current = self.promotion()
-            if recovered and recovered["operation"] == "rollback":
-                return current
-            candidate_id = current.get("previousCandidateId")
+            if retry is not None:
+                candidate_id = retry["candidateId"]
+            elif current["generation"] == expected_generation:
+                candidate_id = current.get("previousCandidateId")
+            else:
+                candidate_id = current.get("candidateId")
             if not isinstance(candidate_id, str):
                 raise RuntimeFailure(
                     "rollback_unavailable",
                     "The current promotion has no previous candidate to restore.",
                     409,
                 )
-            self._promotable_candidate(candidate_id)
+            if current["generation"] == expected_generation:
+                self._promotable_candidate(candidate_id)
             try:
-                self.connectors.candidates.promote(
+                result = self.connectors.candidates.promote(
                     candidate_id,
-                    expected_generation=current["generation"],
+                    expected_generation=expected_generation,
                     operation="rollback",
                     context=context,
                 )
-                promotion = self.local_connectors.candidates.promotion_json(context)
+                promotion = self.local_connectors.candidates.promotion_json(
+                    context,
+                    generation=result.generation,
+                )
             except ConnectorError as error:
                 raise _runtime_connector_failure(error) from None
             assert promotion is not None
@@ -666,10 +713,8 @@ class LocalRuntime:
         work = self.state_directory / "work" / job_id
         context: OperationContext | None = None
         connector: TrainingConnector | None = None
-        usage_attempted = False
         durable_finished = False
         lease = None
-        started = time.monotonic()
         try:
             with self._lock:
                 cancellation = self._job_cancellations.setdefault(job_id, Cancellation())
@@ -679,6 +724,8 @@ class LocalRuntime:
                     max_seconds=job["limits"]["maxSeconds"],
                     owner=RuntimeOwner("worker", "single-node-runtime"),
                     cancellation=cancellation,
+                    max_credits=job["limits"]["maxCredits"],
+                    budget_mode=job["limits"]["budgetMode"],
                 )
                 lease = self.connectors.jobs.acquire(
                     job_id,
@@ -726,54 +773,87 @@ class LocalRuntime:
                 owner=context.owner,
                 deadline=time.monotonic() + 30,
                 cancellation=context.cancellation,
+                max_credits=context.max_credits,
+                budget_mode=context.budget_mode,
             )
             with self._lock:
-                context.cancellation.raise_if_requested()
-                durable = self._job_record(job_id)
-                if durable["state"] == "cancelled":
-                    raise ConnectorError(
-                        "operation_cancelled",
-                        "The operation was cancelled.",
-                        category="cancelled",
-                    )
-                candidate_id = self._persist_candidate(
-                    job, result, taskset_digest=job["tasksetDigest"], context=context
-                )
-                job.update(
-                    state="succeeded",
-                    candidateId=candidate_id,
-                    completedAt=_now(),
-                    updatedAt=_now(),
-                )
-                usage_attempted = True
+                usage = _validated_training_usage(result, context, connector)
+                job["usage"] = [_public_usage(item) for item in usage]
                 try:
-                    self._record_usage(
-                        context,
-                        connector=connector.name,
-                        kind="training_updates",
-                        quantity=result.updates_completed,
-                        unit="updates",
-                        metadata={
-                            "elapsedSeconds": time.monotonic() - started,
-                            "requestedUpdates": job["limits"]["maxUpdates"],
-                            "state": "succeeded",
-                        },
+                    _enforce_training_budget(usage, context)
+                except RuntimeFailure as error:
+                    job.update(
+                        state="failed",
+                        error={"code": error.code, "message": _durable_job_error(error)},
+                        completedAt=_now(),
+                        updatedAt=_now(),
                     )
+                    job = dict(
+                        self.connectors.jobs.update(
+                            job_id,
+                            job,
+                            expected_version=job["version"],
+                            lease=lease,
+                            context=context,
+                        )
+                    )
+                    durable_finished = True
+                else:
+                    context.cancellation.raise_if_requested()
+                    durable = self._job_record(job_id)
+                    if durable["state"] == "cancelled":
+                        raise ConnectorError(
+                            "operation_cancelled",
+                            "The operation was cancelled.",
+                            category="cancelled",
+                        )
+                    candidate_id = self._persist_candidate(
+                        job,
+                        result,
+                        taskset_digest=job["tasksetDigest"],
+                        usage=usage,
+                        context=context,
+                    )
+                    job.update(
+                        state="succeeded",
+                        candidateId=candidate_id,
+                        completedAt=_now(),
+                        updatedAt=_now(),
+                    )
+                    job = dict(
+                        self.connectors.jobs.update(
+                            job_id,
+                            job,
+                            expected_version=job["version"],
+                            lease=lease,
+                            context=context,
+                        )
+                    )
+                    durable_finished = True
+                try:
+                    for index, item in enumerate(usage):
+                        self._record_connector_usage(context, item, index=index)
                 except ConnectorError as usage_error:
                     job["usageError"] = {
                         "code": usage_error.code,
                         "message": "Connector operation failed.",
                     }
-                job = dict(
-                    self.connectors.jobs.update(
-                        job_id,
-                        job,
-                        expected_version=job["version"],
-                        lease=lease,
-                        context=context,
-                    )
-                )
-                durable_finished = True
+                    try:
+                        job = dict(
+                            self.connectors.jobs.update(
+                                job_id,
+                                job,
+                                expected_version=job["version"],
+                                lease=lease,
+                                context=self._operation_context(
+                                    f"usage_error_{job_id}",
+                                    max_seconds=30,
+                                    owner=lease.owner,
+                                ),
+                            )
+                        )
+                    except ConnectorError:
+                        pass
         except Exception as error:
             if isinstance(error, ConnectorError) and error.category == "cancelled":
                 job.update(
@@ -794,27 +874,6 @@ class LocalRuntime:
                     completedAt=_now(),
                     updatedAt=_now(),
                 )
-            if context is not None and connector is not None and not usage_attempted:
-                usage_attempted = True
-                try:
-                    self._record_usage(
-                        context,
-                        connector=connector.name,
-                        kind="training_updates",
-                        quantity=0,
-                        unit="updates",
-                        metadata={
-                            "elapsedSeconds": time.monotonic() - started,
-                            "requestedUpdates": job["limits"]["maxUpdates"],
-                            "state": job["state"],
-                            "actualUpdatesKnown": False,
-                        },
-                    )
-                except ConnectorError as usage_error:
-                    job["usageError"] = {
-                        "code": usage_error.code,
-                        "message": "Connector operation failed.",
-                    }
         finally:
             if context is not None and lease is not None and not durable_finished:
                 try:
@@ -859,6 +918,7 @@ class LocalRuntime:
         result: TrainingResult,
         *,
         taskset_digest: str,
+        usage: tuple[Usage, ...],
         context: OperationContext,
     ) -> str:
         check_context(context)
@@ -888,6 +948,7 @@ class LocalRuntime:
                 self.backends[job["backend"]].production_eligible
             ),
             "metadata": dict(result.metadata),
+            "usage": [_public_usage(item) for item in usage],
         }
         candidate_id = _candidate_id(manifest_identity, result.adapter, report)
         manifest = {"id": candidate_id, **manifest_identity}
@@ -970,6 +1031,22 @@ class LocalRuntime:
         except ConnectorError as error:
             raise _runtime_connector_failure(error) from None
 
+    def _recover_pending_promotions(
+        self, context: OperationContext | None = None
+    ) -> None:
+        selected = context or self._operation_context(
+            f"promotion_recovery_{uuid.uuid4().hex}",
+            max_seconds=30,
+            owner=RuntimeOwner("service", "decision-runtime"),
+        )
+        try:
+            pending = self.local_connectors.candidates.pending_promotions_json(selected)
+            for promotion in pending:
+                self._promotable_candidate(promotion["candidateId"])
+            self.local_connectors.candidates.recover_promotion(selected)
+        except ConnectorError as error:
+            raise _runtime_connector_failure(error) from None
+
     def _promotable_candidate(self, candidate_id: str) -> dict[str, Any]:
         candidate = self.candidate(candidate_id)["manifest"]
         try:
@@ -1007,6 +1084,8 @@ class LocalRuntime:
         owner: RuntimeOwner,
         idempotency_key: str | None = None,
         cancellation: Cancellation | None = None,
+        max_credits: float | None = None,
+        budget_mode: str = "none",
     ) -> OperationContext:
         return OperationContext(
             operation_id=operation_id,
@@ -1015,6 +1094,8 @@ class LocalRuntime:
             owner=owner,
             deadline=time.monotonic() + max_seconds,
             cancellation=cancellation or Cancellation(),
+            max_credits=max_credits,
+            budget_mode=budget_mode,
         )
 
     def _resolve_taskset(self, digest: str):
@@ -1113,9 +1194,23 @@ class LocalRuntime:
                 quantity=quantity,
                 unit=unit,
                 metadata=metadata or {},
+                source="runtime-measured",
             ),
             reporting_context,
         )
+
+    def _record_connector_usage(
+        self, context: OperationContext, usage: Usage, *, index: int
+    ) -> None:
+        reporting_context = OperationContext(
+            operation_id=context.operation_id,
+            idempotency_key=f"{context.idempotency_key}:usage:{index}:{usage.kind}",
+            scope=context.scope,
+            owner=context.owner,
+            deadline=time.monotonic() + 5,
+            cancellation=Cancellation(),
+        )
+        self.observability.record(usage, reporting_context)
 
 def _public_job(job: Mapping[str, Any]) -> dict[str, Any]:
     public = dict(job)
@@ -1291,7 +1386,12 @@ def _taskset_bundle(
         raise RuntimeFailure("invalid_input", str(error)) from None
 
 
-def _check_limits(max_updates: int, max_seconds: float) -> None:
+def _check_limits(
+    max_updates: int,
+    max_seconds: float,
+    max_credits: float,
+    budget_mode: str,
+) -> None:
     if (
         isinstance(max_updates, bool)
         or not isinstance(max_updates, int)
@@ -1308,6 +1408,97 @@ def _check_limits(max_updates: int, max_seconds: float) -> None:
         raise RuntimeFailure(
             "invalid_limit", f"maxSeconds must be from {MIN_SECONDS} to {MAX_SECONDS}."
         )
+    if (
+        isinstance(max_credits, bool)
+        or not isinstance(max_credits, (int, float))
+        or not MIN_CREDITS <= max_credits <= MAX_CREDITS
+    ):
+        raise RuntimeFailure(
+            "invalid_limit",
+            f"maxCredits must be from {MIN_CREDITS} to {MAX_CREDITS}.",
+        )
+    if budget_mode not in BUDGET_MODES:
+        raise RuntimeFailure(
+            "invalid_input",
+            f"budgetMode must be one of {', '.join(BUDGET_MODES)}.",
+        )
+
+
+def _expected_generation(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise RuntimeFailure(
+            "invalid_input", "expectedGeneration must be a non-negative integer."
+        )
+    return value
+
+
+def _validated_training_usage(
+    result: TrainingResult,
+    context: OperationContext,
+    connector: TrainingConnector,
+) -> tuple[Usage, ...]:
+    usage = tuple(result.usage)
+    if not usage:
+        raise RuntimeFailure(
+            "usage_missing",
+            "The training connector did not return authoritative usage.",
+            500,
+        )
+    for item in usage:
+        if (
+            not isinstance(item, Usage)
+            or item.operation_id != context.operation_id
+            or item.scope != context.scope
+            or item.connector != connector.name
+            or item.source == "estimate"
+            or item.cost is None
+            or not isinstance(item.currency, str)
+            or not item.currency.strip()
+        ):
+            raise RuntimeFailure(
+                "usage_invalid",
+                "The training connector returned invalid usage attribution.",
+                500,
+            )
+    return usage
+
+
+def _enforce_training_budget(
+    usage: tuple[Usage, ...],
+    context: OperationContext,
+) -> None:
+    if context.budget_mode == "hard":
+        credit_usage = [
+            item
+            for item in usage
+            if item.kind == "training_credits" and item.unit == "credits"
+        ]
+        if not credit_usage:
+            raise RuntimeFailure(
+                "usage_invalid",
+                "The training connector did not report measured credit usage.",
+                500,
+            )
+        total = sum(item.quantity for item in credit_usage)
+        if context.max_credits is None or total > context.max_credits:
+            raise RuntimeFailure(
+                "credit_budget_exceeded",
+                "The training connector exceeded maxCredits.",
+                409,
+            )
+
+
+def _public_usage(usage: Usage) -> dict[str, Any]:
+    return {
+        "connector": usage.connector,
+        "kind": usage.kind,
+        "quantity": usage.quantity,
+        "unit": usage.unit,
+        "cost": usage.cost,
+        "currency": usage.currency,
+        "source": usage.source,
+        "metadata": dict(usage.metadata),
+    }
 
 
 def _check_request(request: Mapping[str, Any]) -> None:
@@ -1508,6 +1699,8 @@ def _run_backend(
             context.scope,
             context.owner,
             context.deadline,
+            context.max_credits,
+            context.budget_mode,
             credential,
         ),
         name=f"replica-{connector.name}-job",
@@ -1567,6 +1760,8 @@ def _backend_process(
     scope: RuntimeScope,
     owner: RuntimeOwner,
     deadline: float,
+    max_credits: float | None,
+    budget_mode: str,
     credential: Credential | None,
 ) -> None:
     """Load task data afresh and run one serializable connector in a spawned child process."""
@@ -1585,6 +1780,8 @@ def _backend_process(
             owner=owner,
             deadline=deadline,
             cancellation=Cancellation(),
+            max_credits=max_credits,
+            budget_mode=budget_mode,
         )
         result = connector.train(
             taskset,

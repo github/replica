@@ -45,6 +45,20 @@ def _digest(data: bytes) -> ContentDigest:
     return ContentDigest("sha256", hashlib.sha256(data).hexdigest())
 
 
+def _candidate(name: str) -> Candidate:
+    artifact = Artifact(
+        digest=_digest(name.encode()),
+        media_type="application/octet-stream",
+        data=name.encode(),
+    )
+    return Candidate(
+        id=f"candidate_{name}",
+        digest=_digest(f"candidate:{name}".encode()),
+        manifest={"name": name, "artifact": str(artifact.digest)},
+        artifacts=(artifact,),
+    )
+
+
 def _taskset_bundle():
     task = make_task(1)
     return TasksetBundle(
@@ -90,6 +104,8 @@ def _context(
     key: str | None = None,
     deadline: float | None = None,
     cancellation: Cancellation | None = None,
+    max_credits: float | None = None,
+    budget_mode: str = "none",
 ) -> OperationContext:
     return OperationContext(
         operation_id=operation_id,
@@ -98,6 +114,8 @@ def _context(
         owner=RuntimeOwner("worker", "contract-test"),
         deadline=deadline if deadline is not None else time.monotonic() + 5,
         cancellation=cancellation or Cancellation(),
+        max_credits=max_credits,
+        budget_mode=budget_mode,
     )
 
 
@@ -472,10 +490,15 @@ class _MemoryCandidates:
         context,
     ):
         _check_context(context)
-        self.get(candidate_id, context)
         scope = _scope_key(context.scope)
         retry_key = (scope, context.idempotency_key)
-        request = (candidate_id, expected_generation, operation)
+        request = (
+            candidate_id,
+            expected_generation,
+            operation,
+            context.owner.kind,
+            context.owner.id,
+        )
         prior = self._promotion_idempotency.get(retry_key)
         if prior is not None:
             if prior[0] != request:
@@ -493,6 +516,7 @@ class _MemoryCandidates:
                 "The promotion generation changed.",
                 category="conflict",
             )
+        self.get(candidate_id, context)
         promoted = Promotion(
             generation + 1,
             candidate_id,
@@ -512,6 +536,7 @@ class _MemoryCandidates:
 class _MemoryExecution:
     name = "contract"
     production_eligible = True
+    supports_hard_credit_budget = True
 
     def __init__(self):
         self.training_contexts = []
@@ -530,13 +555,31 @@ class _MemoryExecution:
         _check_context(context)
         _check_credential(credential, "training", context)
         self.training_contexts.append(context)
+        completed = (
+            min(max_updates, int(context.max_credits))
+            if context.budget_mode == "hard"
+            else max_updates
+        )
         return TrainingResult(
             adapter_name="adapter.bin",
             adapter=b"adapter",
             baseline_report={"meanReward": 0.5},
             candidate_report={"meanReward": 0.75},
             metadata={"operationId": context.operation_id},
-            updates_completed=max_updates,
+            updates_completed=completed,
+            usage=(
+                Usage(
+                    operation_id=context.operation_id,
+                    scope=context.scope,
+                    connector=self.name,
+                    kind="training_credits",
+                    quantity=float(completed),
+                    unit="credits",
+                    cost=float(completed) / 10,
+                    currency="USD",
+                    source="contract-connector",
+                ),
+            ),
         )
 
     def predict(self, adapter, request, *, context, credential):
@@ -853,6 +896,32 @@ class _DeadlineBlindExecution(_MemoryExecution):
         return {"operationId": context.operation_id}
 
 
+class _BudgetBlindExecution(_MemoryExecution):
+    def train(self, *args, max_updates, context, **kwargs):
+        result = super().train(
+            *args,
+            max_updates=max_updates,
+            context=replace(context, max_credits=None, budget_mode="none"),
+            **kwargs,
+        )
+        return replace(
+            result,
+            usage=(
+                replace(
+                    result.usage[0],
+                    operation_id=context.operation_id,
+                    scope=context.scope,
+                    quantity=float(max_updates),
+                ),
+            ),
+        )
+
+
+class _MissingUsageExecution(_MemoryExecution):
+    def train(self, *args, **kwargs):
+        return replace(super().train(*args, **kwargs), usage=())
+
+
 class _AlwaysFailingInference(_MemoryExecution):
     def predict(self, adapter, request, *, context, credential):
         del adapter, request, context, credential
@@ -967,6 +1036,18 @@ class ConnectorConformanceTest(unittest.TestCase):
         self._assert_suite_rejects(
             bundle,
             "taskset registration that trusts an incorrect claimed digest",
+        )
+
+    def test_shared_suite_rejects_training_that_ignores_a_hard_budget(self):
+        self._assert_suite_rejects(
+            lambda: _bundle_with(execution=_BudgetBlindExecution()),
+            "a training connector that exceeds a hard credit budget",
+        )
+
+    def test_shared_suite_rejects_training_without_authoritative_usage(self):
+        self._assert_suite_rejects(
+            lambda: _bundle_with(execution=_MissingUsageExecution()),
+            "a training connector that omits authoritative usage",
         )
 
     def test_shared_suite_rejects_unrelated_registered_taskset_content(self):
@@ -1114,6 +1195,72 @@ class ConnectorConformanceTest(unittest.TestCase):
         )
 
         self.assertNotIn("secret-value", repr(credential))
+
+    def test_promotion_cas_rejects_stale_missing_candidate_before_lookup(self):
+        bundle = _MemoryBundle()
+        connector = bundle.connectors.candidates
+        first = connector.put(
+            _candidate("generation-one"),
+            _context(bundle.scope, "store-generation-one"),
+        )
+        promoted = connector.promote(
+            first.id,
+            expected_generation=0,
+            operation="promote",
+            context=_context(bundle.scope, "promote-generation-one"),
+        )
+
+        with self.assertRaises(ConnectorError) as stale:
+            connector.promote(
+                "candidate_missing",
+                expected_generation=0,
+                operation="promote",
+                context=_context(bundle.scope, "stale-missing-candidate"),
+            )
+
+        self.assertEqual(stale.exception.code, "promotion_generation_conflict")
+        self.assertEqual(
+            connector.current(_context(bundle.scope, "current-promotion")),
+            promoted,
+        )
+
+    def test_budget_context_and_training_result_keep_authoritative_usage(self):
+        bundle = _MemoryBundle()
+        context = _context(
+            bundle.scope,
+            "hard-budget-training",
+            max_credits=2,
+            budget_mode="hard",
+        )
+        credential = bundle.connectors.credentials.acquire("training", context)
+        with TemporaryDirectory() as work:
+            result = bundle.execution.train(
+                bundle.taskset,
+                Path(work),
+                max_updates=2,
+                context=context,
+                credential=credential,
+            )
+
+        self.assertEqual(context.max_credits, 2)
+        self.assertEqual(context.budget_mode, "hard")
+        self.assertEqual(len(result.usage), 1)
+        self.assertEqual(
+            (
+                result.usage[0].quantity,
+                result.usage[0].unit,
+                result.usage[0].cost,
+                result.usage[0].currency,
+                result.usage[0].source,
+            ),
+            (2.0, "credits", 0.2, "USD", "contract-connector"),
+        )
+        with self.assertRaises(ValueError):
+            _context(
+                bundle.scope,
+                "missing-hard-cap",
+                budget_mode="hard",
+            )
 
     def _assert_suite_rejects(self, create_bundle, regression):
         result, output = self._run_suite(create_bundle)
