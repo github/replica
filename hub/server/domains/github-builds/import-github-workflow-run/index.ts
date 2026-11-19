@@ -1,6 +1,8 @@
 import { completeGitHubBuildFailure } from "../../../repositories/github-builds/complete-github-build-failure/index.ts"
 import { markGitHubBuildRunning } from "../../../repositories/github-builds/mark-github-build-running/index.ts"
 import { recordGitHubBuildRunCompletion } from "../../../repositories/github-builds/record-github-build-run-completion/index.ts"
+import { BuildPackageError } from "../../build-artifacts/errors.ts"
+import { extractScreenshotPackage } from "../../build-artifacts/extract-screenshot-package/index.ts"
 import { registerImportedPrototype } from "../../prototypes/register-imported-prototype/index.ts"
 import type {
   GitHubWorkflowArtifact,
@@ -17,14 +19,16 @@ import { importGitHubScreenshotPackage } from "../import-github-screenshot-packa
 import { prepareGitHubWorkflowRunBuild } from "../prepare-github-workflow-run-build/index.ts"
 import type { ImportGitHubWorkflowRunDependencies, ImportGitHubWorkflowRunResult } from "./types.ts"
 
-function newest(artifacts: GitHubWorkflowArtifact[], run: GitHubWorkflowRun) {
+/** Splits retained artifacts into this attempt's newest and an earlier attempt's newest. */
+function byAttempt(artifacts: GitHubWorkflowArtifact[], run: GitHubWorkflowRun) {
   const retained = artifacts.filter((artifact) => !artifact.expired).sort((a, b) => b.id - a.id)
-  // Prefer this attempt, but failed-jobs reruns may retain an earlier job's artifact.
-  return (
-    retained.find(
-      (artifact) => run.startedAt && artifact.createdAt && artifact.createdAt >= run.startedAt,
-    ) ?? retained[0]
-  )
+  function isCurrent(artifact: GitHubWorkflowArtifact) {
+    return !run.startedAt || (!!artifact.createdAt && artifact.createdAt >= run.startedAt)
+  }
+  return {
+    current: retained.find(isCurrent),
+    earlier: retained.find((artifact) => !isCurrent(artifact)),
+  }
 }
 
 /**
@@ -42,7 +46,7 @@ export async function importGitHubWorkflowRun(
   const run = found
   const prepared = await prepareGitHubWorkflowRunBuild(database, job.githubRepositoryId, run)
   if (prepared.status !== "ready") return { dist: "ignored", screenshots: "absent" }
-  const { buildId, buildRun, ownsBuild, state } = prepared
+  const { buildId, buildRun, distDigest, ownsBuild, state } = prepared
   const completed = run.status === "completed"
   const completedAt = completed ? run.updatedAt : null
 
@@ -57,41 +61,87 @@ export async function importGitHubWorkflowRun(
     return "failed" as const
   }
 
+  const downloads = new Map<number, ReturnType<typeof client.downloadArtifact>>()
+  function download(artifact: GitHubWorkflowArtifact) {
+    let pending = downloads.get(artifact.id)
+    if (!pending) {
+      pending = client.downloadArtifact(artifact.id, maximumArtifactDownloadBytes)
+      downloads.set(artifact.id, pending)
+    }
+    return pending
+  }
+
+  async function screenshotArtifacts() {
+    return byAttempt(await client.listRunArtifacts(run.id, screenshotArtifactName), run)
+  }
+
+  /** This attempt's screenshots name the dist its screenshots job downloaded. */
+  async function currentScreenshotDistDigest() {
+    const artifact = (await screenshotArtifacts()).current
+    if (!artifact) return null
+    const downloaded = await download(artifact)
+    if (downloaded.status !== "ok") return null
+    try {
+      return extractScreenshotPackage(downloaded.bytes).distDigest
+    } catch (error) {
+      if (error instanceof BuildPackageError) return null
+      throw error
+    }
+  }
+
+  async function missingDist(reason: string) {
+    if (!completed) {
+      await markGitHubBuildRunning(database, buildId, buildRun)
+      return "pending" as const
+    }
+    return fail(
+      run.conclusion === "success"
+        ? reason
+        : `The GitHub Actions workflow run ended with ${run.conclusion ?? "no conclusion"}.`,
+    )
+  }
+
   async function importDist(): Promise<ImportGitHubWorkflowRunResult["dist"]> {
     if (!ownsBuild || state === "successful") return "unchanged"
-    const artifact = newest(await client.listRunArtifacts(run.id, distArtifactName), run)
-    if (!artifact) {
-      if (!completed) {
-        await markGitHubBuildRunning(database, buildId, buildRun)
-        return "pending"
-      }
-      return fail(
-        run.conclusion === "success"
-          ? `GitHub Actions did not provide the ${distArtifactName} artifact.`
-          : `The GitHub Actions workflow run ended with ${run.conclusion ?? "no conclusion"}.`,
-      )
+    const dists = byAttempt(await client.listRunArtifacts(run.id, distArtifactName), run)
+    let artifact = dists.current
+    let expectedDistDigest: string | undefined
+    if (!artifact && dists.earlier) {
+      // A failed-jobs rerun keeps an earlier attempt's dist, but a full rerun may still be
+      // building a different one. Reuse it only when this attempt vouches for its digest.
+      expectedDistDigest = distDigest ?? (await currentScreenshotDistDigest()) ?? undefined
+      if (expectedDistDigest) artifact = dists.earlier
     }
-    const download = await client.downloadArtifact(artifact.id, maximumArtifactDownloadBytes)
-    if (download.status === "gone") {
+    if (!artifact) {
+      return missingDist(`GitHub Actions did not provide the ${distArtifactName} artifact.`)
+    }
+    const downloaded = await download(artifact)
+    if (downloaded.status === "gone") {
       return fail(`The ${distArtifactName} artifact expired before Hub imported it.`)
     }
-    if (download.status === "too-large") {
+    if (downloaded.status === "too-large") {
       return fail(`The ${distArtifactName} artifact is larger than Hub accepts.`)
     }
     const result = await importGitHubDistPackage(
       dependencies,
-      { buildId, run: buildRun, completedAt },
-      download.bytes,
+      { buildId, run: buildRun, completedAt, expectedDistDigest },
+      downloaded.bytes,
     )
+    if (result.status === "digest-mismatch") {
+      return missingDist(
+        `The earlier ${distArtifactName} artifact does not match this attempt's screenshots.`,
+      )
+    }
     return result.status
   }
 
   async function importScreenshots(): Promise<ImportGitHubWorkflowRunResult["screenshots"]> {
-    const artifact = newest(await client.listRunArtifacts(run.id, screenshotArtifactName), run)
+    const artifacts = await screenshotArtifacts()
+    const artifact = artifacts.current ?? artifacts.earlier
     if (!artifact) return "absent"
-    const download = await client.downloadArtifact(artifact.id, maximumArtifactDownloadBytes)
-    if (download.status !== "ok") return "invalid"
-    return (await importGitHubScreenshotPackage(dependencies, buildId, download.bytes)).status
+    const downloaded = await download(artifact)
+    if (downloaded.status !== "ok") return "invalid"
+    return (await importGitHubScreenshotPackage(dependencies, buildId, downloaded.bytes)).status
   }
 
   const dist = await importDist()

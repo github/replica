@@ -16,6 +16,8 @@ export async function importGitHubDistPackage(
     buildId: string
     run: GitHubBuildRun
     completedAt: Date | null
+    /** Rejects the package before storage unless its dist has this digest. */
+    expectedDistDigest?: string
   },
   bytes: Buffer,
 ) {
@@ -37,6 +39,9 @@ export async function importGitHubDistPackage(
       "GitHub Build import failed",
     )
     return { status: "failed" as const, reason: error.message }
+  }
+  if (target.expectedDistDigest && extracted.distDigest !== target.expectedDistDigest) {
+    return { status: "digest-mismatch" as const }
   }
   const artifacts = await storeGitHubBuildFiles(storage, buildId, extracted.files)
   const imported = await completeGitHubBuildSuccess(database, {

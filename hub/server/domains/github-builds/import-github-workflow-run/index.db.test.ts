@@ -568,6 +568,80 @@ describe("importGitHubWorkflowRun", () => {
     },
   )
 
+  it("waits for a full rerun's own dist instead of importing an earlier attempt's", async () => {
+    const fixture = await createFixture()
+    fixture.run.runAttempt = 2
+    const startedAt = new Date("2026-01-01T00:02:00Z")
+    fixture.run.startedAt = startedAt
+    const earlier = { id: 999, sizeInBytes: 1, expired: false, createdAt: new Date(0) }
+    const current = distPackage("<h1>Current attempt</h1>")
+    let currentUploaded = false
+    vi.spyOn(fixture.client, "listRunArtifacts").mockImplementation((_runId, name) =>
+      Promise.resolve(
+        name !== distArtifactName
+          ? []
+          : [
+              { ...earlier, name },
+              ...(currentUploaded ? [{ ...earlier, id: 1, name, createdAt: startedAt }] : []),
+            ],
+      ),
+    )
+    vi.spyOn(fixture.client, "downloadArtifact").mockImplementation((id) =>
+      Promise.resolve({
+        status: "ok",
+        bytes: Buffer.from(id === 1 ? current : distPackage("<h1>Earlier attempt</h1>")),
+      }),
+    )
+    const write = vi.spyOn(fixture.storage, "write")
+
+    await expect(fixture.importRun()).resolves.toEqual({ dist: "pending", screenshots: "absent" })
+    expect(write).not.toHaveBeenCalled()
+    currentUploaded = true
+    await expect(fixture.importRun()).resolves.toMatchObject({ dist: "imported" })
+    expect(await fixture.findBuild()).toMatchObject({
+      state: "successful",
+      distDigest: extractDistPackage(current).distDigest,
+    })
+  })
+
+  it("fails without storing an earlier attempt's dist that this attempt's screenshots do not depict", async () => {
+    const fixture = await createFixture()
+    fixture.run.runAttempt = 2
+    const startedAt = new Date("2026-01-01T00:02:00Z")
+    fixture.run.startedAt = startedAt
+    fixture.run.status = "completed"
+    fixture.run.conclusion = "success"
+    vi.spyOn(fixture.client, "listRunArtifacts").mockImplementation((_runId, name) =>
+      Promise.resolve([
+        {
+          id: name === distArtifactName ? 999 : 2,
+          name,
+          sizeInBytes: 1,
+          expired: false,
+          createdAt: name === distArtifactName ? new Date(0) : startedAt,
+        },
+      ]),
+    )
+    vi.spyOn(fixture.client, "downloadArtifact").mockImplementation((id) =>
+      Promise.resolve({
+        status: "ok",
+        bytes: Buffer.from(
+          id === 999 ? distPackage() : screenshotPackage("sha256:" + "0".repeat(64)),
+        ),
+      }),
+    )
+    const write = vi.spyOn(fixture.storage, "write")
+
+    await expect(fixture.importRun()).resolves.toMatchObject({ dist: "failed" })
+    expect(write).not.toHaveBeenCalled()
+    expect(await fixture.findBuild()).toMatchObject({
+      state: "failed",
+      distDigest: null,
+      artifacts: [],
+      failureSummary: `The earlier ${distArtifactName} artifact does not match this attempt's screenshots.`,
+    })
+  })
+
   it("imports the current attempt's dist even when an older attempt's artifact has a higher ID", async () => {
     const fixture = await createFixture()
     fixture.run.runAttempt = 2
