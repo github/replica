@@ -21,7 +21,6 @@ describe("createDecisionModelStore()", () => {
         runtimeConnector: "fixture",
         runtimeReference: "taskset:1",
         grantIds: ["grant-secondary"],
-        tasksetDigest,
         useState: "ready",
         retention: {},
         disclosedAt: new Date(),

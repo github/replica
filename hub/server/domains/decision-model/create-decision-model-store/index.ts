@@ -89,15 +89,16 @@ export function createDecisionModelStore(
         select: { grantId: true },
       }),
       database.decisionRuntimeCopy.findMany({
-        where: { repositoryId, tasksetDigest },
-        select: { grantIds: true },
+        where: { repositoryId },
+        select: { grantIds: true, tasksetDigest: true },
       }),
     ])
     const withdrawn = new Set(deletions.flatMap(({ grantId }) => (grantId ? [grantId] : [])))
     return copies.some(
-      ({ grantIds }) =>
+      ({ grantIds, tasksetDigest: copyTasksetDigest }) =>
         Array.isArray(grantIds) &&
-        grantIds.some((grantId) => typeof grantId === "string" && withdrawn.has(grantId)),
+        grantIds.some((grantId) => typeof grantId === "string" && withdrawn.has(grantId)) &&
+        (copyTasksetDigest === null || copyTasksetDigest === tasksetDigest),
     )
   }
 
