@@ -6,6 +6,7 @@ import { HubContentPageHeader } from "@components/hub-content-page-header"
 import { HubCounter } from "@components/hub-counter"
 import { HubToast } from "@components/hub-toast"
 import { HubUserAvatar } from "@components/hub-user-avatar"
+import { DecisionModelPanel } from "@features/decision-model-panel"
 import { RepositoryWorkspace } from "@features/repository-workspace"
 import { ReviewRelativeTime } from "@features/review-relative-time"
 
@@ -15,7 +16,13 @@ import "./styles.css"
 type Copy = Extract<LearningsPageData, { accessDenied: false }>["copy"]
 
 /** Shows what Hub suggests and what agents get, so a repository administrator decides both. */
-export function LearningsPage({ data }: { data: LearningsPageData }) {
+export function LearningsPage({
+  data,
+  decisionModelActionRevision = 0,
+}: {
+  data: LearningsPageData
+  decisionModelActionRevision?: number
+}) {
   return (
     <RepositoryWorkspace data={data}>
       {data.accessDenied ? (
@@ -24,13 +31,19 @@ export function LearningsPage({ data }: { data: LearningsPageData }) {
           <HubAlert title={data.accessDeniedLabel} variant="warning" />
         </div>
       ) : (
-        <LearningsContent data={data} />
+        <LearningsContent data={data} decisionModelActionRevision={decisionModelActionRevision} />
       )}
     </RepositoryWorkspace>
   )
 }
 
-function LearningsContent({ data }: { data: Extract<LearningsPageData, { accessDenied: false }> }) {
+function LearningsContent({
+  data,
+  decisionModelActionRevision,
+}: {
+  data: Extract<LearningsPageData, { accessDenied: false }>
+  decisionModelActionRevision: number
+}) {
   const copy = data.copy
 
   return (
@@ -175,6 +188,27 @@ function LearningsContent({ data }: { data: Extract<LearningsPageData, { accessD
           <Text as="p">{copy.runsEmpty}</Text>
         )}
       </section>
+
+      <DecisionModelPanel
+        key={
+          data.decisionModel.state === "available"
+            ? [
+                data.decisionModel.settingsPath,
+                data.decisionModel.configuration?.generation ?? "new",
+                data.decisionModel.promotion?.generation ?? 0,
+                data.decisionModel.activeJob?.id ?? "idle",
+                data.decisionModel.activeJob?.state ?? "idle",
+                data.decisionModel.readiness.latestTasksetDigest ?? "no-taskset",
+                data.decisionModel.candidates
+                  .map((candidate) => `${candidate.id}:${candidate.rejection?.rejectedAt ?? ""}`)
+                  .join(","),
+                decisionModelActionRevision,
+              ].join(":")
+            : `${data.selectedRepositoryId}:${data.decisionModel.state}:${decisionModelActionRevision}`
+        }
+        data={data.decisionModel}
+        authenticityToken={data.authenticityToken}
+      />
     </div>
   )
 }
