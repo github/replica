@@ -1892,7 +1892,7 @@ class AzureObservabilityConnector(_AzureScopedConnector):
             "source": usage.source,
             **metadata,
         }
-        self.sink.emit("replica.decision.usage", attributes)
+        self._emit("replica.decision.usage", attributes)
 
     def record_operation(
         self,
@@ -1909,7 +1909,7 @@ class AzureObservabilityConnector(_AzureScopedConnector):
             if key in _SAFE_USAGE_METADATA
             and isinstance(value, (str, int, float, bool, type(None)))
         }
-        self.sink.emit(
+        self._emit(
             "replica.decision.operation",
             {
                 "event": "replica.decision.operation",
@@ -1925,6 +1925,17 @@ class AzureObservabilityConnector(_AzureScopedConnector):
                 **safe_metadata,
             },
         )
+
+    def _emit(self, name: str, attributes: Mapping[str, Any]) -> None:
+        try:
+            self.sink.emit(name, attributes)
+        except Exception as error:
+            raise ConnectorError(
+                "azure_observability_unavailable",
+                "The Azure observability sink is unavailable.",
+                category="unavailable",
+                retryable=True,
+            ) from error
 
 
 @dataclass(frozen=True)

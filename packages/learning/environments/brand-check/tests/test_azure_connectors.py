@@ -848,6 +848,12 @@ class _TelemetrySink:
         self.records.append((name, attributes))
 
 
+class _FailingTelemetrySink:
+    def emit(self, name, attributes):
+        del name, attributes
+        raise RuntimeError("telemetry unavailable")
+
+
 class AzureBlobArtifactConnectorTest(unittest.TestCase):
     def test_scopes_digest_keys_and_refuses_immutable_content_replacement(self):
         blobs = _BlobService()
@@ -1569,6 +1575,33 @@ class AzureIdentityAndObservabilityConnectorTest(unittest.TestCase):
                     connector.record(usage, context)
                 self.assertEqual(refused.exception.category, "invalid_input")
         self.assertFalse(sink.records)
+
+    def test_telemetry_sink_failures_use_the_connector_error_contract(self):
+        connector = AzureObservabilityConnector(
+            _FailingTelemetrySink(),
+            self.scope,
+        )
+        context = _context(self.scope, "failed-telemetry")
+        usage = Usage(
+            operation_id=context.operation_id,
+            scope=self.scope,
+            connector="azure-training",
+            kind="gpu_seconds",
+            quantity=1,
+            unit="seconds",
+        )
+
+        with self.assertRaises(ConnectorError) as usage_error:
+            connector.record(usage, context)
+        self.assertEqual(usage_error.exception.code, "azure_observability_unavailable")
+        self.assertTrue(usage_error.exception.retryable)
+
+        with self.assertRaises(ConnectorError) as operation_error:
+            connector.record_operation("training", "failed", context)
+        self.assertEqual(
+            operation_error.exception.code,
+            "azure_observability_unavailable",
+        )
 
 
 class _CleanupSuite(unittest.TestSuite):
