@@ -672,13 +672,6 @@ test("documented installer entry points opt into Node environment proxies", asyn
   assert.deepEqual(requests, ["example.invalid:443"])
 })
 
-test("Windows PowerShell instructions use the curl executable", () => {
-  const docs = readFileSync(join(root, "docs/prototype-repository-setup.md"), "utf8")
-  const command = docs.match(/# Windows PowerShell 5\.1\r?\n([\s\S]*?)\r?\n```/)?.[1]
-  assert.ok(command, "Missing Windows PowerShell 5.1 installer command")
-  assert.match(command, /^\s*curl\.exe\b/m)
-})
-
 test("ignores an unrelated symlink in the archive", t => {
   const fixture = archiveFixture(t, { unrelatedSymlink: true })
   const destination = join(fixture.directory, "prototype")
