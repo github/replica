@@ -3,6 +3,7 @@ import { z } from "zod"
 
 import { hubSessionCookieName } from "../../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../../../../integrations/express/read-cookie/index.ts"
+import { GitHubProviderRequestError } from "../../../../../integrations/github/errors.ts"
 import type { CurrentSessionDependencies } from "../../../auth/types.ts"
 import { readProductSession } from "../../../product/read-product-session/index.ts"
 import { readProductWithCurrentAuthority } from "../../../product/read-product-with-current-authority/index.ts"
@@ -39,6 +40,10 @@ export function get(
       }
       response.json(read.result)
     } catch (error) {
+      if (error instanceof GitHubProviderRequestError) {
+        response.status(503).json({ error: "GitHub repository access is unavailable." })
+        return
+      }
       next(error)
     }
   }

@@ -35,6 +35,8 @@ export const repositorySchema = z.object({
       reviewPrototypes: z.boolean(),
       manageSharing: z.boolean(),
       managePrototypeListings: z.boolean().optional(),
+      administerRepository: z.boolean().optional(),
+      repositoryPermissionUnavailable: z.boolean().optional(),
     })
     .optional(),
 })

@@ -87,6 +87,7 @@ export interface CurrentSessionDependencies {
   findGitHubRepositoryAccessDenial?(sessionDigest: string): Promise<{ login: string | null } | null>
   readGitHubRepositoryDenialNotice?(value: string): { login: string } | null
   restore(sessionDigest: string): Promise<{
+    externalIdentityId?: string | null
     membershipId: string
     userId: string
     provider: string

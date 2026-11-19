@@ -9,6 +9,7 @@ model Repository {
   branchHeadObservations     BranchHeadObservation[]
   reviewThreads              ReviewThread[]
   accessGrants               RepositoryAccessGrant[]
+  securityAudits             SecurityAudit[]
 
   // Attribute columns
   githubRepositoryId BigInt?   @unique @map("github_repository_id")

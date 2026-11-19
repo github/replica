@@ -10,6 +10,8 @@ export function workspaceNavigation(
   real = false,
 ): Omit<HubWorkspaceData, "repository"> {
   const admin = workspace.capabilities?.administerHub
+  const repositoryAdmin = workspace.repositories.find(({ id }) => id === repositoryId)?.capabilities
+    ?.administerRepository
   const unreadCount = workspace.navigation?.notificationsUnreadCount ?? 0
   return {
     accountMenuLabel: `Account menu for ${
@@ -74,8 +76,13 @@ export function workspaceNavigation(
           ]
       : [],
     securityAuditLabel: "Security audit",
-    securityAuditPath:
-      !real && (admin || repositoryId !== null)
+    securityAuditPath: real
+      ? repositoryAdmin && repositoryId
+        ? `/settings/audit?scope=repository&repositoryId=${encodeURIComponent(repositoryId)}`
+        : admin
+          ? "/settings/audit?scope=hub"
+          : null
+      : admin || repositoryId !== null
         ? resourcePath("/settings/audit", search, {
             repositoryId,
             scope: admin ? "hub" : "repository",

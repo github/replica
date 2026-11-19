@@ -63,6 +63,12 @@ function actorFor(record: SecurityAuditListRecord) {
       const parsed = actorContextSchema.safeParse(record.context)
       return parsed.success ? { membershipId: parsed.data.actorMembershipId } : null
     }
+    case "prototype.registered":
+    case "share_link.created":
+    case "share_link.revoked": {
+      const parsed = actorContextSchema.safeParse(record.context)
+      return parsed.success ? { membershipId: parsed.data.actorMembershipId } : null
+    }
     case "learning.accept":
     case "learning.accept.requested":
     case "learning.reject":

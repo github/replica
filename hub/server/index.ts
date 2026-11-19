@@ -162,6 +162,9 @@ try {
                 ? authenticationEnvironment.HUB_APPLICATION_ORIGIN
                 : undefined,
               scopeGitHubMembers: authenticationConfiguration.githubConfigured,
+              githubRepositoryCredentials: authentication.github
+                ? readGitHubAppConfiguration(authenticationEnvironment).appCredentials
+                : undefined,
               onReviewCommentDeleted: (input) => learningDependencies.redactComment(input),
               previewBaseOrigin: previewConfigured
                 ? authenticationEnvironment.HUB_PREVIEW_ORIGIN

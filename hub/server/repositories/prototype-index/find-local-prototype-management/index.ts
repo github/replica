@@ -3,9 +3,16 @@ import type { PrismaClient } from "../../../generated/prisma/client.ts"
 export async function findLocalPrototypeManagement(
   database: Pick<PrismaClient, "repository">,
   repositoryId: string,
+  source: "local" | "github" = "local",
 ) {
   const record = await database.repository.findFirst({
-    where: { id: repositoryId, localPath: { not: null }, removedAt: null },
+    where: {
+      id: repositoryId,
+      removedAt: null,
+      ...(source === "local"
+        ? { localPath: { not: null } }
+        : { localPath: null, githubRepositoryId: { not: null } }),
+    },
     select: {
       id: true,
       nameWithOwner: true,

@@ -1,6 +1,10 @@
 model SecurityAudit {
   // ID columns
-  id String @id @default(uuid()) @db.Uuid
+  id           String  @id @default(uuid()) @db.Uuid
+  repositoryId String? @map("repository_id") @db.Uuid
+
+  // Relations
+  repository Repository? @relation(fields: [repositoryId], references: [id], onDelete: Restrict)
 
   // Attribute columns
   action     String                @db.VarChar(100)
@@ -15,5 +19,6 @@ model SecurityAudit {
 
   @@index([action, createdAt])
   @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([repositoryId, createdAt(sort: Desc), id(sort: Desc)])
   @@map("security_audits")
 }

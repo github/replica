@@ -13,6 +13,7 @@ const inputSchema = z
       .strict()
       .optional(),
     limit: z.number().int().min(1).max(50).default(50),
+    repositoryId: z.uuid().optional(),
   })
   .strict()
 
@@ -22,18 +23,21 @@ export async function listSecurityAudits(
 ): Promise<SecurityAuditListResult> {
   const parsed = inputSchema.parse(input)
   const rows = await database.securityAudit.findMany({
-    where: parsed.before
-      ? {
-          createdAt: { lte: parsed.before.createdAt },
-          OR: [
-            { createdAt: { lt: parsed.before.createdAt } },
-            {
-              createdAt: parsed.before.createdAt,
-              id: { lt: parsed.before.id },
-            },
-          ],
-        }
-      : undefined,
+    where: {
+      repositoryId: parsed.repositoryId ?? null,
+      ...(parsed.before
+        ? {
+            createdAt: { lte: parsed.before.createdAt },
+            OR: [
+              { createdAt: { lt: parsed.before.createdAt } },
+              {
+                createdAt: parsed.before.createdAt,
+                id: { lt: parsed.before.id },
+              },
+            ],
+          }
+        : {}),
+    },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     select: {
       action: true,

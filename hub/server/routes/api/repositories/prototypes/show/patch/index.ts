@@ -5,6 +5,7 @@ import { hashAuthenticationValue } from "../../../../../../domains/authenticatio
 import { PrototypeMetadataError } from "../../../../../../domains/prototypes/errors.ts"
 import { hubSessionCookieName } from "../../../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../../../../../integrations/express/read-cookie/index.ts"
+import { GitHubProviderRequestError } from "../../../../../../integrations/github/errors.ts"
 import type { CurrentSessionDependencies } from "../../../../auth/types.ts"
 import { readProductSession } from "../../../../product/read-product-session/index.ts"
 import type { ProductRouteDependencies } from "../../../../product/types.ts"
@@ -55,6 +56,10 @@ export function patch(
         showPrototypeInfo: false,
       })
     } catch (error) {
+      if (error instanceof GitHubProviderRequestError) {
+        response.status(503).json({ error: "GitHub repository access is unavailable." })
+        return
+      }
       if (error instanceof PrototypeMetadataError) {
         response.status(errorStatus[error.code]).json({ error: error.message })
         return

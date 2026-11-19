@@ -1,12 +1,15 @@
 import type { RequestHandler } from "express"
+import { z } from "zod"
 
+import { authorizeRepositoryReview } from "../../../../domains/review-comments/authorize-repository-review/index.ts"
 import { hubSessionCookieName } from "../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../../../integrations/express/read-cookie/index.ts"
+import { GitHubProviderRequestError } from "../../../../integrations/github/errors.ts"
+import { canWriteRepository } from "../../../../utils/can-write-repository/index.ts"
 import type { CurrentSessionDependencies } from "../../auth/types.ts"
 import { readProductSession } from "../../product/read-product-session/index.ts"
 import { readProductWithCurrentAuthority } from "../../product/read-product-with-current-authority/index.ts"
 import type { ProductRouteDependencies } from "../../product/types.ts"
-import { authorizeRepositoryReview } from "../../../../domains/review-comments/authorize-repository-review/index.ts"
 
 export function get(
   session: CurrentSessionDependencies,
@@ -21,25 +24,56 @@ export function get(
         response.status(401).json({ error: "Sign in to continue." })
         return
       }
-      const read = await readProductWithCurrentAuthority(initial, cookie, session, (viewer) =>
-        product.listRepositories(viewer),
+      const selectedRepository = z.uuid().safeParse(request.query.repositoryId)
+      const read = await readProductWithCurrentAuthority(
+        initial,
+        cookie,
+        session,
+        async (viewer) => {
+          const repositories = await product.listRepositories(viewer)
+          const selected = selectedRepository.success
+            ? repositories.find(({ id }) => id === selectedRepository.data)
+            : undefined
+          let permission = "none"
+          let permissionUnavailable = false
+          if (selected) {
+            try {
+              permission = (await product.getRepositoryPermission?.(viewer, selected.id)) ?? "none"
+            } catch (error) {
+              if (!(error instanceof GitHubProviderRequestError)) throw error
+              // Permission uncertainty must not hide an otherwise readable gallery.
+              permissionUnavailable = true
+            }
+          }
+          return { repositories, selected, permission, permissionUnavailable }
+        },
       )
       if (!read) {
         response.status(401).json({ error: "Sign in to continue." })
         return
       }
-      const { current, result: repositories } = read
+      const {
+        current,
+        result: { repositories, selected, permission, permissionUnavailable },
+      } = read
       const presentedRepositories = repositories.map(({ localPath, ...repository }) => ({
         ...repository,
         capabilities: {
           reviewPrototypes: authorizeRepositoryReview(current, { localPath }).canView,
           manageSharing: current.provider === "local" && Boolean(localPath) && manageSharing,
-          ...(product.findLocalPrototypeManagement &&
-          current.provider === "local" &&
-          current.role === "ADMINISTRATOR" &&
-          localPath
+          ...((product.findPrototypeManagement || product.findLocalPrototypeManagement) &&
+          ((repository.id === selected?.id && canWriteRepository(permission)) ||
+            (current.sessionProvider === "local" && current.role === "ADMINISTRATOR" && localPath))
             ? { managePrototypeListings: true }
             : {}),
+          ...(repository.id === selected?.id
+            ? {
+                administerRepository: permission === "admin",
+                ...(permissionUnavailable ? { repositoryPermissionUnavailable: true } : {}),
+              }
+            : current.sessionProvider === "local" && current.role === "ADMINISTRATOR" && localPath
+              ? { administerRepository: true }
+              : {}),
         },
       }))
       response.json({

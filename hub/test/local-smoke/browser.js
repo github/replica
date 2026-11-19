@@ -62,6 +62,12 @@ Object(async (page) => {
     await admin.reload({ waitUntil: "domcontentloaded" })
     await prototypes.getByRole("link", { name: registeredName, exact: true }).waitFor()
 
+    const galleryUrl = admin.url()
+    await admin.getByRole("link", { name: "Security audit", exact: true }).click()
+    await admin.getByRole("heading", { name: "Security audit", exact: true }).waitFor()
+    await admin.getByRole("row").filter({ hasText: "prototype.registered" }).waitFor()
+    await admin.goto(galleryUrl, { waitUntil: "domcontentloaded" })
+
     await admin.getByRole("radio", { name: "List view", exact: true }).press("Space")
     function row(name) {
       return prototypes

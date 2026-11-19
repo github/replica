@@ -116,13 +116,18 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
         "/api/repositories/:repositoryId/authors",
         handleRepositoryAuthorsGet(authentication.currentSession, product),
       )
-      if (product.findLocalPrototypeManagement) {
+      if (product.getRepositoryPermission) {
+        app.get(
+          "/api/repositories/:repositoryId/security-audit",
+          handleSecurityAuditsGet({ session: authentication.currentSession, product }),
+        )
+      }
+      const findPrototypeManagement =
+        product.findPrototypeManagement ?? product.findLocalPrototypeManagement
+      if (findPrototypeManagement) {
         app.get(
           "/api/repositories/:repositoryId/prototype-management",
-          handlePrototypeManagementGet(
-            authentication.currentSession,
-            product.findLocalPrototypeManagement,
-          ),
+          handlePrototypeManagementGet(authentication.currentSession, findPrototypeManagement),
         )
       }
       app.get(

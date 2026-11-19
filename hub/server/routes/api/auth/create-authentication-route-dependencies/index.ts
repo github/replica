@@ -448,6 +448,7 @@ export async function createAuthenticationRouteDependencies(
         const profile = await findCurrentSessionProfile(prisma, session)
         if (!profile) return null
         return {
+          externalIdentityId: session.externalIdentityId,
           membershipId: session.membershipId,
           userId: session.userId,
           role: session.role,

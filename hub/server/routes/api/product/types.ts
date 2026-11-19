@@ -20,6 +20,7 @@ import type {
   ReviewRouteActor,
 } from "../../../domains/review-comments/types.ts"
 import type { RepositoryReviewAccess } from "../../../domains/review-comments/authorize-repository-review/index.ts"
+import type { RepositoryPermission } from "../../../integrations/github/read-repository-permission/types.ts"
 
 export interface ReviewAccessActor extends ReviewRouteActor {
   provider: string
@@ -35,12 +36,17 @@ export interface ReviewRouteDependencies {
 
 /** The signed-in viewer whose repository access limits product reads. */
 export interface ProductViewer {
+  externalIdentityId?: string | null
   membershipId: string
   sessionProvider: string | null
   role: "MEMBER" | "ADMINISTRATOR"
 }
 
 export interface ProductRouteDependencies {
+  getRepositoryPermission?(
+    viewer: ProductViewer,
+    repositoryId: string,
+  ): Promise<RepositoryPermission>
   reviewComments?: ReviewCommentService
   authorizeReviewAccess?(
     repositoryId: string,
@@ -49,6 +55,11 @@ export interface ProductRouteDependencies {
   isRepositoryVisible(viewer: ProductViewer, repositoryId: string): Promise<boolean>
   listRepositories(viewer: ProductViewer): ReturnType<typeof listRepositories>
   findLocalPrototypeManagement?(
+    this: void,
+    viewer: ProductViewer,
+    repositoryId: string,
+  ): ReturnType<typeof findLocalPrototypeManagement>
+  findPrototypeManagement?(
     this: void,
     viewer: ProductViewer,
     repositoryId: string,

@@ -85,7 +85,7 @@ npm run build:runtime
 npm run test:local
 ```
 
-The test starts the built client and Express on one loopback port and uses the database harness to create an isolated worker database. It signs in as the fixed local administrator, adds a discovered draft through **Edit prototype listings**, and checks that the gallery still shows it after reload. It checks both successful and unbuilt states, enables public sharing, and verifies that a link opens the saved Build in a separate signed-out browser and stops opening after revocation. No `.env` or external account is needed. The test removes its database, private storage, and browser session.
+The test starts the built client and Express on one loopback port and uses the database harness to create an isolated worker database. It signs in as the fixed local administrator, adds a discovered draft through **Edit prototype listings**, and checks that the gallery still shows it after reload and the repository audit records it. It checks both successful and unbuilt states, enables public sharing, and verifies that a link opens the saved Build in a separate signed-out browser and stops opening after revocation. No `.env` or external account is needed. The test removes its database, private storage, and browser session.
 
 The test seeds a small SQL fixture and saved preview bytes, not a Git history. Use the [local Build workflow](development.md#build-local-prototype-repositories) to check Git discovery, Build execution, screenshot capture, and packaging separately. Use the [mock frontend](frontend.md#start-with-mock-data) to explore slow or failing responses, not as evidence that the real API persists changes.
 

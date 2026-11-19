@@ -1,8 +1,10 @@
 import type { SecurityAuditPageData } from "@pages/security-audit-page/types"
 import type { CurrentHubSession } from "@application/hub/administrator-contracts/types"
 import type { SecurityAuditResponse } from "@application/hub/security-audit-contracts/types"
+import type { RepositoryRecord, WorkspaceResponse } from "@application/hub/contracts/types"
 
 import { administratorWorkspace } from "../administrator-workspace"
+import { repositoryWorkspace } from "../repository-workspace"
 
 const contextLabels: Record<string, string> = {
   appId: "GitHub App",
@@ -38,24 +40,42 @@ function contextValue(value: string | number | string[]) {
 export function securityAuditPageData(
   session: CurrentHubSession,
   response: SecurityAuditResponse,
+  selected?: { workspace: WorkspaceResponse; repository: RepositoryRecord },
 ): SecurityAuditPageData {
+  const hub = { id: "hub", label: "Hub", path: "/settings/audit?scope=hub" }
+  const scope = selected
+    ? {
+        id: selected.repository.id,
+        label: selected.repository.nameWithOwner,
+        path: `/settings/audit?scope=repository&repositoryId=${encodeURIComponent(selected.repository.id)}`,
+      }
+    : hub
   return {
-    administrationWorkspace: {
-      ...administratorWorkspace(session),
-      selectedSection: "audit",
-    },
+    administrationWorkspace: selected
+      ? null
+      : {
+          ...administratorWorkspace(session),
+          selectedSection: "audit",
+        },
+    workspace: selected
+      ? repositoryWorkspace(selected.workspace, selected.repository, new URLSearchParams(), true)
+      : undefined,
     pageTitle: "Security audit",
     heading: "Security audit",
-    description: "Hub-wide identity, sign-in, session, and administrator security actions.",
+    description: selected
+      ? `Security actions for ${selected.repository.nameWithOwner}.`
+      : "Hub-wide identity, sign-in, session, and administrator security actions.",
     notice: null,
     scopeLabel: "Audit scope",
-    selectedScopeId: "hub",
-    scopes: [{ id: "hub", label: "Hub", path: "/settings/audit?scope=hub" }],
+    selectedScopeId: scope.id,
+    scopes: selected && session.role === "ADMINISTRATOR" ? [scope, hub] : [scope],
     retention: "Records are shown newest first. Export and retention controls are not available.",
-    emptyLabel: "No Hub security actions are available.",
+    emptyLabel: selected
+      ? "No repository security actions are available."
+      : "No Hub security actions are available.",
     nextLabel: "Older actions",
     nextPath: response.nextCursor
-      ? `/settings/audit?scope=hub&before=${encodeURIComponent(response.nextCursor)}`
+      ? `${scope.path}&before=${encodeURIComponent(response.nextCursor)}`
       : null,
     repositoriesLabel: "Home",
     repositoriesPath: "/",

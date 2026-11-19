@@ -13,7 +13,11 @@ type ProductMocks = {
   [
     Key in Exclude<
       keyof ProductRouteDependencies,
-      "authorizeReviewAccess" | "reviewComments" | "findLocalPrototypeManagement"
+      | "authorizeReviewAccess"
+      | "reviewComments"
+      | "findLocalPrototypeManagement"
+      | "findPrototypeManagement"
+      | "getRepositoryPermission"
     >
   ]: Mock<ProductRouteDependencies[Key]>
 }
