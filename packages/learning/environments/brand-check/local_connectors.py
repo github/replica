@@ -1882,6 +1882,15 @@ class LocalInferenceConnector:
         os.chmod(self.idempotency, 0o700)
         self._lock = threading.RLock()
 
+    def __getstate__(self) -> dict[str, Any]:
+        state = self.__dict__.copy()
+        state.pop("_lock", None)
+        return state
+
+    def __setstate__(self, state: Mapping[str, Any]) -> None:
+        self.__dict__.update(state)
+        self._lock = threading.RLock()
+
     def readiness(self) -> Mapping[str, Any] | None:
         readiness = getattr(self.backend, "readiness", None)
         return readiness() if readiness is not None else None

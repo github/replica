@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import pickle
 import shutil
 import tempfile
 import time
@@ -65,6 +66,16 @@ class _FixtureBackend:
 
     def predict_with_context(self, *args, **kwargs):
         return {"operationId": kwargs["context"].operation_id}
+
+
+class _CountingInferenceBackend(_FixtureBackend):
+    def __init__(self):
+        self.calls = 0
+
+    def predict_with_context(self, *args, **kwargs):
+        self.calls += 1
+        time.sleep(0.05)
+        return super().predict_with_context(*args, **kwargs)
 
 
 class _OverBudgetBackend(_FixtureBackend):
@@ -199,6 +210,47 @@ def _cleanup_resources():
 
 
 class LocalConnectorPersistenceTest(unittest.TestCase):
+    def test_pickled_inference_connector_recreates_its_process_local_lock(self):
+        backend = _CountingInferenceBackend()
+        bundle, state_directory, scope = _new_bundle(
+            self, backends={"fixture": backend}
+        )
+        restored = pickle.loads(pickle.dumps(bundle.connectors.inference["fixture"]))
+        adapter = state_directory / "adapter.bin"
+        adapter.write_bytes(b"adapter")
+        context = _context(scope, "pickled-inference")
+        request = {"questions": {"learning-1": {"type": "noul"}}}
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = tuple(
+                executor.map(
+                    lambda _: restored.predict(
+                        adapter,
+                        request,
+                        context=context,
+                        credential=None,
+                    ),
+                    range(2),
+                )
+            )
+
+        self.assertEqual(
+            results,
+            (
+                {"operationId": "pickled-inference"},
+                {"operationId": "pickled-inference"},
+            ),
+        )
+        self.assertEqual(restored.backend.calls, 1)
+        with self.assertRaises(ConnectorError) as conflict:
+            restored.predict(
+                adapter,
+                {"questions": {"learning-2": {"type": "noul"}}},
+                context=context,
+                credential=None,
+            )
+        self.assertEqual(conflict.exception.code, "idempotency_conflict")
+
     def test_identical_mounted_upload_persists_and_repairs_its_stored_copy(self):
         bundle, state_directory, scope = _new_bundle(self)
         startup_directory = bundle.tasksets.taskset.directory
