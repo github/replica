@@ -52,6 +52,7 @@ function dependencies(overrides: Partial<Dependencies> = {}) {
     }),
     getRun: vi.fn().mockImplementation(() => Promise.resolve(run)),
     hasPendingUserRun: vi.fn().mockResolvedValue(false),
+    isRepositoryAvailable: vi.fn().mockResolvedValue(true),
     now: vi.fn(() => new Date("2026-11-13T10:00:00Z")),
     authorizeRepositoryAdministration: vi.fn().mockResolvedValue(true),
     prepare: vi.fn().mockResolvedValue({
@@ -337,6 +338,7 @@ describe("processLearningRun()", () => {
         reviewActivitySnapshot: {},
       }),
     })
+
     deps.run.scheduled = true
     deps.run.requestedBy = null
     deps.run.requestedByMembershipId = null
@@ -350,6 +352,50 @@ describe("processLearningRun()", () => {
         state: "FAILED",
         failureCode: "snapshot_changed",
       },
+    })
+  })
+
+  it("fails a scheduled run when the repository is removed during labeling", async () => {
+    const deps = dependencies({
+      expectedScheduled: true,
+      isRepositoryAvailable: vi.fn().mockResolvedValue(false),
+      runCommand: vi.fn((arguments_: string[]) => {
+        if (arguments_[0] === "grants" && arguments_[1] === "list") {
+          return Promise.resolve([
+            {
+              grant: {
+                id: "grant-1",
+                sources: ["hub_review_comments"],
+                grantedBy: { kind: "human", id: "github:mona" },
+              },
+              activePurposes: ["review", "instruction"],
+              expired: false,
+            },
+          ])
+        }
+        if (arguments_[0] === "import") {
+          return Promise.resolve({ complete: true, problems: [] })
+        }
+        if (arguments_[0] === "label") {
+          return Promise.resolve({
+            considered: 1,
+            labeled: 1,
+            remaining: 0,
+            usage: { requests: 1, nanoAiu: 1 },
+          })
+        }
+        return Promise.reject(new Error("Consolidation must not run."))
+      }),
+    })
+    deps.run.scheduled = true
+    deps.run.requestedBy = null
+    deps.run.requestedByMembershipId = null
+
+    await processLearningRun("11111111-2222-4333-8444-555555555555", deps)
+
+    expect(deps.isRepositoryAvailable).toHaveBeenCalledWith(deps.run.repositoryId)
+    expect(deps.finished[0]).toMatchObject({
+      input: { state: "FAILED", failureCode: "not_authorized" },
     })
   })
 

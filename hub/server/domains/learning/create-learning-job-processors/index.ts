@@ -140,6 +140,15 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
       finish: (id, input) => finishLearningRun(prisma, id, input),
       getRun: (id) => getLearningRun(prisma, id),
       hasPendingUserRun: () => hasPendingUserLearningRun(prisma),
+      isRepositoryAvailable: (repositoryId) =>
+        prisma.$transaction(async (transaction) => {
+          const access = await lockGitHubRepositoryAccessState(transaction)
+          return isLearningRunRepositoryAvailable(
+            transaction,
+            repositoryId,
+            access.scopingActivatedAt !== null,
+          )
+        }),
       now: () => new Date(),
       authorizeRepositoryAdministration: (membershipId, repositoryId) =>
         authorizeRepositoryAdministration(prisma, { membershipId, repositoryId }),

@@ -94,6 +94,7 @@ export async function processLearningRun(
     } | null>
     now(): Date
     hasPendingUserRun(): Promise<boolean>
+    isRepositoryAvailable(repositoryId: string): Promise<boolean>
     prepare(repositoryId: string): Promise<{ directory: string; repositoryScope: string }>
     authorizeRepositoryAdministration(membershipId: string, repositoryId: string): Promise<boolean>
     refuseCredential?(): Promise<void>
@@ -302,16 +303,19 @@ export async function processLearningRun(
         aiCredits: credits(labeled.usage.nanoAiu),
       })
       if (
-        !current.scheduled &&
-        (!current.requestedByMembershipId ||
-          !(await authorizeRepositoryAdministration(
-            current.requestedByMembershipId,
-            current.repositoryId,
-          )))
+        current.scheduled
+          ? !(await dependencies.isRepositoryAvailable(current.repositoryId))
+          : !current.requestedByMembershipId ||
+            !(await authorizeRepositoryAdministration(
+              current.requestedByMembershipId,
+              current.repositoryId,
+            ))
       ) {
         throw new LearningCommandError(
           "not_authorized",
-          "The person who requested this run is no longer a repository administrator.",
+          current.scheduled
+            ? "The repository is no longer available for automatic learning."
+            : "The person who requested this run is no longer a repository administrator.",
         )
       }
       const consolidated = consolidateSchema.parse(
