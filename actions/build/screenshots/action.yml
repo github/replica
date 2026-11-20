@@ -1,6 +1,12 @@
 name: Replica screenshots
 description: Capture screenshots for a replica-build-v1 package uploaded earlier in the same workflow run
 
+inputs:
+  base-path:
+    description: Original compiled app base path, including the owning repository and run when using Hub private previews
+    required: false
+    default: /
+
 runs:
   using: composite
   steps:
@@ -33,7 +39,9 @@ runs:
       shell: bash
 
     - name: Capture screenshots
-      run: node "$GITHUB_ACTION_PATH/../scripts/capture-screenshots/index.mjs" --root "$RUNNER_TEMP/replica-build-v1" --config-root "$RUNNER_TEMP/replica-build-v1" --config-file templates.json --screenshots "$RUNNER_TEMP/replica-screenshots"
+      env:
+        REPLICA_BASE_PATH: ${{ inputs.base-path }}
+      run: node "$GITHUB_ACTION_PATH/../scripts/capture-screenshots/index.mjs" --root "$RUNNER_TEMP/replica-build-v1" --config-root "$RUNNER_TEMP/replica-build-v1" --config-file templates.json --screenshots "$RUNNER_TEMP/replica-screenshots" --base-path "$REPLICA_BASE_PATH"
       shell: bash
 
     - name: Create Replica screenshot package

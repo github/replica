@@ -19,6 +19,7 @@ import { ReviewThreadConversation } from "@features/review-thread-conversation"
 import { useCopilotHandoff } from "@hooks/use-copilot-handoff"
 import { createPrototypeSubmission } from "@utils/create-prototype-submission"
 import { createPreviewPrototypePrompt } from "@utils/create-preview-prototype-prompt"
+import { getPreviewBasePath } from "@utils/prototype-controls/preview-base-path.mjs"
 
 import { PrototypeDescriptionDialog } from "./prototype-description-dialog"
 import type { PrototypePreviewOnlyPageProps, PrototypesShowPageProps } from "./types"
@@ -103,31 +104,16 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
 
   let address = data.selectedBuild?.previewUrl ?? ""
   let externalAddress = address
-  let isolatedPreview = false
+  const directPreview = Boolean(address && getPreviewBasePath(new URL(address).pathname) !== "/")
   if (address && bridge.route) {
     const authorizationUrl = new URL(address)
-    const previewOrigin = authorizationUrl.searchParams.get("preview_origin")
-    if (previewOrigin) {
-      isolatedPreview = true
-      const viewerUrl = new URL(previewOrigin)
-      viewerUrl.pathname = bridge.route.pathname
-      viewerUrl.search = bridge.route.search
-      viewerUrl.hash = bridge.route.hash
-      address = viewerUrl.toString()
-      authorizationUrl.searchParams.set(
-        "route",
-        `${bridge.route.pathname}${bridge.route.search}${bridge.route.hash}`,
-      )
-      externalAddress = authorizationUrl.toString()
-    } else {
-      authorizationUrl.pathname = bridge.route.pathname
-      authorizationUrl.search = bridge.route.search
-      authorizationUrl.hash = bridge.route.hash
-      address = authorizationUrl.toString()
-      externalAddress = address
-    }
+    authorizationUrl.pathname = `${getPreviewBasePath(authorizationUrl.pathname)}${bridge.route.pathname.slice(1)}`
+    authorizationUrl.search = bridge.route.search
+    authorizationUrl.hash = bridge.route.hash
+    address = authorizationUrl.toString()
+    externalAddress = address
   }
-  if (!isolatedPreview) {
+  if (!directPreview) {
     address = viewerUrl ?? address
     externalAddress = viewerUrl ?? externalAddress
   }

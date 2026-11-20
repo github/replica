@@ -74,12 +74,17 @@ describe("findPrototypeDetail()", () => {
     ).toBe("owner")
   })
 
-  it("maps successful Build artifacts to access URLs and the selected Controls identity", async () => {
+  it("maps successful Build artifacts to canonical URLs and the selected Controls identity", async () => {
     const repositoryId = randomUUID()
     const prototypeId = randomUUID()
     const buildId = randomUUID()
     await prisma.repository.create({
-      data: { id: repositoryId, nameWithOwner: "team/design", defaultBranch: "main" },
+      data: {
+        id: repositoryId,
+        githubRepositoryId: 2001n,
+        nameWithOwner: "team/design",
+        defaultBranch: "main",
+      },
     })
     await prisma.prototype.create({
       data: {
@@ -95,6 +100,7 @@ describe("findPrototypeDetail()", () => {
         prototypeId,
         number: 42,
         state: "successful",
+        githubWorkflowRunId: 3002n,
         artifacts: {
           create: [
             {
@@ -133,15 +139,17 @@ describe("findPrototypeDetail()", () => {
       42,
       undefined,
       null,
-      (_buildId, repository, prototype, build, target) =>
-        `/api/repositories/${repository}/prototypes/${prototype}/builds/${build}/access?target=${target}`,
+      (mountPath, target, startPage = "/") =>
+        mountPath
+          ? `${mountPath}${target === "preview" ? startPage.slice(1) : `__replica/screenshots/${target}.png`}`
+          : null,
     )
 
     expect(detail?.selectedBuild).toMatchObject({
       number: 42,
-      previewUrl: `/api/repositories/${repositoryId}/prototypes/${prototypeId}/builds/42/access?target=preview`,
-      desktopScreenshotUrl: `/api/repositories/${repositoryId}/prototypes/${prototypeId}/builds/42/access?target=desktop`,
-      narrowScreenshotUrl: `/api/repositories/${repositoryId}/prototypes/${prototypeId}/builds/42/access?target=narrow`,
+      previewUrl: "/previews/github/2001/3002/checkout",
+      desktopScreenshotUrl: "/previews/github/2001/3002/__replica/screenshots/desktop.png",
+      narrowScreenshotUrl: "/previews/github/2001/3002/__replica/screenshots/narrow.png",
     })
     expect(detail?.controlsIdentity).toBe("controls-binding")
   })

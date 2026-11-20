@@ -1,5 +1,6 @@
 import { installControlsBridge } from "./controls"
 import { targetIssue } from "@utils/prototype-controls/dom-target.mjs"
+import { getPreviewBasePath } from "@utils/prototype-controls/preview-base-path.mjs"
 
 type ReviewRoute = { pathname: string; search: string; hash: string }
 type AnchorRect = { x: number; y: number; width: number; height: number }
@@ -98,7 +99,9 @@ function currentRoute(): ReviewRoute {
     })
     .join("&")
   return {
-    pathname: window.location.pathname,
+    pathname: window.location.pathname.slice(
+      getPreviewBasePath(window.location.pathname).length - 1,
+    ),
     search: search ? `?${search}` : "",
     hash: window.location.hash,
   }
@@ -729,7 +732,9 @@ function sendResolvedGeometry(documentScroll = false) {
 function receiveCanvasMessage(event: MessageEvent<unknown>) {
   const data = event.data
   if (
-    document.querySelector('script[src="/__replica/bridge/v1.js"]') ||
+    document.querySelector(
+      `script[src="${getPreviewBasePath(window.location.pathname)}__replica/bridge/v1.js"]`,
+    ) ||
     event.source !== window.parent ||
     event.origin !== parentOrigin ||
     !isRecord(data) ||

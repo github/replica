@@ -22,4 +22,4 @@ export type Bindings = {
   dispose(): void
 }
 export function installBindings(input: unknown): Bindings
-export function loadBindings(): Promise<Bindings | undefined>
+export function loadBindings(basePath?: string): Promise<Bindings | undefined>

@@ -10,6 +10,19 @@ const storage = {} as ArtifactStorage
 const encryptionKey = randomBytes(32).toString("base64")
 
 describe("createBuildPreviewRouteDependencies()", () => {
+  it("enables canonical private serving with storage and no wildcard origin", () => {
+    const preview = createBuildPreviewRouteDependencies(
+      {
+        HUB_APPLICATION_ORIGIN: "https://hub.example.com",
+        HUB_AUTHENTICATION_ENCRYPTION_KEY: encryptionKey,
+      },
+      storage,
+    )
+    expect(preview.previewBaseOrigin).toBeUndefined()
+    expect(typeof preview.findPathTargets).toBe("function")
+    expect(preview.storage).toBe(storage)
+  })
+
   it("requires previews to use a separate registrable domain outside local development", () => {
     expect(() =>
       createBuildPreviewRouteDependencies(

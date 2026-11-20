@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { chunkArray } from "@utils/chunk-array"
 import { getPreviewFrameUrl } from "@utils/get-preview-frame-url"
 import { getUrlOrigin } from "@utils/get-url-origin"
+import { getPreviewBasePath } from "@utils/prototype-controls/preview-base-path.mjs"
 import {
   PREVIEW_BRIDGE_ANCHORS_PER_MESSAGE,
   PREVIEW_BRIDGE_PROTOCOL_VERSION,
@@ -220,13 +221,16 @@ export function usePreviewBridge({
             restoration.pending = false
           } else if (restoration?.previewUrl !== previewUrl) {
             const destination = new URL(previewUrl)
+            const pathname = destination.pathname.slice(
+              getPreviewBasePath(destination.pathname).length - 1,
+            )
             if (
-              message.payload.route.pathname === destination.pathname &&
+              message.payload.route.pathname === pathname &&
               message.payload.route.search === destination.search
             ) {
               const requestId = post("replica:bridge:restore-fragment", {
                 route: {
-                  pathname: destination.pathname,
+                  pathname,
                   search: destination.search,
                   hash: destination.hash,
                 },

@@ -102,7 +102,7 @@ export async function readBuildPreviewFile(
   const html = contentType.startsWith("text/html")
   return {
     status: "ok",
-    bytes: html ? injectPreviewBridge(stored.bytes) : stored.bytes,
+    bytes: html ? injectPreviewBridge(stored.bytes, input.mountPath) : stored.bytes,
     contentType,
     html,
   }

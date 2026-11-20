@@ -5,7 +5,6 @@ import { recordAnalyticsEvent } from "../../../../domains/analytics/record-event
 import type { AnalyticsSettings } from "../../../../domains/analytics/types.ts"
 import { restoreHubSession } from "../../../../domains/admission/restore-hub-session/index.ts"
 import { runSessionRestoreTransaction } from "../../../../domains/admission/run-session-restore-transaction/index.ts"
-import { createBuildPreviewOrigin } from "../../../../domains/build-preview/create-build-preview-origin/index.ts"
 import { editPrototypeMetadata } from "../../../../domains/prototypes/edit-prototype-metadata/index.ts"
 import { PrototypeMetadataError } from "../../../../domains/prototypes/errors.ts"
 import { readPrototypeWithIntroduction } from "../../../../domains/prototypes/read-prototype-with-introduction/index.ts"
@@ -55,6 +54,7 @@ import {
 } from "../../../../repositories/users/welcome-preference/index.ts"
 import { canWriteRepository } from "../../../../utils/can-write-repository/index.ts"
 import { localDeveloperIdentity } from "../../../../utils/local-developer-identity/index.ts"
+import { normalizeStartPage } from "../../../../utils/normalize-start-page/index.ts"
 import type { AnalyticsViewer } from "../../repositories/analytics/types.ts"
 import { readWithPersistedRepositoryScope } from "../read-with-persisted-repository-scope/index.ts"
 import { resolvePersistedRepositoryScope } from "../resolve-persisted-repository-scope/index.ts"
@@ -80,7 +80,6 @@ interface CreateProductRouteDependenciesOptions {
     commentId: number
     actorLogin: string
   }) => Promise<void>
-  previewBaseOrigin?: string
   getRepositoryPermission?: WorkspaceProductRouteDependencies["getRepositoryPermission"]
   withReviewCommentDeleteLock?: <T>(operation: () => Promise<T>) => Promise<T>
 }
@@ -95,7 +94,6 @@ export function createProductRouteDependencies({
   githubReviewDirectory,
   authorizeReviewMutation,
   onReviewCommentDeleted,
-  previewBaseOrigin,
   getRepositoryPermission: permissionOverride,
   withReviewCommentDeleteLock,
 }: CreateProductRouteDependenciesOptions = {}): WorkspaceProductRouteDependencies {
@@ -264,27 +262,16 @@ export function createProductRouteDependencies({
       }
       return true
     })
-  const buildArtifactUrl =
-    applicationOrigin && previewBaseOrigin
-      ? (
-          buildId: string,
-          repositoryId: string,
-          prototypeId: string,
-          buildNumber: number,
-          target: "preview" | "desktop" | "narrow",
-        ) => {
-          const url = new URL(
-            `/api/repositories/${repositoryId}/prototypes/${prototypeId}/builds/${buildNumber}/access`,
-            applicationOrigin,
-          )
-          url.searchParams.set("target", target)
-          url.searchParams.set(
-            "preview_origin",
-            createBuildPreviewOrigin(buildId, previewBaseOrigin),
-          )
-          return url.toString()
-        }
-      : undefined
+  const buildArtifactUrl = applicationOrigin
+    ? (mountPath: string | null, target: "preview" | "desktop" | "narrow", startPage = "/") => {
+        if (!mountPath) return null
+        const route =
+          target === "preview"
+            ? (normalizeStartPage(startPage) ?? "/")
+            : `/__replica/screenshots/${target}.png`
+        return new URL(`${mountPath}${route.slice(1)}`, applicationOrigin).toString()
+      }
+    : undefined
   const mentions = createReviewMentionDirectory(prisma, githubReviewDirectory)
   return {
     getRepositoryPermission,

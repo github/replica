@@ -1,9 +1,6 @@
 import type { RequestHandler } from "express"
 import { z } from "zod"
 
-import { createBuildPreviewOrigin } from "../../../../../../../domains/build-preview/create-build-preview-origin/index.ts"
-import { createPreviewGrant } from "../../../../../../../domains/build-preview/create-preview-grant/index.ts"
-import { hashAuthenticationValue } from "../../../../../../../domains/authentication/hash-authentication-value/index.ts"
 import { hubSessionCookieName } from "../../../../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../../../../../../integrations/express/read-cookie/index.ts"
 import type { CurrentSessionDependencies } from "../../../../../auth/types.ts"
@@ -16,7 +13,6 @@ import type { BuildPreviewRouteDependencies } from "../../../../../../build-prev
 const querySchema = z
   .object({
     target: z.enum(["preview", "desktop", "narrow"]),
-    preview_origin: z.url().optional(),
     route: z.string().max(4096).optional(),
   })
   .strict()
@@ -68,33 +64,29 @@ export function get(
         response.status(404).json({ error: "Build preview not found." })
         return
       }
-      const previewOrigin = createBuildPreviewOrigin(target.buildId, preview.previewBaseOrigin)
-      if (query.data.preview_origin && query.data.preview_origin !== previewOrigin) {
-        response.status(400).json({ error: "The Build preview origin is invalid." })
-        return
-      }
       const requestedRoute = query.data.route ? normalizeStartPage(query.data.route) : undefined
       if (query.data.route && !requestedRoute) {
         response.status(400).json({ error: "The Build preview route is invalid." })
         return
       }
-      const grant = createPreviewGrant(
-        {
-          buildId: target.buildId,
-          target: query.data.target,
-          expiresAt: new Date(Date.now() + 30_000),
-          sessionDigest: hashAuthenticationValue(cookie),
-        },
-        preview.encryptionKey,
-      )
-      const destination = new URL("/__replica/authorize", previewOrigin)
-      destination.searchParams.set("grant", grant)
-      if (query.data.target === "preview" && requestedRoute) {
-        destination.searchParams.set("route", requestedRoute)
+      if (!target.mountPath) {
+        response.status(404).json({ error: "This Build has no supported hosted preview address." })
+        return
       }
+      if (!(await product.isRepositoryVisible(current, repositoryId.data))) {
+        response.status(404).json({ error: "Build preview not found." })
+        return
+      }
+      const path =
+        query.data.target === "preview"
+          ? (requestedRoute ?? normalizeStartPage(target.startPage) ?? "/")
+          : `/__replica/screenshots/${query.data.target}.png`
       response.setHeader("Cache-Control", "no-store")
       response.setHeader("Referrer-Policy", "no-referrer")
-      response.redirect(302, destination.toString())
+      response.redirect(
+        302,
+        new URL(`${target.mountPath}${path.slice(1)}`, preview.applicationOrigin).toString(),
+      )
     } catch (error) {
       next(error)
     }

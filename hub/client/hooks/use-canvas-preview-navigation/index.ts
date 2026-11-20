@@ -2,6 +2,7 @@ import { createRef, useCallback, useEffect, useRef, useState, type RefObject } f
 
 import { copy } from "@utils/prototype-canvas/en"
 import type { HubStatus } from "@utils/prototype-canvas/types"
+import { getPreviewBasePath } from "@utils/prototype-controls/preview-base-path.mjs"
 import type { PendingPreviewClick, PreviewNavigation, PreviewRoute } from "./types"
 
 type Props = {
@@ -56,10 +57,12 @@ export function usePreviewNavigation({ prototypeUrl, previewUrl, shellRef, cance
         status.state === "connected" &&
         (status.prototype?.startPageSet ?? status.prototype?.startPage !== undefined)
       const startPage = ownsStartPage ? status.prototype?.startPage : status.localStartPage
-      if (url.pathname !== "/" || url.search || url.hash || !startPage) return
+      const base = getPreviewBasePath(url.pathname)
+      if (url.pathname !== base || url.search || url.hash || !startPage) return
 
       const destination = new URL(startPage, url)
       if (destination.origin !== url.origin) throw new Error(copy.startPageOrigin)
+      destination.pathname = `${base}${destination.pathname.slice(1)}`
 
       setPreview({ input: prototypeUrl, url: destination.href })
       setNavigation({ input: prototypeUrl, entries: [destination.href], index: 0 })
@@ -106,7 +109,7 @@ export function usePreviewNavigation({ prototypeUrl, previewUrl, shellRef, cance
     (route: PreviewRoute, replace = false) => {
       setLiveRoute(route)
       const url = new URL(prototypeUrl)
-      url.pathname = route.pathname
+      url.pathname = `${getPreviewBasePath(url.pathname)}${route.pathname.slice(1)}`
       url.search = route.search
       url.hash = route.hash
       setNavigation((current) => {

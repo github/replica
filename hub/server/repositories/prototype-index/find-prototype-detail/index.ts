@@ -1,5 +1,6 @@
 import { Prisma, type Build } from "../../../generated/prisma/client.ts"
 import { trimPrototypeMetadata } from "../../../utils/trim-prototype-metadata/index.ts"
+import { createBuildPreviewPath } from "../../../utils/create-build-preview-path/index.ts"
 import { type RepositoryScope, visibleRepositoryWhere } from "../visible-repository-where/index.ts"
 
 const hiddenBranches = ["replica/install-workflow"]
@@ -18,18 +19,16 @@ export async function findPrototypeDetail(
   buildPage?: { page: number; pageSize: number },
   scope: RepositoryScope = null,
   buildArtifactUrl?: (
-    buildId: string,
-    repositoryId: string,
-    prototypeId: string,
-    buildNumber: number,
+    mountPath: string | null,
     target: "preview" | "desktop" | "narrow",
-  ) => string,
+    startPage?: string,
+  ) => string | null,
 ) {
   const detail = await database.$transaction(
     async (transaction) => {
       const repository = await transaction.repository.findFirst({
         where: { id: repositoryId, ...visibleRepositoryWhere(scope) },
-        select: { id: true, nameWithOwner: true, defaultBranch: true },
+        select: { id: true, nameWithOwner: true, defaultBranch: true, githubRepositoryId: true },
       })
       if (!repository) return null
 
@@ -93,6 +92,7 @@ export async function findPrototypeDetail(
           authorAvatarUrl: true,
           createdAt: true,
           workflowCreatedAt: true,
+          githubWorkflowRunId: true,
           startedAt: true,
           finishedAt: true,
           failureSummary: true,
@@ -163,30 +163,22 @@ export async function findPrototypeDetail(
         previewUrl:
           build.artifacts.some(({ path }) => path === "dist/index.html") && buildArtifactUrl
             ? buildArtifactUrl(
-                build.id,
-                prototype.repositoryId,
-                prototype.id,
-                build.number,
+                createBuildPreviewPath(repository.githubRepositoryId, build.githubWorkflowRunId),
                 "preview",
+                prototype.startPage || "/",
               )
             : null,
         desktopScreenshotUrl:
           build.artifacts.some(({ path }) => path === "screenshots/desktop.png") && buildArtifactUrl
             ? buildArtifactUrl(
-                build.id,
-                prototype.repositoryId,
-                prototype.id,
-                build.number,
+                createBuildPreviewPath(repository.githubRepositoryId, build.githubWorkflowRunId),
                 "desktop",
               )
             : null,
         narrowScreenshotUrl:
           build.artifacts.some(({ path }) => path === "screenshots/narrow.png") && buildArtifactUrl
             ? buildArtifactUrl(
-                build.id,
-                prototype.repositoryId,
-                prototype.id,
-                build.number,
+                createBuildPreviewPath(repository.githubRepositoryId, build.githubWorkflowRunId),
                 "narrow",
               )
             : null,
@@ -209,7 +201,11 @@ export async function findPrototypeDetail(
             }
           : null
       return {
-        repository,
+        repository: {
+          id: repository.id,
+          nameWithOwner: repository.nameWithOwner,
+          defaultBranch: repository.defaultBranch,
+        },
         prototype: {
           id: prototype.id,
           repositoryId: prototype.repositoryId,

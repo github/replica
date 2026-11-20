@@ -43,9 +43,11 @@ Expired, revoked, disabled, or unavailable hosted links return not found. Local 
 
 ## Public preview boundary
 
+Public shares still require `HUB_PREVIEW_ORIGIN` and its wildcard DNS/TLS configuration. Private [path-based previews](build-previews.md) do not replace this flow or make it available without that configuration. Moving public sharing to a separate service is outside the private-preview change. A fixed-base package is not automatically portable to a wildcard root or another pathname; share such a Build only when its app supports that address.
+
 `GET /api/shared/:shareId` requires no Hub session. An active response contains only the saved label, prototype display name, Build number, expiration, Controls identity, and a preview authorization URL. It never includes repository identifiers, navigation, comments, screenshots, users, or Hub-session data.
 
-The authorization URL redirects to the existing Build-specific preview origin. A two-minute encrypted public grant is bound to the share link and Build. The preview origin exchanges it for a separate `replica_share_preview` cookie, limited to eight hours or the link deadline, whichever comes first. The authenticated `replica_preview` cookie is not accepted as public authorization, and the public cookie does not authorize signed-in Hub routes.
+The authorization URL redirects to the existing Build-specific preview origin. A two-minute encrypted public grant is bound to the share link and Build. The preview origin exchanges it for a `replica_share_preview` cookie, limited to eight hours or the link deadline, whichever comes first. Hub sessions do not authorize that public preview, and the public cookie does not authorize signed-in Hub routes or private preview paths.
 
 Public previews reuse the same artifact lookup, path validation, content types, SPA fallback, security headers, HTML bridge injection, and Controls runtime as signed-in previews. The serving path rechecks the share link and deployment setting for every request and after artifact storage returns, so revocation, expiration, disablement, Build removal, and artifact unavailability stop later responses without a second file-serving implementation.
 

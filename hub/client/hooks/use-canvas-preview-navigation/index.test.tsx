@@ -21,6 +21,27 @@ function mount() {
 }
 
 describe("usePreviewNavigation()", () => {
+  it("reapplies the immutable mount to logical routes and history travel", () => {
+    const base = "http://localhost:4321/previews/github/123/456/"
+    const { result } = renderHook(() =>
+      usePreviewNavigation({
+        prototypeUrl: base,
+        shellRef: createRef<HTMLElement>(),
+        cancelClick: createRef<(() => void) | null>(),
+      }),
+    )
+    act(() =>
+      result.current.initialize({ ...publicationHub, localStartPage: "/settings?q=a%20b#details" }),
+    )
+    expect(result.current.address).toBe(`${base}settings?q=a%20b#details`)
+    act(() =>
+      result.current.reportRoute({ pathname: "/agents", search: "?q=one&q=two", hash: "#draft" }),
+    )
+    expect(result.current.address).toBe(`${base}agents?q=one&q=two#draft`)
+    act(() => result.current.travel(0))
+    expect(result.current.source).toBe(`${base}settings?q=a%20b#details`)
+  })
+
   it("keeps invalid URL overrides available for diagnosis without breaking route reporting", () => {
     const { result } = mount()
     act(() =>

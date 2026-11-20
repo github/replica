@@ -1,37 +1,63 @@
 # Build previews
 
-Hub serves successful Build artifacts without a GitHub App. The preview layer consumes the shared `BuildArtifact` contract: each immutable package file has a `kind`, package-relative `path`, opaque artifact-storage `storageKey`, and `byteLength`. Build producers write the bytes through `ArtifactStorage`, then commit those records with the successful Build. Preview serving does not discover repositories, run Builds, or [import GitHub artifacts](github-actions-builds.md).
+Signed-in users can open successful GitHub Builds on the Hub origin at `/previews/github/<githubRepositoryId>/<owningWorkflowRunId>/`. Private previews need configured [artifact storage](artifact-storage.md), not wildcard DNS, TLS, or `HUB_PREVIEW_ORIGIN`. Hub reads immutable artifact records by storage key; preview serving does not run Builds or change their bytes, identities, reviews, or share links.
 
-## Access flow
+## Build and workflow contract
 
-The prototype response keeps Build selection on `/repositories/:repositoryId/prototypes/:prototypeId?build=N`. A Build with `dist/index.html` receives an authenticated Hub access URL. Screenshot records receive equivalent desktop and narrow URLs.
+Compile each app for its canonical base before uploading it:
 
-1. The browser requests the access URL on the Hub origin with its Hub session.
-2. Hub checks the live session again after locating the requested successful Build artifact.
-3. Hub issues a 30-second encrypted grant and redirects to that Build's wildcard preview origin.
-4. The preview origin exchanges the grant for a 15-minute, host-only, HTTP-only cookie.
-5. Preview files are read by opaque storage key. Hub session cookies and provider credentials never enter the Build origin.
+```yaml
+- run: npm run build
+  env:
+    VITE_BASE: /previews/github/${{ github.repository_id }}/${{ github.run_id }}/
+```
 
-`HUB_PREVIEW_ORIGIN` is the wildcard base. For example, `https://preview.example.net` serves one Build from `https://<build-uuid>.preview.example.net` while Hub runs on `https://hub.example.com`. Outside local development, the preview and Hub origins must use separate registrable domains so untrusted preview content cannot shadow Hub cookies through a parent domain. Operators must configure wildcard DNS and TLS. Local development uses `http://preview.localhost:3001`.
+The app must actually use that setting for its bundler base and router basename. For example, a Vite app can read `process.env.VITE_BASE` in its configuration, and React Router can use the same basename. Hub adds no base tag, relocation adapter, router patch, or resource rewriting. The Starter instead uses relative Vite output and hash routing.
 
-The [template catalog](frontend.md#create-templates-and-welcome) selects one successful Build from the repository's current default branch. Its preview and declared desktop screenshots use `/api/repositories/:repositoryId/template-builds/:buildId/access` so each request stays on that snapshot. Hub rechecks repository visibility before granting access and on the Build origin. A template grant cannot open a prototype Build, and a template preview does not enable the review bridge. The dark theme uses the saved dark screenshot when present and falls back to the light one.
+Pass the same base to `actions/build/screenshots` using its `base-path` input. The optional all-in-one `actions/build` action accepts that input for inline screenshots too; it does not configure the app's compiler. Upgrade to a reviewed action revision containing this input before enabling it in another repository. The publish action and package format stay unchanged. See [GitHub Actions Builds](github-actions-builds.md) for workflow setup.
 
-## File behavior
+The path uses the numeric GitHub repository ID and the successful Build's **owning** workflow run ID. It never uses the branch head, current selected run, commit SHA, or attempt number. A later redundant run can select an existing successful Build but gets no new preview mount. Same-run retries keep the original base. Capture a downloaded package at its original compiled base, not the IDs of a later capture run.
 
-Package paths remain relative and may not contain empty, dot, dot-dot, control, surrogate, absolute, or backslash segments. `/` serves `dist/index.html`, and directory-style requests first look for their nested `index.html`. A missing extensionless browser route falls back to the application entry point. A dotted route receives the same fallback only when the saved template manifest declares it; missing asset paths return 404. The prototype's normalized start page is used after grant exchange.
+Hub serves only one matching successful Build with `dist/index.html` in a connected repository and active branch. Missing or ambiguous ownership returns 404; duplicate ownership also produces a warning. Hub does not pick another Build or impose a new uniqueness constraint. Builds with null provider IDs and local Builds have no canonical path contract and are unsupported for private hosted preview. Their stored data remains untouched.
 
-Content types come from the checked package path, with unknown extensions served as `application/octet-stream`. HTML is private and revalidated. Immutable assets use a private one-year cache. Desktop and narrow screenshots are served from their package paths through the same Build authorization.
+Old base-`/` packages are not portable to these paths. Change the build configuration and push a **new commit** to create a new Build. A workflow rerun does not replace an immutable successful Build for the same prototype and commit. Existing packages, storage keys, Build numbers and UUIDs, review threads, and ShareLink relations remain untouched. The package does not declare its base, so Hub cannot detect an app compiled for the wrong one.
 
-Preview reads share a 100 MiB source-byte allowance per API process across Build origins, private previews, template previews, and public links. Hub reserves each file's recorded size before reading storage and keeps that reservation until the read settles and the HTTP response finishes or disconnects. A request returns 503 without reading the file when the allowance is full. Small and empty files reserve at least 64 KiB each. Temporary template-manifest reads release their reservation before reading the selected HTML file.
+## Buffered preview reads
+
+Artifact reads share a 100 MiB source-byte allowance per API process across private previews, template previews, and existing public preview origins. Hub reserves each file's recorded size before reading storage and keeps that reservation until the read settles and the HTTP response finishes or disconnects. A request returns 503 without reading the file when the allowance is full. Small and empty files reserve at least 64 KiB each. Temporary template-manifest reads release their reservation before reading the selected HTML file.
 
 This allowance bounds concurrent buffered preview files, not total process memory. Storage downloads can hold chunks and their combined buffer at once, and HTML bridge injection needs additional strings and encoded bytes. Imports and other runtime work need separate headroom within the deployment's memory allocation.
 
-HTML responses inject the generated hosted preview bridge. The bridge installs the shared Controls engine and bindings, which load that Build's `/controls.replica.json`, and reports review element or area selections to the authenticated parent page. Review records store the anchor and Build identity separately; the bridge does not write artifacts or receive Hub session cookies. The generated bridge is checked by `npm run controls:assets:check`.
+## Access and compatibility
 
-## Browser boundary
+Every private document, asset, screenshot, and bridge request requires a live Hub session and repository visibility for that exact Build. Hub checks authority again after reading stored bytes. Session expiry, repository removal, branch retirement, or access revocation denies subsequent requests. Numeric path IDs are locators, not capabilities; anonymous users and share cookies cannot authorize this mount.
 
-Each Build has a separate origin. Responses deny MIME sniffing and referrers, restrict framing to the configured Hub origin, keep resources same-origin, disable camera, microphone, and geolocation, and apply a same-origin content security policy. The iframe remains sandboxed by the Hub frontend. Preview routes return 404 on the Hub host, an unknown Build host, an invalid or expired grant, a mismatched Build cookie, and unsafe paths.
+Resources use private revalidation rather than a fresh immutable browser cache, so the browser cannot skip the next authorization check. Screenshots and bridge responses are private and not stored. Already returned bytes cannot be recalled.
 
-The first version does not add Canvas pairing, standalone Build pages, hosted repository discovery, hosted Build execution, or GitHub App setup.
+The prototype response keeps Build selection on `/repositories/:repositoryId/prototypes/:prototypeId?build=N`. Its preview and screenshot URLs use the owning Build's canonical path. Existing Build access URLs resolve the selected successful Build and redirect to that path, joining its logical start route, query, and fragment. Template access URLs similarly preserve their exact default-branch Build and declared screenshot paths. Template previews remain browse-only and require the existing template access rules.
 
-Local mode also supports [Build-pinned public share links](share-links.md). They reuse this file-serving path and Build-specific origin, but exchange a purpose-bound public grant for a separate purpose-bound `replica_share_preview` cookie. Grants and cookies cannot be exchanged. Public requests recheck the saved link and deployment setting before and after artifact reads. They never accept a Hub session as public authorization or expose repository and review data.
+Private wildcard grants, cookies, authorization endpoints, and the `preview_origin` query parameter are removed. Old direct private wildcard URLs no longer authorize a preview. The retained Build and template access endpoints redirect supported GitHub Builds to their canonical path instead.
+
+`HUB_PREVIEW_ORIGIN`, wildcard host resolution, encryption, and separate-domain validation remain only because existing [public shares](share-links.md) actively use them. Keep that configuration, DNS, and TLS while those shares are in use. Public share endpoints, grants, expiry, revocation, and cookies remain; they do not authorize or redirect to the private canonical mount. Without a wildcard origin, sharing remains unavailable. A separate sharing-service design is deferred, not implemented here.
+
+## File and bridge behavior
+
+The `/previews/` mount precedes the Hub SPA fallback, including when preview serving is disabled. Preview misses never return the Hub page. The canonical root without its final slash redirects with 308 and preserves its query.
+
+Hub rejects malformed provider IDs, traversal, encoded separators, backslashes, controls, and unsafe package paths before storage access. `/` serves `dist/index.html`; a directory first tries its nested `index.html`. Missing extensionless HTML navigations may use the root SPA document. Dotted routes receive that fallback only when the saved template manifest declares them. Missing scripts and other assets return 404. Content types come from the stored path and responses disable MIME sniffing.
+
+Hub injects only its prefixed `__replica/bridge/v1.js` script into HTML. `__replica/` is reserved for that bridge and authorized screenshots. Controls load the retained Build's own `controls.replica.json`. Review and canvas messages still validate their schema, origin, and source frame. Review anchors store logical paths relative to the Build root, compare consistently across owning-run mounts, and retain query and fragment encoding. Navigation adds the active Build prefix again. Templates and public shares do not enable review.
+
+## Trusted-publisher boundary
+
+**Private prototype JavaScript is trusted code on the Hub origin.** A user who views a Build lets that code act with their Hub permissions, including administrator permissions when applicable. It can call Hub APIs with ambient cookies, access Hub-origin browser storage and other prototypes' storage, and read or navigate the parent page. A compromised publisher dependency inherits this access.
+
+This hosting model trusts connected-repository publishers. Paths, CSP, `HttpOnly`, and the iframe sandbox do not restore origin isolation. Keep secrets out of browser storage. Source-frame checks prevent accidental frame cross-talk; they are not a security boundary against same-origin prototype code.
+
+Private responses retain CSP with `frame-ancestors 'self'`, no referrers, no MIME sniffing, and disabled camera, microphone, and geolocation. Service-worker script requests are rejected and Hub sends no `Service-Worker-Allowed` header. The existing iframe sandbox retains `allow-same-origin` because opaque origins would break session-authorized app resources and storage.
+
+## Rollout and rollback
+
+Deploy the new Hub image through the installation's normal release process, upgrade the screenshot action, and rebuild affected prototypes with the canonical base. No database migration or wildcard configuration is needed for private GitHub previews. Keep configured wildcard infrastructure only for existing public sharing; retiring it is a separate decision.
+
+The installer does not modify existing prototype compiler or workflow settings. Non-GitHub path mounts, public-sharing migration, package base metadata, and arbitrary post-build relocation are not included. Rollback changes the Hub image, not stored Builds or artifacts. A previously working wildcard installation also needs its retained configuration, DNS, and TLS; an installation without them returns to its former no-preview behavior.

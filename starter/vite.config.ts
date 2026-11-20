@@ -8,6 +8,7 @@ import { viteAliases } from "./vite-aliases.ts"
 const root = path.dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig({
+  base: "./",
   root,
   plugins: [react()],
   resolve: { alias: viteAliases },

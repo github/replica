@@ -31,7 +31,7 @@ Removing a workflow stops artifact imports from it. Its next import pass marks a
 
 An omitted file, `builds`, or `builds.workflows` keeps the legacy default. An explicit list replaces that default; include `.github/workflows/replica.yml` explicitly to select it too. Use one to ten unique paths directly under `.github/workflows/`, ending in `.yml` or `.yaml`. Filenames must start with an ASCII letter or digit and contain only letters, digits, dots, underscores, or hyphens; each complete path is limited to 255 characters. Configuration must be a regular JSON file of at most 16 KiB. Invalid configuration stops imports and discovery with an error naming the configuration file; provider failures do not select a fallback workflow.
 
-GitHub identifies reusable workflow runs by the top-level caller, not the called workflow. Select `publish-proto.yml`, not Mini-Foundry's reusable `publish-proto-core.yml`. Selection alone does not add publishing jobs or make Azure output suitable for Hub: the selected caller must produce the existing Replica artifacts with a Hub-compatible root base path (`VITE_BASE=/`). This configuration does not modify downstream workflows or Azure publishing.
+GitHub identifies reusable workflow runs by the top-level caller, not the called workflow. Select `publish-proto.yml`, not Mini-Foundry's reusable `publish-proto-core.yml`. Selection alone does not add publishing jobs or make Azure output suitable for Hub: the selected caller must produce the existing Replica artifacts for the [private preview base](build-previews.md#build-and-workflow-contract). Use `/previews/github/${{ github.repository_id }}/${{ github.run_id }}/` as the build-time base and router basename, or relative output with hash routing as in Starter. This configuration does not modify downstream workflows or Azure publishing.
 
 When several selected workflows publish the same branch and commit, they share one Build. Existing run and attempt ordering still governs unfinished Builds. The first successful dist import remains immutable, and later screenshots attach only when their digest matches that dist. Select workflows that intentionally produce the same Hub output rather than competing variants.
 
@@ -82,6 +82,15 @@ The publish action validates and packages the output and uploads `replica-build-
 Keep publish last in its job: later steps delay the completed-job event used for import. Putting screenshots in that same job delays import until they finish. Keep checkout credentials disabled and pin actions to reviewed commits.
 
 The optional [build action](../../actions/build/action.yml) is still available. It runs `npm ci` and `npm run build` as a non-root user in a Node container. With `screenshots: separate`, it uploads the same dist package as the publish action and can replace the build steps and publish action above. Existing single-job workflows remain compatible: `screenshots` defaults to `inline`, which uploads one package containing the dist and screenshots, so Hub imports it only after screenshots finish.
+
+For a fixed-base app, upgrade the action references to a reviewed revision containing `base-path` support before configuring capture. Set the app's compiler base using its supported configuration, such as `VITE_BASE`, and pass the same original base to the screenshot step:
+
+```yaml
+with:
+  base-path: /previews/github/${{ github.repository_id }}/${{ github.run_id }}/
+```
+
+The same input applies to inline capture in `actions/build`; it does not configure the compiler in that action's build container. Capture mounts the downloaded `dist` at that path and joins the root and logical template routes beneath it, preserving query and fragment. The default `/` remains available for root-base or relative-output apps. The earlier pinned example above works for Starter's relative output; it must be upgraded before adding this new input.
 
 To use the build and publish actions as separate steps, set `build-only: 'true'` on the build action, then call the publish action. Build-only mode leaves the static output in the workspace without packaging, uploads, browser installation, or screenshot capture. Without this option, both actions upload `replica-build-v1`, and GitHub rejects the duplicate artifact name.
 

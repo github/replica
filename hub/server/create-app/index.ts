@@ -44,9 +44,9 @@ export function createApp({
       "/api/notifications",
       "/api/repositories",
       "/api/shared",
-      "/__replica/authorize",
       "/__replica/share/authorize",
       "/api/settings",
+      "/previews",
     ],
     authenticationSecurity(),
   )

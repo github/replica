@@ -126,7 +126,6 @@ async function startHub(
   const product = {
     ...createProductRouteDependencies({
       applicationOrigin: preview.applicationOrigin,
-      previewBaseOrigin: preview.previewBaseOrigin,
     }),
     getVerifiedRepositoryPermission: getRepositoryPermission,
   }

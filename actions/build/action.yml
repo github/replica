@@ -2,6 +2,10 @@ name: Replica build
 description: Build a Replica prototype and upload its package, with screenshots inline or in a later job
 
 inputs:
+  base-path:
+    description: Path where the compiled app is mounted during screenshot capture; configure the app's build base separately
+    required: false
+    default: /
   build-only:
     description: Build static output without packaging, uploading, or capturing screenshots; publish it with a later actions/build/publish step
     required: false
@@ -110,7 +114,9 @@ runs:
 
     - name: Capture screenshots
       if: inputs.build-only != 'true' && inputs.screenshots == 'inline'
-      run: node "$GITHUB_ACTION_PATH/scripts/capture-screenshots/index.mjs" --root "$RUNNER_TEMP/replica-build-root" --config-root "$GITHUB_WORKSPACE" --screenshots "$RUNNER_TEMP/replica-screenshots"
+      env:
+        REPLICA_BASE_PATH: ${{ inputs.base-path }}
+      run: node "$GITHUB_ACTION_PATH/scripts/capture-screenshots/index.mjs" --root "$RUNNER_TEMP/replica-build-root" --config-root "$GITHUB_WORKSPACE" --screenshots "$RUNNER_TEMP/replica-screenshots" --base-path "$REPLICA_BASE_PATH"
       shell: bash
 
     - name: Create Replica package

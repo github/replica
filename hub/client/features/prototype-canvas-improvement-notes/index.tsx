@@ -7,6 +7,7 @@ import { HubCounter } from "@components/hub-counter"
 import { CanvasDialog } from "@components/prototype-canvas-dialog"
 import { ImprovementThreads } from "@features/prototype-canvas-improvement-threads"
 import type { ReviewAnchor } from "@utils/review-anchor/types"
+import { getPreviewBasePath } from "@utils/prototype-controls/preview-base-path.mjs"
 import { copy } from "./en"
 import { improvementThreadView } from "./thread-view"
 import { usePreviewSelection } from "./use-preview-selection"
@@ -194,7 +195,12 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
         onSelect={(id) => {
           const note = notes.find((item) => item.id === id)
           if (note && note.route !== route)
-            canvas.onNavigate(new URL(note.route, canvas.prototypeUrl).href)
+            canvas.onNavigate(
+              new URL(
+                `${getPreviewBasePath(new URL(canvas.prototypeUrl).pathname)}${note.route.slice(1)}`,
+                canvas.prototypeUrl,
+              ).href,
+            )
         }}
         onFollowUp={(thread, body) =>
           saved.change("follow-up", {

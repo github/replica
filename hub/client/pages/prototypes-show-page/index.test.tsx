@@ -1291,36 +1291,30 @@ describe("PrototypesShowPage()", () => {
     expect(document.querySelector("iframe")).toHaveAttribute("src", build.previewUrl)
   })
 
-  it("shows a Build-origin route while keeping deep links on the authorization flow", () => {
+  it("copies the current canonical Build route without dropping its immutable prefix", () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } })
-    const build = PROTOTYPES_SHOW_PAGE_DATA.selectedBuild
-    if (!build) throw new Error("Expected successful fixture Build")
-    const authorizationUrl = new URL(
-      "/api/repositories/repository/prototypes/prototype/builds/2/access",
-      window.location.origin,
-    )
-    authorizationUrl.searchParams.set("target", "preview")
-    authorizationUrl.searchParams.set("preview_origin", "http://build-id.preview.localhost:3001")
-    BRIDGE.route = {
-      pathname: "/checkout",
-      search: "?step=shipping",
-      hash: "#address",
-    }
-
+    const base = `${window.location.origin}/previews/github/123/456/`
+    BRIDGE.route = { pathname: "/checkout", search: "?q=a%20b&q=second", hash: "#address" }
     render(
       <HubThemeProvider>
-        <TestPage selectedBuild={{ ...build, previewUrl: authorizationUrl.toString() }} />
+        <TestPage
+          selectedBuild={{
+            number: 2,
+            frameTitle: "Canonical Build preview",
+            previewUrl: base,
+          }}
+        />
       </HubThemeProvider>,
     )
-
-    expect(screen.getByRole("textbox", { name: "Preview URL" })).toHaveValue(
-      "http://build-id.preview.localhost:3001/checkout?step=shipping#address",
-    )
+    const address = `${base}checkout?q=a%20b&q=second#address`
+    expect(screen.getByRole("textbox", { name: "Preview URL" })).toHaveValue(address)
     fireEvent.click(screen.getByRole("button", { name: "Copy preview URL" }))
-    const externalUrl = new URL(String(writeText.mock.calls.at(-1)![0]), window.location.origin)
-    expect(externalUrl.pathname).toContain("/builds/2/access")
-    expect(externalUrl.searchParams.get("route")).toBe("/checkout?step=shipping#address")
+    expect(writeText).toHaveBeenLastCalledWith(address)
+    expect(document.querySelector("iframe")).toHaveAttribute("src", base)
+    expect(new URL(window.location.href).searchParams.get("return_path")).toBe(
+      "/checkout?q=a%20b&q=second#address",
+    )
   })
 
   it("copies the current route inside a Hub link without reloading the preview", () => {

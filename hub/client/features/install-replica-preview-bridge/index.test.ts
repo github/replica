@@ -11,6 +11,52 @@ const { anchor, areaAnchor, bridgeWindow, dispatchMessage, message, postedMessag
 beforeEach(() => onTestFinished(harness.close))
 
 describe("installReplicaPreviewBridge()", () => {
+  it("matches root-relative anchors across owning-run mounts and restores their fragment", async () => {
+    for (const run of [456, 789]) {
+      const { parent, preview, postMessage } = bridgeWindow({
+        url: `http://replica.localhost:19500/previews/github/123/${run}/settings?tab=a%20b&rc=1#details`,
+      })
+      preview.document.body.innerHTML =
+        '<button id="save" aria-label="Save">Save</button><h2 id="details">Details</h2>'
+      const scroll = vi.fn()
+      preview.document.querySelector("#details")!.scrollIntoView = scroll
+      dispatchMessage(preview, parent, message("replica:bridge:request-ready"))
+      expect(postedMessages(postMessage).at(-1)).toMatchObject({
+        payload: { route: { pathname: "/settings", search: "?tab=a%20b", hash: "#details" } },
+      })
+      dispatchMessage(
+        preview,
+        parent,
+        message("replica:bridge:resolve-anchors", {
+          replace: true,
+          anchors: [
+            {
+              commentId: 1,
+              originBuild: false,
+              anchor: anchor({
+                route: { pathname: "/settings", search: "?tab=a%20b", hash: "#details" },
+              }),
+            },
+          ],
+        }),
+      )
+      await renderFrames(preview)
+      expect(postedMessages(postMessage).at(-1)).toMatchObject({
+        payload: { results: [{ commentId: 1, status: "moved" }] },
+      })
+      dispatchMessage(
+        preview,
+        parent,
+        message("replica:bridge:restore-fragment", {
+          route: { pathname: "/settings", search: "?tab=a%20b", hash: "#details" },
+        }),
+      )
+      await renderFrames(preview)
+      expect(scroll).toHaveBeenCalled()
+      expect(preview.location.pathname).toBe(`/previews/github/123/${run}/settings`)
+    }
+  })
+
   it.each(["static", "fixed", "sticky"])(
     "keeps a pin attached during document scrolling with a %s ancestor",
     async (position) => {

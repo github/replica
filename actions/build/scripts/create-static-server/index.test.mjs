@@ -11,6 +11,42 @@ import { listenOnLoopback } from "../listen-on-loopback/index.mjs"
 import { createStaticServer } from "./index.mjs"
 
 describe("createStaticServer()", () => {
+  it("serves only the compiled base with nested documents and logical template routes", async () => {
+    const dist = await temporaryDirectory()
+    const base = "/previews/github/123/456/"
+    await mkdir(path.join(dist, "docs"))
+    await writeFile(
+      path.join(dist, "index.html"),
+      '<script src="/previews/github/123/456/app.js"></script>',
+    )
+    await writeFile(path.join(dist, "docs/index.html"), "<h1>Nested document</h1>")
+    await writeFile(path.join(dist, "app.js"), "export const app = true")
+    const server = createStaticServer(dist, ["/release/v2.0?tab=notes#details"], base)
+    const port = await listenOnLoopback(server)
+    const origin = `http://127.0.0.1:${port}`
+    try {
+      const redirect = await fetch(`${origin}${base.slice(0, -1)}?tab=all`, { redirect: "manual" })
+      assert.equal(redirect.status, 308)
+      assert.equal(redirect.headers.get("location"), `${base}?tab=all`)
+      const nested = await fetch(`${origin}${base}docs/`)
+      assert.equal(await nested.text(), "<h1>Nested document</h1>")
+      const route = await fetch(`${origin}${base}release/v2.0?tab=notes`, {
+        headers: { Accept: "text/html" },
+      })
+      assert.equal(route.status, 200)
+      assert.match(await route.text(), /src="\/previews\/github\/123\/456\/app.js"/)
+      assert.equal((await fetch(`${origin}${base}app.js`)).status, 200)
+      for (const path of ["/", "/app.js", `${base}missing.js`, "/previews/github/123/4567/app.js"])
+        assert.equal(
+          (await fetch(`${origin}${path}`, { headers: { Accept: "text/html" } })).status,
+          404,
+          path,
+        )
+    } finally {
+      await closeServer(server)
+    }
+  })
+
   it("serves client-side browser routes but never replaces missing assets with HTML", async () => {
     const dist = await temporaryDirectory()
     await writeFile(path.join(dist, "index.html"), "<!doctype html><h1>App</h1>")

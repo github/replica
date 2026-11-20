@@ -1,4 +1,5 @@
 import type { ReviewRoute } from "@utils/review-anchor/types"
+import { getPreviewBasePath } from "@utils/prototype-controls/preview-base-path.mjs"
 
 const URI_PATH = /^(?:[a-z0-9._~!$&'()*+,;=:@/-]|%[0-9a-f]{2})*$/i
 const URI_FRAGMENT = /^(?:[a-z0-9._~!$&'()*+,;=:@/?-]|%[0-9a-f]{2})*$/i
@@ -25,7 +26,9 @@ export function createPreviewPrototypePrompt({
   if (previewUrl) {
     try {
       const url = new URL(previewUrl)
-      const startingRoute = initialRoute ?? `${url.pathname}${url.search}${url.hash}`
+      const startingRoute =
+        initialRoute ??
+        `${url.pathname.slice(getPreviewBasePath(url.pathname).length - 1)}${url.search}${url.hash}`
       const reportedRoute = route ? `${route.pathname}${route.search}${route.hash}` : startingRoute
       const viewedRoute =
         initialRoute !== undefined || templateLandingPageInstructions

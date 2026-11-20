@@ -1,8 +1,14 @@
 import { loadBindings } from "./bindings.mjs"
 
+const scriptPath = document.currentScript?.src
+const capturePath = scriptPath ? new URL(scriptPath).pathname : ""
+const basePath = capturePath.endsWith("/__replica/capture-controls.js")
+  ? capturePath.slice(0, -"__replica/capture-controls.js".length)
+  : undefined
+
 // Screenshot capture waits for the same adapter used by the interactive hosts.
 globalThis.ReplicaControls = {
-  ready: loadBindings().then(async (bindings) => {
+  ready: loadBindings(basePath).then(async (bindings) => {
     await bindings?.settled()
     const errors = (bindings?.runtime.list() ?? []).flatMap((controller) => {
       const states = controller.getSnapshot().bindings ?? {}

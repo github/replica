@@ -1,5 +1,6 @@
 import { Prisma } from "../../../generated/prisma/client.ts"
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
+import { createBuildPreviewPath } from "../../../utils/create-build-preview-path/index.ts"
 import {
   type RepositoryScope,
   visibleRepositoryWhere,
@@ -15,7 +16,13 @@ export function findDefaultTemplateBuild(
     async (transaction) => {
       const repository = await transaction.repository.findFirst({
         where: { id: repositoryId, ...visibleRepositoryWhere(scope) },
-        select: { id: true, nameWithOwner: true, defaultBranch: true, localPath: true },
+        select: {
+          id: true,
+          nameWithOwner: true,
+          defaultBranch: true,
+          localPath: true,
+          githubRepositoryId: true,
+        },
       })
       if (!repository) return null
 
@@ -38,6 +45,7 @@ export function findDefaultTemplateBuild(
               id: true,
               number: true,
               prototypeId: true,
+              githubWorkflowRunId: true,
               artifacts: {
                 where: {
                   OR: [
@@ -51,7 +59,19 @@ export function findDefaultTemplateBuild(
             },
           })
         : null
-      return { repository, build }
+      const { githubRepositoryId, ...publicRepository } = repository
+      return {
+        repository: publicRepository,
+        build: build
+          ? {
+              id: build.id,
+              number: build.number,
+              prototypeId: build.prototypeId,
+              artifacts: build.artifacts,
+              mountPath: createBuildPreviewPath(githubRepositoryId, build.githubWorkflowRunId),
+            }
+          : null,
+      }
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
   )

@@ -95,26 +95,9 @@ Object(async (page) => {
     const templates = admin.getByRole("region", { name: "Templates", exact: true })
     await templates.getByRole("link", { name: "Open template: Field notes", exact: true }).click()
     await admin
-      .locator("iframe")
-      .contentFrame()
-      .getByRole("heading", { name: "Field notes template", exact: true })
+      .getByRole("heading", { name: "Template preview unavailable", exact: true })
       .waitFor()
-    await adminContext.grantPermissions(["clipboard-read", "clipboard-write"], {
-      origin: root.origin,
-    })
-    await admin.getByRole("button", { name: "Branch from here", exact: true }).click()
-    const brief = "Add a trail map to the field notes."
-    await admin
-      .getByPlaceholder("What changes would you like to make?", { exact: true })
-      .fill(brief)
-    await admin
-      .getByRole("button", { name: "Copy prompt", exact: true })
-      .and(admin.locator("button:enabled"))
-      .click()
-    await admin.waitForFunction(async (submittedBrief) => {
-      const prompt = await navigator.clipboard.readText()
-      return prompt.includes(submittedBrief) && prompt.includes("/field-notes")
-    }, brief)
+    await admin.locator("iframe").waitFor({ state: "detached" })
     await admin.goto(galleryUrl, { waitUntil: "domcontentloaded" })
 
     await admin.getByRole("link", { name: "Canvas connections", exact: true }).click()
@@ -147,13 +130,9 @@ Object(async (page) => {
       .click()
 
     await welcome.click()
-    const privatePreview = admin.getByTitle("Welcome, Build 1 preview", { exact: true })
-    await privatePreview.waitFor()
     await dismissIntroduction("Welcome")
-    await privatePreview
-      .contentFrame()
-      .getByRole("heading", { name: "Welcome prototype", exact: true })
-      .waitFor()
+    await admin.getByRole("heading", { name: "Build 1 has no preview", exact: true }).waitFor()
+    await admin.locator("iframe").waitFor({ state: "detached" })
     const welcomeUrl = admin.url()
 
     await admin.goto(new URL("/settings/sharing", root).href, { waitUntil: "domcontentloaded" })

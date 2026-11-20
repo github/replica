@@ -1,8 +1,8 @@
 const closingHead = /<\/head\s*>/i
 
-export function injectPreviewBridge(html: Uint8Array): Uint8Array {
+export function injectPreviewBridge(html: Uint8Array, mountPath = "/"): Uint8Array {
   const source = new TextDecoder().decode(html)
-  const script = '<script src="/__replica/bridge/v1.js"></script>'
+  const script = `<script src="${mountPath}__replica/bridge/v1.js"></script>`
   const output = closingHead.test(source)
     ? source.replace(closingHead, `${script}</head>`)
     : `${source}${script}`

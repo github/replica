@@ -9,7 +9,7 @@ import { createApp } from "../../../../create-app"
 import { hubSessionCookieName } from "../../../../integrations/express/hub-session-cookie-name"
 import { prisma } from "../../../../integrations/prisma"
 import { findBuildArtifact } from "../../../../repositories/build-artifacts/find-build-artifact"
-import { findBuildPreviewTarget } from "../../../../repositories/build-artifacts/find-build-preview-target"
+import { findPathPreviewTargets } from "../../../../repositories/build-artifacts/find-path-preview-targets"
 import { createProductRouteDependencies } from "../../product/create-product-route-dependencies"
 import type { WorkspaceProductRouteDependencies } from "../../product/types"
 
@@ -68,10 +68,10 @@ async function withRepository(
       }),
       preview: {
         applicationOrigin: origin,
-        previewBaseOrigin: "http://preview.localhost:3001",
         encryptionKey: randomBytes(32),
         bridgeSource: "",
-        findTargetById: (buildId, target) => findBuildPreviewTarget(prisma, { buildId, target }),
+        findPathTargets: (githubRepositoryId, githubWorkflowRunId) =>
+          findPathPreviewTargets(prisma, { githubRepositoryId, githubWorkflowRunId }),
         findArtifact: (buildId, path) => findBuildArtifact(prisma, buildId, path),
         storage: {
           isReady: () => Promise.resolve(true),
@@ -164,6 +164,7 @@ it("keeps the catalog, screenshot, and routed preview on one successful default-
         prototypeId,
         number: 2,
         state: "successful",
+        githubWorkflowRunId: 3002n,
         workflowCreatedAt: new Date("2026-01-03"),
         artifacts: {
           create: [
@@ -222,20 +223,18 @@ it("keeps the catalog, screenshot, and routed preview on one successful default-
     const accessPath = preview.pathname.slice(`/api/repositories/${repositoryId}`.length)
     const granted = await read(accessPath + preview.search)
     expect(granted.status).toBe(302)
-    const authorize = new URL(granted.headers.get("location")!)
-    expect(authorize.origin).toBe(`http://${selected.id}.preview.localhost:3001`)
-    const exchanged = await readPreview(authorize)
-    expect(exchanged.status).toBe(303)
-    expect(exchanged.headers.location).toBe(route)
-    const cookie = exchanged.headers["set-cookie"]?.[0]?.split(";", 1)[0]
-    expect(cookie).toBeDefined()
-    const frame = await readPreview(new URL(route, authorize), cookie)
+    const destination = new URL(granted.headers.get("location")!)
+    expect(destination.toString()).toBe(`http://localhost:5173/previews/github/456/3002${route}`)
+    expect(granted.headers.get("set-cookie")).toBeNull()
+    const cookie = `${hubSessionCookieName}=template-test`
+    const frame = await readPreview(destination, cookie)
+    expect(frame.status).toBe(200)
     expect(frame.bytes.toString()).toContain("Saved Settings")
     const previewScreenshot = new URL(
-      "/__replica/screenshots/templates/settings/desktop.png",
-      authorize,
+      "/previews/github/456/3002/__replica/screenshots/templates/settings/desktop.png",
+      destination,
     )
-    expect((await readPreview(previewScreenshot)).status).toBe(404)
+    expect((await readPreview(previewScreenshot)).status).toBe(401)
     const captured = await readPreview(previewScreenshot, cookie)
     expect(captured.headers["content-type"]).toBe("image/png")
     expect(captured.bytes).toEqual(png)

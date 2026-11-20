@@ -132,14 +132,10 @@ try {
         try {
           if (authenticationConfiguration.providerConfigured) {
             authentication = await createAuthenticationRouteDependencies(authenticationEnvironment)
-            const previewConfigured = storage && authenticationEnvironment.HUB_PREVIEW_ORIGIN
-            if (previewConfigured) {
+            if (storage) {
               const { createBuildPreviewRouteDependencies } =
                 await import("./routes/build-preview/create-build-preview-route-dependencies/index.ts")
               preview = createBuildPreviewRouteDependencies(authenticationEnvironment, storage)
-              preview.restoreSession = authentication.currentSession.restore.bind(
-                authentication.currentSession,
-              )
             }
             const { createCopilotConnectionRouteDependencies } =
               await import("./routes/api/copilot-connection/create-copilot-connection-route-dependencies/index.ts")
@@ -217,7 +213,7 @@ try {
                 localAnalyticsAdministration,
               ),
               localAnalyticsAdministration,
-              applicationOrigin: previewConfigured
+              applicationOrigin: storage
                 ? authenticationEnvironment.HUB_APPLICATION_ORIGIN
                 : undefined,
               scopeGitHubMembers: authenticationConfiguration.githubConfigured,
@@ -226,16 +222,13 @@ try {
                 ? createReviewDirectory(repositoryCredentials)
                 : undefined,
               onReviewCommentDeleted: (input) => learningDependencies.redactComment(input),
-              previewBaseOrigin: previewConfigured
-                ? authenticationEnvironment.HUB_PREVIEW_ORIGIN
-                : undefined,
               withReviewCommentDeleteLock: (operation) =>
                 learningDependencies.serializeReviewCommentDeletion(operation),
             })
           } else {
             await disableAuthenticationProviders()
           }
-          if (preview || !authenticationConfiguration.localConfigured) {
+          if (preview?.previewBaseOrigin || !authenticationConfiguration.localConfigured) {
             const { createPublicSharingRouteDependencies } =
               await import("./routes/api/public-sharing/create-public-sharing-route-dependencies/index.ts")
             publicSharing = await createPublicSharingRouteDependencies(
@@ -244,7 +237,7 @@ try {
                 ? undefined
                 : {
                     hostedReady: Boolean(
-                      preview &&
+                      preview?.previewBaseOrigin &&
                       authentication?.github &&
                       typeof product?.getVerifiedRepositoryPermission === "function",
                     ),

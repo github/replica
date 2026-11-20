@@ -4,16 +4,36 @@ import { createServer } from "node:http"
 import path from "node:path"
 
 import { CONTENT_TYPES } from "../constants.mjs"
+import { normalizeBasePath } from "../normalize-base-path/index.mjs"
 
 /** Serves checked dist files and falls back to the app entry for browser routes. */
-export function createStaticServer(dist, templatePaths = []) {
+export function createStaticServer(dist, templatePaths = [], basePath = "/") {
+  const base = normalizeBasePath(basePath)
   const templatePathnames = new Set(
     templatePaths.map((route) => decodeURIComponent(new URL(route, "http://localhost").pathname)),
   )
 
   return createServer(async (request, response) => {
     try {
-      const requestPath = decodeURIComponent(new URL(request.url, "http://localhost").pathname)
+      const rawPath = request.url.split("?")[0]
+      const decoded = decodeURIComponent(rawPath)
+      if (
+        /%2f|%5c/i.test(rawPath) ||
+        /[\\%\p{Cc}]/u.test(decoded) ||
+        decoded.split("/").some((part) => part === "." || part === "..")
+      ) {
+        response.writeHead(400).end()
+        return
+      }
+      if (base !== "/" && decoded === base.slice(0, -1)) {
+        response.writeHead(308, { Location: `${base}${request.url.slice(rawPath.length)}` }).end()
+        return
+      }
+      if (!decoded.startsWith(base)) {
+        response.writeHead(404).end()
+        return
+      }
+      const requestPath = `/${decoded.slice(base.length)}`
       const templateNavigation = templatePathnames.has(requestPath)
       const acceptsHtml = request.headers.accept?.includes("text/html")
 
@@ -33,6 +53,17 @@ export function createStaticServer(dist, templatePaths = []) {
       let details
       try {
         details = await lstat(filePath)
+        if (details.isDirectory()) {
+          const index = path.join(filePath, "index.html")
+          const indexDetails = await lstat(index).catch((error) => {
+            if (!["ENOENT", "ENOTDIR"].includes(error.code)) throw error
+            return undefined
+          })
+          if (indexDetails?.isFile()) {
+            filePath = index
+            details = indexDetails
+          }
+        }
       } catch (error) {
         if (!["ENOENT", "ENOTDIR", "ENAMETOOLONG"].includes(error.code)) {
           throw error

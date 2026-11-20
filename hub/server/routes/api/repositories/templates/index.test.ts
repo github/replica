@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto"
+import { randomBytes, randomUUID } from "node:crypto"
 import { once } from "node:events"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
@@ -8,19 +8,28 @@ import { describe, expect, it, vi } from "vitest"
 import type { CurrentSessionDependencies } from "../../auth/types"
 import { GitHubProviderRequestError } from "../../../../integrations/github/errors"
 import type { WorkspaceProductRouteDependencies } from "../../product/types"
+import type { BuildPreviewRouteDependencies } from "../../../build-preview/types"
 import { templateRoutes } from "."
 
 type Viewer = NonNullable<Awaited<ReturnType<CurrentSessionDependencies["restore"]>>>
 
 async function withTemplates(
-  options: { provider: string; administrator?: boolean; permission?: "read" | "write" },
+  options: {
+    provider: string
+    administrator?: boolean
+    permission?: "read" | "write"
+    mountPath?: string | null
+    publicShareOrigin?: string
+  },
   run: (fixture: {
+    buildId: string
     read: (path: string, cookie?: string) => Promise<Response>
     visibility: ReturnType<typeof vi.fn<WorkspaceProductRouteDependencies["isRepositoryVisible"]>>
     restore: ReturnType<typeof vi.fn<CurrentSessionDependencies["restore"]>>
   }) => Promise<void>,
 ) {
   const repositoryId = randomUUID()
+  const buildId = randomUUID()
   const viewer: Viewer = {
     userId: randomUUID(),
     membershipId: randomUUID(),
@@ -47,7 +56,16 @@ async function withTemplates(
           defaultBranch: "main",
           localPath: null,
         },
-        build: null,
+        build:
+          options.mountPath !== undefined
+            ? {
+                id: buildId,
+                prototypeId: randomUUID(),
+                number: 1,
+                mountPath: options.mountPath,
+                artifacts: [{ path: "dist/index.html", storageKey: "entry", byteLength: 1 }],
+              }
+            : null,
       }),
     },
     listRepositories: vi.fn(),
@@ -58,22 +76,37 @@ async function withTemplates(
     editPrototypeMetadata: vi.fn(),
     findBuildPreviewTarget: vi.fn(),
   }
-  const routes = templateRoutes({ restore }, product, undefined)
+  const preview: BuildPreviewRouteDependencies | undefined =
+    options.mountPath !== undefined
+      ? {
+          applicationOrigin: "https://hub.example.com",
+          previewBaseOrigin: options.publicShareOrigin,
+          encryptionKey: randomBytes(32),
+          bridgeSource: "",
+          storage: { isReady: vi.fn(), read: vi.fn(), write: vi.fn(), delete: vi.fn() },
+          findArtifact: vi.fn(),
+          findPathTargets: vi.fn(),
+        }
+      : undefined
+  const routes = templateRoutes({ restore }, product, preview)
   const app = express()
   app.get("/repositories/:repositoryId/templates", routes.catalog)
   app.get("/repositories/:repositoryId/templates/:templateId", routes.detail)
   app.get("/repositories/:repositoryId/create/permission", routes.permission)
+  app.get("/repositories/:repositoryId/template-builds/:buildId/access", routes.access)
   const server = createServer(app)
   server.listen(0, "127.0.0.1")
   await once(server, "listening")
   try {
     const { port } = server.address() as AddressInfo
     await run({
+      buildId,
       visibility,
       restore,
       read: (path, cookie = "hub_session=member-session") =>
         fetch(`http://127.0.0.1:${port}/repositories/${repositoryId}${path}`, {
           headers: { cookie },
+          redirect: "manual",
         }),
     })
   } finally {
@@ -84,6 +117,44 @@ async function withTemplates(
 }
 
 describe("templateRoutes()", () => {
+  it("offers and opens a mounted template without a wildcard preview origin", async () => {
+    await withTemplates(
+      { provider: "github", mountPath: "/previews/github/2001/3002/" },
+      async ({ read, buildId }) => {
+        const route = "/checkout?step=shipping#address"
+        const detail = await read(`/templates/default?return_path=${encodeURIComponent(route)}`)
+        expect(detail.status).toBe(200)
+        const result = (await detail.json()) as { template: { previewUrl: string } }
+        const access = new URL(result.template.previewUrl)
+        expect(access.pathname).toContain(`/template-builds/${buildId}/access`)
+
+        const response = await read(`/template-builds/${buildId}/access${access.search}`)
+
+        expect(response.status).toBe(302)
+        expect(response.headers.get("location")).toBe(
+          `https://hub.example.com/previews/github/2001/3002${route}`,
+        )
+        expect(response.headers.get("set-cookie")).toBeNull()
+      },
+    )
+  })
+
+  it("does not offer or open an identifier-less template through a public-share wildcard", async () => {
+    await withTemplates(
+      { provider: "github", mountPath: null, publicShareOrigin: "https://share.example.net" },
+      async ({ read, buildId }) => {
+        const detail = await read("/templates/default")
+        expect(detail.status).toBe(200)
+        expect(await detail.json()).toMatchObject({ template: { previewUrl: null } })
+
+        const response = await read(`/template-builds/${buildId}/access?target=preview&route=%2F`)
+
+        expect(response.status).toBe(404)
+        expect(response.headers.get("location")).toBeNull()
+      },
+    )
+  })
+
   it.each([
     { access: "GitHub read-only", provider: "github", permission: "read" as const },
     { access: "Entra member", provider: "entra" },

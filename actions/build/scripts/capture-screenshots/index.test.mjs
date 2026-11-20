@@ -14,6 +14,66 @@ import { MAX_SCREENSHOT_HEIGHT } from "../constants.mjs"
 import { captureScreenshots } from "./index.mjs"
 
 describe("captureScreenshots()", () => {
+  it("boots a fixed-base app and its lazy module with Controls at root and a deep template", async () => {
+    const root = await temporaryDirectory()
+    const screenshots = await temporaryDirectory()
+    const base = "/previews/github/123/456/"
+    await mkdir(path.join(root, "dist"))
+    await mkdir(path.join(root, ".github"))
+    await writeFile(
+      path.join(root, "dist/index.html"),
+      `<!doctype html><body style="margin:0;background:blue"><input id="accent" type="color" value="#0000ff"><script type="module" src="${base}app.js"></script></body>`,
+    )
+    await writeFile(
+      path.join(root, "dist/app.js"),
+      `const base=${JSON.stringify(base)};
+      const { ready } = await import(base+"lazy.js");
+      const route = location.pathname.slice(base.length-1);
+      if (ready && (route === "/" || (route === "/build/agents/v2.0" && location.search === "?q=a%20b&q=second" && location.hash === "#details")))
+        document.querySelector("input").addEventListener("input", event => document.body.style.background=event.target.value);`,
+    )
+    await writeFile(path.join(root, "dist/lazy.js"), "export const ready=true")
+    await writeFile(
+      path.join(root, "dist/controls.replica.json"),
+      JSON.stringify({
+        version: 1,
+        scope: "page",
+        controls: [
+          {
+            id: "accent",
+            label: "Accent",
+            type: "color",
+            default: "#ff0000",
+            binding: { type: "field", selector: "#accent" },
+          },
+        ],
+      }),
+    )
+    await writeFile(
+      path.join(root, ".github/replica.json"),
+      JSON.stringify({
+        version: 1,
+        templates: [
+          {
+            id: "agents",
+            name: "Agents",
+            category: "Build",
+            description: "Agent details.",
+            path: "/build/agents/v2.0?q=a%20b&q=second#details",
+          },
+        ],
+      }),
+    )
+    await captureScreenshots(root, screenshots, root, ".github/replica.json", base)
+    for (const directory of ["", "templates/agents"]) {
+      const image = pngjs.PNG.sync.read(
+        await readFile(path.join(screenshots, directory, "desktop.png")),
+      )
+      const bottom = (image.height - 1) * image.width * 4
+      assert.deepEqual([...image.data.subarray(bottom, bottom + 3)], [255, 0, 0], directory)
+    }
+  })
+
   it("blocks prototype WebSocket connections during capture", async () => {
     let connected = false
     const socketServer = createServer((socket) => {

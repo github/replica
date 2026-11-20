@@ -4,6 +4,8 @@ A minimal starting point for a new prototype. Download and review `scripts/insta
 
 The app has hash-based routing, a start page, a linked sub-page, and a scaffolded activity example. Replace the example pages with your prototype.
 
+Vite emits relative resource URLs (`base: "./"`) so GitHub Builds can run under Hub's private `/previews/github/<repository-id>/<owning-workflow-run-id>/` mount. Existing copied repositories must adopt that setting and push a new commit to rebuild; successful immutable Builds are not rewritten. Apps using pathname routing instead need their supported build-time base and router basename set to that exact prefix. Configure the screenshot action's `base-path` to match the package's original base.
+
 Plain/fresh `/setup-skills` also dispatches one tooling agent after intake to check
 user-named token, component and other packages, offer missing dependencies and
 attempt approved installs before context writers begin. It reuses the current

@@ -5,6 +5,7 @@ export interface ReadBuildPreviewFileInput {
   buildId: string
   distOnly?: boolean
   requestPath: string
+  mountPath?: string
 }
 
 export interface ReadBuildPreviewFileDependencies {
