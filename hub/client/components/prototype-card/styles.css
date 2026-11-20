@@ -105,7 +105,15 @@
 }
 
 .prototype-card__author-link {
+  width: fit-content;
+  max-width: 100%;
   text-decoration: none;
+}
+
+.prototype-card__author-link:hover,
+.prototype-card__author-link:focus-visible {
+  color: var(--hub-fg-default);
+  text-decoration: underline;
 }
 
 .prototype-card__arrow {

@@ -363,14 +363,6 @@ export const NoMatches: Story = {
   },
 }
 
-export const Updating: Story = {
-  ...Single,
-  args: {
-    ...Single.args,
-    controls: { ...meta.args.controls, pending: true },
-  },
-}
-
 export const RequestFailed: Story = {
   ...Single,
   args: {

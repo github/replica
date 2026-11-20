@@ -129,7 +129,6 @@ export function repositoryShowData(
         previous: "Previous",
         next: "Next",
         pagination: "Prototype pages",
-        updating: "Updating prototypes",
         shown: `${data.prototypes.length} shown`,
       },
     },
