@@ -7,6 +7,7 @@ import { restoreHubSession } from "../../../../../domains/admission/restore-hub-
 import { runAdmissionTransaction } from "../../../../../domains/admission/run-admission-transaction"
 import { runSessionRestoreTransaction } from "../../../../../domains/admission/run-session-restore-transaction"
 import { syncGitHubInstallationRepositories as syncBoundGitHubInstallationRepositories } from "../../../../../domains/admission/sync-github-installation-repositories"
+import type { GitHubWorkflowRunJob } from "../../../../../domains/github-builds/get-github-workflow-run-job-definition"
 import { createGitHubUserAuthenticationAdapter } from "../../../../../integrations/github/create-user-authentication-adapter"
 import { listInstallationRepositories } from "../../../../../integrations/github/list-installation-repositories"
 import { prisma } from "../../../../../integrations/prisma"
@@ -1047,8 +1048,18 @@ describe("createGitHubWebhookRouteDependencies()", () => {
     expect(await prisma.gitHubWebhookDelivery.count()).toBe(1)
   })
 
-  it("queues a Replica workflow import before recording the delivery", async () => {
-    const enqueueWorkflowRunImport = vi.fn(() => Promise.resolve())
+  it("queues workflow runs and completed jobs without reading GitHub or workflow selection", async () => {
+    await createRepository(1001, "workflows")
+    const request = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("Webhook intake must not contact GitHub."))
+    const enqueueWorkflowRunImport = vi.fn(
+      async (_job: GitHubWorkflowRunJob, deliveryId: string) => {
+        expect(
+          await prisma.gitHubWebhookDelivery.findUnique({ where: { id: deliveryId } }),
+        ).toBeNull()
+      },
+    )
     const dependencies = createGitHubWebhookRouteDependencies({
       enqueueWorkflowRunImport,
       installationId: "700",
@@ -1074,6 +1085,7 @@ describe("createGitHubWebhookRouteDependencies()", () => {
     }
     const runDelivery = deliveryFor(runPayload)
     const jobDelivery = deliveryFor(jobPayload)
+    const otherDelivery = deliveryFor(otherWorkflow)
 
     await expect(dependencies.handleEvent("workflow_run", runPayload, runDelivery)).resolves.toBe(
       true,
@@ -1082,34 +1094,90 @@ describe("createGitHubWebhookRouteDependencies()", () => {
       true,
     )
     await expect(
-      dependencies.handleEvent("workflow_run", otherWorkflow, deliveryFor(otherWorkflow)),
-    ).resolves.toBe(false)
+      dependencies.handleEvent("workflow_run", otherWorkflow, otherDelivery),
+    ).resolves.toBe(true)
 
     expect(enqueueWorkflowRunImport.mock.calls).toEqual([
       [{ githubRepositoryId: 1001, runId: 55 }, runDelivery.id],
       [{ githubRepositoryId: 1001, runId: 55 }, jobDelivery.id],
+      [{ githubRepositoryId: 1001, runId: 56 }, otherDelivery.id],
     ])
-    expect(await prisma.gitHubWebhookDelivery.count()).toBe(2)
+    expect(await prisma.gitHubWebhookDelivery.count()).toBe(3)
+    expect(request).not.toHaveBeenCalled()
   })
 
-  it("leaves a workflow delivery unrecorded when queueing fails so GitHub can redeliver it", async () => {
+  it.each(["workflow_run", "workflow_job"])(
+    "leaves a failed %s enqueue unrecorded so the same delivery can retry",
+    async (event) => {
+      await createRepository(1001, "retry-workflows")
+      const enqueueWorkflowRunImport = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("Queue unavailable."))
+        .mockResolvedValue(undefined)
+      const dependencies = createGitHubWebhookRouteDependencies({
+        enqueueWorkflowRunImport,
+        installationId: "700",
+        provider: githubProvider,
+        syncRepositories: () => Promise.resolve(),
+        webhookSecret: "webhook-secret-for-tests",
+      })
+      const payload = {
+        action: "completed",
+        repository: { id: 1001 },
+        ...(event === "workflow_run"
+          ? { workflow_run: { id: 55, path: ".github/workflows/publish.yml" } }
+          : { workflow_job: { run_id: 55 } }),
+      }
+      const delivery = deliveryFor(payload)
+
+      await expect(dependencies.handleEvent(event, payload, delivery)).rejects.toThrow(
+        "Queue unavailable.",
+      )
+      expect(await prisma.gitHubWebhookDelivery.count()).toBe(0)
+
+      await expect(dependencies.handleEvent(event, payload, delivery)).resolves.toBe(true)
+      expect(enqueueWorkflowRunImport).toHaveBeenLastCalledWith(
+        { githubRepositoryId: 1001, runId: 55 },
+        delivery.id,
+      )
+      expect(await prisma.gitHubWebhookDelivery.count()).toBe(1)
+      expect(enqueueWorkflowRunImport).toHaveBeenCalledTimes(2)
+    },
+  )
+
+  it.each([
+    { state: "unknown", event: "workflow_run" },
+    { state: "disconnected", event: "workflow_run" },
+    { state: "unknown", event: "workflow_job" },
+    { state: "disconnected", event: "workflow_job" },
+  ])("does not queue an $state repository's $event", async ({ state, event }) => {
+    if (state === "disconnected") {
+      const repository = await createRepository(1001, "removed-workflows")
+      await prisma.repository.update({
+        where: { id: repository.id },
+        data: { removedAt: new Date() },
+      })
+    }
+    const enqueueWorkflowRunImport = vi.fn(() => Promise.resolve())
     const dependencies = createGitHubWebhookRouteDependencies({
-      enqueueWorkflowRunImport: () => Promise.reject(new Error("Queue unavailable.")),
       installationId: "700",
       provider: githubProvider,
       syncRepositories: () => Promise.resolve(),
       webhookSecret: "webhook-secret-for-tests",
+      enqueueWorkflowRunImport,
     })
     const payload = {
       action: "completed",
-      installation: { id: 700 },
       repository: { id: 1001 },
-      workflow_run: { id: 55, path: ".github/workflows/replica.yml" },
+      ...(event === "workflow_run"
+        ? { workflow_run: { id: 55, path: ".github/workflows/replica.yml" } }
+        : { workflow_job: { run_id: 55 } }),
     }
 
-    await expect(
-      dependencies.handleEvent("workflow_run", payload, deliveryFor(payload)),
-    ).rejects.toThrow("Queue unavailable.")
+    await expect(dependencies.handleEvent(event, payload, deliveryFor(payload))).resolves.toBe(
+      false,
+    )
+    expect(enqueueWorkflowRunImport).not.toHaveBeenCalled()
     expect(await prisma.gitHubWebhookDelivery.count()).toBe(0)
   })
 

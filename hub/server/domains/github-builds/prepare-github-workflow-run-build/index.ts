@@ -4,7 +4,7 @@ import { GitHubProviderRequestError } from "../../../integrations/github/errors.
 import { prepareGitHubBuild } from "../../../repositories/github-builds/prepare-github-build/index.ts"
 import { recordGitHubBuildAuthor } from "../../../repositories/github-builds/record-github-build-author/index.ts"
 import type { createGitHubActionsClient } from "../../../integrations/github/create-github-actions-client/index.ts"
-import { replicaWorkflowPath } from "../constants.ts"
+import { isGitHubWorkflowBranchPush } from "../is-github-workflow-branch-push/index.ts"
 
 /**
  * Finds or creates the Build for a Replica workflow branch push run, using GitHub's
@@ -14,17 +14,12 @@ export async function prepareGitHubWorkflowRunBuild(
   database: PrismaClient,
   githubRepositoryId: number,
   run: GitHubWorkflowRun,
+  workflowPaths: string[],
   getCommitAuthor: ReturnType<typeof createGitHubActionsClient>["getCommitAuthor"],
 ) {
-  const branchName = run.headBranch
   if (
-    run.repositoryId !== githubRepositoryId ||
-    run.path.split("@")[0] !== replicaWorkflowPath ||
-    run.event !== "push" ||
-    !branchName ||
-    branchName === "replica/install-workflow" ||
-    !/^[0-9a-f]{40}$/.test(run.headSha) ||
-    !run.htmlUrl.startsWith("https://")
+    !isGitHubWorkflowBranchPush(githubRepositoryId, run) ||
+    !workflowPaths.includes(run.path.split("@")[0] ?? "")
   ) {
     return { status: "ignored" as const }
   }
@@ -36,7 +31,7 @@ export async function prepareGitHubWorkflowRunBuild(
   }
   const prepared = await prepareGitHubBuild(database, {
     githubRepositoryId,
-    branchName,
+    branchName: run.headBranch,
     commitSha: run.headSha,
     run: buildRun,
     author: null,
