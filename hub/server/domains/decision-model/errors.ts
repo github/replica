@@ -1,6 +1,7 @@
 export type DecisionModelErrorCode =
   | "access_denied"
   | "budget_exceeded"
+  | "build_not_found"
   | "candidate_not_found"
   | "candidate_already_promoted"
   | "candidate_rejected"
@@ -10,8 +11,10 @@ export type DecisionModelErrorCode =
   | "deletion_revoked"
   | "consent_required"
   | "job_not_found"
+  | "invalid_questions_payload"
   | "invalid_request"
   | "promotion_stale"
+  | "repository_not_found"
   | "rollback_unavailable"
   | "runtime_unavailable"
   | "taskset_drift"

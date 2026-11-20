@@ -201,6 +201,22 @@ export function planDecisionTasks(bundle, builds) {
   return {
     scope: manifest.scope,
     exportId: manifest.id,
+    provenance: {
+      exportDigest: manifest.digest,
+      purposes: [manifest.purpose],
+      grantIds: manifest.records
+        .filter((record) => record.kind === "grant")
+        .map((record) => record.id)
+        .sort(compare),
+      reviewDigests: manifest.records
+        .filter((record) => record.kind === "memory")
+        .map((record) => record.digest)
+        .sort(compare),
+      evidenceDigests: manifest.records
+        .filter((record) => ["collection", "episode", "event"].includes(record.kind))
+        .map((record) => record.digest)
+        .sort(compare),
+    },
     learnings: learnings.map(({ id, content }) => ({ id, content })),
     tasks,
     skipped: Object.fromEntries([...skipped].sort(([left], [right]) => compare(left, right))),
