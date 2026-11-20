@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
+import tarfile
+import tempfile
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
+import replica_brand_check.azure_connectors as azure_module
 from replica_brand_check.azure_connectors import (
     AzureBlobArtifactConnector,
     AzureBlobTasksetConnector,
@@ -20,8 +25,11 @@ from replica_brand_check.azure_connectors import (
     AzureObservabilityConnector,
     AzurePostgresCandidateConnector,
     AzurePostgresJobConnector,
+    _extract_taskset_archive,
     create_azure_connector_bundle,
+    initialize_azure_postgres,
 )
+from replica_brand_check.taskset import MAX_IMAGE_BYTES
 from replica_brand_check.connector_conformance import (
     ConnectorConformanceFixture,
     connector_conformance,
@@ -120,6 +128,11 @@ class _BlobDownload:
     def readall(self):
         return self._value["data"]
 
+    def chunks(self):
+        data = self._value["data"]
+        for offset in range(0, len(data), 64 * 1024):
+            yield data[offset : offset + 64 * 1024]
+
 
 class ResourceExistsError(Exception):
     pass
@@ -133,6 +146,7 @@ class _BlobService:
     def __init__(self):
         self.blobs = {}
         self.versions = {}
+        self.stale_version_names = set()
 
     def upload_blob(
         self,
@@ -165,7 +179,10 @@ class _BlobService:
             raise ResourceNotFoundError(name) from None
 
     def list_blob_versions(self, name):
-        return tuple(version["id"] for version in self.versions.get(name, ()))
+        versions = [version["id"] for version in self.versions.get(name, ())]
+        if name in self.stale_version_names:
+            versions.insert(0, "already-deleted")
+        return tuple(versions)
 
     def delete_blob(self, name, *, version_id=None, permanent=False):
         if not permanent:
@@ -426,6 +443,35 @@ class _Postgres:
         return self.promotions.get(scope)
 
 
+class _SchemaCursor:
+    def __init__(self, statements):
+        self.statements = statements
+
+    def execute(self, sql, parameters=()):
+        self.statements.append((sql, tuple(parameters)))
+
+    def close(self):
+        pass
+
+
+class _SchemaConnection:
+    def __init__(self):
+        self.statements = []
+        self.committed = False
+
+    def cursor(self):
+        return _SchemaCursor(self.statements)
+
+    def commit(self):
+        self.committed = True
+
+    def rollback(self):
+        pass
+
+    def close(self):
+        pass
+
+
 class _PostgresCursor:
     def __init__(self, database):
         self.database = database
@@ -452,13 +498,13 @@ class _PostgresCursor:
 
         if query.startswith("SELECT pg_advisory_xact_lock("):
             return
-        if query.startswith("SELECT request_digest, result FROM replica_decision_idempotency"):
+        if query.startswith("SELECT request_digest, result FROM replica_decision_runtime.replica_decision_idempotency"):
             scope, key = parameters
             row = self.database.sql_idempotency.get((scope, "cancel", key))
             if row is not None:
                 self._one = (row["request_digest"], row["result"])
             return
-        if query.startswith("INSERT INTO replica_decision_idempotency"):
+        if query.startswith("INSERT INTO replica_decision_runtime.replica_decision_idempotency"):
             scope, key, request_digest, result = parameters
             self.database.sql_idempotency[(scope, "cancel", key)] = {
                 "request_digest": request_digest,
@@ -484,12 +530,12 @@ class _PostgresCursor:
                     row["version"],
                 )
             return
-        if query.startswith("SELECT 1 FROM replica_decision_jobs"):
+        if query.startswith("SELECT 1 FROM replica_decision_runtime.replica_decision_jobs"):
             scope, job_id = parameters
             if (scope, job_id) in self.database.sql_jobs:
                 self._one = (1,)
             return
-        if query.startswith("INSERT INTO replica_decision_jobs"):
+        if query.startswith("INSERT INTO replica_decision_runtime.replica_decision_jobs"):
             scope, job_id, record, create_key, create_digest = parameters
             self.database.sql_jobs[(scope, job_id)] = {
                 "job_id": job_id,
@@ -505,7 +551,7 @@ class _PostgresCursor:
             }
             self.rowcount = 1
             return
-        if query.startswith("SELECT record, version FROM replica_decision_jobs"):
+        if query.startswith("SELECT record, version FROM replica_decision_runtime.replica_decision_jobs"):
             if "job_id = %s" in query:
                 row = self.database.sql_jobs.get(tuple(parameters))
                 if row is not None:
@@ -519,7 +565,7 @@ class _PostgresCursor:
                 ]
             return
         if (
-            query.startswith("UPDATE replica_decision_jobs SET record = %s::jsonb")
+            query.startswith("UPDATE replica_decision_runtime.replica_decision_jobs SET record = %s::jsonb")
             and "lease_token = %s" in query
         ):
             (
@@ -530,8 +576,8 @@ class _PostgresCursor:
                 token,
                 owner_kind,
                 owner_id,
-                now,
             ) = parameters
+            now = time.time()
             row = self.database.sql_jobs.get((scope, job_id))
             if (
                 row is not None
@@ -546,8 +592,9 @@ class _PostgresCursor:
                 row["version"] += 1
                 self.rowcount = 1
             return
-        if query.startswith("UPDATE replica_decision_jobs SET lease_token = %s"):
-            token, owner_kind, owner_id, expires_at, scope, job_id, now = parameters
+        if query.startswith("UPDATE replica_decision_runtime.replica_decision_jobs SET lease_token = %s"):
+            token, owner_kind, owner_id, ttl_seconds, scope, job_id = parameters
+            now = time.time()
             row = self.database.sql_jobs.get((scope, job_id))
             if (
                 row is not None
@@ -561,12 +608,13 @@ class _PostgresCursor:
                     lease_token=token,
                     lease_owner_kind=owner_kind,
                     lease_owner_id=owner_id,
-                    lease_expires_at=expires_at,
+                    lease_expires_at=now + ttl_seconds,
                 )
                 self.rowcount = 1
             return
-        if query.startswith("UPDATE replica_decision_jobs SET lease_expires_at"):
-            expires_at, scope, job_id, token, owner_kind, owner_id, now = parameters
+        if query.startswith("UPDATE replica_decision_runtime.replica_decision_jobs SET lease_expires_at"):
+            ttl_seconds, scope, job_id, token, owner_kind, owner_id = parameters
+            now = time.time()
             row = self.database.sql_jobs.get((scope, job_id))
             if (
                 row is not None
@@ -575,11 +623,12 @@ class _PostgresCursor:
                 and row["lease_owner_id"] == owner_id
                 and row["lease_expires_at"] > now
             ):
-                row["lease_expires_at"] = expires_at
+                row["lease_expires_at"] = now + ttl_seconds
                 self.rowcount = 1
             return
-        if query.startswith("UPDATE replica_decision_jobs SET lease_token = NULL"):
-            scope, job_id, token, owner_kind, owner_id, now = parameters
+        if query.startswith("UPDATE replica_decision_runtime.replica_decision_jobs SET lease_token = NULL"):
+            scope, job_id, token, owner_kind, owner_id = parameters
+            now = time.time()
             row = self.database.sql_jobs.get((scope, job_id))
             if (
                 row is not None
@@ -614,12 +663,12 @@ class _PostgresCursor:
                 row["cancellation_key"] = key
                 self.rowcount = 1
             return
-        if query.startswith("SELECT digest, descriptor FROM replica_decision_candidates"):
+        if query.startswith("SELECT digest, descriptor FROM replica_decision_runtime.replica_decision_candidates"):
             row = self.database.sql_candidates.get(tuple(parameters))
             if row is not None:
                 self._one = (row["digest"], row["descriptor"])
             return
-        if query.startswith("INSERT INTO replica_decision_candidates"):
+        if query.startswith("INSERT INTO replica_decision_runtime.replica_decision_candidates"):
             scope, candidate_id, digest, descriptor = parameters
             self.database.sql_candidates[(scope, candidate_id)] = {
                 "digest": digest,
@@ -627,7 +676,7 @@ class _PostgresCursor:
             }
             self.rowcount = 1
             return
-        if query.startswith("SELECT descriptor FROM replica_decision_candidates"):
+        if query.startswith("SELECT descriptor FROM replica_decision_runtime.replica_decision_candidates"):
             row = self.database.sql_candidates.get(tuple(parameters))
             if row is not None:
                 self._one = (row["descriptor"],)
@@ -658,14 +707,14 @@ class _PostgresCursor:
                 current = max(rows, key=lambda row: row["generation"])
                 self._one = (current["generation"], current["candidate_id"])
             return
-        if query.startswith("SELECT 1 FROM replica_decision_candidates"):
+        if query.startswith("SELECT 1 FROM replica_decision_runtime.replica_decision_candidates"):
             self._one = (
                 (1,)
                 if tuple(parameters) in self.database.sql_candidates
                 else None
             )
             return
-        if query.startswith("INSERT INTO replica_decision_promotions"):
+        if query.startswith("INSERT INTO replica_decision_runtime.replica_decision_promotions"):
             (
                 scope,
                 generation,
@@ -726,12 +775,14 @@ class _TrainingClient:
         cancellation=None,
         fail_after_cancellation=False,
         cancel_failures=0,
+        reported_credits=None,
     ):
         self.requests = []
         self.cancelled = []
         self._cancellation = cancellation
         self._fail_after_cancellation = fail_after_cancellation
         self._cancel_failures = cancel_failures
+        self._reported_credits = reported_credits
         self._polls = 0
 
     def start(self, job_name, request, *, bearer_token):
@@ -769,10 +820,14 @@ class _TrainingClient:
                     },
                     {
                         "kind": "training_credits",
-                        "quantity": min(
-                            self.requests[-1]["payload"]["limits"]["maxUpdates"],
-                            self.requests[-1]["payload"]["limits"]["maxCredits"]
-                            or self.requests[-1]["payload"]["limits"]["maxUpdates"],
+                        "quantity": (
+                            self._reported_credits
+                            if self._reported_credits is not None
+                            else min(
+                                self.requests[-1]["payload"]["limits"]["maxUpdates"],
+                                self.requests[-1]["payload"]["limits"]["maxCredits"]
+                                or self.requests[-1]["payload"]["limits"]["maxUpdates"],
+                            )
                         ),
                         "unit": "credits",
                         "cost": 0,
@@ -796,38 +851,50 @@ class _StatusFailingTrainingClient(_TrainingClient):
         raise RuntimeError("status unavailable")
 
 
+class _MalformedStatusTrainingClient(_TrainingClient):
+    def status(self, job_id, *, bearer_token):
+        del job_id, bearer_token
+        return []
+
+
+class _UnknownStatusTrainingClient(_TrainingClient):
+    def status(self, job_id, *, bearer_token):
+        del job_id, bearer_token
+        return {"state": "mystery"}
+
+
 class _InferenceClient:
     def __init__(self, readiness):
         self.readiness_value = readiness
         self.requests = []
+        self.retries = {}
 
     def readiness(self, *, bearer_token):
         del bearer_token
         return dict(self.readiness_value)
 
     def predict(self, request, *, bearer_token):
+        key = request["idempotencyKey"]
+        previous = self.retries.get(key)
+        if previous is not None and previous != request["requestDigest"]:
+            raise ConnectorError(
+                "idempotency_conflict",
+                "The inference idempotency key was reused with different input.",
+                category="conflict",
+            )
+        self.retries[key] = request["requestDigest"]
         self.requests.append({"request": request, "bearerToken": bearer_token})
+        answers = (
+            {"learning-one": {"yes": 0.8, "no": 0.2}}
+            if request.get("questions")
+            else {"operationId": request["operationId"]}
+        )
         return {
-            "answers": {"learning-one": {"yes": 0.8, "no": 0.2}},
+            "answers": answers,
             "candidateId": "candidate_live",
             "generation": request["expectedGeneration"],
             "operationId": request.get("operationId"),
         }
-
-
-class _ConformanceInferenceConnector:
-    def __init__(self, connector):
-        self.connector = connector
-        self.name = connector.name
-
-    def predict(self, adapter, request, *, context, credential):
-        answers = self.connector.predict(
-            adapter,
-            dict(request, expectedGeneration=1),
-            context=context,
-            credential=credential,
-        )
-        return dict(answers, operationId=context.operation_id)
 
 
 class _IdentityClient:
@@ -975,7 +1042,7 @@ class AzureBlobArtifactConnectorTest(unittest.TestCase):
                 overwrite=True,
                 metadata=blobs.blobs[name]["metadata"],
             )
-            blobs.versions[name].insert(0, {"id": "already-deleted"})
+            blobs.stale_version_names.add(name)
 
         connector.delete(artifact.digest, _context(scope, "delete-stale-version"))
 
@@ -1051,11 +1118,110 @@ class AzureBlobTasksetConnectorTest(unittest.TestCase):
         self.assertEqual(results[0].reference, registered.reference)
         self.assertEqual(results[0].digest, registered.digest)
 
+    def test_archive_extraction_rejects_an_oversized_image_before_writing(self):
+        archive_bytes = io.BytesIO()
+        with tarfile.open(fileobj=archive_bytes, mode="w") as archive:
+            data = b"x" * (MAX_IMAGE_BYTES + 1)
+            member = tarfile.TarInfo("images/large.png")
+            member.size = len(data)
+            archive.addfile(member, io.BytesIO(data))
+        archive_bytes.seek(0)
+
+        with tempfile.TemporaryDirectory() as directory:
+            with tarfile.open(fileobj=archive_bytes, mode="r") as archive:
+                with self.assertRaises(tarfile.TarError):
+                    _extract_taskset_archive(archive, Path(directory))
+            self.assertEqual(list(Path(directory).rglob("*")), [])
+
+    def test_resolution_rejects_an_oversized_blob_while_streaming_download(self):
+        scope = RuntimeScope("tenant-one", "github/acme/repo")
+        blobs = _BlobService()
+        connector = AzureBlobTasksetConnector(blobs, scope)
+        self.addCleanup(connector.close)
+        digest = ContentDigest("sha256", "a" * 64)
+        blobs.upload_blob(connector._name(digest), b"x" * 11)
+
+        with mock.patch.object(azure_module, "_MAX_TASKSET_ARCHIVE_BYTES", 10):
+            with self.assertRaises(ConnectorError) as oversized:
+                connector.resolve(
+                    f"taskset:{digest.value}",
+                    _context(scope, "resolve-oversized"),
+                )
+
+        self.assertEqual(oversized.exception.code, "azure_blob_oversized")
+
+    def test_registration_rejects_oversized_content_before_persisting_any_blob(self):
+        directory = write_taskset(
+            self,
+            [
+                make_task(1, answer=True),
+                make_task(2, split="test", answer=True),
+            ],
+        )
+        scope = RuntimeScope("tenant-one", "github/acme/repo")
+        blobs = _BlobService()
+        connector = AzureBlobTasksetConnector(blobs, scope)
+        self.addCleanup(connector.close)
+
+        with mock.patch.object(azure_module, "_MAX_TASKSET_EXPANDED_BYTES", 10):
+            with self.assertRaises(ConnectorError) as oversized:
+                connector.register(
+                    taskset_bundle(directory),
+                    _context(scope, "register-oversized"),
+                )
+
+        self.assertEqual(oversized.exception.code, "taskset_too_large")
+        self.assertFalse(blobs.blobs)
+
+    def test_registration_rejects_an_oversized_archive_before_persistence(self):
+        directory = write_taskset(
+            self,
+            [
+                make_task(1, answer=True),
+                make_task(2, split="test", answer=True),
+            ],
+        )
+        scope = RuntimeScope("tenant-one", "github/acme/repo")
+        blobs = _BlobService()
+        connector = AzureBlobTasksetConnector(blobs, scope)
+        self.addCleanup(connector.close)
+
+        with mock.patch.object(azure_module, "_MAX_TASKSET_ARCHIVE_BYTES", 10):
+            with self.assertRaises(ConnectorError) as oversized:
+                connector.register(
+                    taskset_bundle(directory),
+                    _context(scope, "register-archive-oversized"),
+                )
+
+        self.assertEqual(oversized.exception.code, "taskset_archive_too_large")
+        self.assertFalse(blobs.blobs)
+
 
 class AzurePostgresConnectorTest(unittest.TestCase):
     def setUp(self):
         self.scope = RuntimeScope("tenant-one", "github/acme/repo")
         self.database = _Postgres()
+
+    def test_initialization_isolates_tables_in_a_dedicated_schema_and_role(self):
+        connection = _SchemaConnection()
+
+        initialize_azure_postgres(
+            lambda: connection,
+            runtime_role="customer_decision_runtime",
+        )
+
+        sql = "\n".join(statement for statement, _ in connection.statements)
+        self.assertIn("CREATE SCHEMA IF NOT EXISTS replica_decision_runtime", sql)
+        self.assertIn(
+            "REVOKE ALL ON SCHEMA replica_decision_runtime FROM PUBLIC",
+            sql,
+        )
+        self.assertIn(
+            'GRANT USAGE ON SCHEMA replica_decision_runtime TO "customer_decision_runtime"',
+            sql,
+        )
+        self.assertNotIn("replica_runtime", sql)
+        self.assertTrue(connection.committed)
 
     def test_job_transactions_preserve_idempotency_cas_lease_and_cancellation(self):
         jobs = AzurePostgresJobConnector(self.database, self.scope)
@@ -1086,6 +1252,10 @@ class AzurePostgresConnectorTest(unittest.TestCase):
             expected_version=created["version"],
             lease=lease,
             context=_context(self.scope, "run"),
+        )
+        self.assertEqual(
+            jobs.create("job_one", {"state": "queued"}, create_context),
+            created,
         )
         with self.assertRaises(ConnectorError) as stale:
             jobs.update(
@@ -1196,6 +1366,13 @@ class AzurePostgresConnectorTest(unittest.TestCase):
         self.assertEqual(first_path, second_path)
         self.assertEqual(first_path.read_bytes(), b"one")
         cache_root = candidates._cache_root
+        with self.assertRaises(ConnectorError) as unsafe:
+            candidates.artifact_path(
+                first.id,
+                "../adapter.bin",
+                _context(self.scope, "materialize-unsafe"),
+            )
+        self.assertEqual(unsafe.exception.code, "candidate_artifact_name_invalid")
         candidates.close()
         self.assertFalse(cache_root.exists())
 
@@ -1246,6 +1423,62 @@ class AzureExecutionConnectorTest(unittest.TestCase):
         self.assertEqual(result.usage[0].source, "azure")
         self.assertEqual(result.usage[0].cost, 1.25)
         self.assertEqual(result.usage[0].currency, "USD")
+
+    def test_training_returns_authoritative_usage_above_the_budget(self):
+        client = _TrainingClient(reported_credits=8)
+        connector = AzureContainerAppsTrainingConnector(
+            client,
+            "replica-training",
+            poll_interval_seconds=0,
+            sleep=lambda _: None,
+            cancellation_recovery_hook=lambda *_: None,
+        )
+        context = _context(
+            self.scope,
+            "over-budget-usage",
+            max_credits=7,
+            budget_mode="hard",
+        )
+
+        result = connector.train(
+            SimpleNamespace(metadata={"digest": "taskset-one"}, tasks=()),
+            Path("unused-work-directory"),
+            max_updates=3,
+            context=context,
+            credential=None,
+        )
+
+        self.assertEqual(
+            next(item.quantity for item in result.usage if item.kind == "training_credits"),
+            8,
+        )
+
+    def test_unsupported_hard_budget_uses_provider_neutral_error_code(self):
+        connector = AzureContainerAppsTrainingConnector(
+            _TrainingClient(),
+            "replica-training",
+            supports_hard_credit_budget=False,
+            poll_interval_seconds=0,
+            sleep=lambda _: None,
+            cancellation_recovery_hook=lambda *_: None,
+        )
+        context = _context(
+            self.scope,
+            "unsupported-budget",
+            max_credits=7,
+            budget_mode="hard",
+        )
+
+        with self.assertRaises(ConnectorError) as unsupported:
+            connector.train(
+                SimpleNamespace(metadata={"digest": "taskset-one"}, tasks=()),
+                Path("unused-work-directory"),
+                max_updates=3,
+                context=context,
+                credential=None,
+            )
+
+        self.assertEqual(unsupported.exception.code, "hard_budget_unsupported")
 
     def test_training_cancellation_cancels_the_remote_job(self):
         cancellation = Cancellation()
@@ -1376,6 +1609,102 @@ class AzureExecutionConnectorTest(unittest.TestCase):
         self.assertEqual(client.cancelled, ["training-1"])
         self.assertEqual(scheduled, [("training-1", context.operation_id)])
 
+    def test_malformed_status_schedules_cancellation_before_integrity_failure(self):
+        client = _MalformedStatusTrainingClient()
+        scheduled = []
+        connector = AzureContainerAppsTrainingConnector(
+            client,
+            "replica-training",
+            poll_interval_seconds=0,
+            sleep=lambda _: None,
+            cancellation_recovery_hook=lambda execution_id, context: scheduled.append(
+                (execution_id, context.operation_id)
+            ),
+        )
+        context = _context(
+            self.scope,
+            "malformed-status",
+            max_credits=7,
+            budget_mode="hard",
+        )
+
+        with self.assertRaises(ConnectorError) as invalid:
+            connector.train(
+                SimpleNamespace(metadata={"digest": "taskset-one"}, tasks=()),
+                Path("unused-work-directory"),
+                max_updates=3,
+                context=context,
+                credential=None,
+            )
+
+        self.assertEqual(invalid.exception.code, "azure_training_response_invalid")
+        self.assertEqual(client.cancelled, ["training-1"])
+        self.assertEqual(scheduled, [("training-1", context.operation_id)])
+
+    def test_unknown_status_cancels_without_polling_until_the_deadline(self):
+        client = _UnknownStatusTrainingClient()
+        scheduled = []
+        connector = AzureContainerAppsTrainingConnector(
+            client,
+            "replica-training",
+            poll_interval_seconds=0,
+            sleep=lambda _: None,
+            cancellation_recovery_hook=lambda execution_id, context: scheduled.append(
+                (execution_id, context.operation_id)
+            ),
+        )
+        context = _context(
+            self.scope,
+            "unknown-status",
+            max_credits=7,
+            budget_mode="hard",
+        )
+
+        with self.assertRaises(ConnectorError) as invalid:
+            connector.train(
+                SimpleNamespace(metadata={"digest": "taskset-one"}, tasks=()),
+                Path("unused-work-directory"),
+                max_updates=3,
+                context=context,
+                credential=None,
+            )
+
+        self.assertEqual(invalid.exception.code, "azure_training_response_invalid")
+        self.assertEqual(client.cancelled, ["training-1"])
+        self.assertEqual(scheduled, [("training-1", context.operation_id)])
+
+    def test_direct_cancellation_still_runs_when_recovery_scheduling_fails(self):
+        cancellation = Cancellation()
+        client = _TrainingClient(cancellation)
+        connector = AzureContainerAppsTrainingConnector(
+            client,
+            "replica-training",
+            poll_interval_seconds=0,
+            sleep=lambda _: None,
+            cancellation_recovery_hook=lambda *_: (_ for _ in ()).throw(
+                RuntimeError("queue unavailable")
+            ),
+        )
+        context = _context(
+            self.scope,
+            "cancel-without-recovery-queue",
+            cancellation=cancellation,
+            max_credits=7,
+            budget_mode="hard",
+        )
+
+        with self.assertRaises(ConnectorError) as cancelled:
+            connector.train(
+                SimpleNamespace(metadata={"digest": "taskset-one"}, tasks=()),
+                Path("unused-work-directory"),
+                max_updates=3,
+                context=context,
+                credential=None,
+            )
+
+        self.assertEqual(cancelled.exception.category, "cancelled")
+        self.assertEqual(client.cancelled, ["training-1"])
+
     def test_inference_checks_generation_and_reports_cold_start_readiness(self):
         client = _InferenceClient(
             {
@@ -1428,7 +1757,7 @@ class AzureExecutionConnectorTest(unittest.TestCase):
         client.readiness_value["generation"] = 4
         response = connector.predict(
             Path("candidate_live"),
-            {"expectedGeneration": 4, "questions": {}},
+            {"expectedGeneration": 4, "questions": {"learning-one": {"type": "noul"}}},
             context=context,
             credential=credential,
         )
@@ -1437,6 +1766,38 @@ class AzureExecutionConnectorTest(unittest.TestCase):
         self.assertEqual(len(client.requests), 1)
         self.assertNotIn("training", client.requests[0]["request"])
         self.assertNotIn("admin", client.requests[0]["request"])
+        self.assertEqual(
+            client.requests[0]["request"]["idempotencyKey"],
+            "sha256:"
+            + hashlib.sha256(
+                (
+                    hashlib.sha256(
+                        f"{self.scope.tenant_id}\0{self.scope.repository}".encode()
+                    ).hexdigest()
+                    + "\0"
+                    + context.idempotency_key
+                ).encode()
+            ).hexdigest(),
+        )
+        self.assertEqual(
+            client.requests[0]["request"]["operationId"],
+            context.operation_id,
+        )
+        self.assertRegex(
+            client.requests[0]["request"]["requestDigest"],
+            r"^sha256:[a-f0-9]{64}$",
+        )
+        with self.assertRaises(ConnectorError) as conflict:
+            connector.predict(
+                Path("candidate_live"),
+                {
+                    "expectedGeneration": 4,
+                    "questions": {"another-learning": {"type": "noul"}},
+                },
+                context=context,
+                credential=credential,
+            )
+        self.assertEqual(conflict.exception.code, "idempotency_conflict")
 
         with self.assertRaises(ConnectorError) as missing:
             connector.predict(
@@ -1638,12 +1999,10 @@ def _conformance_fixture():
     inference_client = _InferenceClient(
         {"state": "ready", "coldStart": False, "generation": 1}
     )
-    inference = _ConformanceInferenceConnector(
-        AzureEndpointInferenceConnector(
-            inference_client,
-            endpoint_name="replica-inference",
-            expected_generation=1,
-        )
+    inference = AzureEndpointInferenceConnector(
+        inference_client,
+        endpoint_name="replica-inference",
+        expected_generation=1,
     )
     identity = _IdentityClient(expires_at=time.time() + 600)
     telemetry = _TelemetrySink()

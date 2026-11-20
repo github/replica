@@ -1808,6 +1808,10 @@ def _run_backend(
             raise RuntimeFailure(
                 "job_timed_out", "The bounded training job reached maxSeconds."
             )
+        if time.monotonic() >= context.deadline:
+            raise RuntimeFailure(
+                "job_timed_out", "The bounded training job reached maxSeconds."
+            )
         try:
             with result_path.open("rb") as handle:
                 kind, payload = pickle.load(handle)

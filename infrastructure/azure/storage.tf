@@ -15,7 +15,7 @@ resource "azurerm_storage_account" "artifacts" {
     versioning_enabled = true
     delete_retention_policy {
       days                     = 14
-      permanent_delete_enabled = true
+      permanent_delete_enabled = var.enable_decision_runtime
     }
 
     container_delete_retention_policy {

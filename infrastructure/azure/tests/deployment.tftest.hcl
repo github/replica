@@ -249,6 +249,7 @@ run "durable_state_requires_private_authenticated_access" {
     condition = (
       !azurerm_storage_account.artifacts.allow_nested_items_to_be_public &&
       !azurerm_storage_account.artifacts.shared_access_key_enabled &&
+      !azurerm_storage_account.artifacts.blob_properties[0].delete_retention_policy[0].permanent_delete_enabled &&
       azurerm_storage_container.artifacts.container_access_type == "private" &&
       azurerm_storage_account.artifacts.blob_properties[0].versioning_enabled &&
       endswith(azurerm_role_assignment.artifacts.scope, "/blobServices/default/containers/artifacts") &&
@@ -303,13 +304,13 @@ run "decision_runtime_uses_private_data_scale_to_zero_gpu_and_split_identities" 
     condition = (
       azurerm_container_app.hub[0].identity[0].identity_ids == toset([
         azurerm_user_assigned_identity.hub.id,
-        azurerm_user_assigned_identity.decision_runtime[0].id,
-        azurerm_user_assigned_identity.decision_inference[0].id,
       ]) &&
-      one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == "AZURE_DECISION_TRAINING_BROKER"]) == var.decision_training_broker_url &&
-      one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == "AZURE_DECISION_TRAINING_JOB"]) == var.decision_training_job_name
+      !contains([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.name], "AZURE_DECISION_TRAINING_BROKER") &&
+      !contains([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.name], "AZURE_DECISION_TRAINING_JOB") &&
+      output.installation.decision_runtime_client_id == azurerm_user_assigned_identity.decision_runtime[0].client_id &&
+      output.installation.decision_inference_client_id == azurerm_user_assigned_identity.decision_inference[0].client_id
     )
-    error_message = "Hub must receive the split identities and fixed training broker coordinates."
+    error_message = "Hub must not receive decision-runtime identities or broker coordinates; operators use the non-secret outputs on the separate runtime hosts."
   }
   assert {
     condition = (

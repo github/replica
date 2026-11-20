@@ -45,7 +45,7 @@ from .local_connectors import (
     _materialize_taskset_bundle,
     taskset_digest,
 )
-from .taskset import TasksetError, load_taskset
+from .taskset import MAX_IMAGE_BYTES, TasksetError, load_taskset
 
 
 class AzureBlobContainer(Protocol):
@@ -106,7 +106,7 @@ class AzureJobTransport(Protocol):
 
 
 class AzureEndpointTransport(Protocol):
-    """A customer inference endpoint adapter with no training or administration methods."""
+    """Inference-only endpoint that enforces scoped idempotency keys and request digests."""
 
     def readiness(self, *, bearer_token: str | None) -> Mapping[str, Any]: ...
 
@@ -132,6 +132,7 @@ CancellationRecoveryHook = Callable[
 ConnectionFactory = Callable[[], Any]
 
 _TERMINAL_JOB_STATES = {"succeeded", "failed", "cancelled"}
+_ACTIVE_JOB_STATES = {"pending", "queued", "starting", "running"}
 _SAFE_USAGE_METADATA = {
     "azure.execution_id",
     "azure.job_name",
@@ -148,15 +149,21 @@ _USAGE_KINDS = {
     "gpu_seconds",
     "inference_seconds",
     "input_tokens",
+    "job_cancellations",
     "network_bytes",
     "output_tokens",
     "requests",
     "storage_bytes",
+    "taskset_bytes",
     "training_credits",
     "training_seconds",
 }
 _USAGE_UNITS = {"bytes", "credits", "requests", "seconds", "tokens"}
 _CURRENCY = re.compile(r"^[A-Z]{3}$")
+_MAX_TASKSET_ARCHIVE_MEMBERS = 10_000
+_MAX_TASKSET_DESCRIPTOR_BYTES = 16 * 1024 * 1024
+_MAX_TASKSET_EXPANDED_BYTES = 180 * 1024 * 1024
+_MAX_TASKSET_ARCHIVE_BYTES = _MAX_TASKSET_EXPANDED_BYTES + 32 * 1024 * 1024
 
 
 def _scope_key(scope: RuntimeScope) -> str:
@@ -185,15 +192,37 @@ def _json_value(value: Any) -> Any:
     return value
 
 
-def _download_bytes(container: AzureBlobContainer, name: str) -> bytes:
+def _download_bytes(
+    container: AzureBlobContainer,
+    name: str,
+    *,
+    maximum_bytes: int | None = None,
+) -> bytes:
     try:
         response = container.download_blob(name)
-        if hasattr(response, "readall"):
+        if maximum_bytes is not None and hasattr(response, "chunks"):
+            chunks = []
+            size = 0
+            for chunk in response.chunks():
+                size += len(chunk)
+                if size > maximum_bytes:
+                    raise ConnectorError(
+                        "azure_blob_oversized",
+                        "The private Azure Blob exceeds its size limit.",
+                        category="integrity",
+                    )
+                chunks.append(chunk)
+            data = b"".join(chunks)
+        elif maximum_bytes is not None and hasattr(response, "read"):
+            data = response.read(maximum_bytes + 1)
+        elif hasattr(response, "readall"):
             data = response.readall()
         elif isinstance(response, bytes):
             data = response
         else:
             data = response.read()
+    except ConnectorError:
+        raise
     except Exception as error:
         if _is_missing(error):
             raise ConnectorError(
@@ -211,6 +240,12 @@ def _download_bytes(container: AzureBlobContainer, name: str) -> bytes:
         raise ConnectorError(
             "azure_blob_invalid",
             "Azure Blob Storage returned invalid content.",
+            category="integrity",
+        )
+    if maximum_bytes is not None and len(data) > maximum_bytes:
+        raise ConnectorError(
+            "azure_blob_oversized",
+            "The private Azure Blob exceeds its size limit.",
             category="integrity",
         )
     return data
@@ -510,6 +545,12 @@ class AzureBlobTasksetConnector(_AzureScopedConnector):
                     category="invalid_input",
                 )
             archive = self._archive(root)
+            if len(archive) > _MAX_TASKSET_ARCHIVE_BYTES:
+                raise ConnectorError(
+                    "taskset_archive_too_large",
+                    "The compressed taskset archive exceeds its size limit.",
+                    category="invalid_input",
+                )
         request_digest = _request_digest(
             {
                 "claimedDigest": str(bundle.digest) if bundle.digest else None,
@@ -623,7 +664,11 @@ class AzureBlobTasksetConnector(_AzureScopedConnector):
             )
         root = self._cache_root / digest.value
         if not root.is_dir():
-            archive = _download_bytes(self.container, self._name(digest))
+            archive = _download_bytes(
+                self.container,
+                self._name(digest),
+                maximum_bytes=_MAX_TASKSET_ARCHIVE_BYTES,
+            )
             staging = self._cache_root / f".{digest.value}.{uuid.uuid4().hex}"
             staging.mkdir(mode=0o700)
             try:
@@ -666,18 +711,48 @@ class AzureBlobTasksetConnector(_AzureScopedConnector):
     def _archive(self, root: Path) -> bytes:
         tar_buffer = io.BytesIO()
         with tarfile.open(fileobj=tar_buffer, mode="w") as archive:
-            for path in sorted(root.rglob("*")):
-                if path.is_file():
-                    data = path.read_bytes()
-                    member = tarfile.TarInfo(str(path.relative_to(root)))
-                    member.size = len(data)
-                    member.mode = 0o400
-                    member.mtime = 0
-                    member.uid = 0
-                    member.gid = 0
-                    member.uname = ""
-                    member.gname = ""
-                    archive.addfile(member, io.BytesIO(data))
+            paths = tuple(path for path in sorted(root.rglob("*")) if path.is_file())
+            if len(paths) > _MAX_TASKSET_ARCHIVE_MEMBERS:
+                raise ConnectorError(
+                    "taskset_too_large",
+                    "The taskset contains too many files.",
+                    category="invalid_input",
+                )
+            expanded = 0
+            for path in paths:
+                relative = str(path.relative_to(root))
+                size = path.stat().st_size
+                maximum_member_bytes = (
+                    _MAX_TASKSET_DESCRIPTOR_BYTES
+                    if relative in ("taskset.json", "tasks.jsonl")
+                    else MAX_IMAGE_BYTES
+                )
+                if (
+                    size > maximum_member_bytes
+                    or expanded + size > _MAX_TASKSET_EXPANDED_BYTES
+                ):
+                    raise ConnectorError(
+                        "taskset_too_large",
+                        "The taskset exceeds the private archive size limit.",
+                        category="invalid_input",
+                    )
+                data = path.read_bytes()
+                if len(data) != size:
+                    raise ConnectorError(
+                        "taskset_changed",
+                        "The taskset changed while it was being archived.",
+                        category="conflict",
+                    )
+                expanded += size
+                member = tarfile.TarInfo(relative)
+                member.size = size
+                member.mode = 0o400
+                member.mtime = 0
+                member.uid = 0
+                member.gid = 0
+                member.uname = ""
+                member.gname = ""
+                archive.addfile(member, io.BytesIO(data))
         return gzip.compress(tar_buffer.getvalue(), mtime=0)
 
     def _name(self, digest: ContentDigest) -> str:
@@ -709,7 +784,8 @@ class _AzurePostgresConnector(_AzureScopedConnector):
 
 
 AZURE_POSTGRES_SCHEMA = """
-CREATE TABLE IF NOT EXISTS replica_decision_jobs (
+CREATE SCHEMA IF NOT EXISTS replica_decision_runtime;
+CREATE TABLE IF NOT EXISTS replica_decision_runtime.replica_decision_jobs (
   scope_key text NOT NULL,
   job_id text NOT NULL,
   version bigint NOT NULL,
@@ -724,14 +800,14 @@ CREATE TABLE IF NOT EXISTS replica_decision_jobs (
   PRIMARY KEY (scope_key, job_id),
   UNIQUE (scope_key, create_idempotency_key)
 );
-CREATE TABLE IF NOT EXISTS replica_decision_candidates (
+CREATE TABLE IF NOT EXISTS replica_decision_runtime.replica_decision_candidates (
   scope_key text NOT NULL,
   candidate_id text NOT NULL,
   digest text NOT NULL,
   descriptor jsonb NOT NULL,
   PRIMARY KEY (scope_key, candidate_id)
 );
-CREATE TABLE IF NOT EXISTS replica_decision_promotions (
+CREATE TABLE IF NOT EXISTS replica_decision_runtime.replica_decision_promotions (
   scope_key text NOT NULL,
   generation bigint NOT NULL,
   candidate_id text NOT NULL,
@@ -744,7 +820,7 @@ CREATE TABLE IF NOT EXISTS replica_decision_promotions (
   PRIMARY KEY (scope_key, generation),
   UNIQUE (scope_key, idempotency_key)
 );
-CREATE TABLE IF NOT EXISTS replica_decision_idempotency (
+CREATE TABLE IF NOT EXISTS replica_decision_runtime.replica_decision_idempotency (
   scope_key text NOT NULL,
   operation text NOT NULL,
   idempotency_key text NOT NULL,
@@ -755,14 +831,29 @@ CREATE TABLE IF NOT EXISTS replica_decision_idempotency (
 """.strip()
 
 
-def initialize_azure_postgres(connection_factory: ConnectionFactory) -> None:
-    """Install the decision-runtime tables in the existing Replica PostgreSQL database."""
+def initialize_azure_postgres(
+    connection_factory: ConnectionFactory,
+    *,
+    runtime_role: str = "replica_decision_runtime",
+) -> None:
+    """Install isolated decision tables and grant only the dedicated runtime role."""
+    if re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", runtime_role) is None:
+        raise ValueError("The decision runtime database role is not valid.")
     connection = connection_factory()
     cursor = connection.cursor()
     try:
         for statement in AZURE_POSTGRES_SCHEMA.split(";"):
             if statement.strip():
                 cursor.execute(statement)
+        quoted_role = f'"{runtime_role}"'
+        cursor.execute("REVOKE ALL ON SCHEMA replica_decision_runtime FROM PUBLIC")
+        cursor.execute(
+            f"GRANT USAGE ON SCHEMA replica_decision_runtime TO {quoted_role}"
+        )
+        cursor.execute(
+            "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "
+            f"replica_decision_runtime TO {quoted_role}"
+        )
         connection.commit()
     except Exception:
         connection.rollback()
@@ -802,7 +893,7 @@ class AzurePostgresJobConnector(_AzurePostgresConnector):
                     cursor,
                     """
                     SELECT job_id, create_request_digest, record, version
-                    FROM replica_decision_jobs
+                    FROM replica_decision_runtime.replica_decision_jobs
                     WHERE scope_key = %s AND create_idempotency_key = %s
                     FOR UPDATE
                     """,
@@ -816,11 +907,11 @@ class AzurePostgresJobConnector(_AzurePostgresConnector):
                             "The idempotency key was reused with different input.",
                             category="conflict",
                         )
-                    return dict(_loaded_json(retry[2]), version=retry[3])
+                    return saved
                 self._execute(
                     cursor,
                     """
-                    SELECT 1 FROM replica_decision_jobs
+                    SELECT 1 FROM replica_decision_runtime.replica_decision_jobs
                     WHERE scope_key = %s AND job_id = %s
                     """,
                     (self.scope_key, job_id),
@@ -834,7 +925,7 @@ class AzurePostgresJobConnector(_AzurePostgresConnector):
                 self._execute(
                     cursor,
                     """
-                    INSERT INTO replica_decision_jobs
+                    INSERT INTO replica_decision_runtime.replica_decision_jobs
                       (scope_key, job_id, version, record,
                        create_idempotency_key, create_request_digest)
                     VALUES (%s, %s, 1, %s::jsonb, %s, %s)
@@ -860,7 +951,7 @@ class AzurePostgresJobConnector(_AzurePostgresConnector):
                 self._execute(
                     cursor,
                     """
-                    SELECT record, version FROM replica_decision_jobs
+                    SELECT record, version FROM replica_decision_runtime.replica_decision_jobs
                     WHERE scope_key = %s AND job_id = %s
                     """,
                     (self.scope_key, job_id),
@@ -887,7 +978,7 @@ class AzurePostgresJobConnector(_AzurePostgresConnector):
                 self._execute(
                     cursor,
                     """
-                    SELECT record, version FROM replica_decision_jobs
+                    SELECT record, version FROM replica_decision_runtime.replica_decision_jobs
                     WHERE scope_key = %s
                     ORDER BY job_id
                     """,
@@ -913,18 +1004,18 @@ class AzurePostgresJobConnector(_AzurePostgresConnector):
         context: OperationContext,
     ) -> Mapping[str, Any]:
         self._check(context)
-        now = time.time()
         saved = dict(_json_value(record), version=expected_version + 1)
         try:
             with self._transaction() as cursor:
                 self._execute(
                     cursor,
                     """
-                    UPDATE replica_decision_jobs
+                    UPDATE replica_decision_runtime.replica_decision_jobs
                     SET record = %s::jsonb, version = version + 1
                     WHERE scope_key = %s AND job_id = %s AND version = %s
                       AND lease_token = %s AND lease_owner_kind = %s
-                      AND lease_owner_id = %s AND lease_expires_at > %s
+                      AND lease_owner_id = %s
+                      AND lease_expires_at > EXTRACT(EPOCH FROM clock_timestamp())
                       AND COALESCE(record->>'state', '') <> 'cancelled'
                     """,
                     (
@@ -935,7 +1026,6 @@ class AzurePostgresJobConnector(_AzurePostgresConnector):
                         lease.token,
                         lease.owner.kind,
                         lease.owner.id,
-                        now,
                     ),
                 )
                 if cursor.rowcount != 1:
@@ -956,27 +1046,28 @@ class AzurePostgresJobConnector(_AzurePostgresConnector):
         self._check(context)
         _check_ttl(ttl_seconds)
         token = uuid.uuid4().hex
-        now_epoch = time.time()
         try:
             with self._transaction() as cursor:
                 self._execute(
                     cursor,
                     """
-                    UPDATE replica_decision_jobs
+                    UPDATE replica_decision_runtime.replica_decision_jobs
                     SET lease_token = %s, lease_owner_kind = %s, lease_owner_id = %s,
-                        lease_expires_at = %s
+                        lease_expires_at = EXTRACT(EPOCH FROM clock_timestamp()) + %s
                     WHERE scope_key = %s AND job_id = %s
                       AND COALESCE(record->>'state', '') <> 'cancelled'
-                      AND (lease_token IS NULL OR lease_expires_at <= %s)
+                      AND (
+                        lease_token IS NULL
+                        OR lease_expires_at <= EXTRACT(EPOCH FROM clock_timestamp())
+                      )
                     """,
                     (
                         token,
                         context.owner.kind,
                         context.owner.id,
-                        now_epoch + ttl_seconds,
+                        ttl_seconds,
                         self.scope_key,
                         job_id,
-                        now_epoch,
                     ),
                 )
                 if cursor.rowcount != 1:
@@ -1001,26 +1092,24 @@ class AzurePostgresJobConnector(_AzurePostgresConnector):
     ) -> JobLease:
         self._check(context)
         _check_ttl(ttl_seconds)
-        now_epoch = time.time()
         try:
             with self._transaction() as cursor:
                 self._execute(
                     cursor,
                     """
-                    UPDATE replica_decision_jobs
-                    SET lease_expires_at = %s
+                    UPDATE replica_decision_runtime.replica_decision_jobs
+                    SET lease_expires_at = EXTRACT(EPOCH FROM clock_timestamp()) + %s
                     WHERE scope_key = %s AND job_id = %s AND lease_token = %s
                       AND lease_owner_kind = %s AND lease_owner_id = %s
-                      AND lease_expires_at > %s
+                      AND lease_expires_at > EXTRACT(EPOCH FROM clock_timestamp())
                     """,
                     (
-                        now_epoch + ttl_seconds,
+                        ttl_seconds,
                         self.scope_key,
                         lease.job_id,
                         lease.token,
                         lease.owner.kind,
                         lease.owner.id,
-                        now_epoch,
                     ),
                 )
                 if cursor.rowcount != 1:
@@ -1047,12 +1136,12 @@ class AzurePostgresJobConnector(_AzurePostgresConnector):
                 self._execute(
                     cursor,
                     """
-                    UPDATE replica_decision_jobs
+                    UPDATE replica_decision_runtime.replica_decision_jobs
                     SET lease_token = NULL, lease_owner_kind = NULL,
                         lease_owner_id = NULL, lease_expires_at = NULL
                     WHERE scope_key = %s AND job_id = %s AND lease_token = %s
                       AND lease_owner_kind = %s AND lease_owner_id = %s
-                      AND lease_expires_at > %s
+                      AND lease_expires_at > EXTRACT(EPOCH FROM clock_timestamp())
                     """,
                     (
                         self.scope_key,
@@ -1060,7 +1149,6 @@ class AzurePostgresJobConnector(_AzurePostgresConnector):
                         lease.token,
                         lease.owner.kind,
                         lease.owner.id,
-                        time.time(),
                     ),
                 )
                 if cursor.rowcount != 1:
@@ -1103,7 +1191,7 @@ class AzurePostgresJobConnector(_AzurePostgresConnector):
                     cursor,
                     """
                     SELECT request_digest, result
-                    FROM replica_decision_idempotency
+                    FROM replica_decision_runtime.replica_decision_idempotency
                     WHERE scope_key = %s AND operation = 'cancel'
                       AND idempotency_key = %s
                     """,
@@ -1122,7 +1210,7 @@ class AzurePostgresJobConnector(_AzurePostgresConnector):
                     cursor,
                     """
                     SELECT record, version
-                    FROM replica_decision_jobs
+                    FROM replica_decision_runtime.replica_decision_jobs
                     WHERE scope_key = %s AND job_id = %s
                     FOR UPDATE
                     """,
@@ -1148,7 +1236,7 @@ class AzurePostgresJobConnector(_AzurePostgresConnector):
                 self._execute(
                     cursor,
                     """
-                    UPDATE replica_decision_jobs
+                    UPDATE replica_decision_runtime.replica_decision_jobs
                     SET record = %s::jsonb, version = version + 1,
                         cancellation_idempotency_key = %s
                     WHERE scope_key = %s AND job_id = %s AND version = %s
@@ -1164,7 +1252,7 @@ class AzurePostgresJobConnector(_AzurePostgresConnector):
                 self._execute(
                     cursor,
                     """
-                    INSERT INTO replica_decision_idempotency
+                    INSERT INTO replica_decision_runtime.replica_decision_idempotency
                       (scope_key, operation, idempotency_key, request_digest, result)
                     VALUES (%s, 'cancel', %s, %s, %s::jsonb)
                     """,
@@ -1240,7 +1328,7 @@ class AzurePostgresCandidateConnector(_AzurePostgresConnector):
                 self._execute(
                     cursor,
                     """
-                    SELECT digest, descriptor FROM replica_decision_candidates
+                    SELECT digest, descriptor FROM replica_decision_runtime.replica_decision_candidates
                     WHERE scope_key = %s AND candidate_id = %s
                     FOR UPDATE
                     """,
@@ -1261,7 +1349,7 @@ class AzurePostgresCandidateConnector(_AzurePostgresConnector):
                 self._execute(
                     cursor,
                     """
-                    INSERT INTO replica_decision_candidates
+                    INSERT INTO replica_decision_runtime.replica_decision_candidates
                       (scope_key, candidate_id, digest, descriptor)
                     VALUES (%s, %s, %s, %s::jsonb)
                     """,
@@ -1285,7 +1373,7 @@ class AzurePostgresCandidateConnector(_AzurePostgresConnector):
                 self._execute(
                     cursor,
                     """
-                    SELECT descriptor FROM replica_decision_candidates
+                    SELECT descriptor FROM replica_decision_runtime.replica_decision_candidates
                     WHERE scope_key = %s AND candidate_id = %s
                     """,
                     (self.scope_key, candidate_id),
@@ -1365,7 +1453,7 @@ class AzurePostgresCandidateConnector(_AzurePostgresConnector):
                     """
                     SELECT generation, candidate_id, previous_candidate_id,
                            operation, owner_kind, owner_id, request_digest
-                    FROM replica_decision_promotions
+                    FROM replica_decision_runtime.replica_decision_promotions
                     WHERE scope_key = %s AND idempotency_key = %s
                     FOR UPDATE
                     """,
@@ -1384,7 +1472,7 @@ class AzurePostgresCandidateConnector(_AzurePostgresConnector):
                     cursor,
                     """
                     SELECT generation, candidate_id
-                    FROM replica_decision_promotions
+                    FROM replica_decision_runtime.replica_decision_promotions
                     WHERE scope_key = %s
                     ORDER BY generation DESC LIMIT 1
                     FOR UPDATE
@@ -1403,7 +1491,7 @@ class AzurePostgresCandidateConnector(_AzurePostgresConnector):
                 self._execute(
                     cursor,
                     """
-                    SELECT 1 FROM replica_decision_candidates
+                    SELECT 1 FROM replica_decision_runtime.replica_decision_candidates
                     WHERE scope_key = %s AND candidate_id = %s
                     """,
                     (self.scope_key, candidate_id),
@@ -1424,7 +1512,7 @@ class AzurePostgresCandidateConnector(_AzurePostgresConnector):
                 self._execute(
                     cursor,
                     """
-                    INSERT INTO replica_decision_promotions
+                    INSERT INTO replica_decision_runtime.replica_decision_promotions
                       (scope_key, generation, candidate_id, previous_candidate_id,
                        operation, owner_kind, owner_id, idempotency_key, request_digest)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -1458,7 +1546,7 @@ class AzurePostgresCandidateConnector(_AzurePostgresConnector):
                     """
                     SELECT generation, candidate_id, previous_candidate_id,
                            operation, owner_kind, owner_id, request_digest
-                    FROM replica_decision_promotions
+                    FROM replica_decision_runtime.replica_decision_promotions
                     WHERE scope_key = %s
                     ORDER BY generation DESC LIMIT 1
                     """,
@@ -1475,6 +1563,17 @@ class AzurePostgresCandidateConnector(_AzurePostgresConnector):
         name: str,
         context: OperationContext,
     ) -> Path:
+        if (
+            not isinstance(name, str)
+            or not name
+            or Path(name).name != name
+            or name in (".", "..")
+        ):
+            raise ConnectorError(
+                "candidate_artifact_name_invalid",
+                "Candidate artifact names must be single file names.",
+                category="invalid_input",
+            )
         candidate = self.get(candidate_id, context)
         artifact = next(
             (
@@ -1490,7 +1589,9 @@ class AzurePostgresCandidateConnector(_AzurePostgresConnector):
                 "The candidate artifact was not found.",
                 category="not_found",
             )
-        directory = self._cache_root / candidate_id
+        directory = self._cache_root / hashlib.sha256(
+            candidate_id.encode("utf-8")
+        ).hexdigest()
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / name
         if not path.is_file():
@@ -1549,7 +1650,7 @@ class AzureContainerAppsTrainingConnector:
         del work_directory
         if context.budget_mode == "hard" and not self.supports_hard_credit_budget:
             raise ConnectorError(
-                "hard_credit_budget_unsupported",
+                "hard_budget_unsupported",
                 "The Azure job connector cannot enforce a hard credit budget.",
                 category="invalid_input",
             )
@@ -1580,7 +1681,11 @@ class AzureContainerAppsTrainingConnector:
                 payload,
                 bearer_token=token,
             )
+            if not isinstance(started, Mapping):
+                raise TypeError("invalid Azure execution")
             execution_id = started["executionId"]
+            if not isinstance(execution_id, str) or not execution_id:
+                raise TypeError("invalid Azure execution ID")
         except (KeyError, TypeError):
             raise ConnectorError(
                 "azure_training_response_invalid",
@@ -1623,9 +1728,30 @@ class AzureContainerAppsTrainingConnector:
             except ConnectorError:
                 self._cancel(execution_id, token, context)
                 raise
+            if not isinstance(status, Mapping):
+                self._cancel(execution_id, token, context)
+                raise ConnectorError(
+                    "azure_training_response_invalid",
+                    "Azure returned an invalid training status.",
+                    category="integrity",
+                )
             state = status.get("state")
+            if not isinstance(state, str):
+                self._cancel(execution_id, token, context)
+                raise ConnectorError(
+                    "azure_training_response_invalid",
+                    "Azure returned an invalid training state.",
+                    category="integrity",
+                )
             if state in _TERMINAL_JOB_STATES:
                 break
+            if state not in _ACTIVE_JOB_STATES:
+                self._cancel(execution_id, token, context)
+                raise ConnectorError(
+                    "azure_training_response_invalid",
+                    "Azure returned an unsupported training state.",
+                    category="integrity",
+                )
             self.sleep(
                 min(
                     self.poll_interval_seconds,
@@ -1652,14 +1778,11 @@ class AzureContainerAppsTrainingConnector:
         token: str | None,
         context: OperationContext,
     ) -> None:
+        recovery_error: Exception | None = None
         try:
             self.cancellation_recovery_hook(execution_id, context)
         except Exception as error:
-            raise ConnectorError(
-                "azure_training_cancellation_unrecorded",
-                "Azure training cancellation could not be scheduled for recovery.",
-                category="internal",
-            ) from error
+            recovery_error = error
         for attempt in range(3):
             try:
                 self.transport.cancel(execution_id, bearer_token=token)
@@ -1667,6 +1790,12 @@ class AzureContainerAppsTrainingConnector:
             except Exception:
                 if attempt < 2:
                     self.sleep(0.1 * (attempt + 1))
+        if recovery_error is not None:
+            raise ConnectorError(
+                "azure_training_cancellation_unrecorded",
+                "Azure training cancellation failed and could not be scheduled for recovery.",
+                category="internal",
+            ) from recovery_error
 
 
 class AzureEndpointInferenceConnector:
@@ -1744,6 +1873,12 @@ class AzureEndpointInferenceConnector:
                 category="unavailable",
                 retryable=True,
             ) from error
+        if not isinstance(readiness, Mapping):
+            raise ConnectorError(
+                "azure_inference_response_invalid",
+                "The customer inference endpoint returned invalid readiness.",
+                category="integrity",
+            )
         generation = readiness.get("generation")
         if generation != expected_generation:
             raise ConnectorError(
@@ -1760,15 +1895,31 @@ class AzureEndpointInferenceConnector:
                 retryable=True,
             )
         check_context(context)
+        scoped_idempotency_key = "sha256:" + hashlib.sha256(
+            (
+                _scope_key(context.scope)
+                + "\0"
+                + context.idempotency_key
+            ).encode("utf-8")
+        ).hexdigest()
+        request_identity = dict(
+            request,
+            endpoint=self.endpoint_name,
+            expectedGeneration=expected_generation,
+        )
+        endpoint_request = dict(
+            request_identity,
+            operationId=context.operation_id,
+            idempotencyKey=scoped_idempotency_key,
+        )
+        endpoint_request["requestDigest"] = _request_digest(request_identity)
         try:
             result = self.transport.predict(
-                dict(
-                    request,
-                    endpoint=self.endpoint_name,
-                    expectedGeneration=expected_generation,
-                ),
+                endpoint_request,
                 bearer_token=token,
             )
+        except ConnectorError:
+            raise
         except Exception as error:
             raise ConnectorError(
                 "azure_inference_unavailable",
@@ -2101,21 +2252,6 @@ def _training_result(
             "Azure returned an invalid training result.",
             category="integrity",
         ) from None
-    if (
-        context.budget_mode == "hard"
-        and context.max_credits is not None
-        and sum(
-            item.quantity
-            for item in usage
-            if item.kind == "training_credits" and item.unit == "credits"
-        )
-        > context.max_credits
-    ):
-        raise ConnectorError(
-            "credit_budget_exceeded",
-            "Azure reported usage above the hard credit budget.",
-            category="integrity",
-        )
     return training
 
 
@@ -2143,18 +2279,35 @@ def _validate_usage_fields(
 
 
 def _extract_taskset_archive(source: tarfile.TarFile, root: Path) -> None:
-    for member in source.getmembers():
+    expanded = 0
+    members = 0
+    for member in source:
+        members += 1
+        if members > _MAX_TASKSET_ARCHIVE_MEMBERS:
+            raise tarfile.TarError("taskset archive has too many members")
         target = (root / member.name).resolve()
+        maximum_member_bytes = (
+            _MAX_TASKSET_DESCRIPTOR_BYTES
+            if member.name in ("taskset.json", "tasks.jsonl")
+            else MAX_IMAGE_BYTES
+        )
         if (
             member.islnk()
             or member.issym()
             or member.isdev()
+            or not member.isfile()
+            or member.size > maximum_member_bytes
+            or expanded + member.size > _MAX_TASKSET_EXPANDED_BYTES
             or root.resolve() not in target.parents
         ):
             raise tarfile.TarError("unsafe taskset archive")
         extracted = source.extractfile(member)
         if extracted is None:
             raise tarfile.TarError("missing taskset archive member")
+        data = extracted.read(member.size + 1)
+        if len(data) != member.size:
+            raise tarfile.TarError("taskset archive member size changed")
+        expanded += len(data)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(extracted.read())
+        target.write_bytes(data)
         os.chmod(target, 0o400)

@@ -883,7 +883,7 @@ def _execution_context(create_fixture):
                 )
                 prediction = fixture.connectors.inference[connector.name].predict(
                     adapter,
-                    {"questions": {}},
+                    {"questions": {}, "expectedGeneration": 1},
                     context=inference_context,
                     credential=inference_credential,
                 )
