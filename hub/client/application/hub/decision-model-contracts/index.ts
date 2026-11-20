@@ -41,7 +41,7 @@ export const decisionModelConfigurationResponseSchema = z
   })
   .strict() satisfies z.ZodType<DecisionModelConfigurationResponse>
 
-const decisionTrainingJobResponseSchema = z
+export const decisionTrainingJobResponseSchema = z
   .object({
     id: identifier,
     state: trainingState,
@@ -58,6 +58,7 @@ const decisionCandidateResponseSchema = z
   .object({
     id: identifier,
     runtimeCandidateId: z.string().min(1),
+    backend: z.string().regex(/^[a-z][a-z0-9-]{0,99}$/),
     tasksetDigest: digest,
     productionEligible: z.boolean(),
     baselineMeanReward: signedDecimal.nullable(),
@@ -174,6 +175,23 @@ export const decisionModelOverviewResponseSchema = z
         })
         .strict(),
     ),
+    evaluationBuilds: z
+      .array(
+        z
+          .object({
+            id: identifier,
+            number: z.number().int().positive(),
+            prototype: z
+              .object({
+                id: recordIdentifierSchema,
+                name: z.string().nullable(),
+                branchName: z.string().min(1),
+              })
+              .strict(),
+          })
+          .strict(),
+      )
+      .max(50),
     evaluations: z.array(
       z
         .object({
@@ -241,16 +259,7 @@ export const decisionModelOverviewResponseSchema = z
 export const decisionTrainingRequestResponseSchema = z
   .object({
     created: z.boolean(),
-    job: z
-      .object({
-        id: identifier,
-        state: trainingState,
-        runtimeJobId: z.string().nullable(),
-        candidateRuntimeId: z.string().nullable(),
-        failureCode: z.string().nullable(),
-        createdAt: timestamp,
-      })
-      .strict(),
+    job: decisionTrainingJobResponseSchema,
   })
   .strict() satisfies z.ZodType<DecisionTrainingRequestResponse>
 
@@ -266,13 +275,15 @@ export const decisionTrainingMutationResponseSchema = z.preprocess(
   z.object({ id: identifier, state: trainingState }).loose(),
 ) satisfies z.ZodType<DecisionTrainingMutationResponse>
 
+export const decisionBuildEvaluationMutationResponseSchema = z.object({ id: identifier }).loose()
+
 export const decisionPromotionMutationResponseSchema = z
   .object({
     candidateId: identifier,
     runtimeCandidateId: z.string().min(1),
     previousCandidateId: identifier.nullable(),
     previousRuntimeCandidateId: z.string().min(1).nullable(),
-    runtimeGeneration: count,
+    generation: count,
   })
   .strict() satisfies z.ZodType<DecisionPromotionMutationResponse>
 

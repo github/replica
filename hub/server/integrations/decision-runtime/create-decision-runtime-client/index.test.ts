@@ -23,6 +23,50 @@ function credentialProvider(token = "runtime-secret") {
 }
 
 describe("createDecisionRuntimeClient()", () => {
+  it.each(["127.0.0.1", "[::1]", "localhost"])(
+    "accepts the explicitly allowed HTTP loopback host %s",
+    (host) => {
+      expect(() =>
+        createDecisionRuntimeClient({
+          allowInsecureLoopback: true,
+          baseUrl: `http://${host}:8010`,
+          credentialProvider: credentialProvider(),
+        }),
+      ).not.toThrow()
+    },
+  )
+
+  it.each(["127.0.0.1", "[::1]", "localhost"])(
+    "rejects the HTTP loopback host %s without explicit permission",
+    (host) => {
+      expect(() =>
+        createDecisionRuntimeClient({
+          baseUrl: `http://${host}:8010`,
+          credentialProvider: credentialProvider(),
+        }),
+      ).toThrow("explicitly allowed HTTP loopback URL")
+    },
+  )
+
+  it("does not allow the insecure-loopback option to permit a non-loopback HTTP runtime", () => {
+    expect(() =>
+      createDecisionRuntimeClient({
+        allowInsecureLoopback: true,
+        baseUrl: "http://runtime.example.test",
+        credentialProvider: credentialProvider(),
+      }),
+    ).toThrow("explicitly allowed HTTP loopback URL")
+  })
+
+  it("continues to accept HTTPS runtimes without the loopback option", () => {
+    expect(() =>
+      createDecisionRuntimeClient({
+        baseUrl: "https://runtime.example.test",
+        credentialProvider: credentialProvider(),
+      }),
+    ).not.toThrow()
+  })
+
   it.each([
     "http://runtime.example.test",
     "https://user:password@runtime.example.test",

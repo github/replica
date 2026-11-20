@@ -19,9 +19,11 @@ type Copy = Extract<LearningsPageData, { accessDenied: false }>["copy"]
 export function LearningsPage({
   data,
   decisionModelActionRevision = 0,
+  decisionModelTrainingSubmitting = false,
 }: {
   data: LearningsPageData
   decisionModelActionRevision?: number
+  decisionModelTrainingSubmitting?: boolean
 }) {
   return (
     <RepositoryWorkspace data={data}>
@@ -31,7 +33,11 @@ export function LearningsPage({
           <HubAlert title={data.accessDeniedLabel} variant="warning" />
         </div>
       ) : (
-        <LearningsContent data={data} decisionModelActionRevision={decisionModelActionRevision} />
+        <LearningsContent
+          data={data}
+          decisionModelActionRevision={decisionModelActionRevision}
+          decisionModelTrainingSubmitting={decisionModelTrainingSubmitting}
+        />
       )}
     </RepositoryWorkspace>
   )
@@ -40,9 +46,11 @@ export function LearningsPage({
 function LearningsContent({
   data,
   decisionModelActionRevision,
+  decisionModelTrainingSubmitting,
 }: {
   data: Extract<LearningsPageData, { accessDenied: false }>
   decisionModelActionRevision: number
+  decisionModelTrainingSubmitting: boolean
 }) {
   const copy = data.copy
 
@@ -208,6 +216,7 @@ function LearningsContent({
         }
         data={data.decisionModel}
         authenticityToken={data.authenticityToken}
+        trainingSubmitting={decisionModelTrainingSubmitting}
       />
     </div>
   )

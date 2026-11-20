@@ -1,4 +1,4 @@
-import { fireEvent, screen, within } from "@testing-library/react"
+import { fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import { useLoaderData, type RouteObject } from "react-router"
@@ -132,6 +132,132 @@ function learningsResponse() {
   }
 }
 
+function decisionModelOverview(evaluated: boolean) {
+  const build = {
+    id: "77777777-8888-4999-8aaa-bbbbbbbbbbbb",
+    number: 42,
+    prototypeId: "1",
+  }
+  return {
+    preflight: {
+      state: "ready" as const,
+      counts: {
+        prototypes: 1,
+        builds: 1,
+        pages: 1,
+        screenshots: 4,
+        questions: 1,
+        samples: 3,
+        tasks: 3,
+        train: 1,
+        dev: 1,
+        test: 1,
+        follows: 2,
+        breaks: 1,
+      },
+      warnings: [],
+      reasons: [],
+      digests: {
+        export: digest,
+        reviewSnapshot: digest,
+        buildSet: digest,
+        questionSet: digest,
+        taskset: digest,
+      },
+    },
+    configuration: {
+      enabled: true,
+      generation: 3,
+      backend: "fixture",
+      maxUpdates: 8,
+      maxSeconds: 300,
+      monthlyBudgetCredits: "10",
+    },
+    jobs: [],
+    candidates: [],
+    promotion: {
+      candidateId: "33333333-4444-4555-8666-777777777777",
+      runtimeCandidateId: "fixture-candidate-1",
+      generation: 2,
+      operation: "promote" as const,
+      rollbackAvailable: false,
+    },
+    promotionHistory: [],
+    evaluationBuilds: evaluated
+      ? []
+      : [
+          {
+            id: build.id,
+            number: build.number,
+            prototype: {
+              id: build.prototypeId,
+              name: "Settings",
+              branchName: "settings",
+            },
+          },
+        ],
+    evaluations: evaluated
+      ? [
+          {
+            id: "44444444-5555-4666-8777-888888888888",
+            build,
+            model: {
+              id: "33333333-4444-4555-8666-777777777777",
+              runtimeCandidateId: "fixture-candidate-1",
+              generation: 2,
+            },
+            questionDigest: digest,
+            screenshotSetDigest: digest,
+            responseDigest: digest,
+            findingsAvailable: true,
+            findings: [
+              {
+                learning: {
+                  id: "learning-1",
+                  text: "Use a visible label above every form field.",
+                },
+                route: "/settings/profile",
+                views: [{ viewport: "desktop", theme: "dark" }],
+                followsProbability: 0.82,
+                breaksProbability: 0.18,
+                explanation:
+                  "The promoted model found the Build more likely to follow the learning.",
+              },
+            ],
+            createdAt: "2026-11-20T15:00:00Z",
+          },
+        ]
+      : [],
+    deletions: [],
+  }
+}
+
+function deferred() {
+  let release!: () => void
+  const promise = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  return { promise, release }
+}
+
+function decisionModelOverviewWithJob(state: "queued" | "running" | "succeeded") {
+  return {
+    ...decisionModelOverview(false),
+    jobs: [
+      {
+        id: "99999999-aaaa-4bbb-8ccc-dddddddddddd",
+        state,
+        tasksetDigest: digest,
+        runtimeJobId: state === "queued" ? null : "runtime-job-1",
+        candidateRuntimeId: state === "succeeded" ? "fixture-candidate-2" : null,
+        failureCode: null,
+        createdAt: "2026-11-20T16:30:00Z",
+        finishedAt: state === "succeeded" ? "2026-11-20T16:35:00Z" : null,
+      },
+    ],
+  }
+}
+
 describe("Learnings frontend integration", () => {
   it("includes the repository in the document title", () => {
     expect(meta({ loaderData: learningsResponse() })).toEqual([
@@ -230,6 +356,263 @@ describe("Learnings frontend integration", () => {
 
     expect(runRequests).toHaveBeenCalledWith({ contentType: null, text: "" })
     expect(await screen.findByText("Hub will look for learnings shortly.")).toBeVisible()
+  })
+
+  it("evaluates an eligible Build through the route action and shows saved findings", async () => {
+    const store = createMockStore({ origin: window.location.origin })
+    const server = setupServer(...createMockHandlers(store))
+    const evaluationRequests = vi.fn()
+    let evaluated = false
+    server.use(
+      http.get(`${store.origin}/api/repositories/2001/learnings`, () =>
+        HttpResponse.json({
+          ...learningsResponse(),
+          capabilities: { administerHub: true, administerRepository: true },
+        }),
+      ),
+      http.get(`${store.origin}/api/repositories/2001/decision-model`, () =>
+        HttpResponse.json(decisionModelOverview(evaluated)),
+      ),
+      http.post(
+        `${store.origin}/api/repositories/2001/decision-model/builds/77777777-8888-4999-8aaa-bbbbbbbbbbbb/evaluation`,
+        async ({ request }) => {
+          evaluationRequests({
+            contentType: request.headers.get("content-type"),
+            text: await request.text(),
+          })
+          evaluated = true
+          return HttpResponse.json({
+            id: "44444444-5555-4666-8777-888888888888",
+            runtimeEvaluationId: "fixture-evaluation-1",
+            candidateId: "fixture-candidate-1",
+            generation: 2,
+            responseDigest: digest,
+            evaluations: [
+              {
+                learningId: "learning-1",
+                followsProbability: 0.82,
+                breaksProbability: 0.18,
+              },
+            ],
+            usage: [],
+          })
+        },
+      ),
+    )
+    const router = await renderHubFlow(server, "/repositories/2001/learnings", {
+      workspaceRoutes,
+    })
+
+    await router.settle(() =>
+      fireEvent.click(screen.getByRole("button", { name: "Evaluate Settings — Build 42" })),
+    )
+
+    expect(evaluationRequests).toHaveBeenCalledWith({ contentType: null, text: "" })
+    expect(
+      await screen.findByText(/promoted model found the Build more likely to follow the learning/),
+    ).toBeVisible()
+    expect(
+      screen.queryByRole("button", { name: "Evaluate Settings — Build 42" }),
+    ).not.toBeInTheDocument()
+  })
+
+  it("keeps the decision panel while an accepted training request becomes authoritative", async () => {
+    const store = createMockStore({ origin: window.location.origin })
+    const server = setupServer(...createMockHandlers(store))
+    let trainingAccepted = false
+    let acceptedOverviewReads = 0
+    let failAfterFinished = false
+    const trainingRequest = deferred()
+    let trainingPostCount = 0
+    let trainingJobReads = 0
+    server.use(
+      http.get(`${store.origin}/api/repositories/2001/learnings`, () =>
+        HttpResponse.json({
+          ...learningsResponse(),
+          capabilities: { administerHub: true, administerRepository: true },
+        }),
+      ),
+      http.get(`${store.origin}/api/repositories/2001/decision-model`, () => {
+        if (!trainingAccepted) return HttpResponse.json(decisionModelOverview(false))
+        acceptedOverviewReads += 1
+        if (failAfterFinished) {
+          return HttpResponse.json(
+            { error: "Another learning operation is still running." },
+            { status: 409 },
+          )
+        }
+        if (acceptedOverviewReads > 1) {
+          return HttpResponse.json(decisionModelOverviewWithJob("succeeded"))
+        }
+        return HttpResponse.json(
+          { error: "Another learning operation is still running." },
+          { status: 409 },
+        )
+      }),
+      http.get(
+        `${store.origin}/api/repositories/2001/decision-model/training-jobs/99999999-aaaa-4bbb-8ccc-dddddddddddd`,
+        () => {
+          trainingJobReads += 1
+          return HttpResponse.json(
+            decisionModelOverviewWithJob(trainingJobReads === 1 ? "running" : "succeeded").jobs[0],
+          )
+        },
+      ),
+      http.post(`${store.origin}/api/repositories/2001/decision-model/training-jobs`, async () => {
+        trainingPostCount += 1
+        await trainingRequest.promise
+        trainingAccepted = true
+        return HttpResponse.json({
+          created: true,
+          job: {
+            id: "99999999-aaaa-4bbb-8ccc-dddddddddddd",
+            state: "queued",
+            tasksetDigest: digest,
+            runtimeJobId: null,
+            candidateRuntimeId: null,
+            failureCode: null,
+            createdAt: "2026-11-20T16:30:00Z",
+            finishedAt: null,
+          },
+        })
+      }),
+    )
+    const router = await renderHubFlow(server, "/repositories/2001/learnings", {
+      workspaceRoutes,
+    })
+
+    fireEvent.click(await screen.findByRole("button", { name: "Start training" }))
+    const confirm = screen.getByRole("button", { name: "Queue this training job" })
+    fireEvent.click(confirm)
+    fireEvent.click(confirm)
+
+    await waitFor(() => expect(confirm).toBeDisabled())
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled()
+    expect(screen.getByText(/submitting.*training request|training request.*prepar/i)).toBeVisible()
+
+    trainingRequest.release()
+
+    expect(
+      await screen.findByText("Training was queued within the confirmed repository budget."),
+    ).toBeVisible()
+    expect(screen.getByRole("checkbox", { name: "Repository training" })).toBeVisible()
+    expect(
+      screen.queryByText(
+        "Decision-model training is temporarily unavailable: Another learning operation is still running.",
+      ),
+    ).not.toBeInTheDocument()
+
+    expect(
+      await within(
+        screen.getByRole("region", { name: "Decision-model training history" }),
+      ).findByRole("cell", { name: "Queued" }),
+    ).toBeVisible()
+    expect(acceptedOverviewReads).toBeGreaterThanOrEqual(1)
+    await waitFor(() => expect(trainingJobReads).toBeGreaterThanOrEqual(1))
+    expect(
+      await within(
+        screen.getByRole("region", { name: "Decision-model training history" }),
+      ).findByRole("cell", { name: "Running" }),
+    ).toBeVisible()
+    expect(trainingPostCount).toBe(1)
+    await waitFor(() => expect(trainingJobReads).toBeGreaterThanOrEqual(2), { timeout: 4_000 })
+    expect(await screen.findByRole("cell", { name: "Finished" }, { timeout: 4_000 })).toBeVisible()
+    failAfterFinished = true
+    await router.settle(() => router.revalidate())
+    expect(trainingPostCount).toBe(1)
+    expect(
+      screen.getByText(
+        "Decision-model training is temporarily unavailable: Another learning operation is still running.",
+      ),
+    ).toBeVisible()
+    expect(screen.queryByText(/Training was accepted/)).not.toBeInTheDocument()
+  })
+
+  it("shows an uncorrelated learning lock instead of attributing it to a running job", async () => {
+    const store = createMockStore({ origin: window.location.origin })
+    const server = setupServer(...createMockHandlers(store))
+    let overviewReads = 0
+    server.use(
+      http.get(`${store.origin}/api/repositories/2001/learnings`, () =>
+        HttpResponse.json({
+          ...learningsResponse(),
+          capabilities: { administerHub: true, administerRepository: true },
+        }),
+      ),
+      http.get(`${store.origin}/api/repositories/2001/decision-model`, () => {
+        overviewReads += 1
+        if (overviewReads === 1) {
+          return HttpResponse.json(decisionModelOverviewWithJob("running"))
+        }
+        return HttpResponse.json(
+          { error: "Another learning operation is still running." },
+          { status: 409 },
+        )
+      }),
+    )
+    const router = await renderHubFlow(server, "/repositories/2001/learnings", {
+      workspaceRoutes,
+    })
+
+    expect(
+      screen.getByText("Running: training is using the pinned evidence shown for this job."),
+    ).toBeVisible()
+    expect(overviewReads).toBe(1)
+
+    await router.settle(() => router.revalidate())
+
+    expect(
+      screen.getByText(
+        "Decision-model training is temporarily unavailable: Another learning operation is still running.",
+      ),
+    ).toBeVisible()
+    expect(overviewReads).toBe(2)
+    expect(screen.queryByRole("region", { name: "Decision-model training history" })).toBeNull()
+  })
+
+  it("does not carry a cached training job into another repository", async () => {
+    const store = createMockStore({ origin: window.location.origin })
+    const server = setupServer(...createMockHandlers(store))
+    server.use(
+      http.get(`${store.origin}/api/repositories/:repositoryId/learnings`, ({ params }) =>
+        HttpResponse.json({
+          ...learningsResponse(),
+          repository: {
+            ...learningsResponse().repository,
+            id: String(params.repositoryId),
+            nameWithOwner: params.repositoryId === "2001" ? "github/prototype" : "github/empty",
+          },
+          capabilities: { administerHub: true, administerRepository: true },
+        }),
+      ),
+      http.get(`${store.origin}/api/repositories/2001/decision-model`, () =>
+        HttpResponse.json(decisionModelOverviewWithJob("running")),
+      ),
+      http.get(`${store.origin}/api/repositories/2002/decision-model`, () =>
+        HttpResponse.json(
+          { error: "Another learning operation is still running." },
+          { status: 409 },
+        ),
+      ),
+    )
+    const router = await renderHubFlow(server, "/repositories/2001/learnings", {
+      workspaceRoutes,
+    })
+
+    expect(
+      await screen.findByText("Running: training is using the pinned evidence shown for this job."),
+    ).toBeVisible()
+
+    await router.settle(() => router.navigate("/repositories/2002/learnings"))
+
+    expect(
+      await screen.findByText(
+        "Decision-model training is temporarily unavailable: Another learning operation is still running.",
+      ),
+    ).toBeVisible()
+    expect(
+      screen.queryByText("Running: training is using the pinned evidence shown for this job."),
+    ).not.toBeInTheDocument()
   })
 
   it("keeps the explicit run action for a queued automatic run", async () => {

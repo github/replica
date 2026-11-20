@@ -157,13 +157,18 @@ function decisionModelData(
           : [],
     },
     trainingAvailable: Boolean(
-      overview.configuration?.enabled && overview.preflight.state === "ready" && !activeJob,
+      overview.configuration?.enabled &&
+      overview.preflight.state === "ready" &&
+      !activeJob &&
+      !availability.preparationStatus,
     ),
+    preparationStatus: availability.preparationStatus ?? null,
     activeJob: activeJob ? (jobs.find((job) => job.id === activeJob.id) ?? null) : null,
     jobs,
     candidates: overview.candidates.map((candidate) => ({
       id: candidate.id,
       runtimeCandidateId: candidate.runtimeCandidateId,
+      backend: candidate.backend,
       createdAt: candidate.createdAt,
       productionEligible: candidate.productionEligible,
       tasksetDigest: candidate.tasksetDigest,
@@ -207,6 +212,12 @@ function decisionModelData(
       rejectPath: `/repositories/${repositoryId}/learnings/decision-model/candidates/${candidate.id}/reject`,
     })),
     promotion,
+    evaluationBuilds: overview.evaluationBuilds.map((build) => ({
+      id: build.id,
+      number: build.number,
+      label: `${build.prototype.name ?? build.prototype.branchName} — Build ${build.number}`,
+      evaluationPath: `/repositories/${repositoryId}/learnings/decision-model/builds/${build.id}/evaluate`,
+    })),
     evaluations: overview.evaluations.map((evaluation) => ({
       id: evaluation.id,
       buildNumber: evaluation.build.number,

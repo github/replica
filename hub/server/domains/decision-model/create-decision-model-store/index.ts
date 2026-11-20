@@ -61,6 +61,7 @@ function jobRecord(
     candidateRuntimeId: job.candidateRuntimeId,
     failureCode: job.failureCode,
     createdAt: job.createdAt,
+    finishedAt: job.finishedAt,
   }
 }
 

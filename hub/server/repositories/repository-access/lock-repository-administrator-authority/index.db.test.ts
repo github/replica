@@ -1,8 +1,10 @@
+import { randomUUID } from "node:crypto"
 import { describe, expect, it } from "vitest"
 import pg from "pg"
 
 import { RepositoryAccessLevel } from "../../../generated/prisma/client"
 import { prisma } from "../../../integrations/prisma"
+import { localDeveloperIdentity } from "../../../utils/local-developer-identity"
 import { getDatabaseUrl } from "../../../../test/database/get-database-url"
 import { waitForBlockedQuery } from "../../../../test/database/wait-for-blocked-query"
 import { lockRepositoryAdministratorAuthority } from "."
@@ -42,6 +44,44 @@ async function createAuthority(accessLevel: RepositoryAccessLevel) {
   return { grant, membership, provider, repository }
 }
 
+async function createLocalAuthority(
+  identity: { issuer: string; provider: string; subject: string } = localDeveloperIdentity,
+) {
+  const provider = await prisma.authenticationProvider.create({
+    data: { key: "local", enabled: false },
+  })
+  const revision = await prisma.authenticationProviderRevision.create({
+    data: {
+      configurationDigest: "b".repeat(64),
+      providerId: provider.id,
+      revision: 1,
+    },
+  })
+  await prisma.authenticationProvider.update({
+    data: { enabled: true, selectedRevisionId: revision.id },
+    where: { id: provider.id },
+  })
+  const user = await prisma.user.create({ data: {} })
+  await prisma.externalIdentity.create({ data: { ...identity, userId: user.id } })
+  const membership = await prisma.membership.create({ data: { userId: user.id } })
+  const repository = await prisma.repository.create({
+    data: {
+      defaultBranch: "main",
+      localPath: `/local/prototypes/${randomUUID()}`,
+      nameWithOwner: `local/${randomUUID()}`,
+    },
+  })
+  await prisma.repositoryAccessGrant.create({
+    data: {
+      accessLevel: RepositoryAccessLevel.ADMIN,
+      membershipId: membership.id,
+      observedAt: new Date(),
+      repositoryId: repository.id,
+    },
+  })
+  return { membership, provider, repository }
+}
+
 async function authorize(membershipId: string, repositoryId: string) {
   return prisma.$transaction((transaction) =>
     lockRepositoryAdministratorAuthority(transaction, { membershipId, repositoryId }),
@@ -53,6 +93,57 @@ describe("lockRepositoryAdministratorAuthority()", () => {
     const { membership, repository } = await createAuthority(RepositoryAccessLevel.ADMIN)
 
     await expect(authorize(membership.id, repository.id)).resolves.toBe(true)
+  })
+
+  it("authorizes the fixed local developer's active ADMIN grant for a local repository", async () => {
+    const { membership, repository } = await createLocalAuthority()
+
+    await expect(authorize(membership.id, repository.id)).resolves.toBe(true)
+  })
+
+  it("does not substitute an ordinary identity for fixed local authority", async () => {
+    const { membership, repository } = await createLocalAuthority({
+      issuer: "https://github.com",
+      provider: "github",
+      subject: randomUUID(),
+    })
+
+    await expect(authorize(membership.id, repository.id)).resolves.toBe(false)
+  })
+
+  it.each([
+    [
+      "disabled local provider",
+      async ({ provider }: Awaited<ReturnType<typeof createLocalAuthority>>) => {
+        await prisma.authenticationProvider.update({
+          data: { enabled: false, selectedRevisionId: null },
+          where: { id: provider.id },
+        })
+      },
+    ],
+    [
+      "GitHub-linked repository",
+      async ({ repository }: Awaited<ReturnType<typeof createLocalAuthority>>) => {
+        await prisma.repository.update({
+          data: { githubRepositoryId: 17n },
+          where: { id: repository.id },
+        })
+      },
+    ],
+    [
+      "repository without a local path",
+      async ({ repository }: Awaited<ReturnType<typeof createLocalAuthority>>) => {
+        await prisma.repository.update({
+          data: { localPath: null },
+          where: { id: repository.id },
+        })
+      },
+    ],
+  ] as const)("denies local authority for a %s", async (_label, removeAuthority) => {
+    const records = await createLocalAuthority()
+    await removeAuthority(records)
+
+    await expect(authorize(records.membership.id, records.repository.id)).resolves.toBe(false)
   })
 
   it("locks repository before grant while overlapping admission changes", async () => {

@@ -144,6 +144,22 @@ const tasksetManifestSchema = z
     skipped: z.record(z.string(), z.number().int().nonnegative()),
   })
   .loose()
+const learningListSchema = z
+  .array(
+    z
+      .object({
+        record: z
+          .object({
+            id: z.string(),
+            state: z.string().optional(),
+            content: z.string().nullable().optional(),
+          })
+          .loose(),
+        withheld: z.boolean(),
+      })
+      .loose(),
+  )
+  .max(1_000)
 
 interface HubDecisionTasksetSourceOptions {
   applicationRoot?: string
@@ -786,27 +802,27 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
             grant.sources.includes("hub_review_comments"),
         )
       },
-      async getLearningText({ repositoryId, learningId }) {
+      async getAcceptedLearningTexts(repositoryId) {
         const store = await learningStore(repositoryId)
-        const result = z
-          .object({
-            record: z.object({ content: z.string().nullable() }).loose(),
-            withheld: z.boolean(),
-          })
-          .loose()
-          .parse(
-            await command([
-              "show",
-              learningId,
-              "--actor",
-              "system:replica-hub",
-              "--dir",
-              store.directory,
-              "--repository",
-              store.repositoryScope,
-            ]),
-          )
-        return result.withheld ? null : result.record.content
+        const items = learningListSchema.parse(
+          await command([
+            "memories",
+            "--state",
+            "accepted",
+            "--actor",
+            "system:replica-hub",
+            "--dir",
+            store.directory,
+            "--repository",
+            store.repositoryScope,
+          ]),
+        )
+        return Object.fromEntries(
+          items.map(({ record, withheld }) => [
+            record.id,
+            withheld ? null : (record.content ?? null),
+          ]),
+        )
       },
       async listTrainingWithdrawals() {
         const pending = []

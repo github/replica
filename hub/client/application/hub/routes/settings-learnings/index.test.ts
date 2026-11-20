@@ -6,6 +6,7 @@ import { clientAction, clientLoader } from "."
 
 const candidateId = "22222222-3333-4444-8555-666666666666"
 const jobId = "33333333-4444-4555-8666-777777777777"
+const tasksetDigest = `sha256:${"a".repeat(64)}`
 
 function routeRequest(form: Record<string, string | undefined>) {
   const body = new URLSearchParams()
@@ -92,9 +93,12 @@ describe("settings Learnings route", () => {
 
   it.each([
     {
-      label: "preflight conflict",
-      response: Response.json({ error: "Evidence changed during preflight." }, { status: 409 }),
-      expected: "Evidence changed during preflight.",
+      label: "uncorrelated learning-operation conflict",
+      response: Response.json(
+        { error: "Another learning operation is still running." },
+        { status: 409 },
+      ),
+      expected: "Another learning operation is still running.",
     },
     {
       label: "invalid overview",
@@ -173,10 +177,12 @@ describe("settings Learnings route", () => {
         job: {
           id: jobId,
           state: "queued",
+          tasksetDigest,
           runtimeJobId: null,
           candidateRuntimeId: null,
           failureCode: null,
           createdAt: "2026-11-18T12:05:00Z",
+          finishedAt: null,
         },
       },
     },
@@ -218,7 +224,7 @@ describe("settings Learnings route", () => {
         runtimeCandidateId: "candidate-2",
         previousCandidateId: null,
         previousRuntimeCandidateId: null,
-        runtimeGeneration: 3,
+        generation: 3,
       },
     },
     {
@@ -235,26 +241,32 @@ describe("settings Learnings route", () => {
         runtimeCandidateId: "candidate-1",
         previousCandidateId: candidateId,
         previousRuntimeCandidateId: "candidate-2",
-        runtimeGeneration: 4,
+        generation: 4,
       },
     },
-  ])("sends the exact $label mutation", async ({ form, endpoint, method, body, response }) => {
-    const send = vi.fn<typeof fetch>(() => Promise.resolve(Response.json(response)))
-    vi.stubGlobal("fetch", send)
+  ])(
+    "sends the exact $label mutation",
+    async ({ label, form, endpoint, method, body, response }) => {
+      const send = vi.fn<typeof fetch>(() => Promise.resolve(Response.json(response)))
+      vi.stubGlobal("fetch", send)
 
-    const result = await clientAction({
-      request: routeRequest(form),
-      params: { repositoryId: "2001" },
-    } as unknown as Parameters<typeof clientAction>[0])
+      const result = await clientAction({
+        request: routeRequest(form),
+        params: { repositoryId: "2001" },
+      } as unknown as Parameters<typeof clientAction>[0])
 
-    expect(result.data.saved).toBe(true)
-    expect(send).toHaveBeenCalledOnce()
-    const [url, init] = send.mock.calls[0]!
-    expect(new URL(url instanceof Request ? url.url : url).pathname).toBe(endpoint)
-    expect(init).toMatchObject({ method })
-    expect(init?.body == null || typeof init.body === "string").toBe(true)
-    expect(init?.body == null ? undefined : JSON.parse(init.body as string)).toEqual(body)
-  })
+      expect(result.data.saved).toBe(true)
+      if (label === "confirmed training") {
+        expect(result.data).toMatchObject({ trainingJobId: jobId })
+      }
+      expect(send).toHaveBeenCalledOnce()
+      const [url, init] = send.mock.calls[0]!
+      expect(new URL(url instanceof Request ? url.url : url).pathname).toBe(endpoint)
+      expect(init).toMatchObject({ method })
+      expect(init?.body == null || typeof init.body === "string").toBe(true)
+      expect(init?.body == null ? undefined : JSON.parse(init.body as string)).toEqual(body)
+    },
+  )
 
   it("marks a stale promotion generation for refresh instead of reporting success", async () => {
     vi.stubGlobal(

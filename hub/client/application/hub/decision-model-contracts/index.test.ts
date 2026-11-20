@@ -60,6 +60,7 @@ function overview() {
       {
         id: "22222222-3333-4444-8555-666666666666",
         runtimeCandidateId: "candidate-1",
+        backend: "fixture",
         tasksetDigest: digest,
         productionEligible: true,
         baselineMeanReward: "0.61",
@@ -102,6 +103,17 @@ function overview() {
       rollbackAvailable: true,
     },
     promotionHistory: [],
+    evaluationBuilds: [
+      {
+        id: "33333333-4444-4555-8666-777777777777",
+        number: 42,
+        prototype: {
+          id: "1",
+          name: "Settings",
+          branchName: "settings",
+        },
+      },
+    ],
     evaluations: [],
     deletions: [],
   }
@@ -118,6 +130,28 @@ describe("Decision-model contracts", () => {
         candidates: response.candidates.map((candidate) => ({
           ...candidate,
           inventedProof: true,
+        })),
+      }).success,
+    ).toBe(false)
+  })
+
+  it("bounds the successful Builds offered for evaluation", () => {
+    const response = overview()
+
+    expect(decisionModelOverviewResponseSchema.parse(response).evaluationBuilds).toEqual(
+      response.evaluationBuilds,
+    )
+    expect(
+      decisionModelOverviewResponseSchema.safeParse({
+        ...response,
+        evaluationBuilds: Array.from({ length: 51 }, (_, index) => ({
+          id: `${String(index).padStart(8, "0")}-4444-4555-8666-777777777777`,
+          number: index + 1,
+          prototype: {
+            id: "1",
+            name: "Settings",
+            branchName: "settings",
+          },
         })),
       }).success,
     ).toBe(false)

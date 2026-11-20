@@ -99,6 +99,7 @@ function available(): DecisionModelAvailability {
         {
           id: "33333333-4444-4555-8666-777777777777",
           runtimeCandidateId: "fixture-candidate-2",
+          backend: "fixture",
           tasksetDigest,
           productionEligible: true,
           baselineMeanReward: "0.55",
@@ -135,6 +136,17 @@ function available(): DecisionModelAvailability {
       ],
       promotion: null,
       promotionHistory: [],
+      evaluationBuilds: [
+        {
+          id: "77777777-8888-4999-8aaa-bbbbbbbbbbbb",
+          number: 42,
+          prototype: {
+            id: "1",
+            name: "Settings",
+            branchName: "settings",
+          },
+        },
+      ],
       evaluations: [
         {
           id: "44444444-5555-4666-8777-888888888888",
@@ -296,6 +308,15 @@ describe("settingsLearnings()", () => {
       duration: "4 minutes 30 seconds",
       usage: ["customer-gpu: 3.5 credits, $1.25"],
     })
+    expect(data.decisionModel.evaluationBuilds).toEqual([
+      {
+        id: "77777777-8888-4999-8aaa-bbbbbbbbbbbb",
+        number: 42,
+        label: "Settings — Build 42",
+        evaluationPath:
+          "/repositories/2001/learnings/decision-model/builds/77777777-8888-4999-8aaa-bbbbbbbbbbbb/evaluate",
+      },
+    ])
     expect(data.decisionModel.evaluations[0]?.findings[0]).toMatchObject({
       learningId: "learning-gain",
       learningText: null,

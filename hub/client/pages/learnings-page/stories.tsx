@@ -55,6 +55,7 @@ const decisionModel: Extract<DecisionModelPanelData, { state: "available" }> = {
     {
       id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
       runtimeCandidateId: "fixture-candidate-2",
+      backend: "fixture",
       createdAt: "2026-11-11T18:04:30Z",
       productionEligible: true,
       tasksetDigest: `sha256:${"b".repeat(64)}`,
@@ -90,6 +91,15 @@ const decisionModel: Extract<DecisionModelPanelData, { state: "available" }> = {
     operation: "promote",
     rollbackAvailable: true,
   },
+  evaluationBuilds: [
+    {
+      id: "bbbbbbbb-1111-4222-8333-555555555555",
+      number: 3,
+      label: "Navigation — Build 3",
+      evaluationPath:
+        "/repositories/2001/learnings/decision-model/builds/bbbbbbbb-1111-4222-8333-555555555555/evaluate",
+    },
+  ],
   evaluations: [
     {
       id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
@@ -397,6 +407,25 @@ export const DecisionTrainingQueued: Story = {
             cancellable: true,
           },
         ],
+      },
+    },
+  },
+}
+
+export const DecisionTrainingPreparing: Story = {
+  args: {
+    data: {
+      ...data,
+      decisionModel: {
+        ...decisionModel,
+        trainingAvailable: false,
+        preparationStatus:
+          "Training was accepted. Hub is preparing its private evidence; the queued or running job will appear here automatically.",
+        activeJob: null,
+        jobs: [],
+        candidates: [],
+        promotion: null,
+        evaluations: [],
       },
     },
   },

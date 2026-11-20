@@ -29,6 +29,7 @@ export interface DecisionTrainingJobResponse {
 export interface DecisionCandidateResponse {
   id: string
   runtimeCandidateId: string
+  backend: string
   tasksetDigest: string
   productionEligible: boolean
   baselineMeanReward: string | null
@@ -112,6 +113,11 @@ export interface DecisionModelOverviewResponse {
     membershipId: string | null
     createdAt: string
   }>
+  evaluationBuilds: Array<{
+    id: string
+    number: number
+    prototype: { id: string; name: string | null; branchName: string }
+  }>
   evaluations: Array<{
     id: string
     build: { id: string; number: number; prototypeId: string }
@@ -148,20 +154,17 @@ export interface DecisionModelOverviewResponse {
 }
 
 export type DecisionModelAvailability =
-  | { state: "available"; overview: DecisionModelOverviewResponse }
+  | {
+      state: "available"
+      overview: DecisionModelOverviewResponse
+      preparationStatus?: string
+    }
   | { state: "not-configured" }
   | { state: "unavailable"; error: string }
 
 export interface DecisionTrainingRequestResponse {
   created: boolean
-  job: {
-    id: string
-    state: DecisionTrainingJobResponse["state"]
-    runtimeJobId: string | null
-    candidateRuntimeId: string | null
-    failureCode: string | null
-    createdAt: string
-  }
+  job: DecisionTrainingJobResponse
 }
 
 export interface DecisionTrainingMutationResponse {
@@ -174,7 +177,7 @@ export interface DecisionPromotionMutationResponse {
   runtimeCandidateId: string
   previousCandidateId: string | null
   previousRuntimeCandidateId: string | null
-  runtimeGeneration: number
+  generation: number
 }
 
 export interface DecisionCandidateRejectionMutationResponse {

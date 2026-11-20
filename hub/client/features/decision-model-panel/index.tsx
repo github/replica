@@ -10,9 +10,11 @@ import type { DecisionCandidate, DecisionModelPanelData, DecisionTrainingJob } f
 export function DecisionModelPanel({
   data,
   authenticityToken,
+  trainingSubmitting = false,
 }: {
   data: DecisionModelPanelData
   authenticityToken: string
+  trainingSubmitting?: boolean
 }) {
   if (data.state === "repository-learning-only") {
     return (
@@ -46,15 +48,23 @@ export function DecisionModelPanel({
       </section>
     )
   }
-  return <AvailableDecisionModel data={data} authenticityToken={authenticityToken} />
+  return (
+    <AvailableDecisionModel
+      data={data}
+      authenticityToken={authenticityToken}
+      trainingSubmitting={trainingSubmitting}
+    />
+  )
 }
 
 function AvailableDecisionModel({
   data,
   authenticityToken,
+  trainingSubmitting,
 }: {
   data: Extract<DecisionModelPanelData, { state: "available" }>
   authenticityToken: string
+  trainingSubmitting: boolean
 }) {
   const [confirmTraining, setConfirmTraining] = useState(false)
   const [promoting, setPromoting] = useState<string | null>(null)
@@ -169,7 +179,7 @@ function AvailableDecisionModel({
               screenshots, then sends it to the customer-run runtime.
             </Text>
           </div>
-          {!confirmTraining && data.trainingAvailable ? (
+          {!confirmTraining && data.trainingAvailable && !data.preparationStatus ? (
             <Button
               ref={trainingButton}
               type="button"
@@ -191,19 +201,20 @@ function AvailableDecisionModel({
               value={data.configuration.generation}
             />
             <HubAlert
-              title={`Confirm a job capped at ${data.configuration.maxUpdates.toLocaleString()} updates, ${formatDuration(data.configuration.maxSeconds)}, and ${data.configuration.monthlyBudgetCredits} credits within the monthly repository budget.`}
+              title={`Review one training job capped at ${data.configuration.maxUpdates.toLocaleString()} updates, ${formatDuration(data.configuration.maxSeconds)}, and ${data.configuration.monthlyBudgetCredits} credits within the monthly repository budget.`}
               variant="warning"
             />
             <Text as="p" size="200">
-              Starting training does not promote its candidate.
+              The next click queues this job. It does not promote the resulting candidate.
             </Text>
             <div className="decision-model-panel__actions">
-              <Button type="submit" variant="primary" autoFocus>
-                Confirm and start training
+              <Button type="submit" variant="primary" autoFocus disabled={trainingSubmitting}>
+                {trainingSubmitting ? "Queuing training…" : "Queue this training job"}
               </Button>
               <Button
                 type="button"
                 variant="subtle"
+                disabled={trainingSubmitting}
                 onClick={() => {
                   setConfirmTraining(false)
                   window.requestAnimationFrame(() => trainingButton.current?.focus())
@@ -215,7 +226,11 @@ function AvailableDecisionModel({
           </form>
         ) : null}
 
-        {data.activeJob ? (
+        {data.preparationStatus ? (
+          <Text as="p" role="status" size="200" variant="muted">
+            {data.preparationStatus}
+          </Text>
+        ) : data.activeJob ? (
           <HubAlert
             title={`${data.activeJob.stateLabel}: training is using the pinned evidence shown for this job.`}
             variant="info"
@@ -248,6 +263,7 @@ function AvailableDecisionModel({
               <CandidateCard
                 key={candidate.id}
                 candidate={candidate}
+                allowPromotion={candidate.productionEligible || candidate.backend === "fixture"}
                 expectedGeneration={generation}
                 authenticityToken={authenticityToken}
                 confirming={promoting === candidate.id}
@@ -332,6 +348,38 @@ function AvailableDecisionModel({
         )}
       </article>
 
+      <article className="decision-model-panel__card" aria-labelledby="decision-model-evaluate">
+        <Heading as="h3" size="4" id="decision-model-evaluate">
+          Evaluate a Build
+        </Heading>
+        <Text as="p">
+          Hub sends the selected Build&apos;s captured views and accepted-learning questions to the
+          currently promoted model, then saves the findings below.
+        </Text>
+        {!data.promotion ? (
+          <Text as="p" size="200" variant="muted">
+            Promote a candidate before evaluating a Build.
+          </Text>
+        ) : data.evaluationBuilds.length ? (
+          <ul className="decision-model-panel__findings">
+            {data.evaluationBuilds.map((build) => (
+              <li key={build.id}>
+                <form action={build.evaluationPath} method="post">
+                  <input type="hidden" name="authenticity_token" value={authenticityToken} />
+                  <Button type="submit" variant="secondary">
+                    Evaluate {build.label}
+                  </Button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <Text as="p" size="200" variant="muted">
+            No successful Builds with captured screenshots are available.
+          </Text>
+        )}
+      </article>
+
       <article className="decision-model-panel__card" aria-labelledby="decision-model-findings">
         <Heading as="h3" size="4" id="decision-model-findings">
           Latest Build evaluation
@@ -356,8 +404,10 @@ function AvailableDecisionModel({
                   <ul className="decision-model-panel__findings">
                     {evaluation.findings.map((finding) => (
                       <li key={`${finding.learningId}:${finding.route}`}>
-                        <strong>{finding.learningText ?? finding.learningId}</strong> on{" "}
-                        <code>{finding.route}</code>
+                        <Text as="p">
+                          <strong>{finding.learningText ?? finding.learningId}</strong> on{" "}
+                          <code>{finding.route}</code>
+                        </Text>
                         {finding.learningText === null ? (
                           <Text as="p" size="200" variant="muted">
                             The accepted learning text was removed after this evaluation.
@@ -529,6 +579,7 @@ function TrainingJobs({
 
 function CandidateCard({
   candidate,
+  allowPromotion,
   expectedGeneration,
   authenticityToken,
   confirming,
@@ -539,6 +590,7 @@ function CandidateCard({
   onCancelReject,
 }: {
   candidate: DecisionCandidate
+  allowPromotion: boolean
   expectedGeneration: number
   authenticityToken: string
   confirming: boolean
@@ -570,7 +622,9 @@ function CandidateCard({
             ? "Promoted"
             : candidate.productionEligible
               ? "Runtime eligible"
-              : "Not eligible"}
+              : allowPromotion
+                ? "Development only"
+                : "Not eligible"}
         </span>
       </div>
       <div
@@ -722,7 +776,7 @@ function CandidateCard({
         </form>
       ) : (
         <div className="decision-model-panel__actions">
-          {!candidate.promoted && candidate.productionEligible ? (
+          {!candidate.promoted && allowPromotion ? (
             <Button ref={promoteButton} type="button" variant="primary" onClick={onConfirm}>
               Promote candidate
             </Button>

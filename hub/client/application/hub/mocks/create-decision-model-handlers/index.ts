@@ -22,7 +22,10 @@ interface DecisionModelMockState {
   candidates: DecisionCandidateResponse[]
   promotion: DecisionPromotionResponse | null
   previousCandidateId: string | null
-  overview: Pick<DecisionModelOverviewResponse, "preflight" | "evaluations" | "deletions">
+  overview: Pick<
+    DecisionModelOverviewResponse,
+    "preflight" | "evaluationBuilds" | "evaluations" | "deletions"
+  >
 }
 
 const tasksetDigest = `sha256:${"b".repeat(64)}`
@@ -213,7 +216,7 @@ export function createDecisionModelHandlers(context: MockFlowContext) {
               previousRuntimeCandidateId:
                 current.candidates.find((entry) => entry.id === current.previousCandidateId)
                   ?.runtimeCandidateId ?? null,
-              runtimeGeneration: current.promotion.generation,
+              generation: current.promotion.generation,
             })
           },
           context.session,
@@ -292,11 +295,71 @@ export function createDecisionModelHandlers(context: MockFlowContext) {
             previousRuntimeCandidateId:
               current.candidates.find((entry) => entry.id === current.previousCandidateId)
                 ?.runtimeCandidateId ?? null,
-            runtimeGeneration: current.promotion.generation,
+            generation: current.promotion.generation,
           })
         },
         context.session,
       ),
+    ),
+    http.post(
+      api("/repositories/:repositoryId/decision-model/builds/:buildId/evaluation"),
+      ({ request, params }) =>
+        respondMock(
+          request,
+          (_scenario, assertCurrentSession) => {
+            requireAdministrator()
+            const current = state(recordIdentifier(params.repositoryId))
+            const build = current.overview.evaluationBuilds.find(
+              (entry) => entry.id === params.buildId,
+            )
+            if (!build) throw new MockStoreError(404, "Published Build not found.")
+            if (!current.promotion) {
+              throw new MockStoreError(
+                409,
+                "No decision candidate is promoted for this repository.",
+              )
+            }
+            assertCurrentSession()
+            const evaluation = {
+              id: crypto.randomUUID(),
+              build: {
+                id: build.id,
+                number: build.number,
+                prototypeId: build.prototype.id,
+              },
+              model: {
+                id: current.promotion.candidateId,
+                runtimeCandidateId: current.promotion.runtimeCandidateId,
+                generation: current.promotion.generation,
+              },
+              questionDigest: `sha256:${"4".repeat(64)}`,
+              screenshotSetDigest: `sha256:${"5".repeat(64)}`,
+              responseDigest: `sha256:${"6".repeat(64)}`,
+              findingsAvailable: true,
+              findings: [
+                {
+                  learning: {
+                    id: "mem_1d9f0c2b7a4e5f6a8b9c0d1e",
+                    text: "Use one primary button per form.",
+                  },
+                  route: "/settings/profile",
+                  views: [
+                    { viewport: "desktop", theme: "dark" },
+                    { viewport: "narrow", theme: "light" },
+                  ],
+                  followsProbability: 0.82,
+                  breaksProbability: 0.18,
+                  explanation:
+                    "The promoted model found the Build more likely to follow this learning.",
+                },
+              ],
+              createdAt: new Date().toISOString(),
+            }
+            current.overview.evaluations.unshift(evaluation)
+            return HttpResponse.json({ id: evaluation.id })
+          },
+          context.session,
+        ),
     ),
   ]
 }
@@ -305,6 +368,7 @@ function initialState(populated: boolean): DecisionModelMockState {
   const baseline: DecisionCandidateResponse = {
     id: "11111111-2222-4333-8444-555555555555",
     runtimeCandidateId: "fixture-candidate-1",
+    backend: "fixture",
     tasksetDigest,
     productionEligible: true,
     baselineMeanReward: "0.5",
@@ -322,6 +386,7 @@ function initialState(populated: boolean): DecisionModelMockState {
   const candidate: DecisionCandidateResponse = {
     id: "22222222-3333-4444-8555-666666666666",
     runtimeCandidateId: "fixture-candidate-2",
+    backend: "fixture",
     tasksetDigest,
     productionEligible: true,
     baselineMeanReward: "0.55",
@@ -418,6 +483,19 @@ function initialState(populated: boolean): DecisionModelMockState {
           taskset: populated ? tasksetDigest : null,
         },
       },
+      evaluationBuilds: populated
+        ? [
+            {
+              id: "88888888-8888-4888-8888-888888888888",
+              number: 3,
+              prototype: {
+                id: "1",
+                name: "Settings",
+                branchName: "settings",
+              },
+            },
+          ]
+        : [],
       evaluations: populated
         ? [
             {

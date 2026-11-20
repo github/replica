@@ -59,27 +59,30 @@ const usageRecordsSchema = z.array(
 )
 const evaluationSummarySchema = z
   .object({
-    findings: z.array(
-      z
-        .object({
-          learning: z.object({ id: z.string() }).strict(),
-          route: z.string(),
-          views: z.array(
-            z
-              .object({
-                viewport: z.string(),
-                theme: z.string(),
-              })
-              .strict(),
-          ),
-          followsProbability: z.number().min(0).max(1),
-          breaksProbability: z.number().min(0).max(1),
-          explanation: z.string().min(1).max(500).optional(),
-        })
-        .strict(),
-    ),
+    findings: z
+      .array(
+        z
+          .object({
+            learning: z.object({ id: z.string() }).strict(),
+            route: z.string(),
+            views: z.array(
+              z
+                .object({
+                  viewport: z.string(),
+                  theme: z.string(),
+                })
+                .strict(),
+            ),
+            followsProbability: z.number().min(0).max(1),
+            breaksProbability: z.number().min(0).max(1),
+            explanation: z.string().min(1).max(500).optional(),
+          })
+          .strict(),
+      )
+      .max(100),
   })
   .strict()
+const maximumLearningTextLookups = 100
 
 function presentJobState(
   state:
@@ -120,10 +123,12 @@ function presentJob(job: DecisionTrainingJobRecord) {
   return {
     id: job.id,
     state: presentJobState(job.state),
+    tasksetDigest: job.tasksetDigest,
     runtimeJobId: job.runtimeJobId,
     candidateRuntimeId: job.candidateRuntimeId,
     failureCode: job.failureCode ?? null,
     createdAt: job.createdAt.toISOString(),
+    finishedAt: job.finishedAt?.toISOString() ?? null,
   }
 }
 
@@ -229,8 +234,30 @@ export function createDecisionModelRouteDependencies(
         dependencies.preflightTaskset(input),
       ])
       const currentPromotion = overview.promotion
-      const evaluations = overview.evaluations.map((evaluation) => {
-        const summary = evaluationSummarySchema.safeParse(evaluation.summary)
+      const evaluationSummaries = overview.evaluations.map((evaluation) =>
+        evaluationSummarySchema.safeParse(evaluation.summary),
+      )
+      const learningIds = [
+        ...new Set(
+          evaluationSummaries.flatMap((summary) =>
+            summary.success ? summary.data.findings.map((finding) => finding.learning.id) : [],
+          ),
+        ),
+      ].slice(0, maximumLearningTextLookups)
+      const acceptedLearningTexts = learningIds.length
+        ? await options.tasksetSource.getAcceptedLearningTexts(input.repositoryId)
+        : {}
+      const learningTexts = new Map(
+        learningIds
+          .filter((learningId) => Object.hasOwn(acceptedLearningTexts, learningId))
+          .map((learningId) => [learningId, acceptedLearningTexts[learningId] ?? null]),
+      )
+      await authorization.requireRepositoryAdministrator({
+        membershipId: input.actorMembershipId,
+        repositoryId: input.repositoryId,
+      })
+      const evaluations = overview.evaluations.map((evaluation, index) => {
+        const summary = evaluationSummaries[index]!
         return {
           id: evaluation.id,
           build: {
@@ -250,6 +277,10 @@ export function createDecisionModelRouteDependencies(
           findings: summary.success
             ? summary.data.findings.map((finding) => ({
                 ...finding,
+                learning: {
+                  id: finding.learning.id,
+                  text: learningTexts.get(finding.learning.id) ?? null,
+                },
                 explanation:
                   finding.explanation ??
                   (finding.breaksProbability > finding.followsProbability
@@ -285,6 +316,7 @@ export function createDecisionModelRouteDependencies(
         candidates: overview.candidates.map((candidate) => ({
           id: candidate.id,
           runtimeCandidateId: candidate.runtimeCandidateId,
+          backend: candidate.trainingJob.backend,
           tasksetDigest: candidate.tasksetDigest,
           productionEligible: candidate.productionEligible,
           baselineMeanReward: candidate.baselineMeanReward?.toString() ?? null,
@@ -326,6 +358,15 @@ export function createDecisionModelRouteDependencies(
           operation: presentPromotionOperation(promotion.operation),
           membershipId: promotion.promotedByMembershipId,
           createdAt: promotion.createdAt.toISOString(),
+        })),
+        evaluationBuilds: overview.evaluationBuilds.map((build) => ({
+          id: build.id,
+          number: build.number,
+          prototype: {
+            id: build.prototype.id,
+            name: build.prototype.name,
+            branchName: build.prototype.branchName,
+          },
         })),
         evaluations,
         deletions: (overview.deletions ?? []).map((deletion) => ({

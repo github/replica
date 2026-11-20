@@ -36,6 +36,7 @@ function available(): Extract<DecisionModelPanelData, { state: "available" }> {
       {
         id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
         runtimeCandidateId: "fixture-candidate-2",
+        backend: "fixture",
         createdAt: "2026-11-11T18:04:30Z",
         productionEligible: true,
         tasksetDigest,
@@ -71,6 +72,15 @@ function available(): Extract<DecisionModelPanelData, { state: "available" }> {
       operation: "promote",
       rollbackAvailable: true,
     },
+    evaluationBuilds: [
+      {
+        id: "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff",
+        number: 42,
+        label: "Settings — Build 42",
+        evaluationPath:
+          "/repositories/2001/learnings/decision-model/builds/bbbbbbbb-cccc-4ddd-8eee-ffffffffffff/evaluate",
+      },
+    ],
     evaluations: [
       {
         id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
@@ -105,7 +115,7 @@ function available(): Extract<DecisionModelPanelData, { state: "available" }> {
 }
 
 function renderPanel(data: DecisionModelPanelData) {
-  render(
+  return render(
     <ThemeProvider>
       <DecisionModelPanel data={data} authenticityToken="csrf-token" />
     </ThemeProvider>,
@@ -140,7 +150,7 @@ describe("DecisionModelPanel()", () => {
     renderPanel(available())
     expect(screen.getByRole("checkbox", { name: "Repository training" })).toBeChecked()
     fireEvent.click(screen.getByRole("button", { name: "Start training" }))
-    const confirm = screen.getByRole("button", { name: "Confirm and start training" })
+    const confirm = screen.getByRole("button", { name: "Queue this training job" })
     const form = confirm.closest("form")
     expect(
       (form?.querySelector('[name="idempotencyKey"]') as HTMLInputElement | null)?.value,
@@ -148,7 +158,11 @@ describe("DecisionModelPanel()", () => {
     expect(form?.querySelector('[name="expectedConfigurationGeneration"]')).toHaveValue("3")
     expect(confirm).toHaveFocus()
     expect(screen.getByText(/capped at 8 updates, 5 minutes, and 10 credits/)).toBeVisible()
-    expect(screen.getByText("Starting training does not promote its candidate.")).toBeVisible()
+    expect(
+      screen.getByText(
+        "The next click queues this job. It does not promote the resulting candidate.",
+      ),
+    ).toBeVisible()
   })
 
   it.each(["queued", "submitting", "submitted", "running"] as const)(
@@ -242,6 +256,70 @@ describe("DecisionModelPanel()", () => {
     expect(screen.getByText("2 pending runtime deletion items; 0 failures.")).toBeVisible()
   })
 
+  it("allows explicit fixture promotion without relaxing non-fixture eligibility", () => {
+    const fixture = available()
+    const ineligibleCandidate = { ...fixture.candidates[0]!, productionEligible: false }
+    const { rerender } = renderPanel({ ...fixture, candidates: [ineligibleCandidate] })
+    const fixtureCandidate = screen.getByRole("article", {
+      name: "Candidate fixture-candidate-2",
+    })
+
+    expect(within(fixtureCandidate).getByText("Development only")).toBeVisible()
+    expect(
+      within(fixtureCandidate).getByRole("button", { name: "Promote candidate" }),
+    ).toBeVisible()
+
+    rerender(
+      <ThemeProvider>
+        <DecisionModelPanel
+          data={{
+            ...fixture,
+            configuration: { ...fixture.configuration!, backend: "customer-runtime" },
+            candidates: [{ ...ineligibleCandidate, backend: "customer-runtime" }],
+          }}
+          authenticityToken="csrf-token"
+        />
+      </ThemeProvider>,
+    )
+    const customerRuntimeCandidate = screen.getByRole("article", {
+      name: "Candidate fixture-candidate-2",
+    })
+    expect(within(customerRuntimeCandidate).getByText("Not eligible")).toBeVisible()
+    expect(
+      within(customerRuntimeCandidate).queryByRole("button", { name: "Promote candidate" }),
+    ).not.toBeInTheDocument()
+  })
+
+  it("offers an eligible successful Build for evaluation through a form action", () => {
+    renderPanel(available())
+
+    const evaluate = screen.getByRole("button", { name: "Evaluate Settings — Build 42" })
+    const form = evaluate.closest("form")
+    expect(form).toHaveAttribute(
+      "action",
+      "/repositories/2001/learnings/decision-model/builds/bbbbbbbb-cccc-4ddd-8eee-ffffffffffff/evaluate",
+    )
+    expect(form).toHaveAttribute("method", "post")
+    expect(form?.querySelector('[name="authenticity_token"]')).toHaveValue("csrf-token")
+  })
+
+  it.each([
+    {
+      label: "no promoted model",
+      change: (data: ReturnType<typeof available>) => ({ ...data, promotion: null }),
+    },
+    {
+      label: "no eligible successful Builds",
+      change: (data: ReturnType<typeof available>) => ({ ...data, evaluationBuilds: [] }),
+    },
+  ])("does not offer Build evaluation with $label", ({ change }) => {
+    renderPanel(change(available()))
+
+    expect(
+      screen.queryByRole("button", { name: /^Evaluate .+ — Build \d+$/ }),
+    ).not.toBeInTheDocument()
+  })
+
   it("restores focus when promotion and rejection confirmations are cancelled", async () => {
     renderPanel(available())
     const promote = screen.getByRole("button", { name: "Promote candidate" })
@@ -271,7 +349,7 @@ describe("DecisionModelPanel()", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start training" }))
     const firstKey = (
       screen
-        .getByRole("button", { name: "Confirm and start training" })
+        .getByRole("button", { name: "Queue this training job" })
         .closest("form")
         ?.querySelector('[name="idempotencyKey"]') as HTMLInputElement
     ).value
@@ -282,11 +360,11 @@ describe("DecisionModelPanel()", () => {
       </ThemeProvider>,
     )
 
-    expect(screen.queryByRole("button", { name: "Confirm and start training" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Queue this training job" })).toBeNull()
     fireEvent.click(screen.getByRole("button", { name: "Start training" }))
     const secondKey = (
       screen
-        .getByRole("button", { name: "Confirm and start training" })
+        .getByRole("button", { name: "Queue this training job" })
         .closest("form")
         ?.querySelector('[name="idempotencyKey"]') as HTMLInputElement
     ).value

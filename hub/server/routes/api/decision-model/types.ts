@@ -29,6 +29,7 @@ export interface DecisionModelOverview {
   candidates: {
     id: string
     runtimeCandidateId: string
+    backend: string
     tasksetDigest: string
     productionEligible: boolean
     baselineMeanReward: string | null
@@ -88,7 +89,7 @@ export interface DecisionModelOverview {
     responseDigest: string
     findingsAvailable: boolean
     findings: {
-      learning: { id: string }
+      learning: { id: string; text: string | null }
       route: string
       views: { viewport: string; theme: string }[]
       followsProbability: number
@@ -125,10 +126,12 @@ export interface DecisionTrainingJobResponse {
     | "succeeded"
     | "failed"
     | "cancelled"
+  tasksetDigest: string
   runtimeJobId: string | null
   candidateRuntimeId: string | null
   failureCode: string | null
   createdAt: string
+  finishedAt: string | null
 }
 
 export interface DecisionPromotionResponse {

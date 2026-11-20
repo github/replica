@@ -33,6 +33,7 @@ function dependencies(state: "RUNNING" | "SUCCEEDED"): DecisionModelDependencies
     candidateRuntimeId: null,
     failureCode: null,
     createdAt: new Date("2026-11-18T12:00:00Z"),
+    finishedAt: null,
   }
   return {
     authorization: { requireRepositoryAdministrator: vi.fn() },

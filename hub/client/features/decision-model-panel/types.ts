@@ -22,6 +22,7 @@ export interface DecisionTrainingJob {
 export interface DecisionCandidate {
   id: string
   runtimeCandidateId: string
+  backend: string
   createdAt: string
   productionEligible: boolean
   tasksetDigest: string
@@ -82,6 +83,7 @@ export type DecisionModelPanelData =
         blockedReasons: string[]
       }
       trainingAvailable: boolean
+      preparationStatus?: string | null
       activeJob: DecisionTrainingJob | null
       jobs: DecisionTrainingJob[]
       candidates: DecisionCandidate[]
@@ -92,6 +94,12 @@ export type DecisionModelPanelData =
         operation: "promote" | "rollback"
         rollbackAvailable: boolean
       } | null
+      evaluationBuilds: Array<{
+        id: string
+        number: number
+        label: string
+        evaluationPath: string
+      }>
       evaluations: Array<{
         id: string
         buildNumber: number

@@ -101,6 +101,8 @@ REPLICA_DECISION_RUNTIME_ENVIRONMENT=production
 
 Hub hashes the public URL, provider selection, and explicit `fixture` or `production` environment for configuration identity. It never includes the token in that digest or writes it to PostgreSQL, BullMQ payloads, taskset bytes, logs, traces, or API responses. Each runtime request asks the provider for a short-lived operation credential. Production guidance is unavailable unless this runtime environment is explicitly `production` and its live promotion matches Hub.
 
+HTTPS remains required by default. A local development process may set `REPLICA_DECISION_RUNTIME_ALLOW_INSECURE_LOOPBACK=true` for an explicit `http://127.0.0.1`, `http://[::1]`, or `http://localhost` runtime. Hub rejects that flag outside development and still rejects plaintext non-loopback URLs.
+
 The runtime client requires bounded JSON responses and typed errors. It uses these authenticated interfaces:
 
 | HTTP interface | Purpose |
@@ -140,7 +142,7 @@ Training and inference usage accept a decimal quantity and unit plus an optional
 
 ## Frontend boundary
 
-The Learnings page exposes the existing control-plane overview and mutations to current Hub administrators with repository access. It supports bounded repository settings, preflight evidence coverage and blockers, explicit training confirmation, job cancellation, candidate comparison and rejection, promotion, rollback, and saved Build findings. It never promotes automatically and identifies the deterministic fixture backend as non-production contract evidence.
+The Learnings page exposes the existing control-plane overview and mutations to current Hub administrators with repository access. It supports bounded repository settings, preflight evidence coverage and blockers, explicit training confirmation, job cancellation, candidate comparison and rejection, promotion, rollback, and saved Build findings. After Hub accepts a training request, the page keeps the last authoritative overview visible while private evidence preparation holds the learning lock and polls only that persisted job's read-only endpoint. An unrelated lock conflict remains a visible error. The page never promotes automatically and identifies the deterministic fixture backend as non-production contract evidence.
 
 Candidate review includes absolute baseline and candidate metrics, their changes, per-learning gains or regressions, duration, usage and cost. Build findings identify the accepted learning, route, captured viewport and theme, and link back to the evaluated Build. Legacy evaluation summaries that predate structured findings remain visibly unavailable rather than being inferred.
 

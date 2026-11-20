@@ -203,6 +203,7 @@ const deletionReceipt = z
   .loose()
 
 interface CreateDecisionRuntimeClientOptions {
+  allowInsecureLoopback?: boolean
   baseUrl: string
   credentialProvider: DecisionRuntimeCredentialProvider
   fetch?: typeof globalThis.fetch
@@ -242,20 +243,28 @@ async function readBoundedResponse(response: Response, maximumBytes: number): Pr
 }
 
 export function createDecisionRuntimeClient({
+  allowInsecureLoopback = false,
   baseUrl,
   credentialProvider,
   fetch: request = globalThis.fetch,
   timeoutMilliseconds = 30_000,
 }: CreateDecisionRuntimeClientOptions): DecisionRuntimeClient {
   const parsedBaseUrl = new URL(baseUrl)
+  const loopbackHosts = new Set(["127.0.0.1", "[::1]", "localhost"])
+  const insecureLoopback =
+    allowInsecureLoopback &&
+    parsedBaseUrl.protocol === "http:" &&
+    loopbackHosts.has(parsedBaseUrl.hostname)
   if (
-    parsedBaseUrl.protocol !== "https:" ||
+    (parsedBaseUrl.protocol !== "https:" && !insecureLoopback) ||
     parsedBaseUrl.username ||
     parsedBaseUrl.password ||
     parsedBaseUrl.search ||
     parsedBaseUrl.hash
   ) {
-    throw new Error("The decision runtime base URL must be an HTTPS URL without credentials.")
+    throw new Error(
+      "The decision runtime base URL must be an HTTPS URL without credentials, or an explicitly allowed HTTP loopback URL.",
+    )
   }
   if (!parsedBaseUrl.pathname.endsWith("/")) parsedBaseUrl.pathname += "/"
   if (
