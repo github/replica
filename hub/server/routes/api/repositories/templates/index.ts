@@ -18,10 +18,8 @@ import type { BuildPreviewRouteDependencies } from "../../../build-preview/types
 import type { CurrentSessionDependencies } from "../../auth/types.ts"
 import { readProductSession } from "../../product/read-product-session/index.ts"
 import { readProductWithCurrentAuthority } from "../../product/read-product-with-current-authority/index.ts"
-import {
-  canBrowseTemplates,
-  canHandOffToCopilot,
-} from "../../product/template-repository-access/index.ts"
+import { canBrowseTemplates } from "../../product/template-repository-access/index.ts"
+import { canStartPrototypeSession } from "../../product/can-start-prototype-session/index.ts"
 import type { ProductViewer, WorkspaceProductRouteDependencies } from "../../product/types.ts"
 
 const defaultTemplate = {
@@ -166,8 +164,8 @@ export function templateRoutes(
         const snapshot = await load(viewer, repositoryId)
         if (!snapshot) return null
         const { repository, templates, build, local } = snapshot
-        const canCreate = local || (await canHandOffToCopilot(product, viewer, repositoryId))
-        if (!(await product.isRepositoryVisible(viewer, repositoryId))) return null
+        const canCreate = await canStartPrototypeSession(product, viewer, repositoryId)
+        if (!canCreate) return null
         const submissionMode = local ? "copy" : "copilot"
         const context = { repository, canCreate, submissionMode }
         if (!id) {
@@ -206,8 +204,8 @@ export function templateRoutes(
     detail: read(true),
     permission: authorized(
       async (_request, viewer, repositoryId) => {
-        if (!(await product.isRepositoryVisible(viewer, repositoryId))) return null
-        return { canCreate: await canHandOffToCopilot(product, viewer, repositoryId) }
+        if (!(await canStartPrototypeSession(product, viewer, repositoryId))) return null
+        return { canCreate: true }
       },
       (response, result) => {
         response.json(result)

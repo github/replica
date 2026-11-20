@@ -8,7 +8,6 @@ import { expect, it, vi } from "vitest"
 import { createApp } from "../../../../create-app"
 import { hubSessionCookieName } from "../../../../integrations/express/hub-session-cookie-name"
 import { prisma } from "../../../../integrations/prisma"
-import { GitHubProviderRequestError } from "../../../../integrations/github/errors"
 import { findBuildArtifact } from "../../../../repositories/build-artifacts/find-build-artifact"
 import { findBuildPreviewTarget } from "../../../../repositories/build-artifacts/find-build-preview-target"
 import { createProductRouteDependencies } from "../../product/create-product-route-dependencies"
@@ -247,15 +246,20 @@ it("keeps the catalog, screenshot, and routed preview on one successful default-
   })
 })
 
-it("offers hosted handoffs only while the host permission resolver confirms write access", async () => {
+it("offers a visible reader a hosted handoff without granting listing management", async () => {
   await withRepository(async ({ read, permission }) => {
-    expect(await (await read()).json()).toMatchObject({ canCreate: false })
-    permission.mockResolvedValue("write")
     expect(await (await read()).json()).toMatchObject({
       canCreate: true,
       submissionMode: "copilot",
     })
-    permission.mockRejectedValue(new GitHubProviderRequestError())
-    expect((await read("/create/permission")).status).toBe(503)
+    expect(await (await read("/create/permission")).json()).toEqual({ canCreate: true })
+    const management = await read("/prototype-management")
+    expect(management.status).toBe(404)
+    permission.mockResolvedValue("write")
+    expect((await read("/prototype-management")).status).toBe(200)
+    expect(await (await read()).json()).toMatchObject({
+      canCreate: true,
+      submissionMode: "copilot",
+    })
   })
 })

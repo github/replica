@@ -18,7 +18,7 @@ export function useCopilotHandoff(authorize: (() => Promise<boolean>) | undefine
       if (await authorize()) openDialog()
       else setError("You do not have permission to create a prototype in this repository.")
     } catch {
-      setError("Hub could not check GitHub repository permissions. Try again.")
+      setError("Hub could not check repository access. Try again.")
     } finally {
       checking.current = false
       setPending(false)

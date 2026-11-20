@@ -237,21 +237,33 @@ describe("Hub expanded frontend flows", () => {
     expect(router.state.location.pathname).toBe("/repositories/2001/new")
   })
 
-  it("keeps prototype creation and management unavailable to a reader", async () => {
+  it("allows a reader to start a prompt handoff while denying listing writes", async () => {
     const store = createMockStore({ origin: window.location.origin })
     store.session.select("reader")
     const server = setupServer(...createMockHandlers(store))
     const router = await renderHubFlow(server, "/repositories/2001", { workspaceRoutes })
     expect(screen.queryByRole("link", { name: "Edit prototype listings" })).not.toBeInTheDocument()
-    expect(screen.queryByRole("link", { name: "Create" })).not.toBeInTheDocument()
 
     await router.settle(() => router.navigate("/repositories/2001/new"))
 
-    expect(screen.getByRole("button", { name: "Create prototype" })).toBeDisabled()
-    expect(screen.getByRole("main")).toHaveTextContent(/do not have permission to create/i)
-    expect(
-      screen.queryByRole("dialog", { name: "Continue in Copilot app" }),
-    ).not.toBeInTheDocument()
+    fireEvent.change(screen.getByRole("textbox", { name: "What should we create?" }), {
+      target: { value: "Simplify the settings flow" },
+    })
+    await router.settle(() =>
+      fireEvent.click(screen.getByRole("button", { name: "Create prototype" })),
+    )
+    expect(screen.getByRole("dialog", { name: "Continue in Copilot app" })).toBeVisible()
+    const previousName = store.getPrototype("2001", "1").prototype.name
+    const write = await fetch(
+      `${window.location.origin}/api/repositories/2001/prototype-management/1`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Unauthorized edit", description: null, startPage: "/" }),
+      },
+    )
+    expect(write.status).toBe(403)
+    expect(store.getPrototype("2001", "1").prototype.name).toBe(previousName)
   })
 
   it("shares management edits with the existing preview and repository", async () => {

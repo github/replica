@@ -88,6 +88,135 @@ async function renderApplication(path: string) {
 }
 
 describe("real prototype index", () => {
+  it.each(["github", "entra"])(
+    "starts and copies Default and selected-template sessions for a visible %s member without write capabilities",
+    async (provider) => {
+      vi.stubEnv("MODE", "development")
+      vi.stubEnv("DEV", true)
+      const repositoryId = "11111111-1111-4111-8111-111111111111"
+      const repository = {
+        id: repositoryId,
+        nameWithOwner: "team/design",
+        defaultBranch: "main",
+        capabilities: {
+          browseTemplates: true,
+          reviewPrototypes: false,
+          manageSharing: false,
+          managePrototypeListings: false,
+        },
+      }
+      const userId = "44444444-4444-4444-8444-444444444444"
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } })
+      const permissionChecks = vi.fn()
+      const writes = vi.fn()
+      const templateRoute = "/settings?tab=profile#details"
+      const server = setupServer(
+        http.get(`${window.location.origin}/api/auth/session`, () =>
+          HttpResponse.json({
+            authenticated: true,
+            membershipId: "55555555-5555-4555-8555-555555555555",
+            userId,
+            provider,
+            login: "member",
+            name: "Member",
+            role: "MEMBER",
+          }),
+        ),
+        http.get(`${window.location.origin}/api/workspace`, () =>
+          HttpResponse.json({
+            viewer: { id: userId, provider, login: "member", name: "Member", avatarUrl: null },
+            capabilities: {
+              createPrototypes: false,
+              reviewPrototypes: false,
+              manageSharing: false,
+              administerHub: false,
+            },
+            repositories: [repository],
+          }),
+        ),
+        http.get(`${window.location.origin}/api/repositories/${repositoryId}/templates`, () =>
+          HttpResponse.json({
+            repository,
+            canCreate: true,
+            submissionMode: "copilot",
+            templates: [
+              {
+                id: "default",
+                name: "Default",
+                description: "Start at home.",
+                route: "/",
+                previewUrl: null,
+                screenshotUrl: null,
+                buildNumber: null,
+              },
+              {
+                id: "settings",
+                name: "Settings",
+                description: "Manage settings.",
+                route: templateRoute,
+                previewUrl: null,
+                screenshotUrl: null,
+                buildNumber: 1,
+              },
+            ],
+          }),
+        ),
+        http.get(
+          `${window.location.origin}/api/repositories/${repositoryId}/create/permission`,
+          () => {
+            permissionChecks()
+            return HttpResponse.json({ canCreate: true })
+          },
+        ),
+      )
+      server.events.on("request:start", ({ request }) => {
+        if (request.method !== "GET" && new URL(request.url).pathname.startsWith("/api/")) writes()
+      })
+      server.listen({ onUnhandledRequest: "error" })
+      onTestFinished(() => server.close())
+      const router = await renderApplication(`/repositories/${repositoryId}/new`)
+      const brief = "Make settings easier to use"
+      fireEvent.change(await screen.findByRole("textbox", { name: "What should we create?" }), {
+        target: { value: brief },
+      })
+
+      for (const selected of [false, true]) {
+        if (selected) {
+          fireEvent.click(screen.getByRole("button", { name: "Template: Default" }))
+          fireEvent.click(screen.getByRole("option", { name: `Settings ${templateRoute}` }))
+        }
+        fireEvent.click(screen.getByRole("button", { name: "Create prototype" }))
+        const dialog = await screen.findByRole("dialog", { name: "Continue in Copilot app" })
+        const openApp = within(dialog).getByRole<HTMLAnchorElement>("link", {
+          name: "Open Copilot App",
+        })
+        const launch = new URL(openApp.href)
+        expect(launch.origin + launch.pathname).toBe("https://github.com/copilot/app/launch")
+        const session = new URL(launch.searchParams.get("open")!)
+        expect(session.searchParams.get("repo")).toBe(repository.nameWithOwner)
+        const prompt = session.searchParams.get("prompt")!
+        expect(prompt).toContain(brief)
+        if (selected) {
+          expect(prompt).toContain(encodeURIComponent(templateRoute))
+          expect(prompt).toContain("startPage")
+        } else {
+          expect(prompt).not.toContain("TEMPLATE_ROUTE_DATA")
+        }
+        const open = vi.fn((event: MouseEvent) => event.preventDefault())
+        openApp.addEventListener("click", open, { once: true })
+        fireEvent.click(openApp)
+        expect(open).toHaveBeenCalledOnce()
+        fireEvent.click(within(dialog).getByRole("button", { name: "Copy prompt" }))
+        await waitFor(() => expect(writeText).toHaveBeenLastCalledWith(prompt))
+        fireEvent.click(within(dialog).getByRole("button", { name: "Close Copilot app dialog" }))
+      }
+      expect(permissionChecks).toHaveBeenCalledTimes(2)
+      expect(writes).not.toHaveBeenCalled()
+      expect(router.state.location.pathname).toBe(`/repositories/${repositoryId}/new`)
+    },
+  )
+
   it("opens prototype details from the real index after sign-in", async () => {
     vi.stubEnv("MODE", "development")
     vi.stubEnv("DEV", true)

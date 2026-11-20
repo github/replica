@@ -6,6 +6,7 @@ import express from "express"
 import { describe, expect, it, vi, type Mock } from "vitest"
 
 import type { ProductRouteDependencies } from "../../../../product/types"
+import { GitHubProviderRequestError } from "../../../../../../integrations/github/errors"
 import { get } from "."
 
 /** Exercises response preparation without replacing it with a prebuilt JSON body. */
@@ -13,7 +14,9 @@ async function withDetailRoute(
   operation: (
     url: string,
     readIntroduction: Mock<ProductRouteDependencies["readPrototypeWithIntroduction"]>,
+    visibility: Mock<ProductRouteDependencies["isRepositoryVisible"]>,
   ) => Promise<void>,
+  provider = "github",
 ) {
   const repositoryId = randomUUID()
   const prototypeId = randomUUID()
@@ -38,8 +41,12 @@ async function withDetailRoute(
   const readIntroduction = vi.fn<ProductRouteDependencies["readPrototypeWithIntroduction"]>(
     (_input, prepare) => Promise.resolve(prepare(detail, true)),
   )
+  const visibility = vi
+    .fn<ProductRouteDependencies["isRepositoryVisible"]>()
+    .mockResolvedValue(true)
   const product: ProductRouteDependencies = {
-    isRepositoryVisible: vi.fn(),
+    isRepositoryVisible: visibility,
+    getRepositoryPermission: vi.fn().mockResolvedValue("read"),
     listRepositories: vi.fn(),
     findRepositoryIndex: vi.fn(),
     findRepositoryAuthors: vi.fn(),
@@ -56,7 +63,8 @@ async function withDetailRoute(
         restore: vi.fn().mockResolvedValue({
           membershipId: randomUUID(),
           userId: randomUUID(),
-          provider: "github",
+          provider,
+          sessionProvider: provider,
           login: "viewer",
           name: null,
           role: "MEMBER",
@@ -73,6 +81,7 @@ async function withDetailRoute(
     await operation(
       `http://127.0.0.1:${port}/repositories/${repositoryId}/prototypes/${prototypeId}`,
       readIntroduction,
+      visibility,
     )
   } finally {
     await new Promise<void>((resolve, reject) => {
@@ -82,6 +91,26 @@ async function withDetailRoute(
 }
 
 describe("get()", () => {
+  it.each(["github", "entra"])(
+    "allows a visible %s reader to start a session from a prototype",
+    async (provider) => {
+      await withDetailRoute(async (url) => {
+        const response = await fetch(url, { headers: { cookie: "hub_session=member-session" } })
+        expect(response.status).toBe(200)
+        expect(await response.json()).toMatchObject({ canBranch: true })
+      }, provider)
+    },
+  )
+
+  it("reports a visibility failure rather than returning a prototype with kickoff silently disabled", async () => {
+    await withDetailRoute(async (url, _readIntroduction, visibility) => {
+      visibility.mockRejectedValue(new GitHubProviderRequestError())
+      const response = await fetch(url, { headers: { cookie: "hub_session=member-session" } })
+      expect(response.status).toBe(503)
+      expect((await response.json()) as unknown).toHaveProperty("error")
+    })
+  })
+
   it("keeps editing available when preparing the first introduction response", async () => {
     await withDetailRoute(async (url) => {
       const response = await fetch(url, {

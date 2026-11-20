@@ -202,14 +202,16 @@ export const ClearedDetails: Story = {
   },
 }
 
-export const ReadOnly: Story = {
+export const AccessChanged: Story = {
   args: {
-    submissionDisabled: true,
-    data: {
-      ...data,
-      newPrototypePath: null,
-      submissionDisabledReason:
-        "You do not have permission to create prototypes in this repository.",
-    },
+    authorizeHandoff: () => Promise.resolve(false),
   },
+  play: Submitted.play,
+}
+
+export const AccessUnavailable: Story = {
+  args: {
+    authorizeHandoff: () => Promise.reject(new Error("Repository access unavailable")),
+  },
+  play: Submitted.play,
 }

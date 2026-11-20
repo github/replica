@@ -9,7 +9,7 @@ import { GitHubProviderRequestError } from "../../../../../../integrations/githu
 import type { CurrentSessionDependencies } from "../../../../auth/types.ts"
 import { readProductSession } from "../../../../product/read-product-session/index.ts"
 import { readProductWithCurrentAuthority } from "../../../../product/read-product-with-current-authority/index.ts"
-import { canHandOffToCopilot } from "../../../../product/template-repository-access/index.ts"
+import { canStartPrototypeSession } from "../../../../product/can-start-prototype-session/index.ts"
 import type { WorkspaceProductRouteDependencies } from "../../../../product/types.ts"
 import { readHostedSharingCapability } from "../../../../public-sharing/read-hosted-sharing-capability/index.ts"
 import type { PublicSharingRouteDependencies } from "../../../../public-sharing/types.ts"
@@ -72,16 +72,10 @@ export function get(
       })
 
       const eligibility =
-        product.getRepositoryPermission && initial.sessionProvider === "github"
-          ? await readProductWithCurrentAuthority(initial, cookie, session, async (viewer) => {
-              if (!(await product.isRepositoryVisible(viewer, repositoryId.data))) return false
-              try {
-                return await canHandOffToCopilot(product, viewer, repositoryId.data)
-              } catch (error) {
-                if (error instanceof GitHubProviderRequestError) return false
-                throw error
-              }
-            })
+        initial.sessionProvider !== "local"
+          ? await readProductWithCurrentAuthority(initial, cookie, session, (viewer) =>
+              canStartPrototypeSession(product, viewer, repositoryId.data),
+            )
           : { result: false }
       if (!eligibility) {
         response.status(401).json({ error: "Sign in to continue." })

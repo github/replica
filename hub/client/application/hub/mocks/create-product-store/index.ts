@@ -168,7 +168,7 @@ export function createProductStore(context: MockFlowContext) {
       return {
         repository: context.repositoryRecord(repositoryId),
         templates: templates(repositoryId),
-        canCreate: session.read().capabilities.createPrototypes,
+        canCreate: true,
       }
     },
 
@@ -179,7 +179,7 @@ export function createProductStore(context: MockFlowContext) {
       return {
         repository: context.repositoryRecord(repositoryId),
         template,
-        canCreate: session.read().capabilities.createPrototypes,
+        canCreate: true,
         controlsIdentity: context.controlsIdentity([
           "template",
           repositoryId,
