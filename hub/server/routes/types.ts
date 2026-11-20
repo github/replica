@@ -10,8 +10,10 @@ import type { PublicSharingRouteDependencies } from "./api/public-sharing/types.
 import type { BuildPreviewRouteDependencies } from "./build-preview/types.ts"
 import type { GitHubSetupRouteDependencies } from "./api/settings/github/types.ts"
 import type { DecisionModelRouteDependencies } from "./api/decision-model/types.ts"
+import type { AgentVisualCriticRouteDependencies } from "./api/canvas/decision-model/types.ts"
 
 export interface RouteDependencies {
+  agentVisualCritic?: AgentVisualCriticRouteDependencies
   authentication?: AuthenticationRouteDependencies
   copilotConnection?: CopilotConnectionRouteDependencies
   decisionModels?: DecisionModelRouteDependencies

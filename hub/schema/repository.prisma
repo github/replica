@@ -11,6 +11,7 @@ model Repository {
   decisionCandidates         DecisionCandidate[]
   decisionModelPromotions    DecisionModelPromotion[]
   decisionBuildEvaluations   DecisionBuildEvaluation[]
+  decisionAgentEvaluations   DecisionAgentEvaluation[]
   decisionRuntimeCopies      DecisionRuntimeCopy[]
   decisionRuntimeDeletions   DecisionRuntimeDeletion[]
   prototypes                 Prototype[]

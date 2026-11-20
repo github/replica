@@ -82,6 +82,7 @@ import { post as handleDecisionBuildEvaluationPost } from "./api/decision-model/
 /** Keep endpoint registration separate from the app's shared middleware. */
 export function routes(app: Express, dependencies: RouteDependencies = {}): void {
   const {
+    agentVisualCritic,
     authentication,
     copilotConnection,
     decisionModels,
@@ -133,7 +134,10 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
   }
   if (authentication) {
     if (product) {
-      app.use("/api/canvas", canvasRoutes(authentication.signOut.applicationOrigin, product))
+      app.use(
+        "/api/canvas",
+        canvasRoutes(authentication.signOut.applicationOrigin, product, agentVisualCritic),
+      )
       if (product.analytics)
         mountRepositoryAnalytics(
           app,

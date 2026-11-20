@@ -22,6 +22,7 @@ import { reviewAction } from "../review-action/index.mjs"
 import { createCommentStore } from "../comment-store/index.mjs"
 import { createImprovementNotes } from "../improvement-notes/index.mjs"
 import { createShareLinks } from "../share-links/index.mjs"
+import { evaluatePrototype } from "../evaluate-prototype/index.mjs"
 import { startPreviewProxy } from "../start-preview-proxy/index.mjs"
 import { captureReviewRevision } from "../capture-review-revision/index.mjs"
 import { createLocalReviewComments } from "../create-local-review-comments/index.mjs"
@@ -421,6 +422,14 @@ export async function startCanvasServer(initialContext, session, options = {}) {
       return previewUpdate
     },
     getHubStatus: hubStatus,
+    evaluatePrototype: async (input) => {
+      const hub = await hubClient()
+      if (!hub)
+        throw Object.assign(new Error("Connect this repository to Hub first."), {
+          statusCode: 401,
+        })
+      return evaluatePrototype(hub, input)
+    },
     reviewAction: async (action, input) => reviewAction(await hubClient(), action, input, comments),
     updateMetadata,
     improvementNotes,

@@ -32,6 +32,16 @@ Controls must report connection, validation, and binding errors. A healthy conne
 
 Shared source stays under `client/utils/prototype-controls/`. See [Controls development](prototype-controls.md) for schema generation and generated-file checks.
 
+## Agent visual critic
+
+`evaluate_prototype` lets an authoring agent explicitly send bounded PNG captures from the open prototype to a compatible Hub's promoted repository decision model. The action accepts root-relative routes and the existing desktop or narrow, light or dark capture combinations. Use the isolated browser canvas or Replica Build capture path to create the images; the extension does not add another browser or screenshot implementation.
+
+The action also requires `REPLICA_ALLOW_PROTOTYPE_SCREENSHOT_UPLOAD=true` in the Copilot process. Without that explicit local policy, the extension blocks the request before contacting Hub. It then requires the open canvas and an approved Hub repository connection. It sends checkout and route context plus image bytes. It does not send the user's prompt, Copilot session ID, private preview origin, canvas credentials, or runtime credentials. Hub derives repository, prototype, and Build authority from the connection and fails closed when consent, eligible learnings, runtime readiness, production eligibility, budget, rate limits, or the promotion generation do not match.
+
+The result is transient, unverified authoring guidance. It includes cache status and model generation so agents can detect stale comparisons. It never changes code, publishes, promotes a model, or records reviewer verification. Fixture results set production guidance unavailable and must remain test data.
+
+Use the action after an intentional change or for another selected route or view set. Do not optimize the prototype only to increase a probability, omit disagreeing views, or treat a finding as accepted learning evidence.
+
 ## Publishing boundary
 
 Publishing requires an explicit request. The extension checks the repository, branch, commit, and origin before asking Copilot to use the prototype repository's existing push workflow. Status messages and page content are data, not permission to push, register a prototype, or change publishing infrastructure.

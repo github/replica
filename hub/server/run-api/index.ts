@@ -5,6 +5,7 @@ import type { Logger } from "pino"
 
 import { createApp } from "../create-app/index.ts"
 import type { AuthenticationRouteDependencies } from "../routes/api/auth/types.ts"
+import type { AgentVisualCriticRouteDependencies } from "../routes/api/canvas/decision-model/types.ts"
 import type { CopilotConnectionRouteDependencies } from "../routes/api/copilot-connection/types.ts"
 import type { DecisionModelRouteDependencies } from "../routes/api/decision-model/types.ts"
 import type { GitHubWebhookRouteDependencies } from "../routes/api/github/webhooks/types.ts"
@@ -24,6 +25,7 @@ import { shutdownServer } from "../shutdown-server/index.ts"
 export async function runApi({
   port,
   logger,
+  agentVisualCritic,
   authentication,
   githubSetup,
   githubWebhooks,
@@ -43,6 +45,7 @@ export async function runApi({
 }: {
   port: number
   logger: Logger
+  agentVisualCritic?: AgentVisualCriticRouteDependencies
   authentication?: AuthenticationRouteDependencies
   copilotConnection?: CopilotConnectionRouteDependencies
   decisionModels?: DecisionModelRouteDependencies
@@ -86,6 +89,7 @@ export async function runApi({
     "request",
     createApp({
       logger,
+      agentVisualCritic,
       broadcast: realtime.broadcast,
       clientDirectory,
       isReady: async () => !stoppingRequested && (isReady ? await isReady() : true),

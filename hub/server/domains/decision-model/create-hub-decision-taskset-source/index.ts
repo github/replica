@@ -31,6 +31,7 @@ import { DecisionModelError } from "../errors.ts"
 import { digestDecisionTasksetUpload } from "../digest-decision-taskset-upload/index.ts"
 import type { DecisionTasksetPreparationSource } from "../prepare-decision-taskset/index.ts"
 import type {
+  AgentLearningAuthority,
   DecisionTrainingPreflight,
   PreparedBuildEvaluation,
   PreparedDecisionTaskset,
@@ -423,6 +424,11 @@ function buildSelection(
 
 export function createHubDecisionTasksetSource(options: HubDecisionTasksetSourceOptions): {
   tasksetSource: DecisionTasksetPreparationSource
+  readAgentLearningAuthority(input: {
+    repositoryId: string
+    actorMembershipId: string
+    consentGrantId: string
+  }): Promise<AgentLearningAuthority>
   prepareBuildEvaluation(input: {
     repositoryId: string
     buildId: string
@@ -716,6 +722,49 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
 
   let tasksetSource: DecisionTasksetPreparationSource
   return {
+    async readAgentLearningAuthority({ repositoryId, actorMembershipId, consentGrantId }) {
+      const store = await learningStore(repositoryId)
+      const [grants, questionResult] = await Promise.all([
+        command([
+          "grants",
+          "list",
+          "--dir",
+          store.directory,
+          "--repository",
+          store.repositoryScope,
+        ]).then((value) => grantListSchema.parse(value)),
+        command([
+          "decision",
+          "questions",
+          "--by",
+          `human:${actorMembershipId}`,
+          "--dir",
+          store.directory,
+          "--repository",
+          store.repositoryScope,
+        ]).then((value) => decisionQuestionsSchema.safeParse(value)),
+      ])
+      if (!questionResult.success) {
+        throw new DecisionModelError(
+          422,
+          "invalid_questions_payload",
+          "The learning store returned an invalid decision question set.",
+          { cause: questionResult.error },
+        )
+      }
+      const questions = questionResult.data.questions
+      return {
+        consentGranted: grants.some(
+          ({ grant, activePurposes, expired }) =>
+            grant.id === consentGrantId &&
+            !expired &&
+            activePurposes.includes("training") &&
+            grant.sources.includes("hub_review_comments"),
+        ),
+        questionDigest: digestJson(questions),
+        questions,
+      }
+    },
     tasksetSource: (tasksetSource = {
       async hasTrainingConsent({ repositoryId, consentGrantId }) {
         const store = await learningStore(repositoryId)
