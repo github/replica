@@ -60,6 +60,7 @@ describe("GitHub recovery workers", () => {
       listBranchHeads: vi.fn(() => Promise.resolve([])),
       isAncestor: vi.fn(() => Promise.resolve(false)),
       getWorkflowRun: vi.fn(() => Promise.resolve(null)),
+      getCommitAuthor: vi.fn(() => Promise.resolve(null)),
       listWorkflowRuns: vi.fn(() => Promise.resolve([])),
       listRunArtifacts: vi.fn(() => Promise.resolve([])),
       downloadArtifact: vi.fn(() => Promise.resolve({ status: "gone" as const })),

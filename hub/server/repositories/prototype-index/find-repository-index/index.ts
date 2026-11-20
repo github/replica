@@ -32,17 +32,6 @@ export async function findRepositoryIndex(
   const where: Prisma.PrototypeWhereInput = {
     ...eligible,
     ...(filters.authorId ? { authorId: filters.authorId } : {}),
-    ...(search
-      ? {
-          OR: [
-            { name: search },
-            { description: search },
-            { branchName: search },
-            { author: { profile: { login: search } } },
-            { author: { profile: { name: search } } },
-          ],
-        }
-      : {}),
   }
   // Keep the count, page, and cards from the same database snapshot.
   const {
@@ -53,13 +42,64 @@ export async function findRepositoryIndex(
     latestBuilds: buildSummaries,
   } = await database.$transaction(
     async (transaction) => {
-      const totalCount = await transaction.prototype.count({ where })
+      // Prisma cannot filter by the same COALESCE-ordered Build used by the card.
+      const searchFrom = search
+        ? Prisma.sql`
+            FROM prototypes AS prototype
+            LEFT JOIN user_profiles AS profile ON profile.user_id = prototype.author_id
+            LEFT JOIN LATERAL (
+              SELECT builds.author_provider, builds.author_login
+              FROM builds
+              WHERE builds.prototype_id = prototype.id
+                AND (prototype.current_build_id IS NULL OR builds.id = prototype.current_build_id)
+              ORDER BY COALESCE(builds.workflow_created_at, builds.created_at) DESC,
+                builds.number DESC
+              LIMIT 1
+            ) AS author_build ON prototype.author_id IS NULL
+            WHERE prototype.repository_id = ${repository.id}::uuid
+              AND prototype.registered_at IS NOT NULL
+              AND prototype.branch_deleted_at IS NULL
+              AND NOT prototype.replica
+              AND prototype.branch_name NOT IN (${repository.defaultBranch}, 'replica/install-workflow')
+              ${filters.authorId ? Prisma.sql`AND prototype.author_id = ${filters.authorId}::uuid` : Prisma.empty}
+              AND (
+                prototype.name ILIKE ${`%${search.contains}%`}
+                OR prototype.description ILIKE ${`%${search.contains}%`}
+                OR prototype.branch_name ILIKE ${`%${search.contains}%`}
+                OR profile.login ILIKE ${`%${search.contains}%`}
+                OR profile.name ILIKE ${`%${search.contains}%`}
+                OR (
+                  prototype.author_id IS NULL AND author_build.author_provider = 'github'
+                  AND author_build.author_login ILIKE ${`%${search.contains}%`}
+                )
+              )
+          `
+        : null
+      let totalCount: number
+      if (searchFrom) {
+        const [count] = await transaction.$queryRaw<{ count: number }[]>(
+          Prisma.sql`SELECT COUNT(*)::int AS count ${searchFrom}`,
+        )
+        if (!count) throw new Error("The prototype search count was not returned.")
+        totalCount = count.count
+      } else {
+        totalCount = await transaction.prototype.count({ where })
+      }
       // A page past the end shows the last page, as a shared link may outlive results.
       const page = Math.min(filters.page, Math.max(1, Math.ceil(totalCount / pageSize)))
+      const matchingIds = searchFrom
+        ? (
+            await transaction.$queryRaw<{ id: string }[]>(Prisma.sql`
+              SELECT prototype.id ${searchFrom}
+              ORDER BY prototype.registered_at DESC, prototype.id DESC
+              LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}
+            `)
+          ).map(({ id }) => id)
+        : null
       const records = await transaction.prototype.findMany({
-        where,
+        where: { ...where, ...(matchingIds ? { id: { in: matchingIds } } : {}) },
         orderBy: [{ registeredAt: "desc" }, { id: "desc" }],
-        skip: (page - 1) * pageSize,
+        skip: matchingIds ? 0 : (page - 1) * pageSize,
         take: pageSize,
         select: {
           id: true,
@@ -74,12 +114,20 @@ export async function findRepositoryIndex(
       const latestBuilds =
         records.length > 0
           ? await transaction.$queryRaw<
-              { prototypeId: string; number: number; state: BuildState }[]
+              {
+                prototypeId: string
+                number: number
+                state: BuildState
+                authorProvider: string | null
+                authorLogin: string | null
+              }[]
             >(Prisma.sql`
-              SELECT prototypes.id AS "prototypeId", latest_build.number, latest_build.state
+              SELECT prototypes.id AS "prototypeId", latest_build.number, latest_build.state,
+                latest_build.author_provider AS "authorProvider",
+                latest_build.author_login AS "authorLogin"
               FROM prototypes
               LEFT JOIN LATERAL (
-                SELECT builds.number, builds.state
+                SELECT builds.number, builds.state, builds.author_provider, builds.author_login
                 FROM builds
                 WHERE builds.prototype_id = prototypes.id
                   AND (
@@ -137,6 +185,7 @@ export async function findRepositoryIndex(
   const prototypes = records.map((record) => {
     if (!record.name) throw new Error("A registered prototype must have a name.")
     addAuthor(record.author)
+    const latestBuild = latestBuilds.get(record.id)
     return {
       id: record.id,
       repositoryId: record.repositoryId,
@@ -144,9 +193,13 @@ export async function findRepositoryIndex(
       description: record.description,
       branchName: record.branchName,
       authorId: record.author?.id ?? null,
-      authorLogin: record.author?.profile?.login ?? null,
+      authorLogin: record.author
+        ? (record.author.profile?.login ?? null)
+        : latestBuild?.authorProvider === "github"
+          ? latestBuild.authorLogin
+          : null,
       canEdit: false,
-      latestBuild: latestBuilds.get(record.id) ?? null,
+      latestBuild: latestBuild ? { number: latestBuild.number, state: latestBuild.state } : null,
       builds: [],
     }
   })

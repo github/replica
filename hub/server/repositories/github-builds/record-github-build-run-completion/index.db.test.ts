@@ -127,26 +127,86 @@ describe("recordGitHubBuildRunCompletion()", () => {
     ).toEqual(build)
   })
 
-  it.each(["running", "failed"] as const)(
-    "does not record a completed pass for a %s Build",
-    async (state) => {
-      const build = await createBuild(state)
+  it("does not record a completed pass for a running Build", async () => {
+    const build = await createBuild("running")
 
+    await expect(
+      recordGitHubBuildRunCompletion(prisma, {
+        buildId: build.id,
+        run: { runId: 100n, runAttempt: 2 },
+        completedAt: new Date(),
+      }),
+    ).resolves.toBe(false)
+
+    expect(await prisma.gitHubBuildRunCompletion.count()).toBe(0)
+    expect(
+      await prisma.build.findUniqueOrThrow({
+        where: { id: build.id },
+        include: { artifacts: true },
+      }),
+    ).toEqual(build)
+  })
+
+  it("marks only the exact failed owning run complete and preserves its failure and artifacts", async () => {
+    const build = await createBuild("failed")
+    const owner = await prisma.user.create({ data: {} })
+    await prisma.prototype.update({
+      where: { id: build.prototypeId },
+      data: { authorId: owner.id },
+    })
+    await prisma.build.update({
+      where: { id: build.id },
+      data: {
+        failureSummary: "The package is invalid.",
+        startedAt: new Date("2026-11-18T11:00:00Z"),
+        finishedAt: new Date("2026-11-18T11:10:00Z"),
+        artifacts: {
+          create: {
+            kind: "dist",
+            path: "dist/retained.html",
+            storageKey: "retained-failure-artifact",
+            byteLength: 10,
+          },
+        },
+      },
+    })
+    const before = await prisma.build.findUniqueOrThrow({
+      where: { id: build.id },
+      include: { artifacts: true, prototype: true },
+    })
+    const completedAt = new Date("2026-11-18T12:00:00Z")
+    for (const run of [
+      { runId: 100n, runAttempt: 1 },
+      { runId: 100n, runAttempt: 3 },
+      { runId: 101n, runAttempt: 2 },
+    ]) {
       await expect(
-        recordGitHubBuildRunCompletion(prisma, {
-          buildId: build.id,
-          run: { runId: 100n, runAttempt: 2 },
-          completedAt: new Date(),
-        }),
+        recordGitHubBuildRunCompletion(prisma, { buildId: build.id, run, completedAt }),
       ).resolves.toBe(false)
+    }
+    expect(
+      await prisma.build.findUniqueOrThrow({
+        where: { id: build.id },
+        include: { artifacts: true, prototype: true },
+      }),
+    ).toEqual(before)
 
-      expect(await prisma.gitHubBuildRunCompletion.count()).toBe(0)
-      expect(
-        await prisma.build.findUniqueOrThrow({
-          where: { id: build.id },
-          include: { artifacts: true },
-        }),
-      ).toEqual(build)
-    },
-  )
+    await expect(
+      recordGitHubBuildRunCompletion(prisma, {
+        buildId: build.id,
+        run: { runId: 100n, runAttempt: 2 },
+        completedAt,
+      }),
+    ).resolves.toBe(true)
+    const after = await prisma.build.findUniqueOrThrow({
+      where: { id: build.id },
+      include: { artifacts: true, prototype: true },
+    })
+    expect(after).toEqual({
+      ...before,
+      workflowCompletedAt: completedAt,
+      updatedAt: after.updatedAt,
+    })
+    expect(await prisma.gitHubBuildRunCompletion.count({ where: { buildId: build.id } })).toBe(0)
+  })
 })

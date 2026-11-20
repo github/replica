@@ -5,6 +5,7 @@ import type { GitHubWorkflowRun } from "../../../integrations/github/create-gith
 import { listGitHubBuildRuns } from "../../../repositories/github-builds/list-github-build-runs/index.ts"
 import { listGitHubBranchIdentities } from "../../../repositories/prototypes/list-github-branch-identities/index.ts"
 import { listConnectedGitHubRepositories } from "../../../repositories/repository-access/list-connected-github-repositories/index.ts"
+import { githubDeselectedWorkflowFailure } from "../../../utils/github-deselected-workflow-failure/index.ts"
 import type { GitHubWorkflowRunJob } from "../get-github-workflow-run-job-definition/index.ts"
 import { refreshGitHubBranchHeads } from "../refresh-github-branch-heads/index.ts"
 
@@ -22,8 +23,9 @@ export interface DiscoverGitHubWorkflowRunsDependencies {
 
 /**
  * A run is settled once its Build can no longer change: a successful Build whose
- * completed-run pass finished, a superseded Build, or a failure that this attempt
- * cannot reopen. Everything else still needs an import pass.
+ * completed-run pass finished, a failed Build without unresolved attribution, a
+ * deselected or superseded Build, or an older attempt that cannot reopen its Build.
+ * Everything else still needs an import pass.
  */
 function settled(run: GitHubWorkflowRun, saved: SavedRun[]) {
   return saved.some((build) => {
@@ -37,10 +39,17 @@ function settled(run: GitHubWorkflowRun, saved: SavedRun[]) {
       }
       return build.runId !== null && build.runId > run.id
     }
+    if (
+      build.state === "failed" &&
+      (build.authorProvider !== null || build.failureSummary === githubDeselectedWorkflowFailure)
+    ) {
+      return build.runAttempt >= run.runAttempt
+    }
     return (
-      build.runAttempt >= run.runAttempt &&
-      ((build.state === "successful" && build.workflowCompletedAt !== null) ||
-        build.state === "failed")
+      build.runAttempt > run.runAttempt ||
+      (build.runAttempt === run.runAttempt &&
+        (build.state === "successful" || build.state === "failed") &&
+        build.workflowCompletedAt !== null)
     )
   })
 }

@@ -2,8 +2,8 @@ import type { PrismaClient } from "../../../generated/prisma/client.ts"
 import type { GitHubBuildRun } from "../types.ts"
 
 /**
- * Records a completed artifact pass per contributing run without changing dist ownership.
- * Owning-run completion also retains its existing Build watermark.
+ * Records completed author and artifact passes per contributing run without changing
+ * dist ownership. Owning-run completion also retains its existing Build watermark.
  */
 export async function recordGitHubBuildRunCompletion(
   database: PrismaClient,
@@ -11,10 +11,23 @@ export async function recordGitHubBuildRunCompletion(
 ) {
   return database.$transaction(async (transaction) => {
     const build = await transaction.build.findFirst({
-      where: { id: input.buildId, state: "successful" },
-      select: { id: true },
+      where: { id: input.buildId, state: { in: ["successful", "failed"] } },
+      select: { id: true, state: true },
     })
     if (!build) return false
+    if (build.state === "failed") {
+      const completed = await transaction.build.updateMany({
+        where: {
+          id: input.buildId,
+          state: "failed",
+          githubWorkflowRunId: input.run.runId,
+          githubWorkflowRunAttempt: input.run.runAttempt,
+          workflowCompletedAt: null,
+        },
+        data: { workflowCompletedAt: input.completedAt },
+      })
+      return completed.count === 1
+    }
     const run = {
       buildId: build.id,
       githubWorkflowRunId: input.run.runId,

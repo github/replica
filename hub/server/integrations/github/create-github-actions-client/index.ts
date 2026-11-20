@@ -2,7 +2,7 @@ import { z } from "zod"
 
 import { readBuildWorkflowPaths } from "../../../utils/read-build-workflow-paths/index.ts"
 import { createGitHubAppJwt } from "../create-github-app-jwt/index.ts"
-import { GitHubProviderRequestError } from "../errors.ts"
+import { GitHubCommitLookupError, GitHubProviderRequestError } from "../errors.ts"
 import type {
   GitHubActionsClientInput,
   GitHubActionsClientOptions,
@@ -60,6 +60,10 @@ const artifactsSchema = z.looseObject({
   ),
 })
 const maximumArtifactPages = 10
+const commitSchema = z.looseObject({
+  sha: z.string().regex(/^[0-9a-f]{40}$/),
+  author: z.union([actorSchema.nonoptional(), z.strictObject({})]),
+})
 const maximumConfigurationBytes = 16_384
 const repositorySchema = z.looseObject({
   id: z.number().int().positive(),
@@ -285,6 +289,32 @@ export function createGitHubActionsClient(
 
   return {
     getBuildWorkflowPaths,
+
+    /** Resolves the account GitHub associates with this immutable commit, not its pusher. */
+    async getCommitAuthor(commitSha: string) {
+      if (!/^[0-9a-f]{40}$/.test(commitSha)) {
+        throw new GitHubProviderRequestError({ cause: new Error("Invalid commit SHA.") })
+      }
+      const response = await send(
+        `${repositoryPath}/commits/${commitSha}`,
+        await installationToken(),
+      )
+      if (!response.ok) throw new GitHubCommitLookupError(response.status)
+      const commit = await parse(commitSchema, response)
+      if (commit.sha !== commitSha) {
+        throw new GitHubProviderRequestError({
+          cause: new Error("GitHub returned a different commit."),
+        })
+      }
+      return commit.author && "id" in commit.author
+        ? {
+            providerUserId: String(commit.author.id),
+            login: commit.author.login,
+            avatarUrl: commit.author.avatar_url ?? null,
+          }
+        : null
+    },
+
     /** Lists branch heads without assuming a truncated response is a complete snapshot. */
     async listBranchHeads(): Promise<{ branchName: string; commitSha: string }[]> {
       const heads: { branchName: string; commitSha: string }[] = []

@@ -2,23 +2,24 @@ import { createHash, randomInt, randomUUID } from "node:crypto"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { prisma } from "../../../integrations/prisma/index.ts"
+import { prisma } from "../../../integrations/prisma"
+import { GitHubCommitLookupError } from "../../../integrations/github/errors"
 import type {
   GitHubWorkflowArtifact,
   GitHubWorkflowRun,
-} from "../../../integrations/github/create-github-actions-client/types.ts"
-import { findBuildArtifact } from "../../../repositories/build-artifacts/find-build-artifact/index.ts"
+} from "../../../integrations/github/create-github-actions-client/types"
+import { findBuildArtifact } from "../../../repositories/build-artifacts/find-build-artifact"
 import { listGitHubBuildsAwaitingImport } from "../../../repositories/github-builds/list-github-builds-awaiting-import"
 import { createGitHubWebhookRouteDependencies } from "../../../routes/api/github/webhooks/create-github-webhook-route-dependencies"
-import { createZipArchive } from "../../../test/create-zip-archive/index.ts"
-import type { ArtifactStorage } from "../../artifacts/create-artifact-storage/types.ts"
-import { extractDistPackage } from "../../build-artifacts/extract-dist-package/index.ts"
-import { readBuildPreviewFile } from "../../build-preview/read-build-preview-file/index.ts"
-import { distArtifactName, screenshotArtifactName } from "../constants.ts"
+import { createZipArchive } from "../../../test/create-zip-archive"
+import type { ArtifactStorage } from "../../artifacts/create-artifact-storage/types"
+import { extractDistPackage } from "../../build-artifacts/extract-dist-package"
+import { readBuildPreviewFile } from "../../build-preview/read-build-preview-file"
+import { distArtifactName, screenshotArtifactName } from "../constants"
 import { discoverGitHubWorkflowRuns } from "../discover-github-workflow-runs"
 import type { GitHubWorkflowRunJob } from "../get-github-workflow-run-job-definition"
 import { refreshGitHubBranchHeads } from "../refresh-github-branch-heads"
-import { importGitHubWorkflowRun } from "./index.ts"
+import { importGitHubWorkflowRun } from "."
 
 const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1])
 const logger = { info() {}, warn() {} }
@@ -64,6 +65,7 @@ async function createFixture() {
       defaultBranch: "main",
     },
   })
+
   const storage = createImmutableStorage()
 
   const run: GitHubWorkflowRun = {
@@ -87,6 +89,13 @@ async function createFixture() {
   const client = {
     getBuildWorkflowPaths: () => Promise.resolve([...workflowPaths]),
     getWorkflowRun: (): Promise<GitHubWorkflowRun | null> => Promise.resolve({ ...run }),
+    getCommitAuthor: vi
+      .fn<
+        (
+          commitSha: string,
+        ) => Promise<{ providerUserId: string; login: string; avatarUrl: string | null } | null>
+      >()
+      .mockResolvedValue(null),
     listRunArtifacts: (_runId: number, name: string) =>
       Promise.resolve<GitHubWorkflowArtifact[]>(
         packages.has(name)
@@ -112,9 +121,9 @@ async function createFixture() {
   function importRun(job = { githubRepositoryId, runId: run.id }) {
     return importGitHubWorkflowRun({ database: prisma, storage, client, logger }, job)
   }
-  function findBuild() {
+  function findBuild(buildId?: string) {
     return prisma.build.findFirstOrThrow({
-      where: { prototype: { repository: { githubRepositoryId } } },
+      where: { id: buildId, prototype: { repository: { githubRepositoryId } } },
       include: { artifacts: { orderBy: { path: "asc" } }, prototype: true },
     })
   }
@@ -379,7 +388,511 @@ describe("importGitHubWorkflowRun", () => {
       authorLogin: null,
       authorName: null,
       authorAvatarUrl: null,
+      prototype: { authorId: null },
     })
+    expect(await prisma.user.count()).toBe(0)
+    expect(fixture.client.getCommitAuthor).toHaveBeenCalledWith(fixture.run.headSha)
+  })
+
+  it("records the GitHub commit author without assigning the mapped user as prototype owner", async () => {
+    const fixture = await createFixture()
+    const author = await prisma.user.create({
+      data: {
+        externalIdentities: {
+          create: { provider: "github", issuer: "https://github.com", subject: "101" },
+        },
+      },
+      include: { profile: true },
+    })
+    await prisma.user.create({
+      data: {
+        externalIdentities: {
+          create: { provider: "github", issuer: "https://github.com", subject: "9" },
+        },
+      },
+    })
+    fixture.client.getCommitAuthor.mockResolvedValue({
+      providerUserId: "101",
+      login: "commit-author",
+      avatarUrl: "https://avatars.githubusercontent.com/u/101",
+    })
+
+    await fixture.importRun()
+
+    expect(author.profile).toBeNull()
+    expect(fixture.client.getCommitAuthor).toHaveBeenCalledWith(fixture.run.headSha)
+    expect(await fixture.findBuild()).toMatchObject({
+      commitSha: fixture.run.headSha,
+      authorProvider: "github",
+      authorIssuer: "https://github.com",
+      authorProviderUserId: "101",
+      authorLogin: "commit-author",
+      authorName: null,
+      authorAvatarUrl: "https://avatars.githubusercontent.com/u/101",
+      prototype: { authorId: null },
+    })
+    expect(await prisma.user.count()).toBe(2)
+    expect(await prisma.externalIdentity.count()).toBe(2)
+  })
+
+  it("keeps an unmapped author's provider snapshot without creating a Hub identity", async () => {
+    const fixture = await createFixture()
+    const unrelated = await prisma.user.create({
+      data: {
+        externalIdentities: {
+          create: [
+            { provider: "github", issuer: "https://github.example.test", subject: "101" },
+            { provider: "entra", issuer: "https://github.com", subject: "101" },
+          ],
+        },
+      },
+    })
+    fixture.client.getCommitAuthor.mockResolvedValue({
+      providerUserId: "101",
+      login: "unmapped-author",
+      avatarUrl: null,
+    })
+
+    await fixture.importRun()
+
+    expect(await fixture.findBuild()).toMatchObject({
+      authorProvider: "github",
+      authorIssuer: "https://github.com",
+      authorProviderUserId: "101",
+      authorLogin: "unmapped-author",
+      authorAvatarUrl: null,
+      prototype: { authorId: null },
+    })
+    expect(await prisma.user.findMany({ select: { id: true } })).toEqual([{ id: unrelated.id }])
+    expect(await prisma.externalIdentity.count()).toBe(2)
+  })
+
+  it("preserves a legacy author snapshot instead of mixing in a different identity on import", async () => {
+    const fixture = await createFixture()
+    await fixture.importRun()
+    const build = await fixture.findBuild()
+    const snapshot = {
+      authorLogin: "legacy-author",
+      authorName: "Legacy author",
+      authorAvatarUrl: "https://example.test/legacy.png",
+    }
+    await prisma.build.update({ where: { id: build.id }, data: snapshot })
+    await prisma.user.create({
+      data: {
+        externalIdentities: {
+          create: { provider: "github", issuer: "https://github.com", subject: "101" },
+        },
+      },
+    })
+    fixture.client.getCommitAuthor.mockClear().mockResolvedValue({
+      providerUserId: "101",
+      login: "different-author",
+      avatarUrl: "https://example.test/different.png",
+    })
+
+    await fixture.importRun()
+
+    expect(fixture.client.getCommitAuthor).toHaveBeenCalledWith(fixture.run.headSha)
+    expect(await fixture.findBuild()).toMatchObject({
+      authorProvider: null,
+      authorIssuer: null,
+      authorProviderUserId: null,
+      ...snapshot,
+      prototype: { authorId: null },
+    })
+    expect(await prisma.user.count()).toBe(1)
+  })
+
+  it("preserves an explicit prototype owner while recording a different commit author", async () => {
+    const fixture = await createFixture()
+    await fixture.importRun()
+    const original = await fixture.findBuild()
+    const owner = await prisma.user.create({ data: {} })
+    await prisma.prototype.update({
+      where: { id: original.prototypeId },
+      data: { authorId: owner.id },
+    })
+    await prisma.user.create({
+      data: {
+        externalIdentities: {
+          create: { provider: "github", issuer: "https://github.com", subject: "101" },
+        },
+      },
+    })
+    fixture.run.headSha = "b".repeat(40)
+    fixture.run.id += 1
+    fixture.run.createdAt = new Date("2026-01-01T00:02:00Z")
+    fixture.client.getCommitAuthor.mockResolvedValue({
+      providerUserId: "101",
+      login: "different-author",
+      avatarUrl: null,
+    })
+
+    await fixture.importRun()
+
+    const build = await prisma.build.findUniqueOrThrow({
+      where: {
+        prototypeId_commitSha: {
+          prototypeId: original.prototypeId,
+          commitSha: fixture.run.headSha,
+        },
+      },
+      include: { prototype: true },
+    })
+    expect(build).toMatchObject({
+      authorProviderUserId: "101",
+      authorLogin: "different-author",
+      prototype: { authorId: owner.id },
+    })
+  })
+
+  it("retries a failed author lookup instead of completing the import with unknown attribution", async () => {
+    const fixture = await createFixture()
+    fixture.packages.set(distArtifactName, distPackage())
+    fixture.client.getCommitAuthor
+      .mockRejectedValueOnce(new Error("Commit lookup unavailable"))
+      .mockResolvedValue({
+        providerUserId: "101",
+        login: "commit-author",
+        avatarUrl: null,
+      })
+
+    await expect(fixture.importRun()).rejects.toThrow("Commit lookup unavailable")
+    await expect(fixture.importRun()).resolves.toMatchObject({ dist: "imported" })
+
+    expect(await fixture.findBuild()).toMatchObject({
+      state: "successful",
+      authorProviderUserId: "101",
+      authorLogin: "commit-author",
+    })
+    expect(await prisma.build.count()).toBe(1)
+  })
+
+  it("imports available artifacts while a failed author lookup remains observable and retryable", async () => {
+    const fixture = await createFixture()
+    fixture.run.headBranch = "proto/welcome"
+    fixture.run.status = "completed"
+    fixture.run.conclusion = "success"
+    const warn = vi.spyOn(logger, "warn")
+    const dist = distPackage()
+    fixture.packages.set(distArtifactName, dist)
+    fixture.packages.set(
+      screenshotArtifactName,
+      screenshotPackage(extractDistPackage(dist).distDigest),
+    )
+    fixture.client.getCommitAuthor
+      .mockRejectedValueOnce(new GitHubCommitLookupError(422))
+      .mockResolvedValue({ providerUserId: "101", login: "commit-author", avatarUrl: null })
+
+    await expect(fixture.importRun()).rejects.toThrow("GitHub commit lookup failed (HTTP 422).")
+    const imported = await fixture.findBuild()
+    expect(imported).toMatchObject({
+      state: "successful",
+      authorProviderUserId: null,
+      workflowCompletedAt: null,
+      prototype: { authorId: null },
+    })
+    expect(imported.prototype.registeredAt).toBeInstanceOf(Date)
+    expect(imported.artifacts.map((artifact) => artifact.path)).toEqual([
+      "dist/assets/app.js",
+      "dist/index.html",
+      "screenshots/desktop.png",
+    ])
+    expect(warn).toHaveBeenCalledWith(
+      {
+        buildId: imported.id,
+        runId: fixture.run.id,
+        errorType: "GitHubCommitLookupError",
+        statusCode: 422,
+      },
+      "GitHub commit author lookup failed; artifact import will continue and retry",
+    )
+    const retry = { githubRepositoryId: fixture.run.repositoryId, runId: fixture.run.id }
+    expect(
+      await listGitHubBuildsAwaitingImport(prisma, { createdAfter: new Date(0) }),
+    ).toContainEqual(retry)
+
+    await expect(fixture.importRun()).resolves.toEqual({
+      dist: "unchanged",
+      screenshots: "attached",
+    })
+    const repaired = await fixture.findBuild()
+    expect(repaired).toMatchObject({
+      id: imported.id,
+      authorProviderUserId: "101",
+      workflowCompletedAt: fixture.run.updatedAt,
+    })
+    expect(repaired.artifacts).toEqual(imported.artifacts)
+    expect(
+      await listGitHubBuildsAwaitingImport(prisma, { createdAfter: new Date(0) }),
+    ).not.toContainEqual(retry)
+  })
+
+  it.each([
+    {
+      dist: "missing",
+      failureSummary: `GitHub Actions did not provide the ${distArtifactName} artifact.`,
+    },
+    { dist: "invalid", failureSummary: "The package does not contain dist/index.html." },
+  ])(
+    "recovers author resolution for a failed Build with $dist dist without reopening it",
+    async ({ dist, failureSummary }) => {
+      const fixture = await createFixture()
+      fixture.run.headBranch = "proto/recover-author"
+      fixture.run.status = "completed"
+      fixture.run.conclusion = "success"
+      if (dist === "invalid") {
+        fixture.packages.set(distArtifactName, createZipArchive([{ name: "dist/app.js" }]))
+      }
+      const owner = await prisma.user.create({
+        data: {
+          externalIdentities: {
+            create: { provider: "github", issuer: "https://github.com", subject: "101" },
+          },
+        },
+      })
+      const author = {
+        providerUserId: "101",
+        login: "commit-author",
+        avatarUrl: "https://example.test/author.png",
+      }
+      fixture.client.getCommitAuthor
+        .mockRejectedValueOnce(new GitHubCommitLookupError(503))
+        .mockRejectedValueOnce(new GitHubCommitLookupError(503))
+        .mockResolvedValue(author)
+      const job = { githubRepositoryId: fixture.run.repositoryId, runId: fixture.run.id }
+      const createdAfter = new Date(0)
+      async function recovery() {
+        return {
+          awaiting: await listGitHubBuildsAwaitingImport(prisma, { createdAfter }),
+          discovered: await discoverGitHubWorkflowRuns(
+            {
+              database: prisma,
+              listWorkflowRuns: (repositoryId, since) =>
+                Promise.resolve(
+                  repositoryId === fixture.run.repositoryId &&
+                    fixture.run.createdAt >= since &&
+                    fixture.workflowPaths.includes(fixture.run.path)
+                    ? [fixture.run]
+                    : [],
+                ),
+              listBranchHeads: () => Promise.resolve([]),
+              isAncestor: () => Promise.resolve(false),
+              logger,
+            },
+            { createdAfter },
+          ),
+        }
+      }
+
+      await expect(fixture.importRun()).rejects.toThrow("GitHub commit lookup failed (HTTP 503).")
+      const imported = await fixture.findBuild()
+      await prisma.prototype.update({
+        where: { id: imported.prototypeId },
+        data: { authorId: owner.id },
+      })
+      const failed = await fixture.findBuild()
+      expect(failed).toMatchObject({
+        state: "failed",
+        failureSummary,
+        authorProviderUserId: null,
+        githubWorkflowRunId: BigInt(fixture.run.id),
+        githubWorkflowRunAttempt: fixture.run.runAttempt,
+        workflowCompletedAt: null,
+        distDigest: null,
+        artifacts: [],
+        prototype: { authorId: owner.id, registeredAt: null },
+      })
+      expect(failed.startedAt).toBeInstanceOf(Date)
+      expect(failed.finishedAt).toBeInstanceOf(Date)
+      expect(await recovery()).toEqual({ awaiting: [job], discovered: [job] })
+
+      fixture.packages.set(distArtifactName, distPackage("<h1>Late dist</h1>"))
+      await expect(fixture.importRun()).rejects.toThrow("GitHub commit lookup failed (HTTP 503).")
+      expect(await fixture.findBuild()).toMatchObject({
+        id: failed.id,
+        state: "failed",
+        failureSummary,
+        startedAt: failed.startedAt,
+        finishedAt: failed.finishedAt,
+        githubWorkflowRunId: failed.githubWorkflowRunId,
+        githubWorkflowRunAttempt: failed.githubWorkflowRunAttempt,
+        distDigest: null,
+        artifacts: [],
+      })
+      expect(await recovery()).toEqual({ awaiting: [job], discovered: [job] })
+
+      await expect(fixture.importRun()).resolves.toMatchObject({ dist: "unchanged" })
+      expect(await fixture.findBuild()).toMatchObject({
+        id: failed.id,
+        state: "failed",
+        failureSummary,
+        startedAt: failed.startedAt,
+        finishedAt: failed.finishedAt,
+        githubWorkflowRunId: failed.githubWorkflowRunId,
+        githubWorkflowRunAttempt: failed.githubWorkflowRunAttempt,
+        workflowCompletedAt: fixture.run.updatedAt,
+        distDigest: null,
+        artifacts: [],
+        authorProvider: "github",
+        authorIssuer: "https://github.com",
+        authorProviderUserId: author.providerUserId,
+        authorLogin: author.login,
+        authorAvatarUrl: author.avatarUrl,
+        prototype: { authorId: owner.id, registeredAt: null, currentBuildId: failed.id },
+      })
+      expect(fixture.client.getCommitAuthor).toHaveBeenCalledTimes(3)
+      expect(await fixture.findAnalyticsEvents()).toEqual([])
+      expect(await recovery()).toEqual({ awaiting: [], discovered: [] })
+    },
+  )
+
+  it("does not let a delayed failed-run author lookup overwrite a newer successful attempt", async () => {
+    const fixture = await createFixture()
+    fixture.run.status = "completed"
+    fixture.run.conclusion = "success"
+    const author = { providerUserId: "101", login: "commit-author", avatarUrl: null }
+    fixture.client.getCommitAuthor.mockRejectedValueOnce(new GitHubCommitLookupError(503))
+    await expect(fixture.importRun()).rejects.toThrow("GitHub commit lookup failed (HTTP 503).")
+    const failed = await fixture.findBuild()
+
+    let newer: Awaited<ReturnType<typeof fixture.findBuild>> | undefined
+    fixture.client.getCommitAuthor
+      .mockImplementationOnce(async () => {
+        fixture.run.runAttempt = 2
+        fixture.run.updatedAt = new Date("2026-01-01T00:05:00Z")
+        fixture.packages.set(distArtifactName, distPackage("<h1>New attempt</h1>"))
+        await fixture.importRun()
+        newer = await fixture.findBuild()
+        return author
+      })
+      .mockResolvedValue(author)
+
+    await fixture.importRun()
+
+    expect(newer).toMatchObject({
+      id: failed.id,
+      state: "successful",
+      githubWorkflowRunAttempt: 2,
+      workflowCompletedAt: fixture.run.updatedAt,
+      authorProviderUserId: author.providerUserId,
+    })
+    expect(newer?.artifacts.length).toBeGreaterThan(0)
+    expect(await fixture.findBuild()).toEqual(newer)
+  })
+
+  it("finishes late screenshots without looking up an already saved GitHub identity", async () => {
+    const fixture = await createFixture()
+    fixture.packages.set(distArtifactName, distPackage())
+    fixture.client.getCommitAuthor.mockResolvedValue({
+      providerUserId: "101",
+      login: "commit-author",
+      avatarUrl: "https://example.test/author.png",
+    })
+    await fixture.importRun()
+    const before = await fixture.findBuild()
+    expect(before).toMatchObject({
+      state: "successful",
+      authorProvider: "github",
+      authorIssuer: "https://github.com",
+      authorProviderUserId: "101",
+      authorLogin: "commit-author",
+      prototype: { authorId: null },
+    })
+    await prisma.user.create({
+      data: {
+        externalIdentities: {
+          create: { provider: "github", issuer: "https://github.com", subject: "101" },
+        },
+      },
+    })
+
+    fixture.run.status = "completed"
+    fixture.run.conclusion = "success"
+    fixture.run.updatedAt = new Date("2026-01-01T00:05:00Z")
+    fixture.packages.set(screenshotArtifactName, screenshotPackage(before.distDigest!))
+    fixture.client.getCommitAuthor
+      .mockClear()
+      .mockRejectedValue(new Error("Commit lookup unavailable"))
+
+    await expect(fixture.importRun()).resolves.toEqual({
+      dist: "unchanged",
+      screenshots: "attached",
+    })
+
+    expect(fixture.client.getCommitAuthor).not.toHaveBeenCalled()
+    const after = await fixture.findBuild()
+    expect(after).toMatchObject({
+      id: before.id,
+      authorProvider: before.authorProvider,
+      authorIssuer: before.authorIssuer,
+      authorProviderUserId: before.authorProviderUserId,
+      authorLogin: before.authorLogin,
+      authorAvatarUrl: before.authorAvatarUrl,
+      workflowCompletedAt: fixture.run.updatedAt,
+      prototype: { authorId: null },
+    })
+    expect(after.artifacts.map((artifact) => artifact.path)).toContain("screenshots/desktop.png")
+    expect(await prisma.user.count()).toBe(1)
+  })
+
+  it("retries missing author identity without assigning the mapped user as prototype owner", async () => {
+    const fixture = await createFixture()
+    fixture.packages.set(distArtifactName, distPackage())
+    await fixture.importRun()
+    const before = await fixture.findBuild()
+    expect(before).toMatchObject({
+      state: "successful",
+      authorProviderUserId: null,
+      prototype: { authorId: null },
+    })
+    expect(await prisma.user.count()).toBe(0)
+
+    fixture.run.status = "completed"
+    fixture.run.conclusion = "success"
+    fixture.run.updatedAt = new Date("2026-01-01T00:05:00Z")
+    fixture.packages.set(screenshotArtifactName, screenshotPackage(before.distDigest!))
+    fixture.client.getCommitAuthor
+      .mockClear()
+      .mockRejectedValueOnce(new Error("Commit lookup unavailable"))
+
+    await expect(fixture.importRun()).rejects.toThrow("Commit lookup unavailable")
+    expect(fixture.client.getCommitAuthor).toHaveBeenCalledWith(fixture.run.headSha)
+    expect(await fixture.findBuild()).toMatchObject({
+      authorProviderUserId: null,
+      workflowCompletedAt: null,
+      prototype: { authorId: null },
+    })
+    expect(await prisma.user.count()).toBe(0)
+
+    await prisma.user.create({
+      data: {
+        externalIdentities: {
+          create: { provider: "github", issuer: "https://github.com", subject: "101" },
+        },
+      },
+    })
+    fixture.client.getCommitAuthor.mockClear().mockResolvedValue({
+      providerUserId: "101",
+      login: "commit-author",
+      avatarUrl: null,
+    })
+
+    await expect(fixture.importRun()).resolves.toEqual({
+      dist: "unchanged",
+      screenshots: "attached",
+    })
+    expect(fixture.client.getCommitAuthor).toHaveBeenCalledWith(fixture.run.headSha)
+    expect(await fixture.findBuild()).toMatchObject({
+      id: before.id,
+      authorProvider: "github",
+      authorIssuer: "https://github.com",
+      authorProviderUserId: "101",
+      authorLogin: "commit-author",
+      workflowCompletedAt: fixture.run.updatedAt,
+      prototype: { authorId: null },
+    })
+    expect(await prisma.user.count()).toBe(1)
   })
 
   it("attaches late screenshots only when they depict the imported dist", async () => {
@@ -1060,6 +1573,7 @@ describe("importGitHubWorkflowRun", () => {
       fixture.run.runAttempt = observedAttempt
       fixture.run.updatedAt = new Date("2026-01-01T00:05:00Z")
       fixture.packages.set(distArtifactName, distPackage())
+      fixture.client.getCommitAuthor.mockClear()
       const listArtifacts = vi.spyOn(fixture.client, "listRunArtifacts")
       const download = vi.spyOn(fixture.client, "downloadArtifact")
       const write = vi.spyOn(fixture.storage, "write")
@@ -1085,12 +1599,24 @@ describe("importGitHubWorkflowRun", () => {
       expect(stopped.failureSummary).toMatch(/default branch/i)
       expect(stopped.failureSummary).toContain("builds.workflows")
       expect(await prisma.branchHeadObservation.findMany()).toEqual(observations)
+      expect(fixture.client.getCommitAuthor).not.toHaveBeenCalled()
       expect(listArtifacts).not.toHaveBeenCalled()
       expect(download).not.toHaveBeenCalled()
       expect(write).not.toHaveBeenCalled()
-      await expect(listGitHubBuildsAwaitingImport(prisma, { createdAfter })).resolves.toEqual([])
+      const awaiting = await listGitHubBuildsAwaitingImport(prisma, { createdAfter })
 
       fixture.workflowPaths.push(".github/workflows/replica.yml")
+      const discovered = await discoverGitHubWorkflowRuns(
+        {
+          database: prisma,
+          listWorkflowRuns: () => Promise.resolve([fixture.run]),
+          listBranchHeads: () => Promise.resolve([]),
+          isAncestor: () => Promise.resolve(false),
+          logger,
+        },
+        { createdAfter },
+      )
+      expect({ awaiting, discovered }).toEqual({ awaiting: [], discovered: [] })
       await fixture.importRun()
       expect(await fixture.findBuild()).toMatchObject({
         state: "failed",
@@ -1192,6 +1718,29 @@ describe("importGitHubWorkflowRun", () => {
 
     expect(await fixture.findBuild()).toEqual(before)
     expect(listArtifacts).not.toHaveBeenCalled()
+  })
+
+  it("settles a deselected Build awaiting its author without changing its import or owner", async () => {
+    const fixture = await createFixture()
+    fixture.run.status = "completed"
+    fixture.run.conclusion = "success"
+    fixture.packages.set(distArtifactName, distPackage())
+    fixture.client.getCommitAuthor.mockRejectedValue(new GitHubCommitLookupError(503))
+    await expect(fixture.importRun()).rejects.toThrow("GitHub commit lookup failed (HTTP 503).")
+    const before = await fixture.findBuild()
+    const createdAfter = new Date(before.createdAt.getTime() - 1)
+    expect(await listGitHubBuildsAwaitingImport(prisma, { createdAfter })).toHaveLength(1)
+    fixture.workflowPaths.splice(0)
+
+    await expect(fixture.importRun()).resolves.toEqual({ dist: "ignored", screenshots: "absent" })
+
+    const settled = await fixture.findBuild()
+    expect(settled).toEqual({
+      ...before,
+      updatedAt: settled.updatedAt,
+      workflowCompletedAt: fixture.run.updatedAt,
+    })
+    expect(await listGitHubBuildsAwaitingImport(prisma, { createdAfter })).toEqual([])
   })
 
   it("does not move the current Build back for a late older run", async () => {

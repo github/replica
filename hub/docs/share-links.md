@@ -15,9 +15,9 @@ Hosted public sharing is off by default. It requires configured Build storage an
 The prototype's **Share links** action requires a GitHub session and one of these permissions:
 
 - GitHub currently reports repository administrator permission.
-- At least one successful Build for this prototype records the signed-in GitHub identity as its commit author, and GitHub currently reports at least read access.
+- The signed-in user is the prototype's stored owner, at least one successful Build records that GitHub identity as its commit author, and GitHub currently reports at least read access.
 
-Hub matches the recorded provider, issuer, and immutable GitHub user ID, not the login. Repository write access, a Hub administrator role, or an Entra session does not substitute for either rule. The API rechecks permission for each list, create, and revoke request. The browser lists only active hosted links.
+Hub matches the recorded provider, issuer, and immutable GitHub user ID, not the login. Commit attribution alone does not assign ownership or authorize sharing. Ownerless imported prototypes therefore require repository administrator permission. Existing owners are retained; the schema does not independently record or re-attest the source of historical owner assignments. Repository write access, a Hub administrator role, or an Entra session does not substitute for either rule. The API rechecks permission for each list, create, and revoke request. The browser lists only active hosted links.
 
 An explicit `none` result for the expected GitHub identity permanently revokes only that creator's links in that repository. Confirmed GitHub App disconnection revokes all hosted links for the affected repositories. Unavailable or ambiguous evidence denies management without revoking links. Public visits do not call GitHub, and some webhook events narrow signed-in access without proving a creator lost all access. Sharing does not promise immediate detection of creator access loss.
 

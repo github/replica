@@ -40,6 +40,8 @@ export async function listGitHubBuildRuns(
       githubWorkflowRunAttempt: true,
       state: true,
       workflowCompletedAt: true,
+      authorProvider: true,
+      failureSummary: true,
       githubRunCompletions: {
         where: { githubWorkflowRunId: { in: runs.map((run) => BigInt(run.id)) } },
         select: { githubWorkflowRunId: true, runAttempt: true },
@@ -59,6 +61,8 @@ export async function listGitHubBuildRuns(
       runAttempt: build.githubWorkflowRunAttempt ?? 0,
       state: build.state,
       workflowCompletedAt: build.workflowCompletedAt,
+      authorProvider: build.authorProvider,
+      failureSummary: build.failureSummary,
       runCompletions: build.githubRunCompletions.map((run) => ({
         runId: Number(run.githubWorkflowRunId),
         runAttempt: run.runAttempt,

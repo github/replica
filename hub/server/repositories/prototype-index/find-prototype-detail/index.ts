@@ -1,4 +1,4 @@
-import { Prisma, type BuildState } from "../../../generated/prisma/client.ts"
+import { Prisma, type Build } from "../../../generated/prisma/client.ts"
 import { trimPrototypeMetadata } from "../../../utils/trim-prototype-metadata/index.ts"
 import { type RepositoryScope, visibleRepositoryWhere } from "../visible-repository-where/index.ts"
 
@@ -117,14 +117,19 @@ export async function findPrototypeDetail(
         return secondCreatedAt - firstCreatedAt || second.number - first.number
       })
 
-      let latestBuild: { number: number; state: BuildState } | null =
+      type HeaderBuild = Pick<
+        Build,
+        "number" | "state" | "authorLogin" | "authorName" | "authorProvider"
+      >
+      let latestBuild: HeaderBuild | null =
         builds.find(({ id }) => id === prototype.currentBuildId) ?? builds[0] ?? null
       if (page) {
         // The header describes the whole prototype, not only this page.
         latestBuild =
           (
-            await transaction.$queryRaw<{ number: number; state: BuildState }[]>(Prisma.sql`
-              SELECT number, state FROM builds
+            await transaction.$queryRaw<HeaderBuild[]>(Prisma.sql`
+              SELECT number, state, author_login AS "authorLogin",
+                author_name AS "authorName", author_provider AS "authorProvider" FROM builds
               WHERE prototype_id = ${prototypeId}::uuid
                 AND (
                   ${prototype.currentBuildId}::uuid IS NULL
@@ -193,6 +198,16 @@ export async function findPrototypeDetail(
       const controlsIdentity = selectedBuild?.artifacts.find(
         ({ path }) => path === "dist/controls.replica.json",
       )?.storageKey
+      const authorBuild = latestBuild
+      const author = prototype.author
+        ? prototype.author.profile
+        : authorBuild?.authorProvider === "github"
+          ? {
+              login: authorBuild.authorLogin,
+              name: authorBuild.authorName,
+              provider: authorBuild.authorProvider,
+            }
+          : null
       return {
         repository,
         prototype: {
@@ -202,9 +217,9 @@ export async function findPrototypeDetail(
           branchName: prototype.branchName,
           description: prototype.description,
           startPage: (prototype.startPage && trimPrototypeMetadata(prototype.startPage)) || "/",
-          authorLogin: prototype.author?.profile?.login ?? null,
-          authorName: prototype.author?.profile?.name ?? null,
-          authorProvider: prototype.author?.profile?.provider ?? null,
+          authorLogin: author?.login ?? null,
+          authorName: author?.name ?? null,
+          authorProvider: author?.provider ?? null,
           canEdit: false,
           latestBuild: latestBuild
             ? { number: latestBuild.number, state: latestBuild.state }

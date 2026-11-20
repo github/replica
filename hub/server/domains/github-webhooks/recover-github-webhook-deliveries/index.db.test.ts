@@ -54,6 +54,18 @@ async function redelivery(id: string) {
 }
 
 describe("recoverGitHubWebhookDeliveries", () => {
+  it("retains a large delivery ID through database storage, claiming, and redelivery", async () => {
+    const missed = delivery({ id: "9007199254740993" })
+    const recovery = dependencies([[missed]])
+    await recoverGitHubWebhookDeliveries(recovery)
+    expect(recovery.redeliver).toHaveBeenCalledWith("9007199254740993")
+    expect(await redelivery(missed.guid)).toMatchObject({
+      githubDeliveryId: 9007199254740993n,
+      state: "waiting",
+      attempts: 1,
+    })
+  })
+
   it("redelivers only missed deliveries the Hub can still handle", async () => {
     const missed = delivery()
     const timedOut = delivery({ statusCode: 0, event: "installation" })
@@ -139,7 +151,7 @@ describe("recoverGitHubWebhookDeliveries", () => {
     await prisma.gitHubWebhookRedelivery.create({
       data: {
         id: exhausted.guid,
-        githubDeliveryId: exhausted.id,
+        githubDeliveryId: BigInt(exhausted.id),
         event: "workflow_job",
         state: "waiting",
         attempts: 12,
@@ -189,7 +201,7 @@ describe("recoverGitHubWebhookDeliveries", () => {
       await prisma.gitHubWebhookRedelivery.create({
         data: {
           id: attempt.guid,
-          githubDeliveryId: attempt.id,
+          githubDeliveryId: BigInt(attempt.id),
           event: attempt.event,
           state: "requesting",
           attempts,
@@ -275,7 +287,7 @@ describe("recoverGitHubWebhookDeliveries", () => {
       const attempt = delivery()
       return {
         id: attempt.guid,
-        githubDeliveryId: attempt.id,
+        githubDeliveryId: BigInt(attempt.id),
         event: "workflow_job",
         state,
         retryAt: new Date(now.getTime() + day),

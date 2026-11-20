@@ -1,12 +1,21 @@
 import { loadAzureSecretEnvironment } from "../load-secret-environment/index.ts"
 
 export async function runAzureEntrypoint(target: string | undefined): Promise<void> {
-  if (!["runtime", "setup", "provision"].includes(target ?? "")) {
-    throw new Error("Azure entrypoint must be runtime, setup, or provision.")
+  if (
+    ![
+      "runtime",
+      "setup",
+      "provision",
+      "repair-github-build-author",
+      "check-github-webhooks",
+    ].includes(target ?? "")
+  ) {
+    throw new Error("Azure entrypoint target is invalid.")
   }
   const environment = process.env
+  const maintenance = target === "repair-github-build-author" || target === "check-github-webhooks"
   if (
-    (target === "runtime" && environment.RUNTIME_MODE === "setup") ||
+    ((target === "runtime" || maintenance) && environment.RUNTIME_MODE === "setup") ||
     (target === "setup" && environment.RUNTIME_MODE !== "setup")
   ) {
     throw new Error("Azure entrypoint and runtime mode disagree.")
@@ -14,6 +23,16 @@ export async function runAzureEntrypoint(target: string | undefined): Promise<vo
   if (target === "runtime") {
     await loadAzureSecretEnvironment(environment, "runtime")
     await import("../../../index.ts")
+  } else if (maintenance) {
+    await loadAzureSecretEnvironment(environment, "runtime")
+    if (target === "repair-github-build-author") {
+      const { runGitHubBuildAuthorRepair } =
+        await import("../../repair-github-build-author/run/index.ts")
+      await runGitHubBuildAuthorRepair(process.argv.slice(3))
+    } else {
+      const { runGitHubWebhookCheck } = await import("../../check-github-webhooks/run/index.ts")
+      await runGitHubWebhookCheck(process.argv.slice(3))
+    }
   } else if (target === "setup") {
     await loadAzureSecretEnvironment(environment, "setup")
     const { setup } = await import("../../setup/index.ts")

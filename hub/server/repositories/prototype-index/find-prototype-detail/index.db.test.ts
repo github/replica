@@ -5,6 +5,75 @@ import { prisma } from "../../../integrations/prisma"
 import { findPrototypeDetail } from "."
 
 describe("findPrototypeDetail()", () => {
+  it("uses the current Build's author on every history page without creating an owner", async () => {
+    const repository = await prisma.repository.create({
+      data: { nameWithOwner: "octo/demo", defaultBranch: "main" },
+    })
+    const prototype = await prisma.prototype.create({
+      data: { repositoryId: repository.id, branchName: "proto/demo" },
+    })
+    const current = await prisma.build.create({
+      data: {
+        prototypeId: prototype.id,
+        number: 1,
+        authorProvider: "github",
+        authorIssuer: "https://github.com",
+        authorProviderUserId: "9",
+        authorLogin: "commit-author",
+      },
+    })
+    await prisma.build.create({ data: { prototypeId: prototype.id, number: 2 } })
+    await prisma.prototype.update({
+      where: { id: prototype.id },
+      data: { currentBuildId: current.id },
+    })
+
+    const detail = await findPrototypeDetail(prisma, repository.id, prototype.id, undefined, {
+      page: 1,
+      pageSize: 1,
+    })
+    expect(detail?.prototype).toMatchObject({
+      authorLogin: "commit-author",
+      authorProvider: "github",
+    })
+    expect(await prisma.user.count()).toBe(0)
+
+    await prisma.prototype.update({ where: { id: prototype.id }, data: { currentBuildId: null } })
+    const olderPage = await findPrototypeDetail(prisma, repository.id, prototype.id, undefined, {
+      page: 2,
+      pageSize: 1,
+    })
+    expect(olderPage?.prototype.authorLogin).toBeNull()
+  })
+
+  it("keeps the explicit Hub owner rather than substituting a contributor", async () => {
+    const repository = await prisma.repository.create({
+      data: { nameWithOwner: "octo/demo", defaultBranch: "main" },
+    })
+    const owner = await prisma.user.create({
+      data: { profile: { create: { provider: "github", login: "owner" } } },
+    })
+    const prototype = await prisma.prototype.create({
+      data: {
+        repositoryId: repository.id,
+        branchName: "proto/demo",
+        authorId: owner.id,
+        builds: {
+          create: {
+            number: 1,
+            authorProvider: "github",
+            authorIssuer: "https://github.com",
+            authorProviderUserId: "9",
+            authorLogin: "contributor",
+          },
+        },
+      },
+    })
+    expect(
+      (await findPrototypeDetail(prisma, repository.id, prototype.id))?.prototype.authorLogin,
+    ).toBe("owner")
+  })
+
   it("maps successful Build artifacts to access URLs and the selected Controls identity", async () => {
     const repositoryId = randomUUID()
     const prototypeId = randomUUID()

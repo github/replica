@@ -10,6 +10,7 @@ import type {
   GitHubWorkflowArtifact,
   GitHubWorkflowRun,
 } from "../../../integrations/github/create-github-actions-client/types.ts"
+import { GitHubCommitLookupError } from "../../../integrations/github/errors.ts"
 import {
   distArtifactName,
   maximumArtifactDownloadBytes,
@@ -59,7 +60,7 @@ export async function importGitHubWorkflowRun(
       run,
     })
     if (settled) {
-      logger.info({ runId: run.id }, "Stopped unfinished Build from a deselected workflow")
+      logger.info({ runId: run.id }, "Settled the Build from a deselected workflow")
     }
     return { dist: "ignored", screenshots: "absent" }
   }
@@ -68,9 +69,32 @@ export async function importGitHubWorkflowRun(
     job.githubRepositoryId,
     run,
     workflowPaths,
+    async (commitSha) => {
+      const author = await client.getCommitAuthor(commitSha)
+      if (!author) {
+        logger.warn({ runId: run.id, commitSha }, "GitHub commit has no linked author")
+      }
+      return author
+    },
   )
   if (prepared.status !== "ready") return { dist: "ignored", screenshots: "absent" }
-  const { buildId, buildRun, distDigest, ownsBuild, state } = prepared
+  const { buildId, buildRun, distDigest, ownsBuild, state, authorError } = prepared
+  if (prepared.authorPreserved) {
+    logger.warn({ buildId, runId: run.id }, "Existing Build author metadata was preserved")
+  }
+  if (prepared.authorError) {
+    logger.warn(
+      {
+        buildId,
+        runId: run.id,
+        errorType: prepared.authorError.name,
+        ...(prepared.authorError instanceof GitHubCommitLookupError
+          ? { statusCode: prepared.authorError.statusCode }
+          : {}),
+      },
+      "GitHub commit author lookup failed; artifact import will continue and retry",
+    )
+  }
   const completed = run.status === "completed"
   const completedAt = completed ? run.updatedAt : null
 
@@ -78,7 +102,7 @@ export async function importGitHubWorkflowRun(
     await completeGitHubBuildFailure(database, {
       buildId,
       run: buildRun,
-      completedAt,
+      completedAt: authorError ? null : completedAt,
       failureSummary,
     })
     logger.warn({ buildId, runId: run.id, failureSummary }, "GitHub Build import failed")
@@ -150,7 +174,12 @@ export async function importGitHubWorkflowRun(
     }
     const result = await importGitHubDistPackage(
       dependencies,
-      { buildId, run: buildRun, completedAt, expectedDistDigest },
+      {
+        buildId,
+        run: buildRun,
+        completedAt: authorError ? null : completedAt,
+        expectedDistDigest,
+      },
       downloaded.bytes,
     )
     if (result.status === "digest-mismatch") {
@@ -175,7 +204,8 @@ export async function importGitHubWorkflowRun(
     await registerImportedPrototype(database, buildId)
   }
   const screenshots = await importScreenshots()
-  // Screenshot errors throw before this, so recovery keeps retrying until they attach.
+  if (prepared.authorError) throw prepared.authorError
+  // Author and screenshot errors throw before this, so recovery retries the pass.
   if (completedAt) {
     await recordGitHubBuildRunCompletion(database, { buildId, run: buildRun, completedAt })
   }

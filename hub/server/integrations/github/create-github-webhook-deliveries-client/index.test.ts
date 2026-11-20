@@ -20,6 +20,35 @@ function respondWith(response: Response) {
 }
 
 describe("createGitHubWebhookDeliveriesClient", () => {
+  it("preserves int64 delivery IDs from raw JSON through a redelivery request", async () => {
+    const id = "9007199254740993"
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([delivery]).replace('"id":9', `"id":${id}`)),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 202 }))
+    const client = createGitHubWebhookDeliveriesClient(input, { fetch })
+    const page = await client.listDeliveries(null)
+    expect(page.deliveries[0]?.id).toBe(id)
+    await client.redeliver(page.deliveries[0]!.id)
+    expect(fetch.mock.calls[1]?.[0]).toEqual(
+      new URL(`https://api.github.com/app/hook/deliveries/${id}/attempts`),
+    )
+  })
+
+  it.each(["9223372036854775808", "-9007199254740993", '"../config"'])(
+    "rejects a delivery ID outside the positive int64 contract (%s)",
+    async (id) => {
+      const client = createGitHubWebhookDeliveriesClient(input, {
+        fetch: respondWith(
+          new Response(JSON.stringify([delivery]).replace('"id":9', `"id":${id}`)),
+        ),
+      })
+      await expect(client.listDeliveries(null)).rejects.toMatchObject({ failure: "response" })
+    },
+  )
+
   it("lists deliveries and follows GitHub's next cursor", async () => {
     const fetch = respondWith(
       new Response(JSON.stringify([delivery]), {
@@ -81,5 +110,44 @@ describe("createGitHubWebhookDeliveriesClient", () => {
     })
 
     await expect(client.redeliver(9)).rejects.toBeInstanceOf(GitHubProviderRequestError)
+  })
+
+  it("distinguishes rejected credentials from an unreadable successful response without leaking bodies", async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(new Response('{"message":"private response"}', { status: 401 }))
+      .mockResolvedValueOnce(new Response('{"private":"response"}'))
+    const client = createGitHubWebhookDeliveriesClient(input, { fetch })
+
+    await expect(client.listDeliveries(null)).rejects.toMatchObject({
+      operation: "list-deliveries",
+      failure: "http",
+      statusCode: 401,
+    })
+    const error = await client.listDeliveries(null).catch((error: unknown) => error)
+    expect(error).toMatchObject({
+      operation: "list-deliveries",
+      failure: "response",
+      statusCode: 200,
+    })
+    expect(JSON.stringify(error)).not.toContain("private")
+  })
+
+  it("returns only public webhook configuration fields", async () => {
+    const client = createGitHubWebhookDeliveriesClient(input, {
+      fetch: respondWith(
+        Response.json({
+          url: "https://hub.example/api/github/webhooks",
+          content_type: "json",
+          insecure_ssl: "0",
+          secret: "must-not-escape",
+        }),
+      ),
+    })
+    expect(await client.getConfiguration()).toEqual({
+      url: "https://hub.example/api/github/webhooks",
+      contentType: "json",
+      insecureSsl: "0",
+    })
   })
 })

@@ -27,7 +27,7 @@ Before adding `builds`, upgrade every selected workflow's Replica publish, scree
 
 Hub reads the default branch from GitHub, resolves its commit, and checks its Git tree before reading configuration at that exact revision. Neither `.github` nor `replica.json` may be a symbolic link. Incomplete directory listings stop selection rather than count as missing configuration. Hub never uses the prototype branch's configuration, so existing prototype branches need no configuration update. Webhooks only queue run IDs; import workers and recovery enforce the same validated selection. Each import job or repository poll reads a fresh selection; changing the file affects subsequent work without replacing or deleting successful Builds.
 
-Removing a workflow stops artifact imports from it. Its next import pass marks any queued or running Build still owned by that run as failed with a configuration explanation, so it leaves the awaiting-import sweep. It does not create Builds, transfer ownership, or change successful Builds. To retry a stopped Build, select the workflow again and rerun it as a new run or attempt.
+Removing a workflow stops artifact imports from it. Its next import pass marks any queued or running Build still owned by that run as failed with a configuration explanation, so it leaves the awaiting-import sweep. For a completed run, it records only the attempt's completion on an owned successful or failed Build, which ends automatic author and screenshot recovery for that attempt. It does not create Builds, transfer ownership, change artifacts or owners, or rewrite failure details. To retry a stopped Build, select the workflow again and rerun it as a new run or attempt; use the [author repair command](#commit-authors) for missing authors.
 
 An omitted file, `builds`, or `builds.workflows` keeps the legacy default. An explicit list replaces that default; include `.github/workflows/replica.yml` explicitly to select it too. Use one to ten unique paths directly under `.github/workflows/`, ending in `.yml` or `.yaml`. Filenames must start with an ASCII letter or digit and contain only letters, digits, dots, underscores, or hyphens; each complete path is limited to 255 characters. Configuration must be a regular JSON file of at most 16 KiB. Invalid configuration stops imports and discovery with an error naming the configuration file; provider failures do not select a fallback workflow.
 
@@ -125,9 +125,29 @@ One Build exists per prototype identity and commit. Each pass is idempotent:
 
 GitHub lists named artifacts across rerun attempts. Hub prefers packages created at or after the current attempt's `run_started_at`. If that attempt has no dist package, Hub reuses an unexpired dist from an earlier attempt of the same run only when the Build already has that digest or the current attempt's screenshots name it. This supports **Re-run failed jobs** when only screenshots failed and GitHub keeps the successful publish job's artifact. During a full rerun, the current attempt has no screenshots yet, so Hub waits for that attempt's own dist instead of fixing the Build to the earlier one. If the run completes without a matching dist, the Build fails without storing the earlier package. The first successful dist import fixes the Build's digest; subsequent attempts never replace it, and screenshots attach only when their digest matches that Build.
 
-Hub records each contributing run's completed attempt only after registration and screenshot processing finish. A transport or storage error leaves that run pending for recovery even if another run already imported the dist preview. A newer attempt still needs its own pass; delayed completion from an older attempt cannot undo a newer receipt. Owning-run completion and immutable dist ownership remain unchanged.
+Hub records each contributing run's completed attempt only after author resolution, registration, and screenshot processing finish. A provider, transport, or storage error leaves that run pending for recovery even if the dist preview is already available. The awaiting-import retry and workflow discovery both retry failed Builds without an author or completed watermark, without reopening the Build or replacing its failure details. A deselected completed run settles that attempt, so it leaves both scans; reselection needs a new run or attempt, or the repair command. The existing deselected-workflow failure summary distinguishes a stopped unfinished Build, so keep its stored text stable. A newer attempt still needs its own pass; delayed completion from an older attempt cannot undo a newer receipt. Owning-run completion and immutable dist ownership remain unchanged.
 
 Storage keys derive from the Build, file path, and content. Retries reuse identical objects, a key with different bytes stops the import, and keys are never deleted. Unreferenced keys left by an interrupted import are harmless.
+
+### Commit authors
+
+Hub resolves the linked GitHub account from the imported commit SHA, not the workflow actor or free-text commit name/email. Builds retain that provider identity and login. Imports and repairs do not create Hub users or assign or replace Prototype owners: commit attribution is not authenticated ownership. Without an owner, the index and detail header use the current Build's GitHub author snapshot (or the latest Build when none is current), and index search uses that same visible author. Bots remain bot accounts, and a commit response without a linked account remains unknown with a warning. Failed commit lookups, including HTTP 404 or 422, are reported and retried instead of being treated as an unlinked author. Available artifacts still import; recovery can requeue eligible Builds while their completed import pass remains unrecorded. Later passes reuse an existing GitHub identity without another commit lookup.
+
+Builds whose completed import pass was already recorded are not automatically revisited solely for missing author metadata. From `hub/`, use the existing configured App and database connection to inspect one retained Build:
+
+```sh
+npm run github:repair-author -- --repository-id GITHUB_NUMERIC_REPOSITORY_ID --build-id BUILD_UUID
+```
+
+The default only resolves the saved commit. An `available` result shows the proposed author, whether the Build metadata would update, remain unchanged, or be preserved, and that the Prototype owner stays unchanged. It does not write. After approving the target, add `--apply` to fill missing Build identity metadata. Repeated application returns `unchanged`; an existing different or incomplete author snapshot returns `preserved`. The write rechecks the connected repository, Build, commit, and run after the provider lookup, so concurrent changes may alter the result. No Prototype owner, artifacts, Build state, workflow ownership, or current selection are replaced. This command can repair older retained Builds outside the polling window. Applying it to production requires separate approval; do not paste credentials into arguments.
+
+For a built image with runtime secrets already supplied, use `npm run start:github:repair-author --` with the same arguments. For an Azure installation that loads Key Vault secrets at startup, use:
+
+```sh
+node dist/server/scripts/azure-entrypoint/index.js repair-github-build-author --repository-id GITHUB_NUMERIC_REPOSITORY_ID --build-id BUILD_UUID
+```
+
+The Azure command loads the existing runtime secret references in the maintenance process before running the repair. It does not change the running Hub process or its configuration.
 
 ## Automatic prototype registration
 
@@ -147,7 +167,7 @@ Replacement histories reject workflow runs created at or before the recorded del
 
 Deletion events are still recorded when received, rather than confirmed synchronously against GitHub. A delayed delete can temporarily retire a live branch; the next poll checks continuity before resuming the latest identity. A delete received after restoration causes another such check. When only a SHA-less `delete` event arrives, continuity is lost, but every retained relationship stays on the retired identity. Deletion events missed beyond the recovery window cannot establish a lifecycle boundary. A replacement's intermediate workflow runs that predate a delayed deletion receipt are conservatively skipped unless their commit is its confirmed current head; re-running the full workflow on the current head remains safe.
 
-Gallery and prototype-list queries are unchanged. `registeredAt !== null` remains the registration contract, alongside their existing repository, branch, and visibility checks.
+`registeredAt !== null` remains the registration contract, alongside existing repository, branch, and visibility checks. Gallery search also includes the displayed Build author when the Prototype has no owner.
 
 ## Artifact contracts
 
@@ -169,7 +189,7 @@ GitHub does not retry failed webhook deliveries, so scheduled jobs recover misse
 | ---------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Every minute     | `recover-github-webhook-deliveries`   | Scans the App's recent webhook deliveries from a saved checkpoint and asks GitHub to redeliver workflow, installation, and access events that Hub never recorded. |
 | Every 5 minutes  | `discover-github-workflow-runs`       | Polls branch heads and recent Replica workflow runs for connected repositories and enqueues unsettled runs, so Builds arrive even without webhooks.               |
-| Every 5 minutes  | `retry-github-builds-awaiting-import` | Re-enqueues recent GitHub Builds whose dist import or final screenshot pass is still owed.                                                                        |
+| Every 5 minutes  | `retry-github-builds-awaiting-import` | Re-enqueues queued or running Builds, successful Builds whose final author or screenshot pass is still owed, and failed Builds whose author lookup is still owed. |
 | Every 15 minutes | `reconcile-github-installation`       | Refreshes the installation's repository list.                                                                                                                     |
 
 Webhook redelivery covers deliveries from the past three days, the limit of GitHub's delivery history. It retries unrecorded deliveries with status 0, 401, 403, 404, 429, or 5xx, including access-removal events rejected during an authentication or routing outage. A lease lets one worker run at a time. Each missed delivery is retried at most 12 times, with backoff from one minute to one hour, and settled records are removed after 30 days. Redelivery cannot help while Hub is unreachable; discovery and retry then import the Build once Hub is back, as long as its artifact has not expired.
@@ -178,8 +198,32 @@ Discovery and retry look back three days, matching the artifacts' retention. Run
 
 Branch polling selects a matching existing Build when a branch returns to an earlier commit; it does not invent a Build without a workflow package or delete branches. Poll observations do not replace workflow creation times or rewrite an unchanged prototype selection. Reselection retains the latest workflow timestamp and run ID so a known run's redelivery cannot undo it, while a new run can still become current. When an older installation has a selection timestamp but no saved run ID, runs with the same timestamp do not replace the selection because their order is unknown; a later timestamp can still select a Build.
 
-Each poll bounds branch listing to ten pages of 100. Workflow discovery queries each selected workflow and removes duplicate run IDs. It pages through recent runs within the recovery window, up to GitHub's 1,000-result filtered-search limit per workflow; reaching that limit reports an error instead of silently accepting a truncated list. A provider failure for any selected workflow rejects that repository's discovery pass rather than returning a partial list. Saved unfinished Builds are retried separately. A very busy repository can therefore outrun discovery of previously unseen runs; recovery is a safety net, not an unlimited delivery guarantee. Runs that reuse an immutable Build or have lost ownership to a newer run do not keep queuing redundant imports. Webhook imports and polling share immutable Build ownership, so whichever valid dist import commits first wins.
+Each poll bounds branch listing to ten pages of 100. Workflow discovery queries each selected workflow and removes duplicate run IDs. It pages through recent runs within the recovery window, up to GitHub's 1,000-result filtered-search limit per workflow; reaching that limit reports an error instead of silently accepting a truncated list. A provider failure for any selected workflow rejects that repository's discovery pass rather than returning a partial list. Saved queued, running, incomplete successful, and author-pending failed Builds are retried separately, so they do not depend on discovery's limits. A very busy repository can therefore outrun discovery of previously unseen runs; recovery is a safety net, not an unlimited delivery guarantee. Runs that reuse an immutable Build or have lost ownership to a newer run do not keep queuing redundant imports. Webhook imports and polling share immutable Build ownership, so whichever valid dist import commits first wins.
+
+### Verify webhook communication
+
+From `hub/`, using an existing authorized runtime environment:
+
+```sh
+npm run github:check-webhooks -- --repository-id GITHUB_NUMERIC_REPOSITORY_ID --run-id WORKFLOW_RUN_ID
+```
+
+For a built image with runtime secrets already supplied, use `npm run start:github:check-webhooks --` with the same arguments. For an Azure installation using runtime Key Vault references, use:
+
+```sh
+node dist/server/scripts/azure-entrypoint/index.js check-github-webhooks --repository-id GITHUB_NUMERIC_REPOSITORY_ID --run-id WORKFLOW_RUN_ID
+```
+
+This command checks App JWT signing/identity, installation access, repository-scoped Actions/Contents token access, the exact webhook URL (`HUB_APPLICATION_ORIGIN/api/github/webhooks`), JSON/TLS settings, required event subscriptions, and App delivery-history reads. It issues a short-lived installation token but does not send an event, request redelivery, change settings, or write database records. It never outputs tokens, the webhook secret, response payloads, or configured URLs.
+
+App delivery-history endpoints use an **App JWT**, not an installation token. A successful artifact download therefore does not prove delivery-recovery access. Recovery errors distinguish HTTP rejection (including the status), transport failure, and an invalid successful response; none is silently treated as success. HTTP 401 requires checking App ID/key validity and clock, while 403 requires checking App authority and provider policy. Those statuses are evidence to investigate, not proof of one particular configuration fault.
+
+Delivery IDs are positive int64 values and can exceed JavaScript's safe integer range. Hub preserves those JSON integer tokens as decimal strings through database storage and redelivery URLs, rather than rounding them. A schema rejection on a successful delivery-history response is not an authentication failure.
+
+To inspect a real delivery, obtain its GUID from this repository's GitHub App delivery history and add `--delivery-guid DELIVERY_UUID`. The command only reads receipts after finding that GUID for the selected installation and repository in the latest 100 App deliveries. It uses a read-only database transaction with a five-second statement timeout. Missing or older provider history is `unknown`, not a pass. A receipt proves Hub accepted the signature and handled/enqueued the event, not that import finished. The separate repository/run Build check requires completion evidence for the attempt currently reported by GitHub, including runs that contributed to another run's Build; polling can also have processed that run. Neither check associates the delivery with the supplied run. A `succeeded` recovery record may be settled from an existing receipt or provider delivery, so it does not prove a redelivery occurred.
+
+For end-to-end testing, use a dedicated test installation/repository and a normal signed `workflow_run` or `workflow_job` event from its prototype workflow. Verify the GUID receipt, Build commit/run/artifact linkage, and any recovery state. GitHub's **Redeliver** action sends a real event and can enqueue imports; it needs separate production approval. A webhook ping alone does not establish workflow import or recovery. Local route and recovery tests cover signature rejection, queue failure, receipts, and redelivery without production traffic.
 
 ## Not yet implemented
 
-Workflow-installation UI, Build start pages and authorship display, and the templates API are later increments.
+Workflow-installation UI, Build start pages, and the templates API are later increments.

@@ -1,6 +1,10 @@
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
 import type { GitHubWorkflowRun } from "../../../integrations/github/create-github-actions-client/types.ts"
+import { GitHubProviderRequestError } from "../../../integrations/github/errors.ts"
+import { findGitHubBuildAuthor } from "../../../repositories/github-builds/find-github-build-author/index.ts"
 import { prepareGitHubBuild } from "../../../repositories/github-builds/prepare-github-build/index.ts"
+import { recordGitHubBuildAuthor } from "../../../repositories/github-builds/record-github-build-author/index.ts"
+import type { createGitHubActionsClient } from "../../../integrations/github/create-github-actions-client/index.ts"
 import { isGitHubWorkflowBranchPush } from "../is-github-workflow-branch-push/index.ts"
 
 /**
@@ -12,6 +16,7 @@ export async function prepareGitHubWorkflowRunBuild(
   githubRepositoryId: number,
   run: GitHubWorkflowRun,
   workflowPaths: string[],
+  getCommitAuthor: ReturnType<typeof createGitHubActionsClient>["getCommitAuthor"],
 ) {
   if (
     !isGitHubWorkflowBranchPush(githubRepositoryId, run) ||
@@ -33,5 +38,47 @@ export async function prepareGitHubWorkflowRunBuild(
     author: null,
   })
   if (prepared.status !== "ready") return prepared
-  return { ...prepared, buildRun }
+  const saved = await findGitHubBuildAuthor(database, {
+    buildId: prepared.buildId,
+    commitSha: run.headSha,
+    githubRepositoryId,
+  })
+  if (!saved) throw new Error("The Build or repository no longer matches the GitHub run.")
+  const noIdentity =
+    saved.authorProvider === null &&
+    saved.authorIssuer === null &&
+    saved.authorProviderUserId === null
+  const savedGitHubIdentity =
+    saved.authorProvider === "github" &&
+    saved.authorIssuer === "https://github.com" &&
+    saved.authorProviderUserId
+  let authorPreserved = !noIdentity && !savedGitHubIdentity
+  let author: { providerUserId: string; login: string | null; avatarUrl: string | null } | null =
+    null
+  let authorError: GitHubProviderRequestError | undefined
+  if (savedGitHubIdentity) {
+    author = {
+      providerUserId: savedGitHubIdentity,
+      login: saved.authorLogin,
+      avatarUrl: saved.authorAvatarUrl,
+    }
+  } else if (noIdentity) {
+    try {
+      author = await getCommitAuthor(run.headSha)
+    } catch (error) {
+      if (!(error instanceof GitHubProviderRequestError)) throw error
+      authorError = error
+    }
+  }
+  if (author) {
+    const recorded = await recordGitHubBuildAuthor(database, {
+      buildId: prepared.buildId,
+      commitSha: run.headSha,
+      githubRepositoryId,
+      githubWorkflowRunId: saved.githubWorkflowRunId,
+      author,
+    })
+    authorPreserved = recorded.status === "preserved"
+  }
+  return { ...prepared, buildRun, authorPreserved: Boolean(authorPreserved), authorError }
 }

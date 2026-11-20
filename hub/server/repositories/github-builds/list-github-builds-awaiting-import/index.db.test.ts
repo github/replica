@@ -2,9 +2,10 @@ import { randomInt, randomUUID } from "node:crypto"
 
 import { describe, expect, it } from "vitest"
 
-import type { Prisma } from "../../../generated/prisma/client.ts"
-import { prisma } from "../../../integrations/prisma/index.ts"
-import { listGitHubBuildsAwaitingImport } from "./index.ts"
+import type { Prisma } from "../../../generated/prisma/client"
+import { prisma } from "../../../integrations/prisma"
+import { githubDeselectedWorkflowFailure } from "../../../utils/github-deselected-workflow-failure"
+import { listGitHubBuildsAwaitingImport } from "."
 
 const createdAfter = new Date(Date.now() - 60 * 60 * 1_000)
 
@@ -75,5 +76,36 @@ describe("listGitHubBuildsAwaitingImport", () => {
     const listed = await listGitHubBuildsAwaitingImport(prisma, { createdAfter, limit: 10_000 })
 
     expect(listed).not.toContainEqual(build)
+  })
+
+  it("retries failed Builds only while their author lookup is pending", async () => {
+    const repository = await createRepository()
+    const authorPending = await repository.createBuild({
+      state: "failed",
+      failureSummary: "The package is invalid.",
+    })
+    const completed = await repository.createBuild({
+      state: "failed",
+      failureSummary: "The package is invalid.",
+      workflowCompletedAt: new Date(),
+    })
+    const deselected = await repository.createBuild({
+      state: "failed",
+      failureSummary: githubDeselectedWorkflowFailure,
+    })
+    const attributed = await repository.createBuild({
+      state: "failed",
+      failureSummary: "The package is invalid.",
+      authorProvider: "github",
+      authorIssuer: "https://github.com",
+      authorProviderUserId: "9",
+    })
+
+    const listed = await listGitHubBuildsAwaitingImport(prisma, { createdAfter, limit: 10_000 })
+
+    expect(listed).toContainEqual(authorPending)
+    for (const settled of [completed, deselected, attributed]) {
+      expect(listed).not.toContainEqual(settled)
+    }
   })
 })
