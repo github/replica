@@ -5,10 +5,12 @@ import express from "express"
 import { describe, expect, it, vi } from "vitest"
 
 import type { AgentVisualCriticRouteDependencies } from "../../types"
+import type { AgentEvaluationAuthority } from "../../../../../../domains/decision-model/types"
 import { post } from "."
 
 const authority = {
   sessionKey: "authorized-session",
+  actorMembershipId: "44444444-4444-4444-8444-444444444444",
   repositoryId: "11111111-1111-4111-8111-111111111111",
   prototypeId: "22222222-2222-4222-8222-222222222222",
   buildId: "33333333-3333-4333-8333-333333333333",
@@ -45,9 +47,15 @@ function png() {
   return bytes.toString("base64")
 }
 
-function dependencies(
-  overrides: Partial<AgentVisualCriticRouteDependencies> = {},
-): AgentVisualCriticRouteDependencies {
+type Dependencies = AgentVisualCriticRouteDependencies & {
+  authorize(input: {
+    token: string
+    branch: string
+    commitSha: string
+  }): Promise<AgentEvaluationAuthority>
+}
+
+function dependencies(overrides: Partial<Dependencies> = {}): Dependencies {
   return {
     authorize: vi.fn().mockResolvedValue(authority),
     evaluate: vi.fn().mockResolvedValue(evaluationResult),
@@ -61,7 +69,7 @@ async function withRoute(
 ) {
   const app = express()
   app.use(express.json())
-  app.post("/api/canvas/decision-model/evaluations", post(deps))
+  app.post("/api/canvas/decision-model/evaluations", post(deps as Dependencies))
   const server = createServer(app)
   server.listen(0, "127.0.0.1")
   await once(server, "listening")
@@ -76,7 +84,6 @@ async function withRoute(
 }
 
 const requestBody = {
-  sessionId: "canvas-session-1",
   branch: authority.branch,
   commitSha: authority.commitSha,
   currentRoute: "/settings",
@@ -131,7 +138,6 @@ describe("POST canvas decision-model evaluation", () => {
       expect(response.headers.get("x-replica-canvas-version")).toBe("1")
       expect(authorize).toHaveBeenCalledWith({
         token: "token-xxxxxxxxxxxxxxxxxx",
-        sessionId: requestBody.sessionId,
         branch: authority.branch,
         commitSha: authority.commitSha,
       })
@@ -160,7 +166,7 @@ describe("POST canvas decision-model evaluation", () => {
 
       expect(response.status).toBe(422)
       expect(await response.json()).toMatchObject({
-        code: "invalid_decision_model_request",
+        code: "invalid_request",
       })
       expect(authorize).not.toHaveBeenCalled()
       expect(evaluate).not.toHaveBeenCalled()

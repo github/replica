@@ -134,6 +134,76 @@ function decodeArchive(bytes: Uint8Array) {
 }
 
 describe("createHubDecisionTasksetSource()", () => {
+  it("reads active training consent and NOUL learning questions for the requesting member", async () => {
+    const learningId = "mem_111111111111111111111111"
+    vi.mocked(prepareLearningStore).mockResolvedValue({
+      directory: "/private/learning/repository",
+      repositoryScope: `github.com/repositories/${repositoryId}`,
+    })
+    vi.mocked(runLearningCommand).mockImplementation((arguments_) => {
+      if (arguments_[0] === "grants") {
+        return Promise.resolve([
+          {
+            grant: { id: "expired-training", sources: ["hub_review_comments"] },
+            activePurposes: ["training"],
+            expired: true,
+          },
+          {
+            grant: { id: "active-training", sources: ["manual"] },
+            activePurposes: ["training"],
+            expired: false,
+          },
+        ])
+      }
+      return Promise.resolve({
+        questions: {
+          [learningId]: {
+            type: "noul",
+            instructions: "Does the candidate follow this learning?",
+            learning_text: "Use the approved account heading.",
+            criteria: { true: "Follows", false: "Breaks" },
+          },
+          "choice-question": {
+            type: "choice",
+            instructions: "Choose the strongest option.",
+            criteria: { first: "First", second: "Second" },
+          },
+          "score-question": {
+            type: "score",
+            instructions: "Score the result.",
+            criteria: ["Poor", "Strong"],
+          },
+        },
+      })
+    })
+
+    const result = await hubSource(storage({})).readAgentLearningAuthority({
+      repositoryId,
+      actorMembershipId: "44444444-4444-4444-8444-444444444444",
+    })
+
+    expect(result).toEqual({
+      consentGranted: true,
+      questionDigest: digest(
+        new TextEncoder().encode(
+          `{"${learningId}":{"learning_text":"Use the approved account heading."}}`,
+        ),
+      ),
+      questions: {
+        [learningId]: { learning_text: "Use the approved account heading." },
+      },
+    })
+    expect(runLearningCommand).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        "decision",
+        "questions",
+        "--by",
+        "human:44444444-4444-4444-8444-444444444444",
+      ]),
+      expect.anything(),
+    )
+  })
+
   it("continues withdrawal discovery after one repository store fails", async () => {
     vi.mocked(listDecisionWithdrawalSources).mockResolvedValue([
       { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", decisionTrainingJobs: [], accessGrants: [] },

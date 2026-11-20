@@ -485,11 +485,7 @@ export async function startCanvasServer(
       return previewUpdate
     },
     getHubStatus: hubStatus,
-    evaluatePrototype: async (input: {
-      sessionId: string
-      currentRoute: string | null
-      screenshots: unknown
-    }) => {
+    evaluatePrototype: async (input: { currentRoute: string | null; screenshots: unknown }) => {
       const hub = await hubClient()
       if (!hub)
         throw Object.assign(new Error("Connect this repository to Hub first."), {

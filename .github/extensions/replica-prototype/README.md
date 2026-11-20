@@ -86,7 +86,7 @@ Copilot CLI runs extensions only while its extensions feature is on. In Copilot 
 
 When a compatible Hub has the repository decision runtime enabled, agents can call `evaluate_prototype` on an open canvas with bounded PNG screenshots captured through the browser canvas or Replica Build capture path. Each screenshot names its root-relative route, desktop or narrow viewport, and light or dark theme.
 
-The action uses the repository's approved Hub connection and sends no user prompt, local preview origin, Hub credential, or runtime credential. Results are unverified authoring guidance. They never change code, publish, promote a model, or create a verified review outcome. Fixture results explicitly disable production guidance.
+The action uses the repository's approved Hub connection and sends no user prompt, Copilot session ID, local preview origin, Hub credential, or runtime credential. Results are unverified authoring guidance. They never change code, publish, promote a model, or create a verified review outcome. Fixture results explicitly disable production guidance.
 
 Use the result to inspect one intentional iteration. Do not chase model probabilities, omit disagreeing views, or present the result as reviewer-confirmed improvement.
 

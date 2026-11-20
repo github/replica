@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from "vitest"
 
 import type { AgentEvaluationDependencies, AgentEvaluationScreenshot } from "../types"
-import { createAgentEvaluationCache } from "../create-agent-evaluation-cache"
 import { evaluatePrototypeWithDecisionModel } from "."
 
 const repositoryId = "11111111-1111-4111-8111-111111111111"
 const candidateId = "22222222-2222-4222-8222-222222222222"
 const authority = {
   sessionKey: "session-1",
+  actorMembershipId: "55555555-5555-4555-8555-555555555555",
   repositoryId,
   prototypeId: "33333333-3333-4333-8333-333333333333",
   buildId: "44444444-4444-4444-8444-444444444444",
@@ -42,7 +42,19 @@ function dependencies(overrides: Partial<AgentEvaluationDependencies> = {}) {
     previousRuntimeCandidateId: null,
     runtimeGeneration: 7,
   }
-  const reserveFresh = vi.fn()
+  const cache = new Map<
+    string,
+    { id: string; result?: Awaited<ReturnType<typeof evaluatePrototypeWithDecisionModel>> }
+  >()
+  const reserve = vi.fn((input: { cacheKey: string }) => {
+    const current = cache.get(input.cacheKey)
+    if (current?.result) {
+      return Promise.resolve({ status: "cached" as const, result: current.result })
+    }
+    const id = "evaluation-reservation"
+    cache.set(input.cacheKey, { id })
+    return Promise.resolve({ status: "reserved" as const, id })
+  })
   const runtimeEvaluate = vi
     .fn<AgentEvaluationDependencies["runtime"]["evaluate"]>()
     .mockResolvedValue({
@@ -58,10 +70,21 @@ function dependencies(overrides: Partial<AgentEvaluationDependencies> = {}) {
       ],
     })
   const base: AgentEvaluationDependencies = {
-    cache: createAgentEvaluationCache(),
+    cache: {
+      reserve,
+      complete(id, result) {
+        const entry = [...cache.entries()].find(([, value]) => value.id === id)
+        if (entry) cache.set(entry[0], { id, result })
+        return Promise.resolve()
+      },
+      fail(id) {
+        const entry = [...cache.entries()].find(([, value]) => value.id === id)
+        if (entry) cache.delete(entry[0])
+        return Promise.resolve()
+      },
+    },
     limits: {
-      checkRate: vi.fn(),
-      reserveFresh,
+      checkRate: vi.fn().mockResolvedValue(undefined),
     },
     readLearningAuthority: vi.fn().mockResolvedValue({
       consentGranted: true,
@@ -107,7 +130,7 @@ function dependencies(overrides: Partial<AgentEvaluationDependencies> = {}) {
       getPromotion: vi.fn().mockResolvedValue(promotion),
     },
   }
-  return { ...base, ...overrides, runtimeEvaluate, reserveFresh }
+  return { ...base, ...overrides, runtimeEvaluate, reserve }
 }
 
 describe("evaluatePrototypeWithDecisionModel()", () => {
@@ -191,7 +214,7 @@ describe("evaluatePrototypeWithDecisionModel()", () => {
     expect(first.status).toBe("fresh")
     expect(second).toMatchObject({ evaluationId: first.evaluationId, status: "cached" })
     expect(deps.runtimeEvaluate).toHaveBeenCalledTimes(1)
-    expect(deps.reserveFresh).toHaveBeenCalledTimes(1)
+    expect(deps.reserve).toHaveBeenCalledTimes(2)
   })
 
   it("marks fixture findings as unavailable test data", async () => {

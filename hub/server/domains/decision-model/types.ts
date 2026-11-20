@@ -328,6 +328,7 @@ export interface AgentEvaluationScreenshot {
 
 export interface AgentEvaluationAuthority {
   sessionKey: string
+  actorMembershipId: string
   repositoryId: string
   prototypeId: string | null
   buildId: string | null
@@ -349,7 +350,7 @@ export interface AgentEvaluationResult {
     available: boolean
     notice: string
   }
-  context: Omit<AgentEvaluationAuthority, "sessionKey">
+  context: Omit<AgentEvaluationAuthority, "sessionKey" | "actorMembershipId">
   model: {
     candidateId: string
     runtimeCandidateId: string
@@ -360,13 +361,23 @@ export interface AgentEvaluationResult {
 }
 
 export interface AgentEvaluationCache {
-  get(key: string): AgentEvaluationResult | null
-  set(key: string, value: AgentEvaluationResult): void
+  reserve(input: {
+    cacheKey: string
+    candidateId: string
+    promotionGeneration: number
+    questionDigest: string
+    repositoryId: string
+    reservedCredits: number
+    screenshotSetDigest: string
+  }): Promise<
+    { status: "cached"; result: AgentEvaluationResult } | { status: "reserved"; id: string }
+  >
+  complete(id: string, value: AgentEvaluationResult): Promise<void>
+  fail(id: string): Promise<void>
 }
 
 export interface AgentEvaluationLimits {
-  checkRate(input: { sessionKey: string; repositoryId: string }): void
-  reserveFresh(input: { repositoryId: string; credits: number }): void
+  checkRate(input: { sessionKey: string; repositoryId: string }): Promise<void>
 }
 
 export interface AgentEvaluationDependencies {

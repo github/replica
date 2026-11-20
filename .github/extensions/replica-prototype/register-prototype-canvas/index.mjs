@@ -629,7 +629,6 @@ export async function registerPrototypeCanvas(
                   entry.context.normalizedUrl,
                 )
                 return await entry.prototype.evaluatePrototype({
-                  sessionId: entry.context.sessionId || ctx.sessionId,
                   currentRoute: live.route ? String(live.route.pathname) : null,
                   screenshots: isRecord(ctx.input) ? ctx.input.screenshots : null,
                 })

@@ -158,7 +158,6 @@ export async function evaluatePrototype(hub, input) {
       branch: checkout.branch,
     },
     body: {
-      sessionId: input.sessionId,
       branch: checkout.branch,
       commitSha: checkout.commitSha,
       currentRoute: input.currentRoute === null ? null : route(input.currentRoute),

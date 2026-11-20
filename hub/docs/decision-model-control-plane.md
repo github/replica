@@ -72,7 +72,7 @@ Training withdrawal is selector-based. Hub records the export, grant, evidence, 
 
 ## Agent visual critic
 
-The prototype canvas exposes `evaluate_prototype` for an authoring agent to request explicit visual feedback while iterating. The action accepts only bounded PNG captures for named routes and the supported desktop or narrow, light or dark view combinations. Agents capture those images through the isolated browser canvas or the existing Replica Build capture path. The action never sends the user's prompt, local preview origin, Hub credential, or runtime credential.
+The prototype canvas exposes `evaluate_prototype` for an authoring agent to request explicit visual feedback while iterating. The action accepts only bounded PNG captures for named routes and the supported desktop or narrow, light or dark view combinations. Agents capture those images through the isolated browser canvas or the existing Replica Build capture path. The action never sends the user's prompt, Copilot session ID, local preview origin, Hub credential, or runtime credential.
 
 The plugin sends the current checkout branch and commit through its approved repository connection. Hub authorization derives the repository, prototype, and matching Build context from that connection rather than accepting repository IDs from the action. The route is registered only when runtime composition supplies this authorization adapter and the final decision-runtime and learning-authority sources.
 
@@ -80,7 +80,7 @@ The plugin sends the current checkout branch and commit through its approved rep
 
 For every request, Hub rereads repository enablement, learning consent and eligibility, runtime readiness, the promoted candidate, and its generation. Production guidance requires a production-ready runtime and a production-eligible promoted candidate. A fixture runtime may return unmistakable fixture findings with `guidance.available: false`; consumers must not use them as production guidance.
 
-Hub hashes the screenshot set and reuses a short-lived bounded cache only while the repository, checkout, eligible learning digest, candidate, and promotion generation still match. Session and repository request limits apply to cached and fresh requests. The monthly repository evaluation budget applies only to fresh route evaluations.
+Hub hashes the screenshot set and reuses a short-lived bounded cache only while the repository, checkout, eligible learning digest, candidate, and promotion generation still match. The cache stores content-free learning IDs and probabilities, not learning text or screenshots; Hub rereads current eligible text before returning a cached result. Session and repository request limits apply to cached and fresh requests. The repository's monthly decision-model budget applies only to fresh route evaluations and includes active or completed training usage.
 
 Findings return learning ID and text, route, evaluated views, follows and breaks probabilities, candidate and promotion generation, cache status, and a bounded explanation. The explanation always labels the result as unverified authoring guidance. Evaluation does not change code, publish a Build, promote a model, save a review outcome, or verify improvement.
 

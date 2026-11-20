@@ -2,6 +2,8 @@ import type { RequestHandler } from "express"
 import { z } from "zod"
 
 import { respondDecisionModelError } from "../../../../decision-model/respond-decision-model-error/index.ts"
+import type { AgentEvaluationAuthority } from "../../../../../../domains/decision-model/types.ts"
+import { DecisionModelError } from "../../../../../../domains/decision-model/errors.ts"
 import type { AgentVisualCriticRouteDependencies } from "../../types.ts"
 
 const routeSchema = z
@@ -17,7 +19,6 @@ const routeSchema = z
   )
 const requestSchema = z
   .object({
-    sessionId: z.string().min(1).max(128),
     branch: z.string().min(1).max(255),
     commitSha: z.string().regex(/^[0-9a-f]{40}$/),
     currentRoute: routeSchema.nullable(),
@@ -42,7 +43,15 @@ function bearerToken(header: string | undefined) {
   return match?.[1] ?? null
 }
 
-export function post(dependencies: AgentVisualCriticRouteDependencies): RequestHandler {
+export function post(
+  dependencies: AgentVisualCriticRouteDependencies & {
+    authorize(input: {
+      token: string
+      branch: string
+      commitSha: string
+    }): Promise<AgentEvaluationAuthority>
+  },
+): RequestHandler {
   return async (request, response, next) => {
     try {
       const token = bearerToken(request.get("authorization"))
@@ -53,10 +62,18 @@ export function post(dependencies: AgentVisualCriticRouteDependencies): RequestH
         })
         return
       }
-      const input = requestSchema.parse(request.body)
+      const parsed = requestSchema.safeParse(request.body)
+      if (!parsed.success) {
+        throw new DecisionModelError(
+          422,
+          "invalid_request",
+          "The prototype-evaluation request is not valid.",
+          { cause: parsed.error },
+        )
+      }
+      const input = parsed.data
       const authority = await dependencies.authorize({
         token,
-        sessionId: input.sessionId,
         branch: input.branch,
         commitSha: input.commitSha,
       })

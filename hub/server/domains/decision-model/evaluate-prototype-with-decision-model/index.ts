@@ -72,7 +72,7 @@ export async function evaluatePrototypeWithDecisionModel(
   },
   dependencies: AgentEvaluationDependencies,
 ): Promise<AgentEvaluationResult> {
-  dependencies.limits.checkRate(input.authority)
+  await dependencies.limits.checkRate(input.authority)
   if (input.screenshots.length === 0 || input.screenshots.length > maximumScreenshots) {
     throw new DecisionModelError(
       422,
@@ -210,42 +210,97 @@ export async function evaluatePrototypeWithDecisionModel(
       ].join("\0"),
     )
     .digest("hex")
-  const cached = dependencies.cache.get(cacheKey)
-  if (cached) return { ...cached, status: "cached" }
-
   const byRoute = new Map<string, typeof prepared>()
   for (const item of prepared) {
     const routeScreenshots = byRoute.get(item.screenshot.route) ?? []
     routeScreenshots.push(item)
     byRoute.set(item.screenshot.route, routeScreenshots)
   }
-  dependencies.limits.reserveFresh({
+  const reservation = await dependencies.cache.reserve({
+    cacheKey,
+    candidateId: promotion.candidateId,
+    promotionGeneration: promotion.runtimeGeneration,
+    questionDigest: learningAuthority.questionDigest,
     repositoryId: input.authority.repositoryId,
-    credits: byRoute.size,
+    reservedCredits: byRoute.size,
+    screenshotSetDigest,
   })
+  if (reservation.status === "cached") {
+    return {
+      ...reservation.result,
+      status: "cached",
+      findings: reservation.result.findings.map((finding) => ({
+        ...finding,
+        learning: {
+          ...finding.learning,
+          text: learningAuthority.questions[finding.learning.id]?.learning_text ?? null,
+        },
+      })),
+    }
+  }
 
   const findings: AgentEvaluationResult["findings"] = []
-  for (const [route, routeScreenshots] of byRoute) {
-    const result = await dependencies.runtime.evaluate({
-      state: {
-        route,
-        currentRoute: input.currentRoute,
-        branch: input.authority.branch,
-        commitSha: input.authority.commitSha,
-      },
-      images: routeScreenshots.map(
-        ({ bytes }) => `data:image/png;base64,${bytes.toString("base64")}`,
-      ),
-      questions: learningAuthority.questions,
-      idempotencyKey: `agent-evaluation:${createHash("sha256")
-        .update(
-          [cacheKey, route, ...routeScreenshots.map(({ digest }) => digest).sort()].join("\0"),
+  try {
+    for (const [route, routeScreenshots] of byRoute) {
+      const result = await dependencies.runtime.evaluate({
+        state: {
+          route,
+          currentRoute: input.currentRoute,
+          branch: input.authority.branch,
+          commitSha: input.authority.commitSha,
+        },
+        images: routeScreenshots.map(
+          ({ bytes }) => `data:image/png;base64,${bytes.toString("base64")}`,
+        ),
+        questions: learningAuthority.questions,
+        idempotencyKey: `agent-evaluation:${createHash("sha256")
+          .update(
+            [cacheKey, route, ...routeScreenshots.map(({ digest }) => digest).sort()].join("\0"),
+          )
+          .digest("hex")}`,
+      })
+      if (
+        result.candidateId !== promotion.runtimeCandidateId ||
+        result.generation !== promotion.runtimeGeneration ||
+        !samePromotion(
+          await dependencies.store.getPromotion(input.authority.repositoryId),
+          promotion.candidateId,
+          promotion.runtimeGeneration,
         )
-        .digest("hex")}`,
-    })
+      ) {
+        throw new DecisionModelError(
+          409,
+          "promotion_stale",
+          "The promoted decision model changed during prototype evaluation.",
+        )
+      }
+      const views = routeScreenshots.map(({ screenshot }) => ({
+        viewport: screenshot.viewport,
+        theme: screenshot.theme,
+      }))
+      for (const evaluation of result.evaluations) {
+        const question = learningAuthority.questions[evaluation.learningId]
+        if (!question) {
+          throw new DecisionModelError(
+            502,
+            "runtime_unavailable",
+            "The decision runtime returned an ineligible learning.",
+          )
+        }
+        const finding = {
+          learning: { id: evaluation.learningId, text: question.learning_text },
+          route,
+          views,
+          followsProbability: evaluation.followsProbability,
+          breaksProbability: evaluation.breaksProbability,
+        }
+        findings.push({
+          ...finding,
+          explanation: explanation(finding, readiness.environment),
+        })
+      }
+    }
     if (
-      result.candidateId !== promotion.runtimeCandidateId ||
-      result.generation !== promotion.runtimeGeneration ||
       !samePromotion(
         await dependencies.store.getPromotion(input.authority.repositoryId),
         promotion.candidateId,
@@ -258,73 +313,38 @@ export async function evaluatePrototypeWithDecisionModel(
         "The promoted decision model changed during prototype evaluation.",
       )
     }
-    const views = routeScreenshots.map(({ screenshot }) => ({
-      viewport: screenshot.viewport,
-      theme: screenshot.theme,
-    }))
-    for (const evaluation of result.evaluations) {
-      const question = learningAuthority.questions[evaluation.learningId]
-      if (!question) {
-        throw new DecisionModelError(
-          502,
-          "runtime_unavailable",
-          "The decision runtime returned an ineligible learning.",
-        )
-      }
-      const finding = {
-        learning: { id: evaluation.learningId, text: question.learning_text },
-        route,
-        views,
-        followsProbability: evaluation.followsProbability,
-        breaksProbability: evaluation.breaksProbability,
-      }
-      findings.push({
-        ...finding,
-        explanation: explanation(finding, readiness.environment),
-      })
-    }
-  }
-  if (
-    !samePromotion(
-      await dependencies.store.getPromotion(input.authority.repositoryId),
-      promotion.candidateId,
-      promotion.runtimeGeneration,
-    )
-  ) {
-    throw new DecisionModelError(
-      409,
-      "promotion_stale",
-      "The promoted decision model changed during prototype evaluation.",
-    )
-  }
 
-  const guidanceAvailable =
-    readiness.environment === "production" && candidate.productionEligible === true
-  const value: AgentEvaluationResult = {
-    evaluationId: randomUUID(),
-    status: "fresh",
-    environment: readiness.environment,
-    guidance: {
-      available: guidanceAvailable,
-      notice: guidanceAvailable
-        ? "Use these findings only as unverified authoring guidance."
-        : "Fixture findings are test data and must not be used as production guidance.",
-    },
-    context: {
-      repositoryId: input.authority.repositoryId,
-      prototypeId: input.authority.prototypeId,
-      buildId: input.authority.buildId,
-      branch: input.authority.branch,
-      commitSha: input.authority.commitSha,
-    },
-    model: {
-      candidateId: promotion.candidateId,
-      runtimeCandidateId: promotion.runtimeCandidateId,
-      promotionGeneration: promotion.runtimeGeneration,
-    },
-    screenshotSetDigest,
-    findings,
+    const guidanceAvailable =
+      readiness.environment === "production" && candidate.productionEligible === true
+    const value: AgentEvaluationResult = {
+      evaluationId: randomUUID(),
+      status: "fresh",
+      environment: readiness.environment,
+      guidance: {
+        available: guidanceAvailable,
+        notice: guidanceAvailable
+          ? "Use these findings only as unverified authoring guidance."
+          : "Fixture findings are test data and must not be used as production guidance.",
+      },
+      context: {
+        repositoryId: input.authority.repositoryId,
+        prototypeId: input.authority.prototypeId,
+        buildId: input.authority.buildId,
+        branch: input.authority.branch,
+        commitSha: input.authority.commitSha,
+      },
+      model: {
+        candidateId: promotion.candidateId,
+        runtimeCandidateId: promotion.runtimeCandidateId,
+        promotionGeneration: promotion.runtimeGeneration,
+      },
+      screenshotSetDigest,
+      findings,
+    }
+    await dependencies.cache.complete(reservation.id, value)
+    return value
+  } catch (error) {
+    await dependencies.cache.fail(reservation.id)
+    throw error
   }
-  dependencies.cache.set(cacheKey, value)
-  return value
 }

@@ -161,7 +161,6 @@ function projectResult(value: unknown) {
 export async function evaluatePrototype(
   hub: Pick<HubClient, "checkout" | "request">,
   input: {
-    sessionId: string
     currentRoute: string | null
     screenshots: unknown
   },
@@ -181,7 +180,6 @@ export async function evaluatePrototype(
       branch: checkout.branch,
     },
     body: {
-      sessionId: input.sessionId,
       branch: checkout.branch,
       commitSha: checkout.commitSha,
       currentRoute: input.currentRoute === null ? null : route(input.currentRoute),

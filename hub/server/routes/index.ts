@@ -78,8 +78,6 @@ import { post as handleDecisionCandidatePromotionPost } from "./api/decision-mod
 import { post as handleDecisionCandidateRejectionPost } from "./api/decision-model/candidates/rejection/post/index.ts"
 import { post as handleDecisionRollbackPost } from "./api/decision-model/rollback/post/index.ts"
 import { post as handleDecisionBuildEvaluationPost } from "./api/decision-model/builds/evaluation/post/index.ts"
-import { post as handleAgentVisualCriticPost } from "./api/canvas/decision-model/evaluations/post/index.ts"
-import { requireCanvasAuthorization } from "./api/canvas/require-canvas-authorization/index.ts"
 
 /** Keep endpoint registration separate from the app's shared middleware. */
 export function routes(app: Express, dependencies: RouteDependencies = {}): void {
@@ -119,14 +117,6 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
   app.get("/api/ready", (request, response) =>
     handleApiReadyGet(request, response, { isReady, logger }),
   )
-  if (agentVisualCritic) {
-    app.post(
-      "/api/canvas/decision-model/evaluations",
-      requireCanvasAuthorization(),
-      express.json({ limit: "24mb", strict: true }),
-      handleAgentVisualCriticPost(agentVisualCritic),
-    )
-  }
   if (githubWebhooks) {
     app.post(
       "/api/github/webhooks",
@@ -144,7 +134,10 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
   }
   if (authentication) {
     if (product) {
-      app.use("/api/canvas", canvasRoutes(authentication.signOut.applicationOrigin, product))
+      app.use(
+        "/api/canvas",
+        canvasRoutes(authentication.signOut.applicationOrigin, product, agentVisualCritic),
+      )
       if (product.analytics)
         mountRepositoryAnalytics(
           app,

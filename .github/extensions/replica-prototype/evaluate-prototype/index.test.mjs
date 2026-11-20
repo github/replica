@@ -70,7 +70,6 @@ void describe("evaluatePrototype()", () => {
       },
     }
     const result = await evaluatePrototype(hub, {
-      sessionId: "canvas-session-1",
       currentRoute: "/settings",
       screenshots: [
         {
@@ -87,7 +86,6 @@ void describe("evaluatePrototype()", () => {
       branch: "prototype/visual-critic",
     })
     assert.deepEqual(requestOptions?.body, {
-      sessionId: "canvas-session-1",
       branch: "prototype/visual-critic",
       commitSha,
       currentRoute: "/settings",
@@ -131,7 +129,6 @@ void describe("evaluatePrototype()", () => {
     }
     await assert.rejects(
       evaluatePrototype(hub, {
-        sessionId: "canvas-session-1",
         currentRoute: null,
         screenshots: [
           {

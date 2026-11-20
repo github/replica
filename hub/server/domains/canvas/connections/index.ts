@@ -13,6 +13,7 @@ import {
 import { canvasRepositoryId, lockCanvasGrant } from "../../../repositories/canvas/records/index.ts"
 import { recordCanvasAudit } from "../../../repositories/canvas/record-audit/index.ts"
 import { readCanvasPrototype } from "../../../repositories/canvas/read-prototype/index.ts"
+import { readCanvasEvaluationContext } from "../../../repositories/canvas/read-evaluation-context/index.ts"
 import type { CanvasAuthorization, CanvasBrowser } from "../authorization/index.ts"
 import {
   accessLifetime,
@@ -30,6 +31,51 @@ export function createCanvasConnections(
   applicationOrigin: string,
 ) {
   return {
+    async authorizeEvaluation(secret: string, input: { branch: string; commitSha: string }) {
+      if (!accessPattern.test(secret)) return { status: "unauthorized" } as const
+      const tokenDigest = canvasDigest(secret)
+      const grant = await findCanvasGrant(database, tokenDigest)
+      if (!grant) return { status: "unauthorized" } as const
+      const viewer = await readCanvasAuthority(database, grant)
+      if (!viewer) return { status: "unauthorized" } as const
+      const permission = await authority.permission(viewer, grant.repository)
+      if (!["write", "maintain", "admin"].includes(permission)) {
+        return { status: "forbidden" } as const
+      }
+      const result = await authority.withRepository(
+        viewer,
+        grant.repository,
+        async (transaction) => {
+          await lockCanvasGrant(transaction, grant.id, false)
+          if (!(await verifyCanvasAccess(transaction, grant.id, tokenDigest, new Date()))) {
+            return null
+          }
+          if (input.branch === grant.repository.defaultBranch) {
+            return { status: "excluded" } as const
+          }
+          const context = await readCanvasEvaluationContext(
+            transaction,
+            grant.repositoryId,
+            input.branch,
+            input.commitSha,
+          )
+          if (!context) return { status: "hidden" } as const
+          return {
+            status: "ok",
+            data: {
+              actorMembershipId: viewer.membershipId,
+              branch: input.branch,
+              buildId: context.builds[0]?.id ?? null,
+              commitSha: input.commitSha,
+              prototypeId: context.id,
+              repositoryId: grant.repositoryId,
+              sessionKey: canvasDigest(`${grant.id}\0${viewer.membershipId}`),
+            },
+          } as const
+        },
+      )
+      return result ?? ({ status: "unauthorized" } as const)
+    },
     async read(
       secret: string,
       input: {

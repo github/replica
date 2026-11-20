@@ -13,7 +13,10 @@ import { requireOrigin } from "../../../integrations/express/require-origin/inde
 import { hubSessionCookieName } from "../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../../integrations/express/read-cookie/index.ts"
 import { GitHubProviderRequestError } from "../../../integrations/github/errors.ts"
+import { DecisionModelError } from "../../../domains/decision-model/errors.ts"
 import { reserveAuthenticationRateLimit } from "../../../repositories/authentication-rate-limits/reserve-authentication-rate-limit/index.ts"
+import { post as handleAgentVisualCriticPost } from "./decision-model/evaluations/post/index.ts"
+import type { AgentVisualCriticRouteDependencies } from "./decision-model/types.ts"
 import type { ProductRouteDependencies } from "../product/types.ts"
 
 const startSchema = z
@@ -91,6 +94,7 @@ function scopedResult(
 export function canvasRoutes(
   applicationOrigin: string,
   product: ProductRouteDependencies & { getRepositoryPermission?: GetCanvasRepositoryPermission },
+  agentVisualCritic?: AgentVisualCriticRouteDependencies,
 ) {
   const router = express.Router()
   const browserMutation = requireOrigin(applicationOrigin)
@@ -245,6 +249,45 @@ export function canvasRoutes(
         next(error)
       }
     }
+  }
+
+  if (agentVisualCritic) {
+    router.post(
+      "/decision-model/evaluations",
+      limit("canvas-decision-evaluation-request", 30),
+      express.json({ limit: "24mb", strict: true }),
+      handler(async (request, response, { connections }) => {
+        const route = handleAgentVisualCriticPost({
+          ...agentVisualCritic,
+          async authorize(input) {
+            const result = await connections.authorizeEvaluation(input.token, input)
+            if (result.status === "ok") return result.data
+            if (result.status === "forbidden") {
+              throw new DecisionModelError(
+                403,
+                "access_denied",
+                "Repository write access is required for prototype evaluation.",
+              )
+            }
+            if (result.status === "hidden" || result.status === "excluded") {
+              throw new DecisionModelError(
+                404,
+                "repository_not_found",
+                "The prototype evaluation target was not found.",
+              )
+            }
+            throw new DecisionModelError(
+              401,
+              "access_denied",
+              "Canvas connection is no longer active.",
+            )
+          },
+        })
+        await route(request, response, (error) => {
+          throw error
+        })
+      }),
+    )
   }
 
   router.post(

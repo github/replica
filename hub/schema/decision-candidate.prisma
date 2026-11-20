@@ -12,6 +12,7 @@ model DecisionCandidate {
   promotions           DecisionModelPromotion[] @relation("PromotedCandidate")
   previousPromotions   DecisionModelPromotion[] @relation("PreviousPromotedCandidate")
   evaluations          DecisionBuildEvaluation[]
+  agentEvaluations     DecisionAgentEvaluation[]
 
   // Attribute columns
   runtimeCandidateId          String    @map("runtime_candidate_id") @db.VarChar(100)
