@@ -111,6 +111,8 @@ export async function writeDecisionTaskset(
       schemaVersion: TASKSET_SCHEMA,
       exportId: plan.exportId,
       scope: plan.scope,
+      provenance: plan.provenance,
+      retention: { mode: "delete_on_withdrawal" },
       createdAt,
       learnings: rules.length,
       counts,

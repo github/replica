@@ -19,6 +19,7 @@ import { readGitHubAppConfiguration } from "./domains/authentication/read-github
 import { createReviewDirectory } from "./integrations/github/create-review-directory/index.ts"
 import { resolveLocalSignInEnvironment } from "./domains/authentication/resolve-local-sign-in-environment/index.ts"
 import { startTelemetry } from "./integrations/opentelemetry/start-telemetry/index.ts"
+import { createDecisionRuntimeClient } from "./integrations/decision-runtime/create-decision-runtime-client/index.ts"
 import { logger } from "./integrations/pino/index.ts"
 import { isMissingDatabaseSchema } from "./integrations/prisma/is-missing-database-schema/index.ts"
 import { runApi } from "./run-api/index.ts"
@@ -28,7 +29,9 @@ import { parseRuntimeConfig } from "./utils/parse-runtime-config/index.ts"
 import { jobProcessors } from "./workers/configuration.ts"
 import { runJobWorker } from "./workers/run-job-worker/index.ts"
 import type { AuthenticationRouteDependencies } from "./routes/api/auth/types.ts"
+import type { AgentVisualCriticRouteDependencies } from "./routes/api/canvas/decision-model/types.ts"
 import type { CopilotConnectionRouteDependencies } from "./routes/api/copilot-connection/types.ts"
+import type { DecisionModelRouteDependencies } from "./routes/api/decision-model/types.ts"
 import type { GitHubWebhookRouteDependencies } from "./routes/api/github/webhooks/types.ts"
 import type { LearningsRouteDependencies } from "./routes/api/learnings/types.ts"
 import type { ProductRouteDependencies } from "./routes/api/product/types.ts"
@@ -42,9 +45,11 @@ try {
   const configuration = parseRuntimeConfig(process.env)
   const localDevelopment = readLocalDevelopmentConfiguration(process.env)
   await prepareLocalDevelopment(localDevelopment)
+  let learningConfiguration: Awaited<ReturnType<typeof readLearningConfiguration>> | undefined
+  let decisionRuntimeConfiguration: ReturnType<typeof readDecisionRuntimeConfiguration> = null
   if (configuration.mode !== "setup") {
-    await readLearningConfiguration(process.env)
-    readDecisionRuntimeConfiguration(process.env)
+    learningConfiguration = await readLearningConfiguration(process.env)
+    decisionRuntimeConfiguration = readDecisionRuntimeConfiguration(process.env)
   }
   const storage =
     configuration.mode !== "setup" && configuration.hasArtifactStorage
@@ -65,7 +70,9 @@ try {
     }
     const trustedProxyHops = runsApi ? configuredTrustedProxyHops : 0
     let authentication: AuthenticationRouteDependencies | undefined
+    let agentVisualCritic: AgentVisualCriticRouteDependencies | undefined
     let copilotConnection: CopilotConnectionRouteDependencies | undefined
+    let decisionModels: DecisionModelRouteDependencies | undefined
     let learnings: LearningsRouteDependencies | undefined
     let product: ProductRouteDependencies | undefined
     let preview: BuildPreviewRouteDependencies | undefined
@@ -119,6 +126,7 @@ try {
         }
       }
       if (configuration.databaseUrl) {
+        const databaseUrl = configuration.databaseUrl
         const { createAuthenticationRouteDependencies, disableAuthenticationProviders } =
           await import("./routes/api/auth/create-authentication-route-dependencies/index.ts")
         try {
@@ -149,6 +157,48 @@ try {
               { scopeGitHubMembers: authenticationConfiguration.githubConfigured },
             )
             learnings = learningDependencies
+            if (decisionRuntimeConfiguration) {
+              const applicationOrigin = authenticationEnvironment.HUB_APPLICATION_ORIGIN
+              if (!storage || !learningConfiguration || !applicationOrigin) {
+                throw new Error(
+                  "Application origin, artifact storage, and learning storage are required when the decision runtime is configured.",
+                )
+              }
+              const { createHubDecisionTasksetSource } =
+                await import("./domains/decision-model/create-hub-decision-taskset-source/index.ts")
+              const { createDecisionModelRouteDependencies } =
+                await import("./routes/api/decision-model/create-decision-model-route-dependencies/index.ts")
+              const source = createHubDecisionTasksetSource({
+                artifactStorage: storage,
+                cliPath: learningConfiguration.cliPath,
+                database: (await import("./integrations/prisma/index.ts")).prisma,
+                databaseUrl,
+                hubOrigin: applicationOrigin,
+                learningRoot: learningConfiguration.root,
+                nodePath: learningConfiguration.nodePath,
+                staticDirectories: learningConfiguration.staticDirectories,
+                logger,
+              })
+              decisionModels = createDecisionModelRouteDependencies({
+                applicationOrigin,
+                runtimeForRepository: () =>
+                  createDecisionRuntimeClient(decisionRuntimeConfiguration),
+                currentSession: authentication.currentSession,
+                databaseUrl,
+                logger,
+                tasksetSource: source.tasksetSource,
+                prepareBuildEvaluation: (input) => source.prepareBuildEvaluation(input),
+              })
+              const { createAgentVisualCriticRouteDependencies } =
+                await import("./routes/api/canvas/decision-model/create-agent-visual-critic-route-dependencies/index.ts")
+              agentVisualCritic = createAgentVisualCriticRouteDependencies({
+                database: (await import("./integrations/prisma/index.ts")).prisma,
+                readLearningAuthority: (input) => source.readAgentLearningAuthority(input),
+                runtimeForRepository: () =>
+                  createDecisionRuntimeClient(decisionRuntimeConfiguration),
+                runtimeEnvironment: decisionRuntimeConfiguration.environment,
+              })
+            }
             const { createProductRouteDependencies } =
               await import("./routes/api/product/create-product-route-dependencies/index.ts")
             const { readAnalyticsSettings } =
@@ -253,11 +303,13 @@ try {
       await runApi({
         ...configuration,
         logger,
+        agentVisualCritic,
         isReady: isStorageReady,
         authentication,
         githubSetup,
         githubWebhooks,
         copilotConnection,
+        decisionModels,
         learnings,
         product,
         preview,
@@ -272,11 +324,13 @@ try {
           ...configuration,
           databaseUrl,
           logger,
+          agentVisualCritic,
           isStorageReady,
           authentication,
           githubSetup,
           githubWebhooks,
           copilotConnection,
+          decisionModels,
           learnings,
           product,
           preview,

@@ -144,11 +144,32 @@ export function createDecisionModelJobProcessors(input: {
   const reconcileDeletions = createJobProcessor(reconcileRuntimeDeletionsJob, async () => {
     for (const withdrawal of await (input.dependencies.listTrainingWithdrawals?.() ??
       Promise.resolve([]))) {
-      await processDecisionRuntimeDeletion(withdrawal, input.dependencies)
+      try {
+        await processDecisionRuntimeDeletion(withdrawal, input.dependencies)
+      } catch (error) {
+        input.logger.warn(
+          {
+            errorType: error instanceof Error ? error.name : "UnknownError",
+            repositoryId: withdrawal.repositoryId,
+            idempotencyKey: withdrawal.idempotencyKey,
+          },
+          "Decision runtime withdrawal reconciliation failed",
+        )
+      }
     }
     for (const deletion of await (input.dependencies.store.listPendingDeletions?.() ??
       Promise.resolve([]))) {
-      await reconcileDecisionRuntimeDeletion(deletion.id, input.dependencies)
+      try {
+        await reconcileDecisionRuntimeDeletion(deletion.id, input.dependencies)
+      } catch (error) {
+        input.logger.warn(
+          {
+            errorType: error instanceof Error ? error.name : "UnknownError",
+            deletionId: deletion.id,
+          },
+          "Decision runtime deletion receipt reconciliation failed",
+        )
+      }
     }
   })
   return { run, recover, reconcileDeletions }

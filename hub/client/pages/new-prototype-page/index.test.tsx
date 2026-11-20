@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { describe, it, vi } from "vitest"
 
 import { NewPrototypePage } from "."
@@ -75,13 +75,70 @@ function submitBrief(brief: string) {
 }
 
 describe("NewPrototypePage()", () => {
+  it("offers a deliberate copy when fresh authorization denies Copilot but still allows viewing", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } })
+    const authorizeHandoff = vi.fn().mockResolvedValue(false)
+    const onOpenApp = vi.fn()
+    const { copy } = PAGE_DATA
+    const brief = "Improve the settings flow"
+    const copyPromptInstructions = "Continue with the brief in your prototype workspace."
+    render(
+      <NewPrototypePage
+        data={{ ...PAGE_DATA, copyPromptInstructions }}
+        authorizeHandoff={authorizeHandoff}
+        onOpenApp={onOpenApp}
+      />,
+    )
+    fireEvent.click(screen.getByRole("button", { name: copy.addDetails }))
+    fireEvent.change(screen.getByRole("textbox", { name: copy.audienceLabel }), {
+      target: { value: "Maintainers" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: copy.saveDetails }))
+
+    submitBrief(brief)
+
+    const copyPrompt = await screen.findByRole("button", { name: copy.copyPromptLabel })
+    expect(screen.getByRole("textbox", { name: copy.heading })).toHaveValue(brief)
+    expect(screen.queryByRole("link", { name: copy.openAppLabel })).not.toBeInTheDocument()
+    expect(writeText).not.toHaveBeenCalled()
+    fireEvent.click(copyPrompt)
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledExactlyOnceWith(
+        `${brief}\n\n${copy.audienceLabel}\nMaintainers\n\n${copyPromptInstructions}`,
+      ),
+    )
+    expect(authorizeHandoff).toHaveBeenCalledOnce()
+    expect(onOpenApp).not.toHaveBeenCalled()
+  })
+
+  it("does not offer copying when the handoff check cannot verify repository visibility", async () => {
+    const authorizeHandoff = vi.fn().mockRejectedValue(new Error("Repository no longer visible"))
+    render(<NewPrototypePage data={PAGE_DATA} authorizeHandoff={authorizeHandoff} />)
+
+    submitBrief("Preserve this draft")
+
+    expect(await screen.findByRole("alert")).toBeVisible()
+    expect(screen.getByRole("textbox", { name: PAGE_DATA.copy.heading })).toHaveValue(
+      "Preserve this draft",
+    )
+    expect(
+      screen.queryByRole("button", { name: PAGE_DATA.copy.copyPromptLabel }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: PAGE_DATA.copy.openAppLabel }),
+    ).not.toBeInTheDocument()
+  })
+
   it("copies a local brief and saved details without launching Copilot", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } })
     const onOpenApp = vi.fn()
+    const copyPromptInstructions = "Use this brief in your local prototype workspace."
     const data: NewPrototypePageData = {
       ...PAGE_DATA,
       submissionMode: "copy",
+      copyPromptInstructions,
       copy: { ...PAGE_DATA.copy, submitLabel: "Copy prompt" },
     }
     render(<NewPrototypePage data={data} onOpenApp={onOpenApp} />)
@@ -101,7 +158,7 @@ describe("NewPrototypePage()", () => {
     })
 
     expect(writeText).toHaveBeenCalledExactlyOnceWith(
-      "Improve settings\n\nWho is this for?\nMaintainers\n\nBuild a working prototype in this repository.",
+      `Improve settings\n\nWho is this for?\nMaintainers\n\n${copyPromptInstructions}`,
     )
     expect(screen.getByRole("status")).toHaveTextContent(data.copy.copiedLabel)
     expect(screen.queryByRole("link", { name: data.copy.openAppLabel })).not.toBeInTheDocument()

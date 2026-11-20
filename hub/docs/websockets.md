@@ -94,6 +94,8 @@ Oversized incoming messages close with code 1009. Excess message rates close wit
 
 Review pages subscribe to `review:<repository UUID>:<prototype UUID>` using the Hub session cookie and exact application origin when the workspace allows review. Hub checks the live session, repository permission, and prototype eligibility before accepting the subscription, before sending an invalidation, and at the connection heartbeat. An explicit access denial stops retries for the current subscription. The browser makes a final authenticated HTTP read and clears loaded reviews if access is no longer available.
 
+Overlapping GitHub permission checks for the same user and repository share a single request sequence within one API process. Hub does not cache completed permissions. Each subscription still checks its own Hub session and repository scope.
+
 A PostgreSQL trigger signals the repository and prototype when a thread is created or its collaboration version changes. PostgreSQL sends the signal only after the transaction commits. Each API process holds one `LISTEN` connection to that same database and sends `changed` with a `null` payload to its own authorized subscribers. No message bodies, anchors, reactions, receipt state, or identities travel on the socket. Rollbacks, thread read receipts, and Inbox reads do not send a signal.
 
 API and combined roles need a direct PostgreSQL connection or session pooling for `LISTEN`. Transaction pooling is not supported for that connection. A listener that loses its connection retries with backoff; when it resumes, review sockets reconnect and re-fetch. Clients also re-fetch after a socket reconnect or when the review page regains focus.

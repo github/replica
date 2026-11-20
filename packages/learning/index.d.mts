@@ -666,6 +666,7 @@ export interface LearningStore {
       expired: boolean
     }>
   >
+  listWithdrawals(context: LearningContext): Promise<GrantWithdrawal[]>
   withdrawGrant(
     context: LearningContext,
     grantId: string,
@@ -842,6 +843,8 @@ export interface LearningStore {
       purpose: Purpose
       destination: string
       contents?: "all" | "learnings"
+      /** Prepare the exact bundle without recording an export or export audit. */
+      preview?: boolean
     },
   ): Promise<{
     manifest: ExportManifest

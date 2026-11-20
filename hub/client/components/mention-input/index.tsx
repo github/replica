@@ -24,22 +24,27 @@ export function MentionInput({ value, onValueChange, onKeyDown, ref, ...props }:
   const [dismissed, setDismissed] = useState(false)
   const [result, setResult] = useState<{
     source: MentionSource
+    query: string
+    retry: number
     candidates: MentionCandidate[]
     failed: boolean
   } | null>(null)
-  const [loading, setLoading] = useState(false)
   const [retry, setRetry] = useState(0)
   const [selected, setSelected] = useState(0)
   const [position, setPosition] = useState({ left: 0, top: 0, width: 0 })
-  const match = value.slice(0, caret).match(/(?:^|[\s(])@([a-zA-Z0-9_-]*)$/)
+  const match = value.slice(0, caret).match(/(?:^|[\s(])@([a-zA-Z0-9_-]{0,39})$/)
   const query = match?.[1]?.toLowerCase()
   const open = source !== null && query !== undefined && !dismissed && !props.disabled
+  const lookup = open && source.searchesByQuery === false ? "" : query
   const tooMany = getMentionLogins(value).length > 10
-  const failed = result?.source === source && result?.failed
-  const waiting = loading || result?.source !== source
-  const suggestions = (result?.source === source ? result.candidates : [])
-    .filter((candidate) => candidate.login.toLowerCase().includes(query ?? ""))
-    .slice(0, 8)
+  const current =
+    result?.source === source && result.query === lookup && result.retry === retry ? result : null
+  const failed = current?.failed
+  const waiting = current === null
+  const suggestions =
+    current?.candidates
+      .filter((candidate) => candidate.login.toLowerCase().includes(query ?? ""))
+      .slice(0, 8) ?? []
   const activeIndex = Math.min(selected, Math.max(0, suggestions.length - 1))
 
   useEffect(() => {
@@ -47,30 +52,27 @@ export function MentionInput({ value, onValueChange, onKeyDown, ref, ...props }:
   }, [source?.copy.limit, tooMany])
 
   useEffect(() => {
-    if (!open || !source) return
+    if (!open || !source || lookup === undefined) return
 
-    let active = true
+    const request = new AbortController()
     const timer = window.setTimeout(() => {
-      setLoading(true)
-      void source
-        .load()
-        .then(
-          (people) => {
-            if (active) setResult({ source, candidates: people, failed: false })
-          },
-          () => {
-            if (active) setResult({ source, candidates: [], failed: true })
-          },
-        )
-        .finally(() => {
-          if (active) setLoading(false)
-        })
+      setResult(null)
+      void source.load(lookup, request.signal).then(
+        (candidates) => {
+          if (!request.signal.aborted)
+            setResult({ source, query: lookup, retry, candidates, failed: false })
+        },
+        () => {
+          if (!request.signal.aborted)
+            setResult({ source, query: lookup, retry, candidates: [], failed: true })
+        },
+      )
     }, 150)
     return () => {
-      active = false
+      request.abort()
       window.clearTimeout(timer)
     }
-  }, [open, retry, source])
+  }, [open, lookup, retry, source])
 
   useLayoutEffect(() => {
     if (!open) return
@@ -152,6 +154,16 @@ export function MentionInput({ value, onValueChange, onKeyDown, ref, ...props }:
             retryButton.current?.focus()
             return
           }
+          const unmodified =
+            !event.nativeEvent.isComposing &&
+            !event.altKey &&
+            !event.metaKey &&
+            !event.ctrlKey &&
+            !event.shiftKey
+          if (open && waiting && event.key === "Enter" && unmodified) {
+            event.preventDefault()
+            return
+          }
           if (open && !waiting && !failed && suggestions.length) {
             if (event.key === "ArrowDown" || event.key === "ArrowUp") {
               event.preventDefault()
@@ -161,13 +173,7 @@ export function MentionInput({ value, onValueChange, onKeyDown, ref, ...props }:
               )
               return
             }
-            if (
-              (event.key === "Enter" || event.key === "Tab") &&
-              !event.nativeEvent.isComposing &&
-              !event.metaKey &&
-              !event.ctrlKey &&
-              !event.shiftKey
-            ) {
+            if ((event.key === "Enter" || event.key === "Tab") && unmodified) {
               event.preventDefault()
               const candidate = suggestions[activeIndex]
               if (candidate) choose(candidate)

@@ -42,6 +42,7 @@ export function ReplicaBrowsePage({
   const briefInput = useRef<HTMLTextAreaElement>(null)
   const [submission, setSubmission] = useState<CopilotAppSubmission | null>(null)
   const handoff = useCopilotHandoff(authorizeHandoff)
+  const [handoffUnavailable, setHandoffUnavailable] = useState(false)
   const [copyResult, setCopyResult] = useState<{
     prompt: string
     status: "copied" | "error"
@@ -57,8 +58,9 @@ export function ReplicaBrowsePage({
     route,
   })
   const copyStatus = copyResult?.prompt === prompt ? copyResult.status : null
-  const copyPrompt = data.branchSubmissionMode === "copy"
-  const canBranch = data.canBranch ?? (copyPrompt || Boolean(data.newPrototypePath))
+  const copyPrompt = data.branchSubmissionMode === "copy" || handoffUnavailable
+  const canBranch =
+    data.canBranch ?? (data.branchSubmissionMode === "copy" || Boolean(data.newPrototypePath))
 
   function branchFromHere() {
     setExpanded(true)
@@ -101,14 +103,16 @@ export function ReplicaBrowsePage({
       return
     }
 
-    await handoff.prepare(() =>
-      setSubmission(
-        createPrototypeSubmission({
-          repositoryName: data.repositoryName,
-          branchName: data.branchName,
-          prompt,
-        }),
-      ),
+    await handoff.prepare(
+      () =>
+        setSubmission(
+          createPrototypeSubmission({
+            repositoryName: data.repositoryName,
+            branchName: data.branchName,
+            prompt,
+          }),
+        ),
+      () => setHandoffUnavailable(true),
     )
   }
 
@@ -163,12 +167,21 @@ export function ReplicaBrowsePage({
                     onChange={setBrief}
                     label={data.branchPlaceholder}
                     placeholder={data.branchPlaceholder}
-                    submitLabel={data.branchSubmitLabel}
+                    submitLabel={
+                      copyPrompt ? data.branchContinuation.copyPromptLabel : data.branchSubmitLabel
+                    }
                     branchFrom={data.branchFromLabel}
                   />
                 </form>
 
                 {handoff.error ? <HubAlert title={handoff.error} variant="critical" /> : null}
+                {handoffUnavailable ? (
+                  <HubAlert
+                    title="Copilot isn’t available for this repository. You can still copy the prompt."
+                    variant="warning"
+                    layout="compact"
+                  />
+                ) : null}
                 {copyPrompt && copyStatus === "copied" ? (
                   <HubToast title={data.branchContinuation.copiedLabel} />
                 ) : null}

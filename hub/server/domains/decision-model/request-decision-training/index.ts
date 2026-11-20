@@ -7,6 +7,7 @@ export async function requestDecisionTraining(
     repositoryId: string
     actorMembershipId: string
     idempotencyKey: string
+    expectedConfigurationGeneration: number
   },
   dependencies: DecisionModelDependencies,
 ) {
@@ -29,6 +30,13 @@ export async function requestDecisionTraining(
           409,
           "configuration_disabled",
           "Decision-model training is not enabled for this repository.",
+        )
+      }
+      if (configuration.generation !== input.expectedConfigurationGeneration) {
+        throw new DecisionModelError(
+          409,
+          "configuration_stale",
+          "The repository decision-model settings changed.",
         )
       }
       const since = new Date(dependencies.now())

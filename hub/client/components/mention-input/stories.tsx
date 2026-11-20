@@ -14,11 +14,13 @@ const meta = {
     const [value, setValue] = useState(args.value)
     const source = useMemo(
       () => ({
-        load: () =>
-          Promise.resolve([
-            { ...mona, githubId: 1002 },
-            { ...octocat, githubId: 1001 },
-          ]),
+        load: (query: string) =>
+          Promise.resolve(
+            [
+              { ...mona, githubId: 1002 },
+              { ...octocat, githubId: 1001 },
+            ].filter(({ login }) => login.includes(query)),
+          ),
         copy: {
           suggestions: "Mention suggestions",
           error: "Unavailable",
@@ -40,6 +42,7 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 export const People: Story = {}
+export const MatchingCollaborator: Story = { args: { value: "Please review @mon" } }
 export const PlainText: Story = { args: { value: "Please review the spacing." } }
 
 export const ManagedUser: Story = {

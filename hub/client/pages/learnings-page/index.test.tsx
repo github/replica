@@ -165,4 +165,43 @@ describe("LearningsPage()", () => {
     expect(screen.queryByRole("button", { name: "Find learnings now" })).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Accept" })).toBeInTheDocument()
   })
+
+  it("resets decision-model drafts and confirmations when the repository changes", () => {
+    const first = story.args.data
+    if (first.accessDenied || first.decisionModel.state !== "available") {
+      throw new Error("The default story must expose decision-model controls.")
+    }
+    const { rerender } = render(
+      <ThemeProvider>
+        <LearningsPage data={first} />
+      </ThemeProvider>,
+    )
+    const backend = screen.getByRole("textbox", { name: "Runtime backend" })
+    fireEvent.change(backend, { target: { value: "stale-backend" } })
+    fireEvent.click(screen.getByRole("button", { name: "Start training" }))
+
+    const second: LearningsPageData = {
+      ...first,
+      selectedRepositoryId: "2002",
+      repositorySelectorLabel: "Choose repository. github/empty selected",
+      prototypesPath: "/repositories/2002",
+      learningsPath: "/repositories/2002/learnings",
+      analyticsPath: "/repositories/2002/analytics",
+      decisionModel: {
+        ...first.decisionModel,
+        settingsPath: "/repositories/2002/learnings/decision-model/settings",
+        trainingPath: "/repositories/2002/learnings/decision-model/training",
+        rollbackPath: "/repositories/2002/learnings/decision-model/rollback",
+        configuration: { ...first.decisionModel.configuration!, backend: "repository-two" },
+      },
+    }
+    rerender(
+      <ThemeProvider>
+        <LearningsPage data={second} />
+      </ThemeProvider>,
+    )
+
+    expect(screen.getByRole("textbox", { name: "Runtime backend" })).toHaveValue("repository-two")
+    expect(screen.queryByRole("button", { name: "Confirm and start training" })).toBeNull()
+  })
 })

@@ -56,7 +56,17 @@ function dependencies(role: "MEMBER" | "ADMINISTRATOR"): DecisionModelRouteDepen
     },
     getOverview: vi.fn().mockResolvedValue({ configuration: null }),
     saveSettings: vi.fn().mockResolvedValue({ generation: 1 }),
-    requestTraining: vi.fn().mockResolvedValue({ jobId: "job" }),
+    requestTraining: vi.fn().mockResolvedValue({
+      created: true,
+      job: {
+        id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        state: "queued",
+        runtimeJobId: null,
+        candidateRuntimeId: null,
+        failureCode: null,
+        createdAt: "2026-11-18T12:00:00.000Z",
+      },
+    }),
     getTrainingJob: vi.fn(),
     cancelTraining: vi.fn(),
     rejectCandidate: vi.fn(),
@@ -146,6 +156,47 @@ describe("decision-model routes", () => {
     })
   })
 
+  it("binds a training request to the settings generation the administrator confirmed", async () => {
+    const requestTraining = vi.fn().mockResolvedValue({
+      created: true,
+      job: {
+        id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        state: "queued",
+        runtimeJobId: null,
+        candidateRuntimeId: null,
+        failureCode: null,
+        createdAt: "2026-11-18T12:00:00.000Z",
+      },
+    })
+    const deps = { ...dependencies("ADMINISTRATOR"), requestTraining }
+
+    await withApp(deps, async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/repositories/${repositoryId}/decision-model/training-jobs`,
+        {
+          method: "POST",
+          headers: {
+            cookie: "hub_session=current-session",
+            "content-type": "application/json",
+            origin: "http://127.0.0.1:5173",
+          },
+          body: JSON.stringify({
+            idempotencyKey: "confirmed-training",
+            expectedConfigurationGeneration: 3,
+          }),
+        },
+      )
+
+      expect(response.status).toBe(202)
+      expect(requestTraining).toHaveBeenCalledWith({
+        repositoryId,
+        actorMembershipId: membershipId,
+        idempotencyKey: "confirmed-training",
+        expectedConfigurationGeneration: 3,
+      })
+    })
+  })
+
   it("returns authoritative decision-model overview fields without reshaping them", async () => {
     const overview = {
       preflight: {
@@ -225,7 +276,6 @@ describe("decision-model routes", () => {
             {
               learning: {
                 id: "learning-gain",
-                text: "Use the compact navigation on settings pages.",
               },
               route: "/settings/profile",
               views: [
@@ -351,7 +401,6 @@ describe("decision-model routes", () => {
               {
                 learning: {
                   id: "learning-gain",
-                  text: "Use the compact navigation on settings pages.",
                 },
                 route: "/settings/profile",
                 views: [{ viewport: "desktop", theme: "dark" }],
@@ -425,7 +474,6 @@ describe("decision-model routes", () => {
             {
               learning: {
                 id: "learning-gain",
-                text: "Use the compact navigation on settings pages.",
               },
               route: "/settings/profile",
               views: [{ viewport: "desktop", theme: "dark" }],

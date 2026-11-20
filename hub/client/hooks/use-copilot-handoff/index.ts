@@ -5,7 +5,7 @@ export function useCopilotHandoff(authorize: (() => Promise<boolean>) | undefine
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  async function prepare(openDialog: () => void) {
+  async function prepare(openDialog: () => void, offerCopy?: () => void) {
     if (!authorize) {
       openDialog()
       return
@@ -16,6 +16,7 @@ export function useCopilotHandoff(authorize: (() => Promise<boolean>) | undefine
     setError(null)
     try {
       if (await authorize()) openDialog()
+      else if (offerCopy) offerCopy()
       else setError("You do not have permission to create a prototype in this repository.")
     } catch {
       setError("Hub could not check GitHub repository permissions. Try again.")

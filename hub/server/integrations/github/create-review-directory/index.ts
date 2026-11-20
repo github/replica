@@ -1,4 +1,5 @@
 import type { KeyObject } from "node:crypto"
+import { addAbortListener } from "node:events"
 import { z } from "zod"
 
 import { createGitHubAppJwt } from "../create-github-app-jwt/index.ts"
@@ -32,6 +33,7 @@ export function createReviewDirectory(
 ): GitHubReviewDirectory {
   const tokens = new Map<number, { value: string; expiresAt: number }>()
   const minting = new Map<number, Promise<string>>()
+  const reading = new Map<string, Promise<boolean>>()
 
   async function send<S extends z.ZodType>(
     path: string,
@@ -109,7 +111,52 @@ export function createReviewDirectory(
     // The restricted token still addresses the original repository if its name changes mid-request.
     return record?.id === id ? { bearer, path: repositoryPath(record.full_name) } : null
   }
+  async function verifyRead(repositoryId: bigint, login: string, githubId: number) {
+    const signal = AbortSignal.timeout(6000)
+    const repository = await scope(repositoryId, signal)
+    if (!repository) return false
+    const { bearer, path } = repository
+    function readPermission(name: string) {
+      return send(
+        `${path}/collaborators/${encodeURIComponent(name)}/permission`,
+        permissionSchema,
+        bearer,
+        signal,
+      )
+    }
+    const permission = profileSchema.shape.login.safeParse(login).success
+      ? await readPermission(login)
+      : null
+    if (permission?.user?.id === githubId) return permission.permission !== "none"
+
+    // The session login can outlive a rename. Never accept a permission for a different ID.
+    const profile = await send(`/user/${githubId}`, profileSchema, bearer, signal)
+    if (profile?.id !== githubId || profile.login.toLowerCase() === login.toLowerCase()) {
+      return false
+    }
+    const current = await readPermission(profile.login)
+    return current?.user?.id === githubId && current.permission !== "none"
+  }
+
   return {
+    async canRead(repositoryId, login, githubId, cancellation) {
+      cancellation?.throwIfAborted()
+      if (!Number.isSafeInteger(githubId) || githubId <= 0) return false
+      const key = `${repositoryId}:${githubId}`
+      let pending = reading.get(key)
+      if (!pending) {
+        pending = verifyRead(repositoryId, login, githubId).finally(() => reading.delete(key))
+        reading.set(key, pending)
+      }
+      if (!cancellation) return pending
+      // Share the in-progress check, not a completed permission or any caller's timeout.
+      return new Promise<boolean>((resolve, reject) => {
+        const abort = addAbortListener(cancellation, () => {
+          reject(new Error("Review permission check was canceled.", { cause: cancellation.reason }))
+        })
+        void pending.then(resolve, reject).finally(() => abort[Symbol.dispose]())
+      })
+    },
     async find(repositoryId, login, githubId, cancellation) {
       cancellation?.throwIfAborted()
       const timeout = AbortSignal.timeout(6000)
@@ -156,7 +203,7 @@ export function createReviewDirectory(
         }
         if (rows.length < 100) return [...candidates.values()]
       }
-      throw new GitHubProviderRequestError()
+      return [...candidates.values()]
     },
   }
 }

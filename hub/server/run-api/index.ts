@@ -5,7 +5,9 @@ import type { Logger } from "pino"
 
 import { createApp } from "../create-app/index.ts"
 import type { AuthenticationRouteDependencies } from "../routes/api/auth/types.ts"
+import type { AgentVisualCriticRouteDependencies } from "../routes/api/canvas/decision-model/types.ts"
 import type { CopilotConnectionRouteDependencies } from "../routes/api/copilot-connection/types.ts"
+import type { DecisionModelRouteDependencies } from "../routes/api/decision-model/types.ts"
 import type { GitHubWebhookRouteDependencies } from "../routes/api/github/webhooks/types.ts"
 import type { LearningsRouteDependencies } from "../routes/api/learnings/types.ts"
 import type { ProductRouteDependencies } from "../routes/api/product/types.ts"
@@ -23,10 +25,12 @@ import { shutdownServer } from "../shutdown-server/index.ts"
 export async function runApi({
   port,
   logger,
+  agentVisualCritic,
   authentication,
   githubSetup,
   githubWebhooks,
   copilotConnection,
+  decisionModels,
   learnings,
   preview,
   product,
@@ -41,8 +45,10 @@ export async function runApi({
 }: {
   port: number
   logger: Logger
+  agentVisualCritic?: AgentVisualCriticRouteDependencies
   authentication?: AuthenticationRouteDependencies
   copilotConnection?: CopilotConnectionRouteDependencies
+  decisionModels?: DecisionModelRouteDependencies
   learnings?: LearningsRouteDependencies
   preview?: BuildPreviewRouteDependencies
   product?: ProductRouteDependencies
@@ -83,6 +89,7 @@ export async function runApi({
     "request",
     createApp({
       logger,
+      agentVisualCritic,
       broadcast: realtime.broadcast,
       clientDirectory,
       isReady: async () => !stoppingRequested && (isReady ? await isReady() : true),
@@ -101,6 +108,7 @@ export async function runApi({
               : undefined,
           }
         : undefined,
+      decisionModels,
       learnings,
       product,
       publicSharing,

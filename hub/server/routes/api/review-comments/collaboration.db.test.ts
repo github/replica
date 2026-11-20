@@ -94,12 +94,12 @@ async function member(
   return { token, userId: user.id, membershipId: membership.id }
 }
 
-async function target(authorId: string, local: boolean) {
+async function target(authorId: string, local: boolean, githubRepositoryId = 771) {
   const repository = await prisma.repository.create({
     data: {
-      nameWithOwner: "review/example",
+      nameWithOwner: `review/example-${githubRepositoryId}`,
       defaultBranch: "main",
-      ...(local ? { localPath: "/workspace/synthetic-review" } : { githubRepositoryId: 771 }),
+      ...(local ? { localPath: "/workspace/synthetic-review" } : { githubRepositoryId }),
     },
   })
   const prototype = await prisma.prototype.create({
@@ -245,7 +245,6 @@ describe("saved review collaboration", () => {
     expect(await savedNotice.json()).toEqual({
       read: true,
       version: notice.version + 1,
-      unreadCount: 0,
     })
     expect(
       (
@@ -295,6 +294,11 @@ describe("saved review collaboration", () => {
     let collaboratorCanRead = true
     let providerAvailable = true
     let reviewAccessAvailable = true
+    let delayVerification = false
+    let startCheck!: () => void
+    let finishCheck!: (allowed: boolean) => void
+    const checking = new Promise<"checking">((resolve) => (startCheck = () => resolve("checking")))
+    const pending = new Promise<boolean>((resolve) => (finishCheck = resolve))
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
     const directory = createReviewDirectory(
       { appId: "123", installationId: "456", privateKey },
@@ -320,12 +324,26 @@ describe("saved review collaboration", () => {
         if (url.pathname === "/repos/review/example/collaborators")
           return Response.json([author, collaborator])
         if (url.pathname === "/repos/review/example/collaborators/author_corp/permission")
-          return Response.json({ user: author, permission: "read" })
-        if (url.pathname === "/repos/review/example/collaborators/collaborator_corp/permission")
+          return reviewAccessAvailable
+            ? Response.json({ user: author, permission: "read" })
+            : new Response(null, { status: 503 })
+        if (
+          url.pathname ===
+          "/repos/review/example/collaborators/renamed-collaborator_corp/permission"
+        )
+          return new Response(null, { status: 404 })
+        if (url.pathname === "/repos/review/example/collaborators/collaborator_corp/permission") {
+          if (!providerAvailable) return new Response(null, { status: 503 })
+          let allowed = collaboratorCanRead
+          if (delayVerification) {
+            startCheck()
+            allowed = await pending
+          }
           return Response.json({
             user: collaborator,
-            permission: collaboratorCanRead ? "read" : "none",
+            permission: allowed ? "read" : "none",
           })
+        }
         throw new Error(`Unexpected synthetic GitHub path: ${url.pathname}`)
       },
     )
@@ -360,7 +378,7 @@ describe("saved review collaboration", () => {
     ])
 
     const recipient = await member("github", "renamed-collaborator_corp", "501")
-    await grant(repositoryId, recipient.membershipId)
+    const recipientGrant = await grant(repositoryId, recipient.membershipId)
     const notice = first(
       (await inboxPage(await request(base, recipient.token, inbox))).notifications,
     )
@@ -384,6 +402,20 @@ describe("saved review collaboration", () => {
       (await request(base, recipient.token, `/api${destination.pathname}?from=inbox`)).status,
     ).toBe(404)
     collaboratorCanRead = true
+
+    delayVerification = true
+    const raced = request(base, recipient.token, notice.updatePath, "PATCH", {
+      notification: { read: true, version: notice.version },
+    })
+    try {
+      expect(await Promise.race([checking, raced.then(({ status }) => status)])).toBe("checking")
+      await prisma.repositoryAccessGrant.delete({ where: { id: recipientGrant.id } })
+    } finally {
+      finishCheck(true)
+    }
+    expect((await raced).status).toBe(404)
+    delayVerification = false
+    await grant(repositoryId, recipient.membershipId)
     expect((await json<Notice>(await request(base, recipient.token, notice.updatePath))).read).toBe(
       false,
     )
@@ -391,6 +423,62 @@ describe("saved review collaboration", () => {
     expect((await request(base, author.token, path)).status).toBe(503)
     reviewAccessAvailable = true
     expect(await reviewComments(await request(base, author.token, path))).toHaveLength(1)
+  })
+
+  it("opens and updates an Inbox notice even when another eligible repository cannot be verified", async () => {
+    let otherRepositoryAvailable = true
+    const checkedRepositories = new Set<bigint>()
+    function canRead(repositoryId: bigint) {
+      checkedRepositories.add(repositoryId)
+      return repositoryId === 772n && !otherRepositoryAvailable
+        ? Promise.reject(new Error("Synthetic outage"))
+        : Promise.resolve(true)
+    }
+    const directory: GitHubReviewDirectory = {
+      search: () => Promise.resolve([]),
+      async find(repositoryId: bigint, login: string, githubId?: number) {
+        return githubId && (await canRead(repositoryId))
+          ? { githubId, login, avatarUrl: null }
+          : null
+      },
+      canRead,
+    }
+    const base = await api("github", directory)
+    const author = await member("github", "author", "500")
+    const recipient = await member("github", "recipient", "501")
+    const other = await target(recipient.userId, false, 772)
+    const selected = await target(recipient.userId, false)
+    for (const { repositoryId, path } of [other, selected]) {
+      await grant(repositoryId, author.membershipId)
+      await grant(repositoryId, recipient.membershipId)
+      expect((await startThread(base, author.token, path, "For the prototype owner")).status).toBe(
+        201,
+      )
+    }
+    const page = await inboxPage(
+      await request(base, recipient.token, `${inbox}?unread=true&limit=1`),
+    )
+    expect(page.unreadCount).toBe(2)
+    const notice = first(page.notifications)
+    expect(notice).toMatchObject({ read: false, target: { prototypeId: selected.prototypeId } })
+
+    otherRepositoryAvailable = false
+    checkedRepositories.clear()
+    const opened = await request(base, recipient.token, notice.updatePath)
+    expect(opened.status).toBe(200)
+    expect(await opened.json()).toMatchObject({ id: notice.id, read: false })
+    expect(checkedRepositories).toEqual(new Set([771n]))
+
+    checkedRepositories.clear()
+    const saved = await request(base, recipient.token, notice.updatePath, "PATCH", {
+      notification: { read: true, version: notice.version },
+    })
+    expect(saved.status).toBe(200)
+    expect(await saved.json()).toEqual({ read: true, version: notice.version + 1 })
+    expect(checkedRepositories).toEqual(new Set([771n]))
+
+    otherRepositoryAvailable = true
+    expect((await inboxPage(await request(base, recipient.token, inbox))).unreadCount).toBe(1)
   })
 })
 

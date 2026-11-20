@@ -62,7 +62,7 @@ const evaluationSummarySchema = z
     findings: z.array(
       z
         .object({
-          learning: z.object({ id: z.string(), text: z.string().nullable() }).strict(),
+          learning: z.object({ id: z.string() }).strict(),
           route: z.string(),
           views: z.array(
             z
@@ -74,6 +74,7 @@ const evaluationSummarySchema = z
           ),
           followsProbability: z.number().min(0).max(1),
           breaksProbability: z.number().min(0).max(1),
+          explanation: z.string().min(1).max(500).optional(),
         })
         .strict(),
     ),
@@ -151,6 +152,7 @@ interface CreateDecisionModelRouteDependenciesOptions {
   prepareBuildEvaluation(input: {
     repositoryId: string
     buildId: string
+    actorMembershipId: string
   }): Promise<PreparedBuildEvaluation>
 }
 
@@ -187,8 +189,11 @@ export function createDecisionModelRouteDependencies(
       actorMembershipId: string
       consentGrantId: string
     }) => options.tasksetSource.hasTrainingConsent(input),
-    prepareBuildEvaluation: (input: { repositoryId: string; buildId: string }) =>
-      options.prepareBuildEvaluation(input),
+    prepareBuildEvaluation: (input: {
+      repositoryId: string
+      buildId: string
+      actorMembershipId: string
+    }) => options.prepareBuildEvaluation(input),
     runtimeForRepository: (repositoryId: string) => options.runtimeForRepository(repositoryId),
     store,
     withControlLock: async <Result>(operation: (signal: AbortSignal) => Promise<Result>) => {
@@ -224,37 +229,37 @@ export function createDecisionModelRouteDependencies(
         dependencies.preflightTaskset(input),
       ])
       const currentPromotion = overview.promotion
-      const evaluations = await Promise.all(
-        overview.evaluations.map(async (evaluation) => {
-          const summary = evaluationSummarySchema.parse(evaluation.summary)
-          return {
-            id: evaluation.id,
-            build: {
-              id: evaluation.buildId,
-              number: evaluation.build.number,
-              prototypeId: evaluation.build.prototypeId,
-            },
-            model: {
-              id: evaluation.candidateId,
-              runtimeCandidateId: evaluation.candidate.runtimeCandidateId,
-              generation: Number(evaluation.promotionGeneration),
-            },
-            findings: await Promise.all(
-              summary.findings.map(async (finding) => ({
+      const evaluations = overview.evaluations.map((evaluation) => {
+        const summary = evaluationSummarySchema.safeParse(evaluation.summary)
+        return {
+          id: evaluation.id,
+          build: {
+            id: evaluation.buildId,
+            number: evaluation.build.number,
+            prototypeId: evaluation.build.prototypeId,
+          },
+          model: {
+            id: evaluation.candidateId,
+            runtimeCandidateId: evaluation.candidate.runtimeCandidateId,
+            generation: Number(evaluation.promotionGeneration),
+          },
+          questionDigest: evaluation.questionDigest,
+          screenshotSetDigest: evaluation.screenshotSetDigest,
+          responseDigest: evaluation.responseDigest,
+          findingsAvailable: summary.success,
+          findings: summary.success
+            ? summary.data.findings.map((finding) => ({
                 ...finding,
-                learning: {
-                  id: finding.learning.id,
-                  text: await options.tasksetSource.getLearningText({
-                    repositoryId: input.repositoryId,
-                    learningId: finding.learning.id,
-                  }),
-                },
-              })),
-            ),
-            createdAt: evaluation.createdAt.toISOString(),
-          }
-        }),
-      )
+                explanation:
+                  finding.explanation ??
+                  (finding.breaksProbability > finding.followsProbability
+                    ? "Across the submitted captured views, the promoted decision model found the Build more likely to break the learning than follow it."
+                    : "Across the submitted captured views, the promoted decision model found the Build at least as likely to follow the learning as break it."),
+              }))
+            : [],
+          createdAt: evaluation.createdAt.toISOString(),
+        }
+      })
       return {
         preflight,
         configuration: overview.configuration

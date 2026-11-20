@@ -1,5 +1,5 @@
 import { createRef } from "react"
-import { act, fireEvent, render, screen, within } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import { HubThemeProvider } from "@hooks/use-hub-theme"
@@ -510,6 +510,49 @@ describe("ReplicaBrowsePage()", () => {
     expect(
       screen.queryByRole("button", { name: "What changes would you like to make?" }),
     ).not.toBeInTheDocument()
+  })
+
+  it("offers deliberate copying from a saved template after Copilot permission is withdrawn", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } })
+    const authorizeHandoff = vi.fn().mockResolvedValue(false)
+    const onOpenApp = vi.fn()
+    const data = {
+      ...replicaBrowseData,
+      templateId: "welcome",
+      templateLandingPageInstructions: "Set the template landing page to %{route}.",
+    }
+    const route = { pathname: "/settings", search: "?tab=account", hash: "#details" }
+    const routeContext = '"/settings?tab=account#details"'
+    const draft = "Simplify the account settings"
+    renderPage({ data, route, authorizeHandoff, onOpenApp })
+    fireEvent.click(screen.getByRole("button", { name: data.forkLabel }))
+    const brief = screen.getByRole("textbox", { name: data.branchPlaceholder })
+    fireEvent.change(brief, { target: { value: draft } })
+
+    fireEvent.click(screen.getByRole("button", { name: data.branchSubmitLabel }))
+
+    const copyPrompt = await screen.findByRole("button", {
+      name: data.branchContinuation.copyPromptLabel,
+    })
+    expect(brief).toHaveValue(draft)
+    expect(
+      screen.queryByRole("link", { name: data.branchContinuation.openAppLabel }),
+    ).not.toBeInTheDocument()
+    expect(writeText).not.toHaveBeenCalled()
+    fireEvent.click(copyPrompt)
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledExactlyOnceWith(
+        [
+          draft,
+          data.branchPageInstructions.replace("%{route}", routeContext),
+          data.branchInstructions,
+          data.templateLandingPageInstructions.replace("%{route}", routeContext),
+        ].join("\n\n"),
+      ),
+    )
+    expect(authorizeHandoff).toHaveBeenCalledOnce()
+    expect(onOpenApp).not.toHaveBeenCalled()
   })
 
   it("copies the local brief and branch instructions without an app handoff", async () => {

@@ -10,5 +10,6 @@ export async function getDecisionCandidate(
       repositoryId,
       OR: [{ id: idOrRuntimeId }, { runtimeCandidateId: idOrRuntimeId }],
     },
+    include: { trainingJob: { select: { consentGrantId: true, questionDigest: true } } },
   })
 }
