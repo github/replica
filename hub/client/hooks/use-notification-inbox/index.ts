@@ -276,6 +276,7 @@ export function useNotificationInbox({
 
       setNotifications([])
       loaded.current = false
+      countReceivedAt.current = null
       setUnreadCount(0)
       setNextBefore(null)
       setFailed(true)

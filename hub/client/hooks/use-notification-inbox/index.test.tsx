@@ -449,6 +449,38 @@ describe("useNotificationInbox()", () => {
     expect(result.current.unreadCount).toBe(1)
   })
 
+  it("refreshes the closed badge after a separate read when a failed update cleared its count", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(badgeResponse(3))
+      .mockResolvedValueOnce(
+        Response.json({
+          notifications: [notification, { ...notification, id: 2 }],
+          nextBefore: null,
+          unreadCount: 3,
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(badgeResponse(2))
+    vi.stubGlobal("fetch", fetch)
+    const clock = vi.spyOn(performance, "now").mockReturnValue(10)
+    const { result } = renderClosedBadge()
+    await waitFor(() => expect(result.current.unreadCount).toBe(3))
+    act(() => result.current.onOpen())
+    await waitFor(() => expect(result.current.notifications).toHaveLength(2))
+    act(() => result.current.onToggleRead(2))
+    await waitFor(() => expect(result.current.failed).toBe(true))
+    expect(result.current.unreadCount).toBe(0)
+    expect(result.current.notifications).toHaveLength(0)
+
+    clock.mockReturnValue(20)
+    act(() => acknowledgeRead(performance.now()))
+
+    await waitFor(() => expect(result.current.unreadCount).toBe(2))
+    expect(fetch).toHaveBeenCalledTimes(4)
+    expect(fetch).toHaveBeenLastCalledWith(badgeUrl, expect.anything())
+  })
+
   it("reloads an unread filter when another surface marks an unloaded item unread", async () => {
     const fetch = vi
       .fn()
