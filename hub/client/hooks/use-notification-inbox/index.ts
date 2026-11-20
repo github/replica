@@ -276,14 +276,15 @@ export function useNotificationInbox({
       return
     }
 
-    const { count, refill } = applyReadUpdate(notification.id, saved)
+    const needsCount = saved.unreadCount === undefined && saved.read && unreadCount <= 1
+    const { count, refill } = applyReadUpdate(notification.id, saved, !needsCount)
     if (synchronize) {
       ownReadUpdate.current = saved
       notifyInboxRead({ id: notification.id, saved, startedAt })
     }
     callbacks.current.onReadChange?.(notification.id, saved)
-    callbacks.current.onUnreadCountChange?.(count)
-    if (refill) {
+    if (!needsCount) callbacks.current.onUnreadCountChange?.(count)
+    if (needsCount || refill) {
       void load()
     } else {
       setLoading(false)

@@ -321,39 +321,46 @@ describe("useNotificationInbox()", () => {
     expect(fetch).toHaveBeenCalledTimes(3)
   })
 
-  it("finds a new arrival after reading the last known unread item", async () => {
-    const item = { ...notification, updatePath: "/api/notifications/1" }
-    const fetch = vi
-      .fn()
-      .mockResolvedValueOnce(Response.json({ ...page, notifications: [item], unreadCount: 1 }))
-      .mockResolvedValueOnce(Response.json({ version: 1, read: true }))
-      .mockResolvedValueOnce(
-        Response.json({
-          ...page,
-          notifications: [{ ...notification, id: 2, updatePath: "/api/notifications/2" }],
-          unreadCount: 1,
+  it.each(["All", "Unread"])(
+    "finds a new arrival after reading the last known unread item in %s",
+    async (filter) => {
+      const unreadOnly = filter === "Unread"
+      const item = { ...notification, updatePath: "/api/notifications/1" }
+      const newItem = { ...notification, id: 2, updatePath: "/api/notifications/2" }
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(Response.json({ ...page, notifications: [item], unreadCount: 1 }))
+        .mockResolvedValueOnce(Response.json({ version: 1, read: true }))
+        .mockResolvedValueOnce(
+          Response.json({
+            ...page,
+            notifications: unreadOnly ? [newItem] : [newItem, { ...item, read: true, version: 1 }],
+            unreadCount: 1,
+          }),
+        )
+      vi.stubGlobal("fetch", fetch)
+      const { result } = renderHook(() =>
+        useNotificationInbox({
+          path: "/api/notifications/inbox",
+          authenticityToken: "token",
+          initialUnreadOnly: unreadOnly,
+          synchronize: true,
         }),
       )
-    vi.stubGlobal("fetch", fetch)
-    const { result } = renderHook(() =>
-      useNotificationInbox({
-        path: "/api/notifications/inbox",
-        authenticityToken: "token",
-        initialUnreadOnly: true,
-        synchronize: true,
-      }),
-    )
-    await waitFor(() => expect(result.current.notifications[0]?.id).toBe(1))
-    expect(result.current.unreadCount).toBe(1)
-    act(() => result.current.onToggleRead(1))
-    await waitFor(() => expect(result.current.notifications[0]?.id).toBe(2))
-    expect(result.current.unreadCount).toBe(1)
-    expect(result.current.failed).toBe(false)
-    expect(fetch).toHaveBeenLastCalledWith(unreadInboxUrl, {
-      credentials: "same-origin",
-      cache: "no-store",
-    })
-  })
+      await waitFor(() => expect(result.current.notifications[0]?.id).toBe(1))
+      expect(result.current.unreadCount).toBe(1)
+      act(() => result.current.onToggleRead(1))
+      await waitFor(() => expect(result.current.notifications[0]?.id).toBe(2))
+      expect(result.current.unreadCount).toBe(1)
+      expect(result.current.failed).toBe(false)
+      expect(fetch).toHaveBeenLastCalledWith(
+        unreadOnly
+          ? unreadInboxUrl
+          : new URL("/api/notifications/inbox?limit=50", window.location.origin),
+        { credentials: "same-origin", cache: "no-store" },
+      )
+    },
+  )
 
   it("reports a saved read even when refreshing the unread inbox fails", async () => {
     const onReadChange = vi.fn()
