@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url"
 import { parseArgs } from "node:util"
 
 import { describeCommand } from "../../installer/command/describe/index.ts"
+import { resolveWindowsCommand } from "../../installer/command/windows/index.ts"
 import { stopHub } from "../stop-hub/index.ts"
 import type { ContainerApp, DeploymentPlan, Installation, JobExecution, Revision } from "./types.ts"
 
@@ -60,10 +61,15 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
 
   function command(executable: string, arguments_: string[], capture = false): string {
     try {
-      const output = childProcess.execFileSync(executable, arguments_, {
+      const invocation =
+        process.platform === "win32"
+          ? resolveWindowsCommand(executable, arguments_, process.env)
+          : { executable, args: arguments_, env: process.env }
+      const output = childProcess.execFileSync(invocation.executable, invocation.args, {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
         maxBuffer: 32 * 1024 * 1024,
+        env: invocation.env,
       })
       return capture ? (output?.trim() ?? "") : ""
     } catch (error) {
