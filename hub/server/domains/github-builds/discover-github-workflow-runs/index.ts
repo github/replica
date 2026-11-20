@@ -30,7 +30,12 @@ function settled(run: GitHubWorkflowRun, saved: SavedRun[]) {
     if (build.branchName !== run.headBranch || build.commitSha !== run.headSha) return false
     if (build.state === "superseded" || build.branchDeletedAt !== null) return true
     if (build.runId !== run.id) {
-      return build.state === "successful" || (build.runId !== null && build.runId > run.id)
+      if (build.state === "successful") {
+        return build.runCompletions.some(
+          (completed) => completed.runId === run.id && completed.runAttempt >= run.runAttempt,
+        )
+      }
+      return build.runId !== null && build.runId > run.id
     }
     return (
       build.runAttempt >= run.runAttempt &&

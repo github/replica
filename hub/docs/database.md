@@ -86,6 +86,8 @@ Builds retain the author's provider, issuer, and provider user ID independently 
 
 Builds created before commit metadata was stored retain `NULL` for unknown values during the upgrade. A later detail API must represent missing values rather than inventing them. This migration does not import Rails records or map their integer IDs.
 
+GitHub Build run completions record the latest processed attempt for each contributing run on a successful Build. Recovery uses these receipts to retry another selected workflow's screenshot pass without transferring dist ownership. New receipts do not backfill or change existing Builds, artifact records, or owning-run completion times.
+
 Review threads bind one non-removed repository, one reviewable prototype, and one successful Build. The root and replies keep stable Hub user UUIDs plus presentation snapshots. Soft deletion records when the author deleted a message but retains its source body; product reads and learning snapshots replace that body with `null`. Resolution events are immutable and uniquely ordered by their thread activity sequence, so resolve, reopen, and resolved-again transitions remain distinguishable for product reads and learning snapshots.
 
 Decision-model tables store repository settings, pinned input digests, runtime job and candidate references, promotion generations, Build evaluation references, and decimal usage or cost metadata. They do not store credentials, screenshots, tasksets, adapters, evaluation reports, or model weights. Database checks enforce training bounds, positive promotion generations, nonnegative usage and cost, and complete quantity/unit and amount/currency pairs.

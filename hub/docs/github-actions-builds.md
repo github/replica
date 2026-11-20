@@ -1,14 +1,39 @@
 # GitHub Actions Builds
 
-Hub imports Builds that prototype repositories produce in `.github/workflows/replica.yml`. The workflow uploads static output with the [publish action](../../actions/build/publish/action.yml) and captures screenshots in a dependent job with the [screenshots action](../../actions/build/screenshots/action.yml). Hub pulls each package through the GitHub API. It imports the dist when the publish job finishes, without waiting for screenshots. A failed or missing screenshot job does not fail an already imported Build.
+Hub imports Builds from selected GitHub Actions workflows in connected prototype repositories. The default is `.github/workflows/replica.yml`. The workflow uploads static output with the [publish action](../../actions/build/publish/action.yml) and captures screenshots in a dependent job with the [screenshots action](../../actions/build/screenshots/action.yml). Hub pulls each package through the GitHub API. It imports the dist when the publish job finishes, without waiting for screenshots. A failed or missing screenshot job does not fail an already imported Build.
 
 ## Requirements
 
-The Hub that imports a repository's Builds is the Hub whose GitHub App is installed on that repository. The App needs **Actions: read** and **Contents: read** and must subscribe to the **Workflow runs**, **Workflow jobs**, **Push**, and **Branch or tag deletion** webhook events. Hub imports `push` runs of `.github/workflows/replica.yml` in connected repositories. To exclude tag runs, the workflow must restrict its trigger to branches. The installer branch is excluded. Imports never create repositories.
+The Hub that imports a repository's Builds is the Hub whose GitHub App is installed on that repository. The App needs **Actions: read** and **Contents: read** and must subscribe to the **Workflow runs**, **Workflow jobs**, **Push**, and **Branch or tag deletion** webhook events. Hub imports only `push` runs of selected workflows in connected repositories, not pull request, `workflow_dispatch`, or `workflow_run` triggered runs. To exclude tag runs, each selected workflow must restrict its trigger to branches. The installer branch is excluded. Imports never create repositories.
 
 Create the App manually and connect it with the `setup:post` wizard. If the App was created before these settings were required, open its **Permissions & events** settings, confirm **Actions: read** and **Contents: read**, select these four events under **Subscribe to events**, and save. If either permission was added, each installation must accept the updated permissions.
 
 Webhooks give the fastest import. Without webhook reachability, [recovery](#recovery) still imports retained artifacts by polling, typically within about five minutes after Hub is available. Workflows do not contact Hub directly or need publishing credentials.
+
+## Select build workflows
+
+Set `builds.workflows` in `.github/replica.json` on the connected repository's actual default branch. For example, Mini-Foundry can select its existing top-level caller:
+
+```json
+{
+  "version": 1,
+  "builds": {
+    "workflows": [".github/workflows/publish-proto.yml"]
+  }
+}
+```
+
+Before adding `builds`, upgrade every selected workflow's Replica publish, screenshots, and optional build actions to the same reviewed revision that supports the field. Earlier revisions, including `5ec2d4ad6d5343b61684ba2c7a1c8c82e2914565`, reject it during packaging. The example below pins `9b030400819cecb3ea513df206bce6b5f5a741ff`, which includes this support. Keep existing `hub` and `templates` fields alongside `builds`; supported actions validate the new field but exclude it, like `hub`, from packaged template metadata.
+
+Hub reads the default branch from GitHub, resolves its commit, and checks its Git tree before reading configuration at that exact revision. Neither `.github` nor `replica.json` may be a symbolic link. Incomplete directory listings stop selection rather than count as missing configuration. Hub never uses the prototype branch's configuration, so existing prototype branches need no configuration update. Webhooks only queue run IDs; import workers and recovery enforce the same validated selection. Each import job or repository poll reads a fresh selection; changing the file affects subsequent work without replacing or deleting successful Builds.
+
+Removing a workflow stops artifact imports from it. Its next import pass marks any queued or running Build still owned by that run as failed with a configuration explanation, so it leaves the awaiting-import sweep. It does not create Builds, transfer ownership, or change successful Builds. To retry a stopped Build, select the workflow again and rerun it as a new run or attempt.
+
+An omitted file, `builds`, or `builds.workflows` keeps the legacy default. An explicit list replaces that default; include `.github/workflows/replica.yml` explicitly to select it too. Use one to ten unique paths directly under `.github/workflows/`, ending in `.yml` or `.yaml`. Filenames must start with an ASCII letter or digit and contain only letters, digits, dots, underscores, or hyphens; each complete path is limited to 255 characters. Configuration must be a regular JSON file of at most 16 KiB. Invalid configuration stops imports and discovery with an error naming the configuration file; provider failures do not select a fallback workflow.
+
+GitHub identifies reusable workflow runs by the top-level caller, not the called workflow. Select `publish-proto.yml`, not Mini-Foundry's reusable `publish-proto-core.yml`. Selection alone does not add publishing jobs or make Azure output suitable for Hub: the selected caller must produce the existing Replica artifacts with a Hub-compatible root base path (`VITE_BASE=/`). This configuration does not modify downstream workflows or Azure publishing.
+
+When several selected workflows publish the same branch and commit, they share one Build. Existing run and attempt ordering still governs unfinished Builds. The first successful dist import remains immutable, and later screenshots attach only when their digest matches that dist. Select workflows that intentionally produce the same Hub output rather than competing variants.
 
 ## Configure the prototype workflow
 
@@ -40,7 +65,7 @@ jobs:
           node-version: 24
       - run: npm ci
       - run: npm run build
-      - uses: github/replica/actions/build/publish@5ec2d4ad6d5343b61684ba2c7a1c8c82e2914565
+      - uses: github/replica/actions/build/publish@9b030400819cecb3ea513df206bce6b5f5a741ff
 
   screenshots:
     needs: publish
@@ -49,7 +74,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: github/replica/actions/build/screenshots@5ec2d4ad6d5343b61684ba2c7a1c8c82e2914565
+      - uses: github/replica/actions/build/screenshots@9b030400819cecb3ea513df206bce6b5f5a741ff
 ```
 
 The publish action validates and packages the output and uploads `replica-build-v1`. It installs no npm packages and no browser. Its completed-job event queues the Hub import while the dependent screenshot job downloads that exact artifact and uploads `replica-screenshots-v1`. The preview becomes available after webhook delivery, queue processing, and artifact import, not immediately on upload. If the build or artifact upload fails, GitHub skips screenshots and Hub records the failed Build.
@@ -83,13 +108,13 @@ sequenceDiagram
   Q->>I: download replica-screenshots-v1 → attach if digest matches
 ```
 
-The webhook accepts `workflow_run` (`requested`, `in_progress`, `completed`) for the Replica workflow path, and every completed `workflow_job`, because job events are the earliest signal that the dist artifact exists. `workflow_run.completed` arrives only after every job, including screenshots, so it cannot provide early preview availability.
+For connected repositories, the webhook queues `workflow_run` (`requested`, `in_progress`, `completed`) and every completed `workflow_job`, because job events are the earliest signal that the dist artifact exists. Intake makes no GitHub provider requests before acknowledging delivery. The import worker reads GitHub's run record, rejects ineligible events and branches before loading configuration, then checks the selected caller path. `workflow_run.completed` arrives only after every job, including screenshots, so it cannot provide early preview availability.
 
 The route enqueues before recording the delivery receipt. A queue failure therefore leaves the delivery unrecorded, so [recovery](#recovery) can redeliver it. Each delivery gets its own job ID, so an event that arrives while an earlier import of the same run is active still triggers another pass.
 
 ## Import worker
 
-`import-github-workflow-run` runs on the on-demand queue with five attempts and exponential backoff from 15 seconds. It reads the run through the GitHub API rather than trusting the webhook payload, and ignores runs that are not `push` runs of the Replica workflow, the installer branch, or unconnected repositories.
+`import-github-workflow-run` runs on the on-demand queue with five attempts and exponential backoff from 15 seconds. It reads the run through the GitHub API rather than trusting the webhook payload, and ignores runs outside the selected workflows, non-`push` runs, the installer branch, and unconnected repositories.
 
 One Build exists per prototype identity and commit. Each pass is idempotent:
 
@@ -100,7 +125,7 @@ One Build exists per prototype identity and commit. Each pass is idempotent:
 
 GitHub lists named artifacts across rerun attempts. Hub prefers packages created at or after the current attempt's `run_started_at`. If that attempt has no dist package, Hub reuses an unexpired dist from an earlier attempt of the same run only when the Build already has that digest or the current attempt's screenshots name it. This supports **Re-run failed jobs** when only screenshots failed and GitHub keeps the successful publish job's artifact. During a full rerun, the current attempt has no screenshots yet, so Hub waits for that attempt's own dist instead of fixing the Build to the earlier one. If the run completes without a matching dist, the Build fails without storing the earlier package. The first successful dist import fixes the Build's digest; subsequent attempts never replace it, and screenshots attach only when their digest matches that Build.
 
-Hub records the completed workflow pass only after registration and screenshot processing finish. A transport or storage error leaves that pass pending for recovery even if the dist preview is already available.
+Hub records each contributing run's completed attempt only after registration and screenshot processing finish. A transport or storage error leaves that run pending for recovery even if another run already imported the dist preview. A newer attempt still needs its own pass; delayed completion from an older attempt cannot undo a newer receipt. Owning-run completion and immutable dist ownership remain unchanged.
 
 Storage keys derive from the Build, file path, and content. Retries reuse identical objects, a key with different bytes stops the import, and keys are never deleted. Unreferenced keys left by an interrupted import are harmless.
 
@@ -153,7 +178,7 @@ Discovery and retry look back three days, matching the artifacts' retention. Run
 
 Branch polling selects a matching existing Build when a branch returns to an earlier commit; it does not invent a Build without a workflow package or delete branches. Poll observations do not replace workflow creation times or rewrite an unchanged prototype selection. Reselection retains the latest workflow timestamp and run ID so a known run's redelivery cannot undo it, while a new run can still become current. When an older installation has a selection timestamp but no saved run ID, runs with the same timestamp do not replace the selection because their order is unknown; a later timestamp can still select a Build.
 
-Each poll bounds branch listing to ten pages of 100. Workflow discovery pages through recent runs within the recovery window, up to GitHub's 1,000-result filtered-search limit; reaching that limit reports an error instead of silently accepting a truncated list. Saved unfinished Builds are retried separately. A very busy repository can therefore outrun discovery of previously unseen runs; recovery is a safety net, not an unlimited delivery guarantee. Runs that reuse an immutable Build or have lost ownership to a newer run do not keep queuing redundant imports. Webhook imports and polling share immutable Build ownership, so whichever valid dist import commits first wins.
+Each poll bounds branch listing to ten pages of 100. Workflow discovery queries each selected workflow and removes duplicate run IDs. It pages through recent runs within the recovery window, up to GitHub's 1,000-result filtered-search limit per workflow; reaching that limit reports an error instead of silently accepting a truncated list. A provider failure for any selected workflow rejects that repository's discovery pass rather than returning a partial list. Saved unfinished Builds are retried separately. A very busy repository can therefore outrun discovery of previously unseen runs; recovery is a safety net, not an unlimited delivery guarantee. Runs that reuse an immutable Build or have lost ownership to a newer run do not keep queuing redundant imports. Webhook imports and polling share immutable Build ownership, so whichever valid dist import commits first wins.
 
 ## Not yet implemented
 

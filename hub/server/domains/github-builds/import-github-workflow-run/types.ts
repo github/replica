@@ -4,7 +4,7 @@ import type { GitHubBuildImportDependencies } from "../types.ts"
 export interface ImportGitHubWorkflowRunDependencies extends GitHubBuildImportDependencies {
   client: Pick<
     ReturnType<typeof createGitHubActionsClient>,
-    "getWorkflowRun" | "listRunArtifacts" | "downloadArtifact"
+    "getBuildWorkflowPaths" | "getWorkflowRun" | "listRunArtifacts" | "downloadArtifact"
   >
 }
 
