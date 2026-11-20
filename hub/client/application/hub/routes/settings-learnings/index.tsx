@@ -28,7 +28,10 @@ import { settingsLearnings } from "@application/hub/view-models/settings-learnin
 import { productActionError } from "../product-action-error"
 import { requestProductJson } from "../request-product-json"
 
-type LearningActionResult = ProductActionResult & { revalidate?: boolean }
+type LearningActionResult = ProductActionResult & {
+  revalidate?: boolean
+  trainingJobId?: string
+}
 
 function repositoryId(params: LoaderFunctionArgs["params"]) {
   const parsed = recordIdentifierSchema.safeParse(params.repositoryId)
@@ -100,18 +103,22 @@ export async function clientAction({ request, params }: ActionFunctionArgs) {
   try {
     const response =
       source.pathname === `${route}/runs`
-        ? await requestProductJson(
-            request,
-            `/api/repositories/${id}/learnings/runs`,
-            learningMutationResponseSchema,
-            { method: "POST" },
-          )
+        ? {
+            notice: (
+              await requestProductJson(
+                request,
+                `/api/repositories/${id}/learnings/runs`,
+                learningMutationResponseSchema,
+                { method: "POST" },
+              )
+            ).notice,
+          }
         : source.pathname.startsWith(`${route}/decision-model/`)
-          ? {
-              notice: await submitDecisionModelAction(request, id, route, source, form),
+          ? await submitDecisionModelAction(request, id, route, source, form)
+          : {
+              notice: (await submitDecision(request, id, route, source, form)).notice,
             }
-          : await submitDecision(request, id, route, source, form)
-    return data<ProductActionResult>({ saved: true, notice: response.notice })
+    return data<LearningActionResult>({ saved: true, ...response })
   } catch (error) {
     if (error instanceof Response) {
       return data<LearningActionResult>(
@@ -156,9 +163,11 @@ async function submitDecisionModelAction(
         body: { enabled, backend, maxUpdates, maxSeconds, monthlyBudgetCredits },
       },
     )
-    return enabled
-      ? "Decision-model settings were saved and training is enabled."
-      : "Decision-model settings were saved and training is paused."
+    return {
+      notice: enabled
+        ? "Decision-model settings were saved and training is enabled."
+        : "Decision-model settings were saved and training is paused.",
+    }
   }
   if (source.pathname === `${prefix}/training`) {
     const idempotencyKey = form.get("idempotencyKey")
@@ -170,9 +179,12 @@ async function submitDecisionModelAction(
       parsed,
       { method: "POST", body: { idempotencyKey, expectedConfigurationGeneration } },
     )
-    return response.created
-      ? "Training was queued within the confirmed repository budget."
-      : "This training request was already queued."
+    return {
+      notice: response.created
+        ? "Training was queued within the confirmed repository budget."
+        : "This training request was already queued.",
+      trainingJobId: response.job.id,
+    }
   }
   if (source.pathname === `${prefix}/rollback`) {
     const expectedGeneration = Number(form.get("expectedGeneration"))
@@ -182,7 +194,7 @@ async function submitDecisionModelAction(
       decisionPromotionMutationResponseSchema,
       { method: "POST", body: { expectedGeneration } },
     )
-    return "The previous decision model was restored as a new promotion generation."
+    return { notice: "The previous decision model was restored as a new promotion generation." }
   }
   const evaluation = source.pathname.match(
     new RegExp(`^${prefix}/builds/([0-9a-f-]+)/evaluate$`, "i"),
@@ -194,7 +206,7 @@ async function submitDecisionModelAction(
       decisionBuildEvaluationMutationResponseSchema,
       { method: "POST" },
     )
-    return "The Build evaluation was saved with the promoted decision model."
+    return { notice: "The Build evaluation was saved with the promoted decision model." }
   }
   const cancel = source.pathname.match(new RegExp(`^${prefix}/training/([0-9a-f-]+)/cancel$`, "i"))
   if (cancel?.[1]) {
@@ -204,7 +216,7 @@ async function submitDecisionModelAction(
       decisionTrainingMutationResponseSchema,
       { method: "POST" },
     )
-    return "Training cancellation was requested."
+    return { notice: "Training cancellation was requested." }
   }
   const promotion = source.pathname.match(
     new RegExp(`^${prefix}/candidates/([0-9a-f-]+)/promote$`, "i"),
@@ -217,7 +229,7 @@ async function submitDecisionModelAction(
       decisionPromotionMutationResponseSchema,
       { method: "POST", body: { expectedGeneration } },
     )
-    return "The reviewed candidate is now the promoted decision model."
+    return { notice: "The reviewed candidate is now the promoted decision model." }
   }
   const rejection = source.pathname.match(
     new RegExp(`^${prefix}/candidates/([0-9a-f-]+)/reject$`, "i"),
@@ -230,7 +242,7 @@ async function submitDecisionModelAction(
       decisionCandidateRejectionMutationResponseSchema,
       { method: "POST", body: { reason } },
     )
-    return "The candidate was rejected and remains unavailable for promotion."
+    return { notice: "The candidate was rejected and remains unavailable for promotion." }
   }
   throw new Response("This decision-model action is not connected.", { status: 400 })
 }
@@ -302,9 +314,61 @@ export default function SettingsLearnings({
   const revalidator = useRevalidator()
   const revalidatedResult = useRef<LearningActionResult | undefined>(undefined)
   const completedResult = useRef<LearningActionResult | undefined>(undefined)
+  const loadedDecisionModel = loaderData.decisionModel
+  const [previousLoadedDecisionModel, setPreviousLoadedDecisionModel] =
+    useState(loadedDecisionModel)
+  const [lastAvailableDecisionModel, setLastAvailableDecisionModel] = useState<
+    Extract<DecisionModelAvailability, { state: "available" }> | undefined
+  >(loadedDecisionModel?.state === "available" ? loadedDecisionModel : undefined)
+  const [decisionModelRetryAttempt, setDecisionModelRetryAttempt] = useState(0)
   const [decisionModelActionRevision, setDecisionModelActionRevision] = useState(0)
   const busy = fetcher.state !== "idle" || revalidator.state !== "idle"
   const result = busy ? undefined : fetcher.data
+  const action = fetcher.formData?.get("_action")
+  const trainingSubmitting =
+    fetcher.state !== "idle" &&
+    typeof action === "string" &&
+    action.endsWith("/decision-model/training")
+  if (loadedDecisionModel !== previousLoadedDecisionModel) {
+    setPreviousLoadedDecisionModel(loadedDecisionModel)
+    if (loadedDecisionModel?.state === "available") {
+      setLastAvailableDecisionModel(loadedDecisionModel)
+      setDecisionModelRetryAttempt(0)
+    }
+  }
+  const acceptedTrainingJobId =
+    fetcher.data?.saved && fetcher.data.trainingJobId ? fetcher.data.trainingJobId : null
+  const authoritativeTrainingJobVisible = Boolean(
+    acceptedTrainingJobId &&
+    loadedDecisionModel?.state === "available" &&
+    loadedDecisionModel.overview.jobs.some((job) => job.id === acceptedTrainingJobId),
+  )
+  const awaitingTrainingJobId =
+    acceptedTrainingJobId && !authoritativeTrainingJobVisible ? acceptedTrainingJobId : null
+  const previousDecisionModel =
+    loadedDecisionModel?.state === "available" ? loadedDecisionModel : lastAvailableDecisionModel
+  const lastKnownActiveJob = previousDecisionModel?.overview.jobs.find((job) =>
+    ["queued", "submitting", "cancel_requested", "submitted", "running"].includes(job.state),
+  )
+  const preserveForTraining =
+    trainingSubmitting || (awaitingTrainingJobId !== null && !authoritativeTrainingJobVisible)
+  const transientLearningLock =
+    loadedDecisionModel?.state === "unavailable" &&
+    loadedDecisionModel.error === "Another learning operation is still running."
+  const decisionModel: DecisionModelAvailability | null =
+    previousDecisionModel &&
+    (preserveForTraining || (transientLearningLock && lastKnownActiveJob)) &&
+    (loadedDecisionModel?.state === "available" || transientLearningLock)
+      ? {
+          state: "available",
+          overview: previousDecisionModel.overview,
+          preparationStatus: trainingSubmitting
+            ? "Submitting the confirmed training request. Hub is preparing its private evidence."
+            : awaitingTrainingJobId !== null
+              ? "Training was accepted. Hub is preparing its private evidence; the queued or running job will appear here automatically."
+              : `Status refresh is delayed while Hub prepares evidence. The last confirmed job state is ${lastKnownActiveJob?.state.replaceAll("_", " ")}.`,
+        }
+      : loadedDecisionModel
   const search = new URLSearchParams(location.search)
   useEffect(() => {
     if (!result?.revalidate || revalidatedResult.current === result) return
@@ -316,6 +380,34 @@ export default function SettingsLearnings({
     completedResult.current = result
     setDecisionModelActionRevision((revision) => revision + 1)
   }, [result])
+  const retryDelayedDecisionModel =
+    transientLearningLock &&
+    previousDecisionModel !== undefined &&
+    (awaitingTrainingJobId !== null || lastKnownActiveJob !== undefined)
+  useEffect(() => {
+    if (
+      (!retryDelayedDecisionModel && awaitingTrainingJobId === null) ||
+      (authoritativeTrainingJobVisible && !retryDelayedDecisionModel) ||
+      revalidator.state !== "idle"
+    ) {
+      return
+    }
+    const delays = [750, 1_500, 3_000, 5_000]
+    const timer = window.setTimeout(
+      () => {
+        setDecisionModelRetryAttempt((attempt) => attempt + 1)
+        void revalidator.revalidate()
+      },
+      delays[Math.min(decisionModelRetryAttempt, delays.length - 1)],
+    )
+    return () => window.clearTimeout(timer)
+  }, [
+    awaitingTrainingJobId,
+    authoritativeTrainingJobVisible,
+    decisionModelRetryAttempt,
+    retryDelayedDecisionModel,
+    revalidator,
+  ])
   return (
     <ProductFormBoundary
       busy={busy}
@@ -326,8 +418,9 @@ export default function SettingsLearnings({
       }}
     >
       <LearningsPage
-        data={settingsLearnings(workspace, loaderData, loaderData.decisionModel, search)}
+        data={settingsLearnings(workspace, loaderData, decisionModel, search)}
         decisionModelActionRevision={decisionModelActionRevision}
+        decisionModelTrainingSubmitting={trainingSubmitting}
       />
     </ProductFormBoundary>
   )

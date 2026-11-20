@@ -92,9 +92,12 @@ describe("settings Learnings route", () => {
 
   it.each([
     {
-      label: "preflight conflict",
-      response: Response.json({ error: "Evidence changed during preflight." }, { status: 409 }),
-      expected: "Evidence changed during preflight.",
+      label: "uncorrelated learning-operation conflict",
+      response: Response.json(
+        { error: "Another learning operation is still running." },
+        { status: 409 },
+      ),
+      expected: "Another learning operation is still running.",
     },
     {
       label: "invalid overview",
@@ -238,23 +241,29 @@ describe("settings Learnings route", () => {
         generation: 4,
       },
     },
-  ])("sends the exact $label mutation", async ({ form, endpoint, method, body, response }) => {
-    const send = vi.fn<typeof fetch>(() => Promise.resolve(Response.json(response)))
-    vi.stubGlobal("fetch", send)
+  ])(
+    "sends the exact $label mutation",
+    async ({ label, form, endpoint, method, body, response }) => {
+      const send = vi.fn<typeof fetch>(() => Promise.resolve(Response.json(response)))
+      vi.stubGlobal("fetch", send)
 
-    const result = await clientAction({
-      request: routeRequest(form),
-      params: { repositoryId: "2001" },
-    } as unknown as Parameters<typeof clientAction>[0])
+      const result = await clientAction({
+        request: routeRequest(form),
+        params: { repositoryId: "2001" },
+      } as unknown as Parameters<typeof clientAction>[0])
 
-    expect(result.data.saved).toBe(true)
-    expect(send).toHaveBeenCalledOnce()
-    const [url, init] = send.mock.calls[0]!
-    expect(new URL(url instanceof Request ? url.url : url).pathname).toBe(endpoint)
-    expect(init).toMatchObject({ method })
-    expect(init?.body == null || typeof init.body === "string").toBe(true)
-    expect(init?.body == null ? undefined : JSON.parse(init.body as string)).toEqual(body)
-  })
+      expect(result.data.saved).toBe(true)
+      if (label === "confirmed training" && "trainingJobId" in result.data) {
+        expect(result.data.trainingJobId).toBe(jobId)
+      }
+      expect(send).toHaveBeenCalledOnce()
+      const [url, init] = send.mock.calls[0]!
+      expect(new URL(url instanceof Request ? url.url : url).pathname).toBe(endpoint)
+      expect(init).toMatchObject({ method })
+      expect(init?.body == null || typeof init.body === "string").toBe(true)
+      expect(init?.body == null ? undefined : JSON.parse(init.body as string)).toEqual(body)
+    },
+  )
 
   it("marks a stale promotion generation for refresh instead of reporting success", async () => {
     vi.stubGlobal(

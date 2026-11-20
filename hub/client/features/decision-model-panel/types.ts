@@ -82,6 +82,7 @@ export type DecisionModelPanelData =
         blockedReasons: string[]
       }
       trainingAvailable: boolean
+      preparationStatus?: string | null
       activeJob: DecisionTrainingJob | null
       jobs: DecisionTrainingJob[]
       candidates: DecisionCandidate[]

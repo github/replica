@@ -411,6 +411,25 @@ export const DecisionTrainingQueued: Story = {
   },
 }
 
+export const DecisionTrainingPreparing: Story = {
+  args: {
+    data: {
+      ...data,
+      decisionModel: {
+        ...decisionModel,
+        trainingAvailable: false,
+        preparationStatus:
+          "Training was accepted. Hub is preparing its private evidence; the queued or running job will appear here automatically.",
+        activeJob: null,
+        jobs: [],
+        candidates: [],
+        promotion: null,
+        evaluations: [],
+      },
+    },
+  },
+}
+
 export const DecisionTrainingRunning: Story = {
   args: {
     data: {

@@ -149,7 +149,7 @@ describe("DecisionModelPanel()", () => {
     renderPanel(available())
     expect(screen.getByRole("checkbox", { name: "Repository training" })).toBeChecked()
     fireEvent.click(screen.getByRole("button", { name: "Start training" }))
-    const confirm = screen.getByRole("button", { name: "Confirm and start training" })
+    const confirm = screen.getByRole("button", { name: "Queue this training job" })
     const form = confirm.closest("form")
     expect(
       (form?.querySelector('[name="idempotencyKey"]') as HTMLInputElement | null)?.value,
@@ -157,7 +157,11 @@ describe("DecisionModelPanel()", () => {
     expect(form?.querySelector('[name="expectedConfigurationGeneration"]')).toHaveValue("3")
     expect(confirm).toHaveFocus()
     expect(screen.getByText(/capped at 8 updates, 5 minutes, and 10 credits/)).toBeVisible()
-    expect(screen.getByText("Starting training does not promote its candidate.")).toBeVisible()
+    expect(
+      screen.getByText(
+        "The next click queues this job. It does not promote the resulting candidate.",
+      ),
+    ).toBeVisible()
   })
 
   it.each(["queued", "submitting", "submitted", "running"] as const)(
@@ -344,7 +348,7 @@ describe("DecisionModelPanel()", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start training" }))
     const firstKey = (
       screen
-        .getByRole("button", { name: "Confirm and start training" })
+        .getByRole("button", { name: "Queue this training job" })
         .closest("form")
         ?.querySelector('[name="idempotencyKey"]') as HTMLInputElement
     ).value
@@ -355,11 +359,11 @@ describe("DecisionModelPanel()", () => {
       </ThemeProvider>,
     )
 
-    expect(screen.queryByRole("button", { name: "Confirm and start training" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Queue this training job" })).toBeNull()
     fireEvent.click(screen.getByRole("button", { name: "Start training" }))
     const secondKey = (
       screen
-        .getByRole("button", { name: "Confirm and start training" })
+        .getByRole("button", { name: "Queue this training job" })
         .closest("form")
         ?.querySelector('[name="idempotencyKey"]') as HTMLInputElement
     ).value

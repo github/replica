@@ -157,8 +157,12 @@ function decisionModelData(
           : [],
     },
     trainingAvailable: Boolean(
-      overview.configuration?.enabled && overview.preflight.state === "ready" && !activeJob,
+      overview.configuration?.enabled &&
+      overview.preflight.state === "ready" &&
+      !activeJob &&
+      !availability.preparationStatus,
     ),
+    preparationStatus: availability.preparationStatus ?? null,
     activeJob: activeJob ? (jobs.find((job) => job.id === activeJob.id) ?? null) : null,
     jobs,
     candidates: overview.candidates.map((candidate) => ({

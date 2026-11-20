@@ -10,9 +10,11 @@ import type { DecisionCandidate, DecisionModelPanelData, DecisionTrainingJob } f
 export function DecisionModelPanel({
   data,
   authenticityToken,
+  trainingSubmitting = false,
 }: {
   data: DecisionModelPanelData
   authenticityToken: string
+  trainingSubmitting?: boolean
 }) {
   if (data.state === "repository-learning-only") {
     return (
@@ -46,15 +48,23 @@ export function DecisionModelPanel({
       </section>
     )
   }
-  return <AvailableDecisionModel data={data} authenticityToken={authenticityToken} />
+  return (
+    <AvailableDecisionModel
+      data={data}
+      authenticityToken={authenticityToken}
+      trainingSubmitting={trainingSubmitting}
+    />
+  )
 }
 
 function AvailableDecisionModel({
   data,
   authenticityToken,
+  trainingSubmitting,
 }: {
   data: Extract<DecisionModelPanelData, { state: "available" }>
   authenticityToken: string
+  trainingSubmitting: boolean
 }) {
   const [confirmTraining, setConfirmTraining] = useState(false)
   const [promoting, setPromoting] = useState<string | null>(null)
@@ -169,7 +179,7 @@ function AvailableDecisionModel({
               screenshots, then sends it to the customer-run runtime.
             </Text>
           </div>
-          {!confirmTraining && data.trainingAvailable ? (
+          {!confirmTraining && data.trainingAvailable && !data.preparationStatus ? (
             <Button
               ref={trainingButton}
               type="button"
@@ -191,19 +201,20 @@ function AvailableDecisionModel({
               value={data.configuration.generation}
             />
             <HubAlert
-              title={`Confirm a job capped at ${data.configuration.maxUpdates.toLocaleString()} updates, ${formatDuration(data.configuration.maxSeconds)}, and ${data.configuration.monthlyBudgetCredits} credits within the monthly repository budget.`}
+              title={`Review one training job capped at ${data.configuration.maxUpdates.toLocaleString()} updates, ${formatDuration(data.configuration.maxSeconds)}, and ${data.configuration.monthlyBudgetCredits} credits within the monthly repository budget.`}
               variant="warning"
             />
             <Text as="p" size="200">
-              Starting training does not promote its candidate.
+              The next click queues this job. It does not promote the resulting candidate.
             </Text>
             <div className="decision-model-panel__actions">
-              <Button type="submit" variant="primary" autoFocus>
-                Confirm and start training
+              <Button type="submit" variant="primary" autoFocus disabled={trainingSubmitting}>
+                {trainingSubmitting ? "Queuing training…" : "Queue this training job"}
               </Button>
               <Button
                 type="button"
                 variant="subtle"
+                disabled={trainingSubmitting}
                 onClick={() => {
                   setConfirmTraining(false)
                   window.requestAnimationFrame(() => trainingButton.current?.focus())
@@ -215,7 +226,11 @@ function AvailableDecisionModel({
           </form>
         ) : null}
 
-        {data.activeJob ? (
+        {data.preparationStatus ? (
+          <Text as="p" role="status" size="200" variant="muted">
+            {data.preparationStatus}
+          </Text>
+        ) : data.activeJob ? (
           <HubAlert
             title={`${data.activeJob.stateLabel}: training is using the pinned evidence shown for this job.`}
             variant="info"

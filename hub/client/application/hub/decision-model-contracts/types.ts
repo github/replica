@@ -153,7 +153,11 @@ export interface DecisionModelOverviewResponse {
 }
 
 export type DecisionModelAvailability =
-  | { state: "available"; overview: DecisionModelOverviewResponse }
+  | {
+      state: "available"
+      overview: DecisionModelOverviewResponse
+      preparationStatus?: string
+    }
   | { state: "not-configured" }
   | { state: "unavailable"; error: string }
 
