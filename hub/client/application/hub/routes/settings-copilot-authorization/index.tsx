@@ -7,9 +7,10 @@ import { cancelCopilotAuthorization } from "@application/hub/requests/cancel-cop
 import { continueCopilotAuthorization } from "@application/hub/requests/continue-copilot-authorization"
 import { getCopilotAuthorization } from "@application/hub/requests/get-copilot-authorization"
 import { getCurrentHubSession } from "@application/hub/requests/get-current-hub-session"
-import { administratorWorkspace } from "@application/hub/view-models/administrator-workspace"
+import { loadAdministratorWorkspace } from "@application/hub/load-administrator-workspace"
 import { ApiContractError } from "@application/hub/requests/api-contract-error"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
+import { resourcePath } from "@application/hub/view-models/resource-path"
 
 import type { Route } from "./+types/index"
 
@@ -26,13 +27,16 @@ export async function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "re
   if (session.role !== "ADMINISTRATOR") {
     throw new Response("Administrator access is required.", { status: 403 })
   }
-  const { authorization } = await getCopilotAuthorization(request, authorizationId.data)
+  const [{ authorization }, workspace] = await Promise.all([
+    getCopilotAuthorization(request, authorizationId.data),
+    loadAdministratorWorkspace(request, session, "copilot"),
+  ])
   const connect = authorization.operation === "CONNECT_COPILOT"
   return {
     authorization,
     authorizationId: authorizationId.data,
     page: {
-      administrationWorkspace: administratorWorkspace(session, "copilot"),
+      administrationWorkspace: workspace,
       productName: "Replica Hub",
       pageTitle: connect ? "Complete Copilot connection" : "Complete Copilot disconnection",
       heading: connect ? "Complete Copilot connection" : "Complete Copilot disconnection",
@@ -81,7 +85,15 @@ export default function SettingsCopilotAuthorization({
                 operation: loaderData.authorization.operation,
               }).then((response) => ("connectionId" in response ? "connected" : "disconnected"))
         void action
-          .then((outcome) => navigate(`/settings/copilot?result=${outcome}`))
+          .then((outcome) =>
+            navigate(
+              resourcePath("/settings/copilot", new URLSearchParams(), {
+                result: outcome,
+                repositoryId:
+                  loaderData.page.administrationWorkspace.repository?.selectedRepositoryId ?? null,
+              }),
+            ),
+          )
           .catch((error: unknown) => {
             if (!(error instanceof ApiRequestError) && !(error instanceof ApiContractError)) {
               throw error

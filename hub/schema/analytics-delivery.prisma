@@ -1,0 +1,30 @@
+model AnalyticsDelivery {
+  // ID columns
+  id            String  @id @default(uuid()) @db.Uuid
+  repositoryId  String  @map("repository_id") @db.Uuid
+  eventId       String  @map("event_id") @db.Uuid
+  destinationId String  @map("destination_id") @db.Uuid
+  leaseId       String? @map("lease_id") @db.Uuid
+
+  // Relations
+  event       AnalyticsEvent       @relation(fields: [eventId, repositoryId], references: [id, repositoryId], onDelete: Cascade)
+  destination AnalyticsDestination @relation(fields: [destinationId, repositoryId], references: [id, repositoryId], onDelete: Cascade)
+
+  // Attribute columns
+  state               AnalyticsDeliveryState @default(pending)
+  destinationRevision Int                    @map("destination_revision")
+  attempts            Int                    @default(0)
+  failureCode         String?                @map("failure_code") @db.VarChar(40)
+
+  // Timestamp columns
+  dueAt                 DateTime  @map("due_at") @db.Timestamptz(3)
+  enqueueClaimExpiresAt DateTime? @map("enqueue_claim_expires_at") @db.Timestamptz(3)
+  deliveredAt           DateTime? @map("delivered_at") @db.Timestamptz(3)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([eventId, destinationId])
+  @@index([destinationId, state])
+  @@index([state, dueAt, id])
+  @@map("analytics_deliveries")
+}

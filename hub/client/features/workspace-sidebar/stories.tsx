@@ -96,6 +96,7 @@ export const ReadOnly: Story = {
       ...administrator,
       accountMenuLabel: "Account menu for @mona",
       currentUser: mona,
+      canvasConnectionsPath: "/canvas/connections",
       repository: { ...repository, newPrototypePath: null },
       administrationLinks: [],
       securityAuditPath: "/settings/audit?repositoryId=2001&scope=repository",

@@ -13,6 +13,11 @@ import type { PublicSharingRouteDependencies } from "../routes/api/public-sharin
 import type { GitHubSetupRouteDependencies } from "../routes/api/settings/github/types.ts"
 import type { BuildPreviewRouteDependencies } from "../routes/build-preview/types.ts"
 import { attachRealtimeServer } from "../integrations/ws/attach-realtime-server/index.ts"
+import { listenForReviewChanges } from "../integrations/postgres/listen-for-review-changes/index.ts"
+import {
+  createReviewRealtimeAccess,
+  readReviewChannel,
+} from "../routes/api/review-comments/create-review-realtime-access/index.ts"
 import { shutdownServer } from "../shutdown-server/index.ts"
 
 export async function runApi({
@@ -32,6 +37,7 @@ export async function runApi({
   clientDirectory,
   signal,
   isReady,
+  databaseUrl,
 }: {
   port: number
   logger: Logger
@@ -49,6 +55,7 @@ export async function runApi({
   clientDirectory?: string
   signal?: AbortSignal
   isReady?: () => Promise<boolean>
+  databaseUrl?: string
 }) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
     throw new Error("API port must be an integer between 0 and 65535.")
@@ -60,7 +67,17 @@ export async function runApi({
   const server = createServer()
   const operations = new AbortController()
   let bindingStarted = false
-  const realtime = attachRealtimeServer({ server, path: "/api/realtime", logger })
+  const reviewAccess =
+    databaseUrl && authentication && product?.isPrototypeReviewable
+      ? createReviewRealtimeAccess(authentication, product)
+      : undefined
+  const realtime = attachRealtimeServer({
+    server,
+    path: "/api/realtime",
+    logger,
+    ...reviewAccess,
+    ...(reviewAccess ? { limits: { maxSubscriptionsPerConnection: 1 } } : {}),
+  })
   let stoppingRequested = false
   server.on(
     "request",
@@ -110,8 +127,22 @@ export async function runApi({
     process.once("SIGINT", stop)
     process.once("SIGTERM", stop)
   }
+  let reviewChanges: Promise<void> | undefined
   try {
     if (signal?.aborted) return
+    if (databaseUrl && reviewAccess) {
+      reviewChanges = listenForReviewChanges({
+        databaseUrl,
+        signal: operations.signal,
+        logger,
+        changed: (scope) => {
+          const channel = `review:${scope}`
+          if (readReviewChannel(channel))
+            realtime.broadcast(channel, { type: "changed", payload: null })
+        },
+        resynchronize: realtime.resynchronize,
+      })
+    }
     bindingStarted = true
     server.listen(port, host, () => {
       const address = server.address()
@@ -130,7 +161,9 @@ export async function runApi({
     async function drain() {
       // A stop signal can arrive before listen() has opened its socket.
       if (bindingStarted) await binding
-      await shutdownServer(server, realtime)
+      const settled = await Promise.allSettled([shutdownServer(server, realtime), reviewChanges])
+      const failed = settled.find((result) => result.status === "rejected")
+      if (failed) throw failed.reason
     }
     try {
       await Promise.race([

@@ -1,6 +1,6 @@
 # Working on Replica Hub
 
-Hub uses a TypeScript Express API, React Router with React and Vite, and PostgreSQL with Prisma. Read the [root instructions](../AGENTS.md), [shared guides](../docs/README.md), and [Hub documentation](docs/README.md) before editing. The [architecture guide](docs/architecture.md) describes current capabilities and remaining work; Build importing, hosted previews, and live multi-user updates are not available.
+Hub uses a TypeScript Express API, React Router with React and Vite, and PostgreSQL with Prisma. Read the [root instructions](../AGENTS.md), [shared guides](../docs/README.md), and [Hub documentation](docs/README.md) before editing. The [architecture guide](docs/architecture.md) describes current capabilities and remaining work.
 
 ## Layout
 

@@ -17,7 +17,7 @@ function presentMessage(message: ReviewMessage, viewerId: string) {
   return {
     id: message.id,
     body: message.body,
-    mentions: [],
+    mentions: message.mentions ?? [],
     createdAt: message.createdAt,
     updatedAt: message.updatedAt,
     editedAt: message.editedAt,
@@ -25,7 +25,7 @@ function presentMessage(message: ReviewMessage, viewerId: string) {
     author: presentActor(message.author),
     viewerCanEdit: message.author.userId === viewerId && message.deletedAt === null,
     viewerCanDelete: message.author.userId === viewerId && message.deletedAt === null,
-    reactions: [],
+    reactions: message.reactions ?? [],
   }
 }
 
@@ -47,7 +47,7 @@ export function presentReviewThreadComments(thread: ReviewThread, viewerId: stri
         occurredAt: event.occurredAt,
       })),
       activityVersion: thread.activityVersion,
-      viewerLastSeenActivityVersion: thread.activityVersion,
+      viewerLastSeenActivityVersion: thread.viewerLastSeenActivityVersion ?? null,
     },
     ...thread.replies.map((reply) => ({
       ...presentMessage(reply, viewerId),

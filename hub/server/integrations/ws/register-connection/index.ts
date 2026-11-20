@@ -14,6 +14,7 @@ export function registerConnection<Identity>(
   identity: Identity,
   authorizeSubscription: RealtimeOptions<Identity>["authorizeSubscription"],
   release: () => void,
+  revalidateSubscriptions = false,
 ) {
   const connection: Connection = {
     id: randomUUID(),
@@ -22,6 +23,11 @@ export function registerConnection<Identity>(
     busy: false,
     messages: 0,
     windowEndsAt: Date.now() + 1000,
+    rechecks: new Map(),
+    revalidate:
+      revalidateSubscriptions && authorizeSubscription
+        ? (channel, signal) => authorizeSubscription(identity, channel, signal)
+        : undefined,
   }
   state.connections.set(client, connection)
   state.logger.info(
@@ -53,6 +59,7 @@ export function registerConnection<Identity>(
   client.on("error", () => disconnect(state, client, connection, "transport_failed"))
   client.once("close", () => {
     connection.check?.abort()
+    for (const { controller } of connection.rechecks.values()) controller.abort()
     for (const channel of connection.subscriptions) {
       removeSubscription(state, client, connection, channel)
     }

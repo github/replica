@@ -1,9 +1,13 @@
 import { describe, expect, it, vi } from "vitest"
 
+import * as hubApi from "@application/hub/bootstrap-hub-api"
+
 import { clientAction } from "."
 
 describe("product management clientAction()", () => {
   it("saves UUID prototypes and registers numeric candidates", async () => {
+    vi.stubEnv("MODE", "mock")
+    vi.spyOn(hubApi, "bootstrapHubApi").mockResolvedValue(undefined)
     const prototypeId = "0f8fad5b-d9cb-469f-a165-70867728950e"
     const send = vi
       .fn()
@@ -40,6 +44,7 @@ describe("product management clientAction()", () => {
   })
 
   it("rejects invalid prototype and candidate IDs before sending a request", async () => {
+    vi.stubEnv("MODE", "mock")
     const send = vi.fn().mockResolvedValue(Response.json({ notice: "Saved." }))
     vi.stubGlobal("fetch", send)
 

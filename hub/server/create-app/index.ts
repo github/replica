@@ -33,11 +33,14 @@ export function createApp({
   app.use(
     [
       "/api/auth",
+      "/api/canvas",
+      "/canvas/pair",
       "/api/administrators",
       "/api/copilot-connection",
       "/api/session-revocation",
       "/api/security-audits",
       "/api/workspace",
+      "/api/notifications",
       "/api/repositories",
       "/api/shared",
       "/__replica/authorize",
@@ -47,7 +50,7 @@ export function createApp({
     authenticationSecurity(),
   )
   app.use(
-    /^(?!\/api\/copilot-connection(?:\/|$))(?!\/api\/product\/sharing-settings(?:\/|$))(?!\/api\/repositories\/[^/]+\/(?:learnings|decision-model)(?:\/|$))(?!\/api\/(?:auth|administrators\/authorizations|session-revocation\/authorizations|github\/webhooks)(?:\/|$))(?!\/api\/repositories\/[^/]+\/prototypes\/[^/]+(?:\/review-comments(?:\/|$)|\/share-links(?:\/|$)|\/?$)).*/i,
+    /^(?!\/api\/(?:copilot-connection|notifications)(?:\/|$))(?!\/api\/product\/sharing-settings(?:\/|$))(?!\/api\/repositories\/[^/]+\/(?:learnings|decision-model|analytics|prototype-management)(?:\/|$))(?!\/api\/(?:auth|canvas|administrators\/authorizations|session-revocation\/authorizations|github\/webhooks)(?:\/|$))(?!\/api\/repositories\/[^/]+\/prototypes\/[^/]+(?:\/review-comments(?:\/|$)|\/share-links(?:\/|$)|\/?$)).*/i,
     express.json(),
   )
 
@@ -82,7 +85,7 @@ export function createApp({
         next()
         return
       }
-      response.setHeader("Cache-Control", "no-cache")
+      if (!response.hasHeader("Cache-Control")) response.setHeader("Cache-Control", "no-cache")
       response.sendFile("index.html", { root: directory, dotfiles: "deny" })
     })
   }

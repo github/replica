@@ -1,0 +1,21 @@
+model ReviewThreadRead {
+  // ID columns
+  id       String @id @default(uuid()) @db.Uuid
+  threadId String @map("thread_id") @db.Uuid
+  userId   String @map("user_id") @db.Uuid
+
+  // Relations
+  thread ReviewThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user   User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  // Attribute columns
+  activityVersion Int @map("activity_version")
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([threadId, userId])
+  @@index([userId])
+  @@map("review_thread_reads")
+}

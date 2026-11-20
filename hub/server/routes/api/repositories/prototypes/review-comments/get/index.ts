@@ -45,6 +45,7 @@ export function get(
             ? review.reviewComments.listPrototypeThreads(
                 identifiers.repositoryId,
                 identifiers.prototypeId,
+                viewer.userId,
               )
             : null,
       )
@@ -62,7 +63,7 @@ export function get(
           response,
           review,
           identifiers.repositoryId,
-          read.current,
+          { ...read.current, sessionDigest: current.sessionDigest },
           "view",
         ))
       ) {

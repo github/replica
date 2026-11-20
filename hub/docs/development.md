@@ -125,12 +125,15 @@ npm run local:worker
 
 Each scan considers committed heads for the default branch and every other local branch. Hub creates one stable local repository and branch prototype, records the observed head, and creates at most one Build for that exact commit. An unchanged successful or failed head is not rebuilt. A queued or interrupted running Build may resume. Discovery and Build failures are isolated so another repository can still finish.
 
+From a discovered repository's gallery, choose **Edit prototype listings** to add a draft branch to Hub or change a listed prototype's details. Adding a branch makes it appear in the gallery without creating or changing a Build. The default branch, replicas, deleted branches, and the reserved installation branch do not appear in the list. For a GitHub-backed repository, Hub confirms current Write, Maintain, or Admin permission and checks that a branch still exists before adding it.
+
 The runner uses an isolated detached Git worktree for the exact commit, so working-tree changes and untracked files do not enter the Build. Successful packages store validated `dist` files, screenshots, and the optional template manifest as immutable artifact bytes. Hub records failed state and a bounded error summary when validation, the prototype build, screenshots, packaging, storage, or persistence fails.
 
 Successful local Builds are immediately available to the authenticated [preview layer](build-previews.md) through their saved `BuildArtifact` records. The preview and screenshot URLs use the same artifact paths and storage keys written by synchronization; no import or second artifact representation is required. The injected preview bridge supplies element and area anchors to the parent Hub page. The fixed local identity can list and change persisted conversations for those configured repositories while each thread remains pinned to the successful Build where it began. After a local administrator enables deployment sharing, the same saved preview can receive an opaque public link through the [local sharing contract](share-links.md).
 
-Reviews and share links do not modify or duplicate Build artifacts. Public links do not expose review or repository data. This local flow does not add GitHub collaborator lookup, mentions, inbox notifications, reactions, Canvas pairing, hosted repository discovery, workflow installation, or GitHub authorization.
-Vite also forwards WebSocket upgrades under `/api`. The `/api/realtime` endpoint rejects connections until application access checks are connected; see [WebSocket updates](websockets.md). Stopping the API closes its WebSocket connections as well.
+Reviews and share links do not modify or duplicate Build artifacts. Public links do not expose review or repository data. The local identity can use review reactions, Canvas pairing, and analytics settings without GitHub. Use separate authorized GitHub identities to exercise hosted permissions and mention and Inbox behavior across accounts.
+
+Vite forwards `/api/realtime` for [authenticated review updates](websockets.md). Stopping the API closes its WebSocket connections.
 
 The API reads an optional `PORT` environment variable, defaulting to 3001. If you change it, update the local Vite proxy target to match. The editor forwards ports 3001, 5173, and 6006 from the devcontainer. API startup reads `.env` when present; Compose's environment takes precedence.
 

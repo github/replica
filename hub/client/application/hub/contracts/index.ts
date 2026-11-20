@@ -34,6 +34,12 @@ export const repositorySchema = z.object({
     .object({
       reviewPrototypes: z.boolean(),
       manageSharing: z.boolean(),
+      managePrototypeListings: z.boolean().optional(),
+      administerRepository: z.boolean().optional(),
+      repositoryPermissionUnavailable: z.boolean().optional(),
+      browseTemplates: z.boolean().optional(),
+      local: z.boolean().optional(),
+      manageAnalytics: z.boolean().optional(),
     })
     .optional(),
 })
@@ -73,6 +79,7 @@ export const prototypeSchema = z.object({
   authorName: z.string().nullable().optional(),
   authorProvider: z.string().min(1).nullable().optional(),
   canEdit: z.boolean(),
+  canManageShareLinks: z.boolean().optional(),
   latestBuild: z.object({ number: identifier, state: buildStateSchema }).nullable().optional(),
   builds: z.array(buildSchema),
 })
@@ -94,7 +101,10 @@ export const workspaceCapabilitiesSchema = z.object({
 export const workspaceResponseSchema = z.object({
   viewer: userSchema,
   repositories: z.array(repositorySchema),
+  reviewInboxAvailable: z.boolean().optional(),
+  publicSharingSettingsAvailable: z.boolean().optional(),
   capabilities: workspaceCapabilitiesSchema.optional(),
+  welcomeHidden: z.boolean().optional(),
   navigation: z
     .object({
       welcomeHidden: z.boolean(),
@@ -121,6 +131,7 @@ export const prototypeResponseSchema = z.object({
   selectedBuild: buildSchema.nullable(),
   controlsIdentity: z.string().min(1).max(128).optional(),
   showPrototypeInfo: z.boolean().optional(),
+  canBranch: z.boolean().optional(),
 })
 
 export const buildHistoryResponseSchema = z.object({

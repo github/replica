@@ -8,7 +8,7 @@ import type { RealtimeOptions, RealtimeState } from "../types.ts"
 
 export async function upgradeConnection<Identity>(
   state: RealtimeState,
-  { path, authenticate, authorizeSubscription }: RealtimeOptions<Identity>,
+  { path, authenticate, authorizeSubscription, revalidateSubscriptions }: RealtimeOptions<Identity>,
   request: IncomingMessage,
   socket: Duplex,
   head: Buffer,
@@ -113,7 +113,14 @@ export async function upgradeConnection<Identity>(
       state.pending.delete(socket)
       socket.off("close", cancel)
       socket.off("error", socketError)
-      registerConnection(state, client, identity, authorizeSubscription, release)
+      registerConnection(
+        state,
+        client,
+        identity,
+        authorizeSubscription,
+        release,
+        revalidateSubscriptions,
+      )
     })
   } catch {
     if (completed || socket.destroyed) return

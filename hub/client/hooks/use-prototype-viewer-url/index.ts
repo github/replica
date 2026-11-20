@@ -8,11 +8,15 @@ export function usePrototypeViewerUrl({
   route,
   initiallyMinimized,
   buildSelection = "preserve",
+  initialRoute,
+  enabled = true,
 }: {
   selectedBuild?: { number: number; previewUrl: string }
   route: ReviewRoute | null
   initiallyMinimized: boolean
   buildSelection?: "preserve" | "ignore"
+  initialRoute?: string
+  enabled?: boolean
 }) {
   const [, refreshUrl] = useState(0)
   useEffect(() => {
@@ -50,7 +54,7 @@ export function usePrototypeViewerUrl({
         : null
     const destination = route
       ? `${route.pathname}${route.search}${route.hash}`
-      : (previousPath ?? `${preview.pathname}${preview.search}${preview.hash}`)
+      : (initialRoute ?? previousPath ?? `${preview.pathname}${preview.search}${preview.hash}`)
     url.searchParams.set("return_path", destination)
     if (minimized) url.searchParams.set("view", "minimized")
     else url.searchParams.delete("view")
@@ -58,10 +62,14 @@ export function usePrototypeViewerUrl({
 
   const viewerUrl = url.toString()
   useEffect(() => {
-    if ((selectedBuild || buildSelection === "ignore") && window.location.href !== viewerUrl) {
+    if (
+      enabled &&
+      (selectedBuild || buildSelection === "ignore") &&
+      window.location.href !== viewerUrl
+    ) {
       window.history.replaceState(window.history.state, "", viewerUrl)
     }
-  }, [selectedBuild, buildSelection, viewerUrl])
+  }, [selectedBuild, buildSelection, viewerUrl, enabled])
 
   return {
     viewerUrl,

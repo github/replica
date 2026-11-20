@@ -5,6 +5,7 @@ import { hashAuthenticationValue } from "../../../../../../domains/authenticatio
 import { PrototypeMetadataError } from "../../../../../../domains/prototypes/errors.ts"
 import { hubSessionCookieName } from "../../../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../../../../../integrations/express/read-cookie/index.ts"
+import { GitHubProviderRequestError } from "../../../../../../integrations/github/errors.ts"
 import type { CurrentSessionDependencies } from "../../../../auth/types.ts"
 import { readProductSession } from "../../../../product/read-product-session/index.ts"
 import type { ProductRouteDependencies } from "../../../../product/types.ts"
@@ -22,6 +23,7 @@ const errorStatus = { invalid_input: 400, not_found: 404, not_signed_in: 401 } a
 export function patch(
   session: CurrentSessionDependencies,
   product: ProductRouteDependencies,
+  listing = false,
 ): RequestHandler {
   return async (request, response, next) => {
     try {
@@ -45,6 +47,7 @@ export function patch(
 
       const detail = await product.editPrototypeMetadata({
         changes: changes.data,
+        ...(listing ? { listing: true } : {}),
         prototypeId: prototypeId.data,
         repositoryId: repositoryId.data,
         sessionDigest: hashAuthenticationValue(cookie),
@@ -55,6 +58,10 @@ export function patch(
         showPrototypeInfo: false,
       })
     } catch (error) {
+      if (error instanceof GitHubProviderRequestError) {
+        response.status(503).json({ error: "GitHub repository access is unavailable." })
+        return
+      }
       if (error instanceof PrototypeMetadataError) {
         response.status(errorStatus[error.code]).json({ error: error.message })
         return

@@ -1,4 +1,5 @@
 import type { Prisma } from "../../../generated/prisma/client.ts"
+import type { AuthorizationAttemptPurpose } from "../../../generated/prisma/enums.ts"
 
 export async function lockConsumedAuthorizationAttempt(
   database: Pick<Prisma.TransactionClient, "$queryRaw">,
@@ -10,7 +11,7 @@ export async function lockConsumedAuthorizationAttempt(
       consumedAt: Date | null
       createdAt: Date
       providerRevisionId: string
-      purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
+      purpose: AuthorizationAttemptPurpose
       sessionRevocationRevision: number
     }>
   >`

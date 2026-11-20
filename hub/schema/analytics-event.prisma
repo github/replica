@@ -1,0 +1,28 @@
+model AnalyticsEvent {
+  // ID columns
+  id           String  @id @default(uuid()) @db.Uuid
+  repositoryId String  @map("repository_id") @db.Uuid
+  prototypeId  String  @map("prototype_id") @db.Uuid
+  buildId      String? @map("build_id") @db.Uuid
+  threadId     String? @map("thread_id") @db.Uuid
+  commentId    String? @map("comment_id") @db.Uuid
+
+  // Relations
+  repository Repository          @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  deliveries AnalyticsDelivery[]
+
+  // Attribute columns
+  eventName AnalyticsEventName @map("event_name")
+  sourceKey String             @map("source_key") @db.VarChar(60)
+
+  // Timestamp columns
+  occurredAt DateTime @map("occurred_at") @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([id, repositoryId])
+  @@unique([repositoryId, sourceKey])
+  @@index([repositoryId, occurredAt, id])
+  @@index([occurredAt, id])
+  @@map("analytics_events")
+}

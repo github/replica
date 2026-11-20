@@ -5,9 +5,16 @@ export function createPreviewSession(
   sessionDigest: string,
   expiresAt: Date,
   key: Buffer,
+  template = false,
 ): string {
   return encryptAuthenticationValue(
-    JSON.stringify({ v: 1, b: buildId, s: sessionDigest, e: expiresAt.getTime() }),
+    JSON.stringify({
+      v: 1,
+      b: buildId,
+      s: sessionDigest,
+      e: expiresAt.getTime(),
+      t: template || undefined,
+    }),
     key,
   )
 }

@@ -25,10 +25,12 @@ export const productStartPageSchema = prototypeStartPageSchema.nullable()
 export const productTemplateSchema = z.object({
   id: productTemplateIdSchema,
   name: z.string().min(1),
+  category: z.string().min(1).optional(),
   description: z.string(),
   route: productStartPageSchema,
-  previewUrl: httpUrl,
+  previewUrl: httpUrl.nullable(),
   screenshotUrl: httpUrl.nullable(),
+  darkScreenshotUrl: httpUrl.nullable().optional(),
   buildNumber: identifier.nullable(),
 })
 
@@ -36,12 +38,15 @@ export const productCatalogResponseSchema = z.object({
   repository: repositorySchema,
   templates: z.array(productTemplateSchema),
   canCreate: z.boolean(),
+  submissionMode: z.enum(["copy", "copilot"]).optional(),
 })
 
 export const productTemplateResponseSchema = z.object({
   repository: repositorySchema,
   template: productTemplateSchema,
   canCreate: z.boolean(),
+  submissionMode: z.enum(["copy", "copilot"]).optional(),
+  initialRoute: z.string().optional(),
   controlsIdentity: z.string().min(1).max(128).optional(),
 })
 
@@ -50,7 +55,7 @@ export const productMetadataInputSchema = prototypeDetailsSchema
   .strict()
 
 export const productCandidateSchema = z.object({
-  id: identifier,
+  id: z.union([identifier, recordIdentifierSchema]),
   branchName: z.string().min(1),
   name: z.string().min(1),
   description: z.string().nullable(),
@@ -59,9 +64,13 @@ export const productCandidateSchema = z.object({
 
 export const productManagementResponseSchema = z.object({
   repository: repositorySchema,
-  registered: z.array(prototypeSchema.extend({ startPage: productStartPageSchema })),
+  registered: z.array(
+    prototypeSchema
+      .pick({ id: true, branchName: true, name: true, description: true, canEdit: true })
+      .extend({ startPage: productStartPageSchema }),
+  ),
   candidates: z.array(productCandidateSchema),
-  canCreate: z.boolean(),
+  canManage: z.boolean(),
 })
 
 export const productShareLinkSchema = z.object({

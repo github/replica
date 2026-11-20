@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import { AuthorizationAttemptPurpose } from "../../../generated/prisma/enums.ts"
 import type {
   CreateAuthorizationAttemptDatabase,
   CreateAuthorizationAttemptInput,
@@ -16,7 +17,7 @@ const inputSchema = z
     id: z.uuid(),
     lifetimeSeconds: z.number().int().min(1).max(3_600),
     nonceCiphertext: z.string().min(1).max(500),
-    purpose: z.enum(["SIGN_IN", "ADMIN_ENROLLMENT", "ADMINISTRATOR_MANAGEMENT"]),
+    purpose: z.enum(AuthorizationAttemptPurpose),
     providerRevisionId: z.uuid(),
     sensitiveAuthorizationId: z.uuid().optional(),
     sessionRevocationRevision: z.number().int().nonnegative(),

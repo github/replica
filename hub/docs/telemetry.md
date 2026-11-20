@@ -2,7 +2,7 @@
 
 Hub operators can send explicitly recorded server-side traces to an OpenTelemetry Protocol (OTLP) recipient of their choice. Tracing is disabled by default. Configuration belongs to the operator's process environment, not to an API endpoint or browser setting.
 
-The foundation provides two functions under `server/integrations/opentelemetry/`: `startTelemetry()` and `withTelemetrySpan()`. It does not automatically trace requests, database queries, outbound HTTP, or jobs. The health endpoint does not produce spans. Browser tracking and durable product analytics are not implemented.
+The foundation provides `startTelemetry()` and `withTelemetrySpan()` under `server/integrations/opentelemetry/`. It does not automatically trace requests, database queries, outbound HTTP, or jobs. The health endpoint does not produce spans. Durable [repository analytics](analytics.md) uses a separate event and delivery contract.
 
 ## Configure export
 

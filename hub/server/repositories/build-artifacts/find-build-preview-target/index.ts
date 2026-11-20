@@ -4,6 +4,7 @@ const targetPaths = {
   preview: "dist/index.html",
   desktop: "screenshots/desktop.png",
   narrow: "screenshots/narrow.png",
+  template: "dist/index.html",
 } as const
 
 export type BuildPreviewTarget = keyof typeof targetPaths
@@ -46,8 +47,10 @@ export async function findBuildPreviewTarget(
             select: {
               startPage: true,
               branchName: true,
+              branchDeletedAt: true,
+              repositoryId: true,
               replica: true,
-              repository: { select: { defaultBranch: true, removedAt: true } },
+              repository: { select: { defaultBranch: true, removedAt: true, localPath: true } },
             },
           },
         },
@@ -55,16 +58,32 @@ export async function findBuildPreviewTarget(
     },
   })
   const prototype = artifact?.build.prototype
-  return artifact &&
-    prototype &&
-    !prototype.replica &&
-    !prototype.repository.removedAt &&
-    prototype.branchName !== prototype.repository.defaultBranch &&
-    prototype.branchName !== "replica/install-workflow"
-    ? {
-        buildId: artifact.buildId,
-        startPage: prototype.startPage || "/",
-        artifactPath: targetPaths[input.target],
-      }
-    : null
+  if (!artifact || !prototype || prototype.repository.removedAt) return null
+  if (input.target === "template") {
+    if (
+      !("buildId" in input) ||
+      prototype.branchDeletedAt ||
+      prototype.branchName !== prototype.repository.defaultBranch
+    )
+      return null
+  } else if (
+    prototype.replica ||
+    prototype.branchName === prototype.repository.defaultBranch ||
+    prototype.branchName === "replica/install-workflow"
+  )
+    return null
+
+  return {
+    buildId: artifact.buildId,
+    startPage: input.target === "template" ? "/" : prototype.startPage || "/",
+    artifactPath: targetPaths[input.target],
+    ...(input.target === "template"
+      ? {
+          templateRepository: {
+            id: prototype.repositoryId,
+            local: Boolean(prototype.repository.localPath),
+          },
+        }
+      : {}),
+  }
 }

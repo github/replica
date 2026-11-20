@@ -22,6 +22,7 @@ export interface NotificationInboxCopy {
 
 export interface NotificationInboxConfiguration {
   path: string
+  connected?: boolean
   copy: NotificationInboxCopy & {
     error: string
     loading: string

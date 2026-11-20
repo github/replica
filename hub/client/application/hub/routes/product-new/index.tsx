@@ -6,6 +6,7 @@ import type { WorkspaceResponse } from "@application/hub/contracts/types"
 import { productCatalogResponseSchema } from "@application/hub/product-contracts"
 import type { ProductCatalogResponse } from "@application/hub/product-contracts/types"
 import { readRecordIdentifier } from "@application/hub/read-record-identifier"
+import { authorizeCopilotHandoff } from "@application/hub/requests/authorize-copilot-handoff"
 import { productNewData } from "@application/hub/view-models/product-new-data"
 
 import { requestProductJson } from "../request-product-json"
@@ -32,10 +33,13 @@ export function meta({ loaderData }: { loaderData?: ProductCatalogResponse }) {
 export default function ProductNew({ loaderData }: { loaderData: ProductCatalogResponse }) {
   const workspace = useOutletContext<WorkspaceResponse>()
   const location = useLocation()
+  const real = !(import.meta.env.DEV && import.meta.env.MODE === "mock")
   return (
     <NewPrototypePage
-      data={productNewData(workspace, loaderData, new URLSearchParams(location.search))}
+      key={loaderData.repository.id}
+      data={productNewData(workspace, loaderData, new URLSearchParams(location.search), real)}
       submissionDisabled={!loaderData.canCreate}
+      authorizeHandoff={real ? () => authorizeCopilotHandoff(loaderData.repository.id) : undefined}
     />
   )
 }

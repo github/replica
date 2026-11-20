@@ -1,13 +1,17 @@
 import type { Prisma, PrismaClient } from "../../../generated/prisma/client.ts"
+import { recordReviewAnalyticsActivity } from "../../analytics/record-event/index.ts"
 import { classifyPrismaTransactionError } from "../../../integrations/prisma/classify-transaction-error/index.ts"
 import { createReviewCommentRepository } from "../../../repositories/review-comments/create-review-comment-repository/index.ts"
 import type { ReviewPersistenceFailure } from "../../../repositories/review-comments/types.ts"
 import { runWithBoundedRetries } from "../../identity/run-with-bounded-retries/index.ts"
+import { applyReviewActivity } from "../apply-review-activity/index.ts"
+import { reviewMentionLogins } from "../create-review-mention-directory/index.ts"
 import { ReviewCommentError } from "../errors.ts"
 import { parseReviewAnchor } from "../parse-review-anchor/index.ts"
 import { parseReviewBody } from "../parse-review-body/index.ts"
 import { serializeReviewThread } from "../serialize-review-thread/index.ts"
-import type { ReviewCommentService } from "../types.ts"
+import { serializeReviewCollaboration } from "../serialize-review-collaboration/index.ts"
+import type { ReviewCommentService, ReviewMentionRecipient, ReviewMutationScope } from "../types.ts"
 
 function persistenceError(reason: ReviewPersistenceFailure): ReviewCommentError {
   switch (reason) {
@@ -71,83 +75,102 @@ export function createReviewCommentService(
       actorLogin: string
     }) => Promise<void>
     withDeleteLock?: <T>(operation: () => Promise<T>) => Promise<T>
+    resolveMentions?: (
+      input: ReviewMutationScope & { commentId?: number },
+      logins: string[],
+    ) => Promise<{ mentions: ReviewMentionRecipient[]; expectedBody?: string }>
   } = {},
 ): ReviewCommentService {
   const repository = createReviewCommentRepository(database)
+  function collaborators(input: ReviewMutationScope, mentions?: ReviewMentionRecipient[]) {
+    return {
+      authorize: (transaction: Prisma.TransactionClient) =>
+        authorizeMutation(transaction, input.sessionDigest, input.actor.userId, input.repositoryId),
+      record: async (
+        transaction: Prisma.TransactionClient,
+        activity: Parameters<typeof applyReviewActivity>[2],
+      ) => {
+        await applyReviewActivity(transaction, input.actor, activity, mentions)
+        const { kind, sourceId, threadId } = activity
+        if (kind === "comment" || kind === "reply" || kind === "resolved" || kind === "reopened") {
+          await recordReviewAnalyticsActivity(transaction, {
+            repositoryId: input.repositoryId,
+            prototypeId: input.prototypeId,
+            kind,
+            sourceId,
+            threadId,
+          })
+        }
+      },
+    }
+  }
+  async function resolveMentions(
+    input: ReviewMutationScope & { commentId?: number },
+    body: string,
+  ) {
+    const logins = reviewMentionLogins(body)
+    return (await options.resolveMentions?.(input, logins)) ?? { mentions: [] }
+  }
   return {
-    async listPrototypeThreads(repositoryId, prototypeId) {
-      const result = await repository.listPrototypeThreads(repositoryId, prototypeId)
+    async listPrototypeThreads(repositoryId, prototypeId, viewerId) {
+      const result = await repository.listPrototypeThreads(
+        repositoryId,
+        prototypeId,
+        viewerId ?? "00000000-0000-0000-0000-000000000000",
+      )
       if (!result.ok) throw persistenceError(result.reason)
-      return result.value.map(serializeReviewThread)
+      return result.value.map((thread) =>
+        viewerId ? serializeReviewCollaboration(thread, viewerId) : serializeReviewThread(thread),
+      )
     },
     async createThread(input) {
       const body = parseReviewBody(input.body)
       const anchor = parseReviewAnchor(input.anchor) as unknown as Prisma.InputJsonValue
+      const { mentions } = await resolveMentions(input, body)
       const result = await runReviewMutation(() =>
         repository.createThread({
           ...input,
           body,
           anchor,
-          authorize: (transaction) =>
-            authorizeMutation(
-              transaction,
-              input.sessionDigest,
-              input.actor.userId,
-              input.repositoryId,
-            ),
+          ...collaborators(input, mentions),
         }),
       )
       if (!result.ok) throw persistenceError(result.reason)
-      return serializeReviewThread(result.value)
+      return serializeReviewCollaboration(result.value, input.actor.userId)
     },
     async createReply(input) {
       const body = parseReviewBody(input.body)
+      const { mentions } = await resolveMentions(input, body)
       const result = await runReviewMutation(() =>
         repository.createReply({
           ...input,
           body,
-          authorize: (transaction) =>
-            authorizeMutation(
-              transaction,
-              input.sessionDigest,
-              input.actor.userId,
-              input.repositoryId,
-            ),
+          ...collaborators(input, mentions),
         }),
       )
       if (!result.ok) throw persistenceError(result.reason)
-      return serializeReviewThread(result.value)
+      return serializeReviewCollaboration(result.value, input.actor.userId)
     },
     async editComment(input) {
       const body = parseReviewBody(input.body)
+      const { mentions, expectedBody } = await resolveMentions(input, body)
       const result = await runReviewMutation(() =>
         repository.editComment({
           ...input,
           body,
-          authorize: (transaction) =>
-            authorizeMutation(
-              transaction,
-              input.sessionDigest,
-              input.actor.userId,
-              input.repositoryId,
-            ),
+          expectedBody,
+          ...collaborators(input, mentions),
         }),
       )
       if (!result.ok) throw persistenceError(result.reason)
-      return serializeReviewThread(result.value)
+      return serializeReviewCollaboration(result.value, input.actor.userId)
     },
     async deleteComment(input) {
       function operation() {
         return runReviewMutation(() =>
           repository.deleteComment({
             ...input,
-            authorize: (transaction) =>
-              authorizeMutation(
-                transaction,
-                input.sessionDigest,
-                input.actor.userId,
-                input.repositoryId,
-              ),
+            ...collaborators(input),
           }),
         )
       }
@@ -169,7 +192,7 @@ export function createReviewCommentService(
         throw error
       }
       if (!result.ok) throw persistenceError(result.reason)
-      const thread = serializeReviewThread(result.value)
+      const thread = serializeReviewCollaboration(result.value, input.actor.userId)
       await options.onDeleted?.({
         repositoryId: input.repositoryId,
         commentId: input.commentId,
@@ -181,17 +204,25 @@ export function createReviewCommentService(
       const result = await runReviewMutation(() =>
         repository.setResolution({
           ...input,
-          authorize: (transaction) =>
-            authorizeMutation(
-              transaction,
-              input.sessionDigest,
-              input.actor.userId,
-              input.repositoryId,
-            ),
+          ...collaborators(input),
         }),
       )
       if (!result.ok) throw persistenceError(result.reason)
-      return serializeReviewThread(result.value)
+      return serializeReviewCollaboration(result.value, input.actor.userId)
+    },
+    async setReaction(input) {
+      const result = await runReviewMutation(() =>
+        repository.setReaction({ ...input, ...collaborators(input) }),
+      )
+      if (!result.ok) throw persistenceError(result.reason)
+      return serializeReviewCollaboration(result.value, input.actor.userId)
+    },
+    async markThreadRead(input) {
+      const result = await runReviewMutation(() =>
+        repository.markThreadRead({ ...input, ...collaborators(input) }),
+      )
+      if (!result.ok) throw persistenceError(result.reason)
+      return serializeReviewCollaboration(result.value, input.actor.userId)
     },
   }
 }

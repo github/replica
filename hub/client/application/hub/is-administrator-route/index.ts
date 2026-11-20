@@ -1,11 +1,12 @@
-export function isAdministratorRoute(request: Request) {
-  const pathname = new URL(request.url).pathname.toLowerCase().replace(/\/+$/, "")
+export function isAdministratorRoute(url: URL) {
+  const pathname = url.pathname.toLowerCase().replace(/\/+$/, "")
   return (
     pathname === "/settings/administrators" ||
     pathname.startsWith("/settings/administrators/") ||
     pathname === "/settings/admins" ||
     pathname.startsWith("/settings/admins/") ||
     pathname === "/settings/audit" ||
-    pathname === "/settings/copilot"
+    pathname === "/settings/copilot" ||
+    pathname === "/settings/copilot/confirm"
   )
 }

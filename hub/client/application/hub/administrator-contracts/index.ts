@@ -17,6 +17,7 @@ export const currentHubSessionSchema = z
     login: z.string().min(1),
     name: z.string().nullable(),
     role: z.enum(["MEMBER", "ADMINISTRATOR"]),
+    reviewInboxAvailable: z.boolean().optional(),
   })
   .strict()
 

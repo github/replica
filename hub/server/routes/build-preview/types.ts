@@ -15,6 +15,7 @@ export interface BuildPreviewRouteDependencies {
     buildId: string
     startPage: string
     artifactPath: string
+    templateRepository?: { id: string; local: boolean }
   } | null>
   findArtifact(
     buildId: string,
@@ -23,6 +24,6 @@ export interface BuildPreviewRouteDependencies {
   readAvailableShareLink?(
     shareLinkId: string,
     buildId: string,
-  ): Promise<{ expiresAt: Date; startPage: string } | null>
+  ): Promise<{ expiresAt: Date; startPage: string; hosted?: true } | null>
   restoreSession?(sessionDigest: string): Promise<object | null>
 }

@@ -2,17 +2,19 @@ import type { JsonValue } from "./types"
 
 /** Renders a local example without putting submitted credentials into the sample. */
 export function previewCustomBody(template: string, secretValues: string[]): string | null {
+  const repositoryId = "00000000-0000-4000-8000-000000000002"
+  const prototypeId = "00000000-0000-4000-8000-000000000003"
   const fields: Record<string, JsonValue> = {
     event_id: "00000000-0000-4000-8000-000000000001",
     event_name: "prototype_registered",
     occurred_at: "2026-01-01T12:00:00.000000Z",
-    actor_id: "example-actor",
-    repository_id: 2001,
-    prototype_id: 3001,
+    actor_id: null,
+    repository_id: repositoryId,
+    prototype_id: prototypeId,
     build_id: null,
     thread_id: null,
     comment_id: null,
-    properties: { prototype_id: 3001 },
+    properties: { repository_id: repositoryId, prototype_id: prototypeId },
   }
   const secrets = secretValues.filter(Boolean).sort((a, b) => b.length - a.length)
 

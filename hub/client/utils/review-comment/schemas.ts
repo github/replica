@@ -29,7 +29,9 @@ const REACTION_SCHEMA = z.object({
 const COMMON_COMMENT_FIELDS = {
   id: IDENTIFIER_SCHEMA,
   body: z.string().nullable(),
-  mentions: z.array(z.object({ login: z.string().min(1), githubId: IDENTIFIER_SCHEMA })).optional(),
+  mentions: z
+    .array(z.object({ login: z.string().min(1), githubId: IDENTIFIER_SCHEMA.optional() }))
+    .optional(),
   createdAt: DATE_TIME_SCHEMA,
   updatedAt: DATE_TIME_SCHEMA,
   editedAt: NULLABLE_DATE_TIME_SCHEMA,

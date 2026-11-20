@@ -1,4 +1,4 @@
-import type { PrismaClient } from "../../../generated/prisma/client.ts"
+import type { Prisma, PrismaClient } from "../../../generated/prisma/client.ts"
 import type { GitHubBuildRun, StoredGitHubBuildArtifact } from "../types.ts"
 
 /**
@@ -13,6 +13,10 @@ export async function completeGitHubBuildSuccess(
     distDigest: string
     artifacts: StoredGitHubBuildArtifact[]
   },
+  recordPublication?: (
+    tx: Prisma.TransactionClient,
+    activity: { repositoryId: string; prototypeId: string; buildId: string },
+  ) => Promise<unknown>,
 ) {
   const owned = {
     id: input.buildId,
@@ -21,7 +25,14 @@ export async function completeGitHubBuildSuccess(
     githubWorkflowRunAttempt: input.run.runAttempt,
   }
   return database.$transaction(async (transaction) => {
-    const active = await transaction.build.findFirst({ where: owned, select: { startedAt: true } })
+    const active = await transaction.build.findFirst({
+      where: owned,
+      select: {
+        startedAt: true,
+        prototypeId: true,
+        prototype: { select: { repositoryId: true } },
+      },
+    })
     if (!active) return false
     // Completing first locks the row, so a run that lost ownership cannot add artifacts.
     const finishedAt = new Date()
@@ -39,6 +50,11 @@ export async function completeGitHubBuildSuccess(
     // An unfinished Build has no artifact rows, so any conflict aborts the whole import.
     await transaction.buildArtifact.createMany({
       data: input.artifacts.map((artifact) => ({ ...artifact, buildId: input.buildId })),
+    })
+    await recordPublication?.(transaction, {
+      repositoryId: active.prototype.repositoryId,
+      prototypeId: active.prototypeId,
+      buildId: input.buildId,
     })
     return true
   })

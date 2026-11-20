@@ -20,6 +20,9 @@ vi.mock("./integrations/prisma/index.ts", () => {
   throw new Error("Authentication composition imported Prisma")
 })
 vi.mock("./run-api", () => ({ runApi: vi.fn().mockResolvedValue(undefined) }))
+vi.mock("./routes/api/public-sharing/create-public-sharing-route-dependencies/index.ts", () => ({
+  createPublicSharingRouteDependencies: vi.fn().mockResolvedValue(undefined),
+}))
 vi.mock("./scripts/setup", () => ({ setup: vi.fn() }))
 vi.mock("./start-server-processes", () => ({ startServerProcesses: vi.fn() }))
 vi.mock("./utils/parse-runtime-config", () => ({ parseRuntimeConfig: vi.fn() }))

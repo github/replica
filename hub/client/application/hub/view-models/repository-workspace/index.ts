@@ -9,15 +9,25 @@ export function repositoryWorkspace(
   repository: RepositoryRecord,
   search: URLSearchParams,
   real = false,
-): RepositoryWorkspaceData {
+) {
+  const browseTemplates = real
+    ? workspace.repositories.find(({ id }) => id === repository.id)?.capabilities?.browseTemplates
+    : workspace.capabilities?.createPrototypes
+  const canManageAnalytics =
+    repository.capabilities?.manageAnalytics ||
+    workspace.repositories.find((entry) => entry.id === repository.id)?.capabilities
+      ?.manageAnalytics
   return {
     ...workspaceNavigation(workspace, repository.id, search, real),
     analyticsLabel: "Analytics",
-    analyticsPath: real ? null : resourcePath(`/repositories/${repository.id}/analytics`, search),
+    analyticsPath:
+      real && !canManageAnalytics
+        ? null
+        : resourcePath(`/repositories/${repository.id}/analytics`, search),
     learningsLabel: "Learnings",
     learningsPath: real ? null : resourcePath(`/repositories/${repository.id}/learnings`, search),
     newPrototypeLabel: "Create",
-    newPrototypePath: workspace.capabilities?.createPrototypes
+    newPrototypePath: browseTemplates
       ? resourcePath(`/repositories/${repository.id}/new`, search)
       : null,
     prototypesLabel: "Prototypes",
@@ -31,5 +41,5 @@ export function repositoryWorkspace(
     repositorySelectorLabel: `Choose repository. ${repository.nameWithOwner} selected`,
     selectedRepositoryId: String(repository.id),
     selectedSection: "prototypes",
-  }
+  } satisfies RepositoryWorkspaceData
 }

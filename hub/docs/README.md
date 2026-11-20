@@ -12,7 +12,7 @@ Hub is being rebuilt. The [Hub overview](../README.md) describes what the baseli
 - [Artifact storage](artifact-storage.md): provider selection and immutable byte storage.
 - [GitHub Actions Builds](github-actions-builds.md): workflow events, dist and screenshot artifact contracts, and idempotent import.
 - [Build previews](build-previews.md): authenticated access, isolated Build origins, file behavior, screenshots, and bridge injection.
-- [Local Build share links](share-links.md): deployment opt-in, Build-pinned public links, revocation, and the separate public preview session.
+- [Build share links](share-links.md): local and hosted opt-in, Build-pinned public links, revocation, and the separate public preview session.
 - [Database](database.md): Prisma schema conventions, migrations, and the shared client.
 - [Authentication and Hub sessions](authentication.md): provider-neutral proof, reusable administrator enrollment, admission, browser sessions, and existing-user administrator management.
 - [Copilot connection](copilot.md): operator token configuration, fresh administrator authorization, durable connection state, and credential safety.
@@ -23,6 +23,7 @@ Hub is being rebuilt. The [Hub overview](../README.md) describes what the baseli
 - [Learning foundation](learning-foundation.md): Copilot connection, private storage, secure command execution, and deferred repository seams.
 - [Decision-model control plane](decision-model-control-plane.md): repository settings, customer runtime contracts, bounded training, explicit promotion, and Build evaluation.
 - [Review collaboration backend](review-collaboration.md): persisted threads, product APIs, authorization, deletion state, and the learning snapshot seam.
+- [Repository Analytics](analytics.md): event retention, destination settings, access, and outbound delivery.
 - [WebSocket updates](websockets.md): local broadcasts, subscriptions, access hooks, and connection limits.
 - [Testing and operations](testing-and-operations.md): baseline checks and their limits.
 - [Storybook](storybook.md): retained presentation, fixtures, and screenshot evidence.

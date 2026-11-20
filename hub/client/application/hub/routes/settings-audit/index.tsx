@@ -1,10 +1,14 @@
 import { redirect } from "react-router"
+import { z } from "zod"
 
 import { SecurityAuditPage } from "@pages/security-audit-page"
+import { loadAdministratorWorkspace } from "@application/hub/load-administrator-workspace"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
 import { getCurrentHubSession } from "@application/hub/requests/get-current-hub-session"
 import { getSecurityAudits } from "@application/hub/requests/get-security-audits"
+import { getWorkspace } from "@application/hub/requests/get-workspace"
 import { SettingsRouteScreen } from "@application/hub/screens/settings-route-screen"
+import { hubWorkspace } from "@application/hub/view-models/hub-workspace"
 import { securityAuditPageData } from "@application/hub/view-models/security-audit-page-data"
 
 import { settingsController } from "../settings-controller"
@@ -22,20 +26,25 @@ function isMockMode() {
   return import.meta.env.DEV && import.meta.env.MODE === "mock"
 }
 
-function readRealAuditCursor(url: URL) {
+function readRealAuditAddress(url: URL) {
   const fields = [...url.searchParams.keys()]
-  if (fields.some((field) => field !== "scope" && field !== "before")) {
+  if (fields.some((field) => field !== "scope" && field !== "before" && field !== "repositoryId")) {
     throw new Response("The Hub security audit address is invalid.", { status: 400 })
   }
   const scopes = url.searchParams.getAll("scope")
-  if (scopes.length === 0) {
+  if (scopes.length === 0 && !url.searchParams.has("repositoryId")) {
     url.searchParams.set("scope", "hub")
     throw redirect(`${url.pathname}?${url.searchParams}`)
   }
-  if (scopes.length !== 1 || scopes[0] !== "hub") {
-    throw new Response("Only the Hub-wide security audit is available.", {
-      status: 400,
-    })
+  const repositories = url.searchParams.getAll("repositoryId")
+  const repository = z.uuid().safeParse(repositories[0])
+  if (
+    scopes.length !== 1 ||
+    repositories.length > 1 ||
+    (repositories.length === 1 && !repository.success) ||
+    (scopes[0] !== "hub" && (scopes[0] !== "repository" || !repository.success))
+  ) {
+    throw new Response("Select a valid security audit scope.", { status: 400 })
   }
   const cursors = url.searchParams.getAll("before")
   if (cursors.length > 1 || (cursors[0] !== undefined && !cursors[0])) {
@@ -45,7 +54,11 @@ function readRealAuditCursor(url: URL) {
   if (before && before.length > 500) {
     throw new Response("The security audit cursor is invalid.", { status: 400 })
   }
-  return before
+  return {
+    before,
+    repositoryId:
+      scopes[0] === "repository" && repository.success ? repository.data.toLowerCase() : undefined,
+  }
 }
 
 export async function clientLoader(
@@ -53,18 +66,34 @@ export async function clientLoader(
 ): Promise<SettingsRouteData | RealAuditRouteData> {
   if (isMockMode()) return controller.clientLoader(args)
 
-  const before = readRealAuditCursor(new URL(args.request.url))
-  const session = await getCurrentHubSession(args.request)
-  if (session.role !== "ADMINISTRATOR") {
+  const { request } = args
+  const url = new URL(request.url)
+  const { before, repositoryId } = readRealAuditAddress(url)
+  const session = await getCurrentHubSession(request)
+  if (!repositoryId && session.role !== "ADMINISTRATOR") {
     throw new Response("Administrator access is required.", { status: 403 })
   }
+  let response
   try {
-    const response = await getSecurityAudits(args.request, before)
-    return { surface: "security-audit", page: securityAuditPageData(session, response) }
+    response = await getSecurityAudits(request, before, repositoryId)
   } catch (error) {
-    if (!(error instanceof ApiRequestError) || error.status !== 403) throw error
-    await getCurrentHubSession(args.request)
+    if (repositoryId || !(error instanceof ApiRequestError) || error.status !== 403) throw error
+    await getCurrentHubSession(request)
     throw new Response("Your account no longer has Hub administrator access.", { status: 403 })
+  }
+  if (!repositoryId) {
+    const navigation = await loadAdministratorWorkspace(request, session, "audit")
+    return { surface: "security-audit", page: securityAuditPageData(session, response, navigation) }
+  }
+  const workspace = await getWorkspace(request)
+  const repository = workspace.repositories.find(({ id }) => id === repositoryId)
+  if (workspace.viewer.id !== session.userId || !repository?.capabilities?.administerRepository) {
+    throw new Response("Repository not found.", { status: 404 })
+  }
+  const navigation = hubWorkspace(workspace, url.searchParams, "audit")
+  return {
+    surface: "security-audit",
+    page: securityAuditPageData(session, response, navigation, repository),
   }
 }
 

@@ -62,7 +62,7 @@ function applicationRoute(entry: RouteConfigEntry): RouteObject {
 async function renderApplication(path: string, handlers: Parameters<typeof setupServer>) {
   vi.stubEnv("MODE", "development")
   vi.stubEnv("DEV", true)
-  const server = setupServer(...handlers)
+  const server = setupServer(...handlers, workspace())
   server.listen({ onUnhandledRequest: "error" })
   onTestFinished(() => server.close())
   const [{ default: routes }, { HubThemeProvider }] = await Promise.all([

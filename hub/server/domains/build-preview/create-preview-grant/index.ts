@@ -3,10 +3,11 @@ import { encryptAuthenticationValue } from "../../authentication/encrypt-authent
 export function createPreviewGrant(
   input: {
     buildId: string
-    target: "preview" | "desktop" | "narrow"
     expiresAt: Date
     sessionDigest: string
-  },
+  } & (
+    { target: "preview" | "desktop" | "narrow" } | { target: "template"; screenshotPath?: string }
+  ),
   key: Buffer,
 ): string {
   return encryptAuthenticationValue(
@@ -14,6 +15,7 @@ export function createPreviewGrant(
       v: 1,
       b: input.buildId,
       t: input.target,
+      p: input.target === "template" ? input.screenshotPath : undefined,
       e: input.expiresAt.getTime(),
       s: input.sessionDigest,
     }),

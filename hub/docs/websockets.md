@@ -2,7 +2,7 @@
 
 Hub can send live updates to the client app and Copilot plugin through the `ws` integration under `server/integrations/ws/`. The integration owns connections and channel subscriptions in one API process. It does not store messages, replay missed events, or deliver between processes.
 
-The application attaches `/api/realtime` to the same HTTP server as Express and passes its broadcast function to `createApp()`. Vite forwards WebSocket upgrades under `/api` during development. The endpoint rejects connections until application access checks are supplied. There are no comment channels or product events yet.
+The application attaches `/api/realtime` to the same HTTP server as Express. Vite forwards WebSocket upgrades under `/api` during development. The endpoint rejects connections unless review sessions and the PostgreSQL listener are configured.
 
 `runApi()` owns the shared server and signal handlers. It waits for HTTP requests and WebSockets to close before the entrypoint flushes [telemetry](telemetry.md). A failure closing either transport is reported after both cleanup operations settle, unless the overall API shutdown deadline expires.
 
@@ -90,8 +90,16 @@ The integration uses the direct peer address and ignores forwarded headers. Behi
 
 Oversized incoming messages close with code 1009. Excess message rates close with 1008. Dead or slow connections are terminated. Heartbeat checks, address tracking, subscriptions, and pending access checks all have bounded state.
 
+## Review delivery
+
+Review pages subscribe to `review:<repository UUID>:<prototype UUID>` using the Hub session cookie and exact application origin when the workspace allows review. Hub checks the live session, repository permission, and prototype eligibility before accepting the subscription, before sending an invalidation, and at the connection heartbeat. An explicit access denial stops retries for the current subscription. The browser makes a final authenticated HTTP read and clears loaded reviews if access is no longer available.
+
+A PostgreSQL trigger signals the repository and prototype when a thread is created or its collaboration version changes. PostgreSQL sends the signal only after the transaction commits. Each API process holds one `LISTEN` connection to that same database and sends `changed` with a `null` payload to its own authorized subscribers. No message bodies, anchors, reactions, receipt state, or identities travel on the socket. Rollbacks, thread read receipts, and Inbox reads do not send a signal.
+
+API and combined roles need a direct PostgreSQL connection or session pooling for `LISTEN`. Transaction pooling is not supported for that connection. A listener that loses its connection retries with backoff; when it resumes, review sockets reconnect and re-fetch. Clients also re-fetch after a socket reconnect or when the review page regains focus.
+
 ## Delivery limits
 
-Any route using the injected broadcaster reaches only this API process. A worker or another API process cannot reach these sockets without a shared signaling layer. Add that layer before porting a feature that publishes across processes.
+The generic broadcaster still reaches only this API process. Review uses PostgreSQL for its cross-process signal. Other channels need their own shared signaling layer before they can deliver across processes.
 
-Notifications are best effort. A client can miss an event while disconnected, and a process can fail between saving a record and publishing. Feature clients should reconcile on reconnect and focus, with periodic refresh if a bounded delay is required. Durable records remain the source of truth.
+Invalidations are best effort and are not an Inbox delivery mechanism. Clients can miss one while disconnected. Durable records remain the source of truth.

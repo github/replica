@@ -10,9 +10,11 @@ export function productShareLinksData(
   response: ProductSharingResponse,
   search: URLSearchParams,
   origin: string,
+  real = false,
 ): ShareLinksIndexPageData {
   const { resource } = response
   const { repository, prototype, selectedBuild } = resource
+  const hosted = prototype.canManageShareLinks !== undefined
   const base = `/repositories/${repository.id}/prototypes/${prototype.id}`
   const selected =
     selectedBuild?.state === "successful" && selectedBuild.previewUrl ? selectedBuild : null
@@ -27,8 +29,11 @@ export function productShareLinksData(
       selectedBuild: selected,
       search,
       surface: "build",
+      real: real || hosted,
     }),
-    newPrototypePath: resourcePath(`/repositories/${repository.id}/new`, search),
+    ...(!real && !hosted
+      ? { newPrototypePath: resourcePath(`/repositories/${repository.id}/new`, search) }
+      : {}),
     buildOptions: prototype.builds
       .filter((build) => build.state === "successful" && build.previewUrl)
       .map((build) => ({

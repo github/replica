@@ -13,10 +13,12 @@ model ReviewThread {
   resolvedBy       User?                         @relation("ResolvedReviewThreads", fields: [resolvedById], references: [id], onDelete: Restrict)
   comments         ReviewComment[]
   resolutionEvents ReviewThreadResolutionEvent[]
+  reads            ReviewThreadRead[]
 
   // Attribute columns
   anchor          Json
   activityVersion Int       @default(1) @map("activity_version")
+  collaborationVersion Int @default(1) @map("collaboration_version")
   resolvedAt      DateTime? @map("resolved_at") @db.Timestamptz(3)
 
   // Timestamp columns

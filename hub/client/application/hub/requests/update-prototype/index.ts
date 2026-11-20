@@ -8,9 +8,11 @@ export function updatePrototype(
   repositoryId: string,
   prototypeId: string,
   details: PrototypeEdit,
+  listing = false,
 ) {
+  const collection = listing ? "prototype-management" : "prototypes"
   return requestJson(
-    new URL(`/api/repositories/${repositoryId}/prototypes/${prototypeId}`, request.url),
+    new URL(`/api/repositories/${repositoryId}/${collection}/${prototypeId}`, request.url),
     prototypeResponseSchema,
     {
       method: "PATCH",

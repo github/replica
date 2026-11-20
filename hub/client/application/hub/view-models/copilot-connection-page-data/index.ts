@@ -1,20 +1,15 @@
 import type { CopilotConnectionPageData } from "@pages/copilot-connection-page/types"
-import type { CurrentHubSession } from "@application/hub/administrator-contracts/types"
 import type { CopilotConnectionStatus } from "@application/hub/copilot-connection-contracts/types"
-
-import { administratorWorkspace } from "../administrator-workspace"
+import type { HubAdministrationWorkspaceData } from "@features/hub-administration-workspace/types"
 
 export function copilotConnectionPageData(
-  session: CurrentHubSession,
+  workspace: HubAdministrationWorkspaceData,
   status: CopilotConnectionStatus,
 ): CopilotConnectionPageData {
   const verification =
     "Hub checks your live administrator session again after Copilot answers, before saving the change."
   return {
-    administrationWorkspace: {
-      ...administratorWorkspace(session),
-      selectedSection: "copilot",
-    },
+    administrationWorkspace: workspace,
     heading: "Copilot",
     description:
       "A Hub administrator connects Copilot once for this deployment. The operator-provided credential stays outside the database.",

@@ -46,6 +46,23 @@ function expectedRecord(input: {
 }
 
 describe("presentSecurityAudit()", () => {
+  it.each(["create", "update", "delete"])(
+    "attributes analytics destination %s to its actor",
+    (verb) => {
+      const action = `analytics_destination.${verb}`
+      expect(
+        presentSecurityAudit({
+          action,
+          context: { actorMembershipId },
+          createdAt,
+          id: auditId,
+          outcome: "SUCCESS",
+          targetId: null,
+        }),
+      ).toMatchObject({ action, actor: { membershipId: actorMembershipId } })
+    },
+  )
+
   it.each([
     {
       label: "bootstrap denial",

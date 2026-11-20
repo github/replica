@@ -1,5 +1,6 @@
 import { completeGitHubBuildFailure } from "../../../repositories/github-builds/complete-github-build-failure/index.ts"
 import { completeGitHubBuildSuccess } from "../../../repositories/github-builds/complete-github-build-success/index.ts"
+import { recordSuccessfulBuildAnalytics } from "../../analytics/record-event/index.ts"
 import { BuildPackageError } from "../../build-artifacts/errors.ts"
 import { extractDistPackage } from "../../build-artifacts/extract-dist-package/index.ts"
 import { storeGitHubBuildFiles } from "../store-github-build-files/index.ts"
@@ -44,12 +45,11 @@ export async function importGitHubDistPackage(
     return { status: "digest-mismatch" as const }
   }
   const artifacts = await storeGitHubBuildFiles(storage, buildId, extracted.files)
-  const imported = await completeGitHubBuildSuccess(database, {
-    buildId,
-    run,
-    distDigest: extracted.distDigest,
-    artifacts,
-  })
+  const imported = await completeGitHubBuildSuccess(
+    database,
+    { buildId, run, distDigest: extracted.distDigest, artifacts },
+    recordSuccessfulBuildAnalytics,
+  )
   if (imported) logger.info({ buildId, runId: run.runId }, "GitHub Build imported")
   return { status: imported ? ("imported" as const) : ("unchanged" as const) }
 }

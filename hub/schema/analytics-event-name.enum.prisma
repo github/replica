@@ -1,0 +1,9 @@
+enum AnalyticsEventName {
+  prototype_registered
+  prototype_first_published
+  build_published
+  review_comment_created
+  review_reply_added
+  review_thread_resolved
+  review_thread_reopened
+}

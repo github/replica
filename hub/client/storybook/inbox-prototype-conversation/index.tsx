@@ -61,8 +61,6 @@ export function InboxPrototypeConversation({
     )
     if (!message) throw new Error("The mock conversation target is missing")
 
-    message.dataset.notificationTarget = "true"
-    message.tabIndex = -1
     message.scrollIntoView?.({ block: "nearest" })
     message.focus({ preventScroll: true })
   }, [activity.target.commentId])
@@ -120,6 +118,7 @@ export function InboxPrototypeConversation({
               <ReviewThreadMessage
                 key={comment.id}
                 comment={comment}
+                notificationTarget={comment.id === activity.target.commentId}
                 copy={reviewCommentsCopy}
                 mutation={null}
                 editing={false}

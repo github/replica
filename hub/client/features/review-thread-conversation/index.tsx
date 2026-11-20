@@ -43,6 +43,9 @@ export function ReviewThreadConversation({
   mutation,
   copy,
   readOnly = false,
+  notificationId,
+  notificationMessageId,
+  onNotificationMessageOpened,
   onClose,
   onDraftStateChange,
   onReply,
@@ -59,6 +62,8 @@ export function ReviewThreadConversation({
   const previousFocusRef = useRef<HTMLElement | null>(null)
   const messagesScrollTopRef = useRef(0)
   const openedActivityVersionRef = useRef(thread.root.activityVersion)
+  const focusedNotificationMessage = useRef<number | undefined>(undefined)
+  const openedNotification = useRef<number | undefined>(undefined)
   const attemptedReadVersionRef = useRef<number | null>(null)
   const readPendingRef = useRef(false)
   const unreadPendingRef = useRef(false)
@@ -163,6 +168,7 @@ export function ReviewThreadConversation({
     if (
       !onMarkRead ||
       !thread.unread ||
+      (thread.root.viewerLastSeenActivityVersion ?? 0) >= openedActivityVersion ||
       attemptedReadVersionRef.current === openedActivityVersion
     ) {
       return
@@ -178,7 +184,22 @@ export function ReviewThreadConversation({
         readPendingRef.current = false
         setReadPending(false)
       })
-  }, [onMarkRead, thread.unread])
+  }, [onMarkRead, thread.unread, thread.root.viewerLastSeenActivityVersion])
+
+  useEffect(() => {
+    if (!notificationId || !notificationMessageId) return
+    const target = cardRef.current?.querySelector<HTMLElement>('[data-notification-target="true"]')
+    if (!target) return
+    if (focusedNotificationMessage.current !== notificationMessageId) {
+      focusedNotificationMessage.current = notificationMessageId
+      target.scrollIntoView?.({ block: "nearest" })
+      target.focus({ preventScroll: true })
+    }
+    if (onNotificationMessageOpened && openedNotification.current !== notificationId) {
+      openedNotification.current = notificationId
+      onNotificationMessageOpened(notificationMessageId)
+    }
+  }, [cardRef, notificationId, notificationMessageId, onNotificationMessageOpened, thread])
 
   async function markUnread() {
     if (!onMarkUnread || readPendingRef.current || unreadPendingRef.current || mutation !== null) {
@@ -379,6 +400,11 @@ export function ReviewThreadConversation({
             <ReviewThreadMessage
               key={comment.id}
               comment={comment}
+              notificationTarget={
+                Boolean(notificationId) &&
+                comment.id === notificationMessageId &&
+                !comment.deletedAt
+              }
               mutation={mutation}
               copy={copy}
               editing={state.editingCommentId === comment.id}

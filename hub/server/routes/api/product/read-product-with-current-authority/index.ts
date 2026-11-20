@@ -15,6 +15,7 @@ export async function readProductWithCurrentAuthority<Result>(
     !current ||
     current.membershipId !== initial.membershipId ||
     current.userId !== initial.userId ||
+    current.externalIdentityId !== initial.externalIdentityId ||
     current.sessionProvider !== initial.sessionProvider
   ) {
     return null
@@ -27,6 +28,7 @@ export async function readProductWithCurrentAuthority<Result>(
       !verified ||
       verified.membershipId !== current.membershipId ||
       verified.userId !== current.userId ||
+      verified.externalIdentityId !== current.externalIdentityId ||
       verified.sessionProvider !== current.sessionProvider ||
       verified.role !== current.role
     ) {

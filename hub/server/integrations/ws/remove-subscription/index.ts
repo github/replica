@@ -9,6 +9,8 @@ export function removeSubscription(
   channel: string,
 ) {
   connection.subscriptions.delete(channel)
+  connection.rechecks.get(channel)?.controller.abort()
+  connection.rechecks.delete(channel)
   const subscribers = channels.get(channel)
   subscribers?.delete(socket)
   if (subscribers?.size === 0) channels.delete(channel)

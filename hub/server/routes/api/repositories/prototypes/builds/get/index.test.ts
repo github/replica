@@ -11,7 +11,19 @@ import { get } from "."
 
 type ProductMocks = {
   [
-    Key in Exclude<keyof ProductRouteDependencies, "authorizeReviewAccess" | "reviewComments">
+    Key in Exclude<
+      keyof ProductRouteDependencies,
+      | "authorizeReviewAccess"
+      | "reviewComments"
+      | "findLocalPrototypeManagement"
+      | "findPrototypeManagement"
+      | "analytics"
+      | "getRepositoryPermission"
+      | "getVerifiedRepositoryPermission"
+      | "isPrototypeReviewable"
+      | "searchReviewMentions"
+      | "reviewInbox"
+    >
   ]: Mock<ProductRouteDependencies[Key]>
 }
 

@@ -14,6 +14,8 @@ export interface ReviewMessage {
   updatedAt: Date
   editedAt: Date | null
   deletedAt: Date | null
+  mentions?: { login: string; githubId?: number }[]
+  reactions?: { content: string; count: number; viewerHasReacted: boolean }[]
 }
 
 export interface ReviewResolutionEvent {
@@ -36,6 +38,7 @@ export interface ReviewThread {
   buildNumber: number
   anchor: ReviewAnchor
   activityVersion: number
+  viewerLastSeenActivityVersion?: number | null
   resolvedAt: Date | null
   resolvedBy: ReviewActor | null
   root: ReviewMessage
@@ -57,8 +60,35 @@ export interface RepositoryReviewSnapshot {
 
 export type ReviewRouteActor = ReviewActor
 
+export const reviewReactionContents = [
+  "+1",
+  "-1",
+  "laugh",
+  "hooray",
+  "confused",
+  "heart",
+  "rocket",
+  "eyes",
+] as const
+export type ReviewReactionContent = (typeof reviewReactionContents)[number]
+export interface ReviewMentionRecipient {
+  recipientKey: string
+  login: string
+}
+
+export interface ReviewMutationScope {
+  sessionDigest: string
+  repositoryId: string
+  prototypeId: string
+  actor: ReviewRouteActor
+}
+
 export interface ReviewCommentService {
-  listPrototypeThreads(repositoryId: string, prototypeId: string): Promise<ReviewThread[]>
+  listPrototypeThreads(
+    repositoryId: string,
+    prototypeId: string,
+    viewerId?: string,
+  ): Promise<ReviewThread[]>
   createThread(input: {
     sessionDigest: string
     repositoryId: string
@@ -99,6 +129,20 @@ export interface ReviewCommentService {
     resolved: boolean
     actor: ReviewRouteActor
   }): Promise<ReviewThread>
+  setReaction(
+    input: ReviewMutationScope & {
+      commentId: number
+      content: ReviewReactionContent
+      activityVersion: number
+      add: boolean
+    },
+  ): Promise<ReviewThread>
+  markThreadRead(
+    input: ReviewMutationScope & {
+      threadId: number
+      activityVersion: number | null
+    },
+  ): Promise<ReviewThread>
 }
 
 export type ReviewAnchor = ElementReviewAnchor | AreaReviewAnchor

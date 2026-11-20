@@ -1,26 +1,31 @@
 import { describe, expect, it } from "vitest"
 
-import {
-  administratorsResponseSchema,
-  currentHubSessionSchema,
-} from "@application/hub/administrator-contracts"
+import { administratorsResponseSchema } from "@application/hub/administrator-contracts"
 
 import { administratorsPageData } from "."
+import { hubWorkspace } from "../hub-workspace"
 
 describe("administratorsPageData()", () => {
   it("maps provider identities, UUID targets and an opaque cursor to canonical page links", () => {
     const membershipId = "22222222-2222-4222-8222-222222222222"
     const cursor = "opaque+/cursor=="
     const before = "current-page"
-    const session = currentHubSessionSchema.parse({
-      authenticated: true,
-      membershipId: "11111111-1111-4111-8111-111111111111",
-      userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-      provider: "github",
-      login: "octocat",
-      name: "The Octocat",
-      role: "ADMINISTRATOR",
-    })
+    const repositoryId = "11111111-1111-4111-8111-111111111111"
+    const workspace = hubWorkspace(
+      {
+        viewer: {
+          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          login: "octocat",
+          name: "The Octocat",
+          avatarUrl: null,
+        },
+        repositories: [
+          { id: repositoryId, nameWithOwner: "team/prototypes", defaultBranch: "main" },
+        ],
+      },
+      new URLSearchParams(),
+      "admins",
+    )
     const response = administratorsResponseSchema.parse({
       administrators: [
         {
@@ -35,15 +40,17 @@ describe("administratorsPageData()", () => {
       nextCursor: cursor,
     })
 
-    const page = administratorsPageData(session, response, before)
+    const page = administratorsPageData(workspace, response, before)
 
-    expect(page.nextPath).toBe(`/settings/administrators?before=${encodeURIComponent(cursor)}`)
+    expect(page.nextPath).toBe(
+      `/settings/administrators?before=${encodeURIComponent(cursor)}&repositoryId=${repositoryId}`,
+    )
     expect(page.users).toEqual([
       expect.objectContaining({
         id: membershipId,
         provider: "entra",
         login: "mona@example.test",
-        confirmationPath: `/settings/administrators/${membershipId}/revoke?before=${encodeURIComponent(before)}`,
+        confirmationPath: `/settings/administrators/${membershipId}/revoke?before=${encodeURIComponent(before)}&repositoryId=${repositoryId}`,
       }),
     ])
     expect(page.addAdministrator).toMatchObject({

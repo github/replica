@@ -5,6 +5,7 @@ export function createShareLink(
   input: {
     buildId: string
     createdAt: Date
+    createdByExternalIdentityId?: string
     createdById: string
     createdByLogin: string
     expiresAt: Date

@@ -6,7 +6,10 @@ import { hubSessionCookieName } from "../../../../../integrations/express/hub-se
 import { readCookie } from "../../../../../integrations/express/read-cookie/index.ts"
 import type { CurrentSessionDependencies } from "../../types.ts"
 
-export function get(dependencies: CurrentSessionDependencies): RequestHandler {
+export function get(
+  dependencies: CurrentSessionDependencies,
+  reviewInboxAvailable = false,
+): RequestHandler {
   return async (request, response, next) => {
     if (request.query.explain_no_repository_access === "1") {
       const notice = readCookie(request, githubRepositoryDenialCookieName)
@@ -50,6 +53,7 @@ export function get(dependencies: CurrentSessionDependencies): RequestHandler {
         login: session.login,
         name: session.name,
         role: session.role,
+        ...(reviewInboxAvailable ? { reviewInboxAvailable: true } : {}),
       })
     } catch (error) {
       next(error)

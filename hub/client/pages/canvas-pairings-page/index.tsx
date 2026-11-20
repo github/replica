@@ -8,7 +8,13 @@ import type { CanvasPairingsPageData } from "./types"
 import "./styles.css"
 
 /** Frames the one-time browser approval and its revocable connections in Hub's theme. */
-export function CanvasPairingsPage({ data }: { data: CanvasPairingsPageData }) {
+export function CanvasPairingsPage({
+  data,
+  busy = false,
+}: {
+  data: CanvasPairingsPageData
+  busy?: boolean
+}) {
   return (
     <main className="canvas-pairings">
       <div className="canvas-pairings__frame">
@@ -35,6 +41,7 @@ export function CanvasPairingsPage({ data }: { data: CanvasPairingsPageData }) {
               </div>
               <Text as="p" className="canvas-pairings__explanation">
                 {data.codeInstruction}
+                {data.codeExpiresLabel ? ` ${data.codeExpiresLabel}` : null}
               </Text>
               <div className="canvas-pairings__repository">
                 <Text as="span" className="canvas-pairings__label">
@@ -51,13 +58,21 @@ export function CanvasPairingsPage({ data }: { data: CanvasPairingsPageData }) {
               </Text>
 
               <form action={data.approvePath} method="post" className="canvas-pairings__actions">
-                <input type="hidden" name="authenticity_token" value={data.authenticityToken} />
-                <input
-                  type="hidden"
-                  name="learnings_consent_version"
-                  value={data.learningsConsentVersion}
-                />
-                <Button type="submit" variant="primary" disabled={data.canApprove === false}>
+                {data.authenticityToken !== undefined ? (
+                  <input type="hidden" name="authenticity_token" value={data.authenticityToken} />
+                ) : null}
+                {data.learningsConsentVersion !== undefined ? (
+                  <input
+                    type="hidden"
+                    name="learnings_consent_version"
+                    value={data.learningsConsentVersion}
+                  />
+                ) : null}
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={busy || data.canApprove === false}
+                >
                   {data.approveLabel}
                 </Button>
                 <Button as="a" href={data.cancelPath} variant="secondary">
@@ -85,12 +100,14 @@ export function CanvasPairingsPage({ data }: { data: CanvasPairingsPageData }) {
                       </div>
                       <form action={grant.revokePath} method="post">
                         <input type="hidden" name="_method" value="delete" />
-                        <input
-                          type="hidden"
-                          name="authenticity_token"
-                          value={data.authenticityToken}
-                        />
-                        <Button type="submit" variant="secondary" size="small">
+                        {data.authenticityToken !== undefined ? (
+                          <input
+                            type="hidden"
+                            name="authenticity_token"
+                            value={data.authenticityToken}
+                          />
+                        ) : null}
+                        <Button type="submit" variant="secondary" size="small" disabled={busy}>
                           {data.revokeLabel}
                         </Button>
                       </form>

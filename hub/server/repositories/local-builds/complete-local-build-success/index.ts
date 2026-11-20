@@ -1,4 +1,4 @@
-import type { PrismaClient } from "../../../generated/prisma/client.ts"
+import type { Prisma, PrismaClient } from "../../../generated/prisma/client.ts"
 
 import type { StoredBuildArtifact } from "./types.ts"
 
@@ -7,6 +7,7 @@ export async function completeLocalBuildSuccess(
   buildId: string,
   leaseId: string,
   artifacts: StoredBuildArtifact[],
+  recordPublication?: (tx: Prisma.TransactionClient) => Promise<unknown>,
 ) {
   return database.$transaction(async (transaction) => {
     const active = await transaction.build.findFirst({
@@ -28,6 +29,7 @@ export async function completeLocalBuildSuccess(
         localLeaseExpiresAt: null,
       },
     })
+    await recordPublication?.(transaction)
     return true
   })
 }

@@ -2,7 +2,11 @@ import { data, useFetcher, useLocation, useOutletContext } from "react-router"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 
 import { PrototypeManagementPage } from "@pages/prototype-management-page"
-import { recordIdentifierSchema, routeIdentifierSchema } from "@application/hub/contracts"
+import {
+  prototypeEditSchema,
+  recordIdentifierSchema,
+  routeIdentifierSchema,
+} from "@application/hub/contracts"
 import type { WorkspaceResponse } from "@application/hub/contracts/types"
 import {
   productManagementResponseSchema,
@@ -14,11 +18,16 @@ import type {
   ProductManagementResponse,
 } from "@application/hub/product-contracts/types"
 import { readRecordIdentifier } from "@application/hub/read-record-identifier"
+import { updatePrototype } from "@application/hub/requests/update-prototype"
 import { ProductFormBoundary } from "@application/hub/screens/product-form-boundary"
 import { productManagementData } from "@application/hub/view-models/product-management-data"
 
 import { productActionError } from "../product-action-error"
 import { requestProductJson } from "../request-product-json"
+
+function mockMode() {
+  return import.meta.env.DEV && import.meta.env.MODE === "mock"
+}
 
 export function clientLoader({ request, params }: Pick<LoaderFunctionArgs, "request" | "params">) {
   const repositoryId = readRecordIdentifier(params.repositoryId, "repository")
@@ -46,8 +55,10 @@ export async function clientAction({
   const match = action?.match(
     new RegExp(`^/repositories/${repositoryId}/(prototypes|candidates)/([^/]+)/registration$`),
   )
+  const mock = mockMode()
   if (
     !match ||
+    (!mock && match[1] !== "prototypes") ||
     !(match[1] === "candidates" ? routeIdentifierSchema : recordIdentifierSchema).safeParse(
       match[2],
     ).success ||
@@ -60,11 +71,28 @@ export async function clientAction({
   }
   const description = form.get("prototype[description]")
   const startPage = form.get("prototype[start_page]")
-  const parsed = productMetadataInputSchema.safeParse({
+  const input = {
     name: form.get("prototype[name]"),
     description: typeof description === "string" ? description.trim() || null : description,
     startPage: typeof startPage === "string" ? startPage.trim() || null : startPage,
-  })
+  }
+  if (!mock) {
+    const parsed = prototypeEditSchema.safeParse(input)
+    if (!parsed.success) {
+      return data<ProductActionResult>(
+        { saved: false, error: parsed.error.issues.map(({ message }) => message).join(" ") },
+        { status: 422 },
+      )
+    }
+    try {
+      const prototypeId = readRecordIdentifier(match[2], "prototype")
+      await updatePrototype(request, repositoryId, prototypeId, parsed.data, true)
+      return data<ProductActionResult>({ saved: true, notice: "Prototype listing saved." })
+    } catch (error) {
+      return productActionError(error)
+    }
+  }
+  const parsed = productMetadataInputSchema.safeParse(input)
   if (!parsed.success) {
     return data<ProductActionResult>(
       { saved: false, error: parsed.error.issues.map(({ message }) => message).join(" ") },
@@ -116,11 +144,16 @@ export default function ProductManagement({
       }}
     >
       <PrototypeManagementPage
-        data={productManagementData(workspace, loaderData, new URLSearchParams(location.search))}
+        data={productManagementData(
+          workspace,
+          loaderData,
+          new URLSearchParams(location.search),
+          !mockMode(),
+        )}
         saving={busy}
         saveError={result?.saved === false ? result.error : null}
         saved={result?.saved}
-        readOnly={!loaderData.canCreate}
+        readOnly={!loaderData.canManage}
       />
     </ProductFormBoundary>
   )

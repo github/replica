@@ -1,9 +1,38 @@
 export type ShareLinkExpiration = "one_day" | "seven_days" | "thirty_days"
 
+export type GitHubRepositoryPermission = "none" | "read" | "triage" | "write" | "maintain" | "admin"
+
+export interface HostedSharingTarget {
+  repositoryId: string
+  prototypeId: string
+}
+
+export interface HostedSharingViewer {
+  userId: string
+  sessionProvider: string | null
+  externalIdentityId?: string | null
+}
+
+export interface HostedSharingApproval extends HostedSharingTarget {
+  userId: string
+  identity: { id: string; issuer: string; subject: string }
+  permission: Exclude<GitHubRepositoryPermission, "none">
+  policyRevision: number
+  repositoryAccessRevision: number
+}
+
 export interface PublicSharingService {
   applicationOrigin: string
   previewBaseOrigin: string
   maximumDays: 1 | 7 | 30
+  hosted?: {
+    authorize(
+      input: HostedSharingTarget & {
+        viewer: HostedSharingViewer
+        getRepositoryPermission(): Promise<GitHubRepositoryPermission>
+      },
+    ): Promise<HostedSharingApproval>
+  }
   getSettings(): Promise<{
     enabled: boolean
     revision: number
@@ -13,7 +42,10 @@ export interface PublicSharingService {
     enabled: boolean
     revision: number
   }>
-  listLinks(prototypeId: string): Promise<
+  listLinks(
+    prototypeId: string,
+    approval?: HostedSharingApproval,
+  ): Promise<
     Array<{
       id: string
       publicId: string
@@ -35,6 +67,8 @@ export interface PublicSharingService {
     createdByLogin: string
     label: string
     expiration: ShareLinkExpiration
+    actorMembershipId?: string
+    approval?: HostedSharingApproval
   }): Promise<{
     id: string
     publicId: string
@@ -51,6 +85,8 @@ export interface PublicSharingService {
     repositoryId: string
     prototypeId: string
     publicId: string
+    actorMembershipId?: string
+    approval?: HostedSharingApproval
   }): Promise<boolean>
   readPublicLink(publicId: string): Promise<
     | {
@@ -69,5 +105,5 @@ export interface PublicSharingService {
   readAvailableLink(
     shareLinkId: string,
     buildId: string,
-  ): Promise<{ expiresAt: Date; startPage: string } | null>
+  ): Promise<{ expiresAt: Date; startPage: string; hosted?: true } | null>
 }
