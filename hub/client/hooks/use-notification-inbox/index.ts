@@ -2,6 +2,7 @@ import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react"
 
 import { NOTIFICATION_PAGE_SCHEMA, NOTIFICATION_READ_SCHEMA } from "@utils/notification/schemas"
 import { notifyInboxRead, onInboxReadChanged } from "@utils/notification/read-updates"
+import type { InboxReadUpdate } from "@utils/notification/read-updates"
 import type { InboxNotification, NotificationReadUpdate } from "@utils/notification/types"
 
 export function useNotificationInbox({
@@ -48,6 +49,8 @@ export function useNotificationInbox({
   const [loading, setLoading] = useState(autoLoad && Boolean(path))
   const [failed, setFailed] = useState(false)
   const generation = useRef(0)
+  const pendingCount = useRef<AbortController | null>(null)
+  const countReceivedAt = useRef<number | null>(null)
   const loaded = useRef(false)
   const oldest = useRef<{ all: number | null; unread: number | null }>({ all: null, unread: null })
   const ownReadUpdate = useRef<NotificationReadUpdate | null>(null)
@@ -59,6 +62,7 @@ export function useNotificationInbox({
   useEffect(() => {
     loaded.current = false
     oldest.current = { all: null, unread: null }
+    countReceivedAt.current = null
   }, [path])
 
   const load = useCallback(
@@ -116,6 +120,7 @@ export function useNotificationInbox({
           return [...page.notifications, ...retained].sort((a, b) => b.id - a.id)
         })
         setNextBefore(page.nextBefore)
+        countReceivedAt.current = performance.now()
         setUnreadCount(page.unreadCount)
         callbacks.current.onUnreadCountChange?.(page.unreadCount)
       } catch {
@@ -124,6 +129,7 @@ export function useNotificationInbox({
         setNotifications([])
         loaded.current = false
         oldest.current = { all: null, unread: null }
+        countReceivedAt.current = null
         setUnreadCount(0)
         setNextBefore(null)
         setFailed(true)
@@ -142,10 +148,12 @@ export function useNotificationInbox({
     }
   }, [autoLoad, load, path])
 
-  useEffect(() => {
-    if (!autoCount || !path) return
+  const loadCount = useCallback(() => {
+    if (!path) return
+    pendingCount.current?.abort()
     const requestGeneration = generation.current
     const controller = new AbortController()
+    pendingCount.current = controller
     const url = new URL(path, window.location.origin)
     url.searchParams.set("limit", "1")
     url.searchParams.set("unread", "true")
@@ -154,22 +162,37 @@ export function useNotificationInbox({
         if (!response.ok) throw new Error("Inbox is unavailable")
         const page = NOTIFICATION_PAGE_SCHEMA.parse(await response.json())
         if (!controller.signal.aborted && requestGeneration === generation.current) {
+          countReceivedAt.current = performance.now()
           setUnreadCount(page.unreadCount)
         }
       })
       .catch(() => {
-        if (!controller.signal.aborted && requestGeneration === generation.current)
+        if (!controller.signal.aborted && requestGeneration === generation.current) {
+          countReceivedAt.current = null
           setUnreadCount(0)
+        }
       })
-    return () => controller.abort()
-  }, [autoCount, path])
+      .finally(() => {
+        if (pendingCount.current === controller) pendingCount.current = null
+      })
+  }, [path])
 
-  function applyReadUpdate(id: number, saved: NotificationReadUpdate) {
+  useEffect(() => {
+    if (autoCount) loadCount()
+    return () => {
+      pendingCount.current?.abort()
+      pendingCount.current = null
+    }
+  }, [autoCount, loadCount])
+
+  function applyReadUpdate(id: number, saved: NotificationReadUpdate, updateCount = true) {
     const current = notifications.find((item) => item.id === id)
     if (current && current.version >= saved.version) return { count: unreadCount, refill: false }
 
     const delta = current?.read === saved.read ? 0 : saved.read ? -1 : 1
-    const count = saved.unreadCount ?? Math.max(0, unreadCount + delta)
+    const count = updateCount
+      ? (saved.unreadCount ?? Math.max(0, unreadCount + delta))
+      : unreadCount
     const visible = notifications.filter((item) => !unreadOnly || !item.read)
     setNotifications((previous) =>
       previous.map((item) =>
@@ -178,7 +201,10 @@ export function useNotificationInbox({
           : item,
       ),
     )
-    setUnreadCount((previous) => saved.unreadCount ?? Math.max(0, previous + delta))
+    if (updateCount) {
+      if (saved.unreadCount !== undefined) countReceivedAt.current = performance.now()
+      setUnreadCount((previous) => saved.unreadCount ?? Math.max(0, previous + delta))
+    }
     return {
       count,
       refill:
@@ -188,14 +214,23 @@ export function useNotificationInbox({
     }
   }
 
-  const receiveReadUpdate = useEffectEvent(
-    ({ id, saved }: { id: number; saved: NotificationReadUpdate }) => {
-      if (ownReadUpdate.current === saved) return
-      applyReadUpdate(id, saved)
-      if (loaded.current || autoLoad || loading) void load()
-      else generation.current += 1
-    },
-  )
+  const receiveReadUpdate = useEffectEvent(({ id, saved, startedAt }: InboxReadUpdate) => {
+    if (ownReadUpdate.current === saved) return
+    // An overlapping count may already reflect this write, or may still be stale.
+    const needsCount =
+      autoCount &&
+      saved.unreadCount === undefined &&
+      (pendingCount.current !== null ||
+        countReceivedAt.current === null ||
+        countReceivedAt.current >= startedAt)
+    applyReadUpdate(id, saved, !needsCount)
+    if (loaded.current || autoLoad || loading) {
+      void load()
+    } else {
+      generation.current += 1
+      if (needsCount) loadCount()
+    }
+  })
 
   useEffect(() => {
     if (!path || !synchronize) return
@@ -204,6 +239,7 @@ export function useNotificationInbox({
 
   async function toggleRead(notification: InboxNotification) {
     const requestGeneration = ++generation.current
+    const startedAt = performance.now()
     setLoading(true)
     setFailed(false)
     try {
@@ -226,7 +262,7 @@ export function useNotificationInbox({
       const { count, refill } = applyReadUpdate(notification.id, saved)
       if (synchronize) {
         ownReadUpdate.current = saved
-        notifyInboxRead({ id: notification.id, saved })
+        notifyInboxRead({ id: notification.id, saved, startedAt })
       }
       callbacks.current.onReadChange?.(notification.id, saved)
       callbacks.current.onUnreadCountChange?.(count)
