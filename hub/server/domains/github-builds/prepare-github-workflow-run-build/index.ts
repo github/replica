@@ -1,6 +1,7 @@
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
 import type { GitHubWorkflowRun } from "../../../integrations/github/create-github-actions-client/types.ts"
 import { GitHubProviderRequestError } from "../../../integrations/github/errors.ts"
+import { findGitHubBuildAuthor } from "../../../repositories/github-builds/find-github-build-author/index.ts"
 import { prepareGitHubBuild } from "../../../repositories/github-builds/prepare-github-build/index.ts"
 import { recordGitHubBuildAuthor } from "../../../repositories/github-builds/record-github-build-author/index.ts"
 import type { createGitHubActionsClient } from "../../../integrations/github/create-github-actions-client/index.ts"
@@ -37,22 +38,10 @@ export async function prepareGitHubWorkflowRunBuild(
     author: null,
   })
   if (prepared.status !== "ready") return prepared
-  const saved = await database.build.findFirst({
-    where: {
-      id: prepared.buildId,
-      commitSha: run.headSha,
-      prototype: {
-        repository: { githubRepositoryId: BigInt(githubRepositoryId), removedAt: null },
-      },
-    },
-    select: {
-      githubWorkflowRunId: true,
-      authorProvider: true,
-      authorIssuer: true,
-      authorProviderUserId: true,
-      authorLogin: true,
-      authorAvatarUrl: true,
-    },
+  const saved = await findGitHubBuildAuthor(database, {
+    buildId: prepared.buildId,
+    commitSha: run.headSha,
+    githubRepositoryId,
   })
   if (!saved) throw new Error("The Build or repository no longer matches the GitHub run.")
   const noIdentity =

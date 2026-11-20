@@ -41,7 +41,7 @@ export async function lockHostedSharingApproval(
   const prototype = await findHostedSharingPrototype(
     transaction,
     approval,
-    approval.permission === "admin" ? undefined : approval.identity,
+    approval.permission === "admin" ? undefined : { ...approval.identity, userId: approval.userId },
   )
   if (!prototype || prototype.branchName === prototype.repository.defaultBranch) {
     throw new PublicSharingError("forbidden", "You cannot manage share links for this prototype.")

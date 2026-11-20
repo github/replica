@@ -56,6 +56,8 @@ Runtime and setup require `DATABASE_URL`; setup accepts no additional references
 
 Versioned references make rotation explicit. An unversioned runtime/setup URL is resolved once at startup; there is no background refresh or automatic revision restart. Use the installation's serialized release procedure to load a rotated value. Source development, local image runs with directly supplied protected environment values, and the existing setup/provisioning scripts retain their original entrypoints and behavior.
 
+The Azure entrypoint also supports the scoped [GitHub author repair and webhook checks](github-actions-builds.md#commit-authors). These maintenance targets load the same runtime secret references into their own process before importing the command.
+
 ## Setup before release
 
 Run `npm run setup` from `hub/`, or invoke `node dist/server/scripts/setup/index.js` inside the image. Normal API and worker startup never runs setup.

@@ -55,10 +55,20 @@ export async function checkGitHubWebhookCommunication(
   })
   await check("webhook_events", async () => {
     const events = await client.getSubscribedEvents()
-    return ["workflow_run", "workflow_job", "push", "delete"].every((event) =>
-      events.includes(event),
-    )
+    return [
+      "push",
+      "delete",
+      "workflow_run",
+      "workflow_job",
+      "installation_target",
+      "repository",
+      "member",
+      "membership",
+      "organization",
+      "team",
+    ].every((event) => events.includes(event))
   })
+  let observedRun: { runAttempt: number; status: string } | undefined
   await check("repository_workflow_access", async () => {
     const actions = createGitHubActionsClient(
       { ...credentials, githubRepositoryId: input.githubRepositoryId },
@@ -66,6 +76,7 @@ export async function checkGitHubWebhookCommunication(
     )
     const run = await actions.getWorkflowRun(input.runId)
     if (!run || run.repositoryId !== input.githubRepositoryId) return false
+    observedRun = { runAttempt: run.runAttempt, status: run.status }
     await actions.getCommitAuthor(run.headSha)
     return true
   })
@@ -128,13 +139,18 @@ export async function checkGitHubWebhookCommunication(
     checks.push({
       name: "run_build_import",
       result:
-        evidence.build?.state === "failed"
+        observedRun?.status === "completed" &&
+        evidence.build?.state === "failed" &&
+        evidence.build.owningAttempt === observedRun.runAttempt
           ? "fail"
-          : evidence.build?.workflowCompletedAt && evidence.build.state === "successful"
+          : observedRun?.status === "completed" &&
+              evidence.build?.state === "successful" &&
+              evidence.build.completedAttempt === observedRun.runAttempt &&
+              evidence.build.completedAt
             ? "pass"
             : "unknown",
       detail: evidence.build
-        ? `Independent run Build state: ${evidence.build.state}; completed import pass: ${Boolean(evidence.build.workflowCompletedAt)}. Polling may also have processed this run.`
+        ? `Independent run Build state: ${evidence.build.state}; observed run attempt: ${observedRun?.runAttempt ?? "unknown"}; completed import attempt: ${evidence.build.completedAttempt ?? "none"}. Polling may also have processed this run.`
         : "No Build was observed for this repository and run.",
     })
     checks.push({

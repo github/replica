@@ -1,4 +1,5 @@
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
+import { getGitHubBuildAuthorAction } from "../../../utils/get-github-build-author-action/index.ts"
 
 /** Repairs author metadata without changing Build ownership, artifacts, or selection. */
 export async function recordGitHubBuildAuthor(
@@ -21,7 +22,6 @@ export async function recordGitHubBuildAuthor(
     if (!repository) throw new Error("The GitHub repository is no longer connected.")
     const [build] = await transaction.$queryRaw<
       Array<{
-        prototypeId: string
         authorProvider: string | null
         authorIssuer: string | null
         authorProviderUserId: string | null
@@ -30,8 +30,7 @@ export async function recordGitHubBuildAuthor(
         authorAvatarUrl: string | null
       }>
     >`
-      SELECT builds."prototype_id" AS "prototypeId",
-        builds."author_provider" AS "authorProvider",
+      SELECT builds."author_provider" AS "authorProvider",
         builds."author_issuer" AS "authorIssuer",
         builds."author_provider_user_id" AS "authorProviderUserId",
         builds."author_login" AS "authorLogin",
@@ -46,25 +45,8 @@ export async function recordGitHubBuildAuthor(
       FOR UPDATE OF builds
     `
     if (!build) throw new Error("The Build no longer matches the repository, commit, and run.")
-    const noIdentity =
-      build.authorProvider === null &&
-      build.authorIssuer === null &&
-      build.authorProviderUserId === null
-    const sameIdentity =
-      build.authorProvider === "github" &&
-      build.authorIssuer === "https://github.com" &&
-      build.authorProviderUserId === input.author.providerUserId
-    if (
-      (!noIdentity && !sameIdentity) ||
-      (noIdentity &&
-        (build.authorLogin !== null || build.authorName !== null || build.authorAvatarUrl !== null))
-    ) {
-      return { status: "preserved" as const }
-    }
-    if (noIdentity && !input.author.login) {
-      throw new Error("A GitHub author login is required to record a new identity.")
-    }
-    if (noIdentity) {
+    const action = getGitHubBuildAuthorAction(build, input.author)
+    if (action === "would-update") {
       await transaction.build.update({
         where: { id: input.buildId },
         data: {
@@ -76,33 +58,6 @@ export async function recordGitHubBuildAuthor(
         },
       })
     }
-    const identity = await transaction.externalIdentity.findUnique({
-      where: {
-        provider_issuer_subject: {
-          provider: "github",
-          issuer: "https://github.com",
-          subject: input.author.providerUserId,
-        },
-      },
-      select: { userId: true },
-    })
-    if (!identity) return { status: noIdentity ? ("updated" as const) : ("unchanged" as const) }
-    const linked = await transaction.prototype.updateMany({
-      where: {
-        id: build.prototypeId,
-        repositoryId: repository.id,
-        authorId: null,
-        builds: {
-          some: {
-            id: input.buildId,
-            authorProvider: "github",
-            authorIssuer: "https://github.com",
-            authorProviderUserId: input.author.providerUserId,
-          },
-        },
-      },
-      data: { authorId: identity.userId },
-    })
-    return { status: noIdentity || linked.count ? ("updated" as const) : ("unchanged" as const) }
+    return { status: action === "would-update" ? ("updated" as const) : action }
   })
 }

@@ -1,6 +1,7 @@
 import { generateKeyPairSync } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
+import { githubAppRequirements } from "../../../../client/utils/github-app-requirements/index.ts"
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
 import { findGitHubWebhookEvidence } from "../../../repositories/github-webhook-deliveries/find-github-webhook-evidence/index.ts"
 import { checkGitHubWebhookCommunication } from "./index.ts"
@@ -45,7 +46,9 @@ function providerFetch(
     commitStatus?: number
     deliveries?: ReturnType<typeof delivery>[]
     deliveryStatus?: number
+    events?: string[]
     nextPage?: boolean
+    runAttempt?: number
     webhookUrl?: string
   } = {},
 ) {
@@ -63,7 +66,10 @@ function providerFetch(
       return Response.json({ token: "installation-secret" })
     }
     if (path === "/app")
-      return Response.json({ id: 12, events: ["workflow_run", "workflow_job", "push", "delete"] })
+      return Response.json({
+        id: 12,
+        events: options.events ?? githubAppRequirements.events.map(({ key }) => key),
+      })
     if (path === "/app/installations/34") return Response.json({ app_id: 12 })
     if (path === "/app/hook/config")
       return Response.json({
@@ -89,7 +95,7 @@ function providerFetch(
     if (path.endsWith("/actions/runs/7"))
       return Response.json({
         id: 7,
-        run_attempt: 1,
+        run_attempt: options.runAttempt ?? 1,
         path: ".github/workflows/replica.yml",
         event: "push",
         head_branch: "proto/demo",
@@ -151,12 +157,33 @@ describe("checkGitHubWebhookCommunication()", () => {
     },
   )
 
+  it.each(githubAppRequirements.events.map(({ key }) => key))(
+    "rejects webhook subscriptions missing the required %s event",
+    async (missing) => {
+      const events = githubAppRequirements.events
+        .map(({ key }) => key)
+        .filter((key) => key !== missing)
+      const checks = await checkGitHubWebhookCommunication(input, {
+        fetch: providerFetch({ events }),
+      })
+
+      expect(checks).toContainEqual(
+        expect.objectContaining({ name: "webhook_events", result: "fail" }),
+      )
+    },
+  )
+
   it("reports a signed receipt and run import without inferring their association or recovery", async () => {
     const database = {} as PrismaClient
     const fetch = providerFetch({ deliveries: [delivery()] })
     vi.mocked(findGitHubWebhookEvidence).mockResolvedValue({
       receipt: { event: "workflow_run", createdAt: new Date("2026-01-01T00:02:00Z") },
-      build: { state: "successful", workflowCompletedAt: new Date("2026-01-01T00:03:00Z") },
+      build: {
+        state: "successful",
+        owningAttempt: 1,
+        completedAttempt: 1,
+        completedAt: new Date("2026-01-01T00:03:00Z"),
+      },
       redelivery: { state: "succeeded", attempts: 1, failureCode: null },
     })
 
@@ -179,6 +206,29 @@ describe("checkGitHubWebhookCommunication()", () => {
     )
   })
 
+  it("does not claim a later provider attempt was imported using an earlier attempt's evidence", async () => {
+    const database = {} as PrismaClient
+    const fetch = providerFetch({ deliveries: [delivery()], runAttempt: 2 })
+    vi.mocked(findGitHubWebhookEvidence).mockResolvedValue({
+      receipt: { event: "workflow_run", createdAt: new Date("2026-01-01T00:02:00Z") },
+      build: {
+        state: "successful",
+        owningAttempt: 1,
+        completedAttempt: 1,
+        completedAt: new Date("2026-01-01T00:03:00Z"),
+      },
+      redelivery: null,
+    })
+
+    const checks = await checkGitHubWebhookCommunication(
+      { ...input, deliveryGuid: "delivery-guid", database },
+      { fetch },
+    )
+    const importCheck = checks.find((check) => check.name === "run_build_import")
+    expect(importCheck?.result).toBe("unknown")
+    expect(importCheck?.detail).toContain("observed run attempt: 2; completed import attempt: 1")
+  })
+
   it.each([{ installation_id: 99 }, { repository_id: 99 }])(
     "does not claim a signed receipt from a different provider scope (%j)",
     async (scope) => {
@@ -186,7 +236,12 @@ describe("checkGitHubWebhookCommunication()", () => {
       const fetch = providerFetch({ deliveries: [delivery(scope)] })
       vi.mocked(findGitHubWebhookEvidence).mockResolvedValue({
         receipt: { event: "workflow_run", createdAt: new Date("2026-01-01T00:02:00Z") },
-        build: { state: "successful", workflowCompletedAt: new Date("2026-01-01T00:03:00Z") },
+        build: {
+          state: "successful",
+          owningAttempt: 1,
+          completedAttempt: 1,
+          completedAt: new Date("2026-01-01T00:03:00Z"),
+        },
         redelivery: { state: "succeeded", attempts: 1, failureCode: null },
       })
 

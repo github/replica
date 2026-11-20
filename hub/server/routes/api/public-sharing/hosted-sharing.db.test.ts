@@ -225,14 +225,29 @@ describe("hosted public sharing", () => {
     }
   })
 
-  it("binds browser management to repository admin or a successful immutable author on that prototype", async () => {
+  it("requires both prototype ownership and a successful immutable author, or repository admin", async () => {
     const target = await createTarget(100, "51")
     const other = await createTarget(200, "99")
     const selectedBuild = await createBuild(target.prototype.id, 2, "99")
     await createBuild(other.prototype.id, 2, "51", false)
+    const wrongIssuer = await createBuild(other.prototype.id, 3, "51")
+    const wrongProvider = await createBuild(other.prototype.id, 4, "51")
+    await prisma.build.update({
+      where: { id: wrongIssuer.id },
+      data: { authorIssuer: "https://github.example.test" },
+    })
+    await prisma.build.update({
+      where: { id: wrongProvider.id },
+      data: { authorProvider: "entra" },
+    })
     const author = await createActor("51")
+    const otherAuthor = await createActor("99")
     const hubAdmin = await createActor("52", "ADMINISTRATOR")
     const repoAdmin = await createActor("53")
+    await prisma.prototype.update({
+      where: { id: other.prototype.id },
+      data: { authorId: author.userId },
+    })
     const entra = { ...author, sessionProvider: "entra", role: "ADMINISTRATOR" as const }
     const lookup = vi.fn<Permission>((viewer) =>
       Promise.resolve(
@@ -244,14 +259,50 @@ describe("hosted public sharing", () => {
       ),
     )
     const sharing = await createPublicSharingService(prisma, enabledEnvironment, { mode: "hosted" })
-    const hub = await startHub(sharing, { author, hubAdmin, repoAdmin, entra }, lookup)
+    const hub = await startHub(sharing, { author, otherAuthor, hubAdmin, repoAdmin, entra }, lookup)
     try {
+      const unownedPublicPath = await createLink(hub, target.links, "repoAdmin", 2)
+      const unownedShareId = unownedPublicPath.split("/").at(-1)!
+      const unowned = await hub.request(`${target.path}?view=minimized`, "author")
+      const unownedBody = (await unowned.json()) as {
+        prototype: { canManageShareLinks: boolean }
+      }
+      expect({
+        capability: unownedBody.prototype.canManageShareLinks,
+        list: (await hub.request(target.links, "author")).status,
+        create: (await hub.request(target.links, "author", "POST", linkForm)).status,
+        revoke: (await hub.request(`${target.links}/${unownedShareId}`, "author", "DELETE")).status,
+      }).toEqual({ capability: false, list: 403, create: 403, revoke: 403 })
+      expect((await hub.request(unownedPublicPath)).status).toBe(200)
+
+      await prisma.prototype.update({
+        where: { id: target.prototype.id },
+        data: { authorId: author.userId },
+      })
       const prototype = await hub.request(`${target.path}?view=minimized&build=2`, "author")
       expect(await prototype.json()).toMatchObject({ prototype: { canManageShareLinks: true } })
+      const anotherAuthor = await hub.request(`${target.path}?view=minimized`, "otherAuthor")
+      expect(await anotherAuthor.json()).toMatchObject({
+        prototype: { canManageShareLinks: false },
+      })
+      expect((await hub.request(target.links, "otherAuthor")).status).toBe(403)
+      expect((await hub.request(target.links, "otherAuthor", "POST", linkForm)).status).toBe(403)
+      expect(
+        (await hub.request(`${target.links}/${unownedShareId}`, "otherAuthor", "DELETE")).status,
+      ).toBe(403)
+      expect((await hub.request(unownedPublicPath)).status).toBe(200)
+      expect(
+        (await prisma.prototype.findUniqueOrThrow({ where: { id: target.prototype.id } })).authorId,
+      ).toBe(author.userId)
       const failedAuthor = await hub.request(`${other.path}?view=minimized`, "author")
       expect(await failedAuthor.json()).toMatchObject({ prototype: { canManageShareLinks: false } })
+      expect((await hub.request(other.links, "author", "POST", linkForm)).status).toBe(403)
       expect((await hub.request(target.links, "hubAdmin", "POST", linkForm)).status).toBe(403)
       expect((await hub.request(target.links, "entra", "POST", linkForm)).status).toBe(403)
+      expect(
+        (await hub.request(`${target.links}/${unownedShareId}`, "author", "DELETE")).status,
+      ).toBe(200)
+      expect((await hub.request(unownedPublicPath)).status).toBe(404)
 
       const publicPath = await createLink(hub, target.links, "author", 2)
       const shareId = publicPath.split("/").at(-1)!
@@ -283,11 +334,54 @@ describe("hosted public sharing", () => {
     }
   })
 
+  it("rechecks prototype ownership after the GitHub permission lookup", async () => {
+    const target = await createTarget(100, "51")
+    const author = await createActor("51")
+    const nextOwner = await createActor("52")
+    await prisma.prototype.update({
+      where: { id: target.prototype.id },
+      data: { authorId: author.userId },
+    })
+    const started = signal()
+    const release = signal()
+    const lookup = vi.fn<Permission>(async () => {
+      started.resolve()
+      await release.promise
+      return "read"
+    })
+    const sharing = await createPublicSharingService(prisma, enabledEnvironment, { mode: "hosted" })
+    const hub = await startHub(sharing, { author }, lookup)
+    try {
+      const pending = hub.request(target.links, "author", "POST", linkForm)
+      expect(
+        await Promise.race([started.promise.then(() => "lookup"), pending.then(() => "response")]),
+      ).toBe("lookup")
+      await prisma.prototype.update({
+        where: { id: target.prototype.id },
+        data: { authorId: nextOwner.userId },
+      })
+      release.resolve()
+
+      expect((await pending).status).toBe(403)
+      expect(await prisma.shareLink.count()).toBe(0)
+      expect(
+        (await prisma.prototype.findUniqueOrThrow({ where: { id: target.prototype.id } })).authorId,
+      ).toBe(nextOwner.userId)
+    } finally {
+      release.resolve()
+      await hub.close()
+    }
+  })
+
   it("does not mistake provider failure for loss and invalidates earlier positive proof after scoped loss", async () => {
     const target = await createTarget(100, "51")
     const other = await createTarget(200, "51")
     const author = await createActor("51")
     const repoAdmin = await createActor("52")
+    await prisma.prototype.updateMany({
+      where: { id: { in: [target.prototype.id, other.prototype.id] } },
+      data: { authorId: author.userId },
+    })
     const lookup = vi.fn<Permission>((viewer) =>
       Promise.resolve(
         viewer.externalIdentityId === repoAdmin.externalIdentityId ? "admin" : "read",
@@ -333,6 +427,10 @@ describe("hosted public sharing", () => {
   it("serves only the pinned Build over public handoffs and blocks them permanently after policy disablement", async () => {
     const target = await createTarget(100, "51")
     const author = await createActor("51")
+    await prisma.prototype.update({
+      where: { id: target.prototype.id },
+      data: { authorId: author.userId },
+    })
     const lookup = vi.fn<Permission>().mockResolvedValue("read")
     const sharing = await createPublicSharingService(prisma, enabledEnvironment, { mode: "hosted" })
     const hub = await startHub(sharing, { author }, lookup)
@@ -367,6 +465,10 @@ describe("hosted public sharing", () => {
   it("permanently revokes links on a confirmed installation disconnection, not an ambiguous access event", async () => {
     const target = await createTarget(100, "51")
     const author = await createActor("51")
+    await prisma.prototype.update({
+      where: { id: target.prototype.id },
+      data: { authorId: author.userId },
+    })
     const provider = { configurationDigest: "a".repeat(64), revision: 1 }
     const auth = await prisma.authenticationProvider.create({
       data: { key: "github", enabled: false },

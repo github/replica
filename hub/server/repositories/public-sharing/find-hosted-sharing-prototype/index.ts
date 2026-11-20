@@ -3,7 +3,7 @@ import type { Prisma, PrismaClient } from "../../../generated/prisma/client.ts"
 export function findHostedSharingPrototype(
   database: PrismaClient | Prisma.TransactionClient,
   input: { repositoryId: string; prototypeId: string },
-  author?: { issuer: string; subject: string },
+  author?: { userId: string; issuer: string; subject: string },
 ) {
   return database.prototype.findFirst({
     where: {
@@ -15,6 +15,7 @@ export function findHostedSharingPrototype(
       repository: { githubRepositoryId: { not: null }, localPath: null, removedAt: null },
       ...(author
         ? {
+            authorId: author.userId,
             builds: {
               some: {
                 state: "successful",

@@ -18,6 +18,7 @@ describe("findGitHubWebhookEvidence()", () => {
         number: 1,
         state: "successful",
         githubWorkflowRunId: 7,
+        githubWorkflowRunAttempt: 1,
         workflowCompletedAt: new Date(),
       },
     })
@@ -29,7 +30,12 @@ describe("findGitHubWebhookEvidence()", () => {
     expect(await findGitHubWebhookEvidence(prisma, input)).toMatchObject({
       receipt: { event: "workflow_run", createdAt: receipt.createdAt },
       redelivery: null,
-      build: { state: "successful", workflowCompletedAt: build.workflowCompletedAt },
+      build: {
+        state: "successful",
+        owningAttempt: 1,
+        completedAttempt: 1,
+        completedAt: build.workflowCompletedAt,
+      },
     })
     expect(
       (await findGitHubWebhookEvidence(prisma, { ...input, githubRepositoryId: 99 })).build,
@@ -42,5 +48,40 @@ describe("findGitHubWebhookEvidence()", () => {
     expect(await prisma.gitHubWebhookDelivery.findUnique({ where: { id: deliveryGuid } })).toEqual(
       receipt,
     )
+  })
+
+  it("finds a contributing run's own completed attempt rather than the dist owner's watermark", async () => {
+    const repository = await prisma.repository.create({
+      data: { nameWithOwner: "octo/demo", defaultBranch: "main", githubRepositoryId: 56 },
+    })
+    const prototype = await prisma.prototype.create({
+      data: { repositoryId: repository.id, branchName: "proto/demo" },
+    })
+    const completionTime = new Date("2026-01-02T00:00:00Z")
+    await prisma.build.create({
+      data: {
+        prototypeId: prototype.id,
+        number: 1,
+        state: "successful",
+        githubWorkflowRunId: 7,
+        githubWorkflowRunAttempt: 1,
+        workflowCompletedAt: new Date("2026-01-01T00:00:00Z"),
+        githubRunCompletions: {
+          create: { githubWorkflowRunId: 8, runAttempt: 2, completedAt: completionTime },
+        },
+      },
+    })
+
+    const evidence = await findGitHubWebhookEvidence(prisma, {
+      deliveryGuid: randomUUID(),
+      githubRepositoryId: 56,
+      runId: 8,
+    })
+    expect(evidence.build).toEqual({
+      state: "successful",
+      owningAttempt: null,
+      completedAttempt: 2,
+      completedAt: completionTime,
+    })
   })
 })

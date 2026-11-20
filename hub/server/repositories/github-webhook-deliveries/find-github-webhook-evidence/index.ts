@@ -15,13 +15,47 @@ export async function findGitHubWebhookEvidence(
       where: { id: input.deliveryGuid },
       select: { state: true, attempts: true, failureCode: true },
     })
+    const runId = BigInt(input.runId)
     const build = await transaction.build.findFirst({
       where: {
-        githubWorkflowRunId: BigInt(input.runId),
+        OR: [
+          { githubWorkflowRunId: runId },
+          { githubRunCompletions: { some: { githubWorkflowRunId: runId } } },
+        ],
         prototype: { repository: { githubRepositoryId: BigInt(input.githubRepositoryId) } },
       },
-      select: { state: true, workflowCompletedAt: true },
+      select: {
+        state: true,
+        githubWorkflowRunId: true,
+        githubWorkflowRunAttempt: true,
+        workflowCompletedAt: true,
+        githubRunCompletions: {
+          where: { githubWorkflowRunId: runId },
+          select: { runAttempt: true, completedAt: true },
+        },
+      },
     })
-    return { receipt, redelivery, build }
+    const owningAttempt =
+      build?.githubWorkflowRunId === runId ? build.githubWorkflowRunAttempt : null
+    let completion = build?.githubRunCompletions[0] ?? null
+    if (
+      owningAttempt !== null &&
+      build?.workflowCompletedAt &&
+      (!completion || owningAttempt > completion.runAttempt)
+    ) {
+      completion = { runAttempt: owningAttempt, completedAt: build.workflowCompletedAt }
+    }
+    return {
+      receipt,
+      redelivery,
+      build: build
+        ? {
+            state: build.state,
+            owningAttempt,
+            completedAttempt: completion?.runAttempt ?? null,
+            completedAt: completion?.completedAt ?? null,
+          }
+        : null,
+    }
   })
 }

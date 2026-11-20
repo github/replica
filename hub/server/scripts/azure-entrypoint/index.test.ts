@@ -10,6 +10,29 @@ vi.mock("../../integrations/pino/create-logger", () => ({
 }))
 
 describe("Azure executable entrypoint", () => {
+  it("reports maintenance startup failures even when logging is disabled without exposing secrets", async () => {
+    const originalArguments = process.argv
+    const originalExitCode = process.exitCode
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    process.argv = ["node", "synthetic-azure-entrypoint", "check-github-webhooks"]
+    process.exitCode = undefined
+    onTestFinished(() => {
+      process.argv = originalArguments
+      process.exitCode = originalExitCode
+      stderr.mockRestore()
+    })
+    mocks.run.mockRejectedValue(new Error("synthetic-private-secret"))
+    vi.resetModules()
+
+    await expect(import(".")).resolves.toBeDefined()
+
+    expect(process.exitCode).toBe(1)
+    expect(stderr).toHaveBeenCalledWith(
+      expect.stringContaining("check secret references, managed identity"),
+    )
+    expect(JSON.stringify(stderr.mock.calls)).not.toContain("synthetic-private-secret")
+  })
+
   it.each(["Error", "non-Error"] as const)(
     "reports a safe fatal record and exit status for a secret-bearing %s rejection",
     async (kind) => {

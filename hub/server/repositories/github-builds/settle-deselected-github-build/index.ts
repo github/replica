@@ -1,4 +1,5 @@
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
+import { githubDeselectedWorkflowFailure } from "../../../utils/github-deselected-workflow-failure/index.ts"
 
 /** Stops only the unfinished Build still owned by the deselected run and attempt. */
 export async function settleDeselectedGitHubBuild(
@@ -42,8 +43,7 @@ export async function settleDeselectedGitHubBuild(
         startedAt: build.startedAt ?? finishedAt,
         finishedAt,
         workflowCompletedAt: run.status === "completed" ? run.updatedAt : null,
-        failureSummary:
-          "The Build workflow is no longer selected by builds.workflows in .github/replica.json on the repository's default branch. Select it again and rerun the workflow to retry.",
+        failureSummary: githubDeselectedWorkflowFailure,
       },
     })
     return result.count === 1

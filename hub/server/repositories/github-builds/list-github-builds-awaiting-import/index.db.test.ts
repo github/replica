@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest"
 
 import type { Prisma } from "../../../generated/prisma/client.ts"
 import { prisma } from "../../../integrations/prisma/index.ts"
+import { githubDeselectedWorkflowFailure } from "../../../utils/github-deselected-workflow-failure"
 import { listGitHubBuildsAwaitingImport } from "./index.ts"
 
 const createdAfter = new Date(Date.now() - 60 * 60 * 1_000)
@@ -75,5 +76,30 @@ describe("listGitHubBuildsAwaitingImport", () => {
     const listed = await listGitHubBuildsAwaitingImport(prisma, { createdAfter, limit: 10_000 })
 
     expect(listed).not.toContainEqual(build)
+  })
+
+  it("retries failed Builds with unresolved authors but not deselected or attributed Builds", async () => {
+    const repository = await createRepository()
+    const unresolved = await repository.createBuild({
+      state: "failed",
+      failureSummary: "The package is invalid.",
+    })
+    const deselected = await repository.createBuild({
+      state: "failed",
+      failureSummary: githubDeselectedWorkflowFailure,
+    })
+    const attributed = await repository.createBuild({
+      state: "failed",
+      failureSummary: "The package is invalid.",
+      authorProvider: "github",
+      authorIssuer: "https://github.com",
+      authorProviderUserId: "9",
+    })
+
+    const listed = await listGitHubBuildsAwaitingImport(prisma, { createdAfter })
+
+    expect(listed).toContainEqual(unresolved)
+    expect(listed).not.toContainEqual(deselected)
+    expect(listed).not.toContainEqual(attributed)
   })
 })

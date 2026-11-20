@@ -78,7 +78,7 @@ export async function importGitHubWorkflowRun(
     },
   )
   if (prepared.status !== "ready") return { dist: "ignored", screenshots: "absent" }
-  const { buildId, buildRun, distDigest, ownsBuild, state } = prepared
+  const { buildId, buildRun, distDigest, ownsBuild, state, authorError } = prepared
   if (prepared.authorPreserved) {
     logger.warn({ buildId, runId: run.id }, "Existing Build author metadata was preserved")
   }
@@ -102,7 +102,7 @@ export async function importGitHubWorkflowRun(
     await completeGitHubBuildFailure(database, {
       buildId,
       run: buildRun,
-      completedAt,
+      completedAt: authorError ? null : completedAt,
       failureSummary,
     })
     logger.warn({ buildId, runId: run.id, failureSummary }, "GitHub Build import failed")
@@ -174,7 +174,12 @@ export async function importGitHubWorkflowRun(
     }
     const result = await importGitHubDistPackage(
       dependencies,
-      { buildId, run: buildRun, completedAt, expectedDistDigest },
+      {
+        buildId,
+        run: buildRun,
+        completedAt: authorError ? null : completedAt,
+        expectedDistDigest,
+      },
       downloaded.bytes,
     )
     if (result.status === "digest-mismatch") {

@@ -4,6 +4,8 @@ import type { PrismaClient } from "../../../generated/prisma/client.ts"
 import type { createGitHubActionsClient } from "../../../integrations/github/create-github-actions-client/index.ts"
 import { findGitHubBuildAuthorTarget } from "../../../repositories/github-builds/find-github-build-author-target/index.ts"
 import { recordGitHubBuildAuthor } from "../../../repositories/github-builds/record-github-build-author/index.ts"
+import { getGitHubBuildAuthorAction } from "../../../utils/get-github-build-author-action/index.ts"
+import { GitHubBuildAuthorTargetError } from "../errors.ts"
 
 /** Explicitly repairs one retained Build, including those outside the recovery window. */
 export async function repairGitHubBuildAuthor(
@@ -16,7 +18,7 @@ export async function repairGitHubBuildAuthor(
 ) {
   const target = await findGitHubBuildAuthorTarget(dependencies.database, input)
   if (!target?.commitSha || target.githubWorkflowRunId === null) {
-    throw new Error("No GitHub Build matches that repository and Build ID.")
+    throw new GitHubBuildAuthorTargetError()
   }
   const author = await dependencies.client.getCommitAuthor(target.commitSha)
   if (!author) {
@@ -26,7 +28,14 @@ export async function repairGitHubBuildAuthor(
     )
     return { status: "unavailable" as const }
   }
-  if (!input.apply) return { status: "available" as const }
+  if (!input.apply) {
+    return {
+      status: "available" as const,
+      author,
+      build: getGitHubBuildAuthorAction(target, author),
+      prototypeOwner: "unchanged" as const,
+    }
+  }
   return recordGitHubBuildAuthor(dependencies.database, {
     buildId: target.id,
     commitSha: target.commitSha,

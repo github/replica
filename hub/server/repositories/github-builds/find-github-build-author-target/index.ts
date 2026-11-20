@@ -16,6 +16,16 @@ export async function findGitHubBuildAuthorTarget(
         },
       },
     },
-    select: { id: true, commitSha: true, githubWorkflowRunId: true },
+    select: {
+      id: true,
+      commitSha: true,
+      githubWorkflowRunId: true,
+      authorProvider: true,
+      authorIssuer: true,
+      authorProviderUserId: true,
+      authorLogin: true,
+      authorName: true,
+      authorAvatarUrl: true,
+    },
   })
 }

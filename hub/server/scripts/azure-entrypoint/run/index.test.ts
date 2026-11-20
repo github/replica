@@ -11,6 +11,10 @@ const mocks = vi.hoisted(() => ({
   loggerImported: vi.fn(),
   setup: vi.fn<() => Promise<void>>(),
   provision: vi.fn<typeof provisionDatabaseAccess>(),
+  repairImported: vi.fn(),
+  checkImported: vi.fn(),
+  repair: vi.fn<() => Promise<void>>(),
+  check: vi.fn<() => Promise<void>>(),
   info: vi.fn(),
 }))
 vi.mock("../load-secret-environment", () => ({
@@ -40,7 +44,47 @@ describe("runAzureEntrypoint()", () => {
       mocks.loggerImported()
       return { logger: { info: mocks.info } }
     })
+    vi.doMock("../../repair-github-build-author/run", () => {
+      mocks.repairImported(process.env.DATABASE_URL)
+      return { runGitHubBuildAuthorRepair: mocks.repair }
+    })
+    vi.doMock("../../check-github-webhooks/run", () => {
+      mocks.checkImported(process.env.DATABASE_URL)
+      return { runGitHubWebhookCheck: mocks.check }
+    })
   })
+
+  it.each([
+    ["repair-github-build-author", "repair"],
+    ["check-github-webhooks", "check"],
+  ] as const)(
+    "loads runtime secrets before importing the %s maintenance command and forwards its arguments",
+    async (target, command) => {
+      const originalEnvironment = process.env
+      const originalArguments = process.argv
+      process.env = { RUNTIME_MODE: "combined" }
+      process.argv = ["node", "azure-entrypoint", target, "--repository-id", "56"]
+      onTestFinished(() => {
+        process.env = originalEnvironment
+        process.argv = originalArguments
+      })
+      mocks.loadSecrets.mockImplementation((environment) => {
+        expect(mocks.repairImported).not.toHaveBeenCalled()
+        expect(mocks.checkImported).not.toHaveBeenCalled()
+        environment.DATABASE_URL = "synthetic-database-secret"
+        return Promise.resolve()
+      })
+
+      await runAzureEntrypoint(target)
+
+      expect(mocks.loadSecrets).toHaveBeenCalledExactlyOnceWith(process.env, "runtime")
+      expect(mocks[`${command}Imported`]).toHaveBeenCalledExactlyOnceWith(
+        "synthetic-database-secret",
+      )
+      expect(mocks[command]).toHaveBeenCalledExactlyOnceWith(["--repository-id", "56"])
+      expect(mocks.runtimeImported).not.toHaveBeenCalled()
+    },
+  )
 
   it.each(["runtime", "setup", "provision"] as const)(
     "loads all secrets before importing only the selected %s entrypoint",
