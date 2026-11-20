@@ -6,7 +6,8 @@ import path from "node:path"
 import { afterEach, beforeEach, describe, it } from "node:test"
 
 import { rankForRecall, renderRecall } from "../../../../packages/learning/src/recall.mjs"
-import { createLearningsHook } from "./index.mjs"
+import { createHubOriginStore } from "../create-hub-origin-store/index.mjs"
+import { createLearningsHook, hasLearningsHubOrigin } from "./index.mjs"
 
 const RENEWAL = "/api/canvas/connection/renewal"
 
@@ -490,6 +491,38 @@ esac
     assert.deepEqual(await prompt(createLearningsHook({ origin, directory })), {
       additionalContext: NONE,
     })
+  })
+
+  it("only enables prompt learnings for a repository with a configured Hub origin", async () => {
+    const originalOrigin = process.env.REPLICA_HUB_ORIGIN
+    delete process.env.REPLICA_HUB_ORIGIN
+    try {
+      assert.equal(await hasLearningsHubOrigin(workspace, { directory }), false)
+      assert.equal(await hasLearningsHubOrigin(workspace, { directory, origin }), true)
+
+      await createHubOriginStore({ directory }).save("github/replica", origin)
+      assert.equal(await hasLearningsHubOrigin(workspace, { directory }), true)
+    } finally {
+      if (originalOrigin !== undefined) process.env.REPLICA_HUB_ORIGIN = originalOrigin
+    }
+  })
+
+  it("disables prompt learnings and reports an invalid saved Hub origin", async () => {
+    await createHubOriginStore({ directory }).save("github/replica", origin)
+    const key = createHash("sha256").update("github/replica").digest("hex")
+    await writeFile(path.join(directory, `${key}.origin.json`), "{}")
+    const errors = []
+    const originalError = console.error
+    console.error = (...values) => errors.push(values)
+
+    try {
+      assert.equal(await hasLearningsHubOrigin(workspace, { directory }), false)
+    } finally {
+      console.error = originalError
+    }
+
+    assert.equal(errors.length, 1)
+    assert.match(errors[0][0], /Replica learnings are disabled/)
   })
 
   it("withdraws earlier guidance after its session history was evicted", async () => {

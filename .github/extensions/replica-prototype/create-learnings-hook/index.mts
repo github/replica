@@ -122,20 +122,7 @@ export function createLearningsHook(options: LearningsHookOptions = {}) {
   async function recall(input: unknown) {
     const repositoryPath = readHubObject(input)?.workingDirectory
     if (typeof repositoryPath !== "string" || !repositoryPath) return null
-    // A local Hub names a checkout under .local/prototypes/ by its folder; elsewhere this is ignored.
-    const context = {
-      repositoryPath,
-      target: { repository: `local/${path.basename(repositoryPath)}` },
-    }
-    const { repository, legacyRepository } = await readCanvasRepository(context)
-    if (!repository) return null
-    const origin =
-      (await origins.read(repository)) ||
-      (legacyRepository && legacyRepository !== repository
-        ? await origins.read(legacyRepository)
-        : null) ||
-      options.origin ||
-      process.env.REPLICA_HUB_ORIGIN
+    const { context, origin } = await resolveHubConnection(repositoryPath, origins, options)
     if (!origin) return null
     return createHubClient(context, { ...options, origin }).recallLearnings({ timeoutMs })
   }
@@ -175,4 +162,44 @@ export function createLearningsHook(options: LearningsHookOptions = {}) {
       clearTimeout(timer)
     }
   }
+}
+
+/** Whether this checkout has a Hub origin configured for prompt learnings. */
+export async function hasLearningsHubOrigin(
+  repositoryPath: string,
+  options: LearningsHookOptions = {},
+) {
+  try {
+    const { origin } = await resolveHubConnection(
+      repositoryPath,
+      createHubOriginStore(options),
+      options,
+    )
+    return Boolean(origin)
+  } catch (error) {
+    console.error("Replica learnings are disabled because the Hub origin could not be read.", error)
+    return false
+  }
+}
+
+async function resolveHubConnection(
+  repositoryPath: string,
+  origins: ReturnType<typeof createHubOriginStore>,
+  options: LearningsHookOptions,
+) {
+  // A local Hub names a checkout under .local/prototypes/ by its folder; elsewhere this is ignored.
+  const context = {
+    repositoryPath,
+    target: { repository: `local/${path.basename(repositoryPath)}` },
+  }
+  const { repository, legacyRepository } = await readCanvasRepository(context)
+  if (!repository) return { context, origin: null }
+  const origin =
+    (await origins.read(repository)) ||
+    (legacyRepository && legacyRepository !== repository
+      ? await origins.read(legacyRepository)
+      : null) ||
+    options.origin ||
+    process.env.REPLICA_HUB_ORIGIN
+  return { context, origin }
 }

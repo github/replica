@@ -78,6 +78,8 @@ New improvements remain local until their captured source matches a successful p
 
 When this repository has a Hub connection and a Hub administrator connected Copilot, each prompt you submit gets the [learnings](../../../hub/docs/learnings.md) your repository's administrators accepted in Hub. The extension never sends your prompt to Hub. Copilot treats the learnings as guidance from your team, not as commands. Its first successful answer replaces earlier learning context, including after a restart or session resume; an empty answer explicitly clears it. Later unchanged answers add nothing. When learnings change, or Learnings is turned off, the next successful answer replaces the earlier guidance. It adds nothing when Hub's answer is not in the form that `replica-learning` writes. It never delays a prompt by more than three seconds and never fails it. Without a Hub connection it adds nothing and never asks you to connect. If you connected before the approval page mentioned learnings, disconnect and connect again to get them.
 
+The extension registers the prompt hook only when the startup repository already has a saved Hub selection or a configured Hub URL. Connecting a repository during a session enables learnings in the next session.
+
 Copilot CLI runs extensions only while its extensions feature is on. In Copilot CLI 1.0.96 that is an experimental feature: start Copilot CLI with `--experimental`, or run `/experimental on`. In prompt mode (`copilot -p`), it loads a repository's project copy only when `GITHUB_COPILOT_PROMPT_MODE_EXTENSIONS=true`.
 
 ## Agent access to Hub comments

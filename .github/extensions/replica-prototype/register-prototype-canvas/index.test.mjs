@@ -132,6 +132,31 @@ async function register(
 }
 
 describe("registerPrototypeCanvas()", () => {
+  it("does not register prompt learnings without a saved or configured Hub URL", async () => {
+    await withContext(async (context) => {
+      const originalOrigin = process.env.REPLICA_HUB_ORIGIN
+      delete process.env.REPLICA_HUB_ORIGIN
+      try {
+        let registered
+        const directory = path.join(context.sessionWorkspacePath, "hub-credentials")
+        const canvas = await register(
+          context,
+          [],
+          undefined,
+          { hubOptions: { directory } },
+          (configuration) => {
+            registered = configuration
+          },
+        )
+
+        assert.equal(registered.hooks, undefined)
+        assert.equal(registered.canvases[0], canvas)
+      } finally {
+        if (originalOrigin !== undefined) process.env.REPLICA_HUB_ORIGIN = originalOrigin
+      }
+    })
+  })
+
   it("uses a saved Hub connection for creation without a local preview or new approval", async () => {
     await withContext(async (context) => {
       execFileSync("git", ["remote", "add", "origin", "https://github.com/github/replica.git"], {
