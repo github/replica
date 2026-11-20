@@ -1,11 +1,11 @@
 import { z } from "zod"
 
 import type { GitHubWorkflowRunJob } from "../../../../../domains/github-builds/get-github-workflow-run-job-definition/index.ts"
-import { replicaWorkflowPath } from "../../../../../domains/github-builds/constants.ts"
 import { revokeGitHubRepositoryAccess } from "../../../../../domains/admission/revoke-github-repository-access/index.ts"
 import { recordGitHubBranchDeletion } from "../../../../../domains/prototypes/record-github-branch-deletion/index.ts"
 import { prisma } from "../../../../../integrations/prisma/index.ts"
 import { claimGitHubWebhookDelivery } from "../../../../../repositories/github-webhook-deliveries/claim-github-webhook-delivery/index.ts"
+import { findConnectedGitHubRepository } from "../../../../../repositories/repository-access/find-connected-github-repository/index.ts"
 import type { GitHubWebhookRouteDependencies } from "../types.ts"
 
 const githubId = z.number().int().positive()
@@ -138,12 +138,7 @@ export function createGitHubWebhookRouteDependencies(input: {
         let job: GitHubWorkflowRunJob
         if (name === "workflow_run") {
           const event = workflowRunEvent.safeParse(payload)
-          if (
-            !event.success ||
-            event.data.workflow_run.path.split("@")[0] !== replicaWorkflowPath
-          ) {
-            return false
-          }
+          if (!event.success) return false
           job = { githubRepositoryId: event.data.repository.id, runId: event.data.workflow_run.id }
         } else {
           // Job events let the dist import as soon as its job ends, before screenshots finish.
@@ -154,6 +149,8 @@ export function createGitHubWebhookRouteDependencies(input: {
             runId: event.data.workflow_job.run_id,
           }
         }
+        if (!(await findConnectedGitHubRepository(prisma, job.githubRepositoryId))) return false
+        // The worker reads GitHub and selection; intake must acknowledge without provider calls.
         // Enqueue before recording receipt so a failed enqueue can be redelivered.
         await input.enqueueWorkflowRunImport(job, delivery.id)
         await claimGitHubWebhookDelivery(prisma, receipt)

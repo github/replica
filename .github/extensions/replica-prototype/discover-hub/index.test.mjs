@@ -153,7 +153,7 @@ if (process.argv.some((arg) => arg.startsWith("expression="))) {
       }
     }))
 
-  it("validates only the Hub origin without rejecting the template catalog or unrelated schema fields", () =>
+  it("validates only the Hub origin alongside build selection, templates and unrelated fields", () =>
     fixture(async ({ context, options, state }) => {
       const templates = Array.from({ length: 100 }, (_, index) => ({
         id: `template-${index}`,
@@ -165,6 +165,7 @@ if (process.argv.some((arg) => arg.startsWith("expression="))) {
         state.text = JSON.stringify({
           version,
           hub: { origin: "https://team.example.com/", additionalSetting: true },
+          builds: { workflows: [".github/workflows/publish-proto.yml"] },
           templates,
           anotherSetting: true,
         })

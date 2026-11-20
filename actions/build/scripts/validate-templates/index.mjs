@@ -16,9 +16,40 @@ export function validateTemplates(value) {
     typeof value !== "object" ||
     Array.isArray(value) ||
     value.version !== 1 ||
-    Object.keys(value).some((key) => !["version", "hub", "templates"].includes(key))
+    Object.keys(value).some((key) => !["version", "hub", "templates", "builds"].includes(key))
   ) {
     throw new Error("Replica configuration must be a version 1 JSON object.")
+  }
+
+  if (Object.hasOwn(value, "builds")) {
+    const builds = value.builds
+    if (
+      !builds ||
+      typeof builds !== "object" ||
+      Array.isArray(builds) ||
+      Object.keys(builds).some((key) => key !== "workflows")
+    ) {
+      throw new Error("Replica builds must be an object containing only workflows.")
+    }
+    if (Object.hasOwn(builds, "workflows")) {
+      const workflows = builds.workflows
+      if (
+        !Array.isArray(workflows) ||
+        workflows.length < 1 ||
+        workflows.length > 10 ||
+        workflows.some(
+          (workflow) =>
+            typeof workflow !== "string" ||
+            workflow.length > 255 ||
+            !/^\.github\/workflows\/[A-Za-z0-9][A-Za-z0-9_.-]*\.ya?ml$/.test(workflow),
+        ) ||
+        new Set(workflows).size !== workflows.length
+      ) {
+        throw new Error(
+          "Replica builds.workflows must contain 1 to 10 unique .github/workflows/<filename>.yml or .yaml paths (at most 255 characters each).",
+        )
+      }
+    }
   }
 
   if (!Object.hasOwn(value, "templates")) return null
