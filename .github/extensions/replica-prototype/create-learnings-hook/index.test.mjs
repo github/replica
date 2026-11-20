@@ -494,11 +494,17 @@ esac
   })
 
   it("only enables prompt learnings for a repository with a configured Hub origin", async () => {
-    assert.equal(await hasLearningsHubOrigin(workspace, { directory }), false)
-    assert.equal(await hasLearningsHubOrigin(workspace, { directory, origin }), true)
+    const originalOrigin = process.env.REPLICA_HUB_ORIGIN
+    delete process.env.REPLICA_HUB_ORIGIN
+    try {
+      assert.equal(await hasLearningsHubOrigin(workspace, { directory }), false)
+      assert.equal(await hasLearningsHubOrigin(workspace, { directory, origin }), true)
 
-    await createHubOriginStore({ directory }).save("github/replica", origin)
-    assert.equal(await hasLearningsHubOrigin(workspace, { directory }), true)
+      await createHubOriginStore({ directory }).save("github/replica", origin)
+      assert.equal(await hasLearningsHubOrigin(workspace, { directory }), true)
+    } finally {
+      if (originalOrigin !== undefined) process.env.REPLICA_HUB_ORIGIN = originalOrigin
+    }
   })
 
   it("disables prompt learnings and reports an invalid saved Hub origin", async () => {

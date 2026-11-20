@@ -132,22 +132,28 @@ async function register(
 }
 
 describe("registerPrototypeCanvas()", () => {
-  it("does not register prompt learnings without a saved Hub URL", async () => {
+  it("does not register prompt learnings without a saved or configured Hub URL", async () => {
     await withContext(async (context) => {
-      let registered
-      const directory = path.join(context.sessionWorkspacePath, "hub-credentials")
-      const canvas = await register(
-        context,
-        [],
-        undefined,
-        { hubOptions: { directory } },
-        (configuration) => {
-          registered = configuration
-        },
-      )
+      const originalOrigin = process.env.REPLICA_HUB_ORIGIN
+      delete process.env.REPLICA_HUB_ORIGIN
+      try {
+        let registered
+        const directory = path.join(context.sessionWorkspacePath, "hub-credentials")
+        const canvas = await register(
+          context,
+          [],
+          undefined,
+          { hubOptions: { directory } },
+          (configuration) => {
+            registered = configuration
+          },
+        )
 
-      assert.equal(registered.hooks, undefined)
-      assert.equal(registered.canvases[0], canvas)
+        assert.equal(registered.hooks, undefined)
+        assert.equal(registered.canvases[0], canvas)
+      } finally {
+        if (originalOrigin !== undefined) process.env.REPLICA_HUB_ORIGIN = originalOrigin
+      }
     })
   })
 
