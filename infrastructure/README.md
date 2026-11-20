@@ -649,6 +649,41 @@ Reconcile the restored resources with a reviewed Terraform configuration and imp
 
 To move an existing installation, pause writes and workers, export PostgreSQL, copy artifacts with an object manifest, import both into the new installation, and verify counts/checksums and a representative operation before switching traffic. Keep source backups and a rollback window. No automatic migration between local and Azure installations is performed here.
 
+## Optional Azure decision runtime
+
+Set `enable_decision_runtime = true` only after the customer has selected an Azure region with Container Apps serverless GPU support, obtained quota, and provisioned a manual scale-to-zero GPU Job plus a fixed-template control broker. Supply the job's resource ID, name, and managed identity object ID; the broker's HTTPS URL, resource ID, and custom invocation role; and the customer inference endpoint resource ID and custom inference-only role. The normal Hub PostgreSQL database stores decision job, lease, cancellation, idempotency, and promotion state; no second database is created.
+
+The optional path adds:
+
+- a private `decision-runtime` container in the existing keyless, versioned storage account;
+- separate runtime and inference user-assigned identities, plus the supplied training job identity;
+- coordinates for one customer-provisioned manual Container Apps Job on a T4 or A100 consumption GPU profile whose minimum count is zero;
+- a module-owned, container-scoped Blob role that allows runtime and training reads, adds, and writes but no deletion, a broker-invocation grant for runtime, and the customer-supplied endpoint role for inference.
+
+Terraform exposes the decision identity and job coordinates only as non-secret outputs. Hub keeps only its existing identity and environment; deploy the connector bundle on separate customer-operated runtime hosts and attach the decision identities there.
+
+The pinned AzureRM provider does not yet accept Azure's serverless GPU workload profile types, so this module does not claim to provision the GPU job. Create it separately with a reviewed Azure deployment using a manual trigger, one execution replica, no automatic retry, a hard execution timeout, and zero idle GPU capacity. Put a broker in front of the job that accepts only the bounded Replica payload and starts or cancels that fixed template. The broker must reject image, command, environment, identity, registry, secret, and resource overrides. Do not grant Hub Container Apps Jobs Operator. Configure the connector's required cancellation-recovery hook to durably enqueue the execution ID before each direct cancellation attempt; a customer worker retries that cleanup after cancellation, deadline, or status loss cannot reach Azure. The job's immutable training image owns the model and GPU implementation. It must accept the connector's operation, scope, taskset, deadline, `maxUpdates`, `maxCredits`, and budget mode payload; write immutable adapter and report artifacts; stop before the deadline or hard credit limit; and return measured usage and cost when Azure supplies them.
+
+The storage account keeps normal 14-day soft-delete recovery and permits an authorized workflow to permanently delete soft-deleted versions. A decision-container lifecycle rule removes superseded versions after `decision_artifact_version_retention_days`, default 30. Terraform creates one exact runtime/training data role with Blob read, add, and write actions and no delete or permanent-delete actions. Use a separate short-lived withdrawal identity to recheck the affected export, permanently delete the current taskset or candidate Blobs and every version, and write the result to the customer's audit system.
+
+The inference role is intentionally not created here because its exact actions depend on the customer endpoint service. Define a custom role with only readiness and prediction actions, assign its ID through `decision_inference_role_definition_id`, and verify it cannot create, update, deploy, train, list credentials, or change endpoint access. The inference connector checks the expected promotion generation before every prediction and reports cold start separately.
+
+Exact authorized cloud walkthrough still required before production:
+
+1. Confirm the selected region advertises the chosen `Consumption-GPU-*` profile and grant enough GPU quota for the intended maximum concurrent jobs.
+2. Build the reviewed training worker, pin its ACR image digest, and prove its result schema, cancellation, deadline, and hard-credit behavior against a non-production taskset.
+3. Provision the manual Container Apps GPU Job with minimum GPU capacity zero, one execution replica, no automatic retry, and a hard timeout. Record its resource ID, name, and managed identity object ID.
+4. Deploy the fixed-template broker, create an invocation-only role, and prove that its caller cannot read job secrets or override the image, command, environment, identity, registry, or resources.
+5. Apply this Terraform module with the job and broker coordinates. Confirm the Blob container has no public or shared-key access, the module-owned data role omits delete and permanent-delete actions, runtime and training cannot delete a Blob or version, and each identity has only the documented grants.
+6. Create the dedicated decision-runtime database role, then run `initialize_azure_postgres` through the existing migration role. Verify the `replica_decision_runtime` schema is inaccessible to Hub's application role, then exercise create, retry, lease expiry, cancellation, candidate persistence, promotion conflict, rollback, restart recovery, and consent-withdrawal deletion.
+7. Upload a private taskset through managed identity, train one bounded candidate, and compare the job's reported usage and cost with Azure Monitor and Cost Management.
+8. Deploy or select the customer inference endpoint, apply the custom invocation-only role, measure cold-start readiness, and prove a stale expected generation cannot score.
+9. Exercise the dedicated withdrawal workflow and verify that the current taskset or candidate Blob, its soft-deleted copy, and every prior version are permanently unavailable while unrelated data remains.
+10. Inspect Log Analytics and the configured OpenTelemetry/Pino sink to confirm signals contain operation IDs, bounded usage, cost, status, and hashed scope only—never screenshots, prompts, learnings, artifacts, tokens, or credential material.
+11. Test retention, Blob version recovery, PostgreSQL point-in-time restore, identity revocation, endpoint outage, GPU quota exhaustion, and owned-resource teardown.
+
+Local Terraform and mocked connector tests do not perform this walkthrough and do not claim a live Azure deployment.
+
 ## Installation removal
 
 Replica's setup wizard and deployment script do not remove installations. Earlier installer versions could leave private `<config path>.removal.json` files beside configurations. The wizard ignores these files and leaves them unchanged; they may contain installation details, so keep them private or delete them yourself after review.

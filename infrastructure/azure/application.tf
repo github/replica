@@ -38,7 +38,6 @@ locals {
     try(trimspace(local.authentication_environment["HUB_APPLICATION_ORIGIN"]), "") != "" ||
     contains(keys(var.runtime_secret_references), "HUB_APPLICATION_ORIGIN")
   )
-
   runtime_environment = merge({
     NODE_ENV                  = "production"
     RUNTIME_MODE              = "combined"

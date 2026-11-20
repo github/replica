@@ -15,6 +15,11 @@ mock_provider "azurerm" {
       id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub/providers/Microsoft.App/containerApps/test-hub-hub"
     }
   }
+  mock_resource "azurerm_container_app_job" {
+    defaults = {
+      id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub/providers/Microsoft.App/jobs/test-job"
+    }
+  }
   mock_resource "azurerm_virtual_network" {
     defaults = {
       id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub/providers/Microsoft.Network/virtualNetworks/test"
@@ -46,6 +51,11 @@ mock_provider "azurerm" {
       id           = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub/providers/Microsoft.ManagedIdentity/userAssignedIdentities/test"
       client_id    = "00000000-0000-0000-0000-000000000001"
       principal_id = "00000000-0000-0000-0000-000000000002"
+    }
+  }
+  mock_resource "azurerm_role_definition" {
+    defaults = {
+      role_definition_resource_id = "/subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.Authorization/roleDefinitions/00000000-0000-0000-0000-000000000095"
     }
   }
   mock_resource "azurerm_log_analytics_workspace" {
@@ -94,6 +104,26 @@ override_resource {
     id           = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub/providers/Microsoft.ManagedIdentity/userAssignedIdentities/setup"
     client_id    = "00000000-0000-0000-0000-000000000003"
     principal_id = "00000000-0000-0000-0000-000000000004"
+  }
+}
+
+override_resource {
+  target          = azurerm_user_assigned_identity.decision_runtime
+  override_during = plan
+  values = {
+    id           = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub/providers/Microsoft.ManagedIdentity/userAssignedIdentities/decision-runtime"
+    client_id    = "00000000-0000-0000-0000-000000000006"
+    principal_id = "00000000-0000-0000-0000-000000000006"
+  }
+}
+
+override_resource {
+  target          = azurerm_user_assigned_identity.decision_inference
+  override_during = plan
+  values = {
+    id           = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub/providers/Microsoft.ManagedIdentity/userAssignedIdentities/decision-inference"
+    client_id    = "00000000-0000-0000-0000-000000000007"
+    principal_id = "00000000-0000-0000-0000-000000000007"
   }
 }
 
@@ -210,6 +240,7 @@ run "durable_state_requires_private_authenticated_access" {
     )
     error_message = "PostgreSQL must be private, TLS-only, and retain recoverable backups."
   }
+
   assert {
     condition     = contains(coalesce(azurerm_subnet.database.service_endpoints, []), "Microsoft.Storage")
     error_message = "The database subnet must retain Microsoft.Storage for PostgreSQL WAL archival."
@@ -218,6 +249,7 @@ run "durable_state_requires_private_authenticated_access" {
     condition = (
       !azurerm_storage_account.artifacts.allow_nested_items_to_be_public &&
       !azurerm_storage_account.artifacts.shared_access_key_enabled &&
+      !azurerm_storage_account.artifacts.blob_properties[0].delete_retention_policy[0].permanent_delete_enabled &&
       azurerm_storage_container.artifacts.container_access_type == "private" &&
       azurerm_storage_account.artifacts.blob_properties[0].versioning_enabled &&
       endswith(azurerm_role_assignment.artifacts.scope, "/blobServices/default/containers/artifacts") &&
@@ -225,6 +257,71 @@ run "durable_state_requires_private_authenticated_access" {
       length(azurerm_role_assignment.image_pull) == 0
     )
     error_message = "The workload needs container-scoped Blob access, not keys or registry permissions by default."
+  }
+}
+
+run "decision_runtime_uses_private_data_scale_to_zero_gpu_and_split_identities" {
+  command = plan
+
+  variables {
+    deploy_hub                                   = true
+    enable_decision_runtime                      = true
+    decision_training_job_id                     = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/customer/providers/Microsoft.App/jobs/customer-decision-training"
+    decision_training_job_name                   = "customer-decision-training"
+    decision_training_principal_id               = "00000000-0000-0000-0000-000000000008"
+    decision_training_broker_url                 = "https://decision-broker.example.com"
+    decision_training_control_scope              = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/customer/providers/Microsoft.App/containerApps/decision-broker"
+    decision_training_control_role_definition_id = "/subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.Authorization/roleDefinitions/00000000-0000-0000-0000-000000000098"
+    decision_inference_scope                     = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/customer/providers/Microsoft.MachineLearningServices/workspaces/customer/onlineEndpoints/decision"
+    decision_inference_role_definition_id        = "/subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.Authorization/roleDefinitions/00000000-0000-0000-0000-000000000099"
+  }
+
+  assert {
+    condition = (
+      azurerm_storage_container.decision[0].container_access_type == "private" &&
+      !azurerm_storage_account.artifacts.shared_access_key_enabled &&
+      azurerm_storage_account.artifacts.blob_properties[0].versioning_enabled &&
+      azurerm_storage_account.artifacts.blob_properties[0].delete_retention_policy[0].permanent_delete_enabled &&
+      azurerm_storage_management_policy.artifacts.rule[0].actions[0].version[0].delete_after_days_since_creation == var.decision_artifact_version_retention_days &&
+      azurerm_role_assignment.decision_runtime_artifacts[0].scope == "${azurerm_storage_account.artifacts.id}/blobServices/default/containers/decision-runtime" &&
+      azurerm_role_assignment.decision_runtime_artifacts[0].role_definition_id == azurerm_role_definition.decision_artifact_writer[0].role_definition_resource_id &&
+      azurerm_role_assignment.decision_training_artifacts[0].scope == "${azurerm_storage_account.artifacts.id}/blobServices/default/containers/decision-runtime" &&
+      azurerm_role_assignment.decision_training_artifacts[0].role_definition_id == azurerm_role_definition.decision_artifact_writer[0].role_definition_resource_id &&
+      !contains(azurerm_role_definition.decision_artifact_writer[0].permissions[0].data_actions, "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/delete") &&
+      !contains(azurerm_role_definition.decision_artifact_writer[0].permissions[0].data_actions, "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/permanentDelete/action")
+    )
+    error_message = "Decision tasksets, candidates, and reports must stay in the private versioned container through identity-based access."
+  }
+  assert {
+    condition = (
+      azurerm_role_assignment.decision_training_control[0].scope == var.decision_training_control_scope &&
+      azurerm_role_assignment.decision_training_control[0].role_definition_id == var.decision_training_control_role_definition_id &&
+      output.installation.decision_training_job_name == var.decision_training_job_name
+    )
+    error_message = "The reference path must invoke the fixed training job through the customer broker, not direct job operator access."
+  }
+  assert {
+    condition = (
+      azurerm_container_app.hub[0].identity[0].identity_ids == toset([
+        azurerm_user_assigned_identity.hub.id,
+      ]) &&
+      !contains([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.name], "AZURE_DECISION_TRAINING_BROKER") &&
+      !contains([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.name], "AZURE_DECISION_TRAINING_JOB") &&
+      output.installation.decision_runtime_client_id == azurerm_user_assigned_identity.decision_runtime[0].client_id &&
+      output.installation.decision_inference_client_id == azurerm_user_assigned_identity.decision_inference[0].client_id
+    )
+    error_message = "Hub must not receive decision-runtime identities or broker coordinates; operators use the non-secret outputs on the separate runtime hosts."
+  }
+  assert {
+    condition = (
+      azurerm_user_assigned_identity.decision_runtime[0].principal_id != var.decision_training_principal_id &&
+      azurerm_user_assigned_identity.decision_runtime[0].principal_id != azurerm_user_assigned_identity.decision_inference[0].principal_id &&
+      azurerm_role_assignment.decision_training_control[0].principal_id == azurerm_user_assigned_identity.decision_runtime[0].principal_id &&
+      azurerm_role_assignment.decision_training_artifacts[0].principal_id == var.decision_training_principal_id &&
+      azurerm_role_assignment.decision_inference[0].principal_id == azurerm_user_assigned_identity.decision_inference[0].principal_id &&
+      azurerm_role_assignment.decision_inference[0].role_definition_id == var.decision_inference_role_definition_id
+    )
+    error_message = "Runtime orchestration, GPU execution, and inference need separate least-privilege managed identities."
   }
 }
 
