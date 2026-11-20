@@ -36,6 +36,7 @@ describe("worker startup", () => {
     vi.mocked(readDecisionRuntimeConfiguration).mockReturnValue({
       baseUrl: "https://runtime.example.test",
       credentialProvider: {} as never,
+      environment: "fixture",
     })
     vi.spyOn(process, "exit").mockImplementation((code) => {
       throw new Error(`exit ${code}`)

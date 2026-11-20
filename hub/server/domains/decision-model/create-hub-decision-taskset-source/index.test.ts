@@ -58,6 +58,17 @@ function digest(bytes: Uint8Array) {
   return `sha256:${createHash("sha256").update(bytes).digest("hex")}`
 }
 
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`
+  if (value !== null && typeof value === "object") {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+      .join(",")}}`
+  }
+  return JSON.stringify(value)
+}
+
 function storage(
   reads: Record<string, Uint8Array | "not-found" | "unavailable">,
 ): ArtifactStorage & { readMock: ReturnType<typeof vi.fn> } {
@@ -134,6 +145,100 @@ function decodeArchive(bytes: Uint8Array) {
 }
 
 describe("createHubDecisionTasksetSource()", () => {
+  it("reads active training consent and NOUL learning questions for the requesting member", async () => {
+    const learningId = "mem_111111111111111111111111"
+    vi.mocked(prepareLearningStore).mockResolvedValue({
+      directory: "/private/learning/repository",
+      repositoryScope: `github.com/repositories/${repositoryId}`,
+    })
+    vi.mocked(runLearningCommand).mockImplementation((arguments_) => {
+      if (arguments_[0] === "grants") {
+        return Promise.resolve([
+          {
+            grant: { id: "expired-training", sources: ["hub_review_comments"] },
+            activePurposes: ["training"],
+            expired: true,
+          },
+          {
+            grant: { id: "active-training", sources: ["hub_review_comments"] },
+            activePurposes: ["training"],
+            expired: false,
+          },
+          {
+            grant: { id: "unrelated-manual", sources: ["manual"] },
+            activePurposes: ["training"],
+            expired: false,
+          },
+        ])
+      }
+      return Promise.resolve({
+        questions: {
+          [learningId]: {
+            type: "noul",
+            instructions: "Does the candidate follow this learning?",
+            learning_text: "Use the approved account heading.",
+            criteria: { true: "Follows", false: "Breaks" },
+          },
+          "choice-question": {
+            type: "choice",
+            instructions: "Choose the strongest option.",
+            criteria: { first: "First", second: "Second" },
+          },
+          "score-question": {
+            type: "score",
+            instructions: "Score the result.",
+            criteria: ["Poor", "Strong"],
+          },
+        },
+      })
+    })
+
+    const result = await hubSource(storage({})).readAgentLearningAuthority({
+      repositoryId,
+      actorMembershipId: "44444444-4444-4444-8444-444444444444",
+      consentGrantId: "active-training",
+    })
+
+    expect(result.consentGranted).toBe(true)
+    expect(result.questions).toEqual({
+      [learningId]: {
+        type: "noul",
+        instructions: "Does the candidate follow this learning?",
+        learning_text: "Use the approved account heading.",
+        criteria: { true: "Follows", false: "Breaks" },
+      },
+      "choice-question": {
+        type: "choice",
+        instructions: "Choose the strongest option.",
+        criteria: { first: "First", second: "Second" },
+      },
+      "score-question": {
+        type: "score",
+        instructions: "Score the result.",
+        criteria: ["Poor", "Strong"],
+      },
+    })
+    expect(result.questionDigest).toBe(
+      digest(new TextEncoder().encode(canonicalJson(result.questions))),
+    )
+    await expect(
+      hubSource(storage({})).readAgentLearningAuthority({
+        repositoryId,
+        actorMembershipId: "44444444-4444-4444-8444-444444444444",
+        consentGrantId: "unrelated-manual",
+      }),
+    ).resolves.toMatchObject({ consentGranted: false })
+    expect(runLearningCommand).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        "decision",
+        "questions",
+        "--by",
+        "human:44444444-4444-4444-8444-444444444444",
+      ]),
+      expect.anything(),
+    )
+  })
+
   it("continues withdrawal discovery after one repository store fails", async () => {
     vi.mocked(listDecisionWithdrawalSources).mockResolvedValue([
       { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", decisionTrainingJobs: [], accessGrants: [] },

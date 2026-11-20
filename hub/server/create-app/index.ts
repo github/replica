@@ -11,6 +11,7 @@ import type { CreateAppOptions } from "./types.ts"
 
 /** Give every endpoint the same request logging and safe error responses. */
 export function createApp({
+  agentVisualCritic,
   authentication,
   broadcast,
   githubSetup,
@@ -32,8 +33,8 @@ export function createApp({
   app.use(createRequestLogger(logger))
   app.use(
     [
-      "/api/auth",
       "/api/canvas",
+      "/api/auth",
       "/canvas/pair",
       "/api/administrators",
       "/api/copilot-connection",
@@ -55,6 +56,7 @@ export function createApp({
   )
 
   routes(app, {
+    agentVisualCritic,
     authentication,
     broadcast,
     copilotConnection,

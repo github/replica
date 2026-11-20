@@ -29,6 +29,7 @@ import { parseRuntimeConfig } from "./utils/parse-runtime-config/index.ts"
 import { jobProcessors } from "./workers/configuration.ts"
 import { runJobWorker } from "./workers/run-job-worker/index.ts"
 import type { AuthenticationRouteDependencies } from "./routes/api/auth/types.ts"
+import type { AgentVisualCriticRouteDependencies } from "./routes/api/canvas/decision-model/types.ts"
 import type { CopilotConnectionRouteDependencies } from "./routes/api/copilot-connection/types.ts"
 import type { DecisionModelRouteDependencies } from "./routes/api/decision-model/types.ts"
 import type { GitHubWebhookRouteDependencies } from "./routes/api/github/webhooks/types.ts"
@@ -69,6 +70,7 @@ try {
     }
     const trustedProxyHops = runsApi ? configuredTrustedProxyHops : 0
     let authentication: AuthenticationRouteDependencies | undefined
+    let agentVisualCritic: AgentVisualCriticRouteDependencies | undefined
     let copilotConnection: CopilotConnectionRouteDependencies | undefined
     let decisionModels: DecisionModelRouteDependencies | undefined
     let learnings: LearningsRouteDependencies | undefined
@@ -187,6 +189,15 @@ try {
                 tasksetSource: source.tasksetSource,
                 prepareBuildEvaluation: (input) => source.prepareBuildEvaluation(input),
               })
+              const { createAgentVisualCriticRouteDependencies } =
+                await import("./routes/api/canvas/decision-model/create-agent-visual-critic-route-dependencies/index.ts")
+              agentVisualCritic = createAgentVisualCriticRouteDependencies({
+                database: (await import("./integrations/prisma/index.ts")).prisma,
+                readLearningAuthority: (input) => source.readAgentLearningAuthority(input),
+                runtimeForRepository: () =>
+                  createDecisionRuntimeClient(decisionRuntimeConfiguration),
+                runtimeEnvironment: decisionRuntimeConfiguration.environment,
+              })
             }
             const { createProductRouteDependencies } =
               await import("./routes/api/product/create-product-route-dependencies/index.ts")
@@ -292,6 +303,7 @@ try {
       await runApi({
         ...configuration,
         logger,
+        agentVisualCritic,
         isReady: isStorageReady,
         authentication,
         githubSetup,
@@ -312,6 +324,7 @@ try {
           ...configuration,
           databaseUrl,
           logger,
+          agentVisualCritic,
           isStorageReady,
           authentication,
           githubSetup,

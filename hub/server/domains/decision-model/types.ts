@@ -126,6 +126,9 @@ export interface DecisionCandidateRecord {
   runtimeCandidateId: string
   tasksetDigest: string
   rejectedAt: Date | null
+  productionEligible?: boolean
+  consentGrantId?: string
+  questionDigest?: string
 }
 
 export interface DecisionPromotionRecord {
@@ -315,5 +318,109 @@ export interface DecisionModelDependencies {
       reason: string
       idempotencyKey: string
     }[]
+  >
+}
+
+export interface AgentEvaluationScreenshot {
+  route: string
+  viewport: "desktop" | "narrow"
+  theme: "light" | "dark"
+  dataBase64: string
+}
+
+export interface AgentEvaluationAuthority {
+  sessionKey: string
+  actorMembershipId: string
+  repositoryId: string
+  prototypeId: string | null
+  buildId: string | null
+  branch: string
+  commitSha: string
+}
+
+export interface AgentLearningAuthority {
+  consentGranted: boolean
+  questionDigest: string
+  questions: Record<
+    string,
+    | {
+        type: "noul"
+        instructions: string
+        learning_text: string
+        criteria: { true: string; false: string }
+      }
+    | {
+        type: "choice"
+        instructions: string
+        criteria: Record<string, string>
+      }
+    | {
+        type: "score"
+        instructions: string
+        criteria: string[]
+      }
+  >
+}
+
+export interface AgentEvaluationResult {
+  evaluationId: string
+  status: "cached" | "fresh"
+  environment: "fixture" | "production"
+  guidance: {
+    available: boolean
+    notice: string
+  }
+  context: Omit<AgentEvaluationAuthority, "sessionKey" | "actorMembershipId">
+  model: {
+    candidateId: string
+    runtimeCandidateId: string
+    promotionGeneration: number
+  }
+  screenshotSetDigest: string
+  findings: {
+    learning: { id: string; text: string | null }
+    route: string
+    views: { viewport: string; theme: string }[]
+    followsProbability: number
+    breaksProbability: number
+    explanation: string
+  }[]
+}
+
+export interface AgentEvaluationCache {
+  reserve(input: {
+    cacheKey: string
+    candidateId: string
+    promotionGeneration: number
+    questionDigest: string
+    repositoryId: string
+    requestUnits: number
+    screenshotSetDigest: string
+  }): Promise<
+    { status: "cached"; result: AgentEvaluationResult } | { status: "reserved"; id: string }
+  >
+  complete(id: string, value: AgentEvaluationResult): Promise<void>
+  fail(id: string): Promise<void>
+}
+
+export interface AgentEvaluationLimits {
+  checkRate(input: { sessionKey: string; repositoryId: string }): Promise<void>
+}
+
+export interface AgentEvaluationDependencies {
+  cache: AgentEvaluationCache
+  limits: AgentEvaluationLimits
+  readLearningAuthority(input: {
+    repositoryId: string
+    candidateId: string
+    promotionGeneration: number
+  }): Promise<AgentLearningAuthority>
+  readRuntimeReadiness(input: {
+    repositoryId: string
+  }): Promise<{ ready: boolean; environment: "fixture" | "production" }>
+  runtime: DecisionRuntimeClient
+  store: Pick<
+    DecisionModelStore,
+    "getCandidate" | "getConfiguration" | "getPromotion" | "isCandidateRevoked"
   >
 }

@@ -6,10 +6,14 @@ import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { expect, it } from "vitest"
+import { expect, it, vi } from "vitest"
 import { z } from "zod"
 
 import { createHubClient } from "../../../../../.github/extensions/replica-prototype/create-hub-client/index.mjs"
+import type {
+  AgentEvaluationAuthority,
+  AgentEvaluationResult,
+} from "../../../domains/decision-model/types"
 import { createApp } from "../../../create-app"
 import { createLogger } from "../../../integrations/pino/create-logger"
 import { prisma } from "../../../integrations/prisma"
@@ -47,8 +51,22 @@ it("pairs and renews the unchanged extension using local sign-in, then stops at 
     const repository = await prisma.repository.create({
       data: { nameWithOwner: "local/example", defaultBranch: "main", localPath: repositoryPath },
     })
-    await prisma.prototype.create({
+    const prototype = await prisma.prototype.create({
       data: { repositoryId: repository.id, branchName: "prototype/example", name: "Example draft" },
+    })
+    const commitSha = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: repositoryPath,
+      encoding: "utf8",
+    }).trim()
+    const build = await prisma.build.create({
+      data: {
+        prototypeId: prototype.id,
+        number: 1,
+        commitSha,
+        state: "successful",
+        startedAt: new Date("2026-11-20T12:00:00Z"),
+        finishedAt: new Date("2026-11-20T12:01:00Z"),
+      },
     })
 
     server.listen(0, "127.0.0.1")
@@ -67,11 +85,40 @@ it("pairs and renews the unchanged extension using local sign-in, then stops at 
         throw new Error("The Canvas test must not reach an outside provider.")
       },
     )
+    let repositoryPermission: "read" | "admin" = "admin"
+    const product = Object.assign(createProductRouteDependencies(), {
+      getRepositoryPermission: vi.fn(() => Promise.resolve(repositoryPermission)),
+    })
+    const evaluate = vi
+      .fn<(input: { authority: AgentEvaluationAuthority }) => Promise<AgentEvaluationResult>>()
+      .mockImplementation(({ authority }) =>
+        Promise.resolve({
+          evaluationId: randomUUID(),
+          status: "fresh",
+          environment: "fixture",
+          guidance: { available: false, notice: "Fixture only." },
+          context: {
+            repositoryId: authority.repositoryId,
+            prototypeId: authority.prototypeId,
+            buildId: authority.buildId,
+            branch: authority.branch,
+            commitSha: authority.commitSha,
+          },
+          model: {
+            candidateId: randomUUID(),
+            runtimeCandidateId: "runtime-candidate",
+            promotionGeneration: 1,
+          },
+          screenshotSetDigest: `sha256:${"a".repeat(64)}`,
+          findings: [],
+        }),
+      )
     server.on(
       "request",
       createApp({
         authentication,
-        product: createProductRouteDependencies(),
+        agentVisualCritic: { evaluate },
+        product,
         logger: createLogger({ level: "silent" }),
       }),
     )
@@ -125,6 +172,97 @@ it("pairs and renews the unchanged extension using local sign-in, then stops at 
       repository: "local/example",
       prototype: { name: "Example draft", viewerLogin: "local-developer", canRegister: false },
     })
+    await expect(
+      extension.request("/api/canvas/decision-model/evaluations", {
+        method: "POST",
+        body: {
+          branch: "prototype/example",
+          commitSha,
+          currentRoute: "/",
+          screenshots: [
+            {
+              route: "/",
+              viewport: "desktop",
+              theme: "light",
+              dataBase64: "cG5n",
+            },
+          ],
+        },
+      }),
+    ).resolves.toMatchObject({
+      context: { repositoryId: repository.id, prototypeId: prototype.id, buildId: build.id },
+    })
+    const firstAuthority = evaluate.mock.calls[0]?.[0].authority
+    expect(typeof firstAuthority?.actorMembershipId).toBe("string")
+    expect(firstAuthority).toMatchObject({
+      repositoryId: repository.id,
+      prototypeId: prototype.id,
+      buildId: build.id,
+      branch: "prototype/example",
+      commitSha,
+    })
+    await expect(
+      extension.request("/api/canvas/decision-model/evaluations", {
+        method: "POST",
+        body: {
+          branch: "prototype/example",
+          commitSha: "b".repeat(40),
+          currentRoute: "/",
+          screenshots: [
+            {
+              route: "/",
+              viewport: "desktop",
+              theme: "light",
+              dataBase64: "cG5n",
+            },
+          ],
+        },
+      }),
+    ).resolves.toMatchObject({ context: { buildId: null } })
+    expect(evaluate.mock.calls.at(-1)?.[0].authority).toMatchObject({
+      commitSha: "b".repeat(40),
+      buildId: null,
+    })
+    repositoryPermission = "read"
+    await expect(
+      extension.request("/api/canvas/decision-model/evaluations", {
+        method: "POST",
+        body: {
+          branch: "prototype/example",
+          commitSha,
+          currentRoute: "/",
+          screenshots: [],
+        },
+      }),
+    ).rejects.toMatchObject({ statusCode: 403 })
+    repositoryPermission = "admin"
+    await expect(
+      extension.request("/api/canvas/decision-model/evaluations", {
+        method: "POST",
+        body: {
+          branch: "main",
+          commitSha,
+          currentRoute: "/",
+          screenshots: [
+            {
+              route: "/",
+              viewport: "desktop",
+              theme: "light",
+              dataBase64: "cG5n",
+            },
+          ],
+        },
+      }),
+    ).rejects.toMatchObject({ statusCode: 404 })
+    expect(
+      (
+        await fetch(`${origin}/api/canvas/decision-model/evaluations`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "x".repeat(1024 * 1024),
+        })
+      ).status,
+    ).toBe(401)
 
     const list = z
       .object({
@@ -153,6 +291,17 @@ it("pairs and renews the unchanged extension using local sign-in, then stops at 
     expect((await browser(`/api/canvas/connections/${id}`, "DELETE")).status).toBe(204)
     expect(await (await browser("/api/canvas/connections")).json()).toEqual({ connections: [] })
     expect(await extension.status({ register: false })).toMatchObject({ state: "disconnected" })
+    await expect(
+      extension.request("/api/canvas/decision-model/evaluations", {
+        method: "POST",
+        body: {
+          branch: "prototype/example",
+          commitSha,
+          currentRoute: "/",
+          screenshots: [],
+        },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 })
   } finally {
     if (server.listening) {
       await new Promise<void>((resolve, reject) => {
