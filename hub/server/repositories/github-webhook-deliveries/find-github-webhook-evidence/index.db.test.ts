@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto"
 import { describe, expect, it } from "vitest"
 
-import { prisma } from "../../../integrations/prisma/index.ts"
-import { findGitHubWebhookEvidence } from "./index.ts"
+import { prisma } from "../../../integrations/prisma"
+import { findGitHubWebhookEvidence } from "."
 
 describe("findGitHubWebhookEvidence()", () => {
   it("observes only the requested receipt and repository/run Build without changing them", async () => {

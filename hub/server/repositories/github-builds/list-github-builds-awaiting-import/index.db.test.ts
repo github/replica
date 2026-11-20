@@ -2,10 +2,10 @@ import { randomInt, randomUUID } from "node:crypto"
 
 import { describe, expect, it } from "vitest"
 
-import type { Prisma } from "../../../generated/prisma/client.ts"
-import { prisma } from "../../../integrations/prisma/index.ts"
+import type { Prisma } from "../../../generated/prisma/client"
+import { prisma } from "../../../integrations/prisma"
 import { githubDeselectedWorkflowFailure } from "../../../utils/github-deselected-workflow-failure"
-import { listGitHubBuildsAwaitingImport } from "./index.ts"
+import { listGitHubBuildsAwaitingImport } from "."
 
 const createdAfter = new Date(Date.now() - 60 * 60 * 1_000)
 
@@ -78,8 +78,12 @@ describe("listGitHubBuildsAwaitingImport", () => {
     expect(listed).not.toContainEqual(build)
   })
 
-  it("retries failed Builds with unresolved authors but not deselected or attributed Builds", async () => {
+  it("does not let failed Builds consume the direct retry limit", async () => {
     const repository = await createRepository()
+    const queued = await repository.createBuild({
+      state: "queued",
+      createdAt: new Date(createdAfter.getTime() + 1),
+    })
     const unresolved = await repository.createBuild({
       state: "failed",
       failureSummary: "The package is invalid.",
@@ -96,10 +100,12 @@ describe("listGitHubBuildsAwaitingImport", () => {
       authorProviderUserId: "9",
     })
 
-    const listed = await listGitHubBuildsAwaitingImport(prisma, { createdAfter })
+    const listed = await listGitHubBuildsAwaitingImport(prisma, { createdAfter, limit: 1 })
 
-    expect(listed).toContainEqual(unresolved)
-    expect(listed).not.toContainEqual(deselected)
-    expect(listed).not.toContainEqual(attributed)
+    expect(listed).toEqual([queued])
+    const all = await listGitHubBuildsAwaitingImport(prisma, { createdAfter })
+    for (const failed of [unresolved, deselected, attributed]) {
+      expect(all).not.toContainEqual(failed)
+    }
   })
 })

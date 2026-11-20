@@ -1,9 +1,8 @@
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
-import { githubDeselectedWorkflowFailure } from "../../../utils/github-deselected-workflow-failure/index.ts"
 
 /**
- * Lists recent GitHub Builds whose import has not finished: the dist is still pending,
- * or the run has not been seen complete, so author resolution or screenshots may be owed.
+ * Lists unfinished GitHub Builds. Recovery of failed Builds uses workflow discovery,
+ * which checks the repository's current workflow selection.
  */
 export async function listGitHubBuildsAwaitingImport(
   database: PrismaClient,
@@ -16,15 +15,6 @@ export async function listGitHubBuildsAwaitingImport(
       OR: [
         { state: { in: ["queued", "running"] } },
         { state: "successful", workflowCompletedAt: null },
-        {
-          state: "failed",
-          workflowCompletedAt: null,
-          authorProvider: null,
-          OR: [
-            { failureSummary: null },
-            { failureSummary: { not: githubDeselectedWorkflowFailure } },
-          ],
-        },
       ],
       prototype: {
         branchDeletedAt: null,

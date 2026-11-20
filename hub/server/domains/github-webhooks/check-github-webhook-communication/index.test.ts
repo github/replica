@@ -1,10 +1,10 @@
 import { generateKeyPairSync } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
-import { githubAppRequirements } from "../../../../client/utils/github-app-requirements/index.ts"
+import { githubAppRequirements } from "../../../../client/utils/github-app-requirements"
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
-import { findGitHubWebhookEvidence } from "../../../repositories/github-webhook-deliveries/find-github-webhook-evidence/index.ts"
-import { checkGitHubWebhookCommunication } from "./index.ts"
+import { findGitHubWebhookEvidence } from "../../../repositories/github-webhook-deliveries/find-github-webhook-evidence"
+import { checkGitHubWebhookCommunication } from "."
 
 vi.mock(
   "../../../repositories/github-webhook-deliveries/find-github-webhook-evidence/index.ts",

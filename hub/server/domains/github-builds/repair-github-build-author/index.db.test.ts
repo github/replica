@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { prisma } from "../../../integrations/prisma/index.ts"
-import { repairGitHubBuildAuthor } from "./index.ts"
+import { prisma } from "../../../integrations/prisma"
+import { repairGitHubBuildAuthor } from "."
 
 describe("repairGitHubBuildAuthor()", () => {
   async function fixture() {
