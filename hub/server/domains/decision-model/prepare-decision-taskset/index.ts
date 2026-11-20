@@ -13,7 +13,7 @@ export interface DecisionTasksetPreparationSource {
     actorMembershipId: string
     consentGrantId: string
   }): Promise<boolean>
-  getLearningText(input: { repositoryId: string; learningId: string }): Promise<string | null>
+  getAcceptedLearningTexts(repositoryId: string): Promise<Record<string, string | null>>
   listTrainingWithdrawals(): Promise<
     {
       repositoryId: string

@@ -368,6 +368,7 @@ function initialState(populated: boolean): DecisionModelMockState {
   const baseline: DecisionCandidateResponse = {
     id: "11111111-2222-4333-8444-555555555555",
     runtimeCandidateId: "fixture-candidate-1",
+    backend: "fixture",
     tasksetDigest,
     productionEligible: true,
     baselineMeanReward: "0.5",
@@ -385,6 +386,7 @@ function initialState(populated: boolean): DecisionModelMockState {
   const candidate: DecisionCandidateResponse = {
     id: "22222222-3333-4444-8555-666666666666",
     runtimeCandidateId: "fixture-candidate-2",
+    backend: "fixture",
     tasksetDigest,
     productionEligible: true,
     baselineMeanReward: "0.55",

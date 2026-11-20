@@ -48,11 +48,8 @@ export async function lockRepositoryAdministratorSession(
     ORDER BY "key"
     FOR SHARE
   `
-  const githubProvider = providers.find(({ key }) => key === "github")
   const sessionProvider = providers.find(({ key }) => key === candidate.providerKey)
   if (
-    !githubProvider?.enabled ||
-    !githubProvider.selectedRevisionId ||
     !sessionProvider?.enabled ||
     sessionProvider.selectedRevisionId !== candidate.providerRevisionId
   ) {
@@ -74,6 +71,18 @@ export async function lockRepositoryAdministratorSession(
     FOR SHARE
   `
   if (membership?.lifecycle !== "ACTIVE") return false
+
+  const [localIdentity] = await database.$queryRaw<Array<{ id: string }>>`
+    SELECT external_identities."id"
+    FROM "external_identities"
+    JOIN "memberships"
+      ON memberships."user_id" = external_identities."user_id"
+    WHERE memberships."id" = ${input.membershipId}::uuid
+      AND external_identities."provider" = 'local'
+      AND external_identities."issuer" = 'local'
+      AND external_identities."subject" = 'local-developer'
+    FOR SHARE OF external_identities
+  `
 
   const [session] = await database.$queryRaw<
     Array<{
@@ -104,16 +113,35 @@ export async function lockRepositoryAdministratorSession(
   }
 
   const [repository] = await database.$queryRaw<
-    Array<{ githubRepositoryId: bigint | null; removedAt: Date | null }>
+    Array<{ githubRepositoryId: bigint | null; localPath: string | null; removedAt: Date | null }>
   >`
     SELECT
       "github_repository_id" AS "githubRepositoryId",
+      "local_path" AS "localPath",
       "removed_at" AS "removedAt"
     FROM "repositories"
     WHERE "id" = ${input.repositoryId}::uuid
     FOR SHARE
   `
-  if (repository?.removedAt !== null || repository.githubRepositoryId === null) return false
+  if (!repository || repository.removedAt !== null) return false
+  if (repository.localPath !== null) {
+    if (
+      candidate.providerKey !== "local" ||
+      repository.githubRepositoryId !== null ||
+      !localIdentity
+    ) {
+      return false
+    }
+  } else {
+    const githubProvider = providers.find(({ key }) => key === "github")
+    if (
+      repository.githubRepositoryId === null ||
+      !githubProvider?.enabled ||
+      !githubProvider.selectedRevisionId
+    ) {
+      return false
+    }
+  }
 
   const [grant] = await database.$queryRaw<Array<{ accessLevel: string }>>`
     SELECT "access_level"::text AS "accessLevel"

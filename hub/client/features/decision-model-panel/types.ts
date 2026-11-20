@@ -22,6 +22,7 @@ export interface DecisionTrainingJob {
 export interface DecisionCandidate {
   id: string
   runtimeCandidateId: string
+  backend: string
   createdAt: string
   productionEligible: boolean
   tasksetDigest: string

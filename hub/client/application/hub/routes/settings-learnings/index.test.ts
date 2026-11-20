@@ -6,6 +6,7 @@ import { clientAction, clientLoader } from "."
 
 const candidateId = "22222222-3333-4444-8555-666666666666"
 const jobId = "33333333-4444-4555-8666-777777777777"
+const tasksetDigest = `sha256:${"a".repeat(64)}`
 
 function routeRequest(form: Record<string, string | undefined>) {
   const body = new URLSearchParams()
@@ -176,10 +177,12 @@ describe("settings Learnings route", () => {
         job: {
           id: jobId,
           state: "queued",
+          tasksetDigest,
           runtimeJobId: null,
           candidateRuntimeId: null,
           failureCode: null,
           createdAt: "2026-11-18T12:05:00Z",
+          finishedAt: null,
         },
       },
     },
@@ -253,8 +256,8 @@ describe("settings Learnings route", () => {
       } as unknown as Parameters<typeof clientAction>[0])
 
       expect(result.data.saved).toBe(true)
-      if (label === "confirmed training" && "trainingJobId" in result.data) {
-        expect(result.data.trainingJobId).toBe(jobId)
+      if (label === "confirmed training") {
+        expect(result.data).toMatchObject({ trainingJobId: jobId })
       }
       expect(send).toHaveBeenCalledOnce()
       const [url, init] = send.mock.calls[0]!

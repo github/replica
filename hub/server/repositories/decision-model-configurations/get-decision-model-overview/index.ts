@@ -51,7 +51,20 @@ export async function getDecisionModelOverview(
         where: {
           state: "successful",
           finishedAt: { not: null },
-          artifacts: { some: { kind: "screenshot" } },
+          AND: [
+            { artifacts: { some: { kind: "screenshot", path: "screenshots/desktop.png" } } },
+            {
+              artifacts: {
+                some: { kind: "screenshot", path: "screenshots/desktop-dark.png" },
+              },
+            },
+            { artifacts: { some: { kind: "screenshot", path: "screenshots/narrow.png" } } },
+            {
+              artifacts: {
+                some: { kind: "screenshot", path: "screenshots/narrow-dark.png" },
+              },
+            },
+          ],
           prototype: {
             repositoryId,
             branchDeletedAt: null,

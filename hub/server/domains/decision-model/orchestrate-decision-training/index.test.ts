@@ -60,6 +60,7 @@ function job(overrides: Partial<DecisionTrainingJobRecord> = {}): DecisionTraini
     candidateRuntimeId: null,
     failureCode: null,
     createdAt: new Date("2026-11-18T12:00:00Z"),
+    finishedAt: null,
     ...overrides,
   }
 }
@@ -265,7 +266,7 @@ describe("decision training orchestration", () => {
       {
         preflight: vi.fn(),
         hasTrainingConsent: vi.fn(),
-        getLearningText: vi.fn(),
+        getAcceptedLearningTexts: vi.fn(),
         listTrainingWithdrawals: vi.fn(),
         exportTrainingEvidence: vi.fn().mockResolvedValue({
           bytes: trainingExport,

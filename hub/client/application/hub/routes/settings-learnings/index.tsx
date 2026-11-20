@@ -10,10 +10,12 @@ import {
   decisionModelConfigurationResponseSchema,
   decisionModelOverviewResponseSchema,
   decisionPromotionMutationResponseSchema,
+  decisionTrainingJobResponseSchema,
   decisionTrainingMutationResponseSchema,
   decisionTrainingRequestResponseSchema,
 } from "@application/hub/decision-model-contracts"
 import type { DecisionModelAvailability } from "@application/hub/decision-model-contracts/types"
+import type { DecisionTrainingJobResponse } from "@application/hub/decision-model-contracts/types"
 import {
   learningDecisionInputSchema,
   learningMutationResponseSchema,
@@ -31,6 +33,7 @@ import { requestProductJson } from "../request-product-json"
 type LearningActionResult = ProductActionResult & {
   revalidate?: boolean
   trainingJobId?: string
+  trainingJob?: DecisionTrainingJobResponse
 }
 
 function repositoryId(params: LoaderFunctionArgs["params"]) {
@@ -183,6 +186,7 @@ async function submitDecisionModelAction(
       notice: response.created
         ? "Training was queued within the confirmed repository budget."
         : "This training request was already queued.",
+      trainingJob: response.job,
       trainingJobId: response.job.id,
     }
   }
@@ -308,10 +312,19 @@ export default function SettingsLearnings({
 }: {
   loaderData: Awaited<ReturnType<typeof clientLoader>>
 }) {
+  return <SettingsLearningsContent key={loaderData.repository.id} loaderData={loaderData} />
+}
+
+function SettingsLearningsContent({
+  loaderData,
+}: {
+  loaderData: Awaited<ReturnType<typeof clientLoader>>
+}) {
   const workspace = workspaceResponseSchema.parse(useOutletContext<unknown>())
   const location = useLocation()
   const fetcher = useFetcher<LearningActionResult>()
   const revalidator = useRevalidator()
+  const revalidateRef = useRef(revalidator.revalidate)
   const revalidatedResult = useRef<LearningActionResult | undefined>(undefined)
   const completedResult = useRef<LearningActionResult | undefined>(undefined)
   const loadedDecisionModel = loaderData.decisionModel
@@ -320,7 +333,10 @@ export default function SettingsLearnings({
   const [lastAvailableDecisionModel, setLastAvailableDecisionModel] = useState<
     Extract<DecisionModelAvailability, { state: "available" }> | undefined
   >(loadedDecisionModel?.state === "available" ? loadedDecisionModel : undefined)
-  const [decisionModelRetryAttempt, setDecisionModelRetryAttempt] = useState(0)
+  const [previousActionResult, setPreviousActionResult] = useState(fetcher.data)
+  const [trackedTrainingJob, setTrackedTrainingJob] = useState<
+    DecisionTrainingJobResponse | undefined
+  >(fetcher.data?.saved ? fetcher.data.trainingJob : undefined)
   const [decisionModelActionRevision, setDecisionModelActionRevision] = useState(0)
   const busy = fetcher.state !== "idle" || revalidator.state !== "idle"
   const result = busy ? undefined : fetcher.data
@@ -333,43 +349,57 @@ export default function SettingsLearnings({
     setPreviousLoadedDecisionModel(loadedDecisionModel)
     if (loadedDecisionModel?.state === "available") {
       setLastAvailableDecisionModel(loadedDecisionModel)
-      setDecisionModelRetryAttempt(0)
     }
   }
-  const acceptedTrainingJobId =
-    fetcher.data?.saved && fetcher.data.trainingJobId ? fetcher.data.trainingJobId : null
-  const authoritativeTrainingJobVisible = Boolean(
-    acceptedTrainingJobId &&
-    loadedDecisionModel?.state === "available" &&
-    loadedDecisionModel.overview.jobs.some((job) => job.id === acceptedTrainingJobId),
-  )
-  const awaitingTrainingJobId =
-    acceptedTrainingJobId && !authoritativeTrainingJobVisible ? acceptedTrainingJobId : null
+  if (fetcher.data !== previousActionResult) {
+    setPreviousActionResult(fetcher.data)
+    if (fetcher.data?.saved && fetcher.data.trainingJob) {
+      setTrackedTrainingJob(fetcher.data.trainingJob)
+    }
+  }
   const previousDecisionModel =
     loadedDecisionModel?.state === "available" ? loadedDecisionModel : lastAvailableDecisionModel
-  const lastKnownActiveJob = previousDecisionModel?.overview.jobs.find((job) =>
-    ["queued", "submitting", "cancel_requested", "submitted", "running"].includes(job.state),
-  )
-  const preserveForTraining =
-    trainingSubmitting || (awaitingTrainingJobId !== null && !authoritativeTrainingJobVisible)
+  const activeTrackedJob =
+    trackedTrainingJob &&
+    ["queued", "submitting", "cancel_requested", "submitted", "running"].includes(
+      trackedTrainingJob.state,
+    )
+      ? trackedTrainingJob
+      : undefined
+  const activeTrackedJobId = activeTrackedJob?.id
   const transientLearningLock =
     loadedDecisionModel?.state === "unavailable" &&
     loadedDecisionModel.error === "Another learning operation is still running."
+  const overviewWithTrackedJob =
+    previousDecisionModel && trackedTrainingJob
+      ? {
+          ...previousDecisionModel.overview,
+          jobs: [
+            trackedTrainingJob,
+            ...previousDecisionModel.overview.jobs.filter(
+              (job) => job.id !== trackedTrainingJob.id,
+            ),
+          ],
+        }
+      : previousDecisionModel?.overview
   const decisionModel: DecisionModelAvailability | null =
     previousDecisionModel &&
-    (preserveForTraining || (transientLearningLock && lastKnownActiveJob)) &&
+    (trainingSubmitting || (transientLearningLock && activeTrackedJob)) &&
     (loadedDecisionModel?.state === "available" || transientLearningLock)
       ? {
           state: "available",
-          overview: previousDecisionModel.overview,
+          overview: overviewWithTrackedJob!,
           preparationStatus: trainingSubmitting
             ? "Submitting the confirmed training request. Hub is preparing its private evidence."
-            : awaitingTrainingJobId !== null
-              ? "Training was accepted. Hub is preparing its private evidence; the queued or running job will appear here automatically."
-              : `Status refresh is delayed while Hub prepares evidence. The last confirmed job state is ${lastKnownActiveJob?.state.replaceAll("_", " ")}.`,
+            : `Status refresh is delayed while Hub prepares evidence. The last confirmed job state is ${activeTrackedJob?.state.replaceAll("_", " ")}.`,
         }
-      : loadedDecisionModel
+      : loadedDecisionModel?.state === "available" && overviewWithTrackedJob
+        ? { ...loadedDecisionModel, overview: overviewWithTrackedJob }
+        : loadedDecisionModel
   const search = new URLSearchParams(location.search)
+  useEffect(() => {
+    revalidateRef.current = revalidator.revalidate
+  }, [revalidator.revalidate])
   useEffect(() => {
     if (!result?.revalidate || revalidatedResult.current === result) return
     revalidatedResult.current = result
@@ -380,34 +410,42 @@ export default function SettingsLearnings({
     completedResult.current = result
     setDecisionModelActionRevision((revision) => revision + 1)
   }, [result])
-  const retryDelayedDecisionModel =
-    transientLearningLock &&
-    previousDecisionModel !== undefined &&
-    (awaitingTrainingJobId !== null || lastKnownActiveJob !== undefined)
   useEffect(() => {
-    if (
-      (!retryDelayedDecisionModel && awaitingTrainingJobId === null) ||
-      (authoritativeTrainingJobVisible && !retryDelayedDecisionModel) ||
-      revalidator.state !== "idle"
-    ) {
-      return
-    }
+    if (!activeTrackedJobId) return
     const delays = [750, 1_500, 3_000, 5_000]
-    const timer = window.setTimeout(
-      () => {
-        setDecisionModelRetryAttempt((attempt) => attempt + 1)
-        void revalidator.revalidate()
-      },
-      delays[Math.min(decisionModelRetryAttempt, delays.length - 1)],
-    )
-    return () => window.clearTimeout(timer)
-  }, [
-    awaitingTrainingJobId,
-    authoritativeTrainingJobVisible,
-    decisionModelRetryAttempt,
-    retryDelayedDecisionModel,
-    revalidator,
-  ])
+    const controller = new AbortController()
+    let timer: number | undefined
+    function schedule(attempt: number) {
+      timer = window.setTimeout(
+        () => {
+          void requestProductJson(
+            new Request(window.location.href, { signal: controller.signal }),
+            `/api/repositories/${loaderData.repository.id}/decision-model/training-jobs/${activeTrackedJobId}`,
+            decisionTrainingJobResponseSchema,
+          )
+            .then((current) => {
+              setTrackedTrainingJob(current)
+              if (["succeeded", "failed", "cancelled"].includes(current.state)) {
+                void revalidateRef.current()
+              } else {
+                schedule(0)
+              }
+            })
+            .catch(() => {
+              if (!controller.signal.aborted) {
+                schedule(Math.min(attempt + 1, delays.length - 1))
+              }
+            })
+        },
+        delays[Math.min(attempt, delays.length - 1)],
+      )
+    }
+    schedule(0)
+    return () => {
+      controller.abort()
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
+  }, [activeTrackedJobId, loaderData.repository.id])
   return (
     <ProductFormBoundary
       busy={busy}

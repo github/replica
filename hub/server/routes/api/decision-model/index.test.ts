@@ -285,6 +285,20 @@ describe("decision-model routes", () => {
               followsProbability: 0.82,
               breaksProbability: 0.18,
             },
+            {
+              learning: { id: "runtime-invented-learning" },
+              route: "/settings/profile",
+              views: [{ viewport: "desktop", theme: "dark" }],
+              followsProbability: 0.5,
+              breaksProbability: 0.5,
+            },
+            {
+              learning: { id: "runtime-invented-learning" },
+              route: "/settings/profile",
+              views: [{ viewport: "desktop", theme: "dark" }],
+              followsProbability: 0.5,
+              breaksProbability: 0.5,
+            },
           ],
           createdAt: "2026-11-18T12:15:00.000Z",
         },
@@ -302,6 +316,10 @@ describe("decision-model routes", () => {
 
       expect(response.status).toBe(200)
       await expect(response.json()).resolves.toEqual(overview)
+      const currentSession = deps.currentSession as {
+        restore: ReturnType<typeof vi.fn>
+      }
+      expect(currentSession.restore).toHaveBeenCalledTimes(2)
     })
   })
 
@@ -342,7 +360,7 @@ describe("decision-model routes", () => {
           rejectedReason: null,
           rejectedByMembershipId: null,
           createdAt: new Date("2026-11-18T12:00:00Z"),
-          trainingJob: { startedAt: null, finishedAt: null },
+          trainingJob: { backend: "fixture", startedAt: null, finishedAt: null },
         },
         {
           id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
@@ -363,6 +381,7 @@ describe("decision-model routes", () => {
           rejectedByMembershipId: null,
           createdAt: new Date("2026-11-18T12:04:00Z"),
           trainingJob: {
+            backend: "fixture",
             startedAt: new Date("2026-11-18T12:04:00Z"),
             finishedAt: null,
           },
@@ -422,8 +441,29 @@ describe("decision-model routes", () => {
           },
           createdAt: new Date("2026-11-18T12:15:00Z"),
         },
+        {
+          id: "abababab-abab-4bab-8bab-abababababab",
+          buildId: "99999999-9999-4999-8999-999999999999",
+          build: { number: 42, prototypeId: "77777777-7777-4777-8777-777777777777" },
+          candidateId,
+          candidate: { runtimeCandidateId: "runtime-candidate-2" },
+          promotionGeneration: 3n,
+          summary: {
+            findings: Array.from({ length: 101 }, (_, index) => ({
+              learning: { id: `runtime-learning-${index}` },
+              route: "/settings/profile",
+              views: [{ viewport: "desktop", theme: "dark" }],
+              followsProbability: 0.5,
+              breaksProbability: 0.5,
+            })),
+          },
+          createdAt: new Date("2026-11-18T12:14:00Z"),
+        },
       ],
       deletions: [],
+    })
+    const getAcceptedLearningTexts = vi.fn().mockResolvedValue({
+      "learning-gain": "Use the compact navigation on settings pages.",
     })
     const routeDependencies = createDecisionModelRouteDependencies({
       applicationOrigin: "http://127.0.0.1:5173",
@@ -437,7 +477,7 @@ describe("decision-model routes", () => {
           warnings: [],
         }),
         hasTrainingConsent: vi.fn(),
-        getLearningText: vi.fn().mockResolvedValue("Use the compact navigation on settings pages."),
+        getAcceptedLearningTexts,
         listTrainingWithdrawals: vi.fn().mockResolvedValue([]),
         exportTrainingEvidence: vi.fn(),
         readBuildArtifacts: vi.fn(),
@@ -497,6 +537,7 @@ describe("decision-model routes", () => {
             {
               learning: {
                 id: "learning-gain",
+                text: "Use the compact navigation on settings pages.",
               },
               route: "/settings/profile",
               views: [{ viewport: "desktop", theme: "dark" }],
@@ -504,8 +545,15 @@ describe("decision-model routes", () => {
           ],
           createdAt: "2026-11-18T12:15:00.000Z",
         },
+        {
+          id: "abababab-abab-4bab-8bab-abababababab",
+          findingsAvailable: false,
+          findings: [],
+        },
       ],
     })
+    expect(getAcceptedLearningTexts).toHaveBeenCalledOnce()
+    expect(repositoryMocks.lockRepositoryAdministratorAuthority).toHaveBeenCalledTimes(2)
   })
 
   it("passes a bounded rejection reason to the persisted candidate contract", async () => {

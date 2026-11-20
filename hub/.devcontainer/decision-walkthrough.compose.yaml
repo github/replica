@@ -1,7 +1,7 @@
 services:
   app:
     ports:
-      - "127.0.0.1:3001:3002"
+      - "127.0.0.1:5173:5173"
     environment:
       NODE_ENV: development
       HUB_LOCAL_MODE: "true"
@@ -15,10 +15,51 @@ services:
       REPLICA_DECISION_RUNTIME_URL: http://127.0.0.1:8010
       REPLICA_DECISION_RUNTIME_AUTHENTICATION: environment-token
       REPLICA_DECISION_RUNTIME_TOKEN: ${REPLICA_RUNTIME_TOKEN}
+      REPLICA_DECISION_RUNTIME_ENVIRONMENT: fixture
       REPLICA_DECISION_RUNTIME_ALLOW_INSECURE_LOOPBACK: "true"
     volumes:
       - decision-walkthrough-hub-node-modules:/workspaces/replica/hub/node_modules
       - decision-walkthrough-learning-node-modules:/workspaces/replica/packages/learning/node_modules
+    depends_on:
+      decision-runtime:
+        condition: service_healthy
+
+  decision-runtime:
+    build:
+      context: ../../packages/learning/environments/brand-check
+      dockerfile: server/runtime.Dockerfile
+    environment:
+      REPLICA_RUNTIME_TOKEN: ${REPLICA_RUNTIME_TOKEN}
+    command:
+      - python
+      - -m
+      - replica_brand_check.runtime_server
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8010"
+      - --environment
+      - development
+      - --tenant
+      - local
+      - --repository
+      - local/decision-walkthrough
+      - --state
+      - /data/runtime
+    user: ${REPLICA_RUNTIME_USER:-10001:10001}
+    volumes:
+      - ${REPLICA_RUNTIME_STATE_DIR:?set REPLICA_RUNTIME_STATE_DIR}:/data/runtime
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import json, urllib.request;
+          raise SystemExit(0 if json.load(urllib.request.urlopen("http://127.0.0.1:8010/health"))["status"] == "healthy" else 1)
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
 volumes:
   decision-walkthrough-hub-node-modules:

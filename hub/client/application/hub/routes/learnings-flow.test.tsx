@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
+import { fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import { useLoaderData, type RouteObject } from "react-router"
@@ -232,10 +232,6 @@ function decisionModelOverview(evaluated: boolean) {
   }
 }
 
-function queuedDecisionModelOverview() {
-  return decisionModelOverviewWithJob("queued")
-}
-
 function deferred() {
   let release!: () => void
   const promise = new Promise<void>((resolve) => {
@@ -425,9 +421,10 @@ describe("Learnings frontend integration", () => {
     const server = setupServer(...createMockHandlers(store))
     let trainingAccepted = false
     let acceptedOverviewReads = 0
+    let failAfterFinished = false
     const trainingRequest = deferred()
-    const authoritativeOverview = deferred()
     let trainingPostCount = 0
+    let trainingJobReads = 0
     server.use(
       http.get(`${store.origin}/api/repositories/2001/learnings`, () =>
         HttpResponse.json({
@@ -435,18 +432,32 @@ describe("Learnings frontend integration", () => {
           capabilities: { administerHub: true, administerRepository: true },
         }),
       ),
-      http.get(`${store.origin}/api/repositories/2001/decision-model`, async () => {
+      http.get(`${store.origin}/api/repositories/2001/decision-model`, () => {
         if (!trainingAccepted) return HttpResponse.json(decisionModelOverview(false))
         acceptedOverviewReads += 1
-        if (acceptedOverviewReads === 1) {
+        if (failAfterFinished) {
           return HttpResponse.json(
             { error: "Another learning operation is still running." },
             { status: 409 },
           )
         }
-        await authoritativeOverview.promise
-        return HttpResponse.json(queuedDecisionModelOverview())
+        if (acceptedOverviewReads > 1) {
+          return HttpResponse.json(decisionModelOverviewWithJob("succeeded"))
+        }
+        return HttpResponse.json(
+          { error: "Another learning operation is still running." },
+          { status: 409 },
+        )
       }),
+      http.get(
+        `${store.origin}/api/repositories/2001/decision-model/training-jobs/99999999-aaaa-4bbb-8ccc-dddddddddddd`,
+        () => {
+          trainingJobReads += 1
+          return HttpResponse.json(
+            decisionModelOverviewWithJob(trainingJobReads === 1 ? "running" : "succeeded").jobs[0],
+          )
+        },
+      ),
       http.post(`${store.origin}/api/repositories/2001/decision-model/training-jobs`, async () => {
         trainingPostCount += 1
         await trainingRequest.promise
@@ -456,10 +467,12 @@ describe("Learnings frontend integration", () => {
           job: {
             id: "99999999-aaaa-4bbb-8ccc-dddddddddddd",
             state: "queued",
+            tasksetDigest: digest,
             runtimeJobId: null,
             candidateRuntimeId: null,
             failureCode: null,
             createdAt: "2026-11-20T16:30:00Z",
+            finishedAt: null,
           },
         })
       }),
@@ -482,7 +495,6 @@ describe("Learnings frontend integration", () => {
     expect(
       await screen.findByText("Training was queued within the confirmed repository budget."),
     ).toBeVisible()
-    expect(await screen.findByText(/training was accepted.*preparing/i)).toBeVisible()
     expect(screen.getByRole("checkbox", { name: "Repository training" })).toBeVisible()
     expect(
       screen.queryByText(
@@ -490,27 +502,33 @@ describe("Learnings frontend integration", () => {
       ),
     ).not.toBeInTheDocument()
 
-    authoritativeOverview.release()
-
     expect(
-      await screen.findByText(
-        "Queued: training is using the pinned evidence shown for this job.",
-        {},
-        { timeout: 5_000 },
-      ),
+      await within(
+        screen.getByRole("region", { name: "Decision-model training history" }),
+      ).findByRole("cell", { name: "Queued" }),
     ).toBeVisible()
-    expect(acceptedOverviewReads).toBeGreaterThanOrEqual(2)
+    expect(acceptedOverviewReads).toBeGreaterThanOrEqual(1)
+    await waitFor(() => expect(trainingJobReads).toBeGreaterThanOrEqual(1))
+    expect(
+      await within(
+        screen.getByRole("region", { name: "Decision-model training history" }),
+      ).findByRole("cell", { name: "Running" }),
+    ).toBeVisible()
     expect(trainingPostCount).toBe(1)
+    await waitFor(() => expect(trainingJobReads).toBeGreaterThanOrEqual(2), { timeout: 4_000 })
+    expect(await screen.findByRole("cell", { name: "Finished" }, { timeout: 4_000 })).toBeVisible()
+    failAfterFinished = true
     await router.settle(() => router.revalidate())
     expect(trainingPostCount).toBe(1)
-    await router.settle()
+    expect(
+      screen.getByText(
+        "Decision-model training is temporarily unavailable: Another learning operation is still running.",
+      ),
+    ).toBeVisible()
+    expect(screen.queryByText(/Training was accepted/)).not.toBeInTheDocument()
   })
 
-  it("keeps the last running job through delayed lock retries and replaces it authoritatively", async () => {
-    vi.useFakeTimers()
-    onTestFinished(() => {
-      vi.useRealTimers()
-    })
+  it("shows an uncorrelated learning lock instead of attributing it to a running job", async () => {
     const store = createMockStore({ origin: window.location.origin })
     const server = setupServer(...createMockHandlers(store))
     let overviewReads = 0
@@ -526,75 +544,75 @@ describe("Learnings frontend integration", () => {
         if (overviewReads === 1) {
           return HttpResponse.json(decisionModelOverviewWithJob("running"))
         }
-        if (overviewReads <= 3) {
-          return HttpResponse.json(
-            { error: "Another learning operation is still running." },
-            { status: 409 },
-          )
-        }
-        if (overviewReads === 4) {
-          return HttpResponse.json(decisionModelOverviewWithJob("succeeded"))
-        }
         return HttpResponse.json(
-          { error: "The decision runtime did not respond." },
-          { status: 503 },
+          { error: "Another learning operation is still running." },
+          { status: 409 },
         )
       }),
     )
     const router = await renderHubFlow(server, "/repositories/2001/learnings", {
       workspaceRoutes,
     })
-    const history = screen.getByRole("region", { name: "Decision-model training history" })
 
     expect(
       screen.getByText("Running: training is using the pinned evidence shown for this job."),
     ).toBeVisible()
-    expect(within(history).getByRole("cell", { name: "Running" })).toBeVisible()
     expect(overviewReads).toBe(1)
-
-    await router.settle(() => router.revalidate())
-
-    const delayedStatus = screen.getByText(
-      "Status refresh is delayed while Hub prepares evidence. The last confirmed job state is running.",
-    )
-    expect(delayedStatus).toBeVisible()
-    expect(screen.getAllByText(/Status refresh is delayed/)).toHaveLength(1)
-    expect(within(history).getByRole("cell", { name: "Running" })).toBeVisible()
-    expect(
-      screen.queryByText(
-        "Decision-model training is temporarily unavailable: Another learning operation is still running.",
-      ),
-    ).not.toBeInTheDocument()
-    expect(overviewReads).toBe(2)
-
-    await act(async () => vi.advanceTimersByTimeAsync(749))
-    expect(overviewReads).toBe(2)
-    await router.settle(() => vi.advanceTimersByTimeAsync(1))
-
-    expect(screen.getAllByText(/Status refresh is delayed/)).toEqual([delayedStatus])
-    expect(within(history).getByRole("cell", { name: "Running" })).toBeVisible()
-    expect(overviewReads).toBe(3)
-
-    await router.settle(() => vi.advanceTimersByTimeAsync(5_000))
-
-    expect(
-      within(screen.getByRole("region", { name: "Decision-model training history" })).getByRole(
-        "cell",
-        { name: "Finished" },
-      ),
-    ).toBeVisible()
-    expect(screen.queryByText(/Status refresh is delayed/)).not.toBeInTheDocument()
-    expect(overviewReads).toBe(4)
 
     await router.settle(() => router.revalidate())
 
     expect(
       screen.getByText(
-        "Decision-model training is temporarily unavailable: The decision runtime did not respond.",
+        "Decision-model training is temporarily unavailable: Another learning operation is still running.",
       ),
     ).toBeVisible()
+    expect(overviewReads).toBe(2)
     expect(screen.queryByRole("region", { name: "Decision-model training history" })).toBeNull()
-    expect(overviewReads).toBe(5)
+  })
+
+  it("does not carry a cached training job into another repository", async () => {
+    const store = createMockStore({ origin: window.location.origin })
+    const server = setupServer(...createMockHandlers(store))
+    server.use(
+      http.get(`${store.origin}/api/repositories/:repositoryId/learnings`, ({ params }) =>
+        HttpResponse.json({
+          ...learningsResponse(),
+          repository: {
+            ...learningsResponse().repository,
+            id: String(params.repositoryId),
+            nameWithOwner: params.repositoryId === "2001" ? "github/prototype" : "github/empty",
+          },
+          capabilities: { administerHub: true, administerRepository: true },
+        }),
+      ),
+      http.get(`${store.origin}/api/repositories/2001/decision-model`, () =>
+        HttpResponse.json(decisionModelOverviewWithJob("running")),
+      ),
+      http.get(`${store.origin}/api/repositories/2002/decision-model`, () =>
+        HttpResponse.json(
+          { error: "Another learning operation is still running." },
+          { status: 409 },
+        ),
+      ),
+    )
+    const router = await renderHubFlow(server, "/repositories/2001/learnings", {
+      workspaceRoutes,
+    })
+
+    expect(
+      await screen.findByText("Running: training is using the pinned evidence shown for this job."),
+    ).toBeVisible()
+
+    await router.settle(() => router.navigate("/repositories/2002/learnings"))
+
+    expect(
+      await screen.findByText(
+        "Decision-model training is temporarily unavailable: Another learning operation is still running.",
+      ),
+    ).toBeVisible()
+    expect(
+      screen.queryByText("Running: training is using the pinned evidence shown for this job."),
+    ).not.toBeInTheDocument()
   })
 
   it("keeps the explicit run action for a queued automatic run", async () => {

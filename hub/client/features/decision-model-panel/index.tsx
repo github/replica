@@ -263,9 +263,7 @@ function AvailableDecisionModel({
               <CandidateCard
                 key={candidate.id}
                 candidate={candidate}
-                allowPromotion={
-                  candidate.productionEligible || data.configuration?.backend === "fixture"
-                }
+                allowPromotion={candidate.productionEligible || candidate.backend === "fixture"}
                 expectedGeneration={generation}
                 authenticityToken={authenticityToken}
                 confirming={promoting === candidate.id}

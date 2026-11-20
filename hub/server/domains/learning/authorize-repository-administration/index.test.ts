@@ -8,7 +8,9 @@ describe("authorizeRepositoryAdministration()", () => {
     const fakeTransaction = {
       $queryRaw: vi
         .fn()
-        .mockResolvedValueOnce([{ enabled: true, selectedRevisionId: "provider-revision" }])
+        .mockResolvedValueOnce([
+          { enabled: true, key: "github", selectedRevisionId: "provider-revision" },
+        ])
         .mockResolvedValueOnce([{ lifecycle: "ACTIVE" }])
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([{ githubRepositoryId: 1n, localPath: null, removedAt: null }])

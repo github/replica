@@ -99,6 +99,7 @@ function available(): DecisionModelAvailability {
         {
           id: "33333333-4444-4555-8666-777777777777",
           runtimeCandidateId: "fixture-candidate-2",
+          backend: "fixture",
           tasksetDigest,
           productionEligible: true,
           baselineMeanReward: "0.55",

@@ -9,14 +9,17 @@ export async function lockRepositoryAdministratorAuthority(
   database: Pick<Prisma.TransactionClient, "$queryRaw">,
   input: { membershipId: string; repositoryId: string },
 ): Promise<boolean> {
-  const [provider] = await database.$queryRaw<
-    Array<{ enabled: boolean; selectedRevisionId: string | null }>
+  const providers = await database.$queryRaw<
+    Array<{ enabled: boolean; key: string; selectedRevisionId: string | null }>
   >`
-    SELECT "enabled", "selected_revision_id" AS "selectedRevisionId"
+    SELECT "enabled", "key", "selected_revision_id" AS "selectedRevisionId"
     FROM "authentication_providers"
-    WHERE "key" = 'github'
+    WHERE "key" IN ('github', 'local')
+    ORDER BY "key"
     FOR SHARE
   `
+  const githubProvider = providers.find(({ key }) => key === "github")
+  const localProvider = providers.find(({ key }) => key === "local")
 
   const [membership] = await database.$queryRaw<Array<{ lifecycle: string }>>`
     SELECT "lifecycle"::text
@@ -59,9 +62,15 @@ export async function lockRepositoryAdministratorAuthority(
     FOR SHARE
   `
   if (grant?.accessLevel !== "ADMIN") return false
-  if (repository.localPath !== null) return Boolean(localIdentity)
+  if (repository.localPath !== null) {
+    return (
+      repository.githubRepositoryId === null &&
+      Boolean(localIdentity) &&
+      Boolean(localProvider?.enabled && localProvider.selectedRevisionId)
+    )
+  }
   return (
     repository.githubRepositoryId !== null &&
-    Boolean(provider?.enabled && provider.selectedRevisionId)
+    Boolean(githubProvider?.enabled && githubProvider.selectedRevisionId)
   )
 }

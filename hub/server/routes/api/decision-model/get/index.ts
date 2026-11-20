@@ -12,12 +12,13 @@ export function get(dependencies: DecisionModelRouteDependencies): RequestHandle
       const repositoryId = parseDecisionModelRequest(z.uuid(), request.params.repositoryId)
       const session = await readDecisionModelMember(request, response, dependencies)
       if (!session) return
-      response.json(
-        await dependencies.getOverview({
-          repositoryId,
-          actorMembershipId: session.membershipId,
-        }),
-      )
+      const overview = await dependencies.getOverview({
+        repositoryId,
+        actorMembershipId: session.membershipId,
+      })
+      const current = await readDecisionModelMember(request, response, dependencies)
+      if (!current || current.membershipId !== session.membershipId) return
+      response.json(overview)
     } catch (error) {
       if (!respondDecisionModelError(response, error)) next(error)
     }

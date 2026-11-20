@@ -149,7 +149,7 @@ The scheduled worker reconciles the configured GitHub installation every 15 minu
 
 This walkthrough uses the real Hub API, PostgreSQL, workers, artifact and learning stores, and the customer-operated reference runtime. Its deterministic fixture backend ignores image content. Use it to check orchestration and interface behavior only; do not treat its metrics or findings as model-quality evidence.
 
-The filesystem artifact provider requires Linux. On macOS or Windows, run Hub in the devcontainer service and keep Vite plus the fixture runtime on the host. From the repository root, create a private runtime token and state directory:
+The filesystem artifact provider requires Linux. The walkthrough Compose override runs Hub and the fixture runtime on one private Docker network, so the same commands work with Docker Desktop and native Linux Docker Engine. From the repository root, create a private runtime token and state directory:
 
 ```sh
 mkdir -p hub/.local/decision-runtime
@@ -158,12 +158,9 @@ chmod 700 hub/.local/decision-runtime
   > hub/.local/decision-runtime/token)
 export REPLICA_RUNTIME_TOKEN="$(cat hub/.local/decision-runtime/token)"
 export REPLICA_RUNTIME_STATE_DIR="$(pwd)/hub/.local/decision-runtime/state"
-export REPLICA_RUNTIME_TENANT=local
-export REPLICA_RUNTIME_REPOSITORY=local/decision-walkthrough
 export REPLICA_RUNTIME_USER="$(id -u):$(id -g)"
 mkdir -p "$REPLICA_RUNTIME_STATE_DIR"
 chmod 700 "$REPLICA_RUNTIME_STATE_DIR"
-docker compose -f packages/learning/environments/brand-check/compose.yaml up --build -d
 ```
 
 Start the Linux Hub service with isolated dependency volumes, then install and set it up:
@@ -172,7 +169,7 @@ Start the Linux Hub service with isolated dependency volumes, then install and s
 docker compose \
   -f hub/.devcontainer/compose.yaml \
   -f hub/.devcontainer/decision-walkthrough.compose.yaml \
-  up -d app
+  up --build -d app
 docker compose -f hub/.devcontainer/compose.yaml exec -T -u root app \
   sh -lc 'chown -R node:node /workspaces/replica/hub/node_modules /workspaces/replica/packages/learning/node_modules'
 docker compose -f hub/.devcontainer/compose.yaml exec -T app npm ci --engine-strict
@@ -181,19 +178,18 @@ docker compose -f hub/.devcontainer/compose.yaml exec -T \
 docker compose -f hub/.devcontainer/compose.yaml exec -T app npm run setup
 ```
 
-In one terminal, start the API with the local runtime and API port forwarders:
+In one terminal, start the API with the private runtime forwarder:
 
 ```sh
 docker compose -f hub/.devcontainer/compose.yaml exec -T app \
   npm run dev:api:decision-walkthrough
 ```
 
-In a second terminal, start Vite on the host:
+In a second terminal, start Vite inside the same service:
 
 ```sh
-cd hub
-npm ci --engine-strict
-npm run dev
+docker compose -f hub/.devcontainer/compose.yaml exec -T app \
+  ./node_modules/.bin/react-router dev --host 0.0.0.0
 ```
 
 Open <http://127.0.0.1:5173>, choose **Sign in as local developer**, then seed the walkthrough:
@@ -203,7 +199,7 @@ docker compose -f hub/.devcontainer/compose.yaml exec -T app \
   npm run db:seed:decision-walkthrough
 ```
 
-The seed resets only `local/decision-walkthrough`. It creates four reviewed prototypes with breaking and fixed Builds distributed across training, development, and test splits; 32 valid screenshots; two reviewer identities; one accepted learning; training consent; and local repository administrator authority. It uses the learning CLI to grant consent, import the real Hub review snapshot, label and consolidate the evidence, and accept the learning.
+The seed resets only `local/decision-walkthrough`. It refuses to run while a walkthrough job is active or after the dedicated fixture runtime has a promotion generation. To restart from the beginning, stop the worker and services, remove only `$REPLICA_RUNTIME_STATE_DIR`, recreate it with mode `0700`, and start the Compose bundle again before reseeding. The seed creates four reviewed prototypes with breaking and fixed Builds distributed across training, development, and test splits; 32 valid screenshots; two reviewer identities; one accepted learning; training consent; and local repository administrator authority. It uses the learning CLI to grant consent, import the real Hub review snapshot, label and consolidate the evidence, and accept the learning.
 
 Start the on-demand worker in a third terminal:
 
@@ -214,17 +210,28 @@ docker compose -f hub/.devcontainer/compose.yaml exec -T app npm run worker:on-d
 Open <http://127.0.0.1:5173/repositories/00000000-0000-4000-8000-000000000121/learnings>. Use backend `fixture`, 12 updates, 30 seconds, and a 36-credit monthly budget. Check the preflight counts, start and cancel a queued job, let another job finish, inspect its fixture-only evidence, promote two candidates, roll back, reject the inactive candidate, evaluate a Build, and inspect the saved findings. Stop the runtime to verify the visible unavailable error, then restart it:
 
 ```sh
-docker compose -f packages/learning/environments/brand-check/compose.yaml stop decision-runtime
-docker compose -f packages/learning/environments/brand-check/compose.yaml start decision-runtime
-curl -fsS http://127.0.0.1:8010/health
-curl -fsS http://127.0.0.1:8010/ready
+docker compose \
+  -f hub/.devcontainer/compose.yaml \
+  -f hub/.devcontainer/decision-walkthrough.compose.yaml \
+  stop decision-runtime
+docker compose \
+  -f hub/.devcontainer/compose.yaml \
+  -f hub/.devcontainer/decision-walkthrough.compose.yaml \
+  start decision-runtime
+docker compose \
+  -f hub/.devcontainer/compose.yaml \
+  -f hub/.devcontainer/decision-walkthrough.compose.yaml \
+  exec -T decision-runtime python -c \
+  'import json, urllib.request; print(json.load(urllib.request.urlopen("http://127.0.0.1:8010/health")))'
 ```
 
 Stop the walkthrough without deleting PostgreSQL or runtime state:
 
 ```sh
-docker compose -f packages/learning/environments/brand-check/compose.yaml stop
-docker compose -f hub/.devcontainer/compose.yaml stop app db
+docker compose \
+  -f hub/.devcontainer/compose.yaml \
+  -f hub/.devcontainer/decision-walkthrough.compose.yaml \
+  stop app decision-runtime db
 ```
 
 ## Database lifecycle

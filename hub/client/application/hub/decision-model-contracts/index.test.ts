@@ -60,6 +60,7 @@ function overview() {
       {
         id: "22222222-3333-4444-8555-666666666666",
         runtimeCandidateId: "candidate-1",
+        backend: "fixture",
         tasksetDigest: digest,
         productionEligible: true,
         baselineMeanReward: "0.61",

@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto"
 import { describe, expect, it } from "vitest"
 import pg from "pg"
 
 import { prisma } from "../../../integrations/prisma"
+import { localDeveloperIdentity } from "../../../utils/local-developer-identity"
 import { getDatabaseUrl } from "../../../../test/database/get-database-url"
 import { waitForBlockedQuery } from "../../../../test/database/wait-for-blocked-query"
 import { lockRepositoryAdministratorSession } from "."
@@ -63,6 +65,60 @@ async function createSessionAuthority() {
   return { grant, membership, repository, session, sessionDigest }
 }
 
+async function createLocalSessionAuthority(
+  identity: { issuer: string; provider: string; subject: string } = localDeveloperIdentity,
+) {
+  const provider = await prisma.authenticationProvider.create({
+    data: { key: "local", enabled: false },
+  })
+  const revision = await prisma.authenticationProviderRevision.create({
+    data: {
+      configurationDigest: "c".repeat(64),
+      providerId: provider.id,
+      revision: 1,
+    },
+  })
+  await prisma.authenticationProvider.update({
+    data: { enabled: true, selectedRevisionId: revision.id },
+    where: { id: provider.id },
+  })
+  const user = await prisma.user.create({ data: {} })
+  const externalIdentity = await prisma.externalIdentity.create({
+    data: { ...identity, userId: user.id },
+  })
+  const membership = await prisma.membership.create({ data: { userId: user.id } })
+  const repository = await prisma.repository.create({
+    data: {
+      defaultBranch: "main",
+      localPath: `/local/prototypes/${randomUUID()}`,
+      nameWithOwner: `local/${randomUUID()}`,
+    },
+  })
+  await prisma.repositoryAccessGrant.create({
+    data: {
+      accessLevel: "ADMIN",
+      membershipId: membership.id,
+      observedAt: new Date(),
+      repositoryId: repository.id,
+    },
+  })
+  const revocation = await prisma.sessionRevocationState.findUniqueOrThrow({
+    where: { key: "global" },
+  })
+  const sessionDigest = "d".repeat(64)
+  const session = await prisma.hubSession.create({
+    data: {
+      digest: sessionDigest,
+      expiresAt: new Date(Date.now() + 60_000),
+      externalIdentityId: externalIdentity.id,
+      membershipId: membership.id,
+      providerRevisionId: revision.id,
+      revocationRevision: revocation.revision,
+    },
+  })
+  return { membership, provider, repository, session, sessionDigest }
+}
+
 function authorize(input: { membershipId: string; repositoryId: string; sessionDigest: string }) {
   return prisma.$transaction((transaction) =>
     lockRepositoryAdministratorSession(transaction, input),
@@ -80,6 +136,75 @@ describe("lockRepositoryAdministratorSession()", () => {
         sessionDigest,
       }),
     ).resolves.toBe(true)
+  })
+
+  it("authorizes the fixed local developer's live session for a local repository", async () => {
+    const { membership, repository, sessionDigest } = await createLocalSessionAuthority()
+
+    await expect(
+      authorize({
+        membershipId: membership.id,
+        repositoryId: repository.id,
+        sessionDigest,
+      }),
+    ).resolves.toBe(true)
+  })
+
+  it("does not substitute an ordinary identity for the fixed local session", async () => {
+    const { membership, repository, sessionDigest } = await createLocalSessionAuthority({
+      issuer: "local",
+      provider: "local",
+      subject: randomUUID(),
+    })
+
+    await expect(
+      authorize({
+        membershipId: membership.id,
+        repositoryId: repository.id,
+        sessionDigest,
+      }),
+    ).resolves.toBe(false)
+  })
+
+  it.each([
+    [
+      "disabled local provider",
+      async ({ provider }: Awaited<ReturnType<typeof createLocalSessionAuthority>>) => {
+        await prisma.authenticationProvider.update({
+          data: { enabled: false, selectedRevisionId: null },
+          where: { id: provider.id },
+        })
+      },
+    ],
+    [
+      "GitHub-linked repository",
+      async ({ repository }: Awaited<ReturnType<typeof createLocalSessionAuthority>>) => {
+        await prisma.repository.update({
+          data: { githubRepositoryId: 17n },
+          where: { id: repository.id },
+        })
+      },
+    ],
+    [
+      "repository without a local path",
+      async ({ repository }: Awaited<ReturnType<typeof createLocalSessionAuthority>>) => {
+        await prisma.repository.update({
+          data: { localPath: null },
+          where: { id: repository.id },
+        })
+      },
+    ],
+  ] as const)("denies the local session for a %s", async (_label, removeAuthority) => {
+    const records = await createLocalSessionAuthority()
+    await removeAuthority(records)
+
+    await expect(
+      authorize({
+        membershipId: records.membership.id,
+        repositoryId: records.repository.id,
+        sessionDigest: records.sessionDigest,
+      }),
+    ).resolves.toBe(false)
   })
 
   it("locks membership before session while overlapping restoration", async () => {

@@ -41,7 +41,7 @@ export const decisionModelConfigurationResponseSchema = z
   })
   .strict() satisfies z.ZodType<DecisionModelConfigurationResponse>
 
-const decisionTrainingJobResponseSchema = z
+export const decisionTrainingJobResponseSchema = z
   .object({
     id: identifier,
     state: trainingState,
@@ -58,6 +58,7 @@ const decisionCandidateResponseSchema = z
   .object({
     id: identifier,
     runtimeCandidateId: z.string().min(1),
+    backend: z.string().regex(/^[a-z][a-z0-9-]{0,99}$/),
     tasksetDigest: digest,
     productionEligible: z.boolean(),
     baselineMeanReward: signedDecimal.nullable(),
@@ -258,16 +259,7 @@ export const decisionModelOverviewResponseSchema = z
 export const decisionTrainingRequestResponseSchema = z
   .object({
     created: z.boolean(),
-    job: z
-      .object({
-        id: identifier,
-        state: trainingState,
-        runtimeJobId: z.string().nullable(),
-        candidateRuntimeId: z.string().nullable(),
-        failureCode: z.string().nullable(),
-        createdAt: timestamp,
-      })
-      .strict(),
+    job: decisionTrainingJobResponseSchema,
   })
   .strict() satisfies z.ZodType<DecisionTrainingRequestResponse>
 

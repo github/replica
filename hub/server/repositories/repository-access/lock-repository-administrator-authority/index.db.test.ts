@@ -47,6 +47,20 @@ async function createAuthority(accessLevel: RepositoryAccessLevel) {
 async function createLocalAuthority(
   identity: { issuer: string; provider: string; subject: string } = localDeveloperIdentity,
 ) {
+  const provider = await prisma.authenticationProvider.create({
+    data: { key: "local", enabled: false },
+  })
+  const revision = await prisma.authenticationProviderRevision.create({
+    data: {
+      configurationDigest: "b".repeat(64),
+      providerId: provider.id,
+      revision: 1,
+    },
+  })
+  await prisma.authenticationProvider.update({
+    data: { enabled: true, selectedRevisionId: revision.id },
+    where: { id: provider.id },
+  })
   const user = await prisma.user.create({ data: {} })
   await prisma.externalIdentity.create({ data: { ...identity, userId: user.id } })
   const membership = await prisma.membership.create({ data: { userId: user.id } })
@@ -65,7 +79,7 @@ async function createLocalAuthority(
       repositoryId: repository.id,
     },
   })
-  return { membership, repository }
+  return { membership, provider, repository }
 }
 
 async function authorize(membershipId: string, repositoryId: string) {
@@ -95,6 +109,41 @@ describe("lockRepositoryAdministratorAuthority()", () => {
     })
 
     await expect(authorize(membership.id, repository.id)).resolves.toBe(false)
+  })
+
+  it.each([
+    [
+      "disabled local provider",
+      async ({ provider }: Awaited<ReturnType<typeof createLocalAuthority>>) => {
+        await prisma.authenticationProvider.update({
+          data: { enabled: false, selectedRevisionId: null },
+          where: { id: provider.id },
+        })
+      },
+    ],
+    [
+      "GitHub-linked repository",
+      async ({ repository }: Awaited<ReturnType<typeof createLocalAuthority>>) => {
+        await prisma.repository.update({
+          data: { githubRepositoryId: 17n },
+          where: { id: repository.id },
+        })
+      },
+    ],
+    [
+      "repository without a local path",
+      async ({ repository }: Awaited<ReturnType<typeof createLocalAuthority>>) => {
+        await prisma.repository.update({
+          data: { localPath: null },
+          where: { id: repository.id },
+        })
+      },
+    ],
+  ] as const)("denies local authority for a %s", async (_label, removeAuthority) => {
+    const records = await createLocalAuthority()
+    await removeAuthority(records)
+
+    await expect(authorize(records.membership.id, records.repository.id)).resolves.toBe(false)
   })
 
   it("locks repository before grant while overlapping admission changes", async () => {

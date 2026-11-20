@@ -4,14 +4,16 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
 import { createConfiguredArtifactStorage } from "../../domains/artifacts/create-configured-artifact-storage/index.ts"
+import { readDecisionRuntimeConfiguration } from "../../domains/decision-model/read-decision-runtime-configuration/index.ts"
 import { createHubReviewCollection } from "../../domains/learning/create-hub-review-collection/index.ts"
 import { prepareLearningStore } from "../../domains/learning/prepare-learning-store/index.ts"
 import { readLearningConfiguration } from "../../domains/learning/read-learning-configuration/index.ts"
 import { captureRepositoryReviewSnapshot } from "../../domains/review-comments/capture-repository-review-snapshot/index.ts"
 import { runLearningCommand } from "../../integrations/learning/run-learning-command/index.ts"
+import { createDecisionRuntimeClient } from "../../integrations/decision-runtime/create-decision-runtime-client/index.ts"
 import { localDeveloperIdentity } from "../../utils/local-developer-identity/index.ts"
-import { isLocalDevelopmentDatabase } from "../../utils/is-local-development-database/index.ts"
 import { createSolidPng } from "./create-solid-png/index.ts"
+import { validateResetState, validateSeedEnvironment } from "./validate-seed-environment/index.ts"
 
 const repositoryId = "00000000-0000-4000-8000-000000000121"
 const reviewerUserId = "00000000-0000-4000-8000-000000000122"
@@ -51,12 +53,6 @@ const resolutionIds = [
   "00000000-0000-4000-8000-000000000624",
 ] as const
 
-if (!isLocalDevelopmentDatabase(process.env)) {
-  throw new Error("The decision-model walkthrough seed requires a local development database.")
-}
-if (process.env.ARTIFACT_STORAGE_PROVIDER !== "filesystem") {
-  throw new Error("The decision-model walkthrough seed requires filesystem artifact storage.")
-}
 process.env.ARTIFACT_STORAGE_DIRECTORY ??= resolve("storage/decision-walkthrough-artifacts")
 
 const { prisma } = await import("../../integrations/prisma/index.ts")
@@ -88,6 +84,33 @@ const preparedStore = await prepareLearningStore({
   root: learning.root,
   staticDirectories: learning.staticDirectories,
 })
+validateSeedEnvironment(process.env, preparedStore.directory, learning.root)
+const activeJobs = await prisma.decisionTrainingJob.count({
+  where: {
+    repositoryId,
+    state: { in: ["QUEUED", "SUBMITTING", "CANCEL_REQUESTED", "SUBMITTED", "RUNNING"] },
+  },
+})
+if (activeJobs) {
+  try {
+    validateResetState(activeJobs, 0)
+  } catch (error) {
+    await prisma.$disconnect()
+    throw error
+  }
+}
+const runtimeConfiguration = readDecisionRuntimeConfiguration(process.env)
+if (!runtimeConfiguration) {
+  await prisma.$disconnect()
+  throw new Error("Configure the fixture decision runtime before reseeding.")
+}
+const promotion = await createDecisionRuntimeClient(runtimeConfiguration).getPromotion()
+try {
+  validateResetState(activeJobs, promotion.generation)
+} catch (error) {
+  await prisma.$disconnect()
+  throw error
+}
 await rm(preparedStore.directory, { force: true, recursive: true })
 const store = await prepareLearningStore({
   applicationRoot: process.cwd(),

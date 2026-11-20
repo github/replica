@@ -118,6 +118,7 @@ export interface DecisionTrainingJobRecord {
   candidateRuntimeId: string | null
   failureCode: string | null
   createdAt: Date
+  finishedAt: Date | null
 }
 
 export interface DecisionCandidateRecord {

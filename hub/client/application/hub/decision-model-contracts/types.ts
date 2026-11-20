@@ -29,6 +29,7 @@ export interface DecisionTrainingJobResponse {
 export interface DecisionCandidateResponse {
   id: string
   runtimeCandidateId: string
+  backend: string
   tasksetDigest: string
   productionEligible: boolean
   baselineMeanReward: string | null
@@ -163,14 +164,7 @@ export type DecisionModelAvailability =
 
 export interface DecisionTrainingRequestResponse {
   created: boolean
-  job: {
-    id: string
-    state: DecisionTrainingJobResponse["state"]
-    runtimeJobId: string | null
-    candidateRuntimeId: string | null
-    failureCode: string | null
-    createdAt: string
-  }
+  job: DecisionTrainingJobResponse
 }
 
 export interface DecisionTrainingMutationResponse {

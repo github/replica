@@ -36,6 +36,7 @@ function available(): Extract<DecisionModelPanelData, { state: "available" }> {
       {
         id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
         runtimeCandidateId: "fixture-candidate-2",
+        backend: "fixture",
         createdAt: "2026-11-11T18:04:30Z",
         productionEligible: true,
         tasksetDigest,
@@ -274,7 +275,7 @@ describe("DecisionModelPanel()", () => {
           data={{
             ...fixture,
             configuration: { ...fixture.configuration!, backend: "customer-runtime" },
-            candidates: [ineligibleCandidate],
+            candidates: [{ ...ineligibleCandidate, backend: "customer-runtime" }],
           }}
           authenticityToken="csrf-token"
         />

@@ -59,27 +59,30 @@ const usageRecordsSchema = z.array(
 )
 const evaluationSummarySchema = z
   .object({
-    findings: z.array(
-      z
-        .object({
-          learning: z.object({ id: z.string() }).strict(),
-          route: z.string(),
-          views: z.array(
-            z
-              .object({
-                viewport: z.string(),
-                theme: z.string(),
-              })
-              .strict(),
-          ),
-          followsProbability: z.number().min(0).max(1),
-          breaksProbability: z.number().min(0).max(1),
-          explanation: z.string().min(1).max(500).optional(),
-        })
-        .strict(),
-    ),
+    findings: z
+      .array(
+        z
+          .object({
+            learning: z.object({ id: z.string() }).strict(),
+            route: z.string(),
+            views: z.array(
+              z
+                .object({
+                  viewport: z.string(),
+                  theme: z.string(),
+                })
+                .strict(),
+            ),
+            followsProbability: z.number().min(0).max(1),
+            breaksProbability: z.number().min(0).max(1),
+            explanation: z.string().min(1).max(500).optional(),
+          })
+          .strict(),
+      )
+      .max(100),
   })
   .strict()
+const maximumLearningTextLookups = 100
 
 function presentJobState(
   state:
@@ -120,10 +123,12 @@ function presentJob(job: DecisionTrainingJobRecord) {
   return {
     id: job.id,
     state: presentJobState(job.state),
+    tasksetDigest: job.tasksetDigest,
     runtimeJobId: job.runtimeJobId,
     candidateRuntimeId: job.candidateRuntimeId,
     failureCode: job.failureCode ?? null,
     createdAt: job.createdAt.toISOString(),
+    finishedAt: job.finishedAt?.toISOString() ?? null,
   }
 }
 
@@ -238,21 +243,19 @@ export function createDecisionModelRouteDependencies(
             summary.success ? summary.data.findings.map((finding) => finding.learning.id) : [],
           ),
         ),
-      ]
-      const learningTexts = new Map<string, string | null>(
-        await Promise.all(
-          learningIds.map(
-            async (learningId) =>
-              [
-                learningId,
-                await options.tasksetSource.getLearningText({
-                  repositoryId: input.repositoryId,
-                  learningId,
-                }),
-              ] as const,
-          ),
-        ),
+      ].slice(0, maximumLearningTextLookups)
+      const acceptedLearningTexts = learningIds.length
+        ? await options.tasksetSource.getAcceptedLearningTexts(input.repositoryId)
+        : {}
+      const learningTexts = new Map(
+        learningIds
+          .filter((learningId) => Object.hasOwn(acceptedLearningTexts, learningId))
+          .map((learningId) => [learningId, acceptedLearningTexts[learningId] ?? null]),
       )
+      await authorization.requireRepositoryAdministrator({
+        membershipId: input.actorMembershipId,
+        repositoryId: input.repositoryId,
+      })
       const evaluations = overview.evaluations.map((evaluation, index) => {
         const summary = evaluationSummaries[index]!
         return {
@@ -313,6 +316,7 @@ export function createDecisionModelRouteDependencies(
         candidates: overview.candidates.map((candidate) => ({
           id: candidate.id,
           runtimeCandidateId: candidate.runtimeCandidateId,
+          backend: candidate.trainingJob.backend,
           tasksetDigest: candidate.tasksetDigest,
           productionEligible: candidate.productionEligible,
           baselineMeanReward: candidate.baselineMeanReward?.toString() ?? null,

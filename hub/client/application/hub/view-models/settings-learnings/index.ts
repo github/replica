@@ -168,6 +168,7 @@ function decisionModelData(
     candidates: overview.candidates.map((candidate) => ({
       id: candidate.id,
       runtimeCandidateId: candidate.runtimeCandidateId,
+      backend: candidate.backend,
       createdAt: candidate.createdAt,
       productionEligible: candidate.productionEligible,
       tasksetDigest: candidate.tasksetDigest,
