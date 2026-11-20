@@ -75,6 +75,33 @@ export function createDecisionModelStore(
 ): DecisionModelStore {
   const authorize =
     options.authorizeRepositoryAdministration ?? lockRepositoryAdministratorAuthority
+  async function revokedByRuntimeGrant(
+    repositoryId: string,
+    tasksetDigest: string,
+  ): Promise<boolean> {
+    const [deletions, copies] = await Promise.all([
+      database.decisionRuntimeDeletion.findMany({
+        where: {
+          repositoryId,
+          state: { in: ["PENDING", "COMPLETED", "FAILED"] },
+          grantId: { not: null },
+        },
+        select: { grantId: true },
+      }),
+      database.decisionRuntimeCopy.findMany({
+        where: { repositoryId },
+        select: { grantIds: true, tasksetDigest: true },
+      }),
+    ])
+    const withdrawn = new Set(deletions.flatMap(({ grantId }) => (grantId ? [grantId] : [])))
+    return copies.some(
+      ({ grantIds, tasksetDigest: copyTasksetDigest }) =>
+        Array.isArray(grantIds) &&
+        grantIds.some((grantId) => typeof grantId === "string" && withdrawn.has(grantId)) &&
+        (copyTasksetDigest === null || copyTasksetDigest === tasksetDigest),
+    )
+  }
+
   return {
     async getConfiguration(repositoryId) {
       const configuration = await getDecisionModelConfiguration(database, repositoryId)
@@ -505,7 +532,6 @@ export function createDecisionModelStore(
           findings: input.summary.findings.map((finding) => ({
             learning: {
               id: finding.learning.id,
-              text: finding.learning.text,
             },
             route: finding.route,
             views: finding.views.map((view) => ({
@@ -514,6 +540,7 @@ export function createDecisionModelStore(
             })),
             followsProbability: finding.followsProbability,
             breaksProbability: finding.breaksProbability,
+            explanation: finding.explanation,
           })),
         }
         return saveDecisionBuildEvaluation(transaction, {
@@ -524,21 +551,20 @@ export function createDecisionModelStore(
       })
     },
     async isTasksetRevoked(input) {
-      return Boolean(
-        await database.decisionRuntimeDeletion.findFirst({
-          where: {
-            repositoryId: input.repositoryId,
-            state: { in: ["PENDING", "COMPLETED"] },
-            OR: [
-              { exportId: input.exportId },
-              { grantId: input.grantId },
-              { evidenceDigest: input.evidenceDigest },
-              { tasksetDigest: input.tasksetDigest },
-            ],
-          },
-          select: { id: true },
-        }),
-      )
+      const direct = await database.decisionRuntimeDeletion.findFirst({
+        where: {
+          repositoryId: input.repositoryId,
+          state: { in: ["PENDING", "COMPLETED", "FAILED"] },
+          OR: [
+            { exportId: input.exportId },
+            { grantId: input.grantId },
+            { evidenceDigest: input.evidenceDigest },
+            { tasksetDigest: input.tasksetDigest },
+          ],
+        },
+        select: { id: true },
+      })
+      return Boolean(direct) || revokedByRuntimeGrant(input.repositoryId, input.tasksetDigest)
     },
     async isCandidateRevoked(repositoryId, candidateId) {
       const candidate = await database.decisionCandidate.findFirst({
@@ -555,20 +581,21 @@ export function createDecisionModelStore(
         },
       })
       if (!candidate) return false
-      return Boolean(
-        await database.decisionRuntimeDeletion.findFirst({
-          where: {
-            repositoryId,
-            state: { in: ["PENDING", "COMPLETED"] },
-            OR: [
-              { exportId: candidate.trainingJob.trainingExportId },
-              { grantId: candidate.trainingJob.consentGrantId },
-              { evidenceDigest: candidate.trainingJob.evidenceDigest },
-              { tasksetDigest: candidate.trainingJob.tasksetDigest },
-            ],
-          },
-          select: { id: true },
-        }),
+      const direct = await database.decisionRuntimeDeletion.findFirst({
+        where: {
+          repositoryId,
+          state: { in: ["PENDING", "COMPLETED", "FAILED"] },
+          OR: [
+            { exportId: candidate.trainingJob.trainingExportId },
+            { grantId: candidate.trainingJob.consentGrantId },
+            { evidenceDigest: candidate.trainingJob.evidenceDigest },
+            { tasksetDigest: candidate.trainingJob.tasksetDigest },
+          ],
+        },
+        select: { id: true },
+      })
+      return (
+        Boolean(direct) || revokedByRuntimeGrant(repositoryId, candidate.trainingJob.tasksetDigest)
       )
     },
     async createOrGetDeletion(input) {

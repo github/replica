@@ -186,4 +186,67 @@ describe("createDecisionModelJobProcessors()", () => {
       }),
     )
   })
+
+  it("continues reconciling withdrawals after one deletion fails", async () => {
+    const input = dependencies("RUNNING")
+    const withdrawals = [
+      {
+        repositoryId,
+        actorMembershipId: "11111111-1111-4111-8111-111111111111",
+        actorLogin: "mona",
+        selectors: { grantId: "grant-failed" },
+        reason: "Withdrawn.",
+        idempotencyKey: "withdrawal-failed",
+      },
+      {
+        repositoryId,
+        actorMembershipId: "11111111-1111-4111-8111-111111111111",
+        actorLogin: "mona",
+        selectors: { grantId: "grant-succeeded" },
+        reason: "Withdrawn.",
+        idempotencyKey: "withdrawal-succeeded",
+      },
+    ]
+    input.listTrainingWithdrawals = vi.fn().mockResolvedValue(withdrawals)
+    const createOrGetDeletion = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("first failed"))
+      .mockResolvedValueOnce({
+        id: "deletion-2",
+        runtimeDeletionId: null,
+        state: "PENDING",
+      })
+    input.store.createOrGetDeletion = createOrGetDeletion
+    const requireRepositoryAdministrator = vi.fn().mockResolvedValue(undefined)
+    input.authorization.requireRepositoryAdministrator = requireRepositoryAdministrator
+    input.store.saveRuntimeCopies = vi.fn()
+    input.store.updateDeletionReceipt = vi.fn()
+    input.store.listPendingDeletions = vi.fn().mockResolvedValue([])
+    Object.assign(input.runtime!, {
+      listRuntimeCopies: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+      requestDeletion: vi.fn().mockResolvedValue({
+        id: "runtime-deletion-2",
+        state: "completed",
+        pendingItems: [],
+        failures: [],
+        completedAt: "2026-11-18T12:06:00.000Z",
+      }),
+      getDeletion: vi.fn(),
+    })
+    const warn = vi.fn()
+    const processors = createDecisionModelJobProcessors({
+      databaseUrl: "postgresql://localhost/replica",
+      dependencies: input,
+      database: { decisionTrainingJob: {} } as never,
+      logger: { warn, child: () => ({}) } as never,
+    })
+
+    await expect(processors.reconcileDeletions.process({})).resolves.toBeUndefined()
+    expect(createOrGetDeletion).toHaveBeenCalledTimes(2)
+    expect(requireRepositoryAdministrator).toHaveBeenCalledTimes(2)
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: "withdrawal-failed" }),
+      "Decision runtime withdrawal reconciliation failed",
+    )
+  })
 })

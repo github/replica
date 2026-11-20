@@ -49,7 +49,7 @@ node <replica-checkout>/packages/learning/bin/replica-learning.mjs doctor
 | `memories`, `show <id>` | Lists learnings and shows one with its evidence and digests |
 | `accept`, `reject`, `retire`, `supersede` | Records a person's decision |
 | `recall --task <text>` | Prints the accepted learnings for the next run. `--task-file -` reads the task from standard input instead, which keeps a person's prompt out of the process list. `--preview --by github:<login>` shows a person the same text without recording a use. Only a person can preview, so an agent never reads learnings without an audit entry |
-| `export --purpose <p>` | Writes a bundle of what that purpose may use; `--learnings-only` leaves out episodes and their comments |
+| `export --purpose <p>` | Writes a bundle of what that purpose may use; `--learnings-only` leaves out episodes and their comments, and `--preview` prepares a temporary copy without recording an export or export audit |
 | `decision models` | Lists the base models suggested for a decision model, with their sizes and licenses |
 | `decision questions --by github:<login>` | Prints the questions a decision model answers about a screenshot and whether training consent is recorded. `--preview` shows the named person the questions without recording a use |
 | `decision taskset --export <file> --builds <file> --out <dir>` | Writes labeled tasks from a training export and the Builds' screenshots, as [Decision model](#decision-model) describes |

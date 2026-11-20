@@ -156,6 +156,7 @@ describe("decision training orchestration", () => {
       repositoryId,
       actorMembershipId: membershipId,
       idempotencyKey: "repository-1:training-1",
+      expectedConfigurationGeneration: 3,
     }
 
     await expect(requestDecisionTraining(input, deps)).resolves.toEqual({
@@ -193,12 +194,37 @@ describe("decision training orchestration", () => {
           repositoryId,
           actorMembershipId: membershipId,
           idempotencyKey: existing.idempotencyKey,
+          expectedConfigurationGeneration: 3,
         },
         deps,
       ),
     ).resolves.toEqual({ created: false, job: existing })
     expect(getConfiguration).not.toHaveBeenCalled()
     expect(prepareTaskset).not.toHaveBeenCalled()
+  })
+
+  it("rejects a new request when the confirmed settings generation changed", async () => {
+    const prepareTaskset = vi.fn()
+    const createOrGetJob = vi.fn()
+    const deps = dependencies({
+      prepareTaskset,
+      store: { ...dependencies().store, createOrGetJob },
+    })
+
+    await expect(
+      requestDecisionTraining(
+        {
+          repositoryId,
+          actorMembershipId: membershipId,
+          idempotencyKey: "stale-settings",
+          expectedConfigurationGeneration: 2,
+        },
+        deps,
+      ),
+    ).rejects.toMatchObject({ code: "configuration_stale" })
+
+    expect(prepareTaskset).not.toHaveBeenCalled()
+    expect(createOrGetJob).not.toHaveBeenCalled()
   })
 
   it("rejects training when the repository has reached its explicit budget", async () => {
@@ -219,6 +245,7 @@ describe("decision training orchestration", () => {
           repositoryId,
           actorMembershipId: membershipId,
           idempotencyKey: "budgeted-request",
+          expectedConfigurationGeneration: 3,
         },
         deps,
       ),
@@ -438,6 +465,36 @@ describe("decision training orchestration", () => {
       idempotencyKey: `cancel:${jobId}`,
     })
     expect(getTrainingJob).not.toHaveBeenCalled()
+  })
+
+  it("fails before submission when taskset transfer stores different bytes", async () => {
+    const submitTraining = vi.fn()
+    const updateJobState = vi.fn().mockResolvedValue(job({ state: "FAILED" }))
+    const deps = dependencies({
+      runtime: {
+        ...dependencies().runtime,
+        transferTaskset: vi.fn().mockResolvedValue({
+          id: "runtime-taskset-1",
+          tasksetDigest: `sha256:${"9".repeat(64)}`,
+        }),
+        submitTraining,
+      },
+      store: {
+        ...dependencies().store,
+        getJob: vi.fn().mockResolvedValue(job()),
+        updateJobState,
+      },
+    })
+
+    await expect(processDecisionTrainingJob({ repositoryId, jobId }, deps)).resolves.toMatchObject({
+      terminal: true,
+      job: { state: "FAILED" },
+    })
+
+    expect(submitTraining).not.toHaveBeenCalled()
+    expect(updateJobState).toHaveBeenCalledWith(
+      expect.objectContaining({ state: "FAILED", failureCode: "taskset_drift" }),
+    )
   })
 
   it("persists absolute and per-learning candidate evidence with exact usage and cost", async () => {
@@ -1109,7 +1166,6 @@ describe("decision training orchestration", () => {
             {
               learning: {
                 id: "learning-1",
-                text: null,
               },
               route: "/settings/profile",
               views: [
@@ -1118,6 +1174,8 @@ describe("decision training orchestration", () => {
               ],
               followsProbability: 0.82,
               breaksProbability: 0.18,
+              explanation:
+                "Across the submitted captured views, the promoted decision model found the Build at least as likely to follow the learning as break it.",
             },
           ],
         },

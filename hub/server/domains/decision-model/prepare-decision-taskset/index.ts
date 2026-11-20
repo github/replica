@@ -42,11 +42,22 @@ export interface DecisionTasksetPreparationSource {
     digest: string
     complete: boolean
   }>
-  createTaskset(input: { trainingExport: Uint8Array; builds: Uint8Array }): Promise<{
+  createTaskset(input: {
+    trainingExport: Uint8Array
+    builds: Uint8Array
+    allowIncomplete?: boolean
+  }): Promise<{
     upload: PreparedDecisionTaskset["upload"]
     questionDigest: string
     tasksetDigest: string
   }>
+}
+
+export function preflightDecisionTaskset(
+  input: { repositoryId: string; actorMembershipId: string },
+  source: DecisionTasksetPreparationSource,
+) {
+  return source.preflight(input)
 }
 
 function digest(bytes: Uint8Array): string {
