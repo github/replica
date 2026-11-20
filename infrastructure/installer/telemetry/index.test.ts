@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { CommandExecutionError, runCommand } from "../command/index.ts"
 import type { InstallerUI, RunCommand, WizardUI } from "../types.ts"
 import { startInstallerTelemetry } from "./index.ts"
+import { privateDirectory, privateFile } from "../private-files/index.ts"
 
 type Telemetry = Awaited<ReturnType<typeof startInstallerTelemetry>>
 interface Record {
@@ -117,8 +118,13 @@ describe("private installer telemetry", () => {
     expect(dirname(nextRun.path)).toBe(dirname(telemetry.path))
     expect(dirname(otherRun.path)).toBe(join(dirname(otherConfig), "logs"))
     expect(new Set([telemetry.path, nextRun.path, otherRun.path]).size).toBe(3)
-    expect((await stat(dirname(telemetry.path))).mode & 0o777).toBe(0o700)
-    expect((await stat(telemetry.path)).mode & 0o777).toBe(0o600)
+    if (process.platform === "win32") {
+      expect(await privateDirectory(dirname(telemetry.path), { create: false })).toBe(true)
+      expect(await privateFile(telemetry.path)).toBe(true)
+    } else {
+      expect((await stat(dirname(telemetry.path))).mode & 0o777).toBe(0o700)
+      expect((await stat(telemetry.path)).mode & 0o777).toBe(0o600)
+    }
     expect(trace.getTracerProvider()).toBe(provider)
 
     await telemetry.close()

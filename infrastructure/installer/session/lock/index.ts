@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { open, unlink } from "node:fs/promises"
 import { hostname } from "node:os"
-import { readPrivateFile } from "../../private-files/index.ts"
+import { privateFile, readPrivateFile } from "../../private-files/index.ts"
 
 function hasCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code
@@ -19,6 +19,7 @@ export async function lockSession(
   const create = async (target: string) => {
     const file = await open(target, "wx", 0o600)
     try {
+      await privateFile(target)
       await file.writeFile(JSON.stringify(owner))
       await file.sync()
     } finally {

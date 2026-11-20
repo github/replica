@@ -5,6 +5,9 @@ import { afterEach, expect, it, vi } from "vitest"
 
 import { openSession, type WizardDraft } from "../session/index.ts"
 import { saveConfig } from "../config/index.ts"
+import * as configuration from "../config/index.ts"
+import * as sessionFiles from "../session/index.ts"
+import * as privateFiles from "../private-files/index.ts"
 import type { DeploymentConfig, WizardUI } from "../types.ts"
 import { selectInstallerEntry, validateInstallerEntry } from "./index.ts"
 
@@ -67,6 +70,7 @@ function uiFor(...choices: string[]): WizardUI {
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await Promise.all(sessions.splice(0).map((session) => session.close()))
   await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
 })
@@ -94,7 +98,10 @@ it("exits post-setup without creating a local directory or requesting installati
   const ui = uiFor("exit")
 
   expect(
-    await selectInstallerEntry(ui, { directory: join(parent, "missing"), postSetup: true }),
+    await selectInstallerEntry(ui, {
+      directory: join(parent, "missing"),
+      postSetup: true,
+    }),
   ).toBeUndefined()
 
   expect(vi.mocked(ui.select).mock.calls[0]![1].map(({ value }) => value)).toEqual([
@@ -192,6 +199,7 @@ it("uses an unused explicit Create path without creating files during selection"
 it("opens and saves a fresh selected setup below a normal repository parent without changing its permissions", async () => {
   const parent = await directory()
   await chmod(parent, 0o755)
+  const parentMode = (await stat(parent)).mode & 0o777
   const local = join(parent, "private-local")
   const entry = await selectInstallerEntry(uiFor("create"), {
     directory: local,
@@ -204,10 +212,16 @@ it("opens and saves a fresh selected setup below a normal repository parent with
   await session.answer("name", "first-hub")
   await saveConfig(entry!.path, config(), { exclusive: true })
 
-  expect((await stat(parent)).mode & 0o777).toBe(0o755)
-  expect((await stat(local)).mode & 0o777).toBe(0o700)
-  expect((await stat(session.path)).mode & 0o777).toBe(0o600)
-  expect((await stat(entry!.path)).mode & 0o777).toBe(0o600)
+  expect((await stat(parent)).mode & 0o777).toBe(parentMode)
+  if (process.platform === "win32") {
+    expect(await privateFiles.privateDirectory(local, { create: false })).toBe(true)
+    expect(await privateFiles.privateFile(session.path)).toBe(true)
+    expect(await privateFiles.privateFile(entry!.path)).toBe(true)
+  } else {
+    expect((await stat(local)).mode & 0o777).toBe(0o700)
+    expect((await stat(session.path)).mode & 0o777).toBe(0o600)
+    expect((await stat(entry!.path)).mode & 0o777).toBe(0o600)
+  }
   expect(JSON.parse(await readFile(entry!.path, "utf8"))).toEqual(config())
 })
 
@@ -252,7 +266,7 @@ it("retries an invalid explicit path and loads the selected private file outside
   const existing = config()
   await fixture(selected, existing)
   const ui = uiFor("update", "config-file", "config-file")
-  vi.mocked(ui.text).mockResolvedValueOnce(" invalid path ").mockResolvedValueOnce(selected)
+  vi.mocked(ui.text).mockResolvedValueOnce("invalid\u0000path").mockResolvedValueOnce(selected)
 
   expect(await selectInstallerEntry(ui, { directory: local })).toMatchObject({
     action: "update",
@@ -266,12 +280,63 @@ it("retries an invalid explicit path and loads the selected private file outside
   expect(await readdir(elsewhere)).toEqual(["explicit.json"])
 })
 
+it.each(["text", "field"] as const)(
+  "prefills the failed entered path when correcting it through %s",
+  async (input) => {
+    const root = await directory()
+    const failed = join(root, "missing config.json")
+    const corrected = join(root, "corrected config.json")
+    const existing = config()
+    vi.spyOn(privateFiles, "privateDirectory").mockResolvedValue(false)
+    vi.spyOn(sessionFiles, "readSession").mockResolvedValue({})
+    vi.spyOn(configuration, "loadConfig").mockImplementation(async (path) => {
+      if (path === corrected) return existing
+      throw Object.assign(new Error("Not found"), { code: "ENOENT" })
+    })
+    const ui = uiFor("update", "config-file", "config-file")
+    const answer = vi.fn().mockResolvedValueOnce(failed).mockResolvedValueOnce(corrected)
+    if (input === "field") ui.field = answer
+    else ui.text = answer
+
+    expect(await selectInstallerEntry(ui, { directory: root })).toMatchObject({
+      action: "update",
+      path: corrected,
+      existing,
+    })
+
+    expect(answer.mock.calls[1]![1]).toBe(failed)
+    expect(ui.notice).toHaveBeenCalledWith("error", expect.stringContaining(failed))
+    expect(await readdir(root)).toEqual([])
+  },
+)
+
+it("keeps a corrected but unreadable candidate in the picker after failure and after Back", async () => {
+  const root = await directory()
+  const failed = join(root, "missing.json")
+  const corrected = join(root, "corrected config.json")
+  vi.spyOn(privateFiles, "privateDirectory").mockResolvedValue(false)
+  vi.spyOn(sessionFiles, "readSession").mockResolvedValue({})
+  vi.spyOn(configuration, "loadConfig").mockRejectedValue(new Error("Unreadable configuration"))
+  const ui = uiFor("update", "config-file", "config-file", "back", "update", "back", "exit")
+  vi.mocked(ui.text).mockResolvedValueOnce(failed).mockResolvedValueOnce(corrected)
+
+  expect(await selectInstallerEntry(ui, { directory: root })).toBeUndefined()
+
+  const calls = vi.mocked(ui.select).mock.calls
+  for (const call of [calls[3]!, calls[5]!])
+    expect(call[1]).toContainEqual({
+      value: corrected,
+      label: expect.stringContaining("needs attention"),
+    })
+  expect(await readdir(root)).toEqual([])
+})
+
 it.each([
   "invalid config",
   "invalid draft",
   "misbound draft",
   "conflicting draft",
-  "public config",
+  ...(process.platform === "win32" ? [] : ["public config" as const]),
   "deployment missing config",
 ] as const)(
   "shows a %s needing attention and refuses to load or silently discard it",

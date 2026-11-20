@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path"
 import { assertDraftMatchesConfig, loadConfig } from "../config/index.ts"
 import { InputValidationError } from "../config/fields/index.ts"
 import { privateDirectory } from "../private-files/index.ts"
+import { normalizeInstallerPath as configPath } from "../path-input/index.ts"
 import { readSession, type WizardDraft, type WizardSession } from "../session/index.ts"
 import type { DeploymentConfig, PostSetupAction, WizardUI } from "../types.ts"
 
@@ -25,19 +26,6 @@ interface Candidate {
   problem?: string
 }
 
-function configPath(value: unknown): string {
-  if (
-    typeof value !== "string" ||
-    !value ||
-    value.trim() !== value ||
-    /[\u0000-\u001f\u007f]/.test(value)
-  )
-    throw new InputValidationError(
-      "Enter a config-file path without surrounding whitespace or control characters.",
-    )
-  return resolve(value)
-}
-
 function attention(ui: WizardUI, message: string): void {
   if (ui.notice) ui.notice("error", message)
   else ui.status(message)
@@ -52,6 +40,7 @@ async function inspect(path: string): Promise<Candidate> {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
       if (!(error instanceof Error)) throw error
       problem = `Configuration at ${path} needs attention: it is unreadable, untrusted, invalid, or unsupported. The file was preserved.`
+      if (error.message.startsWith("Setup ")) problem += ` ${error.message}`
     }
   }
   const session = await readSession(path)
@@ -142,9 +131,10 @@ export async function selectInstallerEntry(
   directory = resolve(directory)
   const explicit = explicitPath === undefined ? undefined : configPath(explicitPath)
   const known = new Set(explicit ? [explicit] : [])
+  let enteredPath = explicit
   ui.welcome?.(true)
   while (true) {
-    const candidates = await discover(ui, directory, known)
+    let candidates = await discover(ui, directory, known)
     const resumable = candidates.some(({ draft, problem }) => draft && !problem)
     let action = await ui.select(
       postSetup
@@ -207,12 +197,12 @@ export async function selectInstallerEntry(
         const definition = {
           id: "config-path",
           label: "Config-file path",
-          help: "Use an absolute path, or a path relative to infrastructure/ with the root shortcut. Resume uses its companion <config path>.draft.json.",
+          help: "Use an absolute path, ~/ (or ~\\ on Windows), or a path relative to infrastructure/ with the root shortcut. Matching quotes are optional. Resume uses its companion <config path>.draft.json.",
           parse: configPath,
         }
-        if (ui.field) path = configPath(await ui.field(definition, explicit))
+        if (ui.field) path = configPath(await ui.field(definition, enteredPath))
         else {
-          const value = await ui.text(definition.label, explicit)
+          const value = await ui.text(definition.label, enteredPath)
           try {
             path = configPath(value)
           } catch (error) {
@@ -221,6 +211,7 @@ export async function selectInstallerEntry(
             continue
           }
         }
+        enteredPath = path
       } else {
         if (!candidates.some((candidate) => candidate.path === choice))
           throw new Error("Choose a listed configuration or enter a config-file path.")
@@ -228,6 +219,7 @@ export async function selectInstallerEntry(
       }
       const candidate = await inspect(path)
       known.add(path)
+      candidates = candidates.filter((item) => item.path !== path).concat(candidate)
       const problem =
         candidate.problem ??
         (action === "update"

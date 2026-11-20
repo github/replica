@@ -13,6 +13,6 @@ export default defineConfig({
     exclude: [...configDefaults.exclude, "installer/command/describe/index.test.ts"],
     restoreMocks: true,
     unstubEnvs: true,
-    testTimeout: 30_000,
+    testTimeout: process.platform === "win32" ? 120_000 : 30_000,
   },
 })

@@ -69,3 +69,23 @@ jobs:
           cache-dependency-path: infrastructure/package-lock.json
       - run: npm ci --ignore-scripts --engine-strict
       - run: npm run ${{ matrix.command }}
+
+  installer-windows:
+    name: Windows installer ${{ matrix.command }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        command: [typecheck, "test:windows"]
+    defaults:
+      run:
+        working-directory: infrastructure
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: infrastructure/package-lock.json
+      - run: npm ci --ignore-scripts --engine-strict
+      - run: npm run ${{ matrix.command }}

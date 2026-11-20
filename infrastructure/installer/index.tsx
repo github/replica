@@ -10,6 +10,7 @@ import { retryReadOnly } from "./command/retry-read-only/index.ts"
 import { withDefaultSignal } from "./command/default-signal/index.ts"
 import { tailLines } from "./command/tail-lines/index.ts"
 import { loadConfig } from "./config/index.ts"
+import { normalizeInstallerPath } from "./path-input/index.ts"
 import { createTerminalUI } from "./terminal/index.tsx"
 import type { DeploymentConfig, InstallerUI, RunCommand } from "./types.ts"
 import { runWizard } from "./wizard/index.ts"
@@ -38,7 +39,7 @@ if (values.help) {
 } else {
   const abort = new AbortController()
   const execute = withDefaultSignal(runCommand, abort.signal)
-  let path = resolve(values.config ?? resolve(import.meta.dirname, "../.local/installation.json"))
+  let path = resolve(import.meta.dirname, "../.local/installation.json")
   let terminal: ReturnType<typeof createTerminalUI> | undefined
   let session: WizardSession | undefined
   let telemetry: Awaited<ReturnType<typeof startInstallerTelemetry>> | undefined
@@ -49,6 +50,7 @@ if (values.help) {
   process.once("SIGINT", interrupt)
   process.once("SIGTERM", interrupt)
   try {
+    if (values.config !== undefined) path = normalizeInstallerPath(values.config)
     let existing: DeploymentConfig | undefined
     let entry: InstallerEntry | undefined
     if (

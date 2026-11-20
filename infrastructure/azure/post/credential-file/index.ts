@@ -1,43 +1,39 @@
 import { lstat } from "node:fs/promises"
-import { homedir } from "node:os"
-import { dirname, join, resolve } from "node:path"
+import { dirname } from "node:path"
 import { createPrivateKey } from "node:crypto"
 
 import { InputValidationError } from "../../../installer/config/fields/index.ts"
 import { readPrivateFile } from "../../../installer/private-files/index.ts"
+import { normalizeInstallerPath } from "../../../installer/path-input/index.ts"
 
 export async function readPostCredentialFile(
   input: string,
   kind: "GITHUB_CLIENT_SECRET" | "GITHUB_APP_PRIVATE_KEY_BASE64" | "GITHUB_WEBHOOK_SECRET",
 ) {
-  let value = input.trim()
-  const quoted =
-    (value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))
-  if (quoted) value = value.slice(1, -1)
-  value = value.replace(/\\([ ()'"\[\]#&;])/g, "$1")
-  if (value === "~") value = homedir()
-  else if (value.startsWith("~/")) value = join(homedir(), value.slice(2))
-  if (!value || /[\u0000-\u001f\u007f]/.test(value))
-    throw new InputValidationError(
-      "Enter a credential-file path, not credential text. Surrounding whitespace and matching quotes are optional.",
-    )
-  const path = resolve(value)
+  const path = normalizeInstallerPath(input)
   const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
-  const fileFix = `Use a current-user-owned regular file with chmod 600 ${quote(path)} inside a private directory with chmod 700 ${quote(dirname(path))}. Symlinks and hardlinks are not accepted.`
+  const fileFix =
+    process.platform === "win32"
+      ? "Use a current-user-owned regular file inside a private directory whose Windows ACLs allow only the current user, SYSTEM, and Administrators. Symlinks and hardlinks are not accepted."
+      : `Use a current-user-owned regular file with chmod 600 ${quote(path)} inside a private directory with chmod 700 ${quote(dirname(path))}. Symlinks and hardlinks are not accepted.`
   try {
     const metadata = await lstat(path)
     if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1)
       throw new InputValidationError(`This path is not a standalone regular file. ${fileFix}`)
-    if (metadata.uid !== process.getuid?.())
+    if (process.platform !== "win32" && metadata.uid !== process.getuid?.())
       throw new InputValidationError(
         `The file is owned by UID ${metadata.uid}, not the current user. Ask its owner to provide a current-user-owned private copy. ${fileFix}`,
       )
-    if ((metadata.mode & 0o077) !== 0)
+    if (process.platform !== "win32" && (metadata.mode & 0o077) !== 0)
       throw new InputValidationError(
         `The file mode is ${(metadata.mode & 0o777).toString(8)}; group/other access is not allowed. ${fileFix}`,
       )
     const parent = await lstat(dirname(path))
-    if (!parent.isDirectory() || parent.uid !== process.getuid?.() || (parent.mode & 0o077) !== 0)
+    if (
+      !parent.isDirectory() ||
+      (process.platform !== "win32" &&
+        (parent.uid !== process.getuid?.() || (parent.mode & 0o077) !== 0))
+    )
       throw new InputValidationError(
         `The containing directory must be current-user-owned and private; its current mode is ${(parent.mode & 0o777).toString(8)}. ${fileFix}`,
       )

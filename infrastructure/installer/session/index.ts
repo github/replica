@@ -147,7 +147,7 @@ export async function readSession(
   } catch (error) {
     if (!(error instanceof Error)) throw error
     return {
-      problem: `The saved session at ${path} needs attention: it is unreadable, untrusted, invalid, unsupported, or belongs to another configuration. It has been preserved.`,
+      problem: `The saved session at ${path} needs attention: it is unreadable, untrusted, invalid, unsupported, or belongs to another configuration. It has been preserved.${error.message.startsWith("Setup ") ? ` ${error.message}` : ""}`,
     }
   }
 }

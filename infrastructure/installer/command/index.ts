@@ -3,6 +3,7 @@ import { stripVTControlCharacters } from "node:util"
 
 import type { RunCommand } from "../types.ts"
 import { describeCommand } from "./describe/index.ts"
+import { resolveWindowsCommand } from "./windows/index.ts"
 
 export class CommandExecutionError extends Error {
   readonly aborted: boolean
@@ -26,9 +27,20 @@ export const runCommand: RunCommand = (executable, args, options = {}) =>
   new Promise((resolve, reject) => {
     options.signal?.throwIfAborted()
     const operation = options.label ?? describeCommand(executable, args).label
-    const child = spawn(executable, args, {
+    const commandEnv = { ...process.env, ...options.env }
+    let command = { executable, args, env: commandEnv }
+    if (process.platform === "win32") {
+      try {
+        command = resolveWindowsCommand(executable, args, commandEnv)
+      } catch (error) {
+        if (!(error instanceof Error)) throw error
+        reject(new CommandExecutionError(`${operation} could not start. ${error.message}`))
+        return
+      }
+    }
+    const child = spawn(command.executable, command.args, {
       cwd: options.cwd,
-      env: { ...process.env, ...options.env },
+      env: command.env,
       stdio: ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32",
     })

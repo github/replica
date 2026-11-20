@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto"
 import { closeSync, fsyncSync, openSync, writeFileSync } from "node:fs"
-import { lstat, mkdir } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 import { ROOT_CONTEXT, SpanStatusCode, trace, type Span } from "@opentelemetry/api"
 import { resourceFromAttributes } from "@opentelemetry/resources"
@@ -9,6 +8,7 @@ import pino from "pino"
 
 import { CommandExecutionError } from "../command/index.ts"
 import { describeCommand } from "../command/describe/index.ts"
+import { privateDirectory, privateFile } from "../private-files/index.ts"
 import {
   wizardPhases,
   type InstallerUI,
@@ -19,13 +19,16 @@ import {
 
 export async function startInstallerTelemetry(configurationPath: string) {
   const directory = join(dirname(resolve(configurationPath)), "logs")
-  await mkdir(directory, { recursive: true, mode: 0o700 })
-  const metadata = await lstat(directory)
-  if (!metadata.isDirectory() || (metadata.mode & 0o077) !== 0)
-    throw new Error("Installer diagnostics require a private, non-symlink logs directory (0700).")
+  await privateDirectory(directory)
   const runId = randomUUID()
   const path = join(directory, `${new Date().toISOString().replaceAll(":", "-")}-${runId}.jsonl`)
   const descriptor = openSync(path, "wx", 0o600)
+  try {
+    await privateFile(path)
+  } catch (error) {
+    closeSync(descriptor)
+    throw error
+  }
   let exportFailure: unknown
   const logger = pino(
     { base: null, timestamp: pino.stdTimeFunctions.isoTime },
