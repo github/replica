@@ -22,6 +22,7 @@ from typing import Any, Callable, Iterator, Mapping, Protocol, Sequence
 
 from .connectors import (
     Artifact,
+    Cancellation,
     Candidate,
     ConnectorError,
     ContentDigest,
@@ -129,6 +130,8 @@ CancellationRecoveryHook = Callable[
     [str, OperationContext],
     None,
 ]
+CredentialRefresh = Callable[[OperationContext], Credential | None]
+TokenProviderFactory = Callable[[], AzureTokenProvider]
 ConnectionFactory = Callable[[], Any]
 
 _TERMINAL_JOB_STATES = {"succeeded", "failed", "cancelled"}
@@ -1629,6 +1632,7 @@ class AzureContainerAppsTrainingConnector:
         poll_interval_seconds: float = 2,
         sleep: Callable[[float], None] = time.sleep,
         cancellation_recovery_hook: CancellationRecoveryHook,
+        credential_refresh: CredentialRefresh | None = None,
     ):
         self.transport = transport
         self.job_name = job_name
@@ -1636,6 +1640,7 @@ class AzureContainerAppsTrainingConnector:
         self.poll_interval_seconds = poll_interval_seconds
         self.sleep = sleep
         self.cancellation_recovery_hook = cancellation_recovery_hook
+        self.credential_refresh = credential_refresh
 
     def train(
         self,
@@ -1674,7 +1679,8 @@ class AzureContainerAppsTrainingConnector:
                 "budgetMode": context.budget_mode,
             },
         }
-        token = credential.value if credential is not None else None
+        active_credential = self._credential(context, credential)
+        token = active_credential.value if active_credential is not None else None
         try:
             started = self.transport.start(
                 self.job_name,
@@ -1703,9 +1709,15 @@ class AzureContainerAppsTrainingConnector:
             try:
                 check_context(context)
             except ConnectorError:
-                self._cancel(execution_id, token, context)
+                self._cancel(execution_id, active_credential, context)
                 raise
             try:
+                active_credential = self._credential(context, active_credential)
+                token = (
+                    active_credential.value
+                    if active_credential is not None
+                    else None
+                )
                 status = self.transport.status(
                     execution_id,
                     bearer_token=token,
@@ -1714,9 +1726,9 @@ class AzureContainerAppsTrainingConnector:
                 try:
                     check_context(context)
                 except ConnectorError:
-                    self._cancel(execution_id, token, context)
+                    self._cancel(execution_id, active_credential, context)
                     raise
-                self._cancel(execution_id, token, context)
+                self._cancel(execution_id, active_credential, context)
                 raise ConnectorError(
                     "azure_training_unavailable",
                     "The Azure training job status is unavailable.",
@@ -1726,10 +1738,10 @@ class AzureContainerAppsTrainingConnector:
             try:
                 check_context(context)
             except ConnectorError:
-                self._cancel(execution_id, token, context)
+                self._cancel(execution_id, active_credential, context)
                 raise
             if not isinstance(status, Mapping):
-                self._cancel(execution_id, token, context)
+                self._cancel(execution_id, active_credential, context)
                 raise ConnectorError(
                     "azure_training_response_invalid",
                     "Azure returned an invalid training status.",
@@ -1737,7 +1749,7 @@ class AzureContainerAppsTrainingConnector:
                 )
             state = status.get("state")
             if not isinstance(state, str):
-                self._cancel(execution_id, token, context)
+                self._cancel(execution_id, active_credential, context)
                 raise ConnectorError(
                     "azure_training_response_invalid",
                     "Azure returned an invalid training state.",
@@ -1746,7 +1758,7 @@ class AzureContainerAppsTrainingConnector:
             if state in _TERMINAL_JOB_STATES:
                 break
             if state not in _ACTIVE_JOB_STATES:
-                self._cancel(execution_id, token, context)
+                self._cancel(execution_id, active_credential, context)
                 raise ConnectorError(
                     "azure_training_response_invalid",
                     "Azure returned an unsupported training state.",
@@ -1775,7 +1787,7 @@ class AzureContainerAppsTrainingConnector:
     def _cancel(
         self,
         execution_id: str,
-        token: str | None,
+        credential: Credential | None,
         context: OperationContext,
     ) -> None:
         recovery_error: Exception | None = None
@@ -1785,7 +1797,11 @@ class AzureContainerAppsTrainingConnector:
             recovery_error = error
         for attempt in range(3):
             try:
-                self.transport.cancel(execution_id, bearer_token=token)
+                refreshed = self._credential(context, credential)
+                self.transport.cancel(
+                    execution_id,
+                    bearer_token=(refreshed.value if refreshed is not None else None),
+                )
                 return
             except Exception:
                 if attempt < 2:
@@ -1796,6 +1812,41 @@ class AzureContainerAppsTrainingConnector:
                 "Azure training cancellation failed and could not be scheduled for recovery.",
                 category="internal",
             ) from recovery_error
+
+    def _credential(
+        self,
+        context: OperationContext,
+        current: Credential | None,
+    ) -> Credential | None:
+        now = time.monotonic()
+        if (
+            current is not None
+            and current.expires_at > now
+            and current.expires_at >= min(context.deadline, now + 30)
+        ):
+            return current
+        if self.credential_refresh is None:
+            if current is None:
+                return None
+            raise ConnectorError(
+                "credential_refresh_required",
+                "The Azure training credential expires before the operation completes.",
+                category="unauthorized",
+            )
+        refreshed = self.credential_refresh(context)
+        if refreshed is None:
+            return None
+        if (
+            refreshed.scope != context.scope
+            or refreshed.operation_id != context.operation_id
+            or refreshed.expires_at <= time.monotonic()
+        ):
+            raise ConnectorError(
+                "credential_invalid",
+                "The refreshed Azure credential is not valid for this operation.",
+                category="unauthorized",
+            )
+        return refreshed
 
 
 class AzureEndpointInferenceConnector:
@@ -2003,6 +2054,30 @@ class AzureManagedIdentityCredentialConnector(_AzureScopedConnector):
         )
 
 
+@dataclass(frozen=True)
+class _TrainingCredentialRefresh:
+    provider_factory: TokenProviderFactory
+    scope: RuntimeScope
+
+    def __call__(self, context: OperationContext) -> Credential | None:
+        refresh_context = OperationContext(
+            operation_id=context.operation_id,
+            idempotency_key=context.idempotency_key,
+            scope=context.scope,
+            owner=context.owner,
+            deadline=max(context.deadline, time.monotonic() + 300),
+            cancellation=Cancellation(),
+            max_credits=context.max_credits,
+            budget_mode=context.budget_mode,
+        )
+        credentials = AzureManagedIdentityCredentialConnector(
+            self.provider_factory(),
+            self.scope,
+            allowed_audiences=("training",),
+        )
+        return credentials.acquire("training", refresh_context)
+
+
 class AzureObservabilityConnector(_AzureScopedConnector):
     """Emit allowlisted usage and operation fields to Pino/OpenTelemetry bridges."""
 
@@ -2110,6 +2185,7 @@ def create_azure_connector_bundle(
     training: Mapping[str, AzureContainerAppsTrainingConnector],
     inference: Mapping[str, AzureEndpointInferenceConnector],
     token_provider: AzureTokenProvider,
+    training_token_provider_factory: TokenProviderFactory,
     credential_audiences: Sequence[str],
     telemetry_sink: AzureTelemetrySink,
     retention_hook: RetentionHook | None = None,
@@ -2120,6 +2196,19 @@ def create_azure_connector_bundle(
         scope,
         retention_hook=retention_hook,
     )
+    credentials = AzureManagedIdentityCredentialConnector(
+        token_provider,
+        scope,
+        allowed_audiences=credential_audiences,
+    )
+
+    refresh_training_credential = _TrainingCredentialRefresh(
+        training_token_provider_factory,
+        scope,
+    )
+    for connector in training.values():
+        connector.credential_refresh = refresh_training_credential
+
     connectors = RuntimeConnectors(
         tasksets=AzureBlobTasksetConnector(
             blob_container,
@@ -2135,11 +2224,7 @@ def create_azure_connector_bundle(
         ),
         training=training,
         inference=inference,
-        credentials=AzureManagedIdentityCredentialConnector(
-            token_provider,
-            scope,
-            allowed_audiences=credential_audiences,
-        ),
+        credentials=credentials,
         observability=AzureObservabilityConnector(telemetry_sink, scope),
     )
     return AzureConnectorBundle(connectors, scope)

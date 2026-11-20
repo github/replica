@@ -5,8 +5,10 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import pickle
 import tarfile
 import tempfile
+import threading
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -779,6 +781,8 @@ class _TrainingClient:
     ):
         self.requests = []
         self.cancelled = []
+        self.status_tokens = []
+        self.cancel_tokens = []
         self._cancellation = cancellation
         self._fail_after_cancellation = fail_after_cancellation
         self._cancel_failures = cancel_failures
@@ -792,7 +796,8 @@ class _TrainingClient:
         return {"executionId": "training-1"}
 
     def status(self, job_id, *, bearer_token):
-        del job_id, bearer_token
+        del job_id
+        self.status_tokens.append(bearer_token)
         self._polls += 1
         if self._cancellation is not None and self._polls == 1:
             self._cancellation.cancel()
@@ -838,7 +843,7 @@ class _TrainingClient:
         }
 
     def cancel(self, job_id, *, bearer_token):
-        del bearer_token
+        self.cancel_tokens.append(bearer_token)
         self.cancelled.append(job_id)
         if self._cancel_failures > 0:
             self._cancel_failures -= 1
@@ -901,10 +906,19 @@ class _IdentityClient:
     def __init__(self, expires_at):
         self.expires_at = expires_at
         self.audiences = []
+        self.lock = threading.Lock()
 
     def get_token(self, audience):
         self.audiences.append(audience)
         return SimpleNamespace(token="short-lived-token", expires_on=self.expires_at)
+
+
+class _IdentityFactory:
+    def __init__(self, expires_at):
+        self.expires_at = expires_at
+
+    def __call__(self):
+        return _IdentityClient(self.expires_at)
 
 
 class _TelemetrySink:
@@ -1452,6 +1466,96 @@ class AzureExecutionConnectorTest(unittest.TestCase):
             next(item.quantity for item in result.usage if item.kind == "training_credits"),
             8,
         )
+
+    def test_training_refreshes_short_lived_credentials_before_polling(self):
+        client = _TrainingClient()
+        refreshed = []
+        context = _context(
+            self.scope,
+            "refresh-training-token",
+            deadline=time.monotonic() + 300,
+            max_credits=7,
+            budget_mode="hard",
+        )
+        initial = Credential(
+            "initial-token",
+            time.monotonic() + 1,
+            "training",
+            self.scope,
+            context.operation_id,
+        )
+
+        def refresh(selected):
+            credential = Credential(
+                f"refreshed-{len(refreshed) + 1}",
+                time.monotonic() + 120,
+                "training",
+                selected.scope,
+                selected.operation_id,
+            )
+            refreshed.append(credential)
+            return credential
+
+        connector = AzureContainerAppsTrainingConnector(
+            client,
+            "replica-training",
+            poll_interval_seconds=0,
+            sleep=lambda _: None,
+            cancellation_recovery_hook=lambda *_: None,
+            credential_refresh=refresh,
+        )
+
+        connector.train(
+            SimpleNamespace(metadata={"digest": "taskset-one"}, tasks=()),
+            Path("unused-work-directory"),
+            max_updates=3,
+            context=context,
+            credential=initial,
+        )
+
+        self.assertEqual(client.requests[0]["bearerToken"], "refreshed-1")
+        self.assertEqual(client.status_tokens, ["refreshed-1"])
+        self.assertEqual(len(refreshed), 1)
+
+    def test_expired_cleanup_credential_refreshes_after_the_operation_deadline(self):
+        context = _context(
+            self.scope,
+            "refresh-after-deadline",
+            deadline=time.monotonic() - 10,
+            max_credits=7,
+            budget_mode="hard",
+        )
+        expired = Credential(
+            "expired-token",
+            time.monotonic() - 5,
+            "training",
+            self.scope,
+            context.operation_id,
+        )
+        refreshed = []
+
+        def refresh(selected):
+            credential = Credential(
+                "cleanup-token",
+                time.monotonic() + 120,
+                "training",
+                selected.scope,
+                selected.operation_id,
+            )
+            refreshed.append(credential)
+            return credential
+
+        connector = AzureContainerAppsTrainingConnector(
+            _TrainingClient(),
+            "replica-training",
+            cancellation_recovery_hook=lambda *_: None,
+            credential_refresh=refresh,
+        )
+
+        selected = connector._credential(context, expired)
+
+        self.assertEqual(selected.value, "cleanup-token")
+        self.assertEqual(len(refreshed), 1)
 
     def test_unsupported_hard_budget_uses_provider_neutral_error_code(self):
         connector = AzureContainerAppsTrainingConnector(
@@ -2013,9 +2117,12 @@ def _conformance_fixture():
         training={training.name: training},
         inference={training.name: inference},
         token_provider=identity,
+        training_token_provider_factory=_IdentityFactory(time.time() + 600),
         credential_audiences=("training", "inference"),
         telemetry_sink=telemetry,
     )
+    case.assertIsNotNone(training.credential_refresh)
+    pickle.dumps(training.credential_refresh)
     bundle = taskset_bundle(directory)
     registered = azure.connectors.tasksets.register(
         bundle,
