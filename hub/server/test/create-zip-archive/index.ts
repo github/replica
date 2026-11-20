@@ -8,14 +8,14 @@ export interface TestZipEntry {
   mode?: number
 }
 
-/** Builds a small ZIP archive for tests, with control over unsafe header fields. */
+/** Builds a ZIP archive for tests, with control over unsafe header fields. */
 export function createZipArchive(entries: TestZipEntry[]): Buffer {
   const locals: Buffer[] = []
   const centrals: Buffer[] = []
   let offset = 0
   for (const entry of entries) {
     const name = Buffer.from(entry.name)
-    const bytes = Buffer.from(entry.bytes ?? "")
+    const bytes = Buffer.isBuffer(entry.bytes) ? entry.bytes : Buffer.from(entry.bytes ?? "")
     const method = entry.method ?? 8
     const data = method === 8 ? deflateRawSync(bytes) : bytes
     const checksum = crc32(bytes)

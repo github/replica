@@ -1,12 +1,18 @@
-import { randomBytes, randomUUID } from "node:crypto"
+import { createHash, randomBytes, randomUUID } from "node:crypto"
 import { once } from "node:events"
+import { createReadStream } from "node:fs"
+import { mkdir, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises"
 import { createServer, request as httpRequest, type IncomingHttpHeaders } from "node:http"
 import type { AddressInfo } from "node:net"
+import path from "node:path"
+import { Readable } from "node:stream"
 import express from "express"
-import { describe, expect, it, vi, type Mock } from "vitest"
+import { describe, expect, it, onTestFinished, vi, type Mock } from "vitest"
 
+import { extractDistPackage } from "../../../../domains/build-artifacts/extract-dist-package"
 import { createPreviewSession } from "../../../../domains/build-preview/create-preview-session"
 import { createSharePreviewSession } from "../../../../domains/public-sharing/create-share-preview-session"
+import { createZipArchive } from "../../../../test/create-zip-archive"
 import type { BuildPreviewRouteDependencies } from "../../types"
 import { get } from "."
 
@@ -20,6 +26,7 @@ async function request(
   origin: string,
   path: string,
   headers: Record<string, string>,
+  consume?: (chunk: Buffer) => void,
 ): Promise<RouteResponse> {
   return new Promise((resolve, reject) => {
     const url = new URL(origin)
@@ -33,7 +40,10 @@ async function request(
       },
       (response) => {
         const chunks: Buffer[] = []
-        response.on("data", (chunk: Buffer) => chunks.push(chunk))
+        response.on("data", (chunk: Buffer) => {
+          if (consume) consume(chunk)
+          else chunks.push(chunk)
+        })
         response.on("end", () =>
           resolve({
             status: response.statusCode ?? 0,
@@ -247,6 +257,129 @@ describe("get()", () => {
       expect(narrow.headers["cross-origin-resource-policy"]).toBe("cross-origin")
     })
   })
+
+  it("serves a packaged 100 MiB asset through ZIP import and immutable Azure artifact storage", async () => {
+    const root = await mkdtemp(path.resolve(".preview-static-file-test-"))
+    onTestFinished(() => rm(root, { recursive: true, force: true }))
+    const maximumBytes = 100 * 1024 * 1024
+    await mkdir(path.join(root, "dist/assets"), { recursive: true })
+    await writeFile(path.join(root, "dist/index.html"), "")
+    const assetPath = path.join(root, "dist/assets/data.bin")
+    const asset = await open(assetPath, "w")
+    try {
+      await asset.truncate(maximumBytes)
+      await asset.write(Buffer.from("first"), 0, 5, 0)
+      await asset.write(Buffer.from("last"), 0, 4, maximumBytes - 4)
+    } finally {
+      await asset.close()
+    }
+    const sourceDigest = createHash("sha256")
+    const source = createReadStream(assetPath) as AsyncIterable<Buffer>
+    for await (const chunk of source) sourceDigest.update(chunk)
+    const expectedDigest = sourceDigest.digest("hex")
+    const packageModule = new URL(
+      "../../../../../../actions/build/scripts/create-dist-package/index.mjs",
+      import.meta.url,
+    ).href
+    const { createDistPackage } = (await import(packageModule)) as {
+      createDistPackage: (root: string, configRoot: string, output: string) => Promise<number>
+    }
+    const output = path.join(root, "package")
+    await createDistPackage(root, root, output)
+    const archive = createZipArchive(
+      await Promise.all(
+        ["dist/index.html", "dist/assets/data.bin"].map(async (name) => ({
+          name,
+          bytes: await readFile(path.join(output, name)),
+        })),
+      ),
+    )
+    const imported = extractDistPackage(archive)
+    const importedAsset = imported.files.find((file) => file.path === "dist/assets/data.bin")!
+    const blobs = new Map<string, Uint8Array>()
+    vi.doMock("@azure/identity", () => ({ ManagedIdentityCredential: class {} }))
+    vi.doMock("@azure/storage-blob", () => ({
+      BlobServiceClient: class {
+        getContainerClient() {
+          return {
+            getBlockBlobClient(key: string) {
+              return {
+                uploadData(bytes: Uint8Array, options: { conditions: { ifNoneMatch: string } }) {
+                  if (options.conditions.ifNoneMatch === "*" && blobs.has(key)) {
+                    return Promise.reject(
+                      Object.assign(new Error("The immutable blob already exists."), {
+                        details: { errorCode: "ConditionNotMet" },
+                      }),
+                    )
+                  }
+                  blobs.set(key, bytes)
+                  return Promise.resolve()
+                },
+                download() {
+                  const bytes = blobs.get(key)!
+                  return Promise.resolve({
+                    contentLength: bytes.byteLength,
+                    readableStreamBody: Readable.from(
+                      (function* () {
+                        for (let offset = 0; offset < bytes.byteLength; offset += 1024 * 1024) {
+                          yield bytes.subarray(offset, offset + 1024 * 1024)
+                        }
+                      })(),
+                    ),
+                  })
+                },
+              }
+            },
+          }
+        }
+      },
+    }))
+    onTestFinished(() => {
+      vi.doUnmock("@azure/identity")
+      vi.doUnmock("@azure/storage-blob")
+    })
+    const { createArtifactStorage } =
+      await import("../../../../domains/artifacts/create-artifact-storage")
+    const storage = await createArtifactStorage({
+      provider: "azure-blob",
+      accountUrl: "https://example.blob.core.windows.net",
+      container: "artifacts",
+    })
+    expect(await storage.write("asset-key", importedAsset.bytes)).toEqual({ status: "ok" })
+    expect(await storage.write("asset-key", Uint8Array.of(9))).toEqual({
+      status: "already-exists",
+    })
+
+    await withServeRoute(async ({ origin, buildId, cookie, dependencies, findArtifact }) => {
+      dependencies.storage = storage
+      findArtifact.mockImplementation((_buildId, artifactPath) =>
+        Promise.resolve(
+          artifactPath === "dist/assets/data.bin"
+            ? { storageKey: "asset-key", byteLength: importedAsset.bytes.byteLength }
+            : null,
+        ),
+      )
+      let receivedBytes = 0
+      const digest = createHash("sha256")
+
+      const response = await request(
+        origin,
+        "/assets/data.bin",
+        requestHeaders(buildId, origin, cookie),
+        (chunk) => {
+          receivedBytes += chunk.byteLength
+          digest.update(chunk)
+        },
+      )
+
+      expect(response.status).toBe(200)
+      expect(response.headers["content-length"]).toBe(String(maximumBytes))
+      expect(response.headers["content-type"]).toBe("application/octet-stream")
+      expect(response.headers["cache-control"]).toBe("private, max-age=31536000, immutable")
+      expect(receivedBytes).toBe(maximumBytes)
+      expect(digest.digest("hex")).toBe(expectedDigest)
+    })
+  }, 15_000)
 
   it("serves the generated hosted bridge only to an authorized preview session", async () => {
     await withServeRoute(async ({ origin, buildId, cookie, dependencies, findArtifact, read }) => {

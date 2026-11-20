@@ -9,7 +9,7 @@ export const CONTENT_TYPES = {
   ".wasm": "application/wasm",
 }
 export const MAX_ENTRIES = 2_000
-export const MAX_FILE_BYTES = 25 * 1024 * 1024
+export const MAX_FILE_BYTES = 100 * 1024 * 1024
 export const MAX_PATH_DEPTH = 20
 export const MAX_SCREENSHOT_BYTES = 25 * 1024 * 1024
 export const MAX_SCREENSHOT_HEIGHT = 16_384

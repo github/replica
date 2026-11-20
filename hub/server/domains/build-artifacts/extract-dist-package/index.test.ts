@@ -88,6 +88,14 @@ describe("extractDistPackage", () => {
       }
     }
 
+    it("rejects a static file one byte larger than 100 MiB", () => {
+      const archive = createZipArchive([
+        { name: "dist/index.html", bytes: Buffer.alloc(100 * 1024 * 1024 + 1) },
+      ])
+
+      expect(() => extractDistPackage(archive)).toThrow("dist/index.html exceeds its size limit.")
+    })
+
     it("accepts a legacy package with full dist output and screenshots", () => {
       const archive = createZipArchive([
         ...dist(),
