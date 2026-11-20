@@ -155,6 +155,7 @@ export interface DecisionModelRouteDependencies {
     repositoryId: string
     actorMembershipId: string
     idempotencyKey: string
+    expectedConfigurationGeneration: number
   }): Promise<{ created: boolean; job: DecisionTrainingJobResponse }>
   getTrainingJob(input: {
     repositoryId: string

@@ -119,6 +119,12 @@ Training and inference usage accept a decimal quantity and unit plus an optional
 
 `decision.recover-training` lists active PostgreSQL records and re-enqueues each stable job ID. Runtime composition registers this processor and its schedule when decision-runtime configuration is present. This preserves the existing rule that Prisma writes and BullMQ enqueueing are not one transaction.
 
+## Frontend boundary
+
+The Learnings page exposes the existing control-plane overview and mutations to current Hub administrators with repository access. It supports bounded repository settings, preflight evidence coverage and blockers, explicit training confirmation, job cancellation, candidate comparison and rejection, promotion, rollback, and saved Build findings. It never promotes automatically and identifies the deterministic fixture backend as non-production contract evidence.
+
+Candidate review includes absolute baseline and candidate metrics, their changes, per-learning gains or regressions, duration, usage and cost. Build findings identify the accepted learning, route, captured viewport and theme, and link back to the evaluated Build. Legacy evaluation summaries that predate structured findings remain visibly unavailable rather than being inferred.
+
 ## Non-goals
 
-This layer does not add the Learnings page UI, Azure decision-runtime connectors, automatic promotion, pooled GPUs, multi-region scheduling, browser capture controls, or model artifact storage in Hub.
+This layer does not add Azure decision-runtime connectors, automatic promotion, pooled GPUs, multi-region scheduling, browser capture controls, or model artifact storage in Hub.

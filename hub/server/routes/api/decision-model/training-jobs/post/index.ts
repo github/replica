@@ -9,6 +9,7 @@ import type { DecisionModelRouteDependencies } from "../../types.ts"
 const body = z
   .object({
     idempotencyKey: z.string().regex(/^[A-Za-z0-9._:-]{1,100}$/),
+    expectedConfigurationGeneration: z.number().int().positive(),
   })
   .strict()
 
@@ -24,6 +25,7 @@ export function post(dependencies: DecisionModelRouteDependencies): RequestHandl
           repositoryId,
           actorMembershipId: session.membershipId,
           idempotencyKey: input.idempotencyKey,
+          expectedConfigurationGeneration: input.expectedConfigurationGeneration,
         }),
       )
     } catch (error) {

@@ -156,6 +156,7 @@ describe("decision training orchestration", () => {
       repositoryId,
       actorMembershipId: membershipId,
       idempotencyKey: "repository-1:training-1",
+      expectedConfigurationGeneration: 3,
     }
 
     await expect(requestDecisionTraining(input, deps)).resolves.toEqual({
@@ -193,12 +194,37 @@ describe("decision training orchestration", () => {
           repositoryId,
           actorMembershipId: membershipId,
           idempotencyKey: existing.idempotencyKey,
+          expectedConfigurationGeneration: 3,
         },
         deps,
       ),
     ).resolves.toEqual({ created: false, job: existing })
     expect(getConfiguration).not.toHaveBeenCalled()
     expect(prepareTaskset).not.toHaveBeenCalled()
+  })
+
+  it("rejects a new request when the confirmed settings generation changed", async () => {
+    const prepareTaskset = vi.fn()
+    const createOrGetJob = vi.fn()
+    const deps = dependencies({
+      prepareTaskset,
+      store: { ...dependencies().store, createOrGetJob },
+    })
+
+    await expect(
+      requestDecisionTraining(
+        {
+          repositoryId,
+          actorMembershipId: membershipId,
+          idempotencyKey: "stale-settings",
+          expectedConfigurationGeneration: 2,
+        },
+        deps,
+      ),
+    ).rejects.toMatchObject({ code: "configuration_stale" })
+
+    expect(prepareTaskset).not.toHaveBeenCalled()
+    expect(createOrGetJob).not.toHaveBeenCalled()
   })
 
   it("rejects training when the repository has reached its explicit budget", async () => {
@@ -219,6 +245,7 @@ describe("decision training orchestration", () => {
           repositoryId,
           actorMembershipId: membershipId,
           idempotencyKey: "budgeted-request",
+          expectedConfigurationGeneration: 3,
         },
         deps,
       ),
