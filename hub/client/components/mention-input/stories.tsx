@@ -44,6 +44,13 @@ export const PlainText: Story = { args: { value: "Please review the spacing." } 
 
 export const ManagedUser: Story = {
   args: { value: "Please review @mona_ent" },
+  decorators: [
+    (Story) => (
+      <div style={{ width: "28rem" }}>
+        <Story />
+      </div>
+    ),
+  ],
   render: function ManagedUserStory(args) {
     const [value, setValue] = useState(args.value)
     const source = useMemo(
