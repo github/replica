@@ -78,15 +78,16 @@ describe("listGitHubBuildsAwaitingImport", () => {
     expect(listed).not.toContainEqual(build)
   })
 
-  it("does not let failed Builds consume the direct retry limit", async () => {
+  it("retries failed Builds only while their author lookup is pending", async () => {
     const repository = await createRepository()
-    const queued = await repository.createBuild({
-      state: "queued",
-      createdAt: new Date(createdAfter.getTime() + 1),
-    })
-    const unresolved = await repository.createBuild({
+    const authorPending = await repository.createBuild({
       state: "failed",
       failureSummary: "The package is invalid.",
+    })
+    const completed = await repository.createBuild({
+      state: "failed",
+      failureSummary: "The package is invalid.",
+      workflowCompletedAt: new Date(),
     })
     const deselected = await repository.createBuild({
       state: "failed",
@@ -100,12 +101,11 @@ describe("listGitHubBuildsAwaitingImport", () => {
       authorProviderUserId: "9",
     })
 
-    const listed = await listGitHubBuildsAwaitingImport(prisma, { createdAfter, limit: 1 })
+    const listed = await listGitHubBuildsAwaitingImport(prisma, { createdAfter, limit: 10_000 })
 
-    expect(listed).toEqual([queued])
-    const all = await listGitHubBuildsAwaitingImport(prisma, { createdAfter })
-    for (const failed of [unresolved, deselected, attributed]) {
-      expect(all).not.toContainEqual(failed)
+    expect(listed).toContainEqual(authorPending)
+    for (const settled of [completed, deselected, attributed]) {
+      expect(listed).not.toContainEqual(settled)
     }
   })
 })

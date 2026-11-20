@@ -60,7 +60,7 @@ export async function importGitHubWorkflowRun(
       run,
     })
     if (settled) {
-      logger.info({ runId: run.id }, "Stopped unfinished Build from a deselected workflow")
+      logger.info({ runId: run.id }, "Settled the Build from a deselected workflow")
     }
     return { dist: "ignored", screenshots: "absent" }
   }
