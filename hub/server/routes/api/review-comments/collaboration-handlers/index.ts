@@ -25,7 +25,7 @@ const readVersion = z.strictObject({
 const candidateQuery = z.strictObject({
   q: z
     .string()
-    .regex(/^[A-Za-z0-9-]{0,39}$/)
+    .regex(/^[A-Za-z0-9_-]{0,39}$/)
     .default(""),
 })
 

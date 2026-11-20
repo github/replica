@@ -10,6 +10,8 @@ Resolution is thread state, not message state. Each real resolve or reopen trans
 
 Local sessions can view and change reviews only for active repositories with a configured local path. The local sign-in still uses one fixed identity; collaborators in automated tests are separate saved identities, not another sign-in mode. GitHub sessions can review only non-local repositories included in their current installation access. Hub verifies the signed-in GitHub subject's current repository permission through the configured App. The route also rechecks the live session and persisted repository visibility. These checks do not grant any Hub or Entra role.
 
+GitHub review access and mentions support Enterprise Managed User logins, including their underscore and enterprise shortcode. Permission checks still bind the returned account to its numeric GitHub identity.
+
 Every query also binds prototype, Build, thread, and comment identifiers back to the requested repository, so an identifier from another repository or prototype is not usable through the route. The workspace advertises review and sharing capabilities on each repository instead of inferring them from the sign-in provider.
 
 ## Product API
