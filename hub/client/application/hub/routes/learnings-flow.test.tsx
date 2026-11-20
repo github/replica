@@ -132,6 +132,106 @@ function learningsResponse() {
   }
 }
 
+function decisionModelOverview(evaluated: boolean) {
+  const build = {
+    id: "77777777-8888-4999-8aaa-bbbbbbbbbbbb",
+    number: 42,
+    prototypeId: "1",
+  }
+  return {
+    preflight: {
+      state: "ready" as const,
+      counts: {
+        prototypes: 1,
+        builds: 1,
+        pages: 1,
+        screenshots: 4,
+        questions: 1,
+        samples: 3,
+        tasks: 3,
+        train: 1,
+        dev: 1,
+        test: 1,
+        follows: 2,
+        breaks: 1,
+      },
+      warnings: [],
+      reasons: [],
+      digests: {
+        export: digest,
+        reviewSnapshot: digest,
+        buildSet: digest,
+        questionSet: digest,
+        taskset: digest,
+      },
+    },
+    configuration: {
+      enabled: true,
+      generation: 3,
+      backend: "fixture",
+      maxUpdates: 8,
+      maxSeconds: 300,
+      monthlyBudgetCredits: "10",
+    },
+    jobs: [],
+    candidates: [],
+    promotion: {
+      candidateId: "33333333-4444-4555-8666-777777777777",
+      runtimeCandidateId: "fixture-candidate-1",
+      generation: 2,
+      operation: "promote" as const,
+      rollbackAvailable: false,
+    },
+    promotionHistory: [],
+    evaluationBuilds: evaluated
+      ? []
+      : [
+          {
+            id: build.id,
+            number: build.number,
+            prototype: {
+              id: build.prototypeId,
+              name: "Settings",
+              branchName: "settings",
+            },
+          },
+        ],
+    evaluations: evaluated
+      ? [
+          {
+            id: "44444444-5555-4666-8777-888888888888",
+            build,
+            model: {
+              id: "33333333-4444-4555-8666-777777777777",
+              runtimeCandidateId: "fixture-candidate-1",
+              generation: 2,
+            },
+            questionDigest: digest,
+            screenshotSetDigest: digest,
+            responseDigest: digest,
+            findingsAvailable: true,
+            findings: [
+              {
+                learning: {
+                  id: "learning-1",
+                  text: "Use a visible label above every form field.",
+                },
+                route: "/settings/profile",
+                views: [{ viewport: "desktop", theme: "dark" }],
+                followsProbability: 0.82,
+                breaksProbability: 0.18,
+                explanation:
+                  "The promoted model found the Build more likely to follow the learning.",
+              },
+            ],
+            createdAt: "2026-11-20T15:00:00Z",
+          },
+        ]
+      : [],
+    deletions: [],
+  }
+}
+
 describe("Learnings frontend integration", () => {
   it("includes the repository in the document title", () => {
     expect(meta({ loaderData: learningsResponse() })).toEqual([
@@ -230,6 +330,64 @@ describe("Learnings frontend integration", () => {
 
     expect(runRequests).toHaveBeenCalledWith({ contentType: null, text: "" })
     expect(await screen.findByText("Hub will look for learnings shortly.")).toBeVisible()
+  })
+
+  it("evaluates an eligible Build through the route action and shows saved findings", async () => {
+    const store = createMockStore({ origin: window.location.origin })
+    const server = setupServer(...createMockHandlers(store))
+    const evaluationRequests = vi.fn()
+    let evaluated = false
+    server.use(
+      http.get(`${store.origin}/api/repositories/2001/learnings`, () =>
+        HttpResponse.json({
+          ...learningsResponse(),
+          capabilities: { administerHub: true, administerRepository: true },
+        }),
+      ),
+      http.get(`${store.origin}/api/repositories/2001/decision-model`, () =>
+        HttpResponse.json(decisionModelOverview(evaluated)),
+      ),
+      http.post(
+        `${store.origin}/api/repositories/2001/decision-model/builds/77777777-8888-4999-8aaa-bbbbbbbbbbbb/evaluation`,
+        async ({ request }) => {
+          evaluationRequests({
+            contentType: request.headers.get("content-type"),
+            text: await request.text(),
+          })
+          evaluated = true
+          return HttpResponse.json({
+            id: "44444444-5555-4666-8777-888888888888",
+            runtimeEvaluationId: "fixture-evaluation-1",
+            candidateId: "fixture-candidate-1",
+            generation: 2,
+            responseDigest: digest,
+            evaluations: [
+              {
+                learningId: "learning-1",
+                followsProbability: 0.82,
+                breaksProbability: 0.18,
+              },
+            ],
+            usage: [],
+          })
+        },
+      ),
+    )
+    const router = await renderHubFlow(server, "/repositories/2001/learnings", {
+      workspaceRoutes,
+    })
+
+    await router.settle(() =>
+      fireEvent.click(screen.getByRole("button", { name: "Evaluate Settings — Build 42" })),
+    )
+
+    expect(evaluationRequests).toHaveBeenCalledWith({ contentType: null, text: "" })
+    expect(
+      await screen.findByText(/promoted model found the Build more likely to follow the learning/),
+    ).toBeVisible()
+    expect(
+      screen.queryByRole("button", { name: "Evaluate Settings — Build 42" }),
+    ).not.toBeInTheDocument()
   })
 
   it("keeps the explicit run action for a queued automatic run", async () => {

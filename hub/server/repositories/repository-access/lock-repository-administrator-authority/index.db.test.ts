@@ -1,8 +1,10 @@
+import { randomUUID } from "node:crypto"
 import { describe, expect, it } from "vitest"
 import pg from "pg"
 
 import { RepositoryAccessLevel } from "../../../generated/prisma/client"
 import { prisma } from "../../../integrations/prisma"
+import { localDeveloperIdentity } from "../../../utils/local-developer-identity"
 import { getDatabaseUrl } from "../../../../test/database/get-database-url"
 import { waitForBlockedQuery } from "../../../../test/database/wait-for-blocked-query"
 import { lockRepositoryAdministratorAuthority } from "."
@@ -42,6 +44,30 @@ async function createAuthority(accessLevel: RepositoryAccessLevel) {
   return { grant, membership, provider, repository }
 }
 
+async function createLocalAuthority(
+  identity: { issuer: string; provider: string; subject: string } = localDeveloperIdentity,
+) {
+  const user = await prisma.user.create({ data: {} })
+  await prisma.externalIdentity.create({ data: { ...identity, userId: user.id } })
+  const membership = await prisma.membership.create({ data: { userId: user.id } })
+  const repository = await prisma.repository.create({
+    data: {
+      defaultBranch: "main",
+      localPath: `/local/prototypes/${randomUUID()}`,
+      nameWithOwner: `local/${randomUUID()}`,
+    },
+  })
+  await prisma.repositoryAccessGrant.create({
+    data: {
+      accessLevel: RepositoryAccessLevel.ADMIN,
+      membershipId: membership.id,
+      observedAt: new Date(),
+      repositoryId: repository.id,
+    },
+  })
+  return { membership, repository }
+}
+
 async function authorize(membershipId: string, repositoryId: string) {
   return prisma.$transaction((transaction) =>
     lockRepositoryAdministratorAuthority(transaction, { membershipId, repositoryId }),
@@ -53,6 +79,22 @@ describe("lockRepositoryAdministratorAuthority()", () => {
     const { membership, repository } = await createAuthority(RepositoryAccessLevel.ADMIN)
 
     await expect(authorize(membership.id, repository.id)).resolves.toBe(true)
+  })
+
+  it("authorizes the fixed local developer's active ADMIN grant for a local repository", async () => {
+    const { membership, repository } = await createLocalAuthority()
+
+    await expect(authorize(membership.id, repository.id)).resolves.toBe(true)
+  })
+
+  it("does not substitute an ordinary identity for fixed local authority", async () => {
+    const { membership, repository } = await createLocalAuthority({
+      issuer: "https://github.com",
+      provider: "github",
+      subject: randomUUID(),
+    })
+
+    await expect(authorize(membership.id, repository.id)).resolves.toBe(false)
   })
 
   it("locks repository before grant while overlapping admission changes", async () => {

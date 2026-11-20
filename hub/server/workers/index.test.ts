@@ -34,6 +34,7 @@ describe("worker startup", () => {
       clientDirectory: undefined,
     })
     vi.mocked(readDecisionRuntimeConfiguration).mockReturnValue({
+      allowInsecureLoopback: false,
       baseUrl: "https://runtime.example.test",
       credentialProvider: {} as never,
       environment: "fixture",

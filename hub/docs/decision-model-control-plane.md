@@ -101,6 +101,8 @@ REPLICA_DECISION_RUNTIME_ENVIRONMENT=production
 
 Hub hashes the public URL, provider selection, and explicit `fixture` or `production` environment for configuration identity. It never includes the token in that digest or writes it to PostgreSQL, BullMQ payloads, taskset bytes, logs, traces, or API responses. Each runtime request asks the provider for a short-lived operation credential. Production guidance is unavailable unless this runtime environment is explicitly `production` and its live promotion matches Hub.
 
+HTTPS remains required by default. A local development process may set `REPLICA_DECISION_RUNTIME_ALLOW_INSECURE_LOOPBACK=true` for an explicit `http://127.0.0.1`, `http://[::1]`, or `http://localhost` runtime. Hub rejects that flag outside development and still rejects plaintext non-loopback URLs.
+
 The runtime client requires bounded JSON responses and typed errors. It uses these authenticated interfaces:
 
 | HTTP interface | Purpose |

@@ -5,6 +5,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { LearningsPage } from "@pages/learnings-page"
 import { recordIdentifierSchema, workspaceResponseSchema } from "@application/hub/contracts"
 import {
+  decisionBuildEvaluationMutationResponseSchema,
   decisionCandidateRejectionMutationResponseSchema,
   decisionModelConfigurationResponseSchema,
   decisionModelOverviewResponseSchema,
@@ -182,6 +183,18 @@ async function submitDecisionModelAction(
       { method: "POST", body: { expectedGeneration } },
     )
     return "The previous decision model was restored as a new promotion generation."
+  }
+  const evaluation = source.pathname.match(
+    new RegExp(`^${prefix}/builds/([0-9a-f-]+)/evaluate$`, "i"),
+  )
+  if (evaluation?.[1]) {
+    await requestProductJson(
+      request,
+      `/api/repositories/${repositoryId}/decision-model/builds/${evaluation[1]}/evaluation`,
+      decisionBuildEvaluationMutationResponseSchema,
+      { method: "POST" },
+    )
+    return "The Build evaluation was saved with the promoted decision model."
   }
   const cancel = source.pathname.match(new RegExp(`^${prefix}/training/([0-9a-f-]+)/cancel$`, "i"))
   if (cancel?.[1]) {

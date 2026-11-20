@@ -17,7 +17,6 @@ export async function lockRepositoryAdministratorAuthority(
     WHERE "key" = 'github'
     FOR SHARE
   `
-  if (!provider?.enabled || !provider.selectedRevisionId) return false
 
   const [membership] = await database.$queryRaw<Array<{ lifecycle: string }>>`
     SELECT "lifecycle"::text
@@ -27,17 +26,30 @@ export async function lockRepositoryAdministratorAuthority(
   `
   if (membership?.lifecycle !== "ACTIVE") return false
 
+  const [localIdentity] = await database.$queryRaw<Array<{ id: string }>>`
+    SELECT external_identities."id"
+    FROM "external_identities"
+    JOIN "memberships"
+      ON memberships."user_id" = external_identities."user_id"
+    WHERE memberships."id" = ${input.membershipId}::uuid
+      AND external_identities."provider" = 'local'
+      AND external_identities."issuer" = 'local'
+      AND external_identities."subject" = 'local-developer'
+    FOR SHARE OF external_identities
+  `
+
   const [repository] = await database.$queryRaw<
-    Array<{ githubRepositoryId: bigint | null; removedAt: Date | null }>
+    Array<{ githubRepositoryId: bigint | null; localPath: string | null; removedAt: Date | null }>
   >`
     SELECT
       "github_repository_id" AS "githubRepositoryId",
+      "local_path" AS "localPath",
       "removed_at" AS "removedAt"
     FROM "repositories"
     WHERE "id" = ${input.repositoryId}::uuid
     FOR SHARE
   `
-  if (repository?.removedAt !== null || repository.githubRepositoryId === null) return false
+  if (!repository || repository.removedAt !== null) return false
 
   const [grant] = await database.$queryRaw<Array<{ accessLevel: string }>>`
     SELECT "access_level"::text AS "accessLevel"
@@ -46,5 +58,10 @@ export async function lockRepositoryAdministratorAuthority(
       AND "repository_id" = ${input.repositoryId}::uuid
     FOR SHARE
   `
-  return grant?.accessLevel === "ADMIN"
+  if (grant?.accessLevel !== "ADMIN") return false
+  if (repository.localPath !== null) return Boolean(localIdentity)
+  return (
+    repository.githubRepositoryId !== null &&
+    Boolean(provider?.enabled && provider.selectedRevisionId)
+  )
 }

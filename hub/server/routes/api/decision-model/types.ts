@@ -88,7 +88,7 @@ export interface DecisionModelOverview {
     responseDigest: string
     findingsAvailable: boolean
     findings: {
-      learning: { id: string }
+      learning: { id: string; text: string | null }
       route: string
       views: { viewport: string; theme: string }[]
       followsProbability: number

@@ -388,6 +388,17 @@ describe("decision-model routes", () => {
           createdAt: new Date("2026-11-18T12:10:00Z"),
         },
       ],
+      evaluationBuilds: [
+        {
+          id: "99999999-9999-4999-8999-999999999999",
+          number: 42,
+          prototype: {
+            id: "77777777-7777-4777-8777-777777777777",
+            name: "Settings",
+            branchName: "prototype/settings",
+          },
+        },
+      ],
       evaluations: [
         {
           id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
@@ -412,6 +423,7 @@ describe("decision-model routes", () => {
           createdAt: new Date("2026-11-18T12:15:00Z"),
         },
       ],
+      deletions: [],
     })
     const routeDependencies = createDecisionModelRouteDependencies({
       applicationOrigin: "http://127.0.0.1:5173",
@@ -462,6 +474,17 @@ describe("decision-model routes", () => {
           runtimeCandidateId: "runtime-candidate-2",
           previousRuntimeCandidateId: "runtime-candidate-1",
           createdAt: "2026-11-18T12:10:00.000Z",
+        },
+      ],
+      evaluationBuilds: [
+        {
+          id: "99999999-9999-4999-8999-999999999999",
+          number: 42,
+          prototype: {
+            id: "77777777-7777-4777-8777-777777777777",
+            name: "Settings",
+            branchName: "prototype/settings",
+          },
         },
       ],
       evaluations: [

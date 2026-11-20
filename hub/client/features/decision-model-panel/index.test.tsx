@@ -71,6 +71,15 @@ function available(): Extract<DecisionModelPanelData, { state: "available" }> {
       operation: "promote",
       rollbackAvailable: true,
     },
+    evaluationBuilds: [
+      {
+        id: "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff",
+        number: 42,
+        label: "Settings — Build 42",
+        evaluationPath:
+          "/repositories/2001/learnings/decision-model/builds/bbbbbbbb-cccc-4ddd-8eee-ffffffffffff/evaluate",
+      },
+    ],
     evaluations: [
       {
         id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
@@ -105,7 +114,7 @@ function available(): Extract<DecisionModelPanelData, { state: "available" }> {
 }
 
 function renderPanel(data: DecisionModelPanelData) {
-  render(
+  return render(
     <ThemeProvider>
       <DecisionModelPanel data={data} authenticityToken="csrf-token" />
     </ThemeProvider>,
@@ -240,6 +249,70 @@ describe("DecisionModelPanel()", () => {
     ).toBeVisible()
     expect(screen.getByText("Deletion pending")).toBeVisible()
     expect(screen.getByText("2 pending runtime deletion items; 0 failures.")).toBeVisible()
+  })
+
+  it("allows explicit fixture promotion without relaxing non-fixture eligibility", () => {
+    const fixture = available()
+    const ineligibleCandidate = { ...fixture.candidates[0]!, productionEligible: false }
+    const { rerender } = renderPanel({ ...fixture, candidates: [ineligibleCandidate] })
+    const fixtureCandidate = screen.getByRole("article", {
+      name: "Candidate fixture-candidate-2",
+    })
+
+    expect(within(fixtureCandidate).getByText("Development only")).toBeVisible()
+    expect(
+      within(fixtureCandidate).getByRole("button", { name: "Promote candidate" }),
+    ).toBeVisible()
+
+    rerender(
+      <ThemeProvider>
+        <DecisionModelPanel
+          data={{
+            ...fixture,
+            configuration: { ...fixture.configuration!, backend: "customer-runtime" },
+            candidates: [ineligibleCandidate],
+          }}
+          authenticityToken="csrf-token"
+        />
+      </ThemeProvider>,
+    )
+    const customerRuntimeCandidate = screen.getByRole("article", {
+      name: "Candidate fixture-candidate-2",
+    })
+    expect(within(customerRuntimeCandidate).getByText("Not eligible")).toBeVisible()
+    expect(
+      within(customerRuntimeCandidate).queryByRole("button", { name: "Promote candidate" }),
+    ).not.toBeInTheDocument()
+  })
+
+  it("offers an eligible successful Build for evaluation through a form action", () => {
+    renderPanel(available())
+
+    const evaluate = screen.getByRole("button", { name: "Evaluate Settings — Build 42" })
+    const form = evaluate.closest("form")
+    expect(form).toHaveAttribute(
+      "action",
+      "/repositories/2001/learnings/decision-model/builds/bbbbbbbb-cccc-4ddd-8eee-ffffffffffff/evaluate",
+    )
+    expect(form).toHaveAttribute("method", "post")
+    expect(form?.querySelector('[name="authenticity_token"]')).toHaveValue("csrf-token")
+  })
+
+  it.each([
+    {
+      label: "no promoted model",
+      change: (data: ReturnType<typeof available>) => ({ ...data, promotion: null }),
+    },
+    {
+      label: "no eligible successful Builds",
+      change: (data: ReturnType<typeof available>) => ({ ...data, evaluationBuilds: [] }),
+    },
+  ])("does not offer Build evaluation with $label", ({ change }) => {
+    renderPanel(change(available()))
+
+    expect(
+      screen.queryByRole("button", { name: /^Evaluate .+ — Build \d+$/ }),
+    ).not.toBeInTheDocument()
   })
 
   it("restores focus when promotion and rejection confirmations are cancelled", async () => {

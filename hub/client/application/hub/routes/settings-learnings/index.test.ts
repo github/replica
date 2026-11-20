@@ -218,7 +218,7 @@ describe("settings Learnings route", () => {
         runtimeCandidateId: "candidate-2",
         previousCandidateId: null,
         previousRuntimeCandidateId: null,
-        runtimeGeneration: 3,
+        generation: 3,
       },
     },
     {
@@ -235,7 +235,7 @@ describe("settings Learnings route", () => {
         runtimeCandidateId: "candidate-1",
         previousCandidateId: candidateId,
         previousRuntimeCandidateId: "candidate-2",
-        runtimeGeneration: 4,
+        generation: 4,
       },
     },
   ])("sends the exact $label mutation", async ({ form, endpoint, method, body, response }) => {

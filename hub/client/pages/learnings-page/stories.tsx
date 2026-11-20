@@ -90,6 +90,15 @@ const decisionModel: Extract<DecisionModelPanelData, { state: "available" }> = {
     operation: "promote",
     rollbackAvailable: true,
   },
+  evaluationBuilds: [
+    {
+      id: "bbbbbbbb-1111-4222-8333-555555555555",
+      number: 3,
+      label: "Navigation — Build 3",
+      evaluationPath:
+        "/repositories/2001/learnings/decision-model/builds/bbbbbbbb-1111-4222-8333-555555555555/evaluate",
+    },
+  ],
   evaluations: [
     {
       id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",

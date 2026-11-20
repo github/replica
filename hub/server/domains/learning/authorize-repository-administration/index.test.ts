@@ -10,7 +10,8 @@ describe("authorizeRepositoryAdministration()", () => {
         .fn()
         .mockResolvedValueOnce([{ enabled: true, selectedRevisionId: "provider-revision" }])
         .mockResolvedValueOnce([{ lifecycle: "ACTIVE" }])
-        .mockResolvedValueOnce([{ githubRepositoryId: 1n, removedAt: null }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ githubRepositoryId: 1n, localPath: null, removedAt: null }])
         .mockResolvedValueOnce([{ accessLevel: "ADMIN" }]),
     }
     const database = {

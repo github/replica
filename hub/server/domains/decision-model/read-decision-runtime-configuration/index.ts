@@ -3,6 +3,7 @@ import { createHash } from "node:crypto"
 import type { DecisionRuntimeCredentialProvider } from "../../../integrations/decision-runtime/create-decision-runtime-client/types.ts"
 
 export function readDecisionRuntimeConfiguration(environment: NodeJS.ProcessEnv): {
+  allowInsecureLoopback: boolean
   baseUrl: string
   credentialProvider: DecisionRuntimeCredentialProvider
   environment: "fixture" | "production"
@@ -26,8 +27,22 @@ export function readDecisionRuntimeConfiguration(environment: NodeJS.ProcessEnv)
     )
   }
   const url = new URL(baseUrl)
-  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) {
-    throw new Error("REPLICA_DECISION_RUNTIME_URL must be an HTTPS URL without credentials.")
+  const loopbackHosts = new Set(["127.0.0.1", "[::1]", "localhost"])
+  const insecureLoopback =
+    environment.NODE_ENV === "development" &&
+    environment.REPLICA_DECISION_RUNTIME_ALLOW_INSECURE_LOOPBACK === "true" &&
+    url.protocol === "http:" &&
+    loopbackHosts.has(url.hostname)
+  if (
+    (url.protocol !== "https:" && !insecureLoopback) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error(
+      "REPLICA_DECISION_RUNTIME_URL must be an HTTPS URL without credentials, or an explicitly allowed HTTP loopback URL in development.",
+    )
   }
   if (token.length < 32 || !/^[\x21-\x7e]+$/.test(token)) {
     throw new Error(
@@ -38,6 +53,7 @@ export function readDecisionRuntimeConfiguration(environment: NodeJS.ProcessEnv)
     .update(JSON.stringify({ baseUrl: url.href, authentication, environment: runtimeEnvironment }))
     .digest("hex")}`
   return {
+    allowInsecureLoopback: insecureLoopback,
     baseUrl: url.href,
     environment: runtimeEnvironment,
     credentialProvider: {

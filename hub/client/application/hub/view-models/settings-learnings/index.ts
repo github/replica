@@ -207,6 +207,12 @@ function decisionModelData(
       rejectPath: `/repositories/${repositoryId}/learnings/decision-model/candidates/${candidate.id}/reject`,
     })),
     promotion,
+    evaluationBuilds: overview.evaluationBuilds.map((build) => ({
+      id: build.id,
+      number: build.number,
+      label: `${build.prototype.name ?? build.prototype.branchName} — Build ${build.number}`,
+      evaluationPath: `/repositories/${repositoryId}/learnings/decision-model/builds/${build.id}/evaluate`,
+    })),
     evaluations: overview.evaluations.map((evaluation) => ({
       id: evaluation.id,
       buildNumber: evaluation.build.number,

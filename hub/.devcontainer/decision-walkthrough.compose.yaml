@@ -1,0 +1,25 @@
+services:
+  app:
+    ports:
+      - "127.0.0.1:3001:3002"
+    environment:
+      NODE_ENV: development
+      HUB_LOCAL_MODE: "true"
+      HUB_LOCAL_SIGN_IN: "true"
+      HUB_APPLICATION_ORIGIN: http://127.0.0.1:5173
+      HUB_PREVIEW_ORIGIN: http://preview.localhost:3001
+      ARTIFACT_STORAGE_PROVIDER: filesystem
+      ARTIFACT_STORAGE_DIRECTORY: /workspaces/replica/hub/storage/decision-walkthrough-artifacts
+      REPLICA_LEARNING_ROOT: /workspaces/replica/hub/storage/decision-walkthrough-learning
+      REPLICA_LEARNING_CLI: /workspaces/replica/packages/learning/bin/replica-learning.mjs
+      REPLICA_DECISION_RUNTIME_URL: http://127.0.0.1:8010
+      REPLICA_DECISION_RUNTIME_AUTHENTICATION: environment-token
+      REPLICA_DECISION_RUNTIME_TOKEN: ${REPLICA_RUNTIME_TOKEN}
+      REPLICA_DECISION_RUNTIME_ALLOW_INSECURE_LOOPBACK: "true"
+    volumes:
+      - decision-walkthrough-hub-node-modules:/workspaces/replica/hub/node_modules
+      - decision-walkthrough-learning-node-modules:/workspaces/replica/packages/learning/node_modules
+
+volumes:
+  decision-walkthrough-hub-node-modules:
+  decision-walkthrough-learning-node-modules:

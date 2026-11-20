@@ -229,8 +229,32 @@ export function createDecisionModelRouteDependencies(
         dependencies.preflightTaskset(input),
       ])
       const currentPromotion = overview.promotion
-      const evaluations = overview.evaluations.map((evaluation) => {
-        const summary = evaluationSummarySchema.safeParse(evaluation.summary)
+      const evaluationSummaries = overview.evaluations.map((evaluation) =>
+        evaluationSummarySchema.safeParse(evaluation.summary),
+      )
+      const learningIds = [
+        ...new Set(
+          evaluationSummaries.flatMap((summary) =>
+            summary.success ? summary.data.findings.map((finding) => finding.learning.id) : [],
+          ),
+        ),
+      ]
+      const learningTexts = new Map<string, string | null>(
+        await Promise.all(
+          learningIds.map(
+            async (learningId) =>
+              [
+                learningId,
+                await options.tasksetSource.getLearningText({
+                  repositoryId: input.repositoryId,
+                  learningId,
+                }),
+              ] as const,
+          ),
+        ),
+      )
+      const evaluations = overview.evaluations.map((evaluation, index) => {
+        const summary = evaluationSummaries[index]!
         return {
           id: evaluation.id,
           build: {
@@ -250,6 +274,10 @@ export function createDecisionModelRouteDependencies(
           findings: summary.success
             ? summary.data.findings.map((finding) => ({
                 ...finding,
+                learning: {
+                  id: finding.learning.id,
+                  text: learningTexts.get(finding.learning.id) ?? null,
+                },
                 explanation:
                   finding.explanation ??
                   (finding.breaksProbability > finding.followsProbability
@@ -326,6 +354,15 @@ export function createDecisionModelRouteDependencies(
           operation: presentPromotionOperation(promotion.operation),
           membershipId: promotion.promotedByMembershipId,
           createdAt: promotion.createdAt.toISOString(),
+        })),
+        evaluationBuilds: overview.evaluationBuilds.map((build) => ({
+          id: build.id,
+          number: build.number,
+          prototype: {
+            id: build.prototype.id,
+            name: build.prototype.name,
+            branchName: build.prototype.branchName,
+          },
         })),
         evaluations,
         deletions: (overview.deletions ?? []).map((deletion) => ({

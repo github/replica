@@ -174,6 +174,23 @@ export const decisionModelOverviewResponseSchema = z
         })
         .strict(),
     ),
+    evaluationBuilds: z
+      .array(
+        z
+          .object({
+            id: identifier,
+            number: z.number().int().positive(),
+            prototype: z
+              .object({
+                id: recordIdentifierSchema,
+                name: z.string().nullable(),
+                branchName: z.string().min(1),
+              })
+              .strict(),
+          })
+          .strict(),
+      )
+      .max(50),
     evaluations: z.array(
       z
         .object({
@@ -266,13 +283,15 @@ export const decisionTrainingMutationResponseSchema = z.preprocess(
   z.object({ id: identifier, state: trainingState }).loose(),
 ) satisfies z.ZodType<DecisionTrainingMutationResponse>
 
+export const decisionBuildEvaluationMutationResponseSchema = z.object({ id: identifier }).loose()
+
 export const decisionPromotionMutationResponseSchema = z
   .object({
     candidateId: identifier,
     runtimeCandidateId: z.string().min(1),
     previousCandidateId: identifier.nullable(),
     previousRuntimeCandidateId: z.string().min(1).nullable(),
-    runtimeGeneration: count,
+    generation: count,
   })
   .strict() satisfies z.ZodType<DecisionPromotionMutationResponse>
 

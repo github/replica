@@ -112,6 +112,11 @@ export interface DecisionModelOverviewResponse {
     membershipId: string | null
     createdAt: string
   }>
+  evaluationBuilds: Array<{
+    id: string
+    number: number
+    prototype: { id: string; name: string | null; branchName: string }
+  }>
   evaluations: Array<{
     id: string
     build: { id: string; number: number; prototypeId: string }
@@ -174,7 +179,7 @@ export interface DecisionPromotionMutationResponse {
   runtimeCandidateId: string
   previousCandidateId: string | null
   previousRuntimeCandidateId: string | null
-  runtimeGeneration: number
+  generation: number
 }
 
 export interface DecisionCandidateRejectionMutationResponse {

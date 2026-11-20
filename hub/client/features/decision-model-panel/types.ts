@@ -92,6 +92,12 @@ export type DecisionModelPanelData =
         operation: "promote" | "rollback"
         rollbackAvailable: boolean
       } | null
+      evaluationBuilds: Array<{
+        id: string
+        number: number
+        label: string
+        evaluationPath: string
+      }>
       evaluations: Array<{
         id: string
         buildNumber: number

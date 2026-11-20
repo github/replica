@@ -248,6 +248,9 @@ function AvailableDecisionModel({
               <CandidateCard
                 key={candidate.id}
                 candidate={candidate}
+                allowPromotion={
+                  candidate.productionEligible || data.configuration?.backend === "fixture"
+                }
                 expectedGeneration={generation}
                 authenticityToken={authenticityToken}
                 confirming={promoting === candidate.id}
@@ -332,6 +335,38 @@ function AvailableDecisionModel({
         )}
       </article>
 
+      <article className="decision-model-panel__card" aria-labelledby="decision-model-evaluate">
+        <Heading as="h3" size="4" id="decision-model-evaluate">
+          Evaluate a Build
+        </Heading>
+        <Text as="p">
+          Hub sends the selected Build&apos;s captured views and accepted-learning questions to the
+          currently promoted model, then saves the findings below.
+        </Text>
+        {!data.promotion ? (
+          <Text as="p" size="200" variant="muted">
+            Promote a candidate before evaluating a Build.
+          </Text>
+        ) : data.evaluationBuilds.length ? (
+          <ul className="decision-model-panel__findings">
+            {data.evaluationBuilds.map((build) => (
+              <li key={build.id}>
+                <form action={build.evaluationPath} method="post">
+                  <input type="hidden" name="authenticity_token" value={authenticityToken} />
+                  <Button type="submit" variant="secondary">
+                    Evaluate {build.label}
+                  </Button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <Text as="p" size="200" variant="muted">
+            No successful Builds with captured screenshots are available.
+          </Text>
+        )}
+      </article>
+
       <article className="decision-model-panel__card" aria-labelledby="decision-model-findings">
         <Heading as="h3" size="4" id="decision-model-findings">
           Latest Build evaluation
@@ -356,8 +391,10 @@ function AvailableDecisionModel({
                   <ul className="decision-model-panel__findings">
                     {evaluation.findings.map((finding) => (
                       <li key={`${finding.learningId}:${finding.route}`}>
-                        <strong>{finding.learningText ?? finding.learningId}</strong> on{" "}
-                        <code>{finding.route}</code>
+                        <Text as="p">
+                          <strong>{finding.learningText ?? finding.learningId}</strong> on{" "}
+                          <code>{finding.route}</code>
+                        </Text>
                         {finding.learningText === null ? (
                           <Text as="p" size="200" variant="muted">
                             The accepted learning text was removed after this evaluation.
@@ -529,6 +566,7 @@ function TrainingJobs({
 
 function CandidateCard({
   candidate,
+  allowPromotion,
   expectedGeneration,
   authenticityToken,
   confirming,
@@ -539,6 +577,7 @@ function CandidateCard({
   onCancelReject,
 }: {
   candidate: DecisionCandidate
+  allowPromotion: boolean
   expectedGeneration: number
   authenticityToken: string
   confirming: boolean
@@ -570,7 +609,9 @@ function CandidateCard({
             ? "Promoted"
             : candidate.productionEligible
               ? "Runtime eligible"
-              : "Not eligible"}
+              : allowPromotion
+                ? "Development only"
+                : "Not eligible"}
         </span>
       </div>
       <div
@@ -722,7 +763,7 @@ function CandidateCard({
         </form>
       ) : (
         <div className="decision-model-panel__actions">
-          {!candidate.promoted && candidate.productionEligible ? (
+          {!candidate.promoted && allowPromotion ? (
             <Button ref={promoteButton} type="button" variant="primary" onClick={onConfirm}>
               Promote candidate
             </Button>
