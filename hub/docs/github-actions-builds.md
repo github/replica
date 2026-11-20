@@ -175,9 +175,19 @@ Deletion events are still recorded when received, rather than confirmed synchron
 
 `replica-screenshots-v1` contains `screenshots/**` and `screenshots.json`, `{ "version": 1, "distDigest": "sha256:…" }`. `distDigest` is the SHA-256 of the sorted `path\0sha256\n` lines for every dist file and `templates.json`.
 
-Both packages use the same path, size, and entry-count limits as local Builds. Static files may be at most 100 MiB (104,857,600 bytes) each, but all uncompressed `dist/` files together must still fit within 100 MiB. A separate data asset must leave room for `index.html` and the rest of the app. Screenshots remain limited to 25 MiB each, the whole extracted package to 150 MiB, and the downloaded ZIP to 160 MiB. Path, entry-count, and archive checks are unchanged.
+Both packages use the same path, size, and entry-count limits as local Builds:
 
-Hub buffers the downloaded ZIP and extracted files in memory; storage writes also copy the current file to preserve its bytes during the write. Preview reads buffer one whole file. The larger per-file allowance does not increase the aggregate budgets, but can concentrate those allocations in one operation. Keep the default on-demand worker concurrency of one for the 1 GiB Azure runtime. Additional concurrent imports or large preview requests need memory headroom; increasing concurrency does not increase the memory budget.
+| Content                       | Limit                     |
+| ----------------------------- | ------------------------- |
+| Each static file              | 100 MiB (104,857,600 bytes) |
+| All uncompressed `dist/` files | 100 MiB                   |
+| Each screenshot               | 25 MiB                    |
+| All extracted package files   | 150 MiB                   |
+| Downloaded ZIP                | 160 MiB                   |
+
+A separate data asset must leave room for `index.html` and the rest of the app within the total `dist/` budget. Package validation also enforces path, entry-count, and archive protections.
+
+Hub buffers the downloaded ZIP and extracted files in memory; storage writes also copy the current file to preserve its bytes during the write. Keep the default on-demand worker concurrency of one for the 1 GiB Azure runtime. Additional concurrent imports need memory headroom. The [preview layer](build-previews.md#file-behavior) bounds buffered responses across concurrent HTTP requests independently of worker concurrency.
 
 To publish larger files, run Hub with this limit and update every selected workflow's Replica publish, screenshots, and optional build actions to the same reviewed revision containing it. Older action pins retain their earlier limits. Updating Replica alone neither deploys Hub nor changes downstream workflow references.
 

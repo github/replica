@@ -4,11 +4,12 @@ import { readBuildPreviewFile } from "."
 
 describe("readBuildPreviewFile()", () => {
   it("serves directory-style routes through the application entry point", async () => {
+    const bytes = new TextEncoder().encode("<h1>Checkout</h1>")
     const findArtifact = vi.fn().mockImplementation((_buildId: string, path: string) => {
       if (path === "dist/index.html") {
         return Promise.resolve({
           storageKey: "index-key",
-          byteLength: 15,
+          byteLength: bytes.byteLength,
         })
       }
       return Promise.resolve(null)
@@ -26,7 +27,7 @@ describe("readBuildPreviewFile()", () => {
           isReady: vi.fn(),
           read: vi.fn().mockResolvedValue({
             status: "ok",
-            bytes: new TextEncoder().encode("<h1>Checkout</h1>"),
+            bytes,
           }),
           write: vi.fn(),
           delete: vi.fn(),
@@ -46,13 +47,6 @@ describe("readBuildPreviewFile()", () => {
   })
 
   it("serves dotted routes declared by the template manifest", async () => {
-    const findArtifact = vi.fn().mockImplementation((_buildId: string, path: string) => {
-      const artifacts = {
-        "templates.json": { storageKey: "manifest-key", byteLength: 166 },
-        "dist/index.html": { storageKey: "index-key", byteLength: 15 },
-      }
-      return Promise.resolve(artifacts[path as keyof typeof artifacts] ?? null)
-    })
     const manifest = {
       version: 1,
       templates: [
@@ -65,6 +59,15 @@ describe("readBuildPreviewFile()", () => {
         },
       ],
     }
+    const manifestBytes = new TextEncoder().encode(JSON.stringify(manifest))
+    const htmlBytes = new TextEncoder().encode("<h1>Release notes</h1>")
+    const findArtifact = vi.fn().mockImplementation((_buildId: string, path: string) => {
+      const artifacts = {
+        "templates.json": { storageKey: "manifest-key", byteLength: manifestBytes.byteLength },
+        "dist/index.html": { storageKey: "index-key", byteLength: htmlBytes.byteLength },
+      }
+      return Promise.resolve(artifacts[path as keyof typeof artifacts] ?? null)
+    })
 
     const result = await readBuildPreviewFile(
       {
@@ -81,11 +84,11 @@ describe("readBuildPreviewFile()", () => {
               storageKey === "manifest-key"
                 ? {
                     status: "ok",
-                    bytes: new TextEncoder().encode(JSON.stringify(manifest)),
+                    bytes: manifestBytes,
                   }
                 : {
                     status: "ok",
-                    bytes: new TextEncoder().encode("<h1>Release notes</h1>"),
+                    bytes: htmlBytes,
                   },
             ),
           ),
@@ -128,6 +131,44 @@ describe("readBuildPreviewFile()", () => {
       "dist/index.html",
     )
   })
+
+  it.each(["asset", "template manifest"] as const)(
+    "rejects %s bytes that exceed the saved artifact size",
+    async (artifactKind) => {
+      const read = vi.fn().mockResolvedValue({
+        status: "ok",
+        bytes: new TextEncoder().encode(
+          artifactKind === "asset"
+            ? "asset bytes"
+            : JSON.stringify({ templates: [{ path: "/release/v2.0" }] }),
+        ),
+      })
+      const findArtifact = vi
+        .fn()
+        .mockImplementation((_buildId: string, artifactPath: string) =>
+          Promise.resolve(
+            artifactKind === "asset" || artifactPath === "templates.json"
+              ? { storageKey: "underreported-key", byteLength: 1 }
+              : null,
+          ),
+        )
+
+      const result = await readBuildPreviewFile(
+        {
+          acceptsHtml: artifactKind === "template manifest",
+          buildId: "00000000-0000-4000-8000-000000000001",
+          requestPath: artifactKind === "asset" ? "/asset.bin" : "/release/v2.0",
+        },
+        {
+          findArtifact,
+          storage: { isReady: vi.fn(), read, write: vi.fn(), delete: vi.fn() },
+        },
+      )
+
+      expect(result).toEqual({ status: "unavailable" })
+      expect(read).toHaveBeenCalledOnce()
+    },
+  )
 
   it("decodes one URL path layer before artifact lookup", async () => {
     const findArtifact = vi.fn().mockResolvedValue({

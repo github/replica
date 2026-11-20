@@ -9,6 +9,7 @@ export interface ReadBuildPreviewFileInput {
 
 export interface ReadBuildPreviewFileDependencies {
   storage: ArtifactStorage
+  reserveBytes?(byteLength: number): (() => void) | null
   findArtifact(
     buildId: string,
     path: string,

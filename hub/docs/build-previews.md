@@ -22,6 +22,10 @@ Package paths remain relative and may not contain empty, dot, dot-dot, control, 
 
 Content types come from the checked package path, with unknown extensions served as `application/octet-stream`. HTML is private and revalidated. Immutable assets use a private one-year cache. Desktop and narrow screenshots are served from their package paths through the same Build authorization.
 
+Preview reads share a 100 MiB source-byte allowance per API process across Build origins, private previews, template previews, and public links. Hub reserves each file's recorded size before reading storage and keeps that reservation until the read settles and the HTTP response finishes or disconnects. A request returns 503 without reading the file when the allowance is full. Small and empty files reserve at least 64 KiB each. Temporary template-manifest reads release their reservation before reading the selected HTML file.
+
+This allowance bounds concurrent buffered preview files, not total process memory. Storage downloads can hold chunks and their combined buffer at once, and HTML bridge injection needs additional strings and encoded bytes. Imports and other runtime work need separate headroom within the deployment's memory allocation.
+
 HTML responses inject the generated hosted preview bridge. The bridge installs the shared Controls engine and bindings, which load that Build's `/controls.replica.json`, and reports review element or area selections to the authenticated parent page. Review records store the anchor and Build identity separately; the bridge does not write artifacts or receive Hub session cookies. The generated bridge is checked by `npm run controls:assets:check`.
 
 ## Browser boundary

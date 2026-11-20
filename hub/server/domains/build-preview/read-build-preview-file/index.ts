@@ -65,13 +65,22 @@ export async function readBuildPreviewFile(
   if (!artifact && input.acceptsHtml && !useSpaFallback) {
     const manifest = await dependencies.findArtifact(input.buildId, "templates.json")
     if (manifest) {
-      const storedManifest = await dependencies.storage.read(manifest.storageKey)
-      if (storedManifest.status !== "ok") {
-        return {
-          status: storedManifest.status === "not-found" ? "not-found" : "unavailable",
+      const release = dependencies.reserveBytes?.(manifest.byteLength)
+      if (release === null) return { status: "unavailable" }
+      try {
+        const storedManifest = await dependencies.storage.read(manifest.storageKey)
+        if (storedManifest.status !== "ok") {
+          return {
+            status: storedManifest.status === "not-found" ? "not-found" : "unavailable",
+          }
         }
+        if (storedManifest.bytes.byteLength > manifest.byteLength) {
+          return { status: "unavailable" }
+        }
+        useSpaFallback = readDeclaredRoutePathnames(storedManifest.bytes).includes(requestPath)
+      } finally {
+        release?.()
       }
-      useSpaFallback = readDeclaredRoutePathnames(storedManifest.bytes).includes(requestPath)
     }
   }
   if (!artifact && useSpaFallback) {
@@ -80,10 +89,14 @@ export async function readBuildPreviewFile(
   }
   if (!artifact) return { status: "not-found" }
 
+  if (dependencies.reserveBytes?.(artifact.byteLength) === null) {
+    return { status: "unavailable" }
+  }
   const stored = await dependencies.storage.read(artifact.storageKey)
   if (stored.status !== "ok") {
     return { status: stored.status === "not-found" ? "not-found" : "unavailable" }
   }
+  if (stored.bytes.byteLength > artifact.byteLength) return { status: "unavailable" }
 
   const contentType = contentTypeForBuildPath(path)
   const html = contentType.startsWith("text/html")
