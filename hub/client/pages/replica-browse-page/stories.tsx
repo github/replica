@@ -92,7 +92,7 @@ export const CopyTemplatePromptAsViewer: Story = {
 }
 
 export const CopyTemplateAfterHandoffDenied: Story = {
-  args: { ...Template.args, authorizeHandoff: async () => false },
+  args: { ...Template.args, authorizeHandoff: () => Promise.resolve(false) },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: data.forkLabel }))
     await userEvent.type(

@@ -138,7 +138,7 @@ export const CopyPromptAsViewer: Story = {
 }
 
 export const CopyAfterHandoffDenied: Story = {
-  args: { authorizeHandoff: async () => false },
+  args: { authorizeHandoff: () => Promise.resolve(false) },
   play: async ({ canvas, userEvent }) => {
     await userEvent.type(
       canvas.getByRole("textbox", { name: data.copy.heading }),
