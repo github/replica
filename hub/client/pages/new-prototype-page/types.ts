@@ -6,6 +6,7 @@ export interface NewPrototypePageData extends RepositoryWorkspaceData {
   repositoryName: string
   pageTitle: string
   promptInstructions: string
+  copyPromptInstructions?: string
   templatePageInstructions: string
   templateLandingPageInstructions: string
   submissionMode: "copy" | "copilot"

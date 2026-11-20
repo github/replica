@@ -183,7 +183,6 @@ export const CachedRefresh: Story = {
         return Response.json({
           read: update.read,
           version: item.version + 1,
-          unreadCount: samples.filter((sample) => !sample.read).length,
         })
       }
       return originalFetch(input, init)

@@ -5,6 +5,12 @@ export interface GitHubReviewPerson {
 }
 
 export interface GitHubReviewDirectory {
+  canRead(
+    repositoryId: bigint,
+    login: string,
+    githubId: number,
+    signal?: AbortSignal,
+  ): Promise<boolean>
   find(
     repositoryId: bigint,
     login: string,

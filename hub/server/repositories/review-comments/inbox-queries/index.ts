@@ -6,6 +6,7 @@ export function findInboxRepositories(
   scope: Prisma.RepositoryWhereInput,
   keys: string[],
   local: boolean,
+  notificationId?: number,
 ) {
   return database.repository.findMany({
     where: {
@@ -18,7 +19,12 @@ export function findInboxRepositories(
               comments: {
                 some: {
                   deletedAt: null,
-                  notifications: { some: { recipientKey: { in: keys } } },
+                  notifications: {
+                    some: {
+                      recipientKey: { in: keys },
+                      ...(notificationId === undefined ? {} : { publicId: notificationId }),
+                    },
+                  },
                 },
               },
             },

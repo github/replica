@@ -91,7 +91,11 @@ function TemplateScreen({ loaderData }: { loaderData: ProductTemplateResponse })
       viewerUrl={real ? viewer.viewerUrl : undefined}
       minimized={real ? viewer.minimized : undefined}
       onMinimizedChange={real ? viewer.setMinimized : undefined}
-      authorizeHandoff={real ? () => authorizeCopilotHandoff(loaderData.repository.id) : undefined}
+      authorizeHandoff={
+        real
+          ? () => authorizeCopilotHandoff(loaderData.repository.id, { allowCopyFallback: true })
+          : undefined
+      }
     />
   )
 }
