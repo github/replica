@@ -1,6 +1,6 @@
 export interface NewGitHubWebhookRedelivery {
   id: string
-  githubDeliveryId: number
+  githubDeliveryId: number | string
   event: string
   retryAt: Date
   expiresAt: Date
@@ -8,6 +8,6 @@ export interface NewGitHubWebhookRedelivery {
 
 export interface ClaimedGitHubWebhookRedelivery {
   id: string
-  githubDeliveryId: number
+  githubDeliveryId: number | string
   attempts: number
 }

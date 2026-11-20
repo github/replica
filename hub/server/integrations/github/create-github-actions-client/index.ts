@@ -59,6 +59,10 @@ const artifactsSchema = z.looseObject({
   ),
 })
 const maximumArtifactPages = 10
+const commitSchema = z.looseObject({
+  sha: z.string().regex(/^[0-9a-f]{40}$/),
+  author: actorSchema.nonoptional(),
+})
 
 function mapRun(run: z.infer<typeof runSchema>): GitHubWorkflowRun {
   const actor = run.triggering_actor ?? run.actor
@@ -165,6 +169,31 @@ export function createGitHubActionsClient(
   }
 
   return {
+    /** Resolves the account GitHub associates with this immutable commit, not its pusher. */
+    async getCommitAuthor(commitSha: string) {
+      if (!/^[0-9a-f]{40}$/.test(commitSha)) {
+        throw new GitHubProviderRequestError({ cause: new Error("Invalid commit SHA.") })
+      }
+      const response = await send(
+        `${repositoryPath}/commits/${commitSha}`,
+        await installationToken(),
+      )
+      if (response.status === 404 || response.status === 422) return null
+      const commit = await parse(commitSchema, response)
+      if (commit.sha !== commitSha) {
+        throw new GitHubProviderRequestError({
+          cause: new Error("GitHub returned a different commit."),
+        })
+      }
+      return commit.author
+        ? {
+            providerUserId: String(commit.author.id),
+            login: commit.author.login,
+            avatarUrl: commit.author.avatar_url ?? null,
+          }
+        : null
+    },
+
     /** Lists branch heads without assuming a truncated response is a complete snapshot. */
     async listBranchHeads(): Promise<{ branchName: string; commitSha: string }[]> {
       const heads: { branchName: string; commitSha: string }[] = []

@@ -37,11 +37,16 @@ function workflowRun(id: number, createdAt = "2026-01-02T00:00:00Z") {
 }
 
 describe("createGitHubActionsClient", () => {
-  it("requests one repository-scoped token for Actions and branch reads", async () => {
-    const fetch = respond(() => new Response(JSON.stringify({ total_count: 0, artifacts: [] })))
+  it("reuses one repository-scoped token for Actions and commit reads", async () => {
+    const fetch = respond((url) =>
+      url.pathname.includes("/commits/")
+        ? Response.json({ sha: "a".repeat(40), author: null })
+        : Response.json({ total_count: 0, artifacts: [] }),
+    )
     const client = createGitHubActionsClient(input, { fetch })
 
     await client.listRunArtifacts(7, "replica-build-v1")
+    await client.getCommitAuthor("a".repeat(40))
     await client.listRunArtifacts(7, "replica-screenshots-v1")
 
     const tokenCalls = fetch.mock.calls.filter(([url]) =>
@@ -52,6 +57,82 @@ describe("createGitHubActionsClient", () => {
       repository_ids: [56],
       permissions: { actions: "read", contents: "read" },
     })
+  })
+
+  it.each([
+    { id: 101, login: "commit-author", avatar_url: "https://avatars.githubusercontent.com/u/101" },
+    { id: 102, login: "replica[bot]", avatar_url: null, type: "Bot" },
+  ])("reads the canonical account for an immutable commit by $login", async (author) => {
+    const sha = "a".repeat(40)
+    const fetch = respond((url, init) => {
+      expect(url.pathname).toBe(`/repositories/56/commits/${sha}`)
+      expect(init.headers).toMatchObject({ Authorization: "Bearer t" })
+      return Response.json({
+        sha,
+        author,
+        committer: { id: 999, login: "different-committer" },
+        commit: { author: { name: "Unverified display name", email: "author@example.test" } },
+      })
+    })
+    const client = createGitHubActionsClient(input, { fetch })
+
+    await expect(client.getCommitAuthor(sha)).resolves.toEqual({
+      providerUserId: String(author.id),
+      login: author.login,
+      avatarUrl: author.avatar_url,
+    })
+  })
+
+  it.each([404, 422])("leaves unavailable HTTP %s commit authors unknown", async (status) => {
+    const fetch = respond(() => new Response("{}", { status }))
+    const client = createGitHubActionsClient(input, { fetch })
+
+    await expect(client.getCommitAuthor("a".repeat(40))).resolves.toBeNull()
+  })
+
+  it("does not turn Git author text into a provider account", async () => {
+    const sha = "a".repeat(40)
+    const fetch = respond(() =>
+      Response.json({
+        sha,
+        author: null,
+        committer: { id: 999, login: "committer" },
+        commit: { author: { name: "Octocat", email: "octocat@example.test" } },
+      }),
+    )
+    const client = createGitHubActionsClient(input, { fetch })
+
+    await expect(client.getCommitAuthor(sha)).resolves.toBeNull()
+  })
+
+  it.each([
+    { sha: "b".repeat(40), author: { id: 101, login: "commit-author" } },
+    { sha: "b".repeat(40), author: null },
+    { author: { id: 101, login: "commit-author" } },
+    { sha: "a".repeat(40) },
+    { sha: "a".repeat(40), author: { id: "101", login: "commit-author" } },
+    { sha: "a".repeat(40), author: { id: 101 } },
+  ])("rejects malformed or mismatched commit evidence %#", async (commit) => {
+    const fetch = respond(() => Response.json(commit))
+    const client = createGitHubActionsClient(input, { fetch })
+
+    await expect(client.getCommitAuthor("a".repeat(40))).rejects.toThrow(GitHubProviderRequestError)
+  })
+
+  it.each([403, 503])("does not hide HTTP %s commit lookup failures as unknown", async (status) => {
+    const fetch = respond(() => new Response("{}", { status }))
+    const client = createGitHubActionsClient(input, { fetch })
+
+    await expect(client.getCommitAuthor("a".repeat(40))).rejects.toThrow(GitHubProviderRequestError)
+  })
+
+  it("throws when the commit lookup transport fails", async () => {
+    const fetch = respond(() => {
+      throw new Error("Connection reset")
+    })
+    const client = createGitHubActionsClient(input, { fetch })
+
+    await expect(client.getCommitAuthor("a".repeat(40))).rejects.toThrow(GitHubProviderRequestError)
   })
 
   it("downloads from the redirect without forwarding the token", async () => {

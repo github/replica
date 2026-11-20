@@ -17,6 +17,8 @@
     "local:builds": "node server/scripts/run-local-builds/index.ts",
     "local:builds:enqueue": "node server/scripts/enqueue-local-builds/index.ts",
     "local:worker": "node server/scripts/start-local-worker/index.ts",
+    "github:repair-author": "node server/scripts/repair-github-build-author/index.ts",
+    "github:check-webhooks": "node server/scripts/check-github-webhooks/index.ts",
     "db:studio": "prisma studio",
     "jobs:setup": "node server/scripts/setup-jobs/index.ts",
     "setup": "node server/scripts/setup/index.ts",

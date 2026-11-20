@@ -12,7 +12,7 @@ export interface GitHubWebhookRecoveryDependencies {
   ) => Promise<{ deliveries: GitHubWebhookDeliveryAttempt[]; nextCursor: string | null }>
   logger: Pick<Logger, "error" | "warn">
   now: () => Date
-  redeliver: (githubDeliveryId: number) => Promise<"requested" | "unavailable">
+  redeliver: (githubDeliveryId: number | string) => Promise<"requested" | "unavailable">
 }
 
 export interface GitHubWebhookRecoveryLease {

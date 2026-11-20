@@ -74,12 +74,20 @@ export async function findRepositoryIndex(
       const latestBuilds =
         records.length > 0
           ? await transaction.$queryRaw<
-              { prototypeId: string; number: number; state: BuildState }[]
+              {
+                prototypeId: string
+                number: number
+                state: BuildState
+                authorProvider: string | null
+                authorLogin: string | null
+              }[]
             >(Prisma.sql`
-              SELECT prototypes.id AS "prototypeId", latest_build.number, latest_build.state
+              SELECT prototypes.id AS "prototypeId", latest_build.number, latest_build.state,
+                latest_build.author_provider AS "authorProvider",
+                latest_build.author_login AS "authorLogin"
               FROM prototypes
               LEFT JOIN LATERAL (
-                SELECT builds.number, builds.state
+                SELECT builds.number, builds.state, builds.author_provider, builds.author_login
                 FROM builds
                 WHERE builds.prototype_id = prototypes.id
                   AND (
@@ -137,6 +145,7 @@ export async function findRepositoryIndex(
   const prototypes = records.map((record) => {
     if (!record.name) throw new Error("A registered prototype must have a name.")
     addAuthor(record.author)
+    const latestBuild = latestBuilds.get(record.id)
     return {
       id: record.id,
       repositoryId: record.repositoryId,
@@ -144,9 +153,13 @@ export async function findRepositoryIndex(
       description: record.description,
       branchName: record.branchName,
       authorId: record.author?.id ?? null,
-      authorLogin: record.author?.profile?.login ?? null,
+      authorLogin: record.author
+        ? (record.author.profile?.login ?? null)
+        : latestBuild?.authorProvider === "github"
+          ? latestBuild.authorLogin
+          : null,
       canEdit: false,
-      latestBuild: latestBuilds.get(record.id) ?? null,
+      latestBuild: latestBuild ? { number: latestBuild.number, state: latestBuild.state } : null,
       builds: [],
     }
   })

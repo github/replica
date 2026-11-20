@@ -44,7 +44,10 @@ export async function claimDueGitHubWebhookRedeliveries(
     if (count === 1) {
       claimed.push({
         attempts: row.attempts + 1,
-        githubDeliveryId: Number(row.githubDeliveryId),
+        githubDeliveryId:
+          row.githubDeliveryId <= BigInt(Number.MAX_SAFE_INTEGER)
+            ? Number(row.githubDeliveryId)
+            : row.githubDeliveryId.toString(),
         id: row.id,
       })
     }

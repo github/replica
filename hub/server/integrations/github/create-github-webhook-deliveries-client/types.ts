@@ -14,11 +14,12 @@ export interface GitHubWebhookDeliveriesClientOptions {
 
 /** One attempt to deliver a webhook. Redelivered attempts share the original guid. */
 export interface GitHubWebhookDeliveryAttempt {
-  id: number
+  id: number | string
   guid: string
   deliveredAt: Date
   /** 0 when GitHub could not reach the Hub at all. */
   statusCode: number
   event: string
   installationId: number | null
+  repositoryId?: number
 }

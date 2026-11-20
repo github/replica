@@ -44,7 +44,18 @@ export async function importGitHubWorkflowRun(
   const found = await client.getWorkflowRun(job.runId)
   if (!found) return { dist: "ignored", screenshots: "absent" }
   const run = found
-  const prepared = await prepareGitHubWorkflowRunBuild(database, job.githubRepositoryId, run)
+  const prepared = await prepareGitHubWorkflowRunBuild(
+    database,
+    job.githubRepositoryId,
+    run,
+    async (commitSha) => {
+      const author = await client.getCommitAuthor(commitSha)
+      if (!author) {
+        logger.warn({ runId: run.id, commitSha }, "GitHub commit has no linked author")
+      }
+      return author
+    },
+  )
   if (prepared.status !== "ready") return { dist: "ignored", screenshots: "absent" }
   const { buildId, buildRun, distDigest, ownsBuild, state } = prepared
   const completed = run.status === "completed"
