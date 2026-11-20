@@ -116,6 +116,9 @@ await prisma.$transaction(async (database) => {
   await database.reviewComment.deleteMany({ where: { threadId: { in: [...threadIds] } } })
   await database.reviewThread.deleteMany({ where: { id: { in: [...threadIds] } } })
   await database.buildArtifact.deleteMany({ where: { buildId: { in: [...buildIds] } } })
+  await database.prototypeIntroduction.deleteMany({
+    where: { prototypeId: { in: [...prototypeIds] } },
+  })
   await database.prototype.updateMany({
     where: { id: { in: [...prototypeIds] } },
     data: { currentBuildId: null },
