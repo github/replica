@@ -59,6 +59,12 @@ if ! run_and_wait curl -q -fLSs --output "$archive" \
   fail 'Could not download the Replica source archive. Check your network connection and access to GitHub, then try again.'
 fi
 
+# Use a UTF-8 locale so the tar listing retains non-ASCII names.
+if [[ "$OSTYPE" == darwin* ]]; then
+  export LC_ALL=en_US.UTF-8
+else
+  export LC_ALL=C.UTF-8
+fi
 # Relative archive names keep GNU tar from interpreting a Windows drive as a host.
 if ! tar -tzf "$archive" > members || ! tar -tvzf "$archive" > types; then
   fail 'Could not read the Replica source archive.'
@@ -111,10 +117,21 @@ while IFS= read -r member; do
   esac
 done < members 3< types
 
-duplicates="$(sort -f selected | uniq -id)"
-if [[ -n "$duplicates" ]]; then
-  fail 'Replica source archive contains a duplicate path.'
-fi
+# Compare whole names with Bash's Unicode-aware matching. Validation above
+# rejects newlines, so they can separate paths without making partial matches.
+check_duplicates() (
+  shopt -s nocasematch
+  local seen=$'\n' path key
+  while IFS= read -r path; do
+    key=$'\n'"$path"$'\n'
+    if [[ "$seen" == *"$key"* ]]; then
+      fail "Replica source archive contains a duplicate path: $path"
+    fi
+    seen+="$path"$'\n'
+  done < selected
+)
+check_duplicates
+
 if (( ! has_script || ! has_skills || ! has_templates )); then
   fail 'Replica source archive is missing the starter or setup script.'
 fi

@@ -400,7 +400,7 @@ function rewriteArchiveMember(archive, path, link) {
   assert.fail("Missing tar fixture member")
 }
 
-function archiveFixture(t, { paths = requiredArchivePaths, missing, extraPath, link } = {}) {
+function archiveFixture(t, { paths = requiredArchivePaths, missing, file, extraPath, link } = {}) {
   const fixture = installerFixture(t)
   const { directory, archive } = fixture
   const source = join(directory, "source")
@@ -414,6 +414,7 @@ function archiveFixture(t, { paths = requiredArchivePaths, missing, extraPath, l
   mkdirSync(dirname(bootstrap), { recursive: true })
   copyFileSync(script, bootstrap)
   if (missing) rmSync(join(archiveRoot, missing))
+  if (file) writeFileSync(join(archiveRoot, file), "fixture data")
   if (extraPath) writeFileSync(join(archiveRoot, "fixture-member"), "fixture data")
   // GNU tar interprets the colon in an absolute Windows archive name as a host.
   const result = runBash(
@@ -636,6 +637,10 @@ test("rejects missing, linked, and unsafe archive members before writing the des
     [{ extraPath: "replica-main/starter/.Git/config" }, /Git metadata/],
     [{ extraPath: "replica-main/starter/.git/config" }, /Git metadata/],
     [{ extraPath: "replica-main/starter/readme.md" }, /duplicate path/],
+    [
+      { file: "starter/caf\u00e9.md", extraPath: "replica-main/starter/caf\u00c9.md" },
+      /duplicate path/,
+    ],
   ]) {
     await t.test(options.missing ?? options.extraPath, member => {
       const fixture = archiveFixture(member, options)
