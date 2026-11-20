@@ -8,7 +8,7 @@ export function MentionText({ comment }: { comment: ReviewComment }) {
   const body = comment.body ?? ""
   const mentions = new Set(comment.mentions?.map((mention) => mention.login.toLowerCase()) ?? [])
   const tokens = body.matchAll(
-    /(?<![A-Za-z0-9_@/])@([A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)(?![A-Za-z0-9_-])/g,
+    /(?<![A-Za-z0-9_@/])@([A-Za-z0-9](?:[A-Za-z0-9_-]{0,37}[A-Za-z0-9])?)(?![A-Za-z0-9_-])/g,
   )
   const parts: ReactNode[] = []
   let start = 0

@@ -41,3 +41,32 @@ export default meta
 type Story = StoryObj<typeof meta>
 export const People: Story = {}
 export const PlainText: Story = { args: { value: "Please review the spacing." } }
+
+export const ManagedUser: Story = {
+  args: { value: "Please review @mona_ent" },
+  render: function ManagedUserStory(args) {
+    const [value, setValue] = useState(args.value)
+    const source = useMemo(
+      () => ({
+        load: () => Promise.resolve([{ ...mona, login: "mona_enterprise", githubId: 1002 }]),
+        copy: {
+          suggestions: "Mention suggestions",
+          error: "Unavailable",
+          loading: "Loading people...",
+          empty: "No matches",
+          retry: "Retry",
+          limit: "Each message can mention at most 10 distinct people.",
+        },
+      }),
+      [],
+    )
+    return (
+      <MentionProvider source={source}>
+        <MentionInput {...args} value={value} onValueChange={setValue} />
+      </MentionProvider>
+    )
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("textbox", { name: "Comment" }))
+  },
+}

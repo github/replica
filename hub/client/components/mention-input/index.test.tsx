@@ -67,6 +67,26 @@ describe("MentionInput()", () => {
     expect(submit).toHaveBeenCalledOnce()
   })
 
+  it("keeps suggestions open through a managed username suffix and inserts the complete account", async () => {
+    const submit = vi.fn()
+    render(
+      <Composer
+        load={vi.fn().mockResolvedValue([
+          { githubId: 1002, login: "mona_enterprise", avatarUrl: null },
+          { githubId: 1001, login: "octocat", avatarUrl: null },
+        ])}
+        submit={submit}
+      />,
+    )
+    const input = screen.getByRole("textbox")
+    fireEvent.change(input, { target: { value: "Please @mona_ent" } })
+    await screen.findByRole("option", { name: "@mona_enterprise" })
+    expect(screen.queryByRole("option", { name: "@octocat" })).not.toBeInTheDocument()
+    fireEvent.keyDown(input, { key: "Enter" })
+    expect(input).toHaveValue("Please @mona_enterprise ")
+    expect(submit).not.toHaveBeenCalled()
+  })
+
   it("reports lookup failure and supports retry without discarding text", async () => {
     const load = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue([])
     render(<Composer load={load} submit={vi.fn()} />)
