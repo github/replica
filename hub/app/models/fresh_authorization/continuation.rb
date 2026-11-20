@@ -41,6 +41,7 @@ class FreshAuthorization::Continuation < ActiveRecord::AssociatedObject
     when "github_app_credentials" then %i[confirmed configuration_id expected_version client_secret]
     when "github_apps" then %i[confirmed configuration_id expected_version confirmation]
     when "github_app_webhook_rotations" then %i[confirmed configuration_id expected_version operation]
+    when "copilot_connections" then %i[confirmed billing_confirmation]
     else %i[confirmed operation]
     end
     attributes = params.permit(*fields).to_h

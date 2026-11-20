@@ -82,6 +82,23 @@ class GithubClientTest < ActiveSupport::TestCase
     assert_includes error.message, "execution expired"
   end
 
+  test "retains a structured GitHub error response without exposing it in the message" do
+    response = {
+      message: "Validation Failed",
+      errors: [ { resource: "InstallationToken", code: "custom", field: "permissions" } ]
+    }
+    stub_request(:get, "#{GITHUB_API_URL}/app")
+      .to_return(status: 422, body: JSON.generate(response))
+
+    error = assert_raises(GithubClient::Error) do
+      GithubClient.new.apps.get(token: "app-token")
+    end
+
+    assert_equal 422, error.status
+    assert_equal response.deep_stringify_keys, error.response
+    assert_equal "GitHub returned HTTP 422", error.message
+  end
+
     test "OAuth rejection types never expose the provider response or supplied credentials" do
       [ "bad_verification_code", "access_denied", "incorrect_client_credentials", "unknown_error" ].each do |code|
         stub_request(:post, "#{GITHUB_URL}/login/oauth/access_token")
