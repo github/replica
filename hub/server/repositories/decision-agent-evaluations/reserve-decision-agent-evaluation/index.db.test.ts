@@ -2,11 +2,12 @@ import { describe, expect, it } from "vitest"
 
 import { prisma } from "../../../integrations/prisma"
 import { completeDecisionAgentEvaluation } from "../complete-decision-agent-evaluation"
+import { failDecisionAgentEvaluation } from "../fail-decision-agent-evaluation"
 import { reserveDecisionAgentEvaluation } from "."
 
 const digest = `sha256:${"a".repeat(64)}`
 
-async function createEvaluationFixture(name: string, monthlyBudgetCredits = 100) {
+async function createEvaluationFixture(name: string) {
   const repository = await prisma.repository.create({
     data: { nameWithOwner: `team/${name}`, defaultBranch: "main" },
   })
@@ -17,7 +18,7 @@ async function createEvaluationFixture(name: string, monthlyBudgetCredits = 100)
       backend: "customer-runtime",
       maxUpdates: 8,
       maxSeconds: 300,
-      monthlyBudgetCredits,
+      monthlyBudgetCredits: 100,
     },
   })
   const trainingJob = await prisma.decisionTrainingJob.create({
@@ -67,7 +68,7 @@ function reservation(
     promotionGeneration: 3,
     questionDigest: digest,
     screenshotSetDigest: digest,
-    reservedCredits: 4,
+    requestUnits: 4,
     ttlMs: 60_000,
     ...overrides,
   }
@@ -97,16 +98,15 @@ describe("reserveDecisionAgentEvaluation()", () => {
     const input = reservation(repository.id, candidate.id, "2".repeat(64))
     await reserveDecisionAgentEvaluation(prisma, input)
 
-    await expect(reserveDecisionAgentEvaluation(prisma, input)).rejects.toMatchObject({
-      status: 409,
-      code: "control_busy",
+    await expect(reserveDecisionAgentEvaluation(prisma, input)).resolves.toEqual({
+      status: "busy",
     })
     await expect(
       prisma.decisionAgentEvaluation.count({ where: { cacheKey: input.cacheKey } }),
     ).resolves.toBe(1)
   })
 
-  it("replaces an expired reservation instead of reusing its result", async () => {
+  it("keeps expired consumed units while creating a new reservation", async () => {
     const { repository, candidate } = await createEvaluationFixture("expired-cache")
     const cacheKey = "3".repeat(64)
     const expired = await reserveDecisionAgentEvaluation(
@@ -128,35 +128,68 @@ describe("reserveDecisionAgentEvaluation()", () => {
     expect(replacement.id).not.toBe(expired.id)
     await expect(
       prisma.decisionAgentEvaluation.findUnique({ where: { id: expired.id } }),
-    ).resolves.toBeNull()
+    ).resolves.toMatchObject({ state: "COMPLETED", requestUnits: 4, result: null })
   })
 
-  it("serializes concurrent budget reservations under the repository configuration lock", async () => {
-    const { repository, candidate } = await createEvaluationFixture("locked-budget", 10)
+  it("keeps request units after dispatched work fails", async () => {
+    const { repository, candidate } = await createEvaluationFixture("failed-charge")
+    const first = await reserveDecisionAgentEvaluation(
+      prisma,
+      reservation(repository.id, candidate.id, "6".repeat(64)),
+    )
+    if (first.status !== "reserved") throw new Error("Expected a fresh reservation.")
+    await failDecisionAgentEvaluation(prisma, first.id)
+
+    await expect(
+      prisma.decisionAgentEvaluation.findUnique({ where: { id: first.id } }),
+    ).resolves.toMatchObject({ state: "FAILED", requestUnits: 4 })
+  })
+
+  it("serializes concurrent request-unit reservations under the repository lock", async () => {
+    const { repository, candidate } = await createEvaluationFixture("locked-budget")
+    await prisma.decisionAgentEvaluation.createMany({
+      data: Array.from({ length: 124 }, (_, index) => ({
+        repositoryId: repository.id,
+        candidateId: candidate.id,
+        cacheKey: index.toString(16).padStart(64, "0"),
+        promotionGeneration: 3n,
+        questionDigest: digest,
+        screenshotSetDigest: digest,
+        requestUnits: 4,
+        state: "FAILED",
+        expiresAt: new Date(0),
+      })),
+    })
     const results = await Promise.allSettled([
       reserveDecisionAgentEvaluation(
         prisma,
         reservation(repository.id, candidate.id, "4".repeat(64), {
-          reservedCredits: 6,
+          requestUnits: 4,
         }),
       ),
       reserveDecisionAgentEvaluation(
         prisma,
         reservation(repository.id, candidate.id, "5".repeat(64), {
-          reservedCredits: 6,
+          requestUnits: 4,
         }),
       ),
     ])
 
-    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1)
-    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1)
-    expect(results.find((result) => result.status === "rejected")).toMatchObject({
-      reason: { status: 409, code: "budget_exceeded" },
-    })
+    expect(results).toHaveLength(2)
+    expect(
+      results.filter(
+        (result) => result.status === "fulfilled" && result.value.status === "reserved",
+      ),
+    ).toHaveLength(1)
+    expect(
+      results.filter(
+        (result) => result.status === "fulfilled" && result.value.status === "budget-exhausted",
+      ),
+    ).toHaveLength(1)
     const saved = await prisma.decisionAgentEvaluation.findMany({
-      where: { repositoryId: repository.id },
+      where: { repositoryId: repository.id, state: "PENDING" },
     })
     expect(saved).toHaveLength(1)
-    expect(saved[0]?.reservedCredits.toString()).toBe("6")
+    expect(saved[0]?.requestUnits).toBe(4)
   })
 })

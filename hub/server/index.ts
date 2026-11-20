@@ -196,6 +196,7 @@ try {
                 readLearningAuthority: (input) => source.readAgentLearningAuthority(input),
                 runtimeForRepository: () =>
                   createDecisionRuntimeClient(decisionRuntimeConfiguration),
+                runtimeEnvironment: decisionRuntimeConfiguration.environment,
               })
             }
             const { createProductRouteDependencies } =

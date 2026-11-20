@@ -9,11 +9,12 @@ model DecisionAgentEvaluation {
   candidate  DecisionCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
 
   // Attribute columns
-  cacheKey            String   @unique @map("cache_key") @db.Char(64)
+  cacheKey            String   @map("cache_key") @db.Char(64)
   promotionGeneration BigInt   @map("promotion_generation")
   questionDigest      String   @map("question_digest") @db.VarChar(71)
   screenshotSetDigest String   @map("screenshot_set_digest") @db.VarChar(71)
-  reservedCredits     Decimal  @map("reserved_credits") @db.Decimal(20, 9)
+  requestUnits        Int      @map("request_units")
+  state               String   @db.VarChar(20)
   result              Json?    @db.JsonB
   expiresAt           DateTime @map("expires_at") @db.Timestamptz(3)
 
@@ -22,6 +23,7 @@ model DecisionAgentEvaluation {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([repositoryId, createdAt])
+  @@index([cacheKey, createdAt])
   @@index([expiresAt])
   @@map("decision_agent_evaluations")
 }

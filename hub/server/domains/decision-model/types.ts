@@ -127,6 +127,8 @@ export interface DecisionCandidateRecord {
   tasksetDigest: string
   rejectedAt: Date | null
   productionEligible?: boolean
+  consentGrantId?: string
+  questionDigest?: string
 }
 
 export interface DecisionPromotionRecord {
@@ -339,7 +341,25 @@ export interface AgentEvaluationAuthority {
 export interface AgentLearningAuthority {
   consentGranted: boolean
   questionDigest: string
-  questions: Record<string, { learning_text: string }>
+  questions: Record<
+    string,
+    | {
+        type: "noul"
+        instructions: string
+        learning_text: string
+        criteria: { true: string; false: string }
+      }
+    | {
+        type: "choice"
+        instructions: string
+        criteria: Record<string, string>
+      }
+    | {
+        type: "score"
+        instructions: string
+        criteria: string[]
+      }
+  >
 }
 
 export interface AgentEvaluationResult {
@@ -357,7 +377,14 @@ export interface AgentEvaluationResult {
     promotionGeneration: number
   }
   screenshotSetDigest: string
-  findings: (DecisionBuildEvaluationFinding & { explanation: string })[]
+  findings: {
+    learning: { id: string; text: string | null }
+    route: string
+    views: { viewport: string; theme: string }[]
+    followsProbability: number
+    breaksProbability: number
+    explanation: string
+  }[]
 }
 
 export interface AgentEvaluationCache {
@@ -367,7 +394,7 @@ export interface AgentEvaluationCache {
     promotionGeneration: number
     questionDigest: string
     repositoryId: string
-    reservedCredits: number
+    requestUnits: number
     screenshotSetDigest: string
   }): Promise<
     { status: "cached"; result: AgentEvaluationResult } | { status: "reserved"; id: string }
@@ -392,5 +419,8 @@ export interface AgentEvaluationDependencies {
     repositoryId: string
   }): Promise<{ ready: boolean; environment: "fixture" | "production" }>
   runtime: DecisionRuntimeClient
-  store: Pick<DecisionModelStore, "getCandidate" | "getConfiguration" | "getPromotion">
+  store: Pick<
+    DecisionModelStore,
+    "getCandidate" | "getConfiguration" | "getPromotion" | "isCandidateRevoked"
+  >
 }

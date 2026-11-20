@@ -6,6 +6,6 @@ export function completeDecisionAgentEvaluation(
 ) {
   return database.decisionAgentEvaluation.update({
     where: { id: input.id },
-    data: { result: input.result },
+    data: { result: input.result, state: "COMPLETED" },
   })
 }

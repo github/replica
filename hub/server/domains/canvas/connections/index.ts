@@ -31,6 +31,27 @@ export function createCanvasConnections(
   applicationOrigin: string,
 ) {
   return {
+    async authorizeEvaluationCredential(secret: string) {
+      if (!accessPattern.test(secret)) return { status: "unauthorized" } as const
+      const tokenDigest = canvasDigest(secret)
+      const grant = await findCanvasGrant(database, tokenDigest)
+      if (!grant) return { status: "unauthorized" } as const
+      const viewer = await readCanvasAuthority(database, grant)
+      if (!viewer) return { status: "unauthorized" } as const
+      const permission = await authority.permission(viewer, grant.repository)
+      if (!["write", "maintain", "admin"].includes(permission)) {
+        return { status: "forbidden" } as const
+      }
+      const active = await authority.withRepository(
+        viewer,
+        grant.repository,
+        async (transaction) => {
+          await lockCanvasGrant(transaction, grant.id, false)
+          return verifyCanvasAccess(transaction, grant.id, tokenDigest, new Date())
+        },
+      )
+      return active ? ({ status: "ok" } as const) : ({ status: "unauthorized" } as const)
+    },
     async authorizeEvaluation(secret: string, input: { branch: string; commitSha: string }) {
       if (!accessPattern.test(secret)) return { status: "unauthorized" } as const
       const tokenDigest = canvasDigest(secret)

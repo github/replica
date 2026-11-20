@@ -80,7 +80,9 @@ The plugin sends the current checkout branch and commit through its approved rep
 
 For every request, Hub rereads repository enablement, learning consent and eligibility, runtime readiness, the promoted candidate, and its generation. Production guidance requires a production-ready runtime and a production-eligible promoted candidate. A fixture runtime may return unmistakable fixture findings with `guidance.available: false`; consumers must not use them as production guidance.
 
-Hub hashes the screenshot set and reuses a short-lived bounded cache only while the repository, checkout, eligible learning digest, candidate, and promotion generation still match. The cache stores content-free learning IDs and probabilities, not learning text or screenshots; Hub rereads current eligible text before returning a cached result. Session and repository request limits apply to cached and fresh requests. The repository's monthly decision-model budget applies only to fresh route evaluations and includes active or completed training usage.
+Hub hashes the screenshot set, current route, runtime environment, and promoted model identity and reuses a short-lived bounded cache only while those values and the eligible learning digest still match. The cache stores content-free learning IDs and probabilities, not learning text or screenshots; Hub rereads current eligible text, consent, deletion state, and promotion before returning a cached result. Session and repository request limits apply to cached and fresh requests.
+
+Agent inference has a separate monthly request-unit budget of 500 routes per repository. A route consumes one unit when Hub reserves it, including failed or uncertain dispatched work. Cache expiry removes reuse eligibility but never removes consumed units. This quota bounds request volume; it is not presented as runtime credit or cost accounting.
 
 Findings return learning ID and text, route, evaluated views, follows and breaks probabilities, candidate and promotion generation, cache status, and a bounded explanation. The explanation always labels the result as unverified authoring guidance. Evaluation does not change code, publish a Build, promote a model, save a review outcome, or verify improvement.
 
@@ -94,9 +96,10 @@ Agents should use findings to inspect a concrete route and decide what to try ne
 REPLICA_DECISION_RUNTIME_URL=https://decision-runtime.example
 REPLICA_DECISION_RUNTIME_AUTHENTICATION=environment-token
 REPLICA_DECISION_RUNTIME_TOKEN=<secret>
+REPLICA_DECISION_RUNTIME_ENVIRONMENT=production
 ```
 
-Hub hashes the public URL and provider selection for configuration identity. It never includes the token in that digest or writes it to PostgreSQL, BullMQ payloads, taskset bytes, logs, traces, or API responses. Each runtime request asks the provider for a short-lived operation credential.
+Hub hashes the public URL, provider selection, and explicit `fixture` or `production` environment for configuration identity. It never includes the token in that digest or writes it to PostgreSQL, BullMQ payloads, taskset bytes, logs, traces, or API responses. Each runtime request asks the provider for a short-lived operation credential. Production guidance is unavailable unless this runtime environment is explicitly `production` and its live promotion matches Hub.
 
 The runtime client requires bounded JSON responses and typed errors. It uses these authenticated interfaces:
 

@@ -143,6 +143,11 @@ function projectResult(value) {
   }
 }
 export async function evaluatePrototype(hub, input) {
+  if (process.env.REPLICA_ALLOW_PROTOTYPE_SCREENSHOT_UPLOAD !== "true") {
+    throw new Error(
+      "Prototype screenshot evaluation is blocked. Set REPLICA_ALLOW_PROTOTYPE_SCREENSHOT_UPLOAD=true before starting Copilot to explicitly allow uploads to Hub.",
+    )
+  }
   const checkout = await hub.checkout()
   if (
     !checkout.repository ||
@@ -163,7 +168,7 @@ export async function evaluatePrototype(hub, input) {
       currentRoute: input.currentRoute === null ? null : route(input.currentRoute),
       screenshots: screenshots(input.screenshots),
     },
-    timeoutMs: 30_000,
+    timeoutMs: 130_000,
   })
   return projectResult(result)
 }

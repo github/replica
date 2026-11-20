@@ -58,6 +58,17 @@ function digest(bytes: Uint8Array) {
   return `sha256:${createHash("sha256").update(bytes).digest("hex")}`
 }
 
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`
+  if (value !== null && typeof value === "object") {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+      .join(",")}}`
+  }
+  return JSON.stringify(value)
+}
+
 function storage(
   reads: Record<string, Uint8Array | "not-found" | "unavailable">,
 ): ArtifactStorage & { readMock: ReturnType<typeof vi.fn> } {
@@ -149,7 +160,12 @@ describe("createHubDecisionTasksetSource()", () => {
             expired: true,
           },
           {
-            grant: { id: "active-training", sources: ["manual"] },
+            grant: { id: "active-training", sources: ["hub_review_comments"] },
+            activePurposes: ["training"],
+            expired: false,
+          },
+          {
+            grant: { id: "unrelated-manual", sources: ["manual"] },
             activePurposes: ["training"],
             expired: false,
           },
@@ -180,19 +196,38 @@ describe("createHubDecisionTasksetSource()", () => {
     const result = await hubSource(storage({})).readAgentLearningAuthority({
       repositoryId,
       actorMembershipId: "44444444-4444-4444-8444-444444444444",
+      consentGrantId: "active-training",
     })
 
-    expect(result).toEqual({
-      consentGranted: true,
-      questionDigest: digest(
-        new TextEncoder().encode(
-          `{"${learningId}":{"learning_text":"Use the approved account heading."}}`,
-        ),
-      ),
-      questions: {
-        [learningId]: { learning_text: "Use the approved account heading." },
+    expect(result.consentGranted).toBe(true)
+    expect(result.questions).toEqual({
+      [learningId]: {
+        type: "noul",
+        instructions: "Does the candidate follow this learning?",
+        learning_text: "Use the approved account heading.",
+        criteria: { true: "Follows", false: "Breaks" },
+      },
+      "choice-question": {
+        type: "choice",
+        instructions: "Choose the strongest option.",
+        criteria: { first: "First", second: "Second" },
+      },
+      "score-question": {
+        type: "score",
+        instructions: "Score the result.",
+        criteria: ["Poor", "Strong"],
       },
     })
+    expect(result.questionDigest).toBe(
+      digest(new TextEncoder().encode(canonicalJson(result.questions))),
+    )
+    await expect(
+      hubSource(storage({})).readAgentLearningAuthority({
+        repositoryId,
+        actorMembershipId: "44444444-4444-4444-8444-444444444444",
+        consentGrantId: "unrelated-manual",
+      }),
+    ).resolves.toMatchObject({ consentGranted: false })
     expect(runLearningCommand).toHaveBeenCalledWith(
       expect.arrayContaining([
         "decision",

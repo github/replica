@@ -375,6 +375,8 @@ export function createDecisionModelStore(
             tasksetDigest: candidate.tasksetDigest,
             rejectedAt: candidate.rejectedAt,
             productionEligible: candidate.productionEligible,
+            consentGrantId: result.job.consentGrantId,
+            questionDigest: result.job.questionDigest,
           },
           job: jobRecord(result.job),
         }
@@ -390,6 +392,8 @@ export function createDecisionModelStore(
             tasksetDigest: candidate.tasksetDigest,
             rejectedAt: candidate.rejectedAt,
             productionEligible: candidate.productionEligible,
+            consentGrantId: candidate.trainingJob.consentGrantId,
+            questionDigest: candidate.trainingJob.questionDigest,
           }
         : null
     },

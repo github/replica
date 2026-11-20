@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
+import { crc32, deflateSync } from "node:zlib"
 
 import type { AgentEvaluationDependencies, AgentEvaluationScreenshot } from "../types"
 import { evaluatePrototypeWithDecisionModel } from "."
@@ -16,12 +17,26 @@ const authority = {
 }
 
 function png(width: number, height: number) {
-  const bytes = Buffer.alloc(36)
-  Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(bytes)
-  bytes.writeUInt32BE(width, 16)
-  bytes.writeUInt32BE(height, 20)
-  Buffer.from([0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130]).copy(bytes, 24)
-  return bytes.toString("base64")
+  function chunk(type: string, data: Buffer) {
+    const header = Buffer.alloc(8)
+    header.writeUInt32BE(data.length, 0)
+    header.write(type, 4, "ascii")
+    const checksum = Buffer.alloc(4)
+    checksum.writeUInt32BE(crc32(Buffer.concat([Buffer.from(type), data])), 0)
+    return Buffer.concat([header, data, checksum])
+  }
+  const header = Buffer.alloc(13)
+  header.writeUInt32BE(width, 0)
+  header.writeUInt32BE(height, 4)
+  header[8] = 8
+  header[9] = 6
+  const rows = Buffer.alloc((width * 4 + 1) * height)
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk("IHDR", header),
+    chunk("IDAT", deflateSync(rows)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]).toString("base64")
 }
 
 function screenshot(overrides: Partial<AgentEvaluationScreenshot> = {}): AgentEvaluationScreenshot {
@@ -91,7 +106,10 @@ function dependencies(overrides: Partial<AgentEvaluationDependencies> = {}) {
       questionDigest: `sha256:${"b".repeat(64)}`,
       questions: {
         "learning-visible-label": {
+          type: "noul",
+          instructions: "Does the candidate follow this learning?",
           learning_text: "Keep a visible label beside every form field.",
+          criteria: { true: "Follows", false: "Breaks" },
         },
       },
     }),
@@ -128,6 +146,7 @@ function dependencies(overrides: Partial<AgentEvaluationDependencies> = {}) {
         productionEligible: true,
       }),
       getPromotion: vi.fn().mockResolvedValue(promotion),
+      isCandidateRevoked: vi.fn().mockResolvedValue(false),
     },
   }
   return { ...base, ...overrides, runtimeEvaluate, reserve }
@@ -142,12 +161,12 @@ describe("evaluatePrototypeWithDecisionModel()", () => {
         authority,
         currentRoute: "/settings",
         screenshots: [
-          screenshot(),
           screenshot({
             viewport: "narrow",
             theme: "light",
             dataBase64: png(390, 844),
           }),
+          screenshot(),
         ],
       },
       deps,
@@ -195,8 +214,14 @@ describe("evaluatePrototypeWithDecisionModel()", () => {
       branch: authority.branch,
       commitSha: authority.commitSha,
     })
+    expect(String(runtimeInput?.state.imagesNote)).toMatch(
+      /Image 1.*dark theme.*Image 2.*light theme/,
+    )
     expect(runtimeInput?.images).toHaveLength(2)
-    expect(runtimeInput?.images[0]).toMatch(/^data:image\/png;base64,/)
+    expect(runtimeInput?.images).toEqual([
+      `data:image/png;base64,${png(1_440, 900)}`,
+      `data:image/png;base64,${png(390, 844)}`,
+    ])
     expect(runtimeInput?.questions).toHaveProperty("learning-visible-label")
   })
 
@@ -215,6 +240,44 @@ describe("evaluatePrototypeWithDecisionModel()", () => {
     expect(second).toMatchObject({ evaluationId: first.evaluationId, status: "cached" })
     expect(deps.runtimeEvaluate).toHaveBeenCalledTimes(1)
     expect(deps.reserve).toHaveBeenCalledTimes(2)
+  })
+
+  it("does not reuse cache entries across current routes or runtime environments", async () => {
+    const readRuntimeReadiness = vi
+      .fn()
+      .mockResolvedValueOnce({ ready: true, environment: "production" })
+      .mockResolvedValueOnce({ ready: true, environment: "production" })
+      .mockResolvedValueOnce({ ready: true, environment: "fixture" })
+    const deps = dependencies({ readRuntimeReadiness })
+    const screenshots = [screenshot()]
+
+    await evaluatePrototypeWithDecisionModel(
+      { authority, currentRoute: "/settings", screenshots },
+      deps,
+    )
+    await evaluatePrototypeWithDecisionModel(
+      { authority, currentRoute: "/profile", screenshots },
+      deps,
+    )
+    await evaluatePrototypeWithDecisionModel(
+      { authority, currentRoute: "/profile", screenshots },
+      deps,
+    )
+
+    expect(new Set(deps.reserve.mock.calls.map(([input]) => input.cacheKey)).size).toBe(3)
+    expect(deps.runtimeEvaluate).toHaveBeenCalledTimes(3)
+  })
+
+  it("rejects a cached result when promotion or deletion authority changes", async () => {
+    const base = dependencies()
+    const input = { authority, currentRoute: "/settings", screenshots: [screenshot()] }
+    await evaluatePrototypeWithDecisionModel(input, base)
+    vi.mocked(base.store.isCandidateRevoked!).mockResolvedValue(true)
+
+    await expect(evaluatePrototypeWithDecisionModel(input, base)).rejects.toMatchObject({
+      code: "deletion_revoked",
+    })
+    expect(base.runtimeEvaluate).toHaveBeenCalledTimes(1)
   })
 
   it("marks fixture findings as unavailable test data", async () => {
@@ -251,6 +314,56 @@ describe("evaluatePrototypeWithDecisionModel()", () => {
       ),
     ).rejects.toMatchObject({ status: 409, code: "consent_required" })
     expect(deps.runtimeEvaluate).not.toHaveBeenCalled()
+  })
+
+  it("rejects malformed PNG bytes before reserving work", async () => {
+    const deps = dependencies()
+
+    await expect(
+      evaluatePrototypeWithDecisionModel(
+        {
+          authority,
+          currentRoute: null,
+          screenshots: [screenshot({ dataBase64: Buffer.alloc(36).toString("base64") })],
+        },
+        deps,
+      ),
+    ).rejects.toMatchObject({ status: 422, code: "invalid_screenshot" })
+    expect(deps.reserve).not.toHaveBeenCalled()
+    expect(deps.runtimeEvaluate).not.toHaveBeenCalled()
+  })
+
+  it("stops a multi-route evaluation when consent changes between runtime calls", async () => {
+    const authorityValue = {
+      consentGranted: true,
+      questionDigest: `sha256:${"b".repeat(64)}`,
+      questions: {
+        "learning-visible-label": {
+          type: "noul" as const,
+          instructions: "Does the candidate follow this learning?",
+          learning_text: "Keep a visible label beside every form field.",
+          criteria: { true: "Follows", false: "Breaks" },
+        },
+      },
+    }
+    const readLearningAuthority = vi
+      .fn()
+      .mockResolvedValueOnce(authorityValue)
+      .mockResolvedValueOnce(authorityValue)
+      .mockResolvedValueOnce({ ...authorityValue, consentGranted: false })
+    const deps = dependencies({ readLearningAuthority })
+
+    await expect(
+      evaluatePrototypeWithDecisionModel(
+        {
+          authority,
+          currentRoute: "/settings",
+          screenshots: [screenshot(), screenshot({ route: "/profile", theme: "light" })],
+        },
+        deps,
+      ),
+    ).rejects.toMatchObject({ code: "consent_required" })
+    expect(deps.runtimeEvaluate).toHaveBeenCalledTimes(1)
   })
 
   it("rejects a non-production candidate in a production runtime", async () => {

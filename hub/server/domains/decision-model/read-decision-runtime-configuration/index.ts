@@ -5,15 +5,24 @@ import type { DecisionRuntimeCredentialProvider } from "../../../integrations/de
 export function readDecisionRuntimeConfiguration(environment: NodeJS.ProcessEnv): {
   baseUrl: string
   credentialProvider: DecisionRuntimeCredentialProvider
+  environment: "fixture" | "production"
 } | null {
   const baseUrl = environment.REPLICA_DECISION_RUNTIME_URL
   const authentication = environment.REPLICA_DECISION_RUNTIME_AUTHENTICATION
   const token = environment.REPLICA_DECISION_RUNTIME_TOKEN
-  const supplied = [baseUrl, authentication, token].some((value) => value !== undefined)
+  const runtimeEnvironment = environment.REPLICA_DECISION_RUNTIME_ENVIRONMENT
+  const supplied = [baseUrl, authentication, token, runtimeEnvironment].some(
+    (value) => value !== undefined,
+  )
   if (!supplied) return null
-  if (!baseUrl || authentication !== "environment-token" || !token) {
+  if (
+    !baseUrl ||
+    authentication !== "environment-token" ||
+    !token ||
+    (runtimeEnvironment !== "fixture" && runtimeEnvironment !== "production")
+  ) {
     throw new Error(
-      "REPLICA_DECISION_RUNTIME_URL, REPLICA_DECISION_RUNTIME_AUTHENTICATION=environment-token, and REPLICA_DECISION_RUNTIME_TOKEN are required together.",
+      "REPLICA_DECISION_RUNTIME_URL, REPLICA_DECISION_RUNTIME_AUTHENTICATION=environment-token, REPLICA_DECISION_RUNTIME_TOKEN, and REPLICA_DECISION_RUNTIME_ENVIRONMENT=fixture|production are required together.",
     )
   }
   const url = new URL(baseUrl)
@@ -26,10 +35,11 @@ export function readDecisionRuntimeConfiguration(environment: NodeJS.ProcessEnv)
     )
   }
   const configurationDigest = `sha256:${createHash("sha256")
-    .update(JSON.stringify({ baseUrl: url.href, authentication }))
+    .update(JSON.stringify({ baseUrl: url.href, authentication, environment: runtimeEnvironment }))
     .digest("hex")}`
   return {
     baseUrl: url.href,
+    environment: runtimeEnvironment,
     credentialProvider: {
       key: authentication,
       configurationDigest,

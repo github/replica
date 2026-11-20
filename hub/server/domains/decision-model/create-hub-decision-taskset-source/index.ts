@@ -427,6 +427,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
   readAgentLearningAuthority(input: {
     repositoryId: string
     actorMembershipId: string
+    consentGrantId: string
   }): Promise<AgentLearningAuthority>
   prepareBuildEvaluation(input: {
     repositoryId: string
@@ -721,7 +722,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
 
   let tasksetSource: DecisionTasksetPreparationSource
   return {
-    async readAgentLearningAuthority({ repositoryId, actorMembershipId }) {
+    async readAgentLearningAuthority({ repositoryId, actorMembershipId, consentGrantId }) {
       const store = await learningStore(repositoryId)
       const [grants, questionResult] = await Promise.all([
         command([
@@ -751,14 +752,14 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
           { cause: questionResult.error },
         )
       }
-      const questions = Object.fromEntries(
-        Object.entries(questionResult.data.questions).flatMap(([id, question]) =>
-          question.type === "noul" ? [[id, { learning_text: question.learning_text }]] : [],
-        ),
-      )
+      const questions = questionResult.data.questions
       return {
         consentGranted: grants.some(
-          ({ activePurposes, expired }) => !expired && activePurposes.includes("training"),
+          ({ grant, activePurposes, expired }) =>
+            grant.id === consentGrantId &&
+            !expired &&
+            activePurposes.includes("training") &&
+            grant.sources.includes("hub_review_comments"),
         ),
         questionDigest: digestJson(questions),
         questions,

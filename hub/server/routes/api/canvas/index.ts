@@ -252,9 +252,31 @@ export function canvasRoutes(
   }
 
   if (agentVisualCritic) {
+    async function authorizeEvaluationBody(
+      request: Request,
+      response: Response,
+      next: Parameters<RequestHandler>[2],
+    ) {
+      try {
+        const { connections } = await dependencies()
+        const result = await connections.authorizeEvaluationCredential(accessToken(request))
+        if (result.status === "ok") {
+          next()
+          return
+        }
+        if (result.status === "forbidden") {
+          status(response, 403, "Repository write access is required for prototype evaluation.")
+          return
+        }
+        status(response, 401, "Canvas connection is no longer active.")
+      } catch (error) {
+        next(error)
+      }
+    }
     router.post(
       "/decision-model/evaluations",
       limit("canvas-decision-evaluation-request", 30),
+      authorizeEvaluationBody,
       express.json({ limit: "24mb", strict: true }),
       handler(async (request, response, { connections }) => {
         const route = handleAgentVisualCriticPost({

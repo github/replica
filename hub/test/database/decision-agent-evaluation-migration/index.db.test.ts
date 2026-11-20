@@ -97,15 +97,16 @@ it("adds bounded content-free agent evaluation reservations to the exact decisio
          WHERE table_name = 'decision_agent_evaluations'
          ORDER BY column_name`,
       )
-      expect(columns.rows.map(({ column_name }) => column_name)).not.toEqual(
-        expect.arrayContaining(["screenshot", "learning_text", "prompt", "credential"]),
-      )
+      const names = columns.rows.map(({ column_name }) => column_name)
+      for (const forbidden of ["screenshot", "learning_text", "prompt", "credential"]) {
+        expect(names).not.toContain(forbidden)
+      }
       await expect(
         database.query(
           `INSERT INTO decision_agent_evaluations
              (id, repository_id, candidate_id, cache_key, promotion_generation,
-              question_digest, screenshot_set_digest, reserved_credits, expires_at)
-           VALUES ($1, $2, $3, $4, 1, $5, $6, 0, now() + interval '15 minutes')`,
+              question_digest, screenshot_set_digest, request_units, state, expires_at)
+           VALUES ($1, $2, $3, $4, 1, $5, $6, 0, 'PENDING', now() + interval '15 minutes')`,
           [
             randomUUID(),
             repositoryId,

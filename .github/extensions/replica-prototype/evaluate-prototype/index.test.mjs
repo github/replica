@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
+import { afterEach, beforeEach, describe, it, mock } from "node:test"
 import { evaluatePrototype } from "./index.mjs"
 const commitSha = "a".repeat(40)
 function png() {
@@ -49,6 +49,37 @@ function hubResult(overrides = {}) {
   }
 }
 void describe("evaluatePrototype()", () => {
+  const originalUploadSetting = process.env.REPLICA_ALLOW_PROTOTYPE_SCREENSHOT_UPLOAD
+  beforeEach(() => {
+    process.env.REPLICA_ALLOW_PROTOTYPE_SCREENSHOT_UPLOAD = "true"
+  })
+  afterEach(() => {
+    if (originalUploadSetting === undefined) {
+      delete process.env.REPLICA_ALLOW_PROTOTYPE_SCREENSHOT_UPLOAD
+    } else {
+      process.env.REPLICA_ALLOW_PROTOTYPE_SCREENSHOT_UPLOAD = originalUploadSetting
+    }
+  })
+  void it("blocks screenshot upload unless local policy explicitly allows it", async () => {
+    delete process.env.REPLICA_ALLOW_PROTOTYPE_SCREENSHOT_UPLOAD
+    const request = mock.fn(() => Promise.resolve({}))
+    await assert.rejects(
+      evaluatePrototype(
+        {
+          checkout: () =>
+            Promise.resolve({
+              repository: "github/replica",
+              branch: "prototype/visual-critic",
+              commitSha,
+            }),
+          request,
+        },
+        { currentRoute: "/", screenshots: [] },
+      ),
+      /explicitly allow uploads/i,
+    )
+    assert.equal(request.mock.callCount(), 0)
+  })
   void it("sends only evaluation inputs and projects explicit safety metadata", async () => {
     let requestRoute
     let requestOptions
