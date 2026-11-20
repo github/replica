@@ -41,7 +41,7 @@ Members can react to both roots and replies. Each member can add a given reactio
 
 Opening a conversation marks the displayed activity read. New activity remains unread while the conversation stays open. Marking unread leaves the conversation and draft open, and saving a review action marks the resulting activity read for its actor. These changes do not mark Inbox notices read.
 
-Members can type `@` to choose a collaborator while composing, replying, or editing. Hub searches eligible collaborators for the typed login instead of filtering the first page of suggestions. Each message accepts up to ten distinct case-insensitive logins. Hub checks GitHub identities and repository permissions at save time. Ineligible or unknown logins stay plain text; a provider failure stops the save. GitHub recipients do not need a Hub account. Local suggestions come only from saved identities with an active local membership assignment. The body remains exactly as entered; verified mentions are separate facts.
+Members can type `@` to choose a collaborator while composing, replying, or editing. Hub searches eligible collaborators for the typed login instead of filtering the first page of suggestions. For GitHub repositories, Hub searches up to 2,000 collaborators and returns the matches it found within that limit. Each message accepts up to ten distinct case-insensitive logins. Hub checks GitHub identities and repository permissions at save time. Ineligible or unknown logins stay plain text; a provider failure stops the save. GitHub recipients do not need a Hub account. Local suggestions come only from saved identities with an active local membership assignment. The body remains exactly as entered; verified mentions are separate facts.
 
 ## Inbox and live review
 
@@ -49,7 +49,7 @@ New roots notify the recorded prototype owner. Replies notify the owner and part
 
 Inbox lists only the viewer's accessible activity and returns a total unread count independent of pagination. It rechecks repository access before listing, opening, or changing notice state. Inbox changes use a separate version check. Opening an activity loads the current successful Build and focuses the exact message. Hub acknowledges the notice only after that message opens. Missing messages or repositories are not acknowledged. These are in-app notices only; there is no external delivery or Canvas review endpoint.
 
-`GET /api/notifications/inbox` accepts `unread`, `limit`, and `before`. `GET /api/notifications/:notificationId` returns one authorized notice. `PATCH /api/notifications/:notificationId` accepts `{ notification: { read, version } }` and returns the saved read state and version. Single-notice requests verify only the notice's repository. The Inbox list returns the authoritative total; the browser updates its displayed count after a successful read change.
+`GET /api/notifications/inbox` accepts `unread`, `limit`, and `before`. `GET /api/notifications/:notificationId` returns one authorized notice. `PATCH /api/notifications/:notificationId` accepts `{ notification: { read, version } }` and returns the saved read state and version. Single-notice requests verify only the notice's repository. After saving a read change, the browser checks for new activity before leaving the Unread view empty. The sidebar also checks the total before clearing a closed Inbox badge based on its previous count.
 
 Opening a notice marks that notice as read once its target message is shown, even when another notice already focused the same message.
 

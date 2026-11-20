@@ -35,12 +35,16 @@ export function MentionInput({ value, onValueChange, onKeyDown, ref, ...props }:
   const match = value.slice(0, caret).match(/(?:^|[\s(])@([a-zA-Z0-9-]{0,39})$/)
   const query = match?.[1]?.toLowerCase()
   const open = source !== null && query !== undefined && !dismissed && !props.disabled
+  const lookup = open && source.searchesByQuery === false ? "" : query
   const tooMany = getMentionLogins(value).length > 10
   const current =
-    result?.source === source && result.query === query && result.retry === retry ? result : null
+    result?.source === source && result.query === lookup && result.retry === retry ? result : null
   const failed = current?.failed
   const waiting = current === null
-  const suggestions = current?.candidates.slice(0, 8) ?? []
+  const suggestions =
+    current?.candidates
+      .filter((candidate) => candidate.login.toLowerCase().includes(query ?? ""))
+      .slice(0, 8) ?? []
   const activeIndex = Math.min(selected, Math.max(0, suggestions.length - 1))
 
   useEffect(() => {
@@ -48,19 +52,19 @@ export function MentionInput({ value, onValueChange, onKeyDown, ref, ...props }:
   }, [source?.copy.limit, tooMany])
 
   useEffect(() => {
-    if (!open || !source || query === undefined) return
+    if (!open || !source || lookup === undefined) return
 
     const request = new AbortController()
     const timer = window.setTimeout(() => {
       setResult(null)
-      void source.load(query, request.signal).then(
+      void source.load(lookup, request.signal).then(
         (candidates) => {
           if (!request.signal.aborted)
-            setResult({ source, query, retry, candidates, failed: false })
+            setResult({ source, query: lookup, retry, candidates, failed: false })
         },
         () => {
           if (!request.signal.aborted)
-            setResult({ source, query, retry, candidates: [], failed: true })
+            setResult({ source, query: lookup, retry, candidates: [], failed: true })
         },
       )
     }, 150)
@@ -68,7 +72,7 @@ export function MentionInput({ value, onValueChange, onKeyDown, ref, ...props }:
       request.abort()
       window.clearTimeout(timer)
     }
-  }, [open, query, retry, source])
+  }, [open, lookup, retry, source])
 
   useLayoutEffect(() => {
     if (!open) return
@@ -150,6 +154,16 @@ export function MentionInput({ value, onValueChange, onKeyDown, ref, ...props }:
             retryButton.current?.focus()
             return
           }
+          const unmodified =
+            !event.nativeEvent.isComposing &&
+            !event.altKey &&
+            !event.metaKey &&
+            !event.ctrlKey &&
+            !event.shiftKey
+          if (open && waiting && event.key === "Enter" && unmodified) {
+            event.preventDefault()
+            return
+          }
           if (open && !waiting && !failed && suggestions.length) {
             if (event.key === "ArrowDown" || event.key === "ArrowUp") {
               event.preventDefault()
@@ -159,13 +173,7 @@ export function MentionInput({ value, onValueChange, onKeyDown, ref, ...props }:
               )
               return
             }
-            if (
-              (event.key === "Enter" || event.key === "Tab") &&
-              !event.nativeEvent.isComposing &&
-              !event.metaKey &&
-              !event.ctrlKey &&
-              !event.shiftKey
-            ) {
+            if ((event.key === "Enter" || event.key === "Tab") && unmodified) {
               event.preventDefault()
               const candidate = suggestions[activeIndex]
               if (candidate) choose(candidate)

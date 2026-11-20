@@ -82,9 +82,10 @@ describe("NewPrototypePage()", () => {
     const onOpenApp = vi.fn()
     const { copy } = PAGE_DATA
     const brief = "Improve the settings flow"
+    const copyPromptInstructions = "Continue with the brief in your prototype workspace."
     render(
       <NewPrototypePage
-        data={PAGE_DATA}
+        data={{ ...PAGE_DATA, copyPromptInstructions }}
         authorizeHandoff={authorizeHandoff}
         onOpenApp={onOpenApp}
       />,
@@ -104,7 +105,7 @@ describe("NewPrototypePage()", () => {
     fireEvent.click(copyPrompt)
     await waitFor(() =>
       expect(writeText).toHaveBeenCalledExactlyOnceWith(
-        `${brief}\n\n${copy.audienceLabel}\nMaintainers\n\n${PAGE_DATA.promptInstructions}`,
+        `${brief}\n\n${copy.audienceLabel}\nMaintainers\n\n${copyPromptInstructions}`,
       ),
     )
     expect(authorizeHandoff).toHaveBeenCalledOnce()
@@ -133,9 +134,11 @@ describe("NewPrototypePage()", () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } })
     const onOpenApp = vi.fn()
+    const copyPromptInstructions = "Use this brief in your local prototype workspace."
     const data: NewPrototypePageData = {
       ...PAGE_DATA,
       submissionMode: "copy",
+      copyPromptInstructions,
       copy: { ...PAGE_DATA.copy, submitLabel: "Copy prompt" },
     }
     render(<NewPrototypePage data={data} onOpenApp={onOpenApp} />)
@@ -155,7 +158,7 @@ describe("NewPrototypePage()", () => {
     })
 
     expect(writeText).toHaveBeenCalledExactlyOnceWith(
-      "Improve settings\n\nWho is this for?\nMaintainers\n\nBuild a working prototype in this repository.",
+      `Improve settings\n\nWho is this for?\nMaintainers\n\n${copyPromptInstructions}`,
     )
     expect(screen.getByRole("status")).toHaveTextContent(data.copy.copiedLabel)
     expect(screen.queryByRole("link", { name: data.copy.openAppLabel })).not.toBeInTheDocument()

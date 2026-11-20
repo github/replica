@@ -257,6 +257,11 @@ it("rechecks GitHub write permission when starting a Copilot handoff", async () 
   await withRepository(async ({ read, permission }) => {
     permission.mockResolvedValue("write")
     expect(await (await read("/create/permission")).json()).toMatchObject({ canCreate: true })
+    expect(await (await read("/templates/default")).json()).toMatchObject({
+      canCreate: true,
+      submissionMode: "copilot",
+      template: { id: "default" },
+    })
     permission.mockResolvedValue("read")
     expect(await (await read("/create/permission")).json()).toMatchObject({ canCreate: false })
     expect(await (await read("/templates/default")).json()).toMatchObject({

@@ -210,7 +210,10 @@ export function useNotificationInbox({
       refill:
         unreadOnly &&
         ((!saved.read && !current) ||
-          (saved.read && visible.length === 1 && visible[0]?.id === id && count > 0)),
+          (saved.read &&
+            visible.length === 1 &&
+            visible[0]?.id === id &&
+            (saved.unreadCount === undefined || count > 0))),
     }
   }
 
@@ -222,7 +225,8 @@ export function useNotificationInbox({
       saved.unreadCount === undefined &&
       (pendingCount.current !== null ||
         countReceivedAt.current === null ||
-        countReceivedAt.current >= startedAt)
+        countReceivedAt.current >= startedAt ||
+        (saved.read && unreadCount <= 1))
     applyReadUpdate(id, saved, !needsCount)
     if (loaded.current || autoLoad || loading) {
       void load()
@@ -242,6 +246,7 @@ export function useNotificationInbox({
     const startedAt = performance.now()
     setLoading(true)
     setFailed(false)
+    let saved: NotificationReadUpdate
     try {
       const response = await fetch(notification.updatePath, {
         method: "PATCH",
@@ -254,23 +259,10 @@ export function useNotificationInbox({
       if (!response.ok) throw new Error("Notification could not be updated")
       if (requestGeneration !== generation.current) return
 
-      const saved = NOTIFICATION_READ_SCHEMA.parse(await response.json())
+      saved = NOTIFICATION_READ_SCHEMA.parse(await response.json())
       if (requestGeneration !== generation.current) return
       if (saved.read !== !notification.read)
         throw new Error("Notification read state did not change")
-
-      const { count, refill } = applyReadUpdate(notification.id, saved)
-      if (synchronize) {
-        ownReadUpdate.current = saved
-        notifyInboxRead({ id: notification.id, saved, startedAt })
-      }
-      callbacks.current.onReadChange?.(notification.id, saved)
-      callbacks.current.onUnreadCountChange?.(count)
-      if (refill) {
-        await load()
-      } else {
-        setLoading(false)
-      }
     } catch {
       if (requestGeneration !== generation.current) return
 
@@ -280,6 +272,20 @@ export function useNotificationInbox({
       setUnreadCount(0)
       setNextBefore(null)
       setFailed(true)
+      setLoading(false)
+      return
+    }
+
+    const { count, refill } = applyReadUpdate(notification.id, saved)
+    if (synchronize) {
+      ownReadUpdate.current = saved
+      notifyInboxRead({ id: notification.id, saved, startedAt })
+    }
+    callbacks.current.onReadChange?.(notification.id, saved)
+    callbacks.current.onUnreadCountChange?.(count)
+    if (refill) {
+      void load()
+    } else {
       setLoading(false)
     }
   }

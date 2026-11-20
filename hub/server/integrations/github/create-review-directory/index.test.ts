@@ -8,7 +8,9 @@ const repositoryPath = "/repositories/42"
 const oldPermissionPath = "/repos/sandbox/renamed/collaborators/old-login/permission"
 const permissionPath = "/repos/sandbox/renamed/collaborators/reviewer/permission"
 
-function directoryWith(responseFor: (path: string) => Response | Promise<Response>) {
+function directoryWith(
+  responseFor: (path: string, query: URLSearchParams) => Response | Promise<Response>,
+) {
   const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
   const request = vi.fn<typeof fetch>((input, options) => {
     const url = new URL(input instanceof Request ? input.url : input)
@@ -25,13 +27,40 @@ function directoryWith(responseFor: (path: string) => Response | Promise<Respons
     if (url.pathname === repositoryPath) {
       return Promise.resolve(Response.json({ id: 42, full_name: "sandbox/renamed" }))
     }
-    return Promise.resolve(responseFor(url.pathname))
+    return Promise.resolve(responseFor(url.pathname, url.searchParams))
   })
   return {
     directory: createReviewDirectory({ appId: "16", installationId: "17", privateKey }, request),
     request,
   }
 }
+
+it("returns the matches found when the search reaches the page limit", async () => {
+  const pages: number[] = []
+  const matchingLogins = new Map([
+    [1, "mona-reviewer"],
+    [2000, "mona"],
+  ])
+  const { directory } = directoryWith((path, query) => {
+    if (path !== "/repos/sandbox/renamed/collaborators") {
+      throw new Error(`Unexpected request: ${path}`)
+    }
+    const page = Number(query.get("page"))
+    const perPage = Number(query.get("per_page"))
+    expect(perPage).toBe(100)
+    pages.push(page)
+    return Response.json(
+      Array.from({ length: perPage }, (_, index) => {
+        const id = (page - 1) * perPage + index + 1
+        return { id, login: matchingLogins.get(id) ?? `reviewer-${id}` }
+      }),
+    )
+  })
+
+  const matches = await directory.search(42n, "mona")
+  expect(matches.map(({ login }) => login).sort()).toEqual(["mona", "mona-reviewer"])
+  expect(pages).toEqual(Array.from({ length: 20 }, (_, index) => index + 1))
+})
 
 it("uses the immutable repository ID when checking a collaborator after a rename", async () => {
   const { directory, request } = directoryWith((path) => {

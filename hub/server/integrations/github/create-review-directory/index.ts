@@ -203,7 +203,7 @@ export function createReviewDirectory(
         }
         if (rows.length < 100) return [...candidates.values()]
       }
-      throw new GitHubProviderRequestError()
+      return [...candidates.values()]
     },
   }
 }

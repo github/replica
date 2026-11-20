@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { MentionProvider } from "@components/mention-provider"
 import type { MentionCandidate, MentionSource } from "@hooks/use-mention-source/context"
+import { isSubmitShortcut } from "@utils/is-submit-shortcut"
 
 import { MentionInput } from "."
 
@@ -16,9 +17,17 @@ const copy = {
   limit: "Each message can mention at most 10 distinct people.",
 }
 
-function Composer({ load, submit }: { load: MentionSource["load"]; submit: () => void }) {
+function Composer({
+  load,
+  searchesByQuery,
+  submit,
+}: {
+  load: MentionSource["load"]
+  searchesByQuery?: boolean
+  submit: () => void
+}) {
   const [value, setValue] = useState("")
-  const source = useMemo(() => ({ load, copy }), [load])
+  const source = useMemo(() => ({ load, copy, searchesByQuery }), [load, searchesByQuery])
   return (
     <MentionProvider source={source}>
       <form
@@ -32,7 +41,7 @@ function Composer({ load, submit }: { load: MentionSource["load"]; submit: () =>
           value={value}
           onValueChange={setValue}
           onKeyDown={(event) => {
-            if (event.key === "Enter") {
+            if (isSubmitShortcut(event.nativeEvent, { allowPlainEnter: true })) {
               event.preventDefault()
               event.currentTarget.form?.requestSubmit()
             }
@@ -83,17 +92,53 @@ describe("MentionInput()", () => {
     expect(submit).toHaveBeenCalledOnce()
   })
 
-  it("keeps suggestions scoped to the current query when an earlier lookup settles late", async () => {
+  it("filters a reused collaborator list before limiting suggestions", async () => {
+    vi.useFakeTimers()
+    const load = vi.fn().mockResolvedValue([
+      ...Array.from({ length: 8 }, (_, index) => ({
+        login: `reviewer-${index}`,
+        avatarUrl: null,
+      })),
+      { login: "alMond", avatarUrl: null },
+    ])
+    render(<Composer load={load} searchesByQuery={false} submit={vi.fn()} />)
+    const input = screen.getByRole("textbox")
+    fireEvent.change(input, { target: { value: "Please @" } })
+    await act(() => vi.runOnlyPendingTimersAsync())
+    expect(screen.getAllByRole("option")).toHaveLength(8)
+
+    fireEvent.change(input, { target: { value: "Please @mon" } })
+    expect(screen.queryAllByRole("option", { name: /reviewer-/ })).toHaveLength(0)
+    await act(() => vi.runOnlyPendingTimersAsync())
+    expect(screen.getByRole("option")).toHaveAccessibleName("@alMond")
+    expect(load).toHaveBeenCalledOnce()
+
+    fireEvent.keyDown(input, { key: "Enter" })
+    expect(input).toHaveValue("Please @alMond ")
+  })
+
+  it("blocks plain Enter during lookup without blocking Tab or the submit shortcut", async () => {
+    vi.spyOn(navigator, "platform", "get").mockReturnValue("Win32")
     let finishEarlier!: (people: MentionCandidate[]) => void
     let finishCurrent!: (people: MentionCandidate[]) => void
     const earlier = new Promise<MentionCandidate[]>((resolve) => (finishEarlier = resolve))
     const current = new Promise<MentionCandidate[]>((resolve) => (finishCurrent = resolve))
     const load = vi.fn((query?: string) => (query === "mon" ? current : earlier))
-    render(<Composer load={load} submit={vi.fn()} />)
+    const submit = vi.fn()
+    render(<Composer load={load} submit={submit} />)
     const input = screen.getByRole("textbox")
     fireEvent.change(input, { target: { value: "@mo" } })
     await waitFor(() => expect(load).toHaveBeenCalledOnce())
     fireEvent.change(input, { target: { value: "@mon" } })
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(2))
+
+    fireEvent.keyDown(input, { key: "Enter" })
+    expect(submit).not.toHaveBeenCalled()
+    expect(input).toHaveValue("@mon")
+    expect(fireEvent.keyDown(input, { key: "Tab" })).toBe(true)
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true })
+    expect(submit).toHaveBeenCalledOnce()
+
     finishCurrent([{ login: "mona-current", avatarUrl: null }])
     await screen.findByRole("option", { name: "@mona-current" })
 
