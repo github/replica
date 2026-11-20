@@ -113,13 +113,15 @@ export function PrototypeCanvasHubPanel({
   const mentionHubOrigin = status?.hubOrigin
   const mentionSource = useMemo(
     () => ({
-      load: async () => {
+      searchesByQuery: false,
+      load: async (_query: string, signal: AbortSignal) => {
         if (!mentionConnected || !mentionHubOrigin) throw new Error(copy.mentionSuggestionsError)
 
         return MENTION_CANDIDATES_SCHEMA.parse(
           await request(
             `/api/hub/mention-candidates?repositoryId=${mentionRepositoryId}&prototypeId=${mentionPrototypeId}`,
             config.token,
+            { signal },
           ),
         ).candidates
       },

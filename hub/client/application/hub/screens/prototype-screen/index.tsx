@@ -63,11 +63,10 @@ export function PrototypeScreen({
   const transport = useMemo(() => createReviewTransport(routeUrl), [routeUrl])
   const mentionSource = useMemo(
     () => ({
-      load: async () => {
-        const { candidates } = await requestJson(
-          new URL(`${pageData.reviewCommentsPath}/mention-candidates`, routeUrl),
-          MENTION_CANDIDATES_SCHEMA,
-        )
+      load: async (query: string, signal: AbortSignal) => {
+        const url = new URL(`${pageData.reviewCommentsPath}/mention-candidates`, routeUrl)
+        url.searchParams.set("q", query)
+        const { candidates } = await requestJson(url, MENTION_CANDIDATES_SCHEMA, { signal })
         return candidates
       },
       copy: {

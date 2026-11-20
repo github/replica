@@ -136,6 +136,13 @@ export async function processDecisionTrainingJob(
             tasksetDigest: taskset.tasksetDigest,
             idempotencyKey: `taskset:${job.id}`,
           })
+          if (transferred.tasksetDigest !== job.tasksetDigest) {
+            throw new DecisionModelError(
+              409,
+              "taskset_drift",
+              "The decision runtime stored a different taskset.",
+            )
+          }
           const runtimeJob = await runtime.submitTraining({
             backend: job.backend,
             maxUpdates: job.maxUpdates,

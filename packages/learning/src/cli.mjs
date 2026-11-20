@@ -42,6 +42,7 @@ Inspect
 
 Consent (a person decides; --by github:<login>)
   grants list
+  grants withdrawals
   grants add --purpose <p>... --basis <text> --by <id> [--source <s>]... [--expires <time>]
              [--evidence-from <time>] [--evidence-until <time>]
   grants withdraw <grant-id> --purpose <p>... --by <id> [--reason <text>]
@@ -79,7 +80,7 @@ Use
                                   --task-file - reads the task from standard input;
                                   --preview shows a person what an agent would get,
                                   unaudited
-  export --purpose <p> --by <id> [--out <file>] [--learnings-only]
+  export --purpose <p> --by <id> [--out <file>] [--learnings-only] [--preview]
 
 Decision model
   decision models                 Base models suggested for checking screenshots
@@ -87,6 +88,7 @@ Decision model
                                   The typed questions a decision model answers about a
                                   page: one yes-or-no question per accepted learning
   decision taskset --export <file> --builds <file> --out <dir> [--brand-sheet <image>]
+                   [--created-at <time>]
                                   Labeled tasks for a reinforcement learning environment,
                                   from a training export and the Builds' screenshots
 Options: --dir <path> data directory (default .replica/learning), --json machine output.
@@ -140,6 +142,7 @@ const OPTIONS = {
   export: { type: "string" },
   builds: { type: "string" },
   "brand-sheet": { type: "string" },
+  "created-at": { type: "string" },
 }
 
 class UsageError extends Error {}
@@ -234,9 +237,10 @@ async function run(session) {
       return doctor(session)
     case "grants":
       if (sub === "list") return listGrants(session)
+      if (sub === "withdrawals") return listWithdrawals(session)
       if (sub === "add") return addGrant(session)
       if (sub === "withdraw") return withdrawGrant(session)
-      throw new UsageError("Use grants list, grants add, or grants withdraw.")
+      throw new UsageError("Use grants list, grants withdrawals, grants add, or grants withdraw.")
     case "import":
       if (sub === "hub-comments") return importHub(session)
       throw new UsageError("Use import hub-comments <log.json>.")
@@ -517,6 +521,12 @@ async function listGrants(session) {
           .join("\n")
       : "No grants. Record one with grants add before importing evidence.",
   )
+}
+
+async function listWithdrawals(session) {
+  const { store } = await open(session)
+  const withdrawals = await store.listWithdrawals(context(session, actor(session)))
+  session.out(withdrawals, `${withdrawals.length} grant withdrawal(s).`)
 }
 
 async function addGrant(session) {
@@ -1110,6 +1120,7 @@ async function exportRecords(session) {
     purpose,
     destination,
     contents: session.values["learnings-only"] ? "learnings" : "all",
+    preview: session.values.preview === true,
   })
   await mkdir(path.dirname(destination), { recursive: true, mode: 0o700 })
   await writeFile(destination, `${JSON.stringify(bundle, null, 2)}\n`, {
@@ -1233,7 +1244,9 @@ async function decisionTaskset(session) {
     directory,
     baseDirectory: path.dirname(path.resolve(session.cwd, values.builds)),
     brandSheet: values["brand-sheet"] && path.resolve(session.cwd, values["brand-sheet"]),
-    createdAt: timestampFromMilliseconds(session.clock()),
+    createdAt: values["created-at"]
+      ? parseTimeOption(values["created-at"], session.clock())
+      : timestampFromMilliseconds(session.clock()),
   })
   const { counts } = manifest
   session.out(

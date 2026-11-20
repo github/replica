@@ -1,36 +1,58 @@
-import { http, HttpResponse } from "msw"
-import { setupServer } from "msw/node"
-import { describe, expect, it, onTestFinished, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
-import { ApiRequestError } from "../api-request-error"
 import { authorizeCopilotHandoff } from "."
 
-const repositoryId = "11111111-1111-4111-8111-111111111111"
-
-function respondWith(status: number) {
-  vi.stubEnv("MODE", "development")
-  const server = setupServer(
-    http.get(`${window.location.origin}/api/repositories/${repositoryId}/create/permission`, () =>
-      HttpResponse.json({ error: "Unavailable." }, { status }),
-    ),
-  )
-  server.listen({ onUnhandledRequest: "error" })
-  onTestFinished(() => server.close())
-}
-
 describe("authorizeCopilotHandoff()", () => {
-  it("denies the handoff when the repository is no longer visible", async () => {
-    respondWith(404)
+  it("allows explicit copy fallback only for callers that opt in", async () => {
+    const fetch = vi.fn(() =>
+      Promise.resolve(
+        Response.json({ error: "GitHub unavailable", canCopy: true }, { status: 503 }),
+      ),
+    )
+    vi.stubGlobal("fetch", fetch)
 
-    await expect(authorizeCopilotHandoff(repositoryId)).resolves.toBe(false)
+    await expect(authorizeCopilotHandoff("2001", { allowCopyFallback: true })).resolves.toBe("copy")
+    await expect(authorizeCopilotHandoff("2001")).rejects.toMatchObject({ status: 503 })
   })
 
-  it("reports an unavailable access check instead of a denial", async () => {
-    respondWith(503)
+  it.each([undefined, true])(
+    "denies a hidden repository even when copy fallback is %s",
+    async (allowCopyFallback) => {
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue(
+            Response.json({ error: "Repository not found", canCopy: true }, { status: 404 }),
+          ),
+      )
 
-    await expect(authorizeCopilotHandoff(repositoryId)).rejects.toMatchObject({
-      constructor: ApiRequestError,
-      status: 503,
-    })
+      await expect(authorizeCopilotHandoff("2001", { allowCopyFallback })).resolves.toBe(false)
+    },
+  )
+
+  it.each([
+    { status: 401, canCopy: true },
+    { status: 503, canCopy: undefined },
+    { status: 503, canCopy: false },
+  ])("rejects a $status with no applicable copy authorization", async ({ status, canCopy }) => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(Response.json({ error: "Access unavailable", canCopy }, { status })),
+    )
+
+    await expect(
+      authorizeCopilotHandoff("2001", { allowCopyFallback: true }),
+    ).rejects.toMatchObject({ status })
+  })
+
+  it("does not allow copy when the request cannot reach Hub", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Network unavailable")))
+
+    await expect(
+      authorizeCopilotHandoff("2001", { allowCopyFallback: true }),
+    ).rejects.toMatchObject({ status: 0 })
   })
 })

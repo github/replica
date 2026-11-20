@@ -30,6 +30,7 @@ async function withRepository(
       typeof vi.fn<NonNullable<WorkspaceProductRouteDependencies["getRepositoryPermission"]>>
     >
   }) => Promise<void>,
+  provider: "github" | "entra" = "github",
 ) {
   const { id: repositoryId } = await prisma.repository.create({
     data: { nameWithOwner: "example/templates", defaultBranch: "main", githubRepositoryId: 456 },
@@ -48,8 +49,8 @@ async function withRepository(
     return Promise.resolve({
       userId,
       membershipId,
-      provider: "github",
-      sessionProvider: "github",
+      provider,
+      sessionProvider: provider,
       login: "template-viewer",
       name: null,
       role: "MEMBER" as const,
@@ -196,18 +197,23 @@ it("keeps the catalog, screenshot, and routed preview on one successful default-
     })
     const list = await read()
     expect(list.status).toBe(200)
-    const { templates } = (await list.json()) as {
+    const catalog = (await list.json()) as {
       templates: { id: string; screenshotUrl: string }[]
     }
+    expect(catalog).toMatchObject({ canCreate: true, submissionMode: "copilot" })
+    const { templates } = catalog
     expect(templates.map(({ id }) => id)).toEqual(["default", "settings"])
     expect(templates[1]).toMatchObject({ buildNumber: 2, category: "Administration", route })
     const screenshot = new URL(templates[1]!.screenshotUrl)
     expect(screenshot.pathname).toContain(`/template-builds/${selected.id}/access`)
     const detail = await read("/templates/settings")
-    const { template, initialRoute } = (await detail.json()) as {
+    expect(detail.status).toBe(200)
+    const saved = (await detail.json()) as {
       template: { previewUrl: string }
       initialRoute: string
     }
+    expect(saved).toMatchObject({ canCreate: true, submissionMode: "copilot" })
+    const { template, initialRoute } = saved
     const preview = new URL(template.previewUrl)
     expect(preview.pathname).toBe(screenshot.pathname)
     expect(preview.searchParams.get("route")).toBe(initialRoute)
@@ -248,9 +254,10 @@ it("keeps the catalog, screenshot, and routed preview on one successful default-
 
 it("offers a visible reader a hosted handoff without granting listing management", async () => {
   await withRepository(async ({ read, permission }) => {
-    expect(await (await read()).json()).toMatchObject({
+    expect(await (await read("/templates/default")).json()).toMatchObject({
       canCreate: true,
       submissionMode: "copilot",
+      template: { id: "default" },
     })
     expect(await (await read("/create/permission")).json()).toEqual({ canCreate: true })
     const management = await read("/prototype-management")
@@ -261,5 +268,54 @@ it("offers a visible reader a hosted handoff without granting listing management
       canCreate: true,
       submissionMode: "copilot",
     })
+    expect(await (await read("/create/permission")).json()).toEqual({ canCreate: true })
+  })
+})
+
+it("allows a visible viewer to start a handoff without checking GitHub permission", async () => {
+  await withRepository(async ({ read, permission }) => {
+    permission.mockRejectedValue(new Error("GitHub unavailable"))
+
+    for (const path of ["/templates", "/templates/default"]) {
+      const response = await read(path)
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({
+        canCreate: true,
+        submissionMode: "copilot",
+      })
+    }
+    const handoff = await read("/create/permission")
+    expect(handoff.status).toBe(200)
+    expect(await handoff.json()).toEqual({ canCreate: true })
+    expect(permission).not.toHaveBeenCalled()
+  })
+})
+
+it("lets an Entra viewer start a Copilot handoff from the blank template", async () => {
+  await withRepository(async ({ read }) => {
+    for (const path of ["/templates", "/templates/default"]) {
+      const response = await read(path)
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({
+        canCreate: true,
+        submissionMode: "copilot",
+      })
+    }
+    expect(await (await read("/templates/default")).json()).toMatchObject({
+      template: { id: "default" },
+    })
+    expect(await (await read("/create/permission")).json()).toEqual({ canCreate: true })
+  }, "entra")
+})
+
+it("conceals the composer and Copilot handoff from a viewer outside repository scope", async () => {
+  await withRepository(async ({ repositoryId, read, permission }) => {
+    await prisma.repositoryAccessGrant.deleteMany({ where: { repositoryId } })
+    permission.mockResolvedValue("write")
+    expect((await read()).status).toBe(404)
+    expect((await read("/templates/default")).status).toBe(404)
+    const denied = await read("/create/permission")
+    expect(denied.status).toBe(404)
+    expect(await denied.json()).not.toHaveProperty("canCopy")
   })
 })

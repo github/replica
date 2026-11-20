@@ -212,6 +212,21 @@ describe("real prototype index", () => {
         fireEvent.click(within(dialog).getByRole("button", { name: "Close Copilot app dialog" }))
       }
       expect(permissionChecks).toHaveBeenCalledTimes(2)
+      server.use(
+        http.get(
+          `${window.location.origin}/api/repositories/${repositoryId}/create/permission`,
+          () => HttpResponse.json({ error: "Repository not found." }, { status: 404 }),
+        ),
+      )
+      writeText.mockClear()
+
+      fireEvent.click(screen.getByRole("button", { name: "Create prototype" }))
+
+      expect(await screen.findByRole("alert")).toBeVisible()
+      expect(screen.getByRole("textbox", { name: "What should we create?" })).toHaveValue(brief)
+      expect(screen.queryByRole("button", { name: "Copy prompt" })).not.toBeInTheDocument()
+      expect(screen.queryByRole("link", { name: "Open Copilot App" })).not.toBeInTheDocument()
+      expect(writeText).not.toHaveBeenCalled()
       expect(writes).not.toHaveBeenCalled()
       expect(router.state.location.pathname).toBe(`/repositories/${repositoryId}/new`)
     },

@@ -14,6 +14,7 @@ import { parseMockQuery } from "../parse-mock-query"
 import { respondMock } from "../respond-mock"
 import { respondMockOperation as respond } from "../respond-mock-operation"
 import { createReviewHandlers } from "../create-review-handlers"
+import { createDecisionModelHandlers } from "../create-decision-model-handlers"
 import { createLearningsHandlers } from "../create-learnings-handlers"
 import { createProductHandlers } from "../create-product-handlers"
 import { createSettingsHandlers } from "../create-settings-handlers"
@@ -36,6 +37,7 @@ export function createMockHandlers(store: MockStore) {
 
   return [
     ...createReviewHandlers(store.review, store.origin, store.session),
+    ...createDecisionModelHandlers(store.flowContext),
     ...createLearningsHandlers(store.learnings, store.origin, store.session),
     ...createProductHandlers(store.product, store.origin, store.session),
     ...createSettingsHandlers(store.settings, store.origin, store.session),

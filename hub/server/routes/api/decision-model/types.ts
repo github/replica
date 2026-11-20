@@ -1,18 +1,12 @@
 import type { CurrentSessionDependencies } from "../auth/types.ts"
-import type { DecisionModelSettings } from "../../../domains/decision-model/types.ts"
+import type {
+  DecisionModelSettings,
+  DecisionTrainingPreflight,
+} from "../../../domains/decision-model/types.ts"
 import type { DecisionRuntimeDeletionSelectors } from "../../../integrations/decision-runtime/create-decision-runtime-client/types.ts"
 
 export interface DecisionModelOverview {
-  preflight: {
-    counts: {
-      prototypes: number
-      builds: number
-      screenshots: number
-      questions: number
-      samples: number
-    }
-    warnings: { code: string; message: string; count?: number }[]
-  }
+  preflight: DecisionTrainingPreflight
   configuration: (DecisionModelSettings & { generation: number }) | null
   jobs: {
     id: string
@@ -89,12 +83,17 @@ export interface DecisionModelOverview {
     id: string
     build: { id: string; number: number; prototypeId: string }
     model: { id: string; runtimeCandidateId: string; generation: number }
+    questionDigest: string
+    screenshotSetDigest: string
+    responseDigest: string
+    findingsAvailable: boolean
     findings: {
-      learning: { id: string; text: string | null }
+      learning: { id: string }
       route: string
       views: { viewport: string; theme: string }[]
       followsProbability: number
       breaksProbability: number
+      explanation: string
     }[]
     createdAt: string
   }[]
@@ -156,6 +155,7 @@ export interface DecisionModelRouteDependencies {
     repositoryId: string
     actorMembershipId: string
     idempotencyKey: string
+    expectedConfigurationGeneration: number
   }): Promise<{ created: boolean; job: DecisionTrainingJobResponse }>
   getTrainingJob(input: {
     repositoryId: string

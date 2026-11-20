@@ -2,7 +2,7 @@
 
 A decision model is a small vision-language model, one that reads images and text together. It answers typed questions about whether a Build's screenshots follow a repository's accepted learnings.
 
-This guide takes a team from a training export and Build screenshots to a trained and evaluated model. Producing those inputs from the new TypeScript Hub is a later integration layer. The learning package also includes a customer-operated, single-node reference Replica decision runtime for bounded training jobs, explicit promotion and rollback, and authenticated inference. See [ADR 0002](adr/0002-decision-model-and-rl-environment.md) for the design and trade-offs.
+This guide takes a team from a training export and Build screenshots to a trained and evaluated model. The TypeScript Hub can produce and transfer these private tasksets when its decision control plane, learning store, artifact storage, and a conforming customer runtime are configured. The learning package also includes a customer-operated, single-node reference Replica decision runtime for bounded training jobs, explicit promotion and rollback, and authenticated inference. See [ADR 0002](adr/0002-decision-model-and-rl-environment.md) for the design and trade-offs.
 
 The team runs training on infrastructure it chooses. Replica provides the taskset contract, the OpenEnv brand-check environment, an evaluation command, and a reference trainer.
 

@@ -72,6 +72,41 @@ export const TemplateFork: Story = {
   },
 }
 
+export const CopyTemplatePromptAsViewer: Story = {
+  args: {
+    ...Template.args,
+    data: {
+      ...data,
+      ...Template.args?.data,
+      branchSubmissionMode: "copy",
+      branchSubmitLabel: "Copy prompt",
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: data.forkLabel }))
+    await userEvent.type(
+      canvas.getByRole("textbox", { name: data.branchPlaceholder }),
+      "Try a simpler welcome flow",
+    )
+  },
+}
+
+export const CopyTemplateAfterHandoffDenied: Story = {
+  args: { ...Template.args, authorizeHandoff: () => Promise.resolve("copy") },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: data.forkLabel }))
+    await userEvent.type(
+      canvas.getByRole("textbox", { name: data.branchPlaceholder }),
+      "Try a simpler welcome flow",
+    )
+    await userEvent.click(
+      canvas
+        .getAllByRole("button", { name: data.branchSubmitLabel })
+        .find((button) => !button.hasAttribute("disabled"))!,
+    )
+  },
+}
+
 export const TemplateControls: Story = {
   args: {
     ...Template.args,

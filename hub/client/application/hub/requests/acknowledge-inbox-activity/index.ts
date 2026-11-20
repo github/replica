@@ -18,11 +18,12 @@ export async function acknowledgeInboxActivity(
     throw new Error("The Inbox activity does not match this review message.")
   }
   if (!notice.read && !signal.aborted) {
+    const startedAt = performance.now()
     const saved = await requestJson(url, NOTIFICATION_READ_SCHEMA, {
       method: "PATCH",
       signal,
       body: JSON.stringify({ notification: { read: true, version: notice.version } }),
     })
-    if (!signal.aborted) notifyInboxRead({ id: notice.id, saved })
+    if (!signal.aborted) notifyInboxRead({ id: notice.id, saved, startedAt })
   }
 }

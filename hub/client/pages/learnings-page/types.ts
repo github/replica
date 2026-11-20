@@ -1,4 +1,5 @@
 import type { RepositoryWorkspaceData } from "@features/repository-workspace/types"
+import type { DecisionModelPanelData } from "@features/decision-model-panel/types"
 
 /** A review comment behind a suggestion, from this repository's prototypes. */
 export interface LearningEvidence {
@@ -94,4 +95,5 @@ export type LearningsPageData =
       learnings: AcceptedLearning[]
       recall: { text: string; count: number }
       runs: LearningRun[]
+      decisionModel: DecisionModelPanelData
     })

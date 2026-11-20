@@ -39,7 +39,11 @@ export default function ProductNew({ loaderData }: { loaderData: ProductCatalogR
       key={loaderData.repository.id}
       data={productNewData(workspace, loaderData, new URLSearchParams(location.search), real)}
       submissionDisabled={!loaderData.canCreate}
-      authorizeHandoff={real ? () => authorizeCopilotHandoff(loaderData.repository.id) : undefined}
+      authorizeHandoff={
+        real
+          ? () => authorizeCopilotHandoff(loaderData.repository.id, { allowCopyFallback: true })
+          : undefined
+      }
     />
   )
 }
