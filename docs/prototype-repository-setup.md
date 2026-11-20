@@ -21,33 +21,47 @@ When a reference app is supplied, retain it for the guidance and component work 
 
 ## 2. Create the independent starter
 
-Without a local Replica checkout, download the installer:
+Use Bash and Git for creation. On native Windows, use Git Bash from the full [Git for Windows](https://gitforwindows.org/) installation. In the GitHub Copilot app, choose **This computer** for a native Windows session, not a WSL environment. Git on `PATH` does not mean Git Bash is available. If Git Bash is missing, report that prerequisite instead of switching environments or installing it without approval.
 
-```sh
-curl -fLSs https://raw.githubusercontent.com/github/replica/main/scripts/install-starter.mjs -o install-starter.mjs
+From a local Replica checkout, run this from its root in Bash (Git Bash on Windows). If you clone Replica or select a base branch in Copilot to try an unreleased V2 change, choose the branch that contains that change rather than `main`.
+
+```bash
+bash scripts/create-prototype-repo.sh "../my prototype"
 ```
 
-Read the downloaded script before running it. Use a destination that does not exist and whose parent directory exists:
+For the released starter, download the installer from `main`. Use this download only once `main` contains this version of the starter; while developing V2 before that release, use the checkout command. The download needs `curl`, `tar`, and a writable current directory. Use the `curl` and `tar` that come with Git Bash on Windows.
 
-```sh
-node --use-env-proxy install-starter.mjs my-prototype
+```bash
+curl -fLSs https://raw.githubusercontent.com/github/replica/main/scripts/install-starter.sh -o install-starter.sh
 ```
 
-From a local Replica checkout, use the checked-out script instead:
+Read the downloaded script before running it:
 
-```sh
-node scripts/create-prototype-repo.mjs ../my-prototype
+```bash
+bash ./install-starter.sh "./my prototype"
 ```
 
-Both paths create an independent, uncommitted Git repository with no remote. They copy the starter without Replica's source history, require no GitHub credentials, and publish nothing. The installer does not install Node.js or app dependencies.
+When releasing V2 to `main`, run these download and install commands with a fresh destination on native Windows. Verify that the archive provides the V2 starter and that the new repository has no commit or remote.
 
-Use a Node.js version supported by the starter and Git. The `--use-env-proxy` option lets Node use configured `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` settings. Downloaded installation also needs tar and a writable current directory for temporary downloads. Creation runs without Bash on Windows, macOS and Linux. This does not change the [Linux requirements for local Hub Builds](../hub/docs/development.md#build-local-prototype-repositories).
+If the agent is in PowerShell or another shell that cannot run the Bash script, locate `bin\bash.exe` under the actual Git for Windows installation and invoke that executable directly. Do not use a bare `bash` or `bash.exe` from `PATH`; it may point to a different shell or WSL. For example, in PowerShell:
+
+```powershell
+$gitBash = 'C:\Program Files\Git\bin\bash.exe' # Use your verified Git for Windows path.
+if (-not (Test-Path -LiteralPath $gitBash -PathType Leaf)) {
+    throw 'Locate Git for Windows bin\bash.exe, or install Git for Windows with Git Bash.'
+}
+& $gitBash 'scripts/create-prototype-repo.sh' '..\my prototype'
+```
+
+Keep the script path and destination as separate arguments. For the reviewed download, pass `'./install-starter.sh'` and `'.\my prototype'` instead. If the script starts and returns an error, report the error. Do not retry it in another shell.
+
+Choose a destination that does not exist and whose parent directory exists. Both commands create an independent, uncommitted Git repository with no remote. They copy the starter without Replica's source history, require no GitHub credentials, and publish nothing. Creation does not require or install Node.js or app dependencies. This does not change the [Linux requirements for local Hub Builds](../hub/docs/development.md#build-local-prototype-repositories).
 
 Before asking the user to accept the copied repository's Copilot app configuration, review `.github/github-app.yml` and the startup details in the copied `README.md`. Explain that session startup can install Copilot CLI globally when missing, install or enable the Replica plugin, and will run `npm ci`.
 
-Add the new directory to the Copilot app using **Projects → + → Local folder or repository**, then start a fresh session there. The session in the Replica checkout cannot discover the copied local skills.
+Open the new directory as a local folder in the Copilot app, then start a fresh session in its current checkout. Do not clone again or create a worktree from the uncommitted starter. The session in the Replica checkout cannot discover the copied local skills.
 
-Before ending the originating session, provide a paste-ready kickoff message headed **Prompt 1: Continue prototype repository setup**. Tell the user to paste it into the fresh session; a new session does not inherit the previous conversation. Include the user's goal, repository path, supplied references, requested milestone, settled decisions and approvals, completed actions, blockers, and next step.
+Before ending the originating session, provide a paste-ready kickoff message headed **Prompt 1: Continue prototype repository setup**. Tell the user to paste it into the fresh session; a new session does not inherit the previous conversation. Include the user's goal, repository path, supplied references, requested milestone, settled decisions and approvals, completed actions, blockers, and next step. For Windows, include which shell ran creation and whether Copilot Startup was checked.
 
 The kickoff must tell the new session to follow the copied repository's `AGENTS.md` and resume this guide at step 3. Include the [absolute guide URL](https://github.com/github/replica/blob/main/docs/prototype-repository-setup.md#3-verify-the-existing-app-locally), since this guide is not copied into the starter. If that version is not yet available at the URL, include steps 3 through 5 inline instead. The new session reuses settled answers and checks which actions and approvals remain applicable.
 
@@ -55,7 +69,7 @@ The kickoff must tell the new session to follow the copied repository's `AGENTS.
 
 Check `node --version` against `engines.node` in the copied `package.json`. Reuse a compatible installed runtime. On macOS or Linux, obtain approval before installing Node.js, nodenv, or node-build, or changing shell configuration.
 
-The fresh session does not receive the setup output, so ask the user to inspect it and report any failures before repeating setup. Dependency installation success does not prove that the current session loaded the canvas.
+The fresh session does not receive the setup output, so ask the user to inspect it and report any failures before repeating setup. Copilot Startup uses the app's own command runner. On native Windows, successful creation or a terminal `npm ci` does not verify Startup. Dependency installation success does not prove that the current session loaded the canvas.
 
 Follow the copied README's **Connect the Replica canvas** and **Canvas preflight** sections for plugin activation and recovery. Complete that preflight before starting a preview. Use its **Run it** commands, reuse an existing responsive server when appropriate, and open the actual printed URL. Verify that the included app renders; a successful dependency install or HTTP response alone is not a rendered check.
 

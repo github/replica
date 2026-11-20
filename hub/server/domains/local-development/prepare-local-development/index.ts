@@ -1,5 +1,7 @@
+import { execFileSync } from "node:child_process"
+import { statSync } from "node:fs"
 import { lstat, mkdir, mkdtemp, readdir, rename, rm, stat } from "node:fs/promises"
-import { basename, dirname, join } from "node:path"
+import { basename, dirname, isAbsolute, join, resolve } from "node:path"
 
 import { runCommand as runProcessCommand } from "../../../integrations/process/run-command/index.ts"
 import { LocalDevelopmentPreparationError } from "../errors.ts"
@@ -24,6 +26,39 @@ async function exists(path: string) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return false
     throw error
   }
+}
+
+function starterBash(sourceRoot: string) {
+  if (process.platform !== "win32") return "bash"
+
+  const prerequisite =
+    "Install Git for Windows with Git Bash, and make its git.exe available on PATH to create the Starter repository."
+  const environment = { ...process.env }
+  for (const key of Object.keys(environment)) {
+    if (key.toLowerCase() === "git_exec_path") delete environment[key]
+  }
+  let gitCore: string
+  try {
+    gitCore = execFileSync("git", ["--exec-path"], {
+      cwd: sourceRoot,
+      encoding: "utf8",
+      env: environment,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim()
+  } catch {
+    throw new LocalDevelopmentPreparationError(prerequisite)
+  }
+  // Git reports <Git>/<architecture>/libexec/git-core, not the wrapper on PATH.
+  const bash = resolve(gitCore, "../../..", "bin", "bash.exe")
+  if (
+    !isAbsolute(gitCore) ||
+    basename(gitCore) !== "git-core" ||
+    basename(dirname(gitCore)) !== "libexec" ||
+    !statSync(bash, { throwIfNoEntry: false })?.isFile()
+  ) {
+    throw new LocalDevelopmentPreparationError(prerequisite)
+  }
+  return bash
 }
 
 export async function prepareLocalDevelopment(
@@ -88,7 +123,7 @@ export async function prepareLocalDevelopment(
   const checkout = join(stagingDirectory, exampleDirectoryName)
   try {
     await runCommand({
-      command: process.execPath,
+      command: starterBash(configuration.sourceRoot),
       arguments: [createPrototypeScript, checkout],
       cwd: configuration.sourceRoot,
       environment: {
