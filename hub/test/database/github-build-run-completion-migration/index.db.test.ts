@@ -178,7 +178,20 @@ describe("GitHub Build run completion migration", () => {
           await database.query(insert, [randomUUID(), otherBuildId, completedAt])
           await expect(
             database.query("DELETE FROM builds WHERE id = $1", [otherBuildId]),
-          ).rejects.toMatchObject({ code: "23503" })
+          ).rejects.toMatchObject({
+            constraint: "github_build_run_completions_build_id_fkey",
+          })
+          expect(
+            (
+              await database.query(
+                `SELECT build.id, receipt.build_id
+                 FROM builds build
+                 JOIN github_build_run_completions receipt ON receipt.build_id = build.id
+                 WHERE build.id = $1`,
+                [otherBuildId],
+              )
+            ).rows,
+          ).toEqual([{ id: otherBuildId, build_id: otherBuildId }])
           expect(await retainedBuild()).toEqual(before)
         } finally {
           await database.end()
