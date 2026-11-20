@@ -2,7 +2,7 @@ import type { PrismaClient } from "../../../generated/prisma/client.ts"
 
 /**
  * Lists recent GitHub Builds whose import has not finished: the dist is still pending,
- * or the run has not been seen complete, so late screenshots may still be attachable.
+ * or the run has not been seen complete, so author resolution or screenshots may be owed.
  */
 export async function listGitHubBuildsAwaitingImport(
   database: PrismaClient,

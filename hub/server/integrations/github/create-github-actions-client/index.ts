@@ -1,7 +1,7 @@
 import { z } from "zod"
 
 import { createGitHubAppJwt } from "../create-github-app-jwt/index.ts"
-import { GitHubProviderRequestError } from "../errors.ts"
+import { GitHubCommitLookupError, GitHubProviderRequestError } from "../errors.ts"
 import type {
   GitHubActionsClientInput,
   GitHubActionsClientOptions,
@@ -61,7 +61,7 @@ const artifactsSchema = z.looseObject({
 const maximumArtifactPages = 10
 const commitSchema = z.looseObject({
   sha: z.string().regex(/^[0-9a-f]{40}$/),
-  author: actorSchema.nonoptional(),
+  author: z.union([actorSchema.nonoptional(), z.strictObject({})]),
 })
 
 function mapRun(run: z.infer<typeof runSchema>): GitHubWorkflowRun {
@@ -178,14 +178,14 @@ export function createGitHubActionsClient(
         `${repositoryPath}/commits/${commitSha}`,
         await installationToken(),
       )
-      if (response.status === 404 || response.status === 422) return null
+      if (!response.ok) throw new GitHubCommitLookupError(response.status)
       const commit = await parse(commitSchema, response)
       if (commit.sha !== commitSha) {
         throw new GitHubProviderRequestError({
           cause: new Error("GitHub returned a different commit."),
         })
       }
-      return commit.author
+      return commit.author && "id" in commit.author
         ? {
             providerUserId: String(commit.author.id),
             login: commit.author.login,

@@ -8,6 +8,7 @@ import type {
   GitHubWorkflowArtifact,
   GitHubWorkflowRun,
 } from "../../../integrations/github/create-github-actions-client/types.ts"
+import { GitHubCommitLookupError } from "../../../integrations/github/errors.ts"
 import {
   distArtifactName,
   maximumArtifactDownloadBytes,
@@ -58,6 +59,22 @@ export async function importGitHubWorkflowRun(
   )
   if (prepared.status !== "ready") return { dist: "ignored", screenshots: "absent" }
   const { buildId, buildRun, distDigest, ownsBuild, state } = prepared
+  if (prepared.authorPreserved) {
+    logger.warn({ buildId, runId: run.id }, "Existing Build author metadata was preserved")
+  }
+  if (prepared.authorError) {
+    logger.warn(
+      {
+        buildId,
+        runId: run.id,
+        errorType: prepared.authorError.name,
+        ...(prepared.authorError instanceof GitHubCommitLookupError
+          ? { statusCode: prepared.authorError.statusCode }
+          : {}),
+      },
+      "GitHub commit author lookup failed; artifact import will continue and retry",
+    )
+  }
   const completed = run.status === "completed"
   const completedAt = completed ? run.updatedAt : null
 
@@ -162,7 +179,8 @@ export async function importGitHubWorkflowRun(
     await registerImportedPrototype(database, buildId)
   }
   const screenshots = await importScreenshots()
-  // Screenshot errors throw before this, so recovery keeps retrying until they attach.
+  if (prepared.authorError) throw prepared.authorError
+  // Author and screenshot errors throw before this, so recovery retries the pass.
   if (completedAt) {
     await recordGitHubBuildRunCompletion(database, { buildId, run: buildRun, completedAt })
   }

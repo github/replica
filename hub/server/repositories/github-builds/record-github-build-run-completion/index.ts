@@ -2,8 +2,8 @@ import type { PrismaClient } from "../../../generated/prisma/client.ts"
 import type { GitHubBuildRun } from "../types.ts"
 
 /**
- * Records that the owning run finished and every artifact pass has run. Recovery treats
- * a successful Build without this time as still owing a screenshot pass.
+ * Records that the owning run finished and author resolution and artifact passes ran.
+ * Recovery treats a successful Build without this time as still owing a pass.
  */
 export async function recordGitHubBuildRunCompletion(
   database: PrismaClient,

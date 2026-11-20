@@ -83,35 +83,34 @@ describe("createGitHubActionsClient", () => {
     })
   })
 
-  it.each([404, 422])("leaves unavailable HTTP %s commit authors unknown", async (status) => {
-    const fetch = respond(() => new Response("{}", { status }))
-    const client = createGitHubActionsClient(input, { fetch })
+  it.each([null, {}])(
+    "does not turn Git author text into a provider account (%j)",
+    async (author) => {
+      const sha = "a".repeat(40)
+      const fetch = respond(() =>
+        Response.json({
+          sha,
+          author,
+          committer: { id: 999, login: "committer" },
+          commit: { author: { name: "Octocat", email: "octocat@example.test" } },
+        }),
+      )
+      const client = createGitHubActionsClient(input, { fetch })
 
-    await expect(client.getCommitAuthor("a".repeat(40))).resolves.toBeNull()
-  })
-
-  it("does not turn Git author text into a provider account", async () => {
-    const sha = "a".repeat(40)
-    const fetch = respond(() =>
-      Response.json({
-        sha,
-        author: null,
-        committer: { id: 999, login: "committer" },
-        commit: { author: { name: "Octocat", email: "octocat@example.test" } },
-      }),
-    )
-    const client = createGitHubActionsClient(input, { fetch })
-
-    await expect(client.getCommitAuthor(sha)).resolves.toBeNull()
-  })
+      await expect(client.getCommitAuthor(sha)).resolves.toBeNull()
+    },
+  )
 
   it.each([
     { sha: "b".repeat(40), author: { id: 101, login: "commit-author" } },
     { sha: "b".repeat(40), author: null },
+    { sha: "b".repeat(40), author: {} },
     { author: { id: 101, login: "commit-author" } },
     { sha: "a".repeat(40) },
     { sha: "a".repeat(40), author: { id: "101", login: "commit-author" } },
     { sha: "a".repeat(40), author: { id: 101 } },
+    { sha: "a".repeat(40), author: { login: "commit-author" } },
+    { sha: "a".repeat(40), author: { type: "User" } },
   ])("rejects malformed or mismatched commit evidence %#", async (commit) => {
     const fetch = respond(() => Response.json(commit))
     const client = createGitHubActionsClient(input, { fetch })
@@ -119,12 +118,17 @@ describe("createGitHubActionsClient", () => {
     await expect(client.getCommitAuthor("a".repeat(40))).rejects.toThrow(GitHubProviderRequestError)
   })
 
-  it.each([403, 503])("does not hide HTTP %s commit lookup failures as unknown", async (status) => {
-    const fetch = respond(() => new Response("{}", { status }))
-    const client = createGitHubActionsClient(input, { fetch })
+  it.each([403, 404, 422, 503])(
+    "does not hide HTTP %s commit lookup failures as unknown",
+    async (status) => {
+      const fetch = respond(() => new Response("{}", { status }))
+      const client = createGitHubActionsClient(input, { fetch })
 
-    await expect(client.getCommitAuthor("a".repeat(40))).rejects.toThrow(GitHubProviderRequestError)
-  })
+      await expect(client.getCommitAuthor("a".repeat(40))).rejects.toThrow(
+        GitHubProviderRequestError,
+      )
+    },
+  )
 
   it("throws when the commit lookup transport fails", async () => {
     const fetch = respond(() => {

@@ -57,9 +57,11 @@ export function repositoryShowData(
       const builds = [...prototype.builds].sort((first, second) => second.number - first.number)
       const latestBuild = prototype.latestBuild === undefined ? builds[0] : prototype.latestBuild
       const reviewBuild = builds.find((build) => build.previewUrl && build.desktopScreenshotUrl)
-      const prototypeAuthor = data.authors.find((item) =>
-        prototype.authorId ? item.id === prototype.authorId : item.login === prototype.authorLogin,
-      )
+      const prototypeAuthor = prototype.authorId
+        ? data.authors.find((item) => item.id === prototype.authorId)
+        : options.real
+          ? undefined
+          : data.authors.find((item) => item.login === prototype.authorLogin)
       const authorName =
         prototypeAuthor?.provider && prototypeAuthor.provider !== "github"
           ? (prototypeAuthor.name ?? prototypeAuthor.login)

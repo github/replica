@@ -6,6 +6,7 @@ import type {
   GitHubWebhookDeliveriesClientOptions,
 } from "../../../integrations/github/create-github-webhook-deliveries-client/types.ts"
 import { GitHubWebhookRequestError } from "../../../integrations/github/create-github-webhook-deliveries-client/errors.ts"
+import { GitHubCommitLookupError } from "../../../integrations/github/errors.ts"
 import { testGitHubAppConnection } from "../../../integrations/github/test-github-app-connection/index.ts"
 import { findGitHubWebhookEvidence } from "../../../repositories/github-webhook-deliveries/find-github-webhook-evidence/index.ts"
 
@@ -38,7 +39,7 @@ export async function checkGitHubWebhookCommunication(
         name,
         result: "fail",
         detail:
-          error instanceof GitHubWebhookRequestError
+          error instanceof GitHubWebhookRequestError || error instanceof GitHubCommitLookupError
             ? error.message
             : "The provider check failed. Check App permissions, installation access, and connectivity.",
       })
@@ -68,10 +69,12 @@ export async function checkGitHubWebhookCommunication(
     await actions.getCommitAuthor(run.headSha)
     return true
   })
-  let observed = false
+  let historyRead = false
+  let observed: { event: string } | undefined
   await check("delivery_history", async () => {
     const page = await client.listDeliveries(null)
-    observed = page.deliveries.some(
+    historyRead = true
+    observed = page.deliveries.find(
       (delivery) =>
         delivery.guid === input.deliveryGuid &&
         String(delivery.installationId) === credentials.installationId &&
@@ -80,11 +83,32 @@ export async function checkGitHubWebhookCommunication(
     return true
   })
   if (!input.deliveryGuid || !observed || !input.database) {
+    const reason = !input.deliveryGuid
+      ? "No delivery GUID was supplied."
+      : !historyRead
+        ? "Delivery history could not be read."
+        : !observed
+          ? "The GUID was not found for this installation and repository in the latest 100 deliveries."
+          : "No existing database connection was supplied."
     checks.push({
-      name: "signed_receipt_and_processing",
+      name: "signed_receipt",
       result: "unknown",
-      detail:
-        "No correlated database check ran. Supply a delivery GUID from this repository's latest 100 deliveries and an existing database connection. GitHub HTTP success alone does not prove signed processing.",
+      detail: `${reason} A signed receipt was not checked.`,
+    })
+    checks.push({
+      name: "run_build_import",
+      result: "unknown",
+      detail: `${reason} The repository and run Build was not checked.`,
+    })
+    checks.push({
+      name: "delivery_to_run",
+      result: "unknown",
+      detail: "No evidence associates the delivery with the supplied workflow run.",
+    })
+    checks.push({
+      name: "webhook_recovery",
+      result: "unknown",
+      detail: `${reason} Recovery evidence was not checked.`,
     })
   } else {
     const evidence = await findGitHubWebhookEvidence(input.database, {
@@ -94,13 +118,15 @@ export async function checkGitHubWebhookCommunication(
     })
     checks.push({
       name: "signed_receipt",
-      result: evidence.receipt ? "pass" : "fail",
+      result: evidence.receipt?.event === observed.event ? "pass" : "fail",
       detail: evidence.receipt
-        ? "Hub recorded this delivery after signature verification and event handling."
+        ? evidence.receipt.event === observed.event
+          ? "Hub recorded this delivery after signature verification and event handling."
+          : "Hub's recorded event does not match this provider delivery."
         : "Hub has no recorded receipt for this delivery.",
     })
     checks.push({
-      name: "workflow_processing",
+      name: "run_build_import",
       result:
         evidence.build?.state === "failed"
           ? "fail"
@@ -108,19 +134,20 @@ export async function checkGitHubWebhookCommunication(
             ? "pass"
             : "unknown",
       detail: evidence.build
-        ? `Build state: ${evidence.build.state}; completed import pass: ${Boolean(evidence.build.workflowCompletedAt)}. Polling may also have processed this run.`
+        ? `Independent run Build state: ${evidence.build.state}; completed import pass: ${Boolean(evidence.build.workflowCompletedAt)}. Polling may also have processed this run.`
         : "No Build was observed for this repository and run.",
     })
     checks.push({
+      name: "delivery_to_run",
+      result: "unknown",
+      detail:
+        "The receipt and Build observations do not establish that this delivery caused this run's import.",
+    })
+    checks.push({
       name: "webhook_recovery",
-      result:
-        evidence.redelivery?.state === "succeeded"
-          ? "pass"
-          : evidence.redelivery?.state === "failed"
-            ? "fail"
-            : "unknown",
+      result: evidence.redelivery?.state === "failed" ? "fail" : "unknown",
       detail: evidence.redelivery
-        ? `Recorded recovery state: ${evidence.redelivery.state}; attempts: ${evidence.redelivery.attempts}.`
+        ? `Recorded recovery state: ${evidence.redelivery.state}; attempts: ${evidence.redelivery.attempts}. A succeeded state may be settled from an existing receipt or provider delivery without redelivery.`
         : "No recovery attempt is recorded for this delivery; recovery was not exercised.",
     })
   }

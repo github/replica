@@ -15,7 +15,9 @@ export async function repairGitHubBuildAuthor(
   input: { buildId: string; githubRepositoryId: number; apply: boolean },
 ) {
   const target = await findGitHubBuildAuthorTarget(dependencies.database, input)
-  if (!target?.commitSha) throw new Error("No GitHub Build matches that repository and Build ID.")
+  if (!target?.commitSha || target.githubWorkflowRunId === null) {
+    throw new Error("No GitHub Build matches that repository and Build ID.")
+  }
   const author = await dependencies.client.getCommitAuthor(target.commitSha)
   if (!author) {
     dependencies.logger.warn(
@@ -28,6 +30,8 @@ export async function repairGitHubBuildAuthor(
   return recordGitHubBuildAuthor(dependencies.database, {
     buildId: target.id,
     commitSha: target.commitSha,
+    githubRepositoryId: input.githubRepositoryId,
+    githubWorkflowRunId: target.githubWorkflowRunId,
     author,
   })
 }
