@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
+import { z } from "zod"
 
 import { activateGitHubRepositoryScoping } from "../identity/activate-github-repository-scoping"
 import { prisma } from "../../integrations/prisma"
@@ -99,6 +100,9 @@ function createTestReviewService() {
     setResolution: (
       input: Omit<Parameters<ReviewCommentService["setResolution"]>[0], "sessionDigest">,
     ) => service.setResolution({ ...input, sessionDigest }),
+    recordOutcome: (
+      input: Omit<Parameters<ReviewCommentService["recordOutcome"]>[0], "sessionDigest">,
+    ) => service.recordOutcome({ ...input, sessionDigest }),
     listPrototypeThreads: (repositoryId: string, prototypeId: string) =>
       service.listPrototypeThreads(repositoryId, prototypeId),
   }
@@ -455,6 +459,269 @@ describe("review comments", () => {
     expect(sequences).toEqual([...sequences].sort((first, second) => first - second))
     expect(new Set(sequences).size).toBe(3)
     expect(resolvedAgain.resolvedBy).toEqual(secondReviewer)
+  })
+
+  it("appends exact Build outcomes across reopen and reverification with one audit each", async () => {
+    const repository = await createRepository()
+    const { prototype, build } = await createReviewablePrototype(
+      repository.id,
+      "prototype/checkout",
+      2,
+    )
+    await prisma.build.createMany({
+      data: [
+        { prototypeId: prototype.id, number: 3, state: "successful" },
+        { prototypeId: prototype.id, number: 4, state: "successful" },
+      ],
+    })
+    const author = await createUser("mona", "Mona")
+    const reviewer = await createUser("hubot", "Hubot")
+    const service = createTestReviewService()
+    const thread = await service.createThread({
+      repositoryId: repository.id,
+      prototypeId: prototype.id,
+      buildNumber: build.number,
+      body: "The labels disappear after typing.",
+      anchor,
+      actor: author,
+    })
+    const firstResolution = await service.setResolution({
+      repositoryId: repository.id,
+      prototypeId: prototype.id,
+      threadId: thread.id,
+      resolved: true,
+      actor: reviewer,
+    })
+    const firstResolutionEvent = firstResolution.resolutionHistory.at(-1)
+    if (!firstResolutionEvent) throw new Error("Expected a resolution event")
+    const first = await service.recordOutcome({
+      repositoryId: repository.id,
+      prototypeId: prototype.id,
+      threadId: thread.id,
+      buildNumber: 3,
+      kind: "still_present",
+      feedbackDigest: firstResolution.feedbackDigest,
+      resolutionEventId: firstResolutionEvent.id,
+      activityVersion: firstResolution.activityVersion,
+      actor: reviewer,
+    })
+
+    await service.setResolution({
+      repositoryId: repository.id,
+      prototypeId: prototype.id,
+      threadId: thread.id,
+      resolved: false,
+      actor: reviewer,
+    })
+    const secondResolution = await service.setResolution({
+      repositoryId: repository.id,
+      prototypeId: prototype.id,
+      threadId: thread.id,
+      resolved: true,
+      actor: reviewer,
+    })
+    const secondResolutionEvent = secondResolution.resolutionHistory.at(-1)
+    if (!secondResolutionEvent) throw new Error("Expected a second resolution event")
+    const second = await service.recordOutcome({
+      repositoryId: repository.id,
+      prototypeId: prototype.id,
+      threadId: thread.id,
+      buildNumber: 4,
+      kind: "confirmed_fixed",
+      feedbackDigest: secondResolution.feedbackDigest,
+      resolutionEventId: secondResolutionEvent.id,
+      activityVersion: secondResolution.activityVersion,
+      actor: reviewer,
+    })
+
+    expect(first.outcomeHistory).toEqual([
+      expect.objectContaining({
+        sequence: 1,
+        kind: "still_present",
+        buildNumber: 3,
+        feedbackDigest: firstResolution.feedbackDigest,
+        resolutionEventId: firstResolutionEvent.id,
+        verifier: reviewer,
+        stale: false,
+      }),
+    ])
+    expect(second.outcomeHistory).toEqual([
+      expect.objectContaining({
+        sequence: 1,
+        kind: "still_present",
+        buildNumber: 3,
+        stale: true,
+        staleReason: "resolution_changed",
+      }),
+      expect.objectContaining({
+        sequence: 2,
+        kind: "confirmed_fixed",
+        buildNumber: 4,
+        feedbackDigest: secondResolution.feedbackDigest,
+        resolutionEventId: secondResolutionEvent.id,
+        verifier: reviewer,
+        stale: false,
+      }),
+    ])
+    const audits = await prisma.securityAudit.findMany({
+      where: { action: "review.outcome.recorded" },
+      orderBy: { createdAt: "asc" },
+      select: { repositoryId: true, outcome: true, targetType: true, context: true },
+    })
+    expect(audits).toHaveLength(2)
+    expect(
+      audits.map(({ repositoryId, outcome, targetType }) => ({
+        repositoryId,
+        outcome,
+        targetType,
+      })),
+    ).toEqual([
+      { repositoryId: repository.id, outcome: "SUCCESS", targetType: "review_outcome" },
+      { repositoryId: repository.id, outcome: "SUCCESS", targetType: "review_outcome" },
+    ])
+    const auditContext = z.object({ buildId: z.uuid(), kind: z.string() })
+    expect(audits.map(({ context }) => auditContext.parse(context).kind)).toEqual([
+      "still_present",
+      "confirmed_fixed",
+    ])
+    const snapshot = await captureRepositoryReviewSnapshot(prisma, repository.id)
+    expect(snapshot.threads[0]?.outcomeHistory).toEqual(second.outcomeHistory)
+  })
+
+  it("fails closed when the Build, feedback version, resolution, or repository is stale", async () => {
+    const repository = await createRepository()
+    const { prototype, build } = await createReviewablePrototype(
+      repository.id,
+      "prototype/checkout",
+      2,
+    )
+    await prisma.build.createMany({
+      data: [
+        { prototypeId: prototype.id, number: 3, state: "successful" },
+        { prototypeId: prototype.id, number: 4, state: "failed" },
+      ],
+    })
+    const author = await createUser("mona", "Mona")
+    const reviewer = await createUser("hubot", "Hubot")
+    const service = createTestReviewService()
+    const thread = await service.createThread({
+      repositoryId: repository.id,
+      prototypeId: prototype.id,
+      buildNumber: build.number,
+      body: "The labels disappear after typing.",
+      anchor,
+      actor: author,
+    })
+    const resolved = await service.setResolution({
+      repositoryId: repository.id,
+      prototypeId: prototype.id,
+      threadId: thread.id,
+      resolved: true,
+      actor: reviewer,
+    })
+    const resolution = resolved.resolutionHistory.at(-1)
+    if (!resolution) throw new Error("Expected a resolution event")
+    const outcome = {
+      repositoryId: repository.id,
+      prototypeId: prototype.id,
+      threadId: thread.id,
+      buildNumber: 3,
+      kind: "confirmed_fixed" as const,
+      feedbackDigest: resolved.feedbackDigest,
+      resolutionEventId: resolution.id,
+      activityVersion: resolved.activityVersion,
+      actor: reviewer,
+    }
+
+    await expect(
+      service.recordOutcome({ ...outcome, buildNumber: build.number }),
+    ).rejects.toMatchObject({ code: "not_found" })
+    await expect(service.recordOutcome({ ...outcome, buildNumber: 4 })).rejects.toMatchObject({
+      code: "not_found",
+    })
+    await expect(
+      service.recordOutcome({ ...outcome, resolutionEventId: randomUUID() }),
+    ).rejects.toMatchObject({ code: "conflict" })
+    const edited = await service.editComment({
+      repositoryId: repository.id,
+      prototypeId: prototype.id,
+      commentId: thread.root.id,
+      body: "The labels and hints disappear after typing.",
+      actor: author,
+    })
+    await expect(
+      service.recordOutcome({ ...outcome, activityVersion: edited.activityVersion }),
+    ).rejects.toMatchObject({ code: "conflict" })
+
+    await prisma.repository.update({
+      where: { id: repository.id },
+      data: { removedAt: new Date("2026-11-20T12:00:00Z") },
+    })
+    await expect(service.recordOutcome(outcome)).rejects.toMatchObject({ code: "not_found" })
+    await expect(prisma.reviewOutcome.count()).resolves.toBe(0)
+    await expect(
+      prisma.securityAudit.count({ where: { action: "review.outcome.recorded" } }),
+    ).resolves.toBe(0)
+  })
+
+  it("allows only one concurrent outcome for the displayed thread version", async () => {
+    const repository = await createRepository()
+    const { prototype, build } = await createReviewablePrototype(
+      repository.id,
+      "prototype/checkout",
+      2,
+    )
+    await prisma.build.create({
+      data: { prototypeId: prototype.id, number: 3, state: "successful" },
+    })
+    const author = await createUser("mona", "Mona")
+    const reviewer = await createUser("hubot", "Hubot")
+    const service = createTestReviewService()
+    const thread = await service.createThread({
+      repositoryId: repository.id,
+      prototypeId: prototype.id,
+      buildNumber: build.number,
+      body: "The labels disappear after typing.",
+      anchor,
+      actor: author,
+    })
+    const resolved = await service.setResolution({
+      repositoryId: repository.id,
+      prototypeId: prototype.id,
+      threadId: thread.id,
+      resolved: true,
+      actor: reviewer,
+    })
+    const resolution = resolved.resolutionHistory.at(-1)
+    if (!resolution) throw new Error("Expected a resolution event")
+    const input = {
+      repositoryId: repository.id,
+      prototypeId: prototype.id,
+      threadId: thread.id,
+      buildNumber: 3,
+      kind: "confirmed_fixed" as const,
+      feedbackDigest: resolved.feedbackDigest,
+      resolutionEventId: resolution.id,
+      activityVersion: resolved.activityVersion,
+      actor: reviewer,
+    }
+
+    const results = await Promise.allSettled([
+      service.recordOutcome(input),
+      service.recordOutcome(input),
+    ])
+
+    expect(results.filter(({ status }) => status === "fulfilled")).toHaveLength(1)
+    const rejected = results.find(({ status }) => status === "rejected")
+    expect(rejected?.status).toBe("rejected")
+    if (rejected?.status === "rejected") {
+      const reason: unknown = rejected.reason
+      expect(reason).toMatchObject({ code: "conflict" })
+    }
+    await expect(prisma.reviewOutcome.count()).resolves.toBe(1)
+    await expect(
+      prisma.securityAudit.count({ where: { action: "review.outcome.recorded" } }),
+    ).resolves.toBe(1)
   })
 
   it("rejects every mutation after the prototype becomes hidden", async () => {

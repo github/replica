@@ -33,6 +33,21 @@ function persistenceError(reason: ReviewPersistenceFailure): ReviewCommentError 
       return new ReviewCommentError("conflict", "The review thread changed. Try again.")
     case "build_not_found":
       return new ReviewCommentError("not_found", "Successful Build not found.")
+    case "feedback_changed":
+      return new ReviewCommentError(
+        "conflict",
+        "The feedback changed. Review the current feedback before verifying it.",
+      )
+    case "resolution_changed":
+      return new ReviewCommentError(
+        "conflict",
+        "The thread resolution changed. Review the current thread before verifying it.",
+      )
+    case "thread_unresolved":
+      return new ReviewCommentError(
+        "unprocessable",
+        "Resolve the thread before recording its result.",
+      )
     case "comment_not_found":
       return new ReviewCommentError("not_found", "Review comment not found.")
     case "prototype_not_found":
@@ -203,6 +218,16 @@ export function createReviewCommentService(
     async setResolution(input) {
       const result = await runReviewMutation(() =>
         repository.setResolution({
+          ...input,
+          ...collaborators(input),
+        }),
+      )
+      if (!result.ok) throw persistenceError(result.reason)
+      return serializeReviewCollaboration(result.value, input.actor.userId)
+    },
+    async recordOutcome(input) {
+      const result = await runReviewMutation(() =>
+        repository.recordOutcome({
           ...input,
           ...collaborators(input),
         }),

@@ -4,6 +4,7 @@ import { repliedReviewThread, singleReviewThread } from "@/storybook/fixtures/re
 import { reviewCommentsCopy } from "@utils/review-comment/en"
 import { mona } from "@/storybook/fixtures/users"
 import { ReviewCommentMarkers } from "@features/review-comment-markers"
+import type { ReviewThread } from "@utils/review-comment/types"
 
 import { ReviewThreadConversation } from "."
 
@@ -11,6 +12,39 @@ function noop() {}
 
 function successfulAction() {
   return Promise.resolve(true)
+}
+
+const confirmedFixedThread: ReviewThread = {
+  ...repliedReviewThread,
+  root: {
+    ...repliedReviewThread.root,
+    resolvedAt: "2026-09-14T16:00:00Z",
+    resolvedBy: mona,
+    feedbackDigest: `sha256:${"a".repeat(64)}`,
+    resolutionHistory: [
+      {
+        id: "c345e7bb-b7a0-4f34-8896-8bf2cc5ca269",
+        sequence: 3,
+        state: "resolved",
+        actor: mona,
+        occurredAt: "2026-09-14T16:00:00Z",
+      },
+    ],
+    outcomeHistory: [
+      {
+        id: "e298ee43-09e6-40ea-9d8b-7ec321ccdc43",
+        sequence: 1,
+        kind: "confirmed_fixed",
+        buildNumber: 2,
+        verifier: mona,
+        verifiedAt: "2026-09-14T17:00:00Z",
+        stale: false,
+        staleReason: null,
+        feedbackDigest: `sha256:${"a".repeat(64)}`,
+        resolutionEventId: "c345e7bb-b7a0-4f34-8896-8bf2cc5ca269",
+      },
+    ],
+  },
 }
 
 const meta = {
@@ -29,6 +63,7 @@ const meta = {
     onDelete: successfulAction,
     onResolve: successfulAction,
     onReopen: successfulAction,
+    onRecordOutcome: successfulAction,
     onAddReaction: successfulAction,
     onRemoveReaction: successfulAction,
     onMarkRead: successfulAction,
@@ -140,6 +175,38 @@ export const Resolved: Story = {
         ...repliedReviewThread.root,
         resolvedAt: "2026-09-14T16:00:00Z",
         resolvedBy: mona,
+        feedbackDigest: `sha256:${"a".repeat(64)}`,
+        resolutionHistory: [
+          {
+            id: "c345e7bb-b7a0-4f34-8896-8bf2cc5ca269",
+            sequence: 3,
+            state: "resolved",
+            actor: mona,
+            occurredAt: "2026-09-14T16:00:00Z",
+          },
+        ],
+      },
+    },
+  },
+}
+
+export const ConfirmedFixed: Story = {
+  args: {
+    thread: confirmedFixedThread,
+  },
+}
+
+export const NeedsReverification: Story = {
+  args: {
+    thread: {
+      ...confirmedFixedThread,
+      root: {
+        ...confirmedFixedThread.root,
+        outcomeHistory: confirmedFixedThread.root.outcomeHistory?.map((outcome) => ({
+          ...outcome,
+          stale: true,
+          staleReason: "thread_reopened" as const,
+        })),
       },
     },
   },

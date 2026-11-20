@@ -9,6 +9,7 @@ model Build {
   artifacts              BuildArtifact[]
   branchHeadObservations BranchHeadObservation[]
   reviewThreads          ReviewThread[]
+  reviewOutcomes         ReviewOutcome[]
   shareLinks             ShareLink[]
   decisionEvaluations    DecisionBuildEvaluation[]
   githubRunCompletions   GitHubBuildRunCompletion[]

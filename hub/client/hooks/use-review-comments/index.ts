@@ -117,6 +117,29 @@ export function useReviewComments(
     })
   }
 
+  function recordOutcome(
+    root: ReviewRootComment,
+    buildNumber: number,
+    kind: "confirmed_fixed" | "still_present" | "not_applicable" | "needs_more_review",
+  ) {
+    const resolution = root.resolutionHistory?.at(-1)
+    if (!root.feedbackDigest || resolution?.state !== "resolved") return Promise.resolve(null)
+    return saveComment(
+      `${path}/${root.id}/outcomes`,
+      "POST",
+      { kind: "record-outcome", commentId: root.id },
+      {
+        review_outcome: {
+          kind,
+          build_number: buildNumber,
+          feedback_digest: root.feedbackDigest,
+          resolution_event_id: resolution.id,
+          activity_version: root.activityVersion,
+        },
+      },
+    )
+  }
+
   async function addReaction(commentId: number, content: ReviewReactionContent) {
     const activityVersion = threadActivityVersion(commentId, reviewState.comments)
     if (activityVersion === null) return null
@@ -176,6 +199,7 @@ export function useReviewComments(
     deleteComment,
     resolveThread,
     reopenThread,
+    recordOutcome,
     addReaction,
     removeReaction,
     markThreadRead,

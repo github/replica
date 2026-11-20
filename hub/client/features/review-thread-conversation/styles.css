@@ -30,6 +30,42 @@
   overflow: auto;
 }
 
+.review-thread-conversation__outcome {
+  display: grid;
+  gap: var(--hub-space-8);
+  padding: var(--hub-space-12) var(--hub-space-16);
+  border-bottom: 1px solid var(--hub-border-default);
+}
+
+.review-thread-conversation__outcome p {
+  margin: 0;
+  color: var(--hub-fg-muted);
+  font-size: 0.875rem;
+}
+
+.review-thread-conversation__outcome-fields {
+  display: flex;
+  align-items: end;
+  gap: var(--hub-space-8);
+  flex-wrap: wrap;
+}
+
+.review-thread-conversation__outcome-fields label {
+  display: grid;
+  gap: var(--hub-space-4);
+  font-size: 0.875rem;
+}
+
+.review-thread-conversation__outcome-fields input,
+.review-thread-conversation__outcome-fields select {
+  min-height: 2rem;
+  padding: 0 var(--hub-space-8);
+  border: 1px solid var(--hub-border-default);
+  border-radius: var(--hub-radius-medium);
+  color: var(--hub-fg-default);
+  background: var(--hub-canvas-default);
+}
+
 .review-thread-conversation__messages [data-testid="ActionMenu"] {
   position: static;
 }

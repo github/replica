@@ -161,6 +161,19 @@ describe("review comments API", () => {
         },
         { path: `${target.path}/${root.id}`, method: "DELETE" },
         { path: `${target.path}/${root.id}/resolution`, method: "POST" },
+        {
+          path: `${target.path}/${root.id}/outcomes`,
+          method: "POST",
+          body: {
+            review_outcome: {
+              kind: "confirmed_fixed",
+              build_number: target.build.number + 1,
+              feedback_digest: `sha256:${"0".repeat(64)}`,
+              resolution_event_id: randomUUID(),
+              activity_version: 1,
+            },
+          },
+        },
       ] as const
       for (const mutation of mutations) {
         const response = await fetch(`${baseUrl}${mutation.path}`, {
@@ -563,6 +576,108 @@ describe("review comments API", () => {
           { id: root.id, kind: "root" },
         ],
       })
+    })
+  })
+
+  it("records an authorized outcome only for the exact displayed feedback and resolution", async () => {
+    const target = await createReviewTarget()
+    await prisma.build.create({
+      data: { prototypeId: target.prototype.id, number: 13, state: "successful" },
+    })
+    const member = await createMember("mona", "Mona")
+    const restore = vi.fn().mockResolvedValue(member)
+
+    await withServer(restore, async (baseUrl) => {
+      const createdResponse = await fetch(`${baseUrl}${target.path}`, {
+        method: "POST",
+        headers: sessionHeaders,
+        body: JSON.stringify({
+          review_comment: {
+            build_number: target.build.number,
+            body: "The labels disappear after typing.",
+            anchor,
+          },
+        }),
+      })
+      const created = (await createdResponse.json()) as { comments: { id: number }[] }
+      const root = created.comments[0]
+      if (!root) throw new Error("Expected a root comment")
+      const resolutionResponse = await fetch(`${baseUrl}${target.path}/${root.id}/resolution`, {
+        method: "POST",
+        headers: sessionHeaders,
+      })
+      const resolved = (await resolutionResponse.json()) as {
+        comments: {
+          activityVersion: number
+          feedbackDigest: string
+          resolutionHistory: { id: string }[]
+        }[]
+      }
+      const displayed = resolved.comments[0]
+      const resolution = displayed?.resolutionHistory.at(-1)
+      if (!displayed || !resolution) throw new Error("Expected a resolved thread")
+      const path = `${target.path}/${root.id}/outcomes`
+      const body = {
+        review_outcome: {
+          kind: "confirmed_fixed",
+          build_number: 13,
+          feedback_digest: displayed.feedbackDigest,
+          resolution_event_id: resolution.id,
+          activity_version: displayed.activityVersion,
+        },
+      }
+
+      const recordedResponse = await fetch(`${baseUrl}${path}`, {
+        method: "POST",
+        headers: sessionHeaders,
+        body: JSON.stringify(body),
+      })
+
+      expect(recordedResponse.status).toBe(200)
+      const recorded = (await recordedResponse.json()) as {
+        comments: {
+          outcomeHistory: {
+            sequence: number
+            kind: string
+            buildNumber: number
+            feedbackDigest: string
+            resolutionEventId: string
+            verifier: { userId: string }
+            stale: boolean
+          }[]
+        }[]
+      }
+      expect(recorded.comments[0]?.outcomeHistory).toHaveLength(1)
+      expect(recorded.comments[0]?.outcomeHistory[0]).toMatchObject({
+        sequence: 1,
+        kind: "confirmed_fixed",
+        buildNumber: 13,
+        feedbackDigest: displayed.feedbackDigest,
+        resolutionEventId: resolution.id,
+        stale: false,
+      })
+      expect(recorded.comments[0]?.outcomeHistory[0]?.verifier.userId).toBe(member.userId)
+
+      const replay = await fetch(`${baseUrl}${path}`, {
+        method: "POST",
+        headers: sessionHeaders,
+        body: JSON.stringify(body),
+      })
+      expect(replay.status).toBe(409)
+      expect(await prisma.reviewOutcome.count()).toBe(1)
+
+      const invalid = await fetch(`${baseUrl}${path}`, {
+        method: "POST",
+        headers: sessionHeaders,
+        body: JSON.stringify({
+          review_outcome: {
+            ...body.review_outcome,
+            kind: "looks_fixed",
+          },
+        }),
+      })
+      expect(invalid.status).toBe(400)
+      expect(await prisma.reviewOutcome.count()).toBe(1)
     })
   })
 

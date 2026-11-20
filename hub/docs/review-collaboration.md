@@ -6,6 +6,8 @@ Threads and messages have separate UUID storage identities. Each message also ha
 
 Resolution is thread state, not message state. Each real resolve or reopen transition appends an immutable event with a monotonically increasing thread sequence, stable actor UUID, presentation snapshot, and occurrence time. Repeating an already-applied transition is idempotent and adds no event. A resolved thread must be reopened before it accepts another reply.
 
+An authorized reviewer can record a result for a resolved thread: **Confirmed fixed**, **Still present**, **Not applicable**, or **Needs more review**. Each result is an append-only event tied to one successful later Build, the exact root-feedback digest, and the exact resolution event the reviewer inspected. Editing the feedback, reopening or resolving again, or losing the Build makes the earlier result stale; Hub keeps it visible and requires another verification instead of rewriting history.
+
 ## Repository authorization
 
 Local sessions can view and change reviews only for active repositories with a configured local path. The local sign-in still uses one fixed identity; collaborators in automated tests are separate saved identities, not another sign-in mode. GitHub sessions can review only non-local repositories included in their current installation access. Hub verifies the signed-in GitHub subject's current repository permission through the configured App. The route also rechecks the live session and persisted repository visibility. These checks do not grant any Hub or Entra role.
@@ -29,6 +31,7 @@ The product review surface uses these authenticated JSON routes:
 | `DELETE …/review-comments/:commentId/reactions/:content` | Removes a reaction using `{ review_comment_reaction: { activity_version } }` |
 | `POST …/review-comments/:threadId/read` | Marks the displayed activity read using `{ review_thread_read: { activity_version } }` |
 | `DELETE …/review-comments/:threadId/read` | Marks the conversation unread for the signed-in member |
+| `POST …/review-comments/:threadId/outcomes` | Appends a reviewer result for an exact resolved feedback version and resulting Build |
 | `GET …/review-comments/mention-candidates` | Lists eligible collaborators; accepts an optional `q` login filter |
 
 Reads and mutations retain the existing flat `comments` response contract used by the review client. Root records also carry ordered resolution history for backend consumers; the retained client ignores fields it does not present. Expected failures use `401` for no live session, `403` for another user's message, `404` for inaccessible or cross-scope records, `409` for concurrent changes, and `422` for invalid content or a thread state that rejects the requested change.
@@ -65,4 +68,4 @@ captureRepositoryReviewSnapshot(database, repositoryId, capturedAt?)
 
 from `server/domains/review-comments/capture-repository-review-snapshot/`. The function uses one repeatable-read transaction and returns a new snapshot UUID, capture time, repository UUID and name, and every repository thread in chronological order. Each thread includes its numeric public ID, UUID storage identity, prototype and Build identity, immutable anchor, root, all replies including deleted messages, stable author UUIDs, edit and deletion times, current resolution, and ordered resolution history.
 
-The snapshot is the complete Hub input for one future learning import. Reactions, mention records, and receipt state are not part of it. Reaction-only updates use a separate collaboration version so they do not change the source snapshot or resolution event sequence.
+The snapshot is the complete Hub input for one future learning import. It includes ordered review-result history, verifier identity, resulting Build, feedback and resolution bindings, and current stale state. Reactions, mention records, and receipt state are not part of it. Reaction-only updates use a separate collaboration version so they do not change the source snapshot or resolution event sequence.

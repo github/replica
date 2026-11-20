@@ -6,6 +6,7 @@ const IDENTIFIER_SCHEMA = z.number().int().positive().max(Number.MAX_SAFE_INTEGE
 const DATE_TIME_SCHEMA = z.string().refine((value) => !Number.isNaN(Date.parse(value)))
 const NULLABLE_DATE_TIME_SCHEMA = DATE_TIME_SCHEMA.nullable()
 const AUTHOR_SCHEMA = z.object({
+  userId: z.uuid().optional(),
   login: z.string().min(1),
   name: z.string().nullable(),
   avatarUrl: z.string().nullable(),
@@ -51,6 +52,39 @@ const ROOT_COMMENT_SCHEMA = z.object({
   anchor: REVIEW_ANCHOR_SCHEMA,
   resolvedAt: NULLABLE_DATE_TIME_SCHEMA,
   resolvedBy: AUTHOR_SCHEMA.nullable(),
+  resolutionHistory: z
+    .array(
+      z.object({
+        id: z.uuid(),
+        sequence: IDENTIFIER_SCHEMA,
+        state: z.enum(["resolved", "reopened"]),
+        actor: AUTHOR_SCHEMA,
+        occurredAt: DATE_TIME_SCHEMA,
+      }),
+    )
+    .optional(),
+  feedbackDigest: z
+    .string()
+    .regex(/^sha256:[0-9a-f]{64}$/)
+    .optional(),
+  outcomeHistory: z
+    .array(
+      z.object({
+        id: z.uuid(),
+        sequence: IDENTIFIER_SCHEMA,
+        kind: z.enum(["confirmed_fixed", "still_present", "not_applicable", "needs_more_review"]),
+        buildNumber: IDENTIFIER_SCHEMA,
+        verifier: AUTHOR_SCHEMA,
+        verifiedAt: DATE_TIME_SCHEMA,
+        stale: z.boolean(),
+        staleReason: z
+          .enum(["feedback_changed", "resolution_changed", "thread_reopened", "build_unavailable"])
+          .nullable(),
+        feedbackDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+        resolutionEventId: z.uuid(),
+      }),
+    )
+    .optional(),
   activityVersion: IDENTIFIER_SCHEMA,
   viewerLastSeenActivityVersion: IDENTIFIER_SCHEMA.nullable(),
 })

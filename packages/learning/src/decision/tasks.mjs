@@ -4,6 +4,7 @@ import { LearningError } from "../errors.mjs"
 import { derivedId } from "../ids.mjs"
 import { sameScope } from "../policy.mjs"
 import { rankForRecall } from "../recall.mjs"
+import { latestReviewOutcome } from "../review-outcomes.mjs"
 import { HUB_SOURCE, sameReviewer } from "../sources/hub-review-comments.mjs"
 import { normalizeTimestamp } from "../time.mjs"
 import { validateRecord } from "../validate.mjs"
@@ -23,9 +24,10 @@ const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/
  *
  * - A comment behind an accepted learning marks the Build its thread began on as breaking that
  *   learning, on the page the thread points to.
- * - When the reviewer who wrote that comment resolved the thread after writing it, the latest
- *   Build published by then that came after the thread's Build follows the learning on the same
- *   page, unless a thread started on that Build was labeled with the learning's theme.
+ * - Explicit reviewer outcomes are authoritative when present. Confirmed fixed labels the named
+ *   resulting Build as following the learning. Still present labels it as breaking the learning.
+ *   Not applicable, needs more review, and stale outcomes produce no label.
+ * - Older evidence without explicit outcomes retains the resolution-and-later-Build inference.
  *
  * Builds come in Hub's order: when each Build's workflow was created, then its number. A task
  * shows every screenshot of its page, at each width and theme the build action captured, because
@@ -104,7 +106,50 @@ export function planDecisionTasks(bundle, builds) {
       }
       const prototypeId = episode.source.prototypeId
       const buildNumber = episode.source.buildNumber
-      label({ prototypeId, buildNumber, route }, learning.id, false, { episodeId, eventIds })
+      const outcome = latestReviewOutcome(episode.timeline)
+      if (outcome) {
+        if (outcome.payload.stale) {
+          skip("explicit-outcome-stale")
+          continue
+        }
+        if (
+          outcome.payload.outcome === "not_applicable" ||
+          outcome.payload.outcome === "needs_more_review"
+        ) {
+          skip(`explicit-outcome-${outcome.payload.outcome.replaceAll("_", "-")}`)
+          continue
+        }
+        const resultingBuild = (buildsByPrototype.get(prototypeId) ?? []).find(
+          (build) => build.number === outcome.payload.buildNumber,
+        )
+        if (!resultingBuild) {
+          skip("explicit-outcome-build-unknown")
+          continue
+        }
+        label({ prototypeId, buildNumber, route }, learning.id, false, {
+          episodeId,
+          eventIds,
+          labelSource: "explicit-review-outcome",
+          outcomeEventId: outcome.id,
+        })
+        label(
+          { prototypeId, buildNumber: resultingBuild.number, route },
+          learning.id,
+          outcome.payload.outcome === "confirmed_fixed",
+          {
+            episodeId,
+            eventIds: [...eventIds, outcome.id],
+            labelSource: "explicit-review-outcome",
+            outcomeEventId: outcome.id,
+          },
+        )
+        continue
+      }
+      label({ prototypeId, buildNumber, route }, learning.id, false, {
+        episodeId,
+        eventIds,
+        labelSource: "legacy-resolution-inference",
+      })
       const resolution = latestStatus(episode)
       if (resolution === null) {
         skip("status-ambiguous")
@@ -159,6 +204,7 @@ export function planDecisionTasks(bundle, builds) {
       label({ prototypeId, buildNumber: fixed.number, route }, learning.id, true, {
         episodeId,
         eventIds: [...eventIds, resolution.id],
+        labelSource: "legacy-resolution-inference",
       })
     }
   }

@@ -1586,6 +1586,26 @@ export function PrototypeCanvasHubPanel({
                     kind: "reopen",
                     commentId: active.root.id,
                   }),
+                onRecordOutcome: (buildNumber, kind) => {
+                  const resolution = active.root.resolutionHistory?.at(-1)
+                  if (!active.root.feedbackDigest || resolution?.state !== "resolved") {
+                    return Promise.resolve(false)
+                  }
+                  return change(
+                    `${active.root.id}/outcomes`,
+                    "POST",
+                    {
+                      review_outcome: {
+                        kind,
+                        build_number: buildNumber,
+                        feedback_digest: active.root.feedbackDigest,
+                        resolution_event_id: resolution.id,
+                        activity_version: active.root.activityVersion,
+                      },
+                    },
+                    { kind: "record-outcome", commentId: active.root.id },
+                  )
+                },
                 onAddReaction: (id, content: ReviewReactionContent) =>
                   change(
                     `${id}/reactions`,

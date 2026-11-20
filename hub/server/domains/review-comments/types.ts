@@ -26,6 +26,23 @@ export interface ReviewResolutionEvent {
   occurredAt: Date
 }
 
+export type ReviewOutcomeKind =
+  "confirmed_fixed" | "still_present" | "not_applicable" | "needs_more_review"
+
+export interface ReviewOutcome {
+  id: string
+  sequence: number
+  kind: ReviewOutcomeKind
+  buildNumber: number
+  feedbackDigest: string
+  resolutionEventId: string
+  verifier: ReviewActor
+  verifiedAt: Date
+  stale: boolean
+  staleReason:
+    "feedback_changed" | "resolution_changed" | "thread_reopened" | "build_unavailable" | null
+}
+
 export interface ReviewThread {
   id: number
   storageId: string
@@ -43,7 +60,9 @@ export interface ReviewThread {
   resolvedBy: ReviewActor | null
   root: ReviewMessage
   replies: ReviewMessage[]
+  feedbackDigest: string
   resolutionHistory: ReviewResolutionEvent[]
+  outcomeHistory: ReviewOutcome[]
   createdAt: Date
   updatedAt: Date
 }
@@ -128,6 +147,18 @@ export interface ReviewCommentService {
     threadId: number
     resolved: boolean
     actor: ReviewRouteActor
+  }): Promise<ReviewThread>
+  recordOutcome(input: {
+    sessionDigest: string
+    repositoryId: string
+    prototypeId: string
+    threadId: number
+    buildNumber: number
+    kind: ReviewOutcomeKind
+    feedbackDigest: string
+    resolutionEventId: string
+    activityVersion: number
+    actor: ReviewRouteActor & { membershipId?: string }
   }): Promise<ReviewThread>
   setReaction(
     input: ReviewMutationScope & {

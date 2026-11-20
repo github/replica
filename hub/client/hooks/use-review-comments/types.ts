@@ -12,6 +12,7 @@ export type ReviewCommentMutation =
   | { kind: "delete"; commentId: number }
   | { kind: "resolve"; commentId: number }
   | { kind: "reopen"; commentId: number }
+  | { kind: "record-outcome"; commentId: number }
   | { kind: "mark-unread"; commentId: number }
   | { kind: "add-reaction"; commentId: number; content: ReviewReactionContent }
   | { kind: "remove-reaction"; commentId: number; content: ReviewReactionContent }
@@ -33,6 +34,11 @@ export interface ReviewCommentsState {
   deleteComment: (commentId: number) => Promise<ReviewComment | null>
   resolveThread: (rootId: number) => Promise<ReviewComment | null>
   reopenThread: (rootId: number) => Promise<ReviewComment | null>
+  recordOutcome: (
+    root: ReviewRootComment,
+    buildNumber: number,
+    kind: "confirmed_fixed" | "still_present" | "not_applicable" | "needs_more_review",
+  ) => Promise<ReviewComment | null>
   addReaction: (commentId: number, content: ReviewReactionContent) => Promise<ReviewComment | null>
   removeReaction: (
     commentId: number,

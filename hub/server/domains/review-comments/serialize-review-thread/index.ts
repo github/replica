@@ -1,4 +1,5 @@
 import { parseReviewAnchor } from "../parse-review-anchor/index.ts"
+import { createReviewFeedbackDigest } from "../create-review-feedback-digest/index.ts"
 import type { ReviewActor, ReviewMessage, ReviewThread } from "../types.ts"
 import type { StoredReviewThread } from "../../../repositories/review-comments/types.ts"
 
@@ -34,6 +35,7 @@ export function serializeReviewThread(thread: StoredReviewThread): ReviewThread 
     occurredAt: event.occurredAt,
   }))
   const latestResolution = resolutionHistory.at(-1)
+  const feedbackDigest = createReviewFeedbackDigest(storedRoot)
   const resolvedBy: ReviewActor | null =
     thread.resolvedAt && latestResolution?.state === "resolved" ? latestResolution.actor : null
 
@@ -53,7 +55,43 @@ export function serializeReviewThread(thread: StoredReviewThread): ReviewThread 
     resolvedBy,
     root,
     replies: comments.filter((comment) => comment.rootId !== null),
+    feedbackDigest,
     resolutionHistory,
+    outcomeHistory: thread.outcomes.map((outcome) => {
+      const staleReason =
+        outcome.build.state !== "successful"
+          ? ("build_unavailable" as const)
+          : outcome.feedbackDigest !== feedbackDigest
+            ? ("feedback_changed" as const)
+            : latestResolution?.id !== outcome.resolutionEventId
+              ? thread.resolvedAt
+                ? ("resolution_changed" as const)
+                : ("thread_reopened" as const)
+              : null
+      return {
+        id: outcome.id,
+        sequence: outcome.sequence,
+        kind:
+          outcome.kind === "CONFIRMED_FIXED"
+            ? ("confirmed_fixed" as const)
+            : outcome.kind === "STILL_PRESENT"
+              ? ("still_present" as const)
+              : outcome.kind === "NOT_APPLICABLE"
+                ? ("not_applicable" as const)
+                : ("needs_more_review" as const),
+        buildNumber: outcome.build.number,
+        feedbackDigest: outcome.feedbackDigest,
+        resolutionEventId: outcome.resolutionEventId,
+        verifier: {
+          userId: outcome.verifierId,
+          login: outcome.verifierLogin,
+          name: outcome.verifierName,
+        },
+        verifiedAt: outcome.verifiedAt,
+        stale: staleReason !== null,
+        staleReason,
+      }
+    }),
     createdAt: thread.createdAt,
     updatedAt: thread.updatedAt,
   }

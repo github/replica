@@ -5,6 +5,10 @@ export const reviewThreadInclude = {
   build: { select: { number: true } },
   comments: { orderBy: { publicId: "asc" } },
   resolutionEvents: { orderBy: { sequence: "asc" } },
+  outcomes: {
+    include: { build: { select: { number: true, state: true } } },
+    orderBy: { sequence: "asc" },
+  },
 } satisfies Prisma.ReviewThreadInclude
 
 export type StoredReviewThread = Prisma.ReviewThreadGetPayload<{
@@ -22,6 +26,9 @@ export type ReviewPersistenceFailure =
   | "thread_deleted"
   | "thread_not_found"
   | "build_not_found"
+  | "feedback_changed"
+  | "resolution_changed"
+  | "thread_unresolved"
   | "prototype_not_found"
 
 export type ReviewPersistenceResult<T> =

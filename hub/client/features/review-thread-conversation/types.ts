@@ -23,6 +23,10 @@ export interface ReviewThreadConversationProps {
   onDelete: (commentId: number) => Promise<boolean>
   onResolve: () => Promise<boolean>
   onReopen: () => Promise<boolean>
+  onRecordOutcome?: (
+    buildNumber: number,
+    kind: "confirmed_fixed" | "still_present" | "not_applicable" | "needs_more_review",
+  ) => Promise<boolean>
   onAddReaction?: (commentId: number, content: ReviewReactionContent) => Promise<boolean>
   onRemoveReaction?: (commentId: number, content: ReviewReactionContent) => Promise<boolean>
   onMarkRead?: (activityVersion: number) => Promise<boolean>

@@ -6,6 +6,9 @@ import {
 } from "../collaboration-queries/index.ts"
 import type { CollaborationThread } from "../collaboration-queries/index.ts"
 import type { ReviewPersistenceFailure, ReviewPersistenceResult } from "../types.ts"
+import { createReviewFeedbackDigest } from "../../../domains/review-comments/create-review-feedback-digest/index.ts"
+import type { ReviewOutcomeKind } from "../../../domains/review-comments/types.ts"
+import { recordReviewOutcomeAudit } from "../record-review-outcome-audit/index.ts"
 
 type Database = Pick<PrismaClient, "$transaction" | "repository">
 type Transaction = Prisma.TransactionClient
@@ -22,7 +25,7 @@ export interface ReviewActivity {
 interface Mutation {
   repositoryId: string
   prototypeId: string
-  actor: { userId: string; login: string; name: string | null }
+  actor: { userId: string; membershipId?: string; login: string; name: string | null }
   authorize: (transaction: Transaction) => Promise<boolean>
   record: (transaction: Transaction, activity: ReviewActivity) => Promise<void>
 }
@@ -58,7 +61,7 @@ function findRoot(
 ) {
   return transaction.reviewComment.findFirst({
     where: { rootId: null, publicId: input.threadId, thread: scope(input, repository) },
-    include: { thread: true },
+    include: { thread: { include: { build: { select: { number: true } } } } },
   })
 }
 
@@ -306,6 +309,90 @@ export function createReviewCommentRepository(database: Database) {
           })
         }
         return success({ id: root.threadId, version })
+      })
+    },
+
+    recordOutcome(
+      input: Mutation & {
+        threadId: number
+        buildNumber: number
+        kind: ReviewOutcomeKind
+        feedbackDigest: string
+        resolutionEventId: string
+        activityVersion: number
+      },
+    ) {
+      return mutate(input, async (transaction, repository) => {
+        const root = await findRoot(transaction, input, repository)
+        if (!root) return failure("thread_not_found")
+        if (root.deletedAt) return failure("thread_deleted")
+        if (!root.thread.resolvedAt) return failure("thread_unresolved")
+        if (root.thread.activityVersion !== input.activityVersion) return failure("conflict")
+        const feedbackDigest = createReviewFeedbackDigest(root)
+        if (feedbackDigest !== input.feedbackDigest) return failure("feedback_changed")
+        const resolution = await transaction.reviewThreadResolutionEvent.findFirst({
+          where: { threadId: root.threadId },
+          orderBy: { sequence: "desc" },
+          select: { id: true, state: true },
+        })
+        if (
+          !resolution ||
+          resolution.state !== "RESOLVED" ||
+          resolution.id !== input.resolutionEventId
+        ) {
+          return failure("resolution_changed")
+        }
+        const build = await transaction.build.findFirst({
+          where: {
+            prototypeId: input.prototypeId,
+            number: input.buildNumber,
+            state: "successful",
+          },
+          select: { id: true },
+        })
+        if (!build || input.buildNumber <= root.thread.build.number) {
+          return failure("build_not_found")
+        }
+        if (!(await advanceThread(transaction, root.thread))) return failure("conflict")
+        const latest = await transaction.reviewOutcome.findFirst({
+          where: { threadId: root.threadId },
+          orderBy: { sequence: "desc" },
+          select: { sequence: true },
+        })
+        const verifiedAt = new Date()
+        const outcome = await transaction.reviewOutcome.create({
+          data: {
+            threadId: root.threadId,
+            buildId: build.id,
+            verifierId: input.actor.userId,
+            resolutionEventId: resolution.id,
+            sequence: (latest?.sequence ?? 0) + 1,
+            kind:
+              input.kind === "confirmed_fixed"
+                ? "CONFIRMED_FIXED"
+                : input.kind === "still_present"
+                  ? "STILL_PRESENT"
+                  : input.kind === "not_applicable"
+                    ? "NOT_APPLICABLE"
+                    : "NEEDS_MORE_REVIEW",
+            feedbackDigest,
+            verifierLogin: input.actor.login,
+            verifierName: input.actor.name,
+            verifiedAt,
+          },
+        })
+        await recordReviewOutcomeAudit(transaction, {
+          repositoryId: input.repositoryId,
+          actorMembershipId: input.actor.membershipId ?? null,
+          outcomeId: outcome.id,
+          threadId: root.threadId,
+          buildId: build.id,
+          kind: input.kind,
+        })
+        return success({
+          id: root.threadId,
+          version: root.thread.collaborationVersion + 1,
+        })
       })
     },
 

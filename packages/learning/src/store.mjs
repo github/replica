@@ -9,6 +9,7 @@ import {
   STREAMS,
 } from "./provider-contract.mjs"
 import { INVISIBLE, rankForRecall, renderRecall } from "./recall.mjs"
+import { latestReviewOutcome } from "./review-outcomes.mjs"
 import {
   PRODUCER,
   SCHEMA_VERSIONS,
@@ -522,6 +523,19 @@ class LearningStore {
         )
         .map(targetOf),
     )
+    const outcomeEventsByEpisode = new Map()
+    for (const event of events) {
+      if (!outcomeEventsByEpisode.has(event.episodeId)) {
+        outcomeEventsByEpisode.set(event.episodeId, [])
+      }
+      outcomeEventsByEpisode.get(event.episodeId).push(event)
+    }
+    const outcomeByEpisode = new Map(
+      episodes.map((episode) => [
+        episode.id,
+        latestReviewOutcome(outcomeEventsByEpisode.get(episode.id) ?? []),
+      ]),
+    )
     for (const event of events) {
       const episode = episodesById.get(event.episodeId)
       if (
@@ -541,6 +555,7 @@ class LearningStore {
         identityObsolete.add(event.id)
     function covered(event) {
       const episode = episodesById.get(event.episodeId)
+      const outcome = outcomeByEpisode.get(event.episodeId)
       const stableSource = eligibility.stableSources.some(
         (source) =>
           source.kind === HUB_SOURCE &&
@@ -548,9 +563,20 @@ class LearningStore {
           source.hubOrigin === episode.source.hubOrigin &&
           source.repositoryId === episode.source.repositoryId,
       )
+      const instructionOutcomeEligible =
+        !outcome ||
+        (!outcome.payload.stale &&
+          outcome.payload.outcome === "confirmed_fixed" &&
+          !retracted.has(outcome.id) &&
+          outcome.payload !== undefined &&
+          (!stableSource || stableReviewer(outcome.actor, episode.scope, episode.source)) &&
+          eligibility.evidenceEligible(episode, outcome.at, purpose))
       return (
         !retracted.has(event.id) &&
         event.payload !== undefined &&
+        (purpose !== "instruction" ||
+          event.type !== "human_comment" ||
+          instructionOutcomeEligible) &&
         (purpose === "review" ||
           !stableSource ||
           event.type !== "human_comment" ||

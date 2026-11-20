@@ -107,6 +107,18 @@ export interface ReviewCommentsCopy {
   reopenLabel: string
   reopeningLabel: string
   resolutionErrorLabel: string
+  outcomeHeading?: string
+  outcomeBuildLabel?: string
+  outcomeKindLabel?: string
+  outcomeConfirmedFixedLabel?: string
+  outcomeStillPresentLabel?: string
+  outcomeNotApplicableLabel?: string
+  outcomeNeedsMoreReviewLabel?: string
+  outcomeSaveLabel?: string
+  outcomeSavingLabel?: string
+  outcomeErrorLabel?: string
+  outcomeStaleLabel?: string
+  outcomeVerifiedLabel?: string
   resolvedReplyBlockedLabel: string
   deletedReplyBlockedLabel: string
   threadDiscardPromptLabel: string

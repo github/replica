@@ -13,6 +13,7 @@ model ReviewThread {
   resolvedBy       User?                         @relation("ResolvedReviewThreads", fields: [resolvedById], references: [id], onDelete: Restrict)
   comments         ReviewComment[]
   resolutionEvents ReviewThreadResolutionEvent[]
+  outcomes         ReviewOutcome[]
   reads            ReviewThreadRead[]
 
   // Attribute columns

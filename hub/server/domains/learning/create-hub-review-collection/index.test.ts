@@ -41,6 +41,7 @@ function snapshot(): RepositoryReviewSnapshot {
         updatedAt: createdAt,
         resolvedAt: new Date("2026-11-13T10:04:00Z"),
         resolvedBy: author,
+        feedbackDigest: `sha256:${"a".repeat(64)}`,
         root: {
           id: 101,
           storageId: "44444444-4444-4444-8444-444444444444",
@@ -72,6 +73,20 @@ function snapshot(): RepositoryReviewSnapshot {
             state: "resolved" as const,
             actor: author,
             occurredAt: new Date("2026-11-13T10:04:00Z"),
+          },
+        ],
+        outcomeHistory: [
+          {
+            id: "99999999-9999-4999-8999-999999999999",
+            sequence: 1,
+            kind: "confirmed_fixed" as const,
+            buildNumber: 8,
+            feedbackDigest: `sha256:${"a".repeat(64)}`,
+            resolutionEventId: "66666666-6666-4666-8666-666666666666",
+            verifier: author,
+            verifiedAt: new Date("2026-11-13T10:05:00Z"),
+            stale: false,
+            staleReason: null,
           },
         ],
       },
@@ -117,6 +132,25 @@ describe("createHubReviewCollection()", () => {
         },
       },
     ])
+    expect(thread.outcomeHistory).toEqual([
+      {
+        id: "99999999-9999-4999-8999-999999999999",
+        sequence: 1,
+        outcome: "confirmed_fixed",
+        buildNumber: 8,
+        feedbackDigest: `sha256:${"a".repeat(64)}`,
+        resolutionEventId: "66666666-6666-4666-8666-666666666666",
+        verifier: {
+          login: "mona",
+          name: "Mona",
+          hubUserId: author.userId,
+          avatarUrl: null,
+        },
+        verifiedAt: "2026-11-13T10:05:00.000Z",
+        stale: false,
+        staleReason: null,
+      },
+    ])
     expect(thread.threadComplete).toBe(true)
     expect(thread.repliesHasMore).toBe(false)
 
@@ -126,6 +160,18 @@ describe("createHubReviewCollection()", () => {
     laterCapture.threads[0]!.updatedAt = new Date("2026-11-13T10:06:00Z")
     laterCapture.threads[0]!.root.updatedAt = new Date("2026-11-13T10:06:00Z")
     expect(createHubReviewCollection(laterCapture, "https://hub.example.com").digest).toBe(
+      result.digest,
+    )
+
+    laterCapture.threads[0]!.outcomeHistory.push({
+      ...laterCapture.threads[0]!.outcomeHistory[0]!,
+      id: "12121212-1212-4212-8212-121212121212",
+      sequence: 2,
+      kind: "still_present",
+      buildNumber: 9,
+      verifiedAt: new Date("2026-11-13T10:07:00Z"),
+    })
+    expect(createHubReviewCollection(laterCapture, "https://hub.example.com").digest).not.toBe(
       result.digest,
     )
   })

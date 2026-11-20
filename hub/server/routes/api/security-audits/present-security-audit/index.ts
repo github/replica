@@ -85,6 +85,10 @@ function actorFor(record: SecurityAuditListRecord) {
       const parsed = actorContextSchema.safeParse(record.context)
       return parsed.success ? { membershipId: parsed.data.actorMembershipId } : null
     }
+    case "review.outcome.recorded": {
+      const parsed = actorContextSchema.safeParse(record.context)
+      return parsed.success ? { membershipId: parsed.data.actorMembershipId } : null
+    }
     case "learning.accept":
     case "learning.accept.requested":
     case "learning.reject":
@@ -181,6 +185,25 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
             source: parsed.data.source,
             targetMembershipId: parsed.data.targetMembershipId,
             ...(targetId ? { targetId } : {}),
+          }
+        : {}
+    }
+    case "review.outcome.recorded": {
+      const parsed = z
+        .object({
+          actorMembershipId: z.uuid().optional(),
+          threadId: z.uuid(),
+          buildId: z.uuid(),
+          kind: z.enum(["confirmed_fixed", "still_present", "not_applicable", "needs_more_review"]),
+        })
+        .strict()
+        .safeParse(record.context)
+      return parsed.success
+        ? {
+            threadId: parsed.data.threadId,
+            buildId: parsed.data.buildId,
+            kind: parsed.data.kind,
+            ...(record.targetId ? { outcomeId: record.targetId } : {}),
           }
         : {}
     }

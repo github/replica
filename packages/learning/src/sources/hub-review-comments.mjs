@@ -433,6 +433,41 @@ export function hubThreadEvents({ meta, thread, scope, episodeId, existing }) {
   const statuses = known.filter(
     (event) => event.type === "status_change" && !retracted.has(event.id),
   )
+  for (const outcome of thread.root.outcomeHistory) {
+    const actor = reviewer(
+      outcome.verifierLogin,
+      outcome.verifierGithubId,
+      outcome.verifierLocalId,
+      outcome.verifierHubUserId,
+      scope,
+      meta,
+    )
+    const id = derivedId("ev", {
+      episodeId,
+      reviewOutcomeId: outcome.id,
+      sequence: outcome.sequence,
+    })
+    if (ids.has(id)) continue
+    ids.add(id)
+    add({
+      schemaVersion: SCHEMA_VERSIONS.event,
+      id,
+      episodeId,
+      scope,
+      type: "x-replica.review_outcome",
+      at: outcome.verifiedAt,
+      actor,
+      payload: {
+        outcome: outcome.outcome,
+        buildNumber: outcome.buildNumber,
+        feedbackDigest: outcome.feedbackDigest,
+        resolutionEventId: outcome.resolutionEventId,
+        sequence: outcome.sequence,
+        stale: outcome.stale,
+        staleReason: outcome.staleReason,
+      },
+    })
+  }
   let recorded = statuses.at(-1)?.payload?.status ?? "unresolved"
   if (thread.root.resolutionHistory.length > 0) {
     for (const change of thread.root.resolutionHistory) {
@@ -802,6 +837,7 @@ function readMessage(value, kind) {
       ? null
       : timestamp(value.resolvedAt, "resolvedAt")
   const resolutionHistory = readResolutionHistory(value.resolutionHistory)
+  const outcomeHistory = readOutcomeHistory(value.outcomeHistory)
   if (
     resolutionHistory.length > 0 &&
     resolutionHistory.at(-1).state !== (resolvedAt ? "resolved" : "unresolved")
@@ -827,6 +863,7 @@ function readMessage(value, kind) {
       ? { resolvedByHubUserId: resolverIdentity.hubUserId }
       : {}),
     resolutionHistory,
+    outcomeHistory,
   }
 
   function readIdentity(value, label) {
@@ -877,6 +914,57 @@ function readMessage(value, kind) {
         ...(identity.githubId !== undefined ? { actorGithubId: identity.githubId } : {}),
         ...(identity.localId !== undefined ? { actorLocalId: identity.localId } : {}),
         ...(identity.hubUserId !== undefined ? { actorHubUserId: identity.hubUserId } : {}),
+      }
+    })
+  }
+
+  function readOutcomeHistory(history) {
+    if (history === undefined) return []
+    if (!Array.isArray(history)) invalid(`Thread ${value.id} outcomeHistory must be an array.`)
+    let lastSequence = 0
+    return history.map((outcome, index) => {
+      if (
+        !isObject(outcome) ||
+        !["confirmed_fixed", "still_present", "not_applicable", "needs_more_review"].includes(
+          outcome.outcome,
+        )
+      )
+        invalid(`Review result ${index + 1} is invalid.`)
+      if (typeof outcome.id !== "string" || !UUID.test(outcome.id))
+        invalid(`Review result ${index + 1} needs its durable event ID.`)
+      if (!positive(outcome.sequence) || outcome.sequence <= lastSequence)
+        invalid("Review result sequence must increase.")
+      lastSequence = outcome.sequence
+      if (!positive(outcome.buildNumber))
+        invalid(`Review result ${index + 1} needs a resulting Build number.`)
+      if (
+        typeof outcome.feedbackDigest !== "string" ||
+        !/^sha256:[0-9a-f]{64}$/.test(outcome.feedbackDigest)
+      )
+        invalid(`Review result ${index + 1} needs its feedback digest.`)
+      if (typeof outcome.resolutionEventId !== "string" || !UUID.test(outcome.resolutionEventId))
+        invalid(`Review result ${index + 1} needs its resolution event ID.`)
+      if (!isObject(outcome.verifier) || !LOGIN.test(outcome.verifier.login ?? ""))
+        invalid(`Review result ${index + 1} needs a verifier.`)
+      const identity = readIdentity(outcome.verifier, `Review result ${index + 1} verifier`)
+      const staleReason =
+        outcome.staleReason === null || outcome.staleReason === undefined
+          ? null
+          : text(outcome.staleReason, 100)
+      return {
+        id: outcome.id.toLowerCase(),
+        sequence: outcome.sequence,
+        outcome: outcome.outcome,
+        buildNumber: outcome.buildNumber,
+        feedbackDigest: outcome.feedbackDigest,
+        resolutionEventId: outcome.resolutionEventId.toLowerCase(),
+        verifierLogin: outcome.verifier.login,
+        ...(identity.githubId !== undefined ? { verifierGithubId: identity.githubId } : {}),
+        ...(identity.localId !== undefined ? { verifierLocalId: identity.localId } : {}),
+        ...(identity.hubUserId !== undefined ? { verifierHubUserId: identity.hubUserId } : {}),
+        verifiedAt: timestamp(outcome.verifiedAt, "outcomeHistory.verifiedAt"),
+        stale: outcome.stale === true,
+        staleReason,
       }
     })
   }

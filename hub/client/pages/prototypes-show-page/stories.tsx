@@ -190,6 +190,7 @@ function reviewState(
       deleteComment: noComment,
       resolveThread: noComment,
       reopenThread: noComment,
+      recordOutcome: noComment,
       addReaction: noComment,
       removeReaction: noComment,
       markThreadRead: noComment,

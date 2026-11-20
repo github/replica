@@ -107,6 +107,18 @@ const COPY: ReviewCommentsCopy = {
   reopenLabel: "Reopen",
   reopeningLabel: "Reopening thread",
   resolutionErrorLabel: "The thread state could not be changed.",
+  outcomeHeading: "Review result",
+  outcomeBuildLabel: "Resulting Build",
+  outcomeKindLabel: "Result",
+  outcomeConfirmedFixedLabel: "Confirmed fixed",
+  outcomeStillPresentLabel: "Still present",
+  outcomeNotApplicableLabel: "Not applicable",
+  outcomeNeedsMoreReviewLabel: "Needs more review",
+  outcomeSaveLabel: "Save result",
+  outcomeSavingLabel: "Saving review result",
+  outcomeErrorLabel: "The review result could not be saved.",
+  outcomeStaleLabel: "This result needs verification again.",
+  outcomeVerifiedLabel: "%{result} on Build %{build}, verified by %{verifier} %{time}.",
   resolvedReplyBlockedLabel: "Reopen this thread to reply.",
   deletedReplyBlockedLabel: "Replies are closed.",
   threadDiscardPromptLabel: "Your reply or edit has not been saved.",
@@ -151,6 +163,9 @@ const THREAD: ReviewThread = {
     deletedAt: null,
     resolvedAt: null,
     resolvedBy: null,
+    feedbackDigest: `sha256:${"a".repeat(64)}`,
+    resolutionHistory: [],
+    outcomeHistory: [],
     activityVersion: 1,
     viewerLastSeenActivityVersion: 1,
     author: { login: "octocat", name: "The Octocat", avatarUrl: null },
@@ -486,6 +501,7 @@ describe("ReviewThreadConversation()", () => {
         root: { ...THREAD.root, resolvedAt: "2026-10-08T10:00:00Z", resolvedBy },
       },
     })
+
     const label = resolvedBy
       ? `Resolved by ${resolvedBy.name || `@${resolvedBy.login}`}. Reopen this thread to reply.`
       : COPY.resolvedReplyBlockedLabel
@@ -495,6 +511,94 @@ describe("ReviewThreadConversation()", () => {
     expect(screen.getAllByText(label)).toHaveLength(1)
     expect(screen.queryByRole("textbox", { name: "Reply" })).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Reopen" })).toBeEnabled()
+  })
+
+  it("lets a reviewer record each explicit result against a resulting Build", async () => {
+    const onRecordOutcome = vi.fn(() => Promise.resolve(true))
+    renderConversation({
+      thread: {
+        ...THREAD,
+        root: {
+          ...THREAD.root,
+          resolvedAt: "2026-10-08T10:00:00Z",
+          resolvedBy: { login: "reviewer", name: "Jan Six", avatarUrl: null },
+          resolutionHistory: [
+            {
+              id: "11111111-1111-4111-8111-111111111111",
+              sequence: 1,
+              state: "resolved",
+              actor: { login: "reviewer", name: "Jan Six", avatarUrl: null },
+              occurredAt: "2026-10-08T10:00:00Z",
+            },
+          ],
+        },
+      },
+      onRecordOutcome,
+    })
+
+    expect(screen.getByRole("region", { name: "Review result" })).toBeInTheDocument()
+    const build = screen.getByRole("spinbutton", { name: "Resulting Build" })
+    expect(build).toHaveValue(3)
+    const result = screen.getByRole("combobox", { name: "Result" })
+    expect(
+      within(result)
+        .getAllByRole("option")
+        .map(({ textContent }) => textContent),
+    ).toEqual(["Confirmed fixed", "Still present", "Not applicable", "Needs more review"])
+
+    fireEvent.change(build, { target: { value: "7" } })
+    fireEvent.change(result, { target: { value: "still_present" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save result" }))
+
+    await waitFor(() => expect(onRecordOutcome).toHaveBeenCalledOnce())
+    expect(onRecordOutcome).toHaveBeenCalledWith(7, "still_present")
+  })
+
+  it("shows the latest verification and keeps stale or failed results visibly unverified", async () => {
+    const onRecordOutcome = vi.fn(() => Promise.resolve(false))
+    renderConversation({
+      thread: {
+        ...THREAD,
+        root: {
+          ...THREAD.root,
+          resolvedAt: "2026-10-08T10:00:00Z",
+          resolvedBy: { login: "reviewer", name: "Jan Six", avatarUrl: null },
+          resolutionHistory: [
+            {
+              id: "11111111-1111-4111-8111-111111111111",
+              sequence: 1,
+              state: "resolved",
+              actor: { login: "reviewer", name: "Jan Six", avatarUrl: null },
+              occurredAt: "2026-10-08T10:00:00Z",
+            },
+          ],
+          outcomeHistory: [
+            {
+              id: "22222222-2222-4222-8222-222222222222",
+              sequence: 1,
+              kind: "confirmed_fixed",
+              buildNumber: 3,
+              verifier: { login: "reviewer", name: "Jan Six", avatarUrl: null },
+              verifiedAt: "2026-10-08T11:00:00Z",
+              stale: true,
+              staleReason: "feedback_changed",
+              feedbackDigest: `sha256:${"b".repeat(64)}`,
+              resolutionEventId: "11111111-1111-4111-8111-111111111111",
+            },
+          ],
+        },
+      },
+      onRecordOutcome,
+    })
+
+    expect(screen.getByText(/Confirmed fixed on Build 3, verified by Jan Six/)).toHaveTextContent(
+      "This result needs verification again.",
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Save result" }))
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("The review result could not be saved."),
+    )
+    expect(screen.getByRole("spinbutton", { name: "Resulting Build" })).toHaveValue(3)
   })
 
   it("uses supplied resolution copy and keeps deleted-thread messaging separate", () => {

@@ -1,0 +1,32 @@
+model ReviewOutcome {
+  // ID columns
+  id                String @id @default(uuid()) @db.Uuid
+  threadId          String @map("thread_id") @db.Uuid
+  buildId           String @map("build_id") @db.Uuid
+  verifierId        String @map("verifier_id") @db.Uuid
+  resolutionEventId String @map("resolution_event_id") @db.Uuid
+
+  // Relations
+  thread          ReviewThread                @relation(fields: [threadId], references: [id], onDelete: Restrict)
+  build           Build                       @relation(fields: [buildId], references: [id], onDelete: Restrict)
+  verifier        User                        @relation(fields: [verifierId], references: [id], onDelete: Restrict)
+  resolutionEvent ReviewThreadResolutionEvent @relation(fields: [resolutionEventId], references: [id], onDelete: Restrict)
+
+  // Attribute columns
+  sequence         Int
+  kind             ReviewOutcomeKind
+  feedbackDigest   String            @map("feedback_digest") @db.VarChar(71)
+  verifierLogin    String            @map("verifier_login") @db.VarChar(200)
+  verifierName     String?           @map("verifier_name") @db.VarChar(200)
+  verifiedAt       DateTime          @map("verified_at") @db.Timestamptz(3)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([threadId, sequence])
+  @@index([buildId])
+  @@index([verifierId])
+  @@index([resolutionEventId])
+  @@map("review_outcomes")
+}

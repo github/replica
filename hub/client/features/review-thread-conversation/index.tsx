@@ -53,6 +53,7 @@ export function ReviewThreadConversation({
   onDelete,
   onResolve,
   onReopen,
+  onRecordOutcome,
   onAddReaction,
   onRemoveReaction,
   onMarkRead,
@@ -72,6 +73,11 @@ export function ReviewThreadConversation({
   const [readPending, setReadPending] = useState(false)
   const [unreadFailed, setUnreadFailed] = useState(false)
   const [unreadPending, setUnreadPending] = useState(false)
+  const [outcomeBuildNumber, setOutcomeBuildNumber] = useState((thread.root.buildNumber ?? 0) + 1)
+  const [outcomeKind, setOutcomeKind] = useState<
+    "confirmed_fixed" | "still_present" | "not_applicable" | "needs_more_review"
+  >("confirmed_fixed")
+  const [outcomeFailed, setOutcomeFailed] = useState(false)
   const { burst, canvas } = useEmojiBurst()
   const conversation = useReviewThreadConversation({
     thread,
@@ -130,6 +136,24 @@ export function ReviewThreadConversation({
             )
           : copy.resolvedReplyBlockedLabel
       : null
+  const latestOutcome = thread.root.outcomeHistory?.at(-1)
+  const outcomeCopy = {
+    heading: copy.outcomeHeading ?? "Review result",
+    build: copy.outcomeBuildLabel ?? "Resulting Build",
+    kind: copy.outcomeKindLabel ?? "Result",
+    save: copy.outcomeSaveLabel ?? "Save result",
+    saving: copy.outcomeSavingLabel ?? "Saving review result",
+    error: copy.outcomeErrorLabel ?? "The review result could not be saved.",
+    stale: copy.outcomeStaleLabel ?? "This result needs verification again.",
+    verified:
+      copy.outcomeVerifiedLabel ?? "%{result} on Build %{build}, verified by %{verifier} %{time}.",
+  }
+  const outcomeLabels = {
+    confirmed_fixed: copy.outcomeConfirmedFixedLabel ?? "Confirmed fixed",
+    still_present: copy.outcomeStillPresentLabel ?? "Still present",
+    not_applicable: copy.outcomeNotApplicableLabel ?? "Not applicable",
+    needs_more_review: copy.outcomeNeedsMoreReviewLabel ?? "Needs more review",
+  }
 
   const focusCloseButton = useCallback(() => {
     // Brand Button does not forward the ref without a Tooltip wrapper.
@@ -352,6 +376,80 @@ export function ReviewThreadConversation({
             title={copy.markUnreadErrorLabel}
             className="review-thread-conversation__banner"
           />
+        ) : null}
+
+        {thread.root.resolvedAt && onRecordOutcome ? (
+          <section className="review-thread-conversation__outcome" aria-label={outcomeCopy.heading}>
+            <strong>{outcomeCopy.heading}</strong>
+            {latestOutcome ? (
+              <p>
+                {outcomeCopy.verified
+                  .replace("%{result}", outcomeLabels[latestOutcome.kind])
+                  .replace("%{build}", String(latestOutcome.buildNumber))
+                  .replace(
+                    "%{verifier}",
+                    latestOutcome.verifier.name || `@${latestOutcome.verifier.login}`,
+                  )
+                  .replace("%{time}", new Date(latestOutcome.verifiedAt).toLocaleString())}
+                {latestOutcome.stale ? ` ${outcomeCopy.stale}` : ""}
+              </p>
+            ) : null}
+            <div className="review-thread-conversation__outcome-fields">
+              <label>
+                <span>{outcomeCopy.build}</span>
+                <input
+                  type="number"
+                  min={(thread.root.buildNumber ?? 0) + 1}
+                  value={outcomeBuildNumber}
+                  disabled={readOnly || mutation !== null}
+                  onChange={(event) => setOutcomeBuildNumber(Number(event.currentTarget.value))}
+                />
+              </label>
+              <label>
+                <span>{outcomeCopy.kind}</span>
+                <select
+                  value={outcomeKind}
+                  disabled={readOnly || mutation !== null}
+                  onChange={(event) =>
+                    setOutcomeKind(
+                      event.currentTarget.value as
+                        | "confirmed_fixed"
+                        | "still_present"
+                        | "not_applicable"
+                        | "needs_more_review",
+                    )
+                  }
+                >
+                  {Object.entries(outcomeLabels).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Button
+                size="small"
+                disabled={
+                  readOnly ||
+                  mutation !== null ||
+                  outcomeBuildNumber <= (thread.root.buildNumber ?? 0)
+                }
+                aria-busy={mutation?.kind === "record-outcome"}
+                onClick={() => {
+                  setOutcomeFailed(false)
+                  void onRecordOutcome(outcomeBuildNumber, outcomeKind).then((saved) =>
+                    setOutcomeFailed(!saved),
+                  )
+                }}
+              >
+                {outcomeCopy.save}
+              </Button>
+            </div>
+            {mutation?.kind === "record-outcome" ? (
+              <HubVisuallyHidden role="status">{outcomeCopy.saving}</HubVisuallyHidden>
+            ) : null}
+            {outcomeFailed ? <span role="alert">{outcomeCopy.error}</span> : null}
+          </section>
         ) : null}
 
         <div

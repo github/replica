@@ -193,6 +193,9 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
             Boolean(await review.comments.resolveThread(selectedThread.root.id))
           }
           onReopen={async () => Boolean(await review.comments.reopenThread(selectedThread.root.id))}
+          onRecordOutcome={async (buildNumber, kind) =>
+            Boolean(await review.comments.recordOutcome(selectedThread.root, buildNumber, kind))
+          }
           onAddReaction={
             data.reviewComments.supportsReactions
               ? async (commentId, content) =>

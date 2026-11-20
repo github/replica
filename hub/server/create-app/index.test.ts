@@ -198,6 +198,7 @@ describe("createApp()", () => {
         editComment: vi.fn(),
         deleteComment: vi.fn(),
         setResolution: vi.fn(),
+        recordOutcome: vi.fn(),
         setReaction: vi.fn(),
         markThreadRead: vi.fn(),
       },

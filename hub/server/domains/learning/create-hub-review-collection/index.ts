@@ -73,6 +73,11 @@ function reviewState(snapshot: RepositoryReviewSnapshot) {
         actor: event.actor,
         occurredAt: event.occurredAt.toISOString(),
       })),
+      outcomeHistory: thread.outcomeHistory.map((outcome) => ({
+        ...outcome,
+        verifier: outcome.verifier,
+        verifiedAt: outcome.verifiedAt.toISOString(),
+      })),
     })),
   }
 }
@@ -102,6 +107,18 @@ export function createHubReviewCollection(snapshot: RepositoryReviewSnapshot, hu
       state: event.state === "resolved" ? "resolved" : "unresolved",
       at: event.occurredAt.toISOString(),
       actor: actor(event.actor),
+    })),
+    outcomeHistory: thread.outcomeHistory.map((outcome) => ({
+      id: outcome.id,
+      sequence: outcome.sequence,
+      outcome: outcome.kind,
+      buildNumber: outcome.buildNumber,
+      feedbackDigest: outcome.feedbackDigest,
+      resolutionEventId: outcome.resolutionEventId,
+      verifier: actor(outcome.verifier),
+      verifiedAt: outcome.verifiedAt.toISOString(),
+      stale: outcome.stale,
+      staleReason: outcome.staleReason,
     })),
     activityVersion: thread.activityVersion,
     replies: thread.replies.map((reply) => message(reply, thread.prototype)),

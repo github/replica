@@ -410,6 +410,10 @@ describe("replica-learning decision", () => {
     ])
     const twins = tasks.filter((task) => task.provenance.prototypeId === 12)
     assert.equal(twins[0].split, twins[1].split)
+    assert.equal(
+      twins.find((task) => task.provenance.buildNumber === 3).provenance.evidence[0].labelSource,
+      "legacy-resolution-inference",
+    )
     const directory = path.join(repo, ".replica", "tasksets", "first")
     for (const task of tasks) {
       const { prototypeId, buildNumber } = task.provenance
@@ -477,6 +481,85 @@ describe("replica-learning decision", () => {
       [12, 2, { [learningId]: { answer: false } }],
       [13, 5, { [learningId]: { answer: false } }],
     ])
+  })
+
+  it("prefers explicit reviewer outcomes and excludes non-evidence or stale verification", async () => {
+    async function labelsFor(name, outcome, { stale = false } = {}) {
+      const threads = weekTwoThreads()
+      const thread = threads.find((item) => item.root.id === 103)
+      thread.root.outcomeHistory = [
+        {
+          id: "33333333-3333-4333-8333-333333333333",
+          sequence: 1,
+          outcome,
+          buildNumber: 3,
+          feedbackDigest: `sha256:${"a".repeat(64)}`,
+          resolutionEventId: "44444444-4444-4444-8444-444444444444",
+          verifier: thread.root.author,
+          verifiedAt: "2026-10-08T12:00:00.000000Z",
+          stale,
+          staleReason: stale ? "feedback_changed" : null,
+        },
+      ]
+      const accepted = await acceptedLearning(name, { after: [weekTwoLog({ threads })] })
+      const recall = (await ok(accepted.repo, ["recall", "--json"])).json()
+      await grantTraining(accepted.repo, accepted.by)
+      return {
+        learningId: accepted.learningId,
+        recalledLearningIds: recall.memories.map((memory) => memory.id),
+        ...(await writeTaskset(
+          accepted.repo,
+          accepted.by,
+          buildsFile(accepted.repo),
+          `${name}-taskset`,
+        )),
+      }
+    }
+
+    const confirmed = await labelsFor("explicit-confirmed", "confirmed_fixed")
+    assert.deepEqual(labelsOf(confirmed.tasks), [
+      [11, 3, { [confirmed.learningId]: { answer: false } }],
+      [12, 2, { [confirmed.learningId]: { answer: false } }],
+      [12, 3, { [confirmed.learningId]: { answer: true } }],
+      [13, 5, { [confirmed.learningId]: { answer: false } }],
+    ])
+    const confirmedEvidence = confirmed.tasks.find(
+      (task) => task.provenance.prototypeId === 12 && task.provenance.buildNumber === 3,
+    ).provenance.evidence[0]
+    assert.equal(confirmedEvidence.labelSource, "explicit-review-outcome")
+    assert.match(confirmedEvidence.outcomeEventId, /^ev_/)
+    assert.deepEqual(confirmed.recalledLearningIds, [confirmed.learningId])
+
+    const stillPresent = await labelsFor("explicit-still-present", "still_present")
+    assert.deepEqual(labelsOf(stillPresent.tasks), [
+      [11, 3, { [stillPresent.learningId]: { answer: false } }],
+      [12, 2, { [stillPresent.learningId]: { answer: false } }],
+      [12, 3, { [stillPresent.learningId]: { answer: false } }],
+      [13, 5, { [stillPresent.learningId]: { answer: false } }],
+    ])
+    assert.equal(stillPresent.result.counts.follows, 0)
+    assert.deepEqual(stillPresent.recalledLearningIds, [])
+
+    for (const [name, outcome, skipped] of [
+      ["explicit-not-applicable", "not_applicable", "explicit-outcome-not-applicable"],
+      ["explicit-needs-review", "needs_more_review", "explicit-outcome-needs-more-review"],
+    ]) {
+      const excluded = await labelsFor(name, outcome)
+      assert.equal(
+        labelsOf(excluded.tasks).some(([prototypeId]) => prototypeId === 12),
+        false,
+      )
+      assert.equal(excluded.result.skipped[skipped], 1)
+      assert.deepEqual(excluded.recalledLearningIds, [])
+    }
+
+    const stale = await labelsFor("explicit-stale", "confirmed_fixed", { stale: true })
+    assert.equal(
+      labelsOf(stale.tasks).some(([prototypeId]) => prototypeId === 12),
+      false,
+    )
+    assert.equal(stale.result.skipped["explicit-outcome-stale"], 1)
+    assert.deepEqual(stale.recalledLearningIds, [])
   })
 
   it("accepts UUID source IDs and orders prototype tasks deterministically", async () => {

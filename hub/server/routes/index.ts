@@ -31,6 +31,7 @@ import { delete_ as handleReviewCommentDelete } from "./api/repositories/prototy
 import { post as handleReviewCommentReplyPost } from "./api/repositories/prototypes/review-comments/replies/post/index.ts"
 import { post as handleReviewThreadResolutionPost } from "./api/repositories/prototypes/review-comments/resolution/post/index.ts"
 import { delete_ as handleReviewThreadResolutionDelete } from "./api/repositories/prototypes/review-comments/resolution/delete/index.ts"
+import { post as handleReviewOutcomePost } from "./api/repositories/prototypes/review-comments/outcomes/post/index.ts"
 import { createCollaborationHandlers } from "./api/review-comments/collaboration-handlers/index.ts"
 import { createInboxHandlers } from "./api/notifications/index.ts"
 import { get as handleBuildPreviewAccessGet } from "./api/repositories/prototypes/builds/access/get/index.ts"
@@ -269,6 +270,12 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
           `${reviewCommentsPath}/:threadId/resolution`,
           requireOrigin(authentication.signOut.applicationOrigin),
           handleReviewThreadResolutionDelete(authentication.currentSession, review),
+        )
+        app.post(
+          `${reviewCommentsPath}/:threadId/outcomes`,
+          requireOrigin(authentication.signOut.applicationOrigin),
+          express.json({ limit: "4kb", strict: true }),
+          handleReviewOutcomePost(authentication.currentSession, review),
         )
         const collaboration = createCollaborationHandlers(authentication.currentSession, review)
         const requireReviewOrigin = requireOrigin(authentication.signOut.applicationOrigin)

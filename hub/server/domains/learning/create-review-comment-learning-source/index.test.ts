@@ -58,7 +58,9 @@ function snapshot(): RepositoryReviewSnapshot {
           deletedAt: null,
         },
         replies: [],
+        feedbackDigest: `sha256:${"a".repeat(64)}`,
         resolutionHistory: [],
+        outcomeHistory: [],
       },
     ],
   }
