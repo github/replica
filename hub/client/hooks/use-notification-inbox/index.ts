@@ -185,6 +185,17 @@ export function useNotificationInbox({
     }
   }, [autoCount, loadCount])
 
+  function needsCountRefresh(saved: NotificationReadUpdate, startedAt?: number) {
+    const lastCount = countReceivedAt.current
+    return (
+      saved.unreadCount === undefined &&
+      (pendingCount.current !== null ||
+        lastCount === null ||
+        (startedAt !== undefined && lastCount >= startedAt) ||
+        (saved.read && unreadCount <= 1))
+    )
+  }
+
   function applyReadUpdate(id: number, saved: NotificationReadUpdate, updateCount = true) {
     const current = notifications.find((item) => item.id === id)
     if (current && current.version >= saved.version) return { count: unreadCount, refill: false }
@@ -204,6 +215,9 @@ export function useNotificationInbox({
     if (updateCount) {
       if (saved.unreadCount !== undefined) countReceivedAt.current = performance.now()
       setUnreadCount((previous) => saved.unreadCount ?? Math.max(0, previous + delta))
+    } else {
+      // The visible count omits this save's change. Later saves still need a fresh count.
+      countReceivedAt.current = null
     }
     return {
       count,
@@ -219,16 +233,10 @@ export function useNotificationInbox({
 
   const receiveReadUpdate = useEffectEvent(({ id, saved, startedAt }: InboxReadUpdate) => {
     if (ownReadUpdate.current === saved) return
-    // An overlapping count may already reflect this write, or may still be stale.
-    const needsCount =
-      autoCount &&
-      saved.unreadCount === undefined &&
-      (pendingCount.current !== null ||
-        countReceivedAt.current === null ||
-        countReceivedAt.current >= startedAt ||
-        (saved.read && unreadCount <= 1))
+    const reloadList = loaded.current || autoLoad || loading
+    const needsCount = (reloadList || autoCount) && needsCountRefresh(saved, startedAt)
     applyReadUpdate(id, saved, !needsCount)
-    if (loaded.current || autoLoad || loading) {
+    if (reloadList) {
       void load()
     } else {
       generation.current += 1
@@ -276,7 +284,7 @@ export function useNotificationInbox({
       return
     }
 
-    const needsCount = saved.unreadCount === undefined && saved.read && unreadCount <= 1
+    const needsCount = needsCountRefresh(saved, startedAt)
     const { count, refill } = applyReadUpdate(notification.id, saved, !needsCount)
     if (synchronize) {
       ownReadUpdate.current = saved
@@ -311,8 +319,9 @@ export function useNotificationInbox({
     onUnreadCountChange: setUnreadCount,
     onReadUpdate: (id: number, saved: NotificationReadUpdate) => {
       generation.current += 1
-      const { refill } = applyReadUpdate(id, saved)
-      if (loading || refill) {
+      const needsCount = loaded.current && needsCountRefresh(saved)
+      const { refill } = applyReadUpdate(id, saved, !needsCount)
+      if (needsCount || loading || refill) {
         void load()
       } else {
         setLoading(false)

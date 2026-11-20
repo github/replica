@@ -362,6 +362,51 @@ describe("useNotificationInbox()", () => {
     },
   )
 
+  it("uses the latest count when a saved read is reversed during refresh", async () => {
+    const item = { ...notification, updatePath: "/api/notifications/1" }
+    let finishEarlierRefresh!: (response: Response) => void
+    const earlierRefresh = new Promise<Response>((resolve) => (finishEarlierRefresh = resolve))
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ ...page, notifications: [item], unreadCount: 1 }))
+      .mockResolvedValueOnce(Response.json({ version: 1, read: true }))
+      .mockReturnValueOnce(earlierRefresh)
+      .mockResolvedValueOnce(Response.json({ version: 2, read: false }))
+      .mockResolvedValueOnce(
+        Response.json({ ...page, notifications: [{ ...item, version: 2 }], unreadCount: 1 }),
+      )
+    vi.stubGlobal("fetch", fetch)
+    const { result } = renderHook(() =>
+      useNotificationInbox({
+        path: "/api/notifications/inbox",
+        authenticityToken: "token",
+        synchronize: true,
+      }),
+    )
+    await waitFor(() => expect(result.current.notifications[0]?.read).toBe(false))
+    act(() => result.current.onToggleRead(1))
+    await waitFor(() => expect(result.current.notifications[0]?.read).toBe(true))
+    expect(fetch).toHaveBeenCalledTimes(3)
+
+    act(() => result.current.onToggleRead(1))
+    await waitFor(() => expect(result.current.notifications[0]?.version).toBe(2))
+    expect(result.current.unreadCount).toBe(1)
+    expect(fetch).toHaveBeenCalledTimes(5)
+
+    await act(async () => {
+      finishEarlierRefresh(
+        Response.json({
+          ...page,
+          notifications: [{ ...item, read: true, version: 1 }],
+          unreadCount: 0,
+        }),
+      )
+      await earlierRefresh
+    })
+    expect(result.current.notifications[0]).toMatchObject({ version: 2, read: false })
+    expect(result.current.unreadCount).toBe(1)
+  })
+
   it("reports a saved read even when refreshing the unread inbox fails", async () => {
     const onReadChange = vi.fn()
     const item = { ...notification, updatePath: "/api/notifications/1" }
