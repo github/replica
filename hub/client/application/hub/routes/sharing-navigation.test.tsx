@@ -179,11 +179,11 @@ describe("Public sharing navigation", () => {
   })
 
   it.each([
-    { profile: "owner", login: "octocat", canCreate: true },
-    { profile: "reader", login: "mona", canCreate: false },
+    { profile: "owner", login: "octocat" },
+    { profile: "reader", login: "mona" },
   ] as const)(
     "keeps $profile repository permissions but hides Hub administrator entries and sharing controls when access is denied",
-    async ({ profile, login, canCreate }) => {
+    async ({ profile, login }) => {
       const store = createMockStore({ origin: window.location.origin })
       store.session.select(profile)
       const server = setupServer(...createMockHandlers(store))
@@ -197,7 +197,7 @@ describe("Public sharing navigation", () => {
       expect(new URL(navigationLink("/notifications").href).searchParams.get("repositoryId")).toBe(
         "2002",
       )
-      expect(screen.queryByRole("link", { name: "Create" }) !== null).toBe(canCreate)
+      expect(screen.getByRole("link", { name: "Create" })).toBeVisible()
       expectNoSharingAdministration()
     },
   )

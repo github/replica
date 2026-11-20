@@ -138,7 +138,7 @@ export const CopyPromptAsViewer: Story = {
 }
 
 export const CopyAfterHandoffDenied: Story = {
-  args: { authorizeHandoff: () => Promise.resolve(false) },
+  args: { authorizeHandoff: () => Promise.resolve("copy") },
   play: async ({ canvas, userEvent }) => {
     await userEvent.type(
       canvas.getByRole("textbox", { name: data.copy.heading }),
@@ -228,14 +228,16 @@ export const ClearedDetails: Story = {
   },
 }
 
-export const ReadOnly: Story = {
+export const AccessChanged: Story = {
   args: {
-    submissionDisabled: true,
-    data: {
-      ...data,
-      newPrototypePath: null,
-      submissionDisabledReason:
-        "You do not have permission to create prototypes in this repository.",
-    },
+    authorizeHandoff: () => Promise.resolve(false),
   },
+  play: Submitted.play,
+}
+
+export const AccessUnavailable: Story = {
+  args: {
+    authorizeHandoff: () => Promise.reject(new Error("Repository access unavailable")),
+  },
+  play: Submitted.play,
 }

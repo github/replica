@@ -1,6 +1,6 @@
 import { useRef, useState } from "react"
 
-export function useCopilotHandoff(authorize: (() => Promise<boolean>) | undefined) {
+export function useCopilotHandoff(authorize: (() => Promise<boolean | "copy">) | undefined) {
   const checking = useRef(false)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -15,11 +15,12 @@ export function useCopilotHandoff(authorize: (() => Promise<boolean>) | undefine
     setPending(true)
     setError(null)
     try {
-      if (await authorize()) openDialog()
-      else if (offerCopy) offerCopy()
+      const permission = await authorize()
+      if (permission === true) openDialog()
+      else if (permission === "copy" && offerCopy) offerCopy()
       else setError("You do not have permission to create a prototype in this repository.")
     } catch {
-      setError("Hub could not check GitHub repository permissions. Try again.")
+      setError("Hub could not check repository access. Try again.")
     } finally {
       checking.current = false
       setPending(false)

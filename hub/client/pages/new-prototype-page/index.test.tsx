@@ -75,10 +75,10 @@ function submitBrief(brief: string) {
 }
 
 describe("NewPrototypePage()", () => {
-  it("offers a deliberate copy when fresh authorization denies Copilot but still allows viewing", async () => {
+  it("offers a deliberate copy when fresh authorization explicitly permits copy fallback", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } })
-    const authorizeHandoff = vi.fn().mockResolvedValue(false)
+    const authorizeHandoff = vi.fn().mockResolvedValue("copy")
     const onOpenApp = vi.fn()
     const { copy } = PAGE_DATA
     const brief = "Improve the settings flow"
@@ -112,23 +112,40 @@ describe("NewPrototypePage()", () => {
     expect(onOpenApp).not.toHaveBeenCalled()
   })
 
-  it("does not offer copying when the handoff check cannot verify repository visibility", async () => {
-    const authorizeHandoff = vi.fn().mockRejectedValue(new Error("Repository no longer visible"))
-    render(<NewPrototypePage data={PAGE_DATA} authorizeHandoff={authorizeHandoff} />)
+  it.each(["denied", "unavailable"])(
+    "preserves the brief without copying when repository access is %s",
+    async (outcome) => {
+      const writeText = vi.fn()
+      vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } })
+      const authorizeHandoff =
+        outcome === "denied"
+          ? vi.fn().mockResolvedValue(false)
+          : vi.fn().mockRejectedValue(new Error("Repository access unavailable"))
+      const onOpenApp = vi.fn()
+      render(
+        <NewPrototypePage
+          data={PAGE_DATA}
+          authorizeHandoff={authorizeHandoff}
+          onOpenApp={onOpenApp}
+        />,
+      )
 
-    submitBrief("Preserve this draft")
+      submitBrief("Preserve this draft")
 
-    expect(await screen.findByRole("alert")).toBeVisible()
-    expect(screen.getByRole("textbox", { name: PAGE_DATA.copy.heading })).toHaveValue(
-      "Preserve this draft",
-    )
-    expect(
-      screen.queryByRole("button", { name: PAGE_DATA.copy.copyPromptLabel }),
-    ).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole("link", { name: PAGE_DATA.copy.openAppLabel }),
-    ).not.toBeInTheDocument()
-  })
+      expect(await screen.findByRole("alert")).toBeVisible()
+      expect(screen.getByRole("textbox", { name: PAGE_DATA.copy.heading })).toHaveValue(
+        "Preserve this draft",
+      )
+      expect(
+        screen.queryByRole("button", { name: PAGE_DATA.copy.copyPromptLabel }),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("link", { name: PAGE_DATA.copy.openAppLabel }),
+      ).not.toBeInTheDocument()
+      expect(writeText).not.toHaveBeenCalled()
+      expect(onOpenApp).not.toHaveBeenCalled()
+    },
+  )
 
   it("copies a local brief and saved details without launching Copilot", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)

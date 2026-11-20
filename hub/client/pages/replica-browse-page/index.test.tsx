@@ -512,10 +512,10 @@ describe("ReplicaBrowsePage()", () => {
     ).not.toBeInTheDocument()
   })
 
-  it("offers deliberate copying from a saved template after Copilot permission is withdrawn", async () => {
+  it("offers deliberate copying from a saved template when explicitly authorized as a fallback", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } })
-    const authorizeHandoff = vi.fn().mockResolvedValue(false)
+    const authorizeHandoff = vi.fn().mockResolvedValue("copy")
     const onOpenApp = vi.fn()
     const data = {
       ...replicaBrowseData,
@@ -552,6 +552,32 @@ describe("ReplicaBrowsePage()", () => {
       ),
     )
     expect(authorizeHandoff).toHaveBeenCalledOnce()
+    expect(onOpenApp).not.toHaveBeenCalled()
+  })
+
+  it("preserves the brief without offering copy when repository access is denied", async () => {
+    const writeText = vi.fn()
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } })
+    const authorizeHandoff = vi.fn().mockResolvedValue(false)
+    const onOpenApp = vi.fn()
+    renderPage({ authorizeHandoff, onOpenApp })
+    fireEvent.click(screen.getByRole("button", { name: replicaBrowseData.forkLabel }))
+    const brief = screen.getByRole("textbox", { name: replicaBrowseData.branchPlaceholder })
+    fireEvent.change(brief, { target: { value: "Preserve this draft" } })
+
+    fireEvent.click(screen.getByRole("button", { name: replicaBrowseData.branchSubmitLabel }))
+
+    expect(await screen.findByRole("alert")).toBeVisible()
+    expect(brief).toHaveValue("Preserve this draft")
+    expect(
+      screen.queryByRole("button", {
+        name: replicaBrowseData.branchContinuation.copyPromptLabel,
+      }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: replicaBrowseData.branchContinuation.openAppLabel }),
+    ).not.toBeInTheDocument()
+    expect(writeText).not.toHaveBeenCalled()
     expect(onOpenApp).not.toHaveBeenCalled()
   })
 

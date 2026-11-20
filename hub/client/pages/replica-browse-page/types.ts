@@ -46,5 +46,5 @@ export interface ReplicaBrowsePageProps {
   onMinimizedChange?: (minimized: boolean) => void
   onFrameLoad?: () => void
   onOpenApp?: (url: string) => void
-  authorizeHandoff?: () => Promise<boolean>
+  authorizeHandoff?: () => Promise<boolean | "copy">
 }

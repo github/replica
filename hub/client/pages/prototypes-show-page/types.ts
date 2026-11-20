@@ -96,7 +96,7 @@ export interface PrototypesShowPageProps extends PrototypeDetailsControls {
   initialComposerExpanded?: boolean
   onNotificationMessageOpened?: (commentId: number) => void
   onOpenApp?: (url: string) => void
-  authorizeHandoff?: () => Promise<boolean>
+  authorizeHandoff?: () => Promise<boolean | "copy">
   viewerUrl?: string
   minimized?: boolean
   initialMinimized?: boolean

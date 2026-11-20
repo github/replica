@@ -8,7 +8,6 @@ import { expect, it, vi } from "vitest"
 import { createApp } from "../../../../create-app"
 import { hubSessionCookieName } from "../../../../integrations/express/hub-session-cookie-name"
 import { prisma } from "../../../../integrations/prisma"
-import { GitHubProviderRequestError } from "../../../../integrations/github/errors"
 import { findBuildArtifact } from "../../../../repositories/build-artifacts/find-build-artifact"
 import { findBuildPreviewTarget } from "../../../../repositories/build-artifacts/find-build-preview-target"
 import { createProductRouteDependencies } from "../../product/create-product-route-dependencies"
@@ -201,7 +200,7 @@ it("keeps the catalog, screenshot, and routed preview on one successful default-
     const catalog = (await list.json()) as {
       templates: { id: string; screenshotUrl: string }[]
     }
-    expect(catalog).toMatchObject({ canCreate: true, submissionMode: "copy" })
+    expect(catalog).toMatchObject({ canCreate: true, submissionMode: "copilot" })
     const { templates } = catalog
     expect(templates.map(({ id }) => id)).toEqual(["default", "settings"])
     expect(templates[1]).toMatchObject({ buildNumber: 2, category: "Administration", route })
@@ -213,7 +212,7 @@ it("keeps the catalog, screenshot, and routed preview on one successful default-
       template: { previewUrl: string }
       initialRoute: string
     }
-    expect(saved).toMatchObject({ canCreate: true, submissionMode: "copy" })
+    expect(saved).toMatchObject({ canCreate: true, submissionMode: "copilot" })
     const { template, initialRoute } = saved
     const preview = new URL(template.previewUrl)
     expect(preview.pathname).toBe(screenshot.pathname)
@@ -253,62 +252,59 @@ it("keeps the catalog, screenshot, and routed preview on one successful default-
   })
 })
 
-it("rechecks GitHub write permission when starting a Copilot handoff", async () => {
+it("offers a visible reader a hosted handoff without granting listing management", async () => {
   await withRepository(async ({ read, permission }) => {
-    permission.mockResolvedValue("write")
-    expect(await (await read("/create/permission")).json()).toMatchObject({ canCreate: true })
     expect(await (await read("/templates/default")).json()).toMatchObject({
       canCreate: true,
       submissionMode: "copilot",
       template: { id: "default" },
     })
-    permission.mockResolvedValue("read")
-    expect(await (await read("/create/permission")).json()).toMatchObject({ canCreate: false })
-    expect(await (await read("/templates/default")).json()).toMatchObject({
+    expect(await (await read("/create/permission")).json()).toEqual({ canCreate: true })
+    const management = await read("/prototype-management")
+    expect(management.status).toBe(404)
+    permission.mockResolvedValue("write")
+    expect((await read("/prototype-management")).status).toBe(200)
+    expect(await (await read()).json()).toMatchObject({
       canCreate: true,
-      submissionMode: "copy",
-      template: { id: "default" },
+      submissionMode: "copilot",
     })
-    permission.mockRejectedValue(new GitHubProviderRequestError())
-    const unavailable = await read("/create/permission")
-    expect(unavailable.status).toBe(503)
-    const copyPermission = (await unavailable.json()) as { error?: unknown; canCopy?: unknown }
-    expect(typeof copyPermission.error).toBe("string")
-    expect(copyPermission.canCopy).toBe(true)
-    const fallback = await read()
-    expect(fallback.status).toBe(200)
-    expect(await fallback.json()).toMatchObject({ canCreate: true, submissionMode: "copy" })
+    expect(await (await read("/create/permission")).json()).toEqual({ canCreate: true })
   })
 })
 
-it.each(["read", "outage"] as const)(
-  "does not allow copy when repository access is revoked during a provider check ending in %s",
-  async (outcome) => {
-    await withRepository(async ({ repositoryId, read, permission }) => {
-      permission.mockImplementation(async () => {
-        await prisma.repositoryAccessGrant.deleteMany({ where: { repositoryId } })
-        if (outcome === "outage") throw new GitHubProviderRequestError()
-        return "read"
-      })
-
-      const denied = await read("/create/permission")
-      expect(denied.status).toBe(404)
-      expect(await denied.json()).not.toHaveProperty("canCopy")
-    })
-  },
-)
-
-it("lets an Entra viewer compose from the blank template but not hand off to Copilot", async () => {
+it("allows a visible viewer to start a handoff without checking GitHub permission", async () => {
   await withRepository(async ({ read, permission }) => {
-    permission.mockResolvedValue("write")
-    const blank = await read("/templates/default")
-    expect(blank.status).toBe(200)
-    expect(await blank.json()).toMatchObject({
-      canCreate: true,
-      submissionMode: "copy",
+    permission.mockRejectedValue(new Error("GitHub unavailable"))
+
+    for (const path of ["/templates", "/templates/default"]) {
+      const response = await read(path)
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({
+        canCreate: true,
+        submissionMode: "copilot",
+      })
+    }
+    const handoff = await read("/create/permission")
+    expect(handoff.status).toBe(200)
+    expect(await handoff.json()).toEqual({ canCreate: true })
+    expect(permission).not.toHaveBeenCalled()
+  })
+})
+
+it("lets an Entra viewer start a Copilot handoff from the blank template", async () => {
+  await withRepository(async ({ read }) => {
+    for (const path of ["/templates", "/templates/default"]) {
+      const response = await read(path)
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({
+        canCreate: true,
+        submissionMode: "copilot",
+      })
+    }
+    expect(await (await read("/templates/default")).json()).toMatchObject({
       template: { id: "default" },
     })
-    expect(await (await read("/create/permission")).json()).toMatchObject({ canCreate: false })
+    expect(await (await read("/create/permission")).json()).toEqual({ canCreate: true })
   }, "entra")
 })
 
@@ -318,6 +314,8 @@ it("conceals the composer and Copilot handoff from a viewer outside repository s
     permission.mockResolvedValue("write")
     expect((await read()).status).toBe(404)
     expect((await read("/templates/default")).status).toBe(404)
-    expect((await read("/create/permission")).status).toBe(404)
+    const denied = await read("/create/permission")
+    expect(denied.status).toBe(404)
+    expect(await denied.json()).not.toHaveProperty("canCopy")
   })
 })

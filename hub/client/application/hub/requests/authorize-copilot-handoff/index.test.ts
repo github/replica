@@ -11,13 +11,28 @@ describe("authorizeCopilotHandoff()", () => {
     )
     vi.stubGlobal("fetch", fetch)
 
-    await expect(authorizeCopilotHandoff("2001", { allowCopyFallback: true })).resolves.toBe(false)
+    await expect(authorizeCopilotHandoff("2001", { allowCopyFallback: true })).resolves.toBe("copy")
     await expect(authorizeCopilotHandoff("2001")).rejects.toMatchObject({ status: 503 })
   })
 
+  it.each([undefined, true])(
+    "denies a hidden repository even when copy fallback is %s",
+    async (allowCopyFallback) => {
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue(
+            Response.json({ error: "Repository not found", canCopy: true }, { status: 404 }),
+          ),
+      )
+
+      await expect(authorizeCopilotHandoff("2001", { allowCopyFallback })).resolves.toBe(false)
+    },
+  )
+
   it.each([
     { status: 401, canCopy: true },
-    { status: 404, canCopy: true },
     { status: 503, canCopy: undefined },
     { status: 503, canCopy: false },
   ])("rejects a $status with no applicable copy authorization", async ({ status, canCopy }) => {

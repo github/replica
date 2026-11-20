@@ -30,7 +30,7 @@ export function NewPrototypePage({
 }: {
   data: NewPrototypePageData
   onOpenApp?: (url: string) => void
-  authorizeHandoff?: () => Promise<boolean>
+  authorizeHandoff?: () => Promise<boolean | "copy">
   submissionDisabled?: boolean
 }) {
   const headingId = useId()

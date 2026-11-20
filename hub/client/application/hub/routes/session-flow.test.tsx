@@ -100,7 +100,7 @@ describe("Hub mock session flow", () => {
     )
   })
 
-  it("lets Mona save details without granting creation, sharing or management", async () => {
+  it("lets Mona branch and save details without granting sharing or management", async () => {
     const store = createMockStore({ origin: window.location.origin })
     store.session.select("reader")
     const server = setupServer(...createMockHandlers(store))
@@ -109,7 +109,7 @@ describe("Hub mock session flow", () => {
 
     expect(await screen.findByRole("button", { name: "Account menu for @mona" })).toBeVisible()
     fireEvent.click(screen.getByRole("button", { name: "View prototype" }))
-    expect(screen.queryByRole("button", { name: "Branch from here" })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Branch from here" })).toBeVisible()
     fireEvent.click(screen.getByRole("button", { name: "Edit details" }))
     const editor = screen.getByRole("dialog", { name: "Edit prototype details" })
     fireEvent.change(within(editor).getByRole("textbox", { name: "Name" }), {

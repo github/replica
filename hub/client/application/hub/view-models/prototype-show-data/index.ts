@@ -58,9 +58,7 @@ export function prototypeShowData(
     branchFromLabel: `Branch from: ${data.prototype.name}`,
     branchPlaceholder: "What changes would you like to make?",
     branchSubmitLabel: "Start from this prototype",
-    branchSubmissionMode: (options.real ? data.canBranch : workspace.capabilities?.createPrototypes)
-      ? "copilot"
-      : "disabled",
+    branchSubmissionMode: !options.real || data.canBranch ? "copilot" : "disabled",
     branchInitialRoute: options.real ? (data.prototype.startPage ?? "/") : undefined,
     branchInstructions: `BRIEF-END\nStart from the existing \`${data.prototype.branchName}\` prototype branch in this repository. Create a new branch from that branch for the changes above, keeping the existing prototype as the starting point.\nBuild an interactive working UI prototype. Use the repository's \`create-prototype\` skill if it is installed; otherwise follow its own instructions and conventions.\nDo not publish, commit, or push without explicit approval.`,
     branchPageInstructions:
