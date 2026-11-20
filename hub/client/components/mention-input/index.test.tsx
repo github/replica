@@ -92,6 +92,23 @@ describe("MentionInput()", () => {
     expect(submit).toHaveBeenCalledOnce()
   })
 
+  it("keeps suggestions open through a managed username suffix and inserts the complete account", async () => {
+    const submit = vi.fn()
+    const load = vi.fn().mockResolvedValue([
+      { githubId: 1002, login: "mona_enterprise", avatarUrl: null },
+      { githubId: 1001, login: "octocat", avatarUrl: null },
+    ])
+    render(<Composer load={load} submit={submit} />)
+    const input = screen.getByRole("textbox")
+    fireEvent.change(input, { target: { value: "Please @mona_ent" } })
+    await screen.findByRole("option", { name: "@mona_enterprise" })
+    expect(screen.queryByRole("option", { name: "@octocat" })).not.toBeInTheDocument()
+    fireEvent.keyDown(input, { key: "Enter" })
+    expect(input).toHaveValue("Please @mona_enterprise ")
+    expect(submit).not.toHaveBeenCalled()
+    expect(load).toHaveBeenLastCalledWith("mona_ent", expect.any(AbortSignal))
+  })
+
   it("filters a reused collaborator list before limiting suggestions", async () => {
     vi.useFakeTimers()
     const load = vi.fn().mockResolvedValue([

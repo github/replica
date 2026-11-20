@@ -9,6 +9,7 @@ import WebSocket from "ws"
 
 import { createApp } from "../../../create-app"
 import { captureRepositoryReviewSnapshot } from "../../../domains/review-comments/capture-repository-review-snapshot"
+import { createReviewDirectory } from "../../../integrations/github/create-review-directory"
 import type { GitHubReviewDirectory } from "../../../integrations/github/create-review-directory/types"
 import { prisma } from "../../../integrations/prisma"
 import { createAuthenticationRouteDependencies } from "../auth/create-authentication-route-dependencies"
@@ -292,58 +293,91 @@ describe("saved review collaboration", () => {
   it("verifies new hosted mentions before saving and hides retained notices after the recipient loses access", async () => {
     let collaboratorCanRead = true
     let providerAvailable = true
+    let reviewAccessAvailable = true
     let delayVerification = false
     let startCheck!: () => void
     let finishCheck!: (allowed: boolean) => void
     const checking = new Promise<"checking">((resolve) => (startCheck = () => resolve("checking")))
     const pending = new Promise<boolean>((resolve) => (finishCheck = resolve))
-    function canRead(_repositoryId: bigint, _login: string, githubId: number) {
-      if (githubId === 500) return Promise.resolve(true)
-      if (!providerAvailable) return Promise.reject(new Error("Synthetic outage"))
-      if (githubId === 501 && delayVerification) {
-        startCheck()
-        return pending
-      }
-      return Promise.resolve(collaboratorCanRead && githubId === 501)
-    }
-    const directory: GitHubReviewDirectory = {
-      search: () => Promise.resolve([{ githubId: 501, login: "collaborator", avatarUrl: null }]),
-      async find(_repository, login, githubId) {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const directory = createReviewDirectory(
+      { appId: "123", installationId: "456", privateKey },
+      async (input) => {
         await Promise.resolve()
-        if (githubId === 500) return { githubId: 500, login: "author", avatarUrl: null }
-        if (!providerAvailable) throw new Error("Synthetic outage")
-        return collaboratorCanRead && (githubId === 501 || (!githubId && login === "collaborator"))
-          ? { githubId: 501, login: "collaborator", avatarUrl: null }
-          : null
+        const url = new URL(input instanceof Request ? input.url : input)
+        const author = { id: 500, login: "author_corp" }
+        const collaborator = { id: 501, login: "collaborator_corp" }
+        if (url.pathname === "/app/installations/456/access_tokens")
+          return Response.json({
+            token: "synthetic",
+            expires_at: new Date(Date.now() + 600_000).toISOString(),
+          })
+        if (url.pathname === "/repositories/771")
+          return Response.json({ id: 771, full_name: "review/example" })
+        if (url.pathname === "/user/500")
+          return reviewAccessAvailable ? Response.json(author) : new Response(null, { status: 503 })
+        if (url.pathname === "/user/501" || url.pathname === "/users/collaborator_corp")
+          return providerAvailable
+            ? Response.json(collaborator)
+            : new Response(null, { status: 503 })
+        if (url.pathname === "/users/ineligible") return new Response(null, { status: 404 })
+        if (url.pathname === "/repos/review/example/collaborators")
+          return Response.json([author, collaborator])
+        if (url.pathname === "/repos/review/example/collaborators/author_corp/permission")
+          return reviewAccessAvailable
+            ? Response.json({ user: author, permission: "read" })
+            : new Response(null, { status: 503 })
+        if (
+          url.pathname ===
+          "/repos/review/example/collaborators/renamed-collaborator_corp/permission"
+        )
+          return new Response(null, { status: 404 })
+        if (url.pathname === "/repos/review/example/collaborators/collaborator_corp/permission") {
+          if (!providerAvailable) return new Response(null, { status: 503 })
+          let allowed = collaboratorCanRead
+          if (delayVerification) {
+            startCheck()
+            allowed = await pending
+          }
+          return Response.json({
+            user: collaborator,
+            permission: allowed ? "read" : "none",
+          })
+        }
+        throw new Error(`Unexpected synthetic GitHub path: ${url.pathname}`)
       },
-      canRead,
-    }
+    )
     const base = await api("github", directory)
-    const author = await member("github", "author", "500")
+    const author = await member("github", "author_corp", "500")
     const { path, repositoryId } = await target(author.userId, false)
     await grant(repositoryId, author.membershipId)
-    const candidates = await request(base, author.token, `${path}/mention-candidates`)
+    const candidates = await request(
+      base,
+      author.token,
+      `${path}/mention-candidates?q=collaborator_corp`,
+    )
+    expect(candidates.status).toBe(200)
     expect(
       first((await json<{ candidates: { githubId: number }[] }>(candidates)).candidates).githubId,
     ).toBe(501)
     providerAvailable = false
-    expect((await startThread(base, author.token, path, "Unavailable @collaborator")).status).toBe(
-      503,
-    )
+    expect(
+      (await startThread(base, author.token, path, "Unavailable @collaborator_corp")).status,
+    ).toBe(503)
     expect(await reviewComments(await request(base, author.token, path))).toEqual([])
     providerAvailable = true
     const created = await startThread(
       base,
       author.token,
       path,
-      "@collaborator and @ineligible stay in the source.",
+      "@collaborator_corp and @ineligible stay in the source.",
     )
     expect(created.status).toBe(201)
     expect(first(await reviewComments(created)).mentions).toEqual([
-      { login: "collaborator", githubId: 501 },
+      { login: "collaborator_corp", githubId: 501 },
     ])
 
-    const recipient = await member("github", "renamed-collaborator", "501")
+    const recipient = await member("github", "renamed-collaborator_corp", "501")
     const recipientGrant = await grant(repositoryId, recipient.membershipId)
     const notice = first(
       (await inboxPage(await request(base, recipient.token, inbox))).notifications,
@@ -385,6 +419,10 @@ describe("saved review collaboration", () => {
     expect((await json<Notice>(await request(base, recipient.token, notice.updatePath))).read).toBe(
       false,
     )
+    reviewAccessAvailable = false
+    expect((await request(base, author.token, path)).status).toBe(503)
+    reviewAccessAvailable = true
+    expect(await reviewComments(await request(base, author.token, path))).toHaveLength(1)
   })
 
   it("opens and updates an Inbox notice even when another eligible repository cannot be verified", async () => {

@@ -29,7 +29,7 @@ export async function readRepositoryPermission(
     !Number.isSafeInteger(numericId) ||
     numericId <= 0 ||
     !/^[1-9]\d{0,15}$/.test(subject) ||
-    !/^[A-Za-z0-9-]{1,39}$/.test(login)
+    !/^[A-Za-z0-9_-]{1,39}$/.test(login)
   ) {
     return null
   }

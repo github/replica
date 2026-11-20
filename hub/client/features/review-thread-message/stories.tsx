@@ -63,6 +63,17 @@ type Story = StoryObj<typeof meta>
 
 export const Root: Story = {}
 
+export const ManagedUserMention: Story = {
+  args: {
+    comment: {
+      ...octocatRootComment,
+      author: { ...octocatRootComment.author, login: "octocat_enterprise" },
+      body: "Please review this change, @mona_enterprise.",
+      mentions: [{ login: "mona_enterprise", githubId: 1002 }],
+    },
+  },
+}
+
 export const ActionsDisabled: Story = {
   args: {
     actionsDisabled: true,

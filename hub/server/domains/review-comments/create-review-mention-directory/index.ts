@@ -10,9 +10,9 @@ import type { ReviewMentionRecipient, ReviewMutationScope } from "../types.ts"
 
 type Database = Pick<PrismaClient, "repository" | "reviewComment" | "userProfile">
 
-const validLogin = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/
+const validLogin = /^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,37}[A-Za-z0-9])?$/
 const mentionToken =
-  /(?<![A-Za-z0-9_@/])@([A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)(?![A-Za-z0-9_-])/g
+  /(?<![A-Za-z0-9_@/])@([A-Za-z0-9](?:[A-Za-z0-9_-]{0,37}[A-Za-z0-9])?)(?![A-Za-z0-9_-])/g
 
 export function reviewMentionLogins(body: string) {
   const logins = [

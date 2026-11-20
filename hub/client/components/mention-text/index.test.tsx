@@ -23,4 +23,19 @@ describe("MentionText()", () => {
     expect(container.querySelector("script")).toBeNull()
     expect(screen.getByText(/<script>unsafe<\/script>/)).toBeInTheDocument()
   })
+
+  it("highlights the complete verified managed username without matching an unverified prefix", () => {
+    const { container } = render(
+      <MentionText
+        comment={{
+          ...octocatRootComment,
+          body: "@mona_enterprise @mona @mona_enterprise_extra",
+          mentions: [{ login: "mona_enterprise", githubId: 1002 }],
+        }}
+      />,
+    )
+    expect(container.querySelectorAll(".mention-text")).toHaveLength(1)
+    expect(container.querySelector(".mention-text")).toHaveTextContent("@mona_enterprise")
+    expect(container).toHaveTextContent("@mona_enterprise @mona @mona_enterprise_extra")
+  })
 })

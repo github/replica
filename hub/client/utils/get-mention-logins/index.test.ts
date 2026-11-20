@@ -16,4 +16,12 @@ describe("getMentionLogins()", () => {
     expect(getMentionLogins(`${ten} @eleventh`)).toHaveLength(11)
     expect(getMentionLogins(ten)).toHaveLength(10)
   })
+
+  it("counts a managed account as one complete mention without truncating overlong names", () => {
+    expect(
+      getMentionLogins(
+        `@reviewer_enterprise @REVIEWER_ENTERPRISE @ordinary @${"r".repeat(35)}_corp`,
+      ),
+    ).toEqual(["reviewer_enterprise", "ordinary"])
+  })
 })

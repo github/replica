@@ -32,7 +32,7 @@ export function MentionInput({ value, onValueChange, onKeyDown, ref, ...props }:
   const [retry, setRetry] = useState(0)
   const [selected, setSelected] = useState(0)
   const [position, setPosition] = useState({ left: 0, top: 0, width: 0 })
-  const match = value.slice(0, caret).match(/(?:^|[\s(])@([a-zA-Z0-9-]{0,39})$/)
+  const match = value.slice(0, caret).match(/(?:^|[\s(])@([a-zA-Z0-9_-]{0,39})$/)
   const query = match?.[1]?.toLowerCase()
   const open = source !== null && query !== undefined && !dismissed && !props.disabled
   const lookup = open && source.searchesByQuery === false ? "" : query

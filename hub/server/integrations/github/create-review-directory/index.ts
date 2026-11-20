@@ -8,7 +8,7 @@ import type { GitHubReviewDirectory } from "./types.ts"
 
 const profileSchema = z.object({
   id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-  login: z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/),
+  login: z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,37}[A-Za-z0-9])?$/),
   avatar_url: z
     .url({ protocol: /^https$/ })
     .nullable()
