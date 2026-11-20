@@ -9,7 +9,7 @@
     "start": "tsx installer/index.tsx",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:windows": "vitest run installer/private-files/index.test.ts installer/path-input/index.test.ts installer/command/windows/index.test.ts installer/command/index.test.ts installer/telemetry/index.test.ts installer/entry/index.test.ts"
+    "test:windows": "vitest run installer/private-files/index.test.ts installer/path-input/index.test.ts installer/command/windows/index.test.ts installer/command/windows/cancel.test.ts installer/command/index.test.ts installer/telemetry/index.test.ts installer/entry/index.test.ts"
   },
   "dependencies": {
     "@inkjs/ui": "2.0.0",

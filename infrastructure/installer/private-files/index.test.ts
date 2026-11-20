@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process"
 import { randomUUID } from "node:crypto"
+import { existsSync } from "node:fs"
 import { link, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { promisify } from "node:util"
@@ -194,6 +195,39 @@ describe.skipIf(process.platform !== "win32")("native Windows private installer 
 
     expect(await access(root)).toEqual(before)
     expect(await readdir(root)).toEqual([])
+  }, 30_000)
+
+  it("checks a mapped volume root for Everyone delete-child access without changing its ACL", async () => {
+    const root = await directory()
+    const letters = await powershell(
+      "ConvertTo-Json -InputObject @([System.IO.DriveInfo]::GetDrives().Name) -Compress",
+      root,
+    )
+    const occupied = new Set(
+      (JSON.parse(letters) as string[]).map((path) => path[0]!.toUpperCase()),
+    )
+    const letter = [..."ZYXWVUTSRQPONMLKJIHGFED"].find(
+      (value) => !occupied.has(value) && !existsSync(`${value}:\\`),
+    )
+    if (!letter) throw new Error("No unused drive letter is available for the isolated root ACL test")
+    const drive = `${letter}:`
+    const privatePath = join(root, "private")
+    await mkdir(privatePath)
+    await grantEveryone(root, "DeleteSubdirectoriesAndFiles")
+    const before = await access(root)
+    let mapped = false
+    try {
+      await execute("subst.exe", [drive, root])
+      mapped = true
+      expect(await access(`${drive}\\`)).toEqual(before)
+
+      await expect(privateDirectory(`${drive}\\private`, { create: false })).rejects.toThrow()
+
+      expect(await access(root)).toEqual(before)
+      expect(await readdir(root)).toEqual(["private"])
+    } finally {
+      if (mapped) await execute("subst.exe", [drive, "/D"])
+    }
   }, 30_000)
 
   it("refuses directory junctions and hard-linked files while preserving their targets", async () => {

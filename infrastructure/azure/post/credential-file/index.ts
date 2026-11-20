@@ -10,7 +10,7 @@ export async function readPostCredentialFile(
   input: string,
   kind: "GITHUB_CLIENT_SECRET" | "GITHUB_APP_PRIVATE_KEY_BASE64" | "GITHUB_WEBHOOK_SECRET",
 ) {
-  const path = normalizeInstallerPath(input)
+  const path = normalizeInstallerPath(input, { unescapeUnix: true })
   const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
   const fileFix =
     process.platform === "win32"

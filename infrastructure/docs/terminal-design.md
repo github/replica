@@ -75,6 +75,8 @@ Own cleanup in one entry-point lifecycle boundary. On cancellation and catchable
 
 Pass the run's cancellation signal through preflight, compatibility checks, source publication, Azure commands, and Terraform, not just the retry delay. An already-cancelled installation must stop before commands or workspace writes. Cancellation during an awaited lookup must stop before deployment approval or cloud mutations.
 
+On Windows, launch each command suspended, assign it to an owned Job Object, then allow it to run. Cancellation terminates that job and waits for all its processes, including descendants whose parents have exited. Closing the launcher also terminates the job; do not infer descendant cleanup from the launcher's exit alone.
+
 Show the entry action menu before opening diagnostics or an interactive writer. Discovery checks existing private files without creating directories, changing permissions, acquiring local locks, recovering stale writers, or running prerequisite commands. **Exit and do nothing** must restore the terminal successfully with no local writes or Azure calls. Keep welcome art above this menu until the first answer; later questions must not restart it.
 
 A failure summary may preserve a relevant warning or error, but must not repeat an earlier success or informational notice as the explanation for a later failure. Print an identical failure and notice only once.

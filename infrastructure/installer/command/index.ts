@@ -4,6 +4,7 @@ import { stripVTControlCharacters } from "node:util"
 import type { RunCommand } from "../types.ts"
 import { describeCommand } from "./describe/index.ts"
 import { resolveWindowsCommand } from "./windows/index.ts"
+import { stopWindowsJob, windowsJobCommand } from "./windows/job/index.ts"
 
 export class CommandExecutionError extends Error {
   readonly aborted: boolean
@@ -38,6 +39,8 @@ export const runCommand: RunCommand = (executable, args, options = {}) =>
         return
       }
     }
+    const windows = process.platform === "win32" ? windowsJobCommand(command) : undefined
+    command = windows ?? command
     const child = spawn(command.executable, command.args, {
       cwd: options.cwd,
       env: command.env,
@@ -71,9 +74,11 @@ export const runCommand: RunCommand = (executable, args, options = {}) =>
     const terminate = () => {
       if (termination) return
       termination = (async () => {
+        if (process.platform === "win32") {
+          if (windows && child.pid) await stopWindowsJob(windows.name, child.pid)
+          return
+        }
         const alive = () => {
-          if (process.platform === "win32")
-            return child.exitCode === null && child.signalCode === null
           if (!child.pid) return false
           try {
             process.kill(-child.pid, 0)
