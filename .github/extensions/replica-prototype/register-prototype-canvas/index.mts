@@ -24,7 +24,7 @@ import { reviewAction } from "../review-action/index.mjs"
 import { projectValidation, validateControls } from "../validate-controls/index.mjs"
 import { projectControlsStatus } from "../controls-status/index.mjs"
 import { improvementBatchResult } from "../improvement-batch-result/index.mjs"
-import { createLearningsHook } from "../create-learnings-hook/index.mjs"
+import { createLearningsHook, hasLearningsHubOrigin } from "../create-learnings-hook/index.mjs"
 import { gitShaPattern as COMMIT_PATTERN } from "../identity-patterns/index.mjs"
 import type { CanvasContext } from "../create-canvas-context/index.mjs"
 import type { CanvasServer } from "../start-canvas-server/index.mjs"
@@ -570,10 +570,11 @@ export async function registerPrototypeCanvas(
   const servers = new Map<string, Entry>()
   const devServers = createDevServerManager({ discover })
 
+  const hooks = (await hasLearningsHubOrigin(process.cwd(), canvasOptions.hubOptions))
+    ? { onUserPromptSubmitted: createLearningsHook(canvasOptions.hubOptions) }
+    : undefined
   const session = await joinSession({
-    hooks: {
-      onUserPromptSubmitted: createLearningsHook(canvasOptions.hubOptions),
-    },
+    ...(hooks ? { hooks } : {}),
     canvases: [
       createCanvas({
         id: canvasOptions.id ?? "replica-prototype",
