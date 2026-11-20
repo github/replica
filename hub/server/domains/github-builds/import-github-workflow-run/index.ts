@@ -1,6 +1,7 @@
 import { completeGitHubBuildFailure } from "../../../repositories/github-builds/complete-github-build-failure/index.ts"
 import { markGitHubBuildRunning } from "../../../repositories/github-builds/mark-github-build-running/index.ts"
 import { recordGitHubBuildRunCompletion } from "../../../repositories/github-builds/record-github-build-run-completion/index.ts"
+import { settleDeselectedGitHubBuild } from "../../../repositories/github-builds/settle-deselected-github-build/index.ts"
 import { findConnectedGitHubRepository } from "../../../repositories/repository-access/find-connected-github-repository/index.ts"
 import { BuildPackageError } from "../../build-artifacts/errors.ts"
 import { extractScreenshotPackage } from "../../build-artifacts/extract-screenshot-package/index.ts"
@@ -17,6 +18,7 @@ import {
 import type { GitHubWorkflowRunJob } from "../get-github-workflow-run-job-definition/index.ts"
 import { importGitHubDistPackage } from "../import-github-dist-package/index.ts"
 import { importGitHubScreenshotPackage } from "../import-github-screenshot-package/index.ts"
+import { isGitHubWorkflowBranchPush } from "../is-github-workflow-branch-push/index.ts"
 import { prepareGitHubWorkflowRunBuild } from "../prepare-github-workflow-run-build/index.ts"
 import type { ImportGitHubWorkflowRunDependencies, ImportGitHubWorkflowRunResult } from "./types.ts"
 
@@ -45,10 +47,22 @@ export async function importGitHubWorkflowRun(
   if (!(await findConnectedGitHubRepository(database, job.githubRepositoryId))) {
     return { dist: "ignored", screenshots: "absent" }
   }
-  const workflowPaths = await client.getBuildWorkflowPaths()
   const found = await client.getWorkflowRun(job.runId)
-  if (!found) return { dist: "ignored", screenshots: "absent" }
+  if (!found || !isGitHubWorkflowBranchPush(job.githubRepositoryId, found)) {
+    return { dist: "ignored", screenshots: "absent" }
+  }
   const run = found
+  const workflowPaths = await client.getBuildWorkflowPaths()
+  if (!workflowPaths.includes(run.path.split("@")[0] ?? "")) {
+    const settled = await settleDeselectedGitHubBuild(database, {
+      githubRepositoryId: job.githubRepositoryId,
+      run,
+    })
+    if (settled) {
+      logger.info({ runId: run.id }, "Stopped unfinished Build from a deselected workflow")
+    }
+    return { dist: "ignored", screenshots: "absent" }
+  }
   const prepared = await prepareGitHubWorkflowRunBuild(
     database,
     job.githubRepositoryId,

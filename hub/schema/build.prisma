@@ -11,6 +11,7 @@ model Build {
   reviewThreads          ReviewThread[]
   shareLinks             ShareLink[]
   decisionEvaluations    DecisionBuildEvaluation[]
+  githubRunCompletions   GitHubBuildRunCompletion[]
 
   // Attribute columns
   number                   Int

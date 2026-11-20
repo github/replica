@@ -81,7 +81,6 @@ export function createGitHubWebhookRouteDependencies(input: {
   syncRepositories: () => Promise<unknown>
   /** Enqueues idempotently by key, so a redelivered event cannot import twice. */
   enqueueWorkflowRunImport?: (job: GitHubWorkflowRunJob, key: string) => Promise<unknown>
-  readBuildWorkflowPaths?: (githubRepositoryId: number) => Promise<string[]>
 }): GitHubWebhookRouteDependencies {
   async function syncRepositories() {
     await input.syncRepositories()
@@ -140,15 +139,6 @@ export function createGitHubWebhookRouteDependencies(input: {
         if (name === "workflow_run") {
           const event = workflowRunEvent.safeParse(payload)
           if (!event.success) return false
-          const githubRepositoryId = event.data.repository.id
-          if (!(await findConnectedGitHubRepository(prisma, githubRepositoryId))) return false
-          if (!input.readBuildWorkflowPaths) {
-            throw new Error("GitHub Build workflow configuration reader is required.")
-          }
-          const paths = await input.readBuildWorkflowPaths(githubRepositoryId)
-          if (!paths.includes(event.data.workflow_run.path.split("@")[0] ?? "")) {
-            return false
-          }
           job = { githubRepositoryId: event.data.repository.id, runId: event.data.workflow_run.id }
         } else {
           // Job events let the dist import as soon as its job ends, before screenshots finish.
@@ -159,6 +149,8 @@ export function createGitHubWebhookRouteDependencies(input: {
             runId: event.data.workflow_job.run_id,
           }
         }
+        if (!(await findConnectedGitHubRepository(prisma, job.githubRepositoryId))) return false
+        // The worker reads GitHub and selection; intake must acknowledge without provider calls.
         // Enqueue before recording receipt so a failed enqueue can be redelivered.
         await input.enqueueWorkflowRunImport(job, delivery.id)
         await claimGitHubWebhookDelivery(prisma, receipt)

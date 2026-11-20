@@ -228,7 +228,7 @@ describe("discoverGitHubWorkflowRuns", () => {
     )
   })
 
-  it("does not repeatedly enqueue runs that reuse a settled commit or lost Build ownership", async () => {
+  it("queues a successful commit's other caller but skips an older run that lost unfinished Build ownership", async () => {
     const repository = await createRepository()
     const settledOwner = workflowRun(repository.githubRepositoryId, { id: 100 })
     const reused = { ...settledOwner, id: 102 }
@@ -248,7 +248,10 @@ describe("discoverGitHubWorkflowRuns", () => {
       { createdAfter },
     )
 
-    expect(jobs).toEqual([{ githubRepositoryId: repository.githubRepositoryId, runId: owner.id }])
+    expect(jobs).toEqual([
+      { githubRepositoryId: repository.githubRepositoryId, runId: reused.id },
+      { githubRepositoryId: repository.githubRepositoryId, runId: owner.id },
+    ])
   })
 
   it("does not mistake another repository, branch, or commit for a settled Build", async () => {
