@@ -52,7 +52,14 @@ npm test
 npm run build
 ```
 
-Update starter skills and context templates directly under `starter/.agents/`. Keep authored context in consuming repositories separate from those shared files. For starter-copy, static context library/link and plugin setup checks, run `node --test scripts/create-prototype-repo.test.mjs scripts/setup-replica-plugin.test.mjs` from the repository root. These checks do not verify agent authoring, semantic preservation or activation behavior; use the setup skill's real-host evaluation protocol for that evidence.
+Update starter skills and context templates directly under `starter/.agents/`. Keep authored context in consuming repositories separate from those shared files.
+
+Run the setup checks from the repository root:
+
+- On Linux, run `node --test scripts/create-prototype-repo.test.mjs scripts/setup-replica-plugin.test.mjs` to check starter creation, the context library, and plugin setup.
+- On native Windows, install the full Git for Windows with Git Bash and run `node --test scripts/create-prototype-repo.test.mjs` for the starter setup checks. The Windows suite does not include plugin setup.
+
+These checks do not verify agent authoring, semantic preservation or activation behavior; use the setup skill's real-host evaluation protocol for that evidence.
 
 Reuse an existing compatible Node.js installation. If it is unavailable on macOS or Linux, get approval before installing [nodenv](https://github.com/nodenv/nodenv), [node-build](https://github.com/nodenv/node-build), or Node.js, or changing shell configuration. The starter installer does not install them.
 

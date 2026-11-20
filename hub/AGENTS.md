@@ -25,6 +25,8 @@ Open <http://127.0.0.1:5173/repositories/2001> for the mock frontend; it needs n
 
 After installing Hub dependencies, use the [devcontainer](docs/development.md#devcontainer) for the real API or prepare local PostgreSQL and configuration. Copy `.env.example` only for first-time setup; preserve an existing `.env` and never commit credentials.
 
+On native Windows, [local example seeding](docs/development.md#start-with-the-real-api) requires Git for Windows with Git Bash. This is separate from the Linux-only Local Build workflow.
+
 ```sh
 docker compose -f .devcontainer/compose.yaml up -d db
 [ -e .env ] || [ -L .env ] || cp -n .env.example .env

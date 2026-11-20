@@ -44,7 +44,7 @@ describe("runLocalBuilds()", () => {
     }
     vi.mocked(readLocalDevelopmentConfiguration).mockReturnValue({
       buildActionDirectory: configuration.actionRoot,
-      createPrototypeScript: "/repository/scripts/create-prototype-repo.mjs",
+      createPrototypeScript: "/repository/scripts/create-prototype-repo.sh",
       enabled: true,
       root: configuration.prototypeRoot,
       sourceRoot: "/repository",

@@ -19,7 +19,11 @@ For TypeScript modules, import the function or component directory without `/ind
 
 ## Cross-platform scripts
 
-Scripts used outside Linux must run on Windows, macOS, and Linux without Bash, Git Bash, or WSL. Use Node.js for shared setup and contributor scripts, with native paths and portable subprocess calls. Bash is appropriate for scripts that run only in an explicitly Linux environment, such as a Linux container or CI job; document that requirement.
+Choose and document the runtime and supported platforms for each workflow. Share the workflow logic across platforms and test on each platform you claim to support. WSL and Linux containers do not count as native Windows validation.
+
+[Starter creation and installation](prototype-repository-setup.md#2-create-the-independent-starter) use Bash. On native Windows, use Git Bash from the full Git for Windows installation. For Bash scripts, preserve the repository's LF line endings and document any Linux-only tools or features.
+
+When one program launches another, pass arguments separately and use paths understood by the child process. Do not assume the caller's shell makes a program executable on another platform. For example, a Node.js program on Windows cannot launch the `npm.cmd` wrapper directly, even if Node.js was started in Git Bash.
 
 ## Tests
 
