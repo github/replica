@@ -244,7 +244,8 @@ describe("Hub expanded frontend flows", () => {
     const router = await renderHubFlow(server, "/repositories/2001", { workspaceRoutes })
     expect(screen.queryByRole("link", { name: "Edit prototype listings" })).not.toBeInTheDocument()
 
-    await router.settle(() => router.navigate("/repositories/2001/new"))
+    await router.settle(() => fireEvent.click(screen.getByRole("link", { name: "Create" })))
+    expect(router.state.location.pathname).toBe("/repositories/2001/new")
 
     fireEvent.change(screen.getByRole("textbox", { name: "What should we create?" }), {
       target: { value: "Simplify the settings flow" },

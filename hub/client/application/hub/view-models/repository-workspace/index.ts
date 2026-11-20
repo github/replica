@@ -12,7 +12,7 @@ export function repositoryWorkspace(
 ) {
   const browseTemplates = real
     ? workspace.repositories.find(({ id }) => id === repository.id)?.capabilities?.browseTemplates
-    : workspace.capabilities?.createPrototypes
+    : true
   const canManageAnalytics =
     repository.capabilities?.manageAnalytics ||
     workspace.repositories.find((entry) => entry.id === repository.id)?.capabilities
