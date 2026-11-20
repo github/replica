@@ -196,6 +196,121 @@ describe("real product index", () => {
     })
   })
 
+  it("pins the gallery screenshot to the newest eligible Build without returning Build history", async () => {
+    const applicationOrigin = "http://127.0.0.1:5173"
+    const previewBaseOrigin = "http://preview.localhost:3001"
+    const { id: repositoryId } = await prisma.repository.create({
+      data: { nameWithOwner: "team/design", defaultBranch: "main" },
+    })
+    const registeredAt = new Date("2026-10-01")
+    const entry = { kind: "dist", path: "dist/index.html" } as const
+    const desktop = { kind: "screenshot", path: "screenshots/desktop.png" } as const
+    function artifacts(...files: (typeof entry | typeof desktop)[]) {
+      return {
+        create: files.map((file) => ({ ...file, storageKey: randomUUID(), byteLength: 80 })),
+      }
+    }
+
+    const reviewBuildId = randomUUID()
+    const { id: prototypeId } = await prisma.prototype.create({
+      data: {
+        repositoryId,
+        branchName: "prototype/welcome",
+        name: "Welcome",
+        registeredAt,
+        builds: {
+          create: [
+            {
+              number: 9,
+              state: "successful",
+              workflowCreatedAt: new Date("2026-10-02"),
+              createdAt: new Date("2026-10-07"),
+              artifacts: artifacts(entry, desktop),
+            },
+            {
+              id: reviewBuildId,
+              number: 2,
+              state: "successful",
+              createdAt: new Date("2026-10-03"),
+              artifacts: artifacts(entry, desktop),
+            },
+            {
+              number: 3,
+              state: "successful",
+              createdAt: new Date("2026-10-04"),
+              artifacts: artifacts(entry),
+            },
+            {
+              number: 4,
+              state: "successful",
+              createdAt: new Date("2026-10-05"),
+              artifacts: artifacts(desktop),
+            },
+            {
+              number: 5,
+              state: "failed",
+              createdAt: new Date("2026-10-06"),
+              artifacts: artifacts(entry, desktop),
+            },
+          ],
+        },
+      },
+    })
+    const { id: previewOnlyPrototypeId } = await prisma.prototype.create({
+      data: {
+        repositoryId,
+        branchName: "prototype/preview-only",
+        name: "Preview only",
+        registeredAt,
+        builds: { create: { number: 1, state: "successful", artifacts: artifacts(entry) } },
+      },
+    })
+
+    const restore = vi.fn().mockResolvedValue({
+      membershipId: randomUUID(),
+      userId: randomUUID(),
+      provider: "github",
+      sessionProvider: "github",
+      login: "mona",
+      name: "Mona",
+      role: "MEMBER",
+    })
+    const product = createProductRouteDependencies({ applicationOrigin, previewBaseOrigin })
+    await withServer(restore, product, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/repositories/${repositoryId}`, {
+        headers: { cookie: "hub_session=member-session" },
+      })
+      expect(response.status).toBe(200)
+      const index = (await response.json()) as {
+        prototypes: {
+          id: string
+          reviewBuild: { number: number; desktopScreenshotUrl: string | null } | null
+        }[]
+      }
+      const prototype = index.prototypes.find(({ id }) => id === prototypeId)
+      expect(prototype).toMatchObject({
+        latestBuild: { number: 5, state: "failed" },
+        reviewBuild: { number: 2 },
+        builds: [],
+      })
+      const desktopScreenshotUrl = prototype?.reviewBuild?.desktopScreenshotUrl
+      expect(desktopScreenshotUrl).toBeTypeOf("string")
+      const screenshotUrl = new URL(desktopScreenshotUrl ?? "")
+      expect(screenshotUrl.origin).toBe(applicationOrigin)
+      expect(screenshotUrl.pathname).toBe(
+        `/api/repositories/${repositoryId}/prototypes/${prototypeId}/builds/2/access`,
+      )
+      expect(screenshotUrl.searchParams.get("target")).toBe("desktop")
+      expect([null, `http://${reviewBuildId}.preview.localhost:3001`]).toContain(
+        screenshotUrl.searchParams.get("preview_origin"),
+      )
+      expect(index.prototypes.find(({ id }) => id === previewOnlyPrototypeId)).toMatchObject({
+        reviewBuild: { number: 1, desktopScreenshotUrl: null },
+        builds: [],
+      })
+    })
+  })
+
   it("lists active repositories and only reviewable prototypes for GitHub and Entra members", async () => {
     const repositoryId = randomUUID()
     const anotherRepositoryId = randomUUID()

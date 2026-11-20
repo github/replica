@@ -20,6 +20,13 @@ export async function findRepositoryIndex(
   repositoryId: string,
   filters: RepositoryIndexFilters = { query: "", authorId: null, page: 1 },
   scope: RepositoryScope = null,
+  buildArtifactUrl?: (
+    buildId: string,
+    repositoryId: string,
+    prototypeId: string,
+    buildNumber: number,
+    target: "desktop",
+  ) => string,
 ) {
   const repository = await database.repository.findFirst({
     where: { id: repositoryId, ...visibleRepositoryWhere(scope) },
@@ -40,6 +47,7 @@ export async function findRepositoryIndex(
     page,
     selectedAuthor,
     latestBuilds: buildSummaries,
+    reviewBuilds,
   } = await database.$transaction(
     async (transaction) => {
       // Prisma cannot filter by the same COALESCE-ordered Build used by the card.
@@ -145,6 +153,32 @@ export async function findRepositoryIndex(
                 AND latest_build.number IS NOT NULL
             `)
           : []
+      // Select one preview per card, preferring a saved screenshot over a newer Build without one.
+      const reviewBuilds =
+        buildArtifactUrl && records.length > 0
+          ? await transaction.$queryRaw<
+              { prototypeId: string; id: string; number: number; hasScreenshot: boolean }[]
+            >(Prisma.sql`
+              SELECT prototypes.id AS "prototypeId", review_build.*
+              FROM prototypes
+              JOIN LATERAL (
+                SELECT builds.id, builds.number, (screenshot.id IS NOT NULL) AS "hasScreenshot"
+                FROM builds
+                JOIN build_artifacts AS dist
+                  ON dist.build_id = builds.id AND dist.path = 'dist/index.html' AND dist.kind = 'dist'
+                LEFT JOIN build_artifacts AS screenshot
+                  ON screenshot.build_id = builds.id AND screenshot.path = 'screenshots/desktop.png'
+                  AND screenshot.kind = 'screenshot'
+                WHERE builds.prototype_id = prototypes.id AND builds.state = 'successful'
+                ORDER BY (screenshot.id IS NOT NULL) DESC,
+                  COALESCE(builds.workflow_created_at, builds.created_at) DESC, builds.number DESC
+                LIMIT 1
+              ) AS review_build ON TRUE
+              WHERE prototypes.id IN (${Prisma.join(
+                records.map(({ id }) => Prisma.sql`${id}::uuid`),
+              )})
+            `)
+          : []
       // Name the selected user even when no card on this page belongs to them.
       const selectedAuthor = filters.authorId
         ? await transaction.user.findFirst({
@@ -152,7 +186,7 @@ export async function findRepositoryIndex(
             select: authorSelect,
           })
         : null
-      return { records, totalCount, page, selectedAuthor, latestBuilds }
+      return { records, totalCount, page, selectedAuthor, latestBuilds, reviewBuilds }
     },
     { isolationLevel: "RepeatableRead" },
   )
@@ -182,10 +216,12 @@ export async function findRepositoryIndex(
   const latestBuilds = new Map(
     buildSummaries.map(({ prototypeId, ...build }) => [prototypeId, build] as const),
   )
+  const previews = new Map(reviewBuilds.map(({ prototypeId, ...build }) => [prototypeId, build]))
   const prototypes = records.map((record) => {
     if (!record.name) throw new Error("A registered prototype must have a name.")
     addAuthor(record.author)
     const latestBuild = latestBuilds.get(record.id)
+    const preview = previews.get(record.id)
     return {
       id: record.id,
       repositoryId: record.repositoryId,
@@ -200,6 +236,21 @@ export async function findRepositoryIndex(
           : null,
       canEdit: false,
       latestBuild: latestBuild ? { number: latestBuild.number, state: latestBuild.state } : null,
+      reviewBuild: preview
+        ? {
+            number: preview.number,
+            desktopScreenshotUrl:
+              preview.hasScreenshot && buildArtifactUrl
+                ? buildArtifactUrl(
+                    preview.id,
+                    record.repositoryId,
+                    record.id,
+                    preview.number,
+                    "desktop",
+                  )
+                : null,
+          }
+        : null,
       builds: [],
     }
   })
