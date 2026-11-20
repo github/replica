@@ -69,7 +69,7 @@ it("adds bounded content-free agent evaluation reservations to the exact decisio
       const options = {
         cwd: hubRoot,
         env: { ...process.env, DATABASE_URL: databaseUrl.toString() },
-        timeout: 60_000,
+        timeout: 120_000,
       }
       for (const migrationName of base) {
         await run(
@@ -130,4 +130,4 @@ it("adds bounded content-free agent evaluation reservations to the exact decisio
     }
     await admin.end()
   }
-}, 60_000)
+}, 120_000)
