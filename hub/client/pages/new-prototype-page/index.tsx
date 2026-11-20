@@ -52,6 +52,8 @@ export function NewPrototypePage({
   } | null>(null)
   const submissionId = useRef(0)
   const handoff = useCopilotHandoff(authorizeHandoff)
+  const [handoffUnavailable, setHandoffUnavailable] = useState(false)
+  const copyOnly = data.submissionMode === "copy" || handoffUnavailable
   const { copy } = data
   const hasSavedDetails = Object.values(details).some((value) => value.trim())
   const fields = (
@@ -94,7 +96,10 @@ export function NewPrototypePage({
           instruction.replace("%{route}", () => templateRouteData),
         )
       : []
-  const prompt = [brief.trim(), ...fields, data.promptInstructions.trim(), ...templateInstructions]
+  const instructions = copyOnly
+    ? (data.copyPromptInstructions ?? data.promptInstructions)
+    : data.promptInstructions
+  const prompt = [brief.trim(), ...fields, instructions.trim(), ...templateInstructions]
     .filter(Boolean)
     .join("\n\n")
   const copyStatus = copyResult?.prompt === prompt ? copyResult.status : null
@@ -139,7 +144,7 @@ export function NewPrototypePage({
     event.preventDefault()
     if (!brief.trim() || submissionDisabled) return
 
-    if (data.submissionMode === "copy") {
+    if (copyOnly) {
       setCopyResult(null)
       try {
         await navigator.clipboard.writeText(prompt)
@@ -150,13 +155,16 @@ export function NewPrototypePage({
       return
     }
 
-    await handoff.prepare(() => {
-      submissionId.current += 1
-      setSubmission({
-        id: submissionId.current,
-        ...createPrototypeSubmission({ repositoryName: data.repositoryName, prompt }),
-      })
-    })
+    await handoff.prepare(
+      () => {
+        submissionId.current += 1
+        setSubmission({
+          id: submissionId.current,
+          ...createPrototypeSubmission({ repositoryName: data.repositoryName, prompt }),
+        })
+      },
+      () => setHandoffUnavailable(true),
+    )
   }
 
   return (
@@ -206,15 +214,20 @@ export function NewPrototypePage({
                 setDraftDetails({ ...details })
                 setDetailsOpen(true)
               }}
-              submitLabel={copy.submitLabel}
+              submitLabel={copyOnly ? copy.copyPromptLabel : copy.submitLabel}
             />
           </form>
 
           {handoff.error ? <HubAlert title={handoff.error} variant="critical" /> : null}
-          {data.submissionMode === "copy" && copyStatus === "copied" ? (
-            <HubToast title={copy.copiedLabel} />
+          {handoffUnavailable && !submissionDisabled ? (
+            <HubAlert
+              title="Copilot isn’t available for this repository. You can still copy the prompt."
+              variant="warning"
+              layout="compact"
+            />
           ) : null}
-          {data.submissionMode === "copy" && copyStatus === "error" ? (
+          {copyOnly && copyStatus === "copied" ? <HubToast title={copy.copiedLabel} /> : null}
+          {copyOnly && copyStatus === "error" ? (
             <HubAlert
               className="new-prototype__copy-status"
               variant="critical"

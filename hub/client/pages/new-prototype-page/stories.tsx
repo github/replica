@@ -137,6 +137,18 @@ export const CopyPromptAsViewer: Story = {
   },
 }
 
+export const CopyAfterHandoffDenied: Story = {
+  args: { authorizeHandoff: async () => false },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.type(
+      canvas.getByRole("textbox", { name: data.copy.heading }),
+      "Compare two prototype builds side by side.",
+    )
+    await userEvent.click(canvas.getByRole("button", { name: data.copy.submitLabel }))
+    await canvas.findByRole("button", { name: data.copy.copyPromptLabel })
+  },
+}
+
 export const Single: Story = {
   args: { data: { ...data, templates: data.templates.slice(0, 1) } },
 }

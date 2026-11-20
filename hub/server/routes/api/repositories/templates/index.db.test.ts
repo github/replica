@@ -265,12 +265,33 @@ it("rechecks GitHub write permission when starting a Copilot handoff", async () 
       template: { id: "default" },
     })
     permission.mockRejectedValue(new GitHubProviderRequestError())
-    expect((await read("/create/permission")).status).toBe(503)
+    const unavailable = await read("/create/permission")
+    expect(unavailable.status).toBe(503)
+    const copyPermission = (await unavailable.json()) as { error?: unknown; canCopy?: unknown }
+    expect(typeof copyPermission.error).toBe("string")
+    expect(copyPermission.canCopy).toBe(true)
     const fallback = await read()
     expect(fallback.status).toBe(200)
     expect(await fallback.json()).toMatchObject({ canCreate: true, submissionMode: "copy" })
   })
 })
+
+it.each(["read", "outage"] as const)(
+  "does not allow copy when repository access is revoked during a provider check ending in %s",
+  async (outcome) => {
+    await withRepository(async ({ repositoryId, read, permission }) => {
+      permission.mockImplementation(async () => {
+        await prisma.repositoryAccessGrant.deleteMany({ where: { repositoryId } })
+        if (outcome === "outage") throw new GitHubProviderRequestError()
+        return "read"
+      })
+
+      const denied = await read("/create/permission")
+      expect(denied.status).toBe(404)
+      expect(await denied.json()).not.toHaveProperty("canCopy")
+    })
+  },
+)
 
 it("lets an Entra viewer compose from the blank template but not hand off to Copilot", async () => {
   await withRepository(async ({ read, permission }) => {

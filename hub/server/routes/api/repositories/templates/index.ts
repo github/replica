@@ -213,10 +213,25 @@ export function templateRoutes(
     permission: authorized(
       async (_request, viewer, repositoryId) => {
         if (!(await product.isRepositoryVisible(viewer, repositoryId))) return null
-        return { canCreate: await canHandOffToCopilot(product, viewer, repositoryId) }
+        try {
+          const canCreate = await canHandOffToCopilot(product, viewer, repositoryId)
+          return (await product.isRepositoryVisible(viewer, repositoryId)) ? { canCreate } : null
+        } catch (error) {
+          if (!(error instanceof GitHubProviderRequestError)) throw error
+          return (await product.isRepositoryVisible(viewer, repositoryId))
+            ? { unavailable: true }
+            : null
+        }
       },
       (response, result) => {
-        response.json(result)
+        if ("unavailable" in result) {
+          response.status(503).json({
+            error: "Hub could not check GitHub repository permissions.",
+            canCopy: true,
+          })
+        } else {
+          response.json(result)
+        }
       },
     ),
     access: authorized(
