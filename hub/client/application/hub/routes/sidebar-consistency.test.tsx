@@ -130,12 +130,10 @@ function administrationLinks() {
 
 function expectRepositoryNavigation({
   admin,
-  canCreate = true,
   welcomeHidden = false,
   unreadCount,
 }: {
   admin: boolean
-  canCreate?: boolean
   welcomeHidden?: boolean
   unreadCount: number
 }) {
@@ -146,7 +144,7 @@ function expectRepositoryNavigation({
   const links = navigationLinks()
   expect(links.map(linkTarget)).toEqual([
     ...(welcomeHidden ? [] : ["/welcome?repositoryId=2002"]),
-    ...(canCreate ? ["/repositories/2002/new"] : []),
+    "/repositories/2002/new",
     "/repositories/2002",
     "/notifications?repositoryId=2002",
     "/repositories/2002/analytics",
@@ -191,19 +189,16 @@ describe("Hub sidebar consistency", () => {
     }
   }, 15_000)
 
-  it.each([
-    { profile: "owner", canCreate: true },
-    { profile: "reader", canCreate: false },
-  ] as const)(
+  it.each([{ profile: "owner" }, { profile: "reader" }] as const)(
     "keeps $profile permissions, hidden Welcome and unread counts when moving between repository and settings pages",
-    async ({ profile, canCreate }) => {
+    async ({ profile }) => {
       const store = createMockStore({ origin: window.location.origin })
       store.session.select(profile)
       store.settings.mutate({ operation: "welcome-hide" })
       const unreadCount = store.getWorkspace().navigation!.notificationsUnreadCount
       const server = setupServer(...createMockHandlers(store))
       const router = await renderHubFlow(server, "/repositories/2002", { workspaceRoutes })
-      expectRepositoryNavigation({ admin: false, canCreate, welcomeHidden: true, unreadCount })
+      expectRepositoryNavigation({ admin: false, welcomeHidden: true, unreadCount })
 
       for (const pathname of [
         "/repositories/2002/analytics",
@@ -214,7 +209,7 @@ describe("Hub sidebar consistency", () => {
         const link = navigationLinks().find((item) => new URL(item.href).pathname === pathname)!
         await router.settle(() => fireEvent.click(link))
         expect(router.state.location.pathname).toBe(pathname)
-        expectRepositoryNavigation({ admin: false, canCreate, welcomeHidden: true, unreadCount })
+        expectRepositoryNavigation({ admin: false, welcomeHidden: true, unreadCount })
       }
     },
   )
@@ -277,7 +272,6 @@ describe("Hub sidebar consistency", () => {
 
     expectRepositoryNavigation({
       admin: true,
-      canCreate: false,
       unreadCount: store.getWorkspace().navigation!.notificationsUnreadCount,
     })
   })
