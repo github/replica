@@ -2185,7 +2185,7 @@ class LocalPrivacyConnector(_ScopedConnector):
         context: OperationContext,
     ) -> Mapping[str, Any]:
         self._check(context)
-        if state not in ("revoked", "deleted", "retained"):
+        if state not in ("active", "revoked", "deleted", "retained"):
             raise ConnectorError(
                 "runtime_copy_state_invalid",
                 "A runtime copy tombstone must be revoked, deleted, or retained.",

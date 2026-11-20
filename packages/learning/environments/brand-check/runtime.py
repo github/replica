@@ -232,6 +232,7 @@ class LocalRuntime:
         self._inference_cancellations: dict[
             str, tuple[Cancellation, Mapping[str, Any]]
         ] = {}
+        self._inference_idempotency_locks: dict[str, threading.Lock] = {}
         self._tasksets: OrderedDict[str, TasksetArtifact] = OrderedDict()
         self._verified_taskset_directories: dict[str, Path] = {}
         try:
@@ -737,11 +738,19 @@ class LocalRuntime:
             },
         )
         try:
-            self.connectors.privacy.get_copy(record["id"], context)
+            existing = self.connectors.privacy.get_copy(record["id"], context)
         except ConnectorError as error:
             if error.category != "not_found":
                 raise
             self.connectors.privacy.put_copy(record, context)
+        else:
+            if mounted and existing.get("retention", {}).get("mode") != "operator_managed":
+                self.connectors.privacy.tombstone_copy(
+                    record["id"],
+                    state=existing["useState"],
+                    retention=record["retention"],
+                    context=context,
+                )
 
     def _disclosed_copy(self, copy: Mapping[str, Any]) -> dict[str, Any]:
         safe = dict(copy)
@@ -1064,6 +1073,7 @@ class LocalRuntime:
     ) -> dict[str, Any]:
         """Answer one prototype page with the promoted candidate."""
         _check_request(request)
+        retry_lock = None
         with self._lock:
             promotion = self.promotion()
             candidate_id = promotion["candidateId"]
@@ -1088,6 +1098,19 @@ class LocalRuntime:
             except ConnectorError as error:
                 raise _runtime_connector_failure(error) from None
             provenance = _copy_provenance(copy)
+            if idempotency_key is not None:
+                retry_lock = self._inference_idempotency_locks.setdefault(
+                    idempotency_key,
+                    threading.Lock(),
+                )
+        if retry_lock is not None:
+            retry_lock.acquire()
+            try:
+                self._assert_not_revoked(provenance, operation="inference")
+            except Exception:
+                retry_lock.release()
+                raise
+        with self._lock:
             cancellation = Cancellation()
             context = self._operation_context(
                 f"inference_{uuid.uuid4().hex}",
@@ -1119,6 +1142,8 @@ class LocalRuntime:
         except ConnectorError as error:
             with self._lock:
                 self._inference_cancellations.pop(context.operation_id, None)
+            if retry_lock is not None:
+                retry_lock.release()
             raise _runtime_connector_failure(error) from None
         started = time.monotonic()
         operation_error: Exception | None = None
@@ -1128,6 +1153,8 @@ class LocalRuntime:
             shutil.rmtree(work, ignore_errors=True)
             with self._lock:
                 self._inference_cancellations.pop(context.operation_id, None)
+            if retry_lock is not None:
+                retry_lock.release()
             raise RuntimeFailure(
                 "capacity_temporarily_unavailable",
                 f"Promoted candidate backend {manifest['backend']} is already serving "
@@ -1178,40 +1205,44 @@ class LocalRuntime:
         except ConnectorError as error:
             if operation_error is None:
                 operation_error = _runtime_connector_failure(error)
-        with self._lock:
-            self._inference_cancellations.pop(context.operation_id, None)
-            if operation_error is None:
-                self._assert_not_revoked(provenance, operation="inference")
-        if operation_error is not None:
-            raise operation_error
-        evaluations = []
-        for key, question in request["questions"].items():
-            if question.get("type") != "noul":
-                continue
-            probabilities = answers.get(key, {}).get("probabilities")
-            if not _valid_yes_no(probabilities):
-                raise RuntimeFailure(
-                    "inference_failed",
-                    f"The promoted candidate did not answer question {json.dumps(key)}.",
-                    500,
+        try:
+            with self._lock:
+                self._inference_cancellations.pop(context.operation_id, None)
+                if operation_error is None:
+                    self._assert_not_revoked(provenance, operation="inference")
+            if operation_error is not None:
+                raise operation_error
+            evaluations = []
+            for key, question in request["questions"].items():
+                if question.get("type") != "noul":
+                    continue
+                probabilities = answers.get(key, {}).get("probabilities")
+                if not _valid_yes_no(probabilities):
+                    raise RuntimeFailure(
+                        "inference_failed",
+                        f"The promoted candidate did not answer question {json.dumps(key)}.",
+                        500,
+                    )
+                total = probabilities.get("yes", 0) + probabilities.get("no", 0)
+                yes = probabilities.get("yes", 0) / total
+                answers[key] = {"probabilities": {"yes": yes, "no": 1.0 - yes}}
+                evaluations.append(
+                    {
+                        "learningId": key,
+                        "followsProbability": yes,
+                        "breaksProbability": 1.0 - yes,
+                    }
                 )
-            total = probabilities.get("yes", 0) + probabilities.get("no", 0)
-            yes = probabilities.get("yes", 0) / total
-            answers[key] = {"probabilities": {"yes": yes, "no": 1.0 - yes}}
-            evaluations.append(
-                {
-                    "learningId": key,
-                    "followsProbability": yes,
-                    "breaksProbability": 1.0 - yes,
-                }
-            )
-        return {
-            "schemaVersion": INFERENCE_SCHEMA,
-            "candidateId": candidate_id,
-            "promotionGeneration": promotion["generation"],
-            "answers": answers,
-            "evaluations": evaluations,
-        }
+            return {
+                "schemaVersion": INFERENCE_SCHEMA,
+                "candidateId": candidate_id,
+                "promotionGeneration": promotion["generation"],
+                "answers": answers,
+                "evaluations": evaluations,
+            }
+        finally:
+            if retry_lock is not None:
+                retry_lock.release()
 
     def _run_job(self, job_id: str) -> None:
         job: dict[str, Any] = {}
@@ -1487,23 +1518,6 @@ class LocalRuntime:
                     {"name": "evaluation.json"},
                 ),
             )
-            self.connectors.candidates.put(
-                Candidate(
-                    candidate_id,
-                    ContentDigest(
-                        "sha256",
-                        hashlib.sha256(
-                            _json_bytes(manifest)
-                            + b"\0"
-                            + result.adapter
-                            + _json_bytes(report)
-                        ).hexdigest(),
-                    ),
-                    manifest,
-                    artifacts,
-                ),
-                context,
-            )
             candidate_copy = _runtime_copy(
                 "candidate",
                 candidate_id,
@@ -1531,6 +1545,23 @@ class LocalRuntime:
                         provenance.get("retention", {"mode": "delete_on_withdrawal"})
                     ),
                     parent_copy_ids=(candidate_copy["id"],),
+                ),
+                context,
+            )
+            self.connectors.candidates.put(
+                Candidate(
+                    candidate_id,
+                    ContentDigest(
+                        "sha256",
+                        hashlib.sha256(
+                            _json_bytes(manifest)
+                            + b"\0"
+                            + result.adapter
+                            + _json_bytes(report)
+                        ).hexdigest(),
+                    ),
+                    manifest,
+                    artifacts,
                 ),
                 context,
             )

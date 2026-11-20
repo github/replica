@@ -234,7 +234,9 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                         requested_by=body.get("requestedBy"),
                         reason=body.get("reason"),
                         retention=body.get("retention"),
-                        idempotency_key=self._idempotency_key("runtime-deletion"),
+                        idempotency_key=self._idempotency_key(
+                            _request_fingerprint("runtime-deletion", body)
+                        ),
                     ),
                 )
                 return

@@ -56,6 +56,21 @@ class BlockingInferenceBackend(FixtureBackend):
         return super().predict(*args, **kwargs)
 
 
+class CountingBlockingInferenceBackend(BlockingInferenceBackend):
+    """Record backend executions while concurrent retries share one result."""
+
+    max_concurrent_inference = 1
+
+    def __init__(self, started: Path, release: Path, calls: Path):
+        super().__init__(started, release)
+        self.calls = calls
+
+    def predict(self, *args, **kwargs):
+        with self.calls.open("a", encoding="utf-8") as handle:
+            handle.write("predict\n")
+        return super().predict(*args, **kwargs)
+
+
 class RuntimeDeletionTest(unittest.TestCase):
     def setUp(self):
         self.taskset_dir = write_taskset(
@@ -248,6 +263,47 @@ class RuntimeDeletionTest(unittest.TestCase):
                 idempotency_key="promote-after-deletion",
             )
         self.assertEqual(promotion.exception.code, "deletion_revoked")
+
+    def test_deletion_api_derives_distinct_default_retry_keys_from_each_body(self):
+        runtime = self._runtime()
+        _server, _thread, base_url = self._serve(runtime)
+        headers = {
+            "Authorization": f"Bearer {TOKEN}",
+            "Content-Type": "application/json",
+        }
+
+        first = self._http_json(
+            request.Request(
+                f"{base_url}/v1/deletions",
+                data=json.dumps(
+                    {
+                        "selectors": {"exportId": "export_missing_one"},
+                        "requestedBy": "privacy-operator",
+                        "reason": "first withdrawal",
+                    }
+                ).encode(),
+                headers=headers,
+                method="POST",
+            )
+        )
+        second = self._http_json(
+            request.Request(
+                f"{base_url}/v1/deletions",
+                data=json.dumps(
+                    {
+                        "selectors": {"exportId": "export_missing_two"},
+                        "requestedBy": "privacy-operator",
+                        "reason": "second withdrawal",
+                    }
+                ).encode(),
+                headers=headers,
+                method="POST",
+            )
+        )
+
+        self.assertNotEqual(first["id"], second["id"])
+        self.assertEqual(first["state"], "completed")
+        self.assertEqual(second["state"], "completed")
 
     def test_duplicate_deletion_returns_one_durable_receipt_across_restart(self):
         runtime = self._runtime()
@@ -442,6 +498,129 @@ class RuntimeDeletionTest(unittest.TestCase):
         self.assertEqual(len(failures), 1)
         self.assertIsInstance(failures[0], RuntimeFailure)
         self.assertEqual(failures[0].code, "deletion_revoked")
+
+    def test_candidate_inventory_is_durable_before_candidate_bytes(self):
+        runtime = self._runtime()
+        real_put = runtime.connectors.privacy.put_copy
+
+        def fail_candidate(record, context):
+            if record["kind"] == "candidate":
+                raise ConnectorError(
+                    "privacy_unavailable",
+                    "Privacy inventory is unavailable.",
+                    category="unavailable",
+                    retryable=True,
+                )
+            return real_put(record, context)
+
+        with mock.patch.object(
+            runtime.connectors.privacy,
+            "put_copy",
+            side_effect=fail_candidate,
+        ):
+            finished = self._wait_for_job(
+                runtime,
+                runtime.submit(
+                    backend="fixture",
+                    max_updates=2,
+                    max_seconds=5,
+                    max_credits=2,
+                )["id"],
+            )
+
+        self.assertEqual(finished["state"], "failed")
+        self.assertEqual(
+            list((self.state_dir / "candidates").glob("candidate_*")),
+            [],
+        )
+
+    def test_mounting_an_uploaded_taskset_reconciles_operator_retention(self):
+        digest, upload = taskset_upload(self.taskset_dir)
+        runtime = LocalRuntime(
+            self.state_dir,
+            None,
+            environment="test",
+            scope=RuntimeScope("tenant-one", "github/example"),
+        )
+        runtime.register_taskset(digest, upload, idempotency_key="upload-before-mount")
+        runtime.close()
+
+        mounted = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            environment="test",
+            scope=RuntimeScope("tenant-one", "github/example"),
+        )
+        self.addCleanup(mounted.close)
+        receipt = mounted.request_deletion(
+            {"exportId": EXPORT_ID},
+            requested_by="privacy-operator",
+            reason="training consent withdrawn",
+            idempotency_key="delete-mounted-upload",
+        )
+
+        self.assertEqual(receipt["state"], "completed")
+        taskset_item = next(item for item in receipt["items"] if item["kind"] == "taskset")
+        self.assertEqual(taskset_item["state"], "retained")
+        self.assertEqual(
+            taskset_item["retention"]["mode"],
+            "operator_managed",
+        )
+        self.assertTrue((self.taskset_dir / "taskset.json").is_file())
+
+    def test_concurrent_inference_retries_share_one_backend_execution(self):
+        started = self.taskset_dir.parent / "retry-inference-started"
+        release = self.taskset_dir.parent / "retry-inference-release"
+        calls = self.taskset_dir.parent / "retry-inference-calls"
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={
+                "fixture": CountingBlockingInferenceBackend(started, release, calls)
+            },
+            environment="test",
+            scope=RuntimeScope("tenant-one", "github/example"),
+        )
+        self.addCleanup(release.write_text, "release", encoding="utf-8")
+        self.addCleanup(runtime.close)
+        finished = self._train(runtime)
+        runtime.promote(
+            finished["candidateId"],
+            promoted_by="privacy-operator",
+            expected_generation=0,
+            idempotency_key="promote-before-retry",
+        )
+        responses = []
+        failures = []
+
+        def evaluate():
+            try:
+                responses.append(
+                    runtime.evaluate(
+                        self._evaluation(),
+                        idempotency_key="same-inference",
+                    )
+                )
+            except Exception as failure:
+                failures.append(failure)
+
+        first = threading.Thread(target=evaluate)
+        second = threading.Thread(target=evaluate)
+        first.start()
+        deadline = time.monotonic() + 5
+        while not started.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(started.exists())
+        second.start()
+        time.sleep(0.05)
+        release.write_text("release", encoding="utf-8")
+        first.join(5)
+        second.join(5)
+
+        self.assertFalse(failures)
+        self.assertEqual(len(responses), 2)
+        self.assertEqual(responses[0], responses[1])
+        self.assertEqual(calls.read_text(encoding="utf-8").splitlines(), ["predict"])
 
     def _runtime(self):
         runtime = LocalRuntime(
