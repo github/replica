@@ -1230,6 +1230,7 @@ class LocalRuntime:
                 context,
             )
         except ConnectorError as error:
+            shutil.rmtree(work, ignore_errors=True)
             with self._lock:
                 self._inference_cancellations.pop(context.operation_id, None)
             if retry_lock is not None:

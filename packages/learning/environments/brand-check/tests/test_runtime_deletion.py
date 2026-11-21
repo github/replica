@@ -734,6 +734,37 @@ class RuntimeDeletionTest(unittest.TestCase):
         self.assertEqual(runtime._inference_idempotency_locks, {})
         self.assertEqual(runtime._inference_cancellations, {})
 
+    def test_inference_artifact_failure_removes_work_directory(self):
+        runtime = self._runtime()
+        finished = self._train(runtime)
+        runtime.promote(
+            finished["candidateId"],
+            promoted_by="privacy-operator",
+            expected_generation=0,
+            idempotency_key="promote-before-artifact-failure",
+        )
+
+        with mock.patch.object(
+            runtime.local_connectors.candidates,
+            "artifact_path",
+            side_effect=ConnectorError(
+                "candidate_not_found",
+                "The candidate artifact was not found.",
+                category="not_found",
+            ),
+        ), self.assertRaises(RuntimeFailure):
+            runtime.evaluate(
+                self._evaluation(),
+                idempotency_key="artifact-failure",
+            )
+
+        self.assertEqual(
+            list((self.state_dir / "work").glob("inference_*")),
+            [],
+        )
+        self.assertEqual(runtime._inference_idempotency_locks, {})
+        self.assertEqual(runtime._inference_cancellations, {})
+
     def test_explicit_missing_mounted_taskset_fails_startup(self):
         missing = self._control("missing-taskset")
 
