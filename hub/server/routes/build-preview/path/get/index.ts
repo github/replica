@@ -9,6 +9,7 @@ import { readProductSession } from "../../../api/product/read-product-session/in
 import { canBrowseTemplates } from "../../../api/product/template-repository-access/index.ts"
 import type { ProductRouteDependencies } from "../../../api/product/types.ts"
 import type { BuildPreviewRouteDependencies } from "../../types.ts"
+import { createPreviewResponseReservation } from "../../create-preview-response-reservation/index.ts"
 
 export function get(
   preview: BuildPreviewRouteDependencies,
@@ -16,6 +17,7 @@ export function get(
   product: ProductRouteDependencies,
 ): RequestHandler {
   return async (request, response, next) => {
+    const admission = createPreviewResponseReservation(response)
     response.setHeader("Cache-Control", "private, no-store")
     response.setHeader("X-Content-Type-Options", "nosniff")
     response.setHeader("Referrer-Policy", "no-referrer")
@@ -39,7 +41,7 @@ export function get(
         BigInt(match[1]!) > 9223372036854775807n ||
         BigInt(match[2]!) > 9223372036854775807n ||
         /%2f|%5c/i.test(path) ||
-        /[\\%\p{Cc}\p{Cs}]/u.test(decoded) ||
+        /[\\\p{Cc}\p{Cs}]/u.test(decoded) ||
         decoded.split("/").some((part) => part === "." || part === "..") ||
         request.get("service-worker")?.toLowerCase() === "script" ||
         request.get("host") !== new URL(preview.applicationOrigin).host
@@ -101,11 +103,10 @@ export function get(
         const review = (preview.reviewBridgeSource ?? "")
           .replaceAll('"__REPLICA_HUB_ORIGIN__"', JSON.stringify(preview.applicationOrigin))
           .replaceAll('"__REPLICA_REVIEW_ENABLED__"', JSON.stringify(String(!target.template)))
-        response
-          .type("text/javascript")
-          .send(
-            `${review}\n${preview.bridgeSource};ReplicaHostedPreviewBridge.installHostedBridge(${JSON.stringify(preview.applicationOrigin)});`,
-          )
+        const source = `${review}\n${preview.bridgeSource};ReplicaHostedPreviewBridge.installHostedBridge(${JSON.stringify(preview.applicationOrigin)});`
+        response.type("text/javascript")
+        response.setHeader("Content-Length", Buffer.byteLength(source))
+        response.end(source)
         return
       }
       const screenshot =
@@ -133,11 +134,19 @@ export function get(
           buildId: target.buildId,
           requestPath: path,
           mountPath,
+          ifNoneMatch: screenshot ? undefined : request.get("if-none-match"),
         },
-        preview,
+        { ...preview, reserveBytes: admission.reserveBytes },
       )
+      if (response.destroyed) return
       if (!(await authorized())) {
         response.status(404).end()
+        return
+      }
+      if (file.status === "not-modified") {
+        response.setHeader("Cache-Control", "private, no-cache")
+        response.setHeader("ETag", file.etag)
+        response.status(304).end()
         return
       }
       if (file.status !== "ok") {
@@ -146,10 +155,13 @@ export function get(
       }
       response.setHeader("Cache-Control", screenshot ? "private, no-store" : "private, no-cache")
       response.setHeader("Content-Type", file.contentType)
+      if (file.etag) response.setHeader("ETag", file.etag)
       response.setHeader("Content-Length", file.bytes.byteLength)
       response.end(file.bytes)
     } catch (error) {
       next(error)
+    } finally {
+      admission.completeRequest()
     }
   }
 }

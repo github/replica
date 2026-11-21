@@ -8,37 +8,46 @@ export async function findPathPreviewTargets(
     where: {
       state: "successful",
       githubWorkflowRunId: BigInt(input.githubWorkflowRunId),
-      artifacts: { some: { kind: "dist", path: "dist/index.html" } },
       prototype: {
-        branchDeletedAt: null,
-        branchName: { not: "replica/install-workflow" },
         repository: {
           githubRepositoryId: BigInt(input.githubRepositoryId),
-          removedAt: null,
-          localPath: null,
         },
       },
     },
     take: 2,
     select: {
       id: true,
+      artifacts: { where: { kind: "dist", path: "dist/index.html" }, select: { id: true } },
       prototype: {
         select: {
           replica: true,
+          branchDeletedAt: true,
           branchName: true,
-          repository: { select: { id: true, defaultBranch: true } },
+          repository: {
+            select: { id: true, defaultBranch: true, removedAt: true, localPath: true },
+          },
         },
       },
     },
   })
-  if (
-    builds.length === 1 &&
-    builds[0]!.prototype.replica &&
-    builds[0]!.prototype.branchName !== builds[0]!.prototype.repository.defaultBranch
-  )
-    return []
+  if (builds.length === 1) {
+    const { prototype, artifacts } = builds[0]!
+    if (
+      artifacts.length === 0 ||
+      prototype.branchDeletedAt ||
+      prototype.branchName === "replica/install-workflow" ||
+      prototype.repository.removedAt ||
+      prototype.repository.localPath ||
+      (prototype.replica && prototype.branchName !== prototype.repository.defaultBranch)
+    )
+      return []
+  }
   return builds.map(({ id, prototype }) => {
     const template = prototype.branchName === prototype.repository.defaultBranch
-    return { buildId: id, repository: { id: prototype.repository.id, local: false }, template }
+    return {
+      buildId: id,
+      repository: { id: prototype.repository.id, local: Boolean(prototype.repository.localPath) },
+      template,
+    }
   })
 }

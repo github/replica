@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto"
+
 import { contentTypeForBuildPath } from "../../build-artifacts/content-type-for-build-path/index.ts"
 import { normalizeBuildArtifactPath } from "../../build-artifacts/normalize-build-artifact-path/index.ts"
 import { injectPreviewBridge } from "../inject-preview-bridge/index.ts"
@@ -28,7 +30,6 @@ function readDeclaredRoutePathnames(bytes: Uint8Array): string[] {
     return []
   }
 }
-
 export async function readBuildPreviewFile(
   input: ReadBuildPreviewFileInput,
   dependencies: ReadBuildPreviewFileDependencies,
@@ -89,6 +90,23 @@ export async function readBuildPreviewFile(
   }
   if (!artifact) return { status: "not-found" }
 
+  const contentType = contentTypeForBuildPath(path)
+  const html = contentType.startsWith("text/html")
+  const etag =
+    !html && path.startsWith("dist/")
+      ? `"${createHash("sha256")
+          .update(JSON.stringify([input.buildId, path, artifact.storageKey, artifact.byteLength]))
+          .digest("hex")}"`
+      : undefined
+  if (
+    etag &&
+    input.ifNoneMatch?.split(",").some((value) => {
+      const validator = value.trim()
+      return validator === "*" || validator.replace(/^W\//, "") === etag
+    })
+  )
+    return { status: "not-modified", etag }
+
   if (dependencies.reserveBytes?.(artifact.byteLength) === null) {
     return { status: "unavailable" }
   }
@@ -98,12 +116,11 @@ export async function readBuildPreviewFile(
   }
   if (stored.bytes.byteLength > artifact.byteLength) return { status: "unavailable" }
 
-  const contentType = contentTypeForBuildPath(path)
-  const html = contentType.startsWith("text/html")
   return {
     status: "ok",
     bytes: html ? injectPreviewBridge(stored.bytes, input.mountPath) : stored.bytes,
     contentType,
     html,
+    ...(etag ? { etag } : {}),
   }
 }

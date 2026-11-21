@@ -152,6 +152,34 @@ describe("findPrototypeDetail()", () => {
       narrowScreenshotUrl: "/previews/github/2001/3002/__replica/screenshots/narrow.png",
     })
     expect(detail?.controlsIdentity).toBe("controls-binding")
+
+    await prisma.prototype.update({
+      where: { id: prototypeId },
+      data: { branchDeletedAt: new Date() },
+    })
+    const retired = await findPrototypeDetail(
+      prisma,
+      repositoryId,
+      prototypeId,
+      42,
+      { page: 1, pageSize: 25 },
+      null,
+      (mountPath, target) => (mountPath ? `${mountPath}${target}` : null),
+    )
+    expect(retired?.selectedBuild).toMatchObject({ number: 42, state: "successful" })
+    for (const build of [
+      retired?.selectedBuild,
+      ...(retired?.prototype.builds ?? []),
+      ...(retired?.buildPage?.builds ?? []),
+    ]) {
+      expect(build).toMatchObject({
+        number: 42,
+        state: "successful",
+        previewUrl: null,
+        desktopScreenshotUrl: null,
+        narrowScreenshotUrl: null,
+      })
+    }
   })
 
   it("bounds database results on later pages while retaining the global current Build", async () => {

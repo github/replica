@@ -1,18 +1,25 @@
 import assert from "node:assert/strict"
-import { mkdir, writeFile } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
+import { mkdir, rm, writeFile } from "node:fs/promises"
+import { request } from "node:http"
 import path from "node:path"
 import { describe, it } from "node:test"
-
-import { temporaryDirectory } from "../../test/temporary-directory/index.mjs"
 
 import { closeServer } from "../close-server/index.mjs"
 import { listenOnLoopback } from "../listen-on-loopback/index.mjs"
 
 import { createStaticServer } from "./index.mjs"
 
+async function createDirectory(context) {
+  const directory = path.resolve(`.static-server-test-${randomUUID()}`)
+  await mkdir(directory)
+  context.after(() => rm(directory, { recursive: true, force: true }))
+  return directory
+}
+
 describe("createStaticServer()", () => {
-  it("serves only the compiled base with nested documents and logical template routes", async () => {
-    const dist = await temporaryDirectory()
+  it("serves only the compiled base with nested documents and logical template routes", async (context) => {
+    const dist = await createDirectory(context)
     const base = "/previews/github/123/456/"
     await mkdir(path.join(dist, "docs"))
     await writeFile(
@@ -47,8 +54,8 @@ describe("createStaticServer()", () => {
     }
   })
 
-  it("serves client-side browser routes but never replaces missing assets with HTML", async () => {
-    const dist = await temporaryDirectory()
+  it("serves client-side browser routes but never replaces missing assets with HTML", async (context) => {
+    const dist = await createDirectory(context)
     await writeFile(path.join(dist, "index.html"), "<!doctype html><h1>App</h1>")
     const server = createStaticServer(dist)
     const port = await listenOnLoopback(server)
@@ -69,8 +76,8 @@ describe("createStaticServer()", () => {
     }
   })
 
-  it("falls back for declared dotted and directory routes without hiding missing assets", async () => {
-    const dist = await temporaryDirectory()
+  it("falls back for declared dotted and directory routes without hiding missing assets", async (context) => {
+    const dist = await createDirectory(context)
     const html = "<!doctype html><h1>App</h1>"
     await writeFile(path.join(dist, "index.html"), html)
     await mkdir(path.join(dist, "assets"))
@@ -112,6 +119,74 @@ describe("createStaticServer()", () => {
       })
       assert.equal(asset.status, 200)
       assert.equal(await asset.text(), "console.log('App')")
+    } finally {
+      await closeServer(server)
+    }
+  })
+
+  for (const base of ["/", "/previews/github/123/456/"]) {
+    it(`decodes percent filenames once under ${base}`, async (context) => {
+      const dist = await createDirectory(context)
+      await mkdir(path.join(dist, "assets"))
+      await writeFile(path.join(dist, "assets/100%complete.bin"), "literal percent bytes")
+      await writeFile(path.join(dist, "assets/%2f.bin"), "literal encoded separator bytes")
+      const server = createStaticServer(dist, [], base)
+      const port = await listenOnLoopback(server)
+      try {
+        for (const [file, expected] of [
+          ["100%25complete.bin", "literal percent bytes"],
+          ["%252f.bin", "literal encoded separator bytes"],
+        ]) {
+          const response = await fetch(`http://127.0.0.1:${port}${base}assets/${file}`)
+          assert.equal(response.status, 200)
+          assert.equal(await response.text(), expected)
+        }
+        for (const unsafe of [
+          "assets%2fprivate.bin",
+          "assets%5cprivate.bin",
+          "%2e%2e/private.bin",
+        ]) {
+          const status = await new Promise((resolve, reject) => {
+            const outgoing = request(
+              { hostname: "127.0.0.1", port, path: `${base}${unsafe}` },
+              (response) => {
+                response.resume()
+                response.on("end", () => resolve(response.statusCode))
+              },
+            )
+            outgoing.on("error", reject)
+            outgoing.end()
+          })
+          assert.equal(status, 400, unsafe)
+        }
+      } finally {
+        await closeServer(server)
+      }
+    })
+  }
+
+  it("uses a nested index only for a trailing slash, not its declared logical route", async (context) => {
+    const dist = await createDirectory(context)
+    const base = "/previews/github/123/456/"
+    const rootHtml = "<h1>Root SPA</h1>"
+    const nestedHtml = '<h1>Nested document</h1><script src="./app.js"></script>'
+    await mkdir(path.join(dist, "docs"))
+    await writeFile(path.join(dist, "index.html"), rootHtml)
+    await writeFile(path.join(dist, "docs/index.html"), nestedHtml)
+    await writeFile(path.join(dist, "docs/app.js"), "nested asset")
+    const server = createStaticServer(dist, ["/docs"], base)
+    const port = await listenOnLoopback(server)
+    const origin = `http://127.0.0.1:${port}`
+    try {
+      const logical = await fetch(`${origin}${base}docs`, { headers: { Accept: "text/html" } })
+      assert.equal(logical.status, 200)
+      assert.equal(await logical.text(), rootHtml)
+      const nestedUrl = `${origin}${base}docs/`
+      const nested = await fetch(nestedUrl, { headers: { Accept: "text/html" } })
+      assert.equal(nested.status, 200)
+      assert.equal(await nested.text(), nestedHtml)
+      const asset = await fetch(new URL("./app.js", nestedUrl))
+      assert.equal(await asset.text(), "nested asset")
     } finally {
       await closeServer(server)
     }

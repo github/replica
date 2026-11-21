@@ -46,6 +46,7 @@ export async function findPrototypeDetail(
           description: true,
           startPage: true,
           branchName: true,
+          branchDeletedAt: true,
           author: { select: { profile: { select: { login: true, name: true, provider: true } } } },
           currentBuildId: true,
         },
@@ -161,7 +162,9 @@ export async function findPrototypeDetail(
         repositoryId: prototype.repositoryId,
         prototypeId: prototype.id,
         previewUrl:
-          build.artifacts.some(({ path }) => path === "dist/index.html") && buildArtifactUrl
+          !prototype.branchDeletedAt &&
+          build.artifacts.some(({ path }) => path === "dist/index.html") &&
+          buildArtifactUrl
             ? buildArtifactUrl(
                 createBuildPreviewPath(repository.githubRepositoryId, build.githubWorkflowRunId),
                 "preview",
@@ -169,14 +172,18 @@ export async function findPrototypeDetail(
               )
             : null,
         desktopScreenshotUrl:
-          build.artifacts.some(({ path }) => path === "screenshots/desktop.png") && buildArtifactUrl
+          !prototype.branchDeletedAt &&
+          build.artifacts.some(({ path }) => path === "screenshots/desktop.png") &&
+          buildArtifactUrl
             ? buildArtifactUrl(
                 createBuildPreviewPath(repository.githubRepositoryId, build.githubWorkflowRunId),
                 "desktop",
               )
             : null,
         narrowScreenshotUrl:
-          build.artifacts.some(({ path }) => path === "screenshots/narrow.png") && buildArtifactUrl
+          !prototype.branchDeletedAt &&
+          build.artifacts.some(({ path }) => path === "screenshots/narrow.png") &&
+          buildArtifactUrl
             ? buildArtifactUrl(
                 createBuildPreviewPath(repository.githubRepositoryId, build.githubWorkflowRunId),
                 "narrow",

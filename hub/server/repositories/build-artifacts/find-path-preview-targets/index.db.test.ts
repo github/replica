@@ -135,6 +135,36 @@ describe("findPathPreviewTargets()", () => {
     }
   })
 
+  it.each(["retired branch", "missing entry artifact", "Replica branch"])(
+    "does not retarget an ambiguous owning run after one owner becomes a %s",
+    async (change) => {
+      const repository = await createRepository()
+      const first = await createBuild(repository.id)
+      const second = await createBuild(repository.id)
+      const input = {
+        githubRepositoryId: "9007199254740993",
+        githubWorkflowRunId: "9007199254740995",
+      }
+      expect(await findPathPreviewTargets(prisma, input)).toHaveLength(2)
+
+      if (change === "missing entry artifact") {
+        await prisma.buildArtifact.deleteMany({ where: { buildId: second.id } })
+      } else {
+        await prisma.prototype.update({
+          where: { id: second.prototypeId },
+          data: change === "retired branch" ? { branchDeletedAt: new Date() } : { replica: true },
+        })
+      }
+
+      const targets = await findPathPreviewTargets(prisma, input)
+      expect(targets).toHaveLength(2)
+      expect(targets.map(({ buildId }) => buildId).sort()).toEqual([first.id, second.id].sort())
+      expect(await prisma.build.count({ where: { githubWorkflowRunId: 9007199254740995n } })).toBe(
+        2,
+      )
+    },
+  )
+
   it("marks default-branch artifacts as templates and excludes workflow installation branches", async () => {
     const repository = await createRepository()
     const template = await createBuild(repository.id, { branchName: "main", runId: 201n })

@@ -181,6 +181,44 @@ describe("get()", () => {
     })
   })
 
+  it("uses the same unavailable response for an invisible identifierless Build and an absent target", async () => {
+    const viewer = {
+      membershipId: randomUUID(),
+      userId: randomUUID(),
+      provider: "github",
+      sessionProvider: "github",
+      login: "mona",
+      name: "Mona",
+      role: "MEMBER" as const,
+    }
+    const restore = vi.fn<CurrentSessionDependencies["restore"]>()
+    await withAccessRoute(async (url, product) => {
+      product.findBuildPreviewTarget.mockResolvedValue({
+        buildId: randomUUID(),
+        startPage: "/",
+        artifactPath: "dist/index.html",
+        mountPath: null,
+      })
+      restore.mockResolvedValueOnce(viewer).mockImplementation(() => {
+        vi.mocked(product.isRepositoryVisible).mockResolvedValue(false)
+        return Promise.resolve(viewer)
+      })
+      const headers = { cookie: "hub_session=member-session" }
+      const invisible = await fetch(`${url}?target=preview`, { headers, redirect: "manual" })
+      expect(invisible.status).toBe(404)
+      expect(product.findBuildPreviewTarget).toHaveBeenCalledOnce()
+
+      restore.mockResolvedValue(viewer)
+      vi.mocked(product.isRepositoryVisible).mockResolvedValue(true)
+      product.findBuildPreviewTarget.mockResolvedValue(null)
+      const absent = await fetch(`${url}?target=preview`, { headers, redirect: "manual" })
+      expect(absent.status).toBe(404)
+      expect(await invisible.json()).toEqual(await absent.json())
+      expect(invisible.headers.get("location")).toBeNull()
+      expect(absent.headers.get("location")).toBeNull()
+    }, restore)
+  })
+
   it("discards the target when session authority changes during the read", async () => {
     const viewer = {
       membershipId: randomUUID(),

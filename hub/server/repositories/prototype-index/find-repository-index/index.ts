@@ -1,6 +1,7 @@
 import { Prisma, type BuildState, type PrismaClient } from "../../../generated/prisma/client.ts"
 import { containsText } from "../contains-text/index.ts"
 import { reviewablePrototypeWhere } from "../reviewable-prototype-where/index.ts"
+import { createBuildPreviewPath } from "../../../utils/create-build-preview-path/index.ts"
 import { type RepositoryScope, visibleRepositoryWhere } from "../visible-repository-where/index.ts"
 
 const pageSize = 24
@@ -20,17 +21,11 @@ export async function findRepositoryIndex(
   repositoryId: string,
   filters: RepositoryIndexFilters = { query: "", authorId: null, page: 1 },
   scope: RepositoryScope = null,
-  buildArtifactUrl?: (
-    buildId: string,
-    repositoryId: string,
-    prototypeId: string,
-    buildNumber: number,
-    target: "desktop",
-  ) => string,
+  buildArtifactUrl?: (mountPath: string | null, target: "desktop") => string | null,
 ) {
   const repository = await database.repository.findFirst({
     where: { id: repositoryId, ...visibleRepositoryWhere(scope) },
-    select: { id: true, nameWithOwner: true, defaultBranch: true },
+    select: { id: true, nameWithOwner: true, defaultBranch: true, githubRepositoryId: true },
   })
   if (!repository) return null
 
@@ -157,12 +152,19 @@ export async function findRepositoryIndex(
       const reviewBuilds =
         buildArtifactUrl && records.length > 0
           ? await transaction.$queryRaw<
-              { prototypeId: string; id: string; number: number; hasScreenshot: boolean }[]
+              {
+                prototypeId: string
+                id: string
+                number: number
+                hasScreenshot: boolean
+                githubWorkflowRunId: bigint | null
+              }[]
             >(Prisma.sql`
               SELECT prototypes.id AS "prototypeId", review_build.*
               FROM prototypes
               JOIN LATERAL (
-                SELECT builds.id, builds.number, (screenshot.id IS NOT NULL) AS "hasScreenshot"
+                SELECT builds.id, builds.number, (screenshot.id IS NOT NULL) AS "hasScreenshot",
+                  builds.github_workflow_run_id AS "githubWorkflowRunId"
                 FROM builds
                 JOIN build_artifacts AS dist
                   ON dist.build_id = builds.id AND dist.path = 'dist/index.html' AND dist.kind = 'dist'
@@ -242,10 +244,10 @@ export async function findRepositoryIndex(
             desktopScreenshotUrl:
               preview.hasScreenshot && buildArtifactUrl
                 ? buildArtifactUrl(
-                    preview.id,
-                    record.repositoryId,
-                    record.id,
-                    preview.number,
+                    createBuildPreviewPath(
+                      repository.githubRepositoryId,
+                      preview.githubWorkflowRunId,
+                    ),
                     "desktop",
                   )
                 : null,
@@ -255,7 +257,11 @@ export async function findRepositoryIndex(
     }
   })
   return {
-    repository,
+    repository: {
+      id: repository.id,
+      nameWithOwner: repository.nameWithOwner,
+      defaultBranch: repository.defaultBranch,
+    },
     prototypes,
     authors: [...authors.values()],
     pagination: {

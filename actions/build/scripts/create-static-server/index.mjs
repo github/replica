@@ -19,7 +19,7 @@ export function createStaticServer(dist, templatePaths = [], basePath = "/") {
       const decoded = decodeURIComponent(rawPath)
       if (
         /%2f|%5c/i.test(rawPath) ||
-        /[\\%\p{Cc}]/u.test(decoded) ||
+        /[\\\p{Cc}]/u.test(decoded) ||
         decoded.split("/").some((part) => part === "." || part === "..")
       ) {
         response.writeHead(400).end()
@@ -53,7 +53,7 @@ export function createStaticServer(dist, templatePaths = [], basePath = "/") {
       let details
       try {
         details = await lstat(filePath)
-        if (details.isDirectory()) {
+        if (details.isDirectory() && requestPath.endsWith("/")) {
           const index = path.join(filePath, "index.html")
           const indexDetails = await lstat(index).catch((error) => {
             if (!["ENOENT", "ENOTDIR"].includes(error.code)) throw error

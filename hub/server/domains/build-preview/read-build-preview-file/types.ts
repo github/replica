@@ -6,6 +6,7 @@ export interface ReadBuildPreviewFileInput {
   distOnly?: boolean
   requestPath: string
   mountPath?: string
+  ifNoneMatch?: string
 }
 
 export interface ReadBuildPreviewFileDependencies {
@@ -20,9 +21,11 @@ export interface ReadBuildPreviewFileDependencies {
 export type BuildPreviewFileResult =
   | { status: "not-found" }
   | { status: "unavailable" }
+  | { status: "not-modified"; etag: string }
   | {
       status: "ok"
       bytes: Uint8Array
       contentType: string
       html: boolean
+      etag?: string
     }

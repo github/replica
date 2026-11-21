@@ -3,10 +3,10 @@ import type { RequestHandler } from "express"
 import { readBuildPreviewFile } from "../../../../domains/build-preview/read-build-preview-file/index.ts"
 import { readPreviewBuildId } from "../../../../domains/build-preview/read-preview-build-id/index.ts"
 import { readTemplateScreenshotPath } from "../../../../domains/build-preview/template-screenshot-path/index.ts"
-import { reserveBuildPreviewBytes } from "../../../../domains/build-preview/reserve-build-preview-bytes/index.ts"
 import { readSharePreviewSession } from "../../../../domains/public-sharing/read-share-preview-session/index.ts"
 import { readCookie } from "../../../../integrations/express/read-cookie/index.ts"
 import type { BuildPreviewRouteDependencies } from "../../types.ts"
+import { createPreviewResponseReservation } from "../../create-preview-response-reservation/index.ts"
 
 function setSecurityHeaders(response: Parameters<RequestHandler>[1], applicationOrigin: string) {
   response.setHeader(
@@ -31,21 +31,7 @@ function setSecurityHeaders(response: Parameters<RequestHandler>[1], application
 
 export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler {
   return async (request, response, next) => {
-    const reservations = new Set<() => void>()
-    let handlingRequest = true
-    let responseEnded = response.destroyed || response.writableFinished
-    function releaseReservations() {
-      if (handlingRequest || !responseEnded) return
-      response.off("finish", onResponseEnd)
-      response.off("close", onResponseEnd)
-      for (const release of reservations) release()
-    }
-    function onResponseEnd() {
-      responseEnded = true
-      releaseReservations()
-    }
-    response.once("finish", onResponseEnd)
-    response.once("close", onResponseEnd)
+    const admission = createPreviewResponseReservation(response)
     try {
       if (!dependencies.previewBaseOrigin) {
         next()
@@ -93,18 +79,7 @@ export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler
         },
         {
           ...dependencies,
-          reserveBytes(byteLength) {
-            if (responseEnded) return null
-            const reservation = reserveBuildPreviewBytes(byteLength)
-            if (!reservation) return null
-            const release = reservation
-            function trackedRelease() {
-              reservations.delete(trackedRelease)
-              release()
-            }
-            reservations.add(trackedRelease)
-            return trackedRelease
-          },
+          reserveBytes: admission.reserveBytes,
         },
       )
       if (response.destroyed) return
@@ -127,8 +102,7 @@ export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler
     } catch (error) {
       next(error)
     } finally {
-      handlingRequest = false
-      releaseReservations()
+      admission.completeRequest()
     }
   }
 }

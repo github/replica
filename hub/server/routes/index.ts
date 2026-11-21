@@ -94,20 +94,18 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
     product,
     publicSharing,
   } = dependencies
-  if (preview) {
-    if (preview.findPathTargets && authentication && product)
-      app.use("/previews", handlePathPreviewGet(preview, authentication.currentSession, product))
-  }
-  app.use("/previews", (_request, response) => {
-    response.setHeader("Cache-Control", "private, no-store")
-    response.status(404).end()
-  })
   if (preview?.previewBaseOrigin) {
     if (publicSharing) {
       app.get("/__replica/share/authorize", handleSharePreviewAuthorizeGet(preview, publicSharing))
     }
     app.get("/{*path}", handleBuildPreviewServeGet(preview))
   }
+  if (preview?.findPathTargets && authentication && product)
+    app.use("/previews", handlePathPreviewGet(preview, authentication.currentSession, product))
+  app.use("/previews", (_request, response) => {
+    response.setHeader("Cache-Control", "private, no-store")
+    response.status(404).end()
+  })
   app.get("/api/health", handleApiHealthGet)
   app.get("/api/ready", (request, response) =>
     handleApiReadyGet(request, response, { isReady, logger }),

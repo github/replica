@@ -60,7 +60,7 @@ export function get(
         return
       }
       const target = read.result
-      if (!target) {
+      if (!target || !(await product.isRepositoryVisible(read.current, repositoryId.data))) {
         response.status(404).json({ error: "Build preview not found." })
         return
       }
@@ -71,10 +71,6 @@ export function get(
       }
       if (!target.mountPath) {
         response.status(404).json({ error: "This Build has no supported hosted preview address." })
-        return
-      }
-      if (!(await product.isRepositoryVisible(current, repositoryId.data))) {
-        response.status(404).json({ error: "Build preview not found." })
         return
       }
       const path =

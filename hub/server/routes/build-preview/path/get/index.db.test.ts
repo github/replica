@@ -98,6 +98,8 @@ describe("private preview composition", () => {
       data: {
         repositoryId: repository.id,
         branchName: "proto/checkout",
+        name: "Checkout",
+        registeredAt: new Date(),
         startPage: "/checkout?stage=shipping#address",
       },
     })
@@ -105,7 +107,9 @@ describe("private preview composition", () => {
     const packageFiles = new Map([
       [
         "dist/index.html",
-        new TextEncoder().encode("<html><head></head><body>Saved checkout</body></html>"),
+        new TextEncoder().encode(
+          '<html><head><script src="/assets/old-root.js"></script></head><body>Saved checkout</body></html>',
+        ),
       ],
       ["dist/assets/app.css", new TextEncoder().encode("body { display: block }")],
       ["screenshots/desktop.png", png],
@@ -119,6 +123,7 @@ describe("private preview composition", () => {
         state: "successful",
         commitSha: "a".repeat(40),
         githubWorkflowRunId: 3002n,
+        createdAt: new Date("2026-10-01"),
         artifacts: {
           create: Array.from(packageFiles, ([path, bytes]) => {
             const storageKey = randomUUID()
@@ -136,6 +141,23 @@ describe("private preview composition", () => {
     await prisma.prototype.update({
       where: { id: prototype.id },
       data: { currentBuildId: build.id },
+    })
+    await prisma.build.create({
+      data: {
+        prototypeId: prototype.id,
+        number: 2,
+        state: "successful",
+        githubWorkflowRunId: 3003n,
+        createdAt: new Date("2026-10-02"),
+        artifacts: {
+          create: {
+            path: "dist/index.html",
+            kind: "dist",
+            storageKey: randomUUID(),
+            byteLength: 10,
+          },
+        },
+      },
     })
     const read = vi.fn<ArtifactStorage["read"]>((key) => {
       const bytes = bytesByKey.get(key)
@@ -162,8 +184,28 @@ describe("private preview composition", () => {
       }),
     )
     const headers = { cookie: `hub_session=${token}`, accept: "text/html" }
+    const gallery = await fetch(`${origin}/api/repositories/${repository.id}`, { headers })
+    expect(gallery.status).toBe(200)
+    const index = (await gallery.json()) as {
+      prototypes: {
+        id: string
+        reviewBuild: { number: number; desktopScreenshotUrl: string }
+      }[]
+    }
+    const card = index.prototypes.find(({ id }) => id === prototype.id)
+    const galleryImageUrl = `${origin}/previews/github/2001/3002/__replica/screenshots/desktop.png`
+    expect(card).toMatchObject({
+      latestBuild: { number: 1, state: "successful" },
+      reviewBuild: { number: 1, desktopScreenshotUrl: galleryImageUrl },
+      builds: [],
+    })
+    const galleryImage = await fetch(card!.reviewBuild.desktopScreenshotUrl, { headers })
+    expect(galleryImage.status).toBe(200)
+    expect(galleryImage.headers.get("content-type")).toBe("image/png")
+    expect(new Uint8Array(await galleryImage.arrayBuffer())).toEqual(png)
+
     const detail = await fetch(
-      `${origin}/api/repositories/${repository.id}/prototypes/${prototype.id}`,
+      `${origin}/api/repositories/${repository.id}/prototypes/${prototype.id}?build=1`,
       { headers },
     )
     expect(detail.status).toBe(200)

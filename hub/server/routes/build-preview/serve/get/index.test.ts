@@ -235,8 +235,14 @@ describe("get()", () => {
       const headers = requestHeaders(buildId, origin, shareCookie)
 
       const asset = await request(origin, "/assets/app.css", headers)
-      const desktop = await request(origin, "/__replica/screenshots/desktop.png", headers)
-      const narrow = await request(origin, "/__replica/screenshots/narrow.png", headers)
+      const desktop = await request(origin, "/__replica/screenshots/desktop.png", {
+        ...headers,
+        "if-none-match": "*",
+      })
+      const narrow = await request(origin, "/__replica/screenshots/narrow.png", {
+        ...headers,
+        "if-none-match": "*",
+      })
 
       expect(findArtifact).toHaveBeenNthCalledWith(1, buildId, "dist/assets/app.css")
       expect(findArtifact).toHaveBeenNthCalledWith(2, buildId, "screenshots/desktop.png")
@@ -252,6 +258,8 @@ describe("get()", () => {
       expect(asset.headers["cross-origin-resource-policy"]).toBe("same-origin")
       expect(desktop.headers["cross-origin-resource-policy"]).toBe("same-origin")
       expect(narrow.headers["cross-origin-resource-policy"]).toBe("same-origin")
+      expect(desktop.headers.etag).toBeUndefined()
+      expect(narrow.headers.etag).toBeUndefined()
     })
   })
 

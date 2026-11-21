@@ -83,12 +83,7 @@ Keep publish last in its job: later steps delay the completed-job event used for
 
 The optional [build action](../../actions/build/action.yml) is still available. It runs `npm ci` and `npm run build` as a non-root user in a Node container. With `screenshots: separate`, it uploads the same dist package as the publish action and can replace the build steps and publish action above. Existing single-job workflows remain compatible: `screenshots` defaults to `inline`, which uploads one package containing the dist and screenshots, so Hub imports it only after screenshots finish.
 
-For a fixed-base app, upgrade the action references to a reviewed revision containing `base-path` support before configuring capture. Set the app's compiler base using its supported configuration, such as `VITE_BASE`, and pass the same original base to the screenshot step:
-
-```yaml
-with:
-  base-path: /previews/github/${{ github.repository_id }}/${{ github.run_id }}/
-```
+For a fixed-base app, upgrade the action references to a reviewed revision containing `base-path` support before configuring capture. Set the app's compiler base using its supported configuration, such as `VITE_BASE`, and pass `base-path: /previews/github/${{ github.repository_id }}/${{ github.run_id }}/` under `with` on the screenshot step.
 
 The same input applies to inline capture in `actions/build`; it does not configure the compiler in that action's build container. Capture mounts the downloaded `dist` at that path and joins the root and logical template routes beneath it, preserving query and fragment. The default `/` remains available for root-base or relative-output apps. The earlier pinned example above works for Starter's relative output; it must be upgraded before adding this new input.
 
