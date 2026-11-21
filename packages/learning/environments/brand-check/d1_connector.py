@@ -9,6 +9,7 @@ import importlib.util
 import io
 import os
 import random
+import re
 import time
 import unicodedata
 from pathlib import Path
@@ -182,7 +183,7 @@ class D1OmniBackend:
         self,
         model_directory: str | Path,
         *,
-        expected_taskset_digest: str,
+        expected_taskset_digest: str | None = None,
         expected_learning_texts: Mapping[str, str] | None = None,
         part: str = "readout",
         tasks_per_update: int = 16,
@@ -216,6 +217,14 @@ class D1OmniBackend:
 
     def project_request(self, request: Mapping[str, Any]) -> dict[str, Any]:
         """Keep only the model input and retain learning text inside its data field."""
+        return self._project_request(request, self.expected_learning_texts)
+
+    def _project_request(
+        self,
+        request: Mapping[str, Any],
+        expected_learning_texts: Mapping[str, str] | None,
+        expected_learning_digests: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
         if len(request["images"]) > MAX_IMAGES:
             raise ConnectorError(
                 "image_count_exceeded",
@@ -245,19 +254,29 @@ class D1OmniBackend:
                         "Each d1-omni yes-or-no question needs non-empty learning text.",
                         category="invalid_input",
                     )
-                if self.expected_learning_texts is None:
-                    raise ConnectorError(
-                        "learning_contract_unavailable",
-                        "The d1-omni backend has no configured learning contract.",
-                        category="unavailable",
-                    )
-                expected_learning = self.expected_learning_texts.get(key)
-                if expected_learning is None or projected["learning_text"] != expected_learning:
-                    raise ConnectorError(
-                        "learning_text_mismatch",
-                        "The d1-omni question does not match the configured taskset learning.",
-                        category="invalid_input",
-                    )
+                if expected_learning_texts is not None:
+                    expected_learning = expected_learning_texts.get(key)
+                    if (
+                        expected_learning is None
+                        or projected["learning_text"] != expected_learning
+                    ):
+                        raise ConnectorError(
+                            "learning_text_mismatch",
+                            "The d1-omni question does not match the trained taskset learning.",
+                            category="invalid_input",
+                        )
+                elif expected_learning_digests is not None:
+                    expected_digest = expected_learning_digests.get(key)
+                    if (
+                        expected_digest is None
+                        or _learning_text_digest(projected["learning_text"])
+                        != expected_digest
+                    ):
+                        raise ConnectorError(
+                            "learning_text_mismatch",
+                            "The d1-omni question does not match the trained taskset learning.",
+                            category="invalid_input",
+                        )
                 projected["instructions"] = NOUL_INSTRUCTIONS
             questions[key] = projected
         projected_request = {
@@ -289,7 +308,10 @@ class D1OmniBackend:
         operation = context
         self._check_ready(operation, training=True)
         actual_taskset_digest = str(taskset_digest(taskset))
-        if actual_taskset_digest != self.expected_taskset_digest:
+        if (
+            self.expected_taskset_digest is not None
+            and actual_taskset_digest != self.expected_taskset_digest
+        ):
             raise ConnectorError(
                 "taskset_scope_mismatch",
                 "The configured d1-omni backend belongs to another taskset.",
@@ -307,10 +329,15 @@ class D1OmniBackend:
                 str(error),
                 category="invalid_input",
             ) from None
+        learning_texts = taskset_learning_texts(taskset)
+        project_request = lambda request: self._project_request(
+            request,
+            learning_texts,
+        )
         _validate_task_requests(
             taskset,
             [*train_ids, *dev_ids, *test_ids],
-            self.project_request,
+            project_request,
         )
         _validate_training_questions(taskset, train_ids)
         work_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -319,7 +346,7 @@ class D1OmniBackend:
         torch = d1.torch
         torch.manual_seed(self.seed)
         rng = random.Random(self.seed)
-        environment = _LocalEnvironment(taskset, self.project_request)
+        environment = _LocalEnvironment(taskset, project_request)
         policy = d1.Policy(self.model_directory, self.part)
         baseline_predictions = _predictions(
             d1, policy, environment, test_ids, operation
@@ -431,6 +458,7 @@ class D1OmniBackend:
             best_state,
             part=self.part,
             taskset_digest_value=actual_taskset_digest,
+            learning_text_digests=_learning_text_digests(learning_texts),
         )
         capabilities = self.readiness()
         return TrainingResult(
@@ -478,6 +506,18 @@ class D1OmniBackend:
                 category="integrity",
             ) from None
         _validate_adapter(saved, self.expected_taskset_digest)
+        learning_text_digests = _adapter_learning_text_digests(saved)
+        if learning_text_digests is None and self.expected_learning_texts is None:
+            raise ConnectorError(
+                "candidate_adapter_mismatch",
+                "The promoted adapter does not contain its trained learning contract.",
+                category="integrity",
+            )
+        request = self._project_request(
+            request,
+            self.expected_learning_texts,
+            learning_text_digests,
+        )
         _check_operation(context)
         policy = d1.Policy(self.model_directory, saved["part"])
         policy.load(saved["state"])
@@ -843,6 +883,7 @@ def _adapter_bytes(
     *,
     part: str,
     taskset_digest_value: str,
+    learning_text_digests: Mapping[str, str],
 ) -> bytes:
     output = io.BytesIO()
     torch.save(
@@ -851,6 +892,7 @@ def _adapter_bytes(
             "baseModelId": BASE_MODEL_ID,
             "baseModelRevision": BASE_MODEL_REVISION,
             "tasksetDigest": taskset_digest_value,
+            "learningTextDigests": dict(sorted(learning_text_digests.items())),
             "part": part,
             "state": dict(state),
         },
@@ -861,22 +903,71 @@ def _adapter_bytes(
 
 def _validate_adapter(
     saved: Any,
-    expected_taskset_digest: str,
+    expected_taskset_digest: str | None,
 ) -> None:
+    taskset_digest_value = saved.get("tasksetDigest") if isinstance(saved, dict) else None
     if (
         not isinstance(saved, dict)
         or saved.get("schemaVersion") != ADAPTER_SCHEMA
         or saved.get("baseModelId") != BASE_MODEL_ID
         or saved.get("baseModelRevision") != BASE_MODEL_REVISION
-        or saved.get("tasksetDigest") != expected_taskset_digest
+        or not isinstance(taskset_digest_value, str)
+        or (
+            (
+                expected_taskset_digest is not None
+                and taskset_digest_value != expected_taskset_digest
+            )
+            or (
+                expected_taskset_digest is None
+                and not re.fullmatch(r"sha256:[0-9a-f]{64}", taskset_digest_value)
+            )
+        )
         or saved.get("part") not in ("readout", "head")
         or not isinstance(saved.get("state"), dict)
+        or (
+            "learningTextDigests" in saved
+            and not _valid_learning_text_digests(saved["learningTextDigests"])
+        )
     ):
         raise ConnectorError(
             "candidate_adapter_mismatch",
             "The promoted adapter does not match the pinned model and taskset.",
             category="integrity",
         )
+
+
+def _adapter_learning_text_digests(
+    saved: Mapping[str, Any],
+) -> Mapping[str, str] | None:
+    stored = saved.get("learningTextDigests")
+    return stored if _valid_learning_text_digests(stored) else None
+
+
+def _valid_learning_text_digests(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and bool(value)
+        and all(
+            isinstance(key, str)
+            and bool(key)
+            and isinstance(digest, str)
+            and bool(re.fullmatch(r"sha256:[0-9a-f]{64}", digest))
+            for key, digest in value.items()
+        )
+    )
+
+
+def _learning_text_digests(
+    learning_texts: Mapping[str, str],
+) -> dict[str, str]:
+    return {
+        key: _learning_text_digest(text)
+        for key, text in learning_texts.items()
+    }
+
+
+def _learning_text_digest(text: str) -> str:
+    return f"sha256:{hashlib.sha256(text.encode()).hexdigest()}"
 
 
 def _uniform_answer(question: Mapping[str, Any]) -> dict[str, Any]:
