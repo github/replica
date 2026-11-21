@@ -1,5 +1,6 @@
 .security-audit-page {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1.5rem;
   max-width: 75rem;
   margin-inline: auto;
