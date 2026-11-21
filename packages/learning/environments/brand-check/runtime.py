@@ -776,6 +776,16 @@ class LocalRuntime:
         mounted: bool,
     ) -> None:
         provenance = _taskset_provenance(taskset)
+        withdrawn = False
+        if mounted:
+            receipts = self.connectors.privacy.list_deletions(
+                ("revoking", "pending", "completed"),
+                context,
+            )
+            withdrawn = any(
+                _selectors_match_provenance(receipt["selectors"], provenance)
+                for receipt in receipts
+            )
         identity = (
             f"mounted:{taskset.reference}"
             if mounted
@@ -803,7 +813,23 @@ class LocalRuntime:
                         "mode", "delete_on_withdrawal"
                     )
                 ),
+                **(
+                    {
+                        "reason": (
+                            "The mounted source remains under operator-controlled retention "
+                            "after training consent withdrawal."
+                        ),
+                        "legalReason": (
+                            "The mounted source remains under operator-controlled retention "
+                            "after training consent withdrawal."
+                        ),
+                        "authority": "runtime configuration",
+                    }
+                    if withdrawn
+                    else {}
+                ),
             },
+            use_state="retained" if withdrawn else "active",
         )
         try:
             existing = self.connectors.privacy.get_copy(record["id"], context)
@@ -812,10 +838,13 @@ class LocalRuntime:
                 raise
             self.connectors.privacy.put_copy(record, context)
         else:
-            if mounted and existing.get("retention", {}).get("mode") != "operator_managed":
+            if mounted and (
+                existing.get("retention", {}).get("mode") != "operator_managed"
+                or withdrawn
+            ):
                 self.connectors.privacy.tombstone_copy(
                     record["id"],
-                    state=existing["useState"],
+                    state="retained" if withdrawn else existing["useState"],
                     retention=record["retention"],
                     context=context,
                 )

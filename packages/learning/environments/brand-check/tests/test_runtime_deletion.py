@@ -652,6 +652,47 @@ class RuntimeDeletionTest(unittest.TestCase):
         self.assertTrue((self.taskset_dir / "taskset.json").is_file())
         self.assertFalse((self.state_dir / "tasksets" / digest).exists())
 
+    def test_mount_after_completed_withdrawal_is_retained_and_never_reactivated(self):
+        runtime = LocalRuntime(
+            self.state_dir,
+            None,
+            environment="test",
+            scope=RuntimeScope("tenant-one", "github/example"),
+        )
+        receipt = runtime.request_deletion(
+            {"exportId": EXPORT_ID},
+            requested_by="privacy-operator",
+            reason="training consent withdrawn before mount",
+            idempotency_key="delete-before-mount",
+        )
+        self.assertEqual(receipt["state"], "completed")
+        runtime.close()
+
+        mounted = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            environment="test",
+            scope=RuntimeScope("tenant-one", "github/example"),
+        )
+        self.addCleanup(mounted.close)
+        disclosed = mounted.disclose({"exportId": EXPORT_ID})
+        mounted_copy = next(
+            item
+            for item in disclosed["items"]
+            if item["storage"]["reference"].startswith("mounted-taskset:")
+        )
+
+        self.assertEqual(mounted_copy["useState"], "retained")
+        self.assertEqual(mounted_copy["retention"]["mode"], "operator_managed")
+        with self.assertRaises(RuntimeFailure) as blocked:
+            mounted.submit(
+                backend="fixture",
+                max_updates=1,
+                max_seconds=5,
+                max_credits=1,
+            )
+        self.assertEqual(blocked.exception.code, "deletion_revoked")
+
     def test_concurrent_inference_retries_share_one_backend_execution(self):
         started = self._control("retry-inference-started")
         release = self._control("retry-inference-release")
