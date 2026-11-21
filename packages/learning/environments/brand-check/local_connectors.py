@@ -234,6 +234,16 @@ class LocalTasksetConnector(_ScopedConnector):
         os.chmod(self.root, 0o700)
         os.chmod(self.idempotency, 0o700)
         self._lock = threading.RLock()
+        for staging in self.root.glob(".register-*"):
+            try:
+                shutil.rmtree(staging)
+            except OSError as error:
+                raise ConnectorError(
+                    "taskset_staging_unavailable",
+                    "Staged taskset data could not be removed.",
+                    category="unavailable",
+                    retryable=True,
+                ) from error
         self.taskset = None
         self.digest = None
         self.reference = None
@@ -241,7 +251,7 @@ class LocalTasksetConnector(_ScopedConnector):
         if taskset_directory is not None:
             self.taskset = load_taskset(taskset_directory)
             self.digest = taskset_digest(self.taskset)
-            self.reference = f"taskset:{self.digest.value}"
+            self.reference = f"mounted-taskset:{self.digest.value}"
             self._mounted[self.reference] = self.taskset
 
     def register(
@@ -309,7 +319,7 @@ class LocalTasksetConnector(_ScopedConnector):
                         else "The taskset contents do not match the claimed digest.",
                         category="conflict" if immutable else "invalid_input",
                     )
-                reference = f"taskset:{actual.value}"
+                reference = f"uploaded-taskset:{actual.value}"
                 destination = self.root / actual.value
                 if destination.exists():
                     existing = self.resolve(reference, context)
@@ -345,13 +355,22 @@ class LocalTasksetConnector(_ScopedConnector):
                     category="invalid_input",
                 ) from None
             finally:
-                shutil.rmtree(staging, ignore_errors=True)
-        return TasksetArtifact(reference, actual, load_taskset(destination))
+                if staging.exists():
+                    try:
+                        shutil.rmtree(staging)
+                    except OSError as error:
+                        raise ConnectorError(
+                            "taskset_staging_unavailable",
+                            "Staged taskset data could not be removed.",
+                            category="unavailable",
+                            retryable=True,
+                        ) from error
+        return TasksetArtifact(reference, actual, load_taskset(destination), created=True)
 
     def resolve(self, reference: str, context: OperationContext) -> TasksetArtifact:
         self._check(context, hide=True)
-        if reference.startswith("taskset:"):
-            value = reference.removeprefix("taskset:")
+        if reference.startswith(("taskset:", "uploaded-taskset:")):
+            value = reference.split(":", 1)[1]
             directory = self.root / value
             try:
                 digest = ContentDigest("sha256", value)
@@ -373,8 +392,19 @@ class LocalTasksetConnector(_ScopedConnector):
                         category="integrity",
                     )
                 return TasksetArtifact(reference, digest, taskset)
-        mounted = self._mounted.get(reference)
-        if mounted is not None:
+            if reference.startswith("taskset:"):
+                mounted_reference = f"mounted-taskset:{value}"
+                mounted = self._mounted.get(mounted_reference)
+                if mounted is not None:
+                    return self.resolve(mounted_reference, context)
+        if reference.startswith("mounted-taskset:"):
+            mounted = self._mounted.get(reference)
+            if mounted is None:
+                raise ConnectorError(
+                    "taskset_not_found",
+                    "The taskset was not found.",
+                    category="not_found",
+                )
             try:
                 mounted = load_taskset(mounted.directory)
             except TasksetError:
@@ -383,21 +413,14 @@ class LocalTasksetConnector(_ScopedConnector):
                     "The taskset no longer matches its immutable identity.",
                     category="integrity",
                 ) from None
-            digest = taskset_digest(mounted)
-            if reference != f"taskset:{digest.value}":
-                raise ConnectorError(
-                    "taskset_damaged",
-                    "The taskset no longer matches its immutable identity.",
-                    category="integrity",
-                )
-            return TasksetArtifact(reference, digest, mounted)
-        if not reference.startswith("taskset:"):
+            return TasksetArtifact(reference, taskset_digest(mounted), mounted)
+        if not reference.startswith(("taskset:", "uploaded-taskset:")):
             raise ConnectorError(
                 "taskset_not_found",
                 "The taskset was not found.",
                 category="not_found",
             )
-        value = reference.removeprefix("taskset:")
+        value = reference.split(":", 1)[1]
         directory = self.root / value
         try:
             digest = ContentDigest("sha256", value)
@@ -428,6 +451,68 @@ class LocalTasksetConnector(_ScopedConnector):
                 category="integrity",
             )
         return TasksetArtifact(reference, digest, taskset)
+
+    def delete(self, reference: str, context: OperationContext) -> bool:
+        """Delete one uploaded taskset; mounted tasksets remain operator-owned."""
+        self._check(context, hide=True)
+        if reference.startswith("mounted-taskset:"):
+            raise ConnectorError(
+                "taskset_retention_required",
+                "A mounted taskset remains under operator-controlled retention.",
+                category="conflict",
+            )
+        if reference.startswith("uploaded-taskset:"):
+            value = reference.removeprefix("uploaded-taskset:")
+        elif reference.startswith("taskset:"):
+            if reference in self._mounted:
+                raise ConnectorError(
+                    "taskset_retention_required",
+                    "A mounted taskset remains under operator-controlled retention.",
+                    category="conflict",
+                )
+            value = reference.removeprefix("taskset:")
+        else:
+            raise ConnectorError(
+                "taskset_not_found",
+                "The taskset was not found.",
+                category="not_found",
+            )
+        try:
+            digest = ContentDigest("sha256", value)
+        except ValueError:
+            raise ConnectorError(
+                "taskset_not_found",
+                "The taskset was not found.",
+                category="not_found",
+            ) from None
+        directory = self.root / digest.value
+        with self._lock:
+            if not directory.exists():
+                return False
+            try:
+                shutil.rmtree(directory)
+                _sync_directory(self.root)
+            except OSError as error:
+                raise ConnectorError(
+                    "taskset_delete_unavailable",
+                    "The taskset could not be deleted.",
+                    category="unavailable",
+                    retryable=True,
+                ) from error
+        return True
+
+    def list(self, context: OperationContext) -> Sequence[TasksetArtifact]:
+        self._check(context)
+        records = []
+        for directory in sorted(self.root.iterdir()):
+            if not directory.is_dir() or directory.name.startswith("."):
+                continue
+            records.append(
+                self.resolve(f"uploaded-taskset:{directory.name}", context)
+            )
+        for reference in sorted(self._mounted):
+            records.append(self.resolve(reference, context))
+        return tuple(records)
 
 
 def _materialize_taskset_bundle(
@@ -990,6 +1075,16 @@ class LocalCandidateConnector(_ScopedConnector):
             os.chmod(directory, 0o700)
         os.chmod(self.promotion_owners.parent, 0o700)
         self._lock = threading.RLock()
+        for staging in self.candidates.glob(".candidate_*.*"):
+            try:
+                shutil.rmtree(staging)
+            except OSError as error:
+                raise ConnectorError(
+                    "candidate_staging_unavailable",
+                    "Staged candidate data could not be removed.",
+                    category="unavailable",
+                    retryable=True,
+                ) from error
         self._recover_promotion()
 
     def put(self, candidate: Candidate, context: OperationContext) -> Candidate:
@@ -1059,7 +1154,15 @@ class LocalCandidateConnector(_ScopedConnector):
                 _sync_directory(self.candidates)
             finally:
                 if staging.exists():
-                    shutil.rmtree(staging)
+                    try:
+                        shutil.rmtree(staging)
+                    except OSError as error:
+                        raise ConnectorError(
+                            "candidate_staging_unavailable",
+                            "Staged candidate data could not be removed.",
+                            category="unavailable",
+                            retryable=True,
+                        ) from error
         return candidate
 
     def get(self, candidate_id: str, context: OperationContext) -> Candidate:
@@ -1343,6 +1446,34 @@ class LocalCandidateConnector(_ScopedConnector):
                 )
             return promotion
 
+    def delete(self, candidate_id: str, context: OperationContext) -> bool:
+        """Delete one immutable candidate and its colocated evaluation report."""
+        self._check(context, hide=True)
+        candidate_id = _checked_identifier(candidate_id, "candidate")
+        directory = self.candidates / candidate_id
+        with self._lock:
+            if not directory.exists():
+                return False
+            try:
+                shutil.rmtree(directory)
+                _sync_directory(self.candidates)
+            except OSError as error:
+                raise ConnectorError(
+                    "candidate_delete_unavailable",
+                    "The candidate could not be deleted.",
+                    category="unavailable",
+                    retryable=True,
+                ) from error
+        return True
+
+    def list(self, context: OperationContext) -> Sequence[Candidate]:
+        self._check(context)
+        return tuple(
+            self.get(directory.name, context)
+            for directory in sorted(self.candidates.iterdir())
+            if directory.is_dir() and not directory.name.startswith(".")
+        )
+
     def artifact_path(
         self,
         candidate_id: str,
@@ -1408,6 +1539,34 @@ class LocalCandidateConnector(_ScopedConnector):
             ):
                 pending.append(promotion)
         return tuple(sorted(pending, key=lambda item: item["generation"]))
+
+    def discard_pending_promotion(
+        self,
+        candidate_id: str,
+        context: OperationContext,
+    ) -> int:
+        self._check(context)
+        removed = 0
+        with self._lock:
+            for path in self.promotion_idempotency.glob("*.json"):
+                saved = _read_object(
+                    path,
+                    code="promotion_idempotency_not_found",
+                    message="The promotion retry was not found.",
+                )
+                promotion = saved.get("promotion")
+                generation = saved.get("generation")
+                if (
+                    isinstance(promotion, dict)
+                    and promotion.get("candidateId") == candidate_id
+                    and isinstance(generation, int)
+                    and not (self.promotions / f"{generation:08d}.json").exists()
+                ):
+                    path.unlink()
+                    removed += 1
+            if removed:
+                _sync_directory(self.promotion_idempotency)
+        return removed
 
     def promotion_retry_json(
         self,
@@ -1977,9 +2136,86 @@ class LocalInferenceConnector:
             saved_result = dict(_json_data(result))
             _write_immutable(
                 path,
-                _json_bytes({"requestDigest": request_digest, "result": saved_result}),
+                _json_bytes(
+                    {
+                        "requestDigest": request_digest,
+                        "candidateId": adapter.parent.name,
+                        "createdAt": _timestamp(),
+                        "result": saved_result,
+                    }
+                ),
             )
             return saved_result
+
+    def reference(self, idempotency_key: str) -> str:
+        return f"inference:{self.name}:{hashlib.sha256(idempotency_key.encode()).hexdigest()}"
+
+    def delete(self, reference: str, context: OperationContext) -> bool:
+        check_context(context)
+        prefix = f"inference:{self.name}:"
+        if not reference.startswith(prefix):
+            raise ConnectorError(
+                "inference_result_not_found",
+                "The inference result was not found.",
+                category="not_found",
+            )
+        digest = reference.removeprefix(prefix)
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise ConnectorError(
+                "inference_result_not_found",
+                "The inference result was not found.",
+                category="not_found",
+            )
+        path = self.idempotency / digest
+        try:
+            path.unlink()
+            _sync_directory(self.idempotency)
+        except FileNotFoundError:
+            return False
+        except OSError as error:
+            raise ConnectorError(
+                "inference_result_delete_unavailable",
+                "The inference retry result could not be deleted.",
+                category="unavailable",
+                retryable=True,
+            ) from error
+        return True
+
+    def list_results(
+        self, context: OperationContext
+    ) -> Sequence[Mapping[str, Any]]:
+        check_context(context)
+        records = []
+        for path in sorted(self.idempotency.iterdir()):
+            if not path.is_file():
+                continue
+            saved = _read_object(
+                path,
+                code="inference_idempotency_not_found",
+                message="The inference retry record was not found.",
+            )
+            candidate_id = saved.get("candidateId")
+            created_at = saved.get("createdAt")
+            if not isinstance(candidate_id, str) or not isinstance(created_at, str):
+                try:
+                    path.unlink()
+                    _sync_directory(self.idempotency)
+                except OSError as error:
+                    raise ConnectorError(
+                        "inference_provenance_cleanup_unavailable",
+                        "A legacy inference retry result could not be removed.",
+                        category="unavailable",
+                        retryable=True,
+                    ) from error
+                continue
+            records.append(
+                {
+                    "reference": f"inference:{self.name}:{path.name}",
+                    "candidateId": candidate_id,
+                    "createdAt": created_at,
+                }
+            )
+        return tuple(records)
 
 
 class LocalCredentialConnector(_ScopedConnector):
@@ -2030,6 +2266,345 @@ class LocalCredentialConnector(_ScopedConnector):
             context.scope,
             context.operation_id,
         )
+
+
+class LocalPrivacyConnector(_ScopedConnector):
+    """Keep content-free copy inventory, revocations, and deletion receipts."""
+
+    def __init__(self, root: Path, scope: RuntimeScope):
+        super().__init__(scope)
+        self.root = root / "privacy"
+        self.copies = self.root / "copies"
+        self.deletions = self.root / "deletions"
+        self.idempotency = self.root / ".idempotency"
+        for directory in (self.root, self.copies, self.deletions, self.idempotency):
+            directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+            os.chmod(directory, 0o700)
+        self._lock = threading.RLock()
+
+    def put_copy(
+        self, record: Mapping[str, Any], context: OperationContext
+    ) -> Mapping[str, Any]:
+        self._check(context)
+        saved = self._validated_copy(record)
+        path = self._copy_path(saved["id"])
+        with self._lock:
+            if path.exists():
+                existing = self._validated_copy(
+                    _read_object(
+                        path,
+                        code="runtime_copy_not_found",
+                        message="The runtime copy was not found.",
+                    )
+                )
+                if existing != saved:
+                    raise ConnectorError(
+                        "runtime_copy_immutable",
+                        "The runtime copy ID already identifies different metadata.",
+                        category="conflict",
+                    )
+                return existing
+            _write_immutable(path, _json_bytes(saved))
+        return saved
+
+    def get_copy(
+        self, copy_id: str, context: OperationContext
+    ) -> Mapping[str, Any]:
+        self._check(context, hide=True)
+        return self._validated_copy(
+            _read_object(
+                self._copy_path(copy_id),
+                code="runtime_copy_not_found",
+                message="The runtime copy was not found.",
+            )
+        )
+
+    def list_copies(
+        self,
+        selectors: Mapping[str, str],
+        *,
+        cursor: str | None,
+        limit: int,
+        context: OperationContext,
+    ) -> tuple[Sequence[Mapping[str, Any]], str | None]:
+        self._check(context)
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
+            raise ConnectorError(
+                "pagination_invalid",
+                "Copy pagination limit must be from 1 to 100.",
+                category="invalid_input",
+            )
+        if cursor is not None:
+            _checked_identifier(cursor, "runtime copy cursor")
+        allowed = {
+            "exportId",
+            "grantId",
+            "evidenceDigest",
+            "tasksetDigest",
+        }
+        if not selectors or set(selectors) - allowed or any(
+            not isinstance(value, str) or not value for value in selectors.values()
+        ):
+            raise ConnectorError(
+                "disclosure_selector_invalid",
+                "Disclosure needs one or more supported exact selectors.",
+                category="invalid_input",
+            )
+        selected = []
+        for path in sorted(self.copies.glob("*.json")):
+            record = self._validated_copy(
+                _read_object(
+                    path,
+                    code="runtime_copy_not_found",
+                    message="The runtime copy was not found.",
+                )
+            )
+            if cursor is not None and record["id"] <= cursor:
+                continue
+            if _copy_matches(record, selectors):
+                selected.append(record)
+            if len(selected) > limit:
+                break
+        next_cursor = selected[limit - 1]["id"] if len(selected) > limit else None
+        return tuple(selected[:limit]), next_cursor
+
+    def tombstone_copy(
+        self,
+        copy_id: str,
+        *,
+        state: str,
+        retention: Mapping[str, Any] | None,
+        context: OperationContext,
+    ) -> Mapping[str, Any]:
+        self._check(context)
+        if state not in ("registering", "active", "revoked", "deleted", "retained"):
+            raise ConnectorError(
+                "runtime_copy_state_invalid",
+                "A runtime copy state must be registering, active, revoked, deleted, or retained.",
+                category="invalid_input",
+            )
+        path = self._copy_path(copy_id)
+        with self._lock:
+            current = self._validated_copy(
+                _read_object(
+                    path,
+                    code="runtime_copy_not_found",
+                    message="The runtime copy was not found.",
+                )
+            )
+            if current["useState"] == state and (
+                retention is None or current.get("retention") == _json_data(retention)
+            ):
+                return current
+            saved = dict(current)
+            saved["useState"] = state
+            saved["state"] = state
+            saved["updatedAt"] = _timestamp()
+            if retention is not None:
+                saved["retention"] = _json_data(retention)
+            _write_json_atomic(path, saved)
+            return self._validated_copy(saved)
+
+    def create_deletion(
+        self, request: Mapping[str, Any], context: OperationContext
+    ) -> Mapping[str, Any]:
+        self._check(context)
+        request_data = _json_data(request)
+        request_digest = str(_digest(_json_bytes(request_data)))
+        retry_path = self.idempotency / (
+            hashlib.sha256(context.idempotency_key.encode()).hexdigest() + ".json"
+        )
+        with self._lock:
+            if retry_path.exists():
+                retry = _read_object(
+                    retry_path,
+                    code="deletion_retry_not_found",
+                    message="The deletion retry record was not found.",
+                )
+                if retry.get("requestDigest") != request_digest:
+                    raise ConnectorError(
+                        "idempotency_conflict",
+                        "The idempotency key was reused with different input.",
+                        category="conflict",
+                    )
+                return self.get_deletion(retry.get("deletionId", ""), context)
+            for path in sorted(self.deletions.glob("*.json")):
+                existing = self.get_deletion(path.stem, context)
+                if (
+                    existing.get("selectors") == request_data.get("selectors")
+                    and existing.get("requestedBy") == request_data.get("requestedBy")
+                    and existing.get("reason") == request_data.get("reason")
+                    and existing.get("retention") == request_data.get("retention")
+                ):
+                    _write_immutable(
+                        retry_path,
+                        _json_bytes(
+                            {
+                                "deletionId": existing["id"],
+                                "requestDigest": request_digest,
+                            }
+                        ),
+                    )
+                    return existing
+            deletion_id = "deletion_" + hashlib.sha256(
+                (
+                    _scope_key(context.scope)
+                    + "\0"
+                    + context.idempotency_key
+                    + "\0"
+                    + request_digest
+                ).encode()
+            ).hexdigest()[:32]
+            receipt = {
+                "schemaVersion": "replica.runtime-deletion-receipt/v1",
+                "id": deletion_id,
+                "scope": {
+                    "tenantId": context.scope.tenant_id,
+                    "repository": context.scope.repository,
+                },
+                "selectors": request_data["selectors"],
+                "requestedBy": request_data["requestedBy"],
+                "reason": request_data["reason"],
+                "state": "revoking",
+                "createdAt": _timestamp(),
+                "updatedAt": _timestamp(),
+                "items": [],
+                "pendingItems": [],
+                "failures": [],
+                "version": 1,
+            }
+            if request_data.get("retention") is not None:
+                receipt["retention"] = request_data["retention"]
+            _write_immutable(self._deletion_path(deletion_id), _json_bytes(receipt))
+            _write_immutable(
+                retry_path,
+                _json_bytes(
+                    {
+                        "deletionId": deletion_id,
+                        "requestDigest": request_digest,
+                    }
+                ),
+            )
+            return receipt
+
+    def get_deletion(
+        self, deletion_id: str, context: OperationContext
+    ) -> Mapping[str, Any]:
+        self._check(context, hide=True)
+        saved = _read_object(
+            self._deletion_path(deletion_id),
+            code="deletion_not_found",
+            message="The deletion receipt was not found.",
+        )
+        if (
+            saved.get("schemaVersion") != "replica.runtime-deletion-receipt/v1"
+            or saved.get("id") != deletion_id
+            or not isinstance(saved.get("version"), int)
+        ):
+            raise ConnectorError(
+                "deletion_receipt_damaged",
+                "The deletion receipt is invalid.",
+                category="integrity",
+            )
+        return saved
+
+    def list_deletions(
+        self, states: Sequence[str], context: OperationContext
+    ) -> Sequence[Mapping[str, Any]]:
+        check_context(context)
+        if context.scope != self.scope:
+            return ()
+        selected = set(states)
+        return tuple(
+            receipt
+            for path in sorted(self.deletions.glob("*.json"))
+            if (receipt := self.get_deletion(path.stem, context)).get("state")
+            in selected
+        )
+
+    def update_deletion(
+        self,
+        deletion_id: str,
+        record: Mapping[str, Any],
+        *,
+        expected_version: int,
+        context: OperationContext,
+    ) -> Mapping[str, Any]:
+        self._check(context)
+        with self._lock:
+            current = dict(self.get_deletion(deletion_id, context))
+            if current["version"] != expected_version:
+                raise ConnectorError(
+                    "deletion_version_conflict",
+                    "The deletion receipt changed before this update.",
+                    category="conflict",
+                )
+            saved = dict(_json_data(record), version=expected_version + 1)
+            if (
+                saved.get("id") != deletion_id
+                or saved.get("schemaVersion")
+                != "replica.runtime-deletion-receipt/v1"
+            ):
+                raise ConnectorError(
+                    "deletion_receipt_invalid",
+                    "The deletion update must preserve the receipt identity.",
+                    category="invalid_input",
+                )
+            _write_json_atomic(self._deletion_path(deletion_id), saved)
+            return saved
+
+    def _validated_copy(self, value: Mapping[str, Any]) -> dict[str, Any]:
+        saved = dict(_json_data(value))
+        if (
+            saved.get("schemaVersion") != "replica.runtime-copy/v1"
+            or not isinstance(saved.get("id"), str)
+            or saved.get("kind") not in ("taskset", "candidate", "report", "inference")
+            or saved.get("useState")
+            not in ("registering", "active", "revoked", "deleted", "retained")
+            or not isinstance(saved.get("sourceTrainingExportId"), str)
+            or not isinstance(saved.get("tasksetDigest"), str)
+            or not isinstance(saved.get("storage"), dict)
+            or saved.get("scope")
+            != {
+                "tenantId": self.scope.tenant_id,
+                "repository": self.scope.repository,
+            }
+            or not isinstance(saved.get("permittingGrantIds"), list)
+            or not isinstance(saved.get("permittedPurposes"), list)
+            or not isinstance(saved.get("reviewDigests"), list)
+            or not isinstance(saved.get("evidenceDigests"), list)
+            or not isinstance(saved.get("evidenceDigest"), str)
+            or not isinstance(saved.get("retention"), dict)
+            or not isinstance(saved.get("createdAt"), str)
+        ):
+            raise ConnectorError(
+                "runtime_copy_invalid",
+                "The runtime copy metadata is invalid.",
+                category="invalid_input",
+            )
+        _checked_identifier(saved["id"], "runtime copy")
+        return saved
+
+    def _copy_path(self, copy_id: str) -> Path:
+        return self.copies / f"{_checked_identifier(copy_id, 'runtime copy')}.json"
+
+    def _deletion_path(self, deletion_id: str) -> Path:
+        return self.deletions / f"{_checked_identifier(deletion_id, 'deletion')}.json"
+
+
+def _copy_matches(record: Mapping[str, Any], selectors: Mapping[str, str]) -> bool:
+    values = {
+        "exportId": record.get("sourceTrainingExportId"),
+        "grantId": record.get("permittingGrantIds", ()),
+        "evidenceDigest": record.get("evidenceDigest"),
+        "tasksetDigest": record.get("tasksetDigest"),
+    }
+    return all(
+        selector in values[name]
+        if isinstance(values[name], (list, tuple))
+        else values[name] == selector
+        for name, selector in selectors.items()
+    )
 
 
 class LocalObservabilityConnector(_ScopedConnector):
@@ -2129,6 +2704,7 @@ class LocalConnectorBundle:
     taskset_digest: ContentDigest | None
     tasksets: LocalTasksetConnector
     candidates: LocalCandidateConnector
+    privacy: LocalPrivacyConnector
     observability: LocalObservabilityConnector
     _owner: Any
 
@@ -2198,6 +2774,7 @@ def create_local_connector_bundle(
         artifacts = LocalArtifactConnector(root, scope)
         jobs = LocalJobConnector(root, scope)
         candidates = LocalCandidateConnector(root, scope)
+        privacy = LocalPrivacyConnector(root, scope)
         training = {
             name: LocalTrainingConnector(backend)
             for name, backend in backends.items()
@@ -2213,6 +2790,7 @@ def create_local_connector_bundle(
             artifacts=artifacts,
             jobs=jobs,
             candidates=candidates,
+            privacy=privacy,
             training=training,
             inference=inference,
             credentials=credentials or local_credentials,
@@ -2226,6 +2804,7 @@ def create_local_connector_bundle(
             tasksets.digest,
             tasksets,
             candidates,
+            privacy,
             local_observability,
             owner,
         )

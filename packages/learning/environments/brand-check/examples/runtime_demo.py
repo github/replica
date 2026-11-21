@@ -98,6 +98,22 @@ def write_taskset(directory: Path) -> None:
         "schemaVersion": "replica.decision-taskset/v1",
         "exportId": "export_fixture",
         "createdAt": "2026-11-10T00:00:00Z",
+        "provenance": {
+            "exportDigest": "sha256:" + "1" * 64,
+            "grantIds": ["grant_fixture_training"],
+            "purposes": ["training"],
+            "reviewDigests": ["sha256:" + "2" * 64],
+            "evidenceDigests": ["sha256:" + "3" * 64],
+            "evidenceDigest": "sha256:"
+            + hashlib.sha256(
+                json.dumps(
+                    ["sha256:" + "3" * 64],
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode()
+            ).hexdigest(),
+        },
+        "retention": {"mode": "delete_on_withdrawal"},
         "counts": {"tasks": len(tasks)},
     }
     (directory / "taskset.json").write_text(json.dumps(manifest), encoding="utf-8")

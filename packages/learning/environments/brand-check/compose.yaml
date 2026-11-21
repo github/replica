@@ -26,3 +26,18 @@ services:
     user: ${REPLICA_RUNTIME_USER:-10001:10001}
     volumes:
       - ${REPLICA_RUNTIME_STATE_DIR:?set REPLICA_RUNTIME_STATE_DIR}:/data/runtime
+  lifecycle-demo:
+    profiles: [demo]
+    build:
+      context: .
+      dockerfile: server/runtime.Dockerfile
+    depends_on:
+      decision-runtime:
+        condition: service_healthy
+    environment:
+      REPLICA_RUNTIME_TOKEN: ${REPLICA_RUNTIME_TOKEN:?set REPLICA_RUNTIME_TOKEN}
+    command:
+      - python
+      - /app/runtime_deletion_demo.py
+      - --url
+      - http://decision-runtime:8010

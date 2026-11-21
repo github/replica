@@ -2012,7 +2012,7 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertIn(retry_status, (200, 201))
         self.assertEqual(retried, first)
         self.assertEqual(first["digest"], f"sha256:{digest}")
-        self.assertEqual(first["reference"], f"taskset:{digest}")
+        self.assertEqual(first["reference"], f"uploaded-taskset:{digest}")
         self.assertIn(
             "taskset_bytes",
             [usage.kind for usage in runtime.local_connectors.observability.records()],

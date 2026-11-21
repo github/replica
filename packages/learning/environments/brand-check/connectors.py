@@ -162,6 +162,7 @@ class TasksetArtifact:
     reference: str
     digest: ContentDigest
     taskset: Taskset
+    created: bool = field(default=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -336,6 +337,10 @@ class TasksetConnector(Protocol):
 
     def resolve(self, reference: str, context: OperationContext) -> TasksetArtifact: ...
 
+    def delete(self, reference: str, context: OperationContext) -> bool: ...
+
+    def list(self, context: OperationContext) -> Sequence[TasksetArtifact]: ...
+
 
 class ArtifactConnector(Protocol):
     def put(self, artifact: Artifact, context: OperationContext) -> Artifact: ...
@@ -403,6 +408,61 @@ class CandidateConnector(Protocol):
 
     def current(self, context: OperationContext) -> Promotion | None: ...
 
+    def delete(self, candidate_id: str, context: OperationContext) -> bool: ...
+
+    def list(self, context: OperationContext) -> Sequence[Candidate]: ...
+
+
+class PrivacyConnector(Protocol):
+    """Content-free runtime copy inventory, revocations, and deletion receipts."""
+
+    def put_copy(
+        self, record: Mapping[str, Any], context: OperationContext
+    ) -> Mapping[str, Any]: ...
+
+    def get_copy(
+        self, copy_id: str, context: OperationContext
+    ) -> Mapping[str, Any]: ...
+
+    def list_copies(
+        self,
+        selectors: Mapping[str, str],
+        *,
+        cursor: str | None,
+        limit: int,
+        context: OperationContext,
+    ) -> tuple[Sequence[Mapping[str, Any]], str | None]: ...
+
+    def tombstone_copy(
+        self,
+        copy_id: str,
+        *,
+        state: str,
+        retention: Mapping[str, Any] | None,
+        context: OperationContext,
+    ) -> Mapping[str, Any]: ...
+
+    def create_deletion(
+        self, request: Mapping[str, Any], context: OperationContext
+    ) -> Mapping[str, Any]: ...
+
+    def get_deletion(
+        self, deletion_id: str, context: OperationContext
+    ) -> Mapping[str, Any]: ...
+
+    def list_deletions(
+        self, states: Sequence[str], context: OperationContext
+    ) -> Sequence[Mapping[str, Any]]: ...
+
+    def update_deletion(
+        self,
+        deletion_id: str,
+        record: Mapping[str, Any],
+        *,
+        expected_version: int,
+        context: OperationContext,
+    ) -> Mapping[str, Any]: ...
+
 
 class TrainingConnector(Protocol):
     name: str
@@ -422,6 +482,12 @@ class TrainingConnector(Protocol):
 
 class InferenceConnector(Protocol):
     name: str
+
+    def delete(self, reference: str, context: OperationContext) -> bool: ...
+
+    def list_results(
+        self, context: OperationContext
+    ) -> Sequence[Mapping[str, Any]]: ...
 
     def predict(
         self,
@@ -451,6 +517,7 @@ class RuntimeConnectors:
     artifacts: ArtifactConnector
     jobs: JobConnector
     candidates: CandidateConnector
+    privacy: PrivacyConnector
     training: Mapping[str, TrainingConnector]
     inference: Mapping[str, InferenceConnector]
     credentials: CredentialConnector

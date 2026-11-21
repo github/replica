@@ -4,3 +4,4 @@
 !README.md
 !*.py
 !server/*.py
+!examples/runtime_deletion_demo.py

@@ -62,6 +62,9 @@ CANDIDATE_SCHEMA = "replica.decision-candidate/v1"
 CANDIDATE_REPORT_SCHEMA = "replica.decision-candidate-evaluation/v1"
 INFERENCE_SCHEMA = "replica.decision-evaluation-response/v1"
 TASKSET_UPLOAD_SCHEMA = "replica.decision-taskset-upload/v1"
+DISCLOSURE_SCHEMA = "replica.runtime-copy-disclosure/v1"
+DELETION_RECEIPT_SCHEMA = "replica.runtime-deletion-receipt/v1"
+RUNTIME_COPY_SCHEMA = "replica.runtime-copy/v1"
 MIN_UPDATES = 1
 MAX_UPDATES = 100_000
 MIN_SECONDS = 1
@@ -226,6 +229,12 @@ class LocalRuntime:
         }
         self._lock = threading.RLock()
         self._job_cancellations: dict[str, Cancellation] = {}
+        self._inference_cancellations: dict[
+            str, tuple[Cancellation, Mapping[str, Any]]
+        ] = {}
+        self._inference_idempotency_locks: dict[
+            str, tuple[threading.Lock, int]
+        ] = {}
         self._tasksets: OrderedDict[str, TasksetArtifact] = OrderedDict()
         self._verified_taskset_directories: dict[str, Path] = {}
         try:
@@ -242,14 +251,31 @@ class LocalRuntime:
                 )
                 self.taskset = resolved.taskset
                 self.taskset_digest = str(resolved.digest)
+                self._record_taskset_copy(
+                    resolved,
+                    self._operation_context(
+                        f"mounted_taskset_{uuid.uuid4().hex}",
+                        max_seconds=30,
+                        owner=RuntimeOwner("service", "decision-runtime"),
+                    ),
+                    mounted=True,
+                )
             self._executor = ThreadPoolExecutor(
                 max_workers=1, thread_name_prefix="replica-training"
             )
             work = self.state_directory / "work"
             work.mkdir(parents=True, exist_ok=True, mode=0o700)
             os.chmod(work, 0o700)
+            for stale in work.iterdir():
+                if stale.is_dir():
+                    shutil.rmtree(stale)
+                else:
+                    stale.unlink()
+            self._backfill_local_privacy_inventory()
+            self._reconcile_completed_deletions()
             self._recover_pending_promotions()
             self._recover_interrupted_jobs()
+            self._recover_deletions()
         except Exception:
             if hasattr(self, "_executor"):
                 self._executor.shutdown(wait=False, cancel_futures=True)
@@ -296,45 +322,73 @@ class LocalRuntime:
                 "unmetered_local training is available only in development and test.",
                 409,
             )
-        selected_taskset = _taskset_digest_value(
-            taskset_digest if taskset_digest is not None else self.taskset_digest
-        )
-        self._resolve_taskset(selected_taskset)
-        submission_key = idempotency_key or f"submit_{uuid.uuid4().hex}"
-        job_id = f"job_{hashlib.sha256(submission_key.encode()).hexdigest()[:32]}"
-        job = {
-            "schemaVersion": JOB_SCHEMA,
-            "id": job_id,
-            "state": "queued",
-            "backend": backend,
-            "tasksetDigest": selected_taskset,
-            "limits": {
-                "maxUpdates": max_updates,
-                "maxSeconds": float(max_seconds),
-                "maxCredits": float(max_credits),
-                "budgetMode": budget_mode,
-            },
-            "createdAt": _now(),
-            "updatedAt": _now(),
-        }
-        context = self._operation_context(
-            job_id,
-            max_seconds=max_seconds,
-            owner=RuntimeOwner("service", "decision-runtime"),
-            max_credits=max_credits,
-            budget_mode=budget_mode,
-            idempotency_key=submission_key,
-        )
         with self._lock:
-            existing = False
+            selected_taskset = _taskset_digest_value(
+                taskset_digest if taskset_digest is not None else self.taskset_digest
+            )
+            try:
+                privacy_context = self._operation_context(
+                    f"taskset_privacy_{uuid.uuid4().hex}",
+                    max_seconds=30,
+                    owner=RuntimeOwner("service", "decision-runtime"),
+                )
+                for copy_id in _taskset_runtime_copy_ids(selected_taskset):
+                    try:
+                        copy = self.connectors.privacy.get_copy(
+                            copy_id,
+                            privacy_context,
+                        )
+                    except ConnectorError as error:
+                        if error.category == "not_found":
+                            continue
+                        raise
+                    self._assert_not_revoked(
+                        _copy_provenance(copy), operation="training"
+                    )
+            except ConnectorError as error:
+                if error.category != "not_found":
+                    raise _runtime_connector_failure(error) from None
+            taskset = self._resolve_taskset(selected_taskset)
+            provenance = _taskset_provenance(taskset)
+            self._assert_not_revoked(provenance, operation="training")
+            if "training" not in provenance["purposes"]:
+                raise RuntimeFailure(
+                    "training_not_permitted",
+                    "The taskset provenance does not permit training.",
+                    409,
+                )
+            submission_key = idempotency_key or f"submit_{uuid.uuid4().hex}"
+            job_id = f"job_{hashlib.sha256(submission_key.encode()).hexdigest()[:32]}"
+            job = {
+                "schemaVersion": JOB_SCHEMA,
+                "id": job_id,
+                "state": "queued",
+                "backend": backend,
+                "tasksetDigest": selected_taskset,
+                "limits": {
+                    "maxUpdates": max_updates,
+                    "maxSeconds": float(max_seconds),
+                    "maxCredits": float(max_credits),
+                    "budgetMode": budget_mode,
+                },
+                "createdAt": _now(),
+                "updatedAt": _now(),
+            }
+            context = self._operation_context(
+                job_id,
+                max_seconds=max_seconds,
+                owner=RuntimeOwner("service", "decision-runtime"),
+                max_credits=max_credits,
+                budget_mode=budget_mode,
+                idempotency_key=submission_key,
+            )
             try:
                 try:
                     stored = dict(self.connectors.jobs.get(job_id, context))
-                    existing = True
                 except ConnectorError as error:
                     if error.category != "not_found":
                         raise
-                if existing:
+                else:
                     if (
                         stored.get("backend") != job["backend"]
                         or stored.get("tasksetDigest") != job["tasksetDigest"]
@@ -369,21 +423,37 @@ class LocalRuntime:
             owner=RuntimeOwner("service", "decision-runtime"),
             idempotency_key=idempotency_key,
         )
+        registered = None
         try:
-            registered = self.connectors.tasksets.register(bundle, context)
-            self._cache_taskset(registered)
-            self._record_usage(
-                context,
-                connector=type(self.connectors.tasksets).__name__,
-                kind="taskset_bytes",
-                quantity=sum(len(image.data) for image in bundle.images),
-                unit="bytes",
-                metadata={
-                    "taskCount": len(bundle.tasks),
-                    "imageCount": len(bundle.images),
-                },
-            )
+            with self._lock:
+                self._assert_not_revoked(
+                    _manifest_provenance(bundle.manifest, str(claimed)),
+                    operation="taskset upload",
+                )
+                registered = self.connectors.tasksets.register(bundle, context)
+                self._record_taskset_copy(registered, context, mounted=False)
+                self._cache_taskset(registered)
+                try:
+                    self._record_usage(
+                        context,
+                        connector=type(self.connectors.tasksets).__name__,
+                        kind="taskset_bytes",
+                        quantity=sum(len(image.data) for image in bundle.images),
+                        unit="bytes",
+                        metadata={
+                            "taskCount": len(bundle.tasks),
+                            "imageCount": len(bundle.images),
+                        },
+                    )
+                except ConnectorError:
+                    pass
         except ConnectorError as error:
+            if registered is not None and registered.created:
+                try:
+                    self.connectors.tasksets.delete(registered.reference, context)
+                    self._evict_taskset(str(registered.digest))
+                except ConnectorError:
+                    pass
             raise _runtime_connector_failure(error) from None
         return {
             "schemaVersion": TASKSET_UPLOAD_SCHEMA,
@@ -391,6 +461,486 @@ class LocalRuntime:
             "reference": registered.reference,
             "tasks": len(registered.taskset.tasks),
         }
+
+    def disclose(
+        self,
+        selectors: Mapping[str, str],
+        *,
+        limit: int = 50,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        """Return bounded, content-free metadata for matching runtime copies."""
+        selected = _disclosure_selectors(selectors)
+        context = self._operation_context(
+            f"disclosure_{uuid.uuid4().hex}",
+            max_seconds=30,
+            owner=RuntimeOwner("service", "decision-runtime"),
+        )
+        try:
+            copies, next_cursor = self.connectors.privacy.list_copies(
+                selected,
+                cursor=cursor,
+                limit=limit,
+                context=context,
+            )
+            self._record_usage(
+                context,
+                connector=type(self.connectors.privacy).__name__,
+                kind="privacy_disclosures",
+                quantity=1,
+                unit="requests",
+                metadata={"copies": len(copies), "paginated": next_cursor is not None},
+            )
+        except ConnectorError as error:
+            raise _runtime_connector_failure(error) from None
+        return {
+            "schemaVersion": DISCLOSURE_SCHEMA,
+            "scope": {
+                "tenantId": self.scope.tenant_id,
+                "repository": self.scope.repository,
+            },
+            "items": [self._disclosed_copy(copy) for copy in copies],
+            "nextCursor": next_cursor,
+        }
+
+    def request_deletion(
+        self,
+        selectors: Mapping[str, str],
+        *,
+        requested_by: str,
+        reason: str,
+        idempotency_key: str,
+        retention: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Revoke matching runtime use, remove copies, and return a durable receipt."""
+        selected = _disclosure_selectors(selectors)
+        if not isinstance(requested_by, str) or not requested_by.strip():
+            raise RuntimeFailure("invalid_input", "requestedBy must name the operator.")
+        if not isinstance(reason, str) or not reason.strip():
+            raise RuntimeFailure("invalid_input", "reason must explain the withdrawal.")
+        retained = _retention_request(retention)
+        context = self._operation_context(
+            f"deletion_{uuid.uuid4().hex}",
+            max_seconds=30,
+            owner=RuntimeOwner("human", requested_by.strip()),
+            idempotency_key=idempotency_key,
+        )
+        request = {
+            "selectors": selected,
+            "requestedBy": requested_by.strip(),
+            "reason": reason.strip(),
+            "retention": retained,
+        }
+        try:
+            with self._lock:
+                receipt = dict(self.connectors.privacy.create_deletion(request, context))
+            if receipt["state"] != "completed":
+                receipt = self._process_deletion(receipt, context)
+            try:
+                self._record_usage(
+                    context,
+                    connector=type(self.connectors.privacy).__name__,
+                    kind="privacy_deletions",
+                    quantity=1,
+                    unit="requests",
+                    metadata={
+                        "state": receipt["state"],
+                        "items": len(receipt.get("items", ())),
+                        "pending": len(receipt.get("pendingItems", ())),
+                    },
+                )
+            except ConnectorError:
+                pass
+            return receipt
+        except ConnectorError as error:
+            raise _runtime_connector_failure(error) from None
+
+    def deletion(self, deletion_id: str) -> dict[str, Any]:
+        """Return one durable content-free deletion receipt."""
+        context = self._operation_context(
+            f"deletion_read_{uuid.uuid4().hex}",
+            max_seconds=30,
+            owner=RuntimeOwner("service", "decision-runtime"),
+        )
+        try:
+            receipt = dict(self.connectors.privacy.get_deletion(deletion_id, context))
+            if receipt["state"] != "completed":
+                try:
+                    return self._process_deletion(receipt, context)
+                except ConnectorError as error:
+                    if error.category != "conflict":
+                        raise
+                    return dict(
+                        self.connectors.privacy.get_deletion(deletion_id, context)
+                    )
+            return receipt
+        except ConnectorError as error:
+            raise _runtime_connector_failure(error) from None
+
+    def _process_deletion(
+        self, receipt: dict[str, Any], context: OperationContext
+    ) -> dict[str, Any]:
+        copies = self._matching_copies(receipt["selectors"], context)
+        taskset_digests = {copy["tasksetDigest"] for copy in copies}
+        pending: list[dict[str, Any]] = []
+        failures: list[dict[str, Any]] = []
+        items: list[dict[str, Any]] = []
+
+        for copy in copies:
+            try:
+                self.connectors.privacy.tombstone_copy(
+                    copy["id"],
+                    state="revoked",
+                    retention=None,
+                    context=context,
+                )
+            except ConnectorError as error:
+                pending.append(_pending_item(copy, error))
+
+        for job in self.connectors.jobs.list(("queued", "running"), context):
+            if job.get("tasksetDigest") not in taskset_digests:
+                continue
+            try:
+                cancelled = self.connectors.jobs.cancel(
+                    job["id"],
+                    expected_version=job["version"],
+                    context=self._operation_context(
+                        f"delete_cancel_{job['id']}",
+                        max_seconds=30,
+                        owner=context.owner,
+                        idempotency_key=f"{receipt['id']}:{job['id']}",
+                    ),
+                )
+                signal = self._job_cancellations.get(job["id"])
+                if signal is not None:
+                    signal.cancel()
+                items.append(
+                    {
+                        "kind": "job",
+                        "runtimeCopyId": job["id"],
+                        "state": cancelled["state"],
+                    }
+                )
+            except ConnectorError as error:
+                if error.category == "conflict":
+                    current = self._job_record(job["id"])
+                    if current.get("state") in ("cancelled", "failed", "succeeded"):
+                        continue
+                pending.append(
+                    {
+                        "kind": "job",
+                        "runtimeCopyId": job["id"],
+                        "code": error.code,
+                        "retryable": error.retryable or error.category in ("conflict", "unavailable"),
+                    }
+                )
+
+        for operation_id, (signal, provenance) in tuple(self._inference_cancellations.items()):
+            if _selectors_match_provenance(receipt["selectors"], provenance):
+                signal.cancel()
+                pending.append(
+                    {
+                        "kind": "inference",
+                        "runtimeCopyId": operation_id,
+                        "code": "operation_cancelling",
+                        "retryable": True,
+                    }
+                )
+
+        for job_id, signal in tuple(self._job_cancellations.items()):
+            job = self._job_record(job_id)
+            if job.get("tasksetDigest") in taskset_digests:
+                signal.cancel()
+                pending.append(
+                    {
+                        "kind": "job",
+                        "runtimeCopyId": job_id,
+                        "code": "operation_cancelling",
+                        "retryable": True,
+                    }
+                )
+
+        retention = receipt.get("retention")
+        operations_pending = any(
+            item["code"] == "operation_cancelling" for item in pending
+        )
+        deleted_candidate_references: set[str] = set()
+        for copy in sorted(
+            copies,
+            key=lambda item: (
+                {"taskset": 0, "candidate": 1, "report": 2, "inference": 3}.get(
+                    item["kind"], 4
+                ),
+                item["id"],
+            ),
+        ):
+            if operations_pending:
+                continue
+            if any(item["runtimeCopyId"] == copy["id"] for item in pending):
+                continue
+            try:
+                effective_retention = retention
+                if (
+                    effective_retention is None
+                    and copy["kind"] == "taskset"
+                    and copy["storage"]["reference"].startswith("mounted-taskset:")
+                ):
+                    effective_retention = {
+                        **copy["retention"],
+                        "legalReason": (
+                            "The mounted source remains under operator-controlled retention."
+                        ),
+                        "reason": (
+                            "The mounted source remains under operator-controlled retention."
+                        ),
+                        "authority": "runtime configuration",
+                    }
+                elif (
+                    effective_retention is None
+                    and copy.get("retention", {}).get("mode")
+                    == "superseded_registration"
+                ):
+                    effective_retention = copy["retention"]
+                if effective_retention is not None:
+                    updated = self.connectors.privacy.tombstone_copy(
+                        copy["id"],
+                        state="retained",
+                        retention=effective_retention,
+                        context=context,
+                    )
+                    state = updated["useState"]
+                else:
+                    storage = copy["storage"]
+                    if copy["kind"] == "taskset":
+                        self.connectors.tasksets.delete(storage["reference"], context)
+                        self._evict_taskset(copy["tasksetDigest"])
+                    elif copy["kind"] in ("candidate", "report"):
+                        if storage["reference"] not in deleted_candidate_references:
+                            self.connectors.candidates.delete(storage["reference"], context)
+                            deleted_candidate_references.add(storage["reference"])
+                    elif copy["kind"] == "inference":
+                        connector = self.inference_connectors.get(storage["connector"])
+                        if connector is None:
+                            raise ConnectorError(
+                                "inference_connector_unavailable",
+                                "The inference connector is unavailable.",
+                                category="unavailable",
+                                retryable=True,
+                            )
+                        connector.delete(storage["reference"], context)
+                    else:
+                        raise ConnectorError(
+                            "runtime_copy_kind_unsupported",
+                            "The runtime copy kind cannot be deleted.",
+                            category="invalid_input",
+                        )
+                    self.connectors.privacy.tombstone_copy(
+                        copy["id"],
+                        state="deleted",
+                        retention={"mode": "deleted", "deletedAt": _now()},
+                        context=context,
+                    )
+                    state = "deleted"
+                items.append(
+                    {
+                        "kind": copy["kind"],
+                        "runtimeCopyId": copy["id"],
+                        "storage": {
+                            "connector": copy["storage"]["connector"],
+                            "reference": copy["storage"]["reference"],
+                        },
+                        "state": state,
+                        **(
+                            {"retention": updated["retention"]}
+                            if state == "retained"
+                            else {}
+                        ),
+                    }
+                )
+            except ConnectorError as error:
+                target = _pending_item(copy, error)
+                if error.category in ("invalid_input", "integrity", "unauthorized"):
+                    failures.append(target)
+                else:
+                    pending.append(target)
+
+        updated = dict(receipt)
+        updated["items"] = sorted(items, key=lambda item: (item["kind"], item["runtimeCopyId"]))
+        updated["pendingItems"] = sorted(
+            pending, key=lambda item: (item["kind"], item["runtimeCopyId"])
+        )
+        updated["failures"] = sorted(
+            failures, key=lambda item: (item["kind"], item["runtimeCopyId"])
+        )
+        updated["updatedAt"] = _now()
+        updated.pop("pending", None)
+        updated["state"] = (
+            "completed"
+            if not updated["pendingItems"] and not updated["failures"]
+            else "pending"
+        )
+        updated.setdefault("revokedAt", updated["updatedAt"])
+        if updated["state"] == "completed":
+            updated["completedAt"] = updated["updatedAt"]
+        return dict(
+            self.connectors.privacy.update_deletion(
+                receipt["id"],
+                updated,
+                expected_version=receipt["version"],
+                context=context,
+            )
+        )
+
+    def _matching_copies(
+        self, selectors: Mapping[str, str], context: OperationContext
+    ) -> list[dict[str, Any]]:
+        cursor = None
+        copies: list[dict[str, Any]] = []
+        while True:
+            page, cursor = self.connectors.privacy.list_copies(
+                selectors,
+                cursor=cursor,
+                limit=100,
+                context=context,
+            )
+            copies.extend(dict(copy) for copy in page)
+            if cursor is None:
+                return copies
+
+    def _record_taskset_copy(
+        self,
+        taskset: TasksetArtifact,
+        context: OperationContext,
+        *,
+        mounted: bool,
+    ) -> None:
+        provenance = _taskset_provenance(taskset)
+        withdrawn = False
+        if mounted:
+            receipts = self.connectors.privacy.list_deletions(
+                ("revoking", "pending", "completed"),
+                context,
+            )
+            withdrawn = any(
+                _selectors_match_provenance(receipt["selectors"], provenance)
+                for receipt in receipts
+            )
+        identity = (
+            f"mounted:{taskset.reference}"
+            if mounted
+            else f"uploaded:{taskset.reference}"
+        )
+        record = _runtime_copy(
+            "taskset",
+            identity,
+            taskset.reference,
+            provenance,
+            scope=self.scope,
+            connector=type(self.connectors.tasksets).__name__,
+            created_at=taskset.taskset.metadata.get("createdAt"),
+            retention={
+                **dict(provenance.get("retention", {})),
+                "mode": (
+                    "operator_managed"
+                    if mounted
+                    else "delete_on_withdrawal"
+                ),
+                **(
+                    {
+                        "reason": (
+                            "The mounted source remains under operator-controlled retention "
+                            "after training consent withdrawal."
+                        ),
+                        "legalReason": (
+                            "The mounted source remains under operator-controlled retention "
+                            "after training consent withdrawal."
+                        ),
+                        "authority": "runtime configuration",
+                    }
+                    if withdrawn
+                    else {}
+                ),
+            },
+            use_state="retained" if withdrawn else "active",
+        )
+        try:
+            existing = self.connectors.privacy.get_copy(record["id"], context)
+        except ConnectorError as error:
+            if error.category != "not_found":
+                raise
+            self.connectors.privacy.put_copy(record, context)
+        else:
+            if mounted and (
+                existing.get("retention", {}).get("mode") != "operator_managed"
+                or withdrawn
+            ):
+                self.connectors.privacy.tombstone_copy(
+                    record["id"],
+                    state="retained" if withdrawn else existing["useState"],
+                    retention=record["retention"],
+                    context=context,
+                )
+        if not mounted:
+            legacy_copy_id = _runtime_copy_id(
+                "taskset",
+                f"uploaded:taskset:{taskset.digest.value}",
+            )
+            if legacy_copy_id != record["id"]:
+                try:
+                    self.connectors.privacy.get_copy(legacy_copy_id, context)
+                except ConnectorError as error:
+                    if error.category != "not_found":
+                        raise
+                else:
+                    self.connectors.privacy.tombstone_copy(
+                        legacy_copy_id,
+                        state="retained",
+                        retention={
+                            "mode": "superseded_registration",
+                            "reason": (
+                                "A verified taskset registration supersedes this legacy "
+                                "registration record."
+                            ),
+                            "authority": "runtime migration",
+                        },
+                        context=context,
+                    )
+
+    def _disclosed_copy(self, copy: Mapping[str, Any]) -> dict[str, Any]:
+        safe = dict(copy)
+        safe["reviewDigest"] = (safe.get("reviewDigests") or [None])[0]
+        safe["evidenceDigest"] = safe.get("evidenceDigest")
+        if safe["kind"] == "candidate":
+            promotion = self.promotion(required=False)
+            safe["promotionState"] = (
+                "promoted"
+                if promotion is not None
+                and promotion.get("candidateId") == safe["storage"]["reference"]
+                and safe["useState"] == "active"
+                else safe.get("promotionState", "eligible")
+            )
+        return safe
+
+    def _assert_not_revoked(
+        self, provenance: Mapping[str, Any], *, operation: str
+    ) -> None:
+        context = self._operation_context(
+            f"revocation_check_{uuid.uuid4().hex}",
+            max_seconds=30,
+            owner=RuntimeOwner("service", "decision-runtime"),
+        )
+        try:
+            receipts = self.connectors.privacy.list_deletions(
+                ("revoking", "pending", "completed"), context
+            )
+        except ConnectorError as error:
+            raise _runtime_connector_failure(error) from None
+        if any(_selectors_match_provenance(item["selectors"], provenance) for item in receipts):
+            raise RuntimeFailure(
+                "deletion_revoked",
+                f"Training consent is withdrawn; {operation} is not allowed.",
+                409,
+            )
 
     def cancel(self, job_id: str, *, idempotency_key: str) -> dict[str, Any]:
         """Cooperatively cancel one queued or running job."""
@@ -676,24 +1226,131 @@ class LocalRuntime:
     ) -> dict[str, Any]:
         """Answer one prototype page with the promoted candidate."""
         _check_request(request)
-        promotion = self.promotion()
-        candidate_id = promotion["candidateId"]
-        manifest = self._promotable_candidate(candidate_id)
-        connector = self.inference_connectors.get(manifest["backend"])
-        if connector is None:
-            raise RuntimeFailure(
-                "backend_unavailable",
-                f"Promoted candidate backend {manifest['backend']} is not configured.",
-                503,
+        retry_lock = None
+        retry_reference = None
+        retry_copy = None
+        inference_succeeded = False
+        with self._lock:
+            promotion = self.promotion()
+            candidate_id = promotion["candidateId"]
+            manifest = self._promotable_candidate(candidate_id)
+            connector = self.inference_connectors.get(manifest["backend"])
+            if connector is None:
+                raise RuntimeFailure(
+                    "backend_unavailable",
+                    f"Promoted candidate backend {manifest['backend']} is not configured.",
+                    503,
+                )
+            privacy_context = self._operation_context(
+                f"inference_copy_{uuid.uuid4().hex}",
+                max_seconds=30,
+                owner=RuntimeOwner("service", "decision-runtime"),
             )
-        context = self._operation_context(
-            f"inference_{uuid.uuid4().hex}",
-            max_seconds=timeout_seconds,
-            owner=RuntimeOwner("service", "decision-runtime"),
-            idempotency_key=idempotency_key,
-        )
+            try:
+                copy = self.connectors.privacy.get_copy(
+                    _runtime_copy_id("candidate", candidate_id),
+                    privacy_context,
+                )
+            except ConnectorError as error:
+                raise _runtime_connector_failure(error) from None
+            provenance = _copy_provenance(copy)
+            if idempotency_key is not None:
+                lock, users = self._inference_idempotency_locks.get(
+                    idempotency_key,
+                    (threading.Lock(), 0),
+                )
+                self._inference_idempotency_locks[idempotency_key] = (
+                    lock,
+                    users + 1,
+                )
+                retry_lock = lock
+                retry_reference = getattr(connector, "reference", lambda _key: None)(
+                    idempotency_key
+                )
+        if retry_lock is not None:
+            retry_lock.acquire()
+            try:
+                self._assert_not_revoked(provenance, operation="inference")
+            except Exception:
+                self._release_inference_idempotency_lock(
+                    idempotency_key,
+                    retry_lock,
+                )
+                raise
+        try:
+            with self._lock:
+                self._assert_not_revoked(provenance, operation="inference")
+                if isinstance(retry_reference, str):
+                    retry_copy = _runtime_copy(
+                        "inference",
+                        retry_reference,
+                        retry_reference,
+                        provenance,
+                        scope=self.scope,
+                        connector=manifest["backend"],
+                        created_at=_now(),
+                        retention={"mode": "delete_on_withdrawal"},
+                        parent_copy_ids=(
+                            _runtime_copy_id("candidate", candidate_id),
+                        ),
+                        use_state="registering",
+                    )
+                    try:
+                        self.connectors.privacy.get_copy(
+                            retry_copy["id"], privacy_context
+                        )
+                    except ConnectorError as error:
+                        if error.category != "not_found":
+                            raise
+                        self.connectors.privacy.put_copy(retry_copy, privacy_context)
+                cancellation = Cancellation()
+                context = self._operation_context(
+                    f"inference_{uuid.uuid4().hex}",
+                    max_seconds=timeout_seconds,
+                    owner=RuntimeOwner("service", "decision-runtime"),
+                    cancellation=cancellation,
+                )
+                self._inference_cancellations[context.operation_id] = (
+                    cancellation,
+                    provenance,
+                )
+                if idempotency_key is not None:
+                    context = OperationContext(
+                        operation_id=context.operation_id,
+                        idempotency_key=idempotency_key,
+                        scope=context.scope,
+                        owner=context.owner,
+                        deadline=context.deadline,
+                        cancellation=context.cancellation,
+                    )
+        except Exception:
+            if retry_lock is not None:
+                self._release_inference_idempotency_lock(
+                    idempotency_key,
+                    retry_lock,
+                )
+            raise
         work = self.state_directory / "work" / context.operation_id
-        work.mkdir(mode=0o700)
+        try:
+            work.mkdir(mode=0o700)
+        except OSError:
+            with self._lock:
+                self._inference_cancellations.pop(context.operation_id, None)
+            self._cleanup_inference_retry_reservation(
+                connector,
+                retry_reference,
+                retry_copy,
+            )
+            if retry_lock is not None:
+                self._release_inference_idempotency_lock(
+                    idempotency_key,
+                    retry_lock,
+                )
+            raise RuntimeFailure(
+                "work_directory_unavailable",
+                "The inference work directory could not be created.",
+                500,
+            ) from None
         try:
             adapter = self.local_connectors.candidates.artifact_path(
                 candidate_id,
@@ -701,6 +1358,19 @@ class LocalRuntime:
                 context,
             )
         except ConnectorError as error:
+            shutil.rmtree(work, ignore_errors=True)
+            with self._lock:
+                self._inference_cancellations.pop(context.operation_id, None)
+            self._cleanup_inference_retry_reservation(
+                connector,
+                retry_reference,
+                retry_copy,
+            )
+            if retry_lock is not None:
+                self._release_inference_idempotency_lock(
+                    idempotency_key,
+                    retry_lock,
+                )
             raise _runtime_connector_failure(error) from None
         started = time.monotonic()
         operation_error: Exception | None = None
@@ -708,6 +1378,18 @@ class LocalRuntime:
         acquired = capacity is None or capacity.acquire(blocking=False)
         if not acquired:
             shutil.rmtree(work, ignore_errors=True)
+            with self._lock:
+                self._inference_cancellations.pop(context.operation_id, None)
+            self._cleanup_inference_retry_reservation(
+                connector,
+                retry_reference,
+                retry_copy,
+            )
+            if retry_lock is not None:
+                self._release_inference_idempotency_lock(
+                    idempotency_key,
+                    retry_lock,
+                )
             raise RuntimeFailure(
                 "capacity_temporarily_unavailable",
                 f"Promoted candidate backend {manifest['backend']} is already serving "
@@ -732,7 +1414,15 @@ class LocalRuntime:
                 )
             )
         except ConnectorError as error:
-            operation_error = _runtime_connector_failure(error)
+            if error.category == "cancelled":
+                try:
+                    self._assert_not_revoked(provenance, operation="inference")
+                except RuntimeFailure as revoked:
+                    operation_error = revoked
+                else:
+                    operation_error = _runtime_connector_failure(error)
+            else:
+                operation_error = _runtime_connector_failure(error)
         except Exception as error:
             operation_error = error
         finally:
@@ -750,36 +1440,112 @@ class LocalRuntime:
         except ConnectorError as error:
             if operation_error is None:
                 operation_error = _runtime_connector_failure(error)
-        if operation_error is not None:
-            raise operation_error
-        evaluations = []
-        for key, question in request["questions"].items():
-            if question.get("type") != "noul":
-                continue
-            probabilities = answers.get(key, {}).get("probabilities")
-            if not _valid_yes_no(probabilities):
-                raise RuntimeFailure(
-                    "inference_failed",
-                    f"The promoted candidate did not answer question {json.dumps(key)}.",
-                    500,
+        try:
+            if operation_error is not None:
+                raise operation_error
+            evaluations = []
+            for key, question in request["questions"].items():
+                if question.get("type") != "noul":
+                    continue
+                probabilities = answers.get(key, {}).get("probabilities")
+                if not _valid_yes_no(probabilities):
+                    raise RuntimeFailure(
+                        "inference_failed",
+                        f"The promoted candidate did not answer question {json.dumps(key)}.",
+                        500,
+                    )
+                total = probabilities.get("yes", 0) + probabilities.get("no", 0)
+                yes = probabilities.get("yes", 0) / total
+                answers[key] = {"probabilities": {"yes": yes, "no": 1.0 - yes}}
+                evaluations.append(
+                    {
+                        "learningId": key,
+                        "followsProbability": yes,
+                        "breaksProbability": 1.0 - yes,
+                    }
                 )
-            total = probabilities.get("yes", 0) + probabilities.get("no", 0)
-            yes = probabilities.get("yes", 0) / total
-            answers[key] = {"probabilities": {"yes": yes, "no": 1.0 - yes}}
-            evaluations.append(
-                {
-                    "learningId": key,
-                    "followsProbability": yes,
-                    "breaksProbability": 1.0 - yes,
-                }
+            if idempotency_key is not None:
+                if retry_copy is not None:
+                    with self._lock:
+                        self._assert_not_revoked(provenance, operation="inference")
+                        self.connectors.privacy.tombstone_copy(
+                            retry_copy["id"],
+                            state="active",
+                            retention=retry_copy["retention"],
+                            context=context,
+                        )
+            else:
+                with self._lock:
+                    self._assert_not_revoked(provenance, operation="inference")
+            inference_succeeded = True
+            return {
+                "schemaVersion": INFERENCE_SCHEMA,
+                "candidateId": candidate_id,
+                "promotionGeneration": promotion["generation"],
+                "answers": answers,
+                "evaluations": evaluations,
+            }
+        finally:
+            with self._lock:
+                self._inference_cancellations.pop(context.operation_id, None)
+            if (
+                isinstance(retry_reference, str)
+                and retry_copy is not None
+                and not inference_succeeded
+            ):
+                self._cleanup_inference_retry_reservation(
+                    connector,
+                    retry_reference,
+                    retry_copy,
+                )
+            if retry_lock is not None:
+                self._release_inference_idempotency_lock(
+                    idempotency_key,
+                    retry_lock,
+                )
+
+    def _release_inference_idempotency_lock(
+        self,
+        idempotency_key: str | None,
+        lock: threading.Lock,
+    ) -> None:
+        lock.release()
+        assert idempotency_key is not None
+        with self._lock:
+            current, users = self._inference_idempotency_locks[idempotency_key]
+            assert current is lock and users > 0
+            if users == 1:
+                del self._inference_idempotency_locks[idempotency_key]
+            else:
+                self._inference_idempotency_locks[idempotency_key] = (
+                    lock,
+                    users - 1,
+                )
+
+    def _cleanup_inference_retry_reservation(
+        self,
+        connector: InferenceConnector,
+        reference: str | None,
+        copy: Mapping[str, Any] | None,
+    ) -> None:
+        if not isinstance(reference, str) or copy is None:
+            return
+        context = self._operation_context(
+            f"inference_retry_cleanup_{uuid.uuid4().hex}",
+            max_seconds=30,
+            owner=RuntimeOwner("service", "decision-runtime"),
+        )
+        try:
+            connector.delete(reference, context)
+            self.connectors.privacy.tombstone_copy(
+                copy["id"],
+                state="deleted",
+                retention={"mode": "deleted", "deletedAt": _now()},
+                context=context,
             )
-        return {
-            "schemaVersion": INFERENCE_SCHEMA,
-            "candidateId": candidate_id,
-            "promotionGeneration": promotion["generation"],
-            "answers": answers,
-            "evaluations": evaluations,
-        }
+        except ConnectorError:
+            # The registering inventory remains visible and retryable for deletion.
+            pass
 
     def _run_job(self, job_id: str) -> None:
         job: dict[str, Any] = {}
@@ -999,6 +1765,9 @@ class LocalRuntime:
         context: OperationContext,
     ) -> str:
         check_context(context)
+        taskset = self._resolve_taskset(taskset_digest)
+        provenance = _taskset_provenance(taskset)
+        self._assert_not_revoked(provenance, operation="candidate persistence")
         if (
             Path(result.adapter_name).name != result.adapter_name
             or result.adapter_name in ("manifest.json", "evaluation.json")
@@ -1052,23 +1821,78 @@ class LocalRuntime:
                     {"name": "evaluation.json"},
                 ),
             )
-            self.connectors.candidates.put(
-                Candidate(
+            candidate_copy = _runtime_copy(
+                "candidate",
+                candidate_id,
+                candidate_id,
+                provenance,
+                scope=self.scope,
+                connector=type(self.connectors.candidates).__name__,
+                created_at=manifest["createdAt"],
+                retention=dict(
+                    provenance.get("retention", {"mode": "delete_on_withdrawal"})
+                ),
+                promotion_state="eligible",
+                use_state="registering",
+            )
+            self.connectors.privacy.put_copy(candidate_copy, context)
+            self.connectors.privacy.put_copy(
+                _runtime_copy(
+                    "report",
+                    f"{candidate_id}:evaluation.json",
                     candidate_id,
-                    ContentDigest(
-                        "sha256",
-                        hashlib.sha256(
-                            _json_bytes(manifest)
-                            + b"\0"
-                            + result.adapter
-                            + _json_bytes(report)
-                        ).hexdigest(),
+                    provenance,
+                    scope=self.scope,
+                    connector=type(self.connectors.candidates).__name__,
+                    created_at=manifest["createdAt"],
+                    retention=dict(
+                        provenance.get("retention", {"mode": "delete_on_withdrawal"})
                     ),
-                    manifest,
-                    artifacts,
+                    parent_copy_ids=(candidate_copy["id"],),
+                    use_state="registering",
                 ),
                 context,
             )
+            try:
+                self.connectors.candidates.put(
+                    Candidate(
+                        candidate_id,
+                        ContentDigest(
+                            "sha256",
+                            hashlib.sha256(
+                                _json_bytes(manifest)
+                                + b"\0"
+                                + result.adapter
+                                + _json_bytes(report)
+                            ).hexdigest(),
+                        ),
+                        manifest,
+                        artifacts,
+                    ),
+                    context,
+                )
+                for copy_id in (
+                    candidate_copy["id"],
+                    _runtime_copy_id("report", f"{candidate_id}:evaluation.json"),
+                ):
+                    self.connectors.privacy.tombstone_copy(
+                        copy_id,
+                        state="active",
+                        retention=provenance["retention"],
+                        context=context,
+                    )
+            except ConnectorError:
+                for copy_id in (
+                    candidate_copy["id"],
+                    _runtime_copy_id("report", f"{candidate_id}:evaluation.json"),
+                ):
+                    self.connectors.privacy.tombstone_copy(
+                        copy_id,
+                        state="deleted",
+                        retention={"mode": "deleted", "deletedAt": _now()},
+                        context=context,
+                    )
+                raise
         except ConnectorError as error:
             raise _runtime_connector_failure(error) from None
         return candidate_id
@@ -1108,6 +1932,160 @@ class LocalRuntime:
         except ConnectorError as error:
             raise _runtime_connector_failure(error) from None
 
+    def _backfill_local_privacy_inventory(self) -> None:
+        context = self._operation_context(
+            f"privacy_backfill_{uuid.uuid4().hex}",
+            max_seconds=30,
+            owner=RuntimeOwner("service", "decision-runtime"),
+        )
+        try:
+            for taskset in self.connectors.tasksets.list(context):
+                self._record_taskset_copy(
+                    taskset,
+                    context,
+                    mounted=taskset.reference.startswith("mounted-taskset:"),
+                )
+            stored_candidates = {
+                candidate.id: candidate
+                for candidate in self.connectors.candidates.list(context)
+            }
+            for candidate in stored_candidates.values():
+                candidate_copy_id = _runtime_copy_id("candidate", candidate.id)
+                report_copy_id = _runtime_copy_id(
+                    "report", f"{candidate.id}:evaluation.json"
+                )
+                try:
+                    self.connectors.privacy.get_copy(candidate_copy_id, context)
+                    self.connectors.privacy.get_copy(report_copy_id, context)
+                except ConnectorError as error:
+                    if error.category != "not_found":
+                        raise
+                else:
+                    continue
+                manifest = candidate.manifest
+                taskset_digest_value = manifest.get("tasksetDigest")
+                if not isinstance(taskset_digest_value, str):
+                    raise RuntimeFailure(
+                        "candidate_provenance_missing",
+                        f"Candidate {candidate.id} does not name its taskset.",
+                        500,
+                    )
+                taskset = self._resolve_taskset(taskset_digest_value)
+                provenance = _taskset_provenance(taskset)
+                candidate_copy = _runtime_copy(
+                    "candidate",
+                    candidate.id,
+                    candidate.id,
+                    provenance,
+                    scope=self.scope,
+                    connector=type(self.connectors.candidates).__name__,
+                    created_at=manifest.get("createdAt"),
+                    retention=provenance["retention"],
+                    promotion_state="eligible",
+                )
+                try:
+                    self.connectors.privacy.get_copy(candidate_copy["id"], context)
+                except ConnectorError as error:
+                    if error.category != "not_found":
+                        raise
+                    self.connectors.privacy.put_copy(candidate_copy, context)
+                report_copy = _runtime_copy(
+                    "report",
+                    f"{candidate.id}:evaluation.json",
+                    candidate.id,
+                    provenance,
+                    scope=self.scope,
+                    connector=type(self.connectors.candidates).__name__,
+                    created_at=manifest.get("createdAt"),
+                    retention=provenance["retention"],
+                    parent_copy_ids=(candidate_copy["id"],),
+                )
+                try:
+                    self.connectors.privacy.get_copy(report_copy["id"], context)
+                except ConnectorError as error:
+                    if error.category != "not_found":
+                        raise
+                    self.connectors.privacy.put_copy(report_copy, context)
+            for taskset in self.connectors.tasksets.list(context):
+                cursor = None
+                while True:
+                    copies, cursor = self.connectors.privacy.list_copies(
+                        {"tasksetDigest": str(taskset.digest)},
+                        cursor=cursor,
+                        limit=100,
+                        context=context,
+                    )
+                    for copy in copies:
+                        if (
+                            copy["kind"] in ("candidate", "report")
+                            and copy["useState"] == "registering"
+                            and copy["storage"]["reference"] not in stored_candidates
+                        ):
+                            self.connectors.privacy.tombstone_copy(
+                                copy["id"],
+                                state="deleted",
+                                retention={"mode": "deleted", "deletedAt": _now()},
+                                context=context,
+                            )
+                    if cursor is None:
+                        break
+            for backend, connector in self.inference_connectors.items():
+                for result in connector.list_results(context):
+                    candidate_id = result["candidateId"]
+                    candidate_copy = self.connectors.privacy.get_copy(
+                        _runtime_copy_id("candidate", candidate_id),
+                        context,
+                    )
+                    provenance = _copy_provenance(candidate_copy)
+                    retry_copy = _runtime_copy(
+                        "inference",
+                        result["reference"],
+                        result["reference"],
+                        provenance,
+                        scope=self.scope,
+                        connector=backend,
+                        created_at=result["createdAt"],
+                        retention={"mode": "delete_on_withdrawal"},
+                        parent_copy_ids=(candidate_copy["id"],),
+                    )
+                    try:
+                        self.connectors.privacy.get_copy(retry_copy["id"], context)
+                    except ConnectorError as error:
+                        if error.category != "not_found":
+                            raise
+                        self.connectors.privacy.put_copy(retry_copy, context)
+        except ConnectorError as error:
+            raise _runtime_connector_failure(error) from None
+
+    def _recover_deletions(self) -> None:
+        context = self._operation_context(
+            f"deletion_recovery_{uuid.uuid4().hex}",
+            max_seconds=30,
+            owner=RuntimeOwner("service", "decision-runtime"),
+        )
+        try:
+            for receipt in self.connectors.privacy.list_deletions(
+                ("revoking", "pending"), context
+            ):
+                self._process_deletion(dict(receipt), context)
+        except ConnectorError as error:
+            raise _runtime_connector_failure(error) from None
+
+    def _reconcile_completed_deletions(self) -> None:
+        context = self._operation_context(
+            f"completed_deletion_recovery_{uuid.uuid4().hex}",
+            max_seconds=30,
+            owner=RuntimeOwner("service", "decision-runtime"),
+        )
+        try:
+            for receipt in self.connectors.privacy.list_deletions(
+                ("completed",), context
+            ):
+                if self._matching_copies(receipt["selectors"], context):
+                    self._process_deletion(dict(receipt), context)
+        except ConnectorError as error:
+            raise _runtime_connector_failure(error) from None
+
     def _recover_pending_promotions(
         self, context: OperationContext | None = None
     ) -> None:
@@ -1119,12 +2097,41 @@ class LocalRuntime:
         try:
             pending = self.local_connectors.candidates.pending_promotions_json(selected)
             for promotion in pending:
-                self._promotable_candidate(promotion["candidateId"])
+                try:
+                    self._promotable_candidate(promotion["candidateId"])
+                except RuntimeFailure as error:
+                    if error.code != "deletion_revoked":
+                        raise
+                    self.local_connectors.candidates.discard_pending_promotion(
+                        promotion["candidateId"],
+                        selected,
+                    )
             self.local_connectors.candidates.recover_promotion(selected)
         except ConnectorError as error:
             raise _runtime_connector_failure(error) from None
 
     def _promotable_candidate(self, candidate_id: str) -> dict[str, Any]:
+        context = self._operation_context(
+            f"candidate_privacy_{uuid.uuid4().hex}",
+            max_seconds=30,
+            owner=RuntimeOwner("service", "decision-runtime"),
+        )
+        try:
+            copy = self.connectors.privacy.get_copy(
+                _runtime_copy_id("candidate", candidate_id),
+                context,
+            )
+            self._assert_not_revoked(
+                _copy_provenance(copy), operation="promotion or inference"
+            )
+        except ConnectorError as error:
+            if error.category == "not_found":
+                raise RuntimeFailure(
+                    "candidate_provenance_missing",
+                    f"Candidate {candidate_id} has no runtime provenance.",
+                    500,
+                ) from None
+            raise _runtime_connector_failure(error) from None
         candidate = self.candidate(candidate_id)["manifest"]
         try:
             self._verify_taskset(candidate["tasksetDigest"])
@@ -1223,6 +2230,12 @@ class LocalRuntime:
             self._tasksets.move_to_end(digest)
             while len(self._tasksets) > TASKSET_CACHE_LIMIT:
                 self._tasksets.popitem(last=False)
+
+    def _evict_taskset(self, digest: str) -> None:
+        normalized = _taskset_digest_value(digest)
+        with self._lock:
+            self._tasksets.pop(normalized, None)
+            self._verified_taskset_directories.pop(normalized, None)
 
     def _acquire_credential(
         self, audience: str, context: OperationContext
@@ -1389,6 +2402,330 @@ def _taskset_digest_value(value: str | None) -> str:
             "taskset_digest_invalid",
             "tasksetDigest must be a SHA-256 digest.",
         ) from None
+
+
+def _manifest_provenance(
+    manifest: Mapping[str, Any], taskset_digest: str
+) -> dict[str, Any]:
+    source = manifest.get("provenance", {})
+    if not isinstance(source, Mapping):
+        source = {}
+
+    def strings(name: str) -> list[str]:
+        value = source.get(name, ())
+        if not isinstance(value, (list, tuple)) or not value or not all(
+            isinstance(item, str) and item for item in value
+        ):
+            raise RuntimeFailure(
+                "taskset_provenance_invalid",
+                f"The taskset manifest must name non-empty {name}.",
+            )
+        return sorted(set(value))
+
+    permitting = manifest.get("permittingGrants", ())
+    permitting_grants = (
+        [item for item in permitting if isinstance(item, Mapping)]
+        if isinstance(permitting, list)
+        else []
+    )
+    grant_ids = (
+        strings("grantIds")
+        if "grantIds" in source
+        else sorted(
+            {
+                item["id"]
+                for item in permitting_grants
+                if isinstance(item.get("id"), str) and item["id"]
+            }
+        )
+    )
+    purposes = (
+        strings("purposes")
+        if "purposes" in source
+        else sorted(
+            {
+                purpose
+                for item in permitting_grants
+                for purpose in item.get("purposes", ())
+                if isinstance(purpose, str) and purpose
+            }
+        )
+    )
+    review_digests = (
+        strings("reviewDigests")
+        if "reviewDigests" in source
+        else (
+            [manifest["reviewDigest"]]
+            if isinstance(manifest.get("reviewDigest"), str)
+            else []
+        )
+    )
+    evidence_digests = (
+        strings("evidenceDigests")
+        if "evidenceDigests" in source
+        else (
+            [manifest["evidenceDigest"]]
+            if isinstance(manifest.get("evidenceDigest"), str)
+            else []
+        )
+    )
+    if not grant_ids or not purposes or not review_digests or not evidence_digests:
+        raise RuntimeFailure(
+            "taskset_provenance_invalid",
+            "The taskset manifest must name permitting grants, purposes, review digests, "
+            "and evidence digests.",
+        )
+    if any(not _is_digest(value) for value in review_digests + evidence_digests):
+        raise RuntimeFailure(
+            "taskset_provenance_invalid",
+            "Taskset review and evidence digests must be SHA-256 digests.",
+        )
+    aggregate_evidence_digest = "sha256:" + hashlib.sha256(
+        _canonical_json_bytes(evidence_digests)
+    ).hexdigest()
+    declared_evidence_digest = source.get("evidenceDigest")
+    if declared_evidence_digest is not None and declared_evidence_digest != aggregate_evidence_digest:
+        raise RuntimeFailure(
+            "taskset_provenance_invalid",
+            "The taskset aggregate evidence digest does not match its evidence digests.",
+        )
+
+    export_id = manifest.get("exportId")
+    if not isinstance(export_id, str) or not export_id:
+        raise RuntimeFailure(
+            "taskset_provenance_invalid",
+            "The taskset manifest must name its source training export.",
+        )
+    export_digest = source.get("exportDigest")
+    if not _is_digest(export_digest):
+        raise RuntimeFailure(
+            "taskset_provenance_invalid",
+            "The taskset manifest must name its source export digest.",
+        )
+    return {
+        "sourceExportId": export_id,
+        "sourceExportDigest": export_digest,
+        "grantIds": grant_ids,
+        "purposes": purposes,
+        "reviewDigests": review_digests,
+        "evidenceDigests": evidence_digests,
+        "evidenceDigest": aggregate_evidence_digest,
+        "tasksetDigest": taskset_digest,
+        "retention": _normalize_retention(
+            manifest.get("retention"),
+            default_mode="delete_on_withdrawal",
+        ),
+    }
+
+
+def _taskset_provenance(taskset: TasksetArtifact) -> dict[str, Any]:
+    return _manifest_provenance(taskset.taskset.metadata, str(taskset.digest))
+
+
+def _runtime_copy_id(kind: str, reference: str) -> str:
+    return "copy_" + hashlib.sha256(f"{kind}\0{reference}".encode()).hexdigest()[:32]
+
+
+def _taskset_runtime_copy_ids(taskset_digest: str) -> tuple[str, str]:
+    digest = taskset_digest.removeprefix("sha256:")
+    return (
+        _runtime_copy_id("taskset", f"uploaded:uploaded-taskset:{digest}"),
+        _runtime_copy_id("taskset", f"mounted:mounted-taskset:{digest}"),
+    )
+
+
+def _runtime_copy(
+    kind: str,
+    identity: str,
+    reference: str,
+    provenance: Mapping[str, Any],
+    *,
+    scope: RuntimeScope,
+    connector: str,
+    created_at: Any,
+    retention: Mapping[str, Any],
+    promotion_state: str = "not_applicable",
+    parent_copy_ids: tuple[str, ...] = (),
+    use_state: str = "active",
+) -> dict[str, Any]:
+    return {
+        "schemaVersion": RUNTIME_COPY_SCHEMA,
+        "id": _runtime_copy_id(kind, identity),
+        "kind": kind,
+        "scope": {
+            "tenantId": scope.tenant_id,
+            "repository": scope.repository,
+        },
+        "sourceTrainingExportId": provenance["sourceExportId"],
+        "sourceTrainingExportDigest": provenance.get("sourceExportDigest"),
+        "permittingGrantIds": list(provenance.get("grantIds", ())),
+        "permittedPurposes": list(provenance.get("purposes", ())),
+        "reviewDigests": list(provenance.get("reviewDigests", ())),
+        "evidenceDigests": list(provenance.get("evidenceDigests", ())),
+        "evidenceDigest": provenance.get("evidenceDigest"),
+        "tasksetDigest": provenance["tasksetDigest"],
+        "runtimeCopyId": identity,
+        "storage": {"connector": connector, "reference": reference},
+        "createdAt": created_at if isinstance(created_at, str) else _now(),
+        "useState": use_state,
+        "promotionState": promotion_state,
+        "retention": _normalize_retention(retention),
+        "parentRuntimeCopyIds": list(parent_copy_ids),
+    }
+
+
+def _disclosure_selectors(selectors: Mapping[str, str]) -> dict[str, str]:
+    if not isinstance(selectors, Mapping):
+        raise RuntimeFailure("invalid_input", "Disclosure selectors must be an object.")
+    allowed = {"exportId", "grantId", "evidenceDigest", "tasksetDigest"}
+    selected = {
+        key: value
+        for key, value in selectors.items()
+        if key in allowed and isinstance(value, str) and value
+    }
+    if not selected or len(selected) != len(selectors):
+        raise RuntimeFailure(
+            "invalid_input",
+            "Name one or more exact exportId, grantId, evidenceDigest, or tasksetDigest selectors.",
+        )
+    return selected
+
+
+def _retention_request(retention: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    if retention is None:
+        return None
+    if (
+        not isinstance(retention, Mapping)
+        or retention.get("mode") != "retain"
+        or not isinstance(retention.get("legalReason"), str)
+        or not retention["legalReason"].strip()
+        or set(retention) - {"mode", "legalReason", "expiresAt"}
+    ):
+        raise RuntimeFailure(
+            "invalid_input",
+            "retention must document mode retain and a non-empty legalReason.",
+        )
+    result = {
+        "mode": "retain",
+        "legalReason": retention["legalReason"].strip(),
+    }
+    if "expiresAt" in retention:
+        if not isinstance(retention["expiresAt"], str) or not retention["expiresAt"]:
+            raise RuntimeFailure("invalid_input", "expiresAt must be a timestamp string.")
+        result["expiresAt"] = retention["expiresAt"]
+    return _normalize_retention(result)
+
+
+def _selectors_match_provenance(
+    selectors: Mapping[str, str], provenance: Mapping[str, Any]
+) -> bool:
+    values = {
+        "exportId": provenance.get("sourceExportId"),
+        "grantId": provenance.get("grantIds", ()),
+        "evidenceDigest": provenance.get("evidenceDigest"),
+        "tasksetDigest": provenance.get("tasksetDigest"),
+    }
+    return all(
+        selector in values[name]
+        if isinstance(values[name], (list, tuple))
+        else values[name] == selector
+        for name, selector in selectors.items()
+    )
+
+
+def _copy_provenance(copy: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "sourceExportId": copy.get("sourceTrainingExportId"),
+        "sourceExportDigest": copy.get("sourceTrainingExportDigest"),
+        "grantIds": copy.get("permittingGrantIds", ()),
+        "purposes": copy.get("permittedPurposes", ()),
+        "reviewDigests": copy.get("reviewDigests", ()),
+        "evidenceDigests": copy.get("evidenceDigests", ()),
+        "evidenceDigest": copy.get("evidenceDigest"),
+        "tasksetDigest": copy.get("tasksetDigest"),
+        "retention": copy.get("retention", {}),
+    }
+
+
+def _pending_item(copy: Mapping[str, Any], error: ConnectorError) -> dict[str, Any]:
+    return {
+        "kind": copy["kind"],
+        "runtimeCopyId": copy["id"],
+        "code": error.code,
+        "retryable": error.retryable
+        or error.category in ("conflict", "deadline_exceeded", "unavailable"),
+    }
+
+
+def _is_digest(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        ContentDigest("sha256", value.removeprefix("sha256:"))
+    except ValueError:
+        return False
+    return value.startswith("sha256:")
+
+
+def _canonical_json_bytes(value: Any) -> bytes:
+    return json.dumps(
+        value,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+
+
+def _normalize_retention(
+    value: Mapping[str, Any] | None,
+    *,
+    default_mode: str | None = None,
+) -> dict[str, Any]:
+    source = value if isinstance(value, Mapping) else {}
+    mode = source.get("mode", default_mode)
+    if not isinstance(mode, str) or not mode:
+        raise RuntimeFailure("invalid_input", "Retention needs a non-empty mode.")
+    normalized = {"mode": mode}
+    aliases = {"retainUntil": "expiresAt", "policy": None}
+    for key in ("reason", "legalReason", "authority", "expiresAt", "deletedAt"):
+        candidate = source.get(key)
+        if candidate is not None:
+            if not isinstance(candidate, str) or not candidate:
+                raise RuntimeFailure("invalid_input", f"Retention {key} must be a string.")
+            normalized[key] = candidate
+    if "retainUntil" in source and "expiresAt" not in normalized:
+        candidate = source["retainUntil"]
+        if not isinstance(candidate, str) or not candidate:
+            raise RuntimeFailure("invalid_input", "Retention retainUntil must be a string.")
+        normalized["expiresAt"] = candidate
+    for key in ("expiresAt", "deletedAt"):
+        candidate = normalized.get(key)
+        if candidate is not None:
+            try:
+                parsed = datetime.fromisoformat(candidate.replace("Z", "+00:00"))
+            except ValueError:
+                raise RuntimeFailure(
+                    "invalid_input",
+                    f"Retention {key} must be an ISO datetime.",
+                ) from None
+            if parsed.tzinfo is None:
+                raise RuntimeFailure(
+                    "invalid_input",
+                    f"Retention {key} must include a timezone.",
+                )
+    unknown = set(source) - {
+        "mode",
+        "policy",
+        "reason",
+        "legalReason",
+        "authority",
+        "expiresAt",
+        "retainUntil",
+        "deletedAt",
+    }
+    if unknown:
+        raise RuntimeFailure("invalid_input", "Retention has unsupported fields.")
+    return normalized
 
 
 def _taskset_bundle(
@@ -1951,7 +3288,12 @@ def _run_inference(
     )
     process.start()
     try:
-        process.join(max(0.0, context.deadline - time.monotonic()))
+        while process.is_alive():
+            context.cancellation.raise_if_requested()
+            remaining = context.deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            process.join(min(0.05, remaining))
         if process.is_alive():
             context.cancellation.cancel()
             _stop_process(process)
