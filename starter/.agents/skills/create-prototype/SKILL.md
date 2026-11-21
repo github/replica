@@ -37,10 +37,9 @@ Preserve the original request and every answer in session context throughout
 the work. A choice answers only its question, not unrelated scope. There is no
 mandatory brief file, schema, build-mode quiz or separate intake skill.
 
-Stay in the current target and worktree unless the user explicitly requests a
-different destination. A reference URL is not permission to fork, duplicate,
-publish, delete or activate anything. Approved references are 1:1 requirements
-except for the requested delta, not design inspiration.
+Stay in the current target and worktree unless the user explicitly requests a different destination. When a new branch is needed or the workspace has already assigned a branch for a new prototype, follow **Choose a prototype branch** in `AGENTS.md` before implementation. Check the publishing workflow before creating or renaming a branch through the approved workspace mechanism. This check does not authorize committing, pushing or publishing.
+
+A reference URL is not permission to fork, duplicate, publish, delete or activate anything. Approved references are 1:1 requirements except for the requested delta, not design inspiration.
 
 The selected create or normal iteration workflow reads the shared
 [authoring reference](./references/authoring.md) before implementation. A
