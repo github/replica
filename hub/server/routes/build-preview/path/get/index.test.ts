@@ -24,11 +24,12 @@ async function request(
   origin: string,
   path: string,
   headers: Record<string, string> = { cookie: "hub_session=member-session" },
+  method = "GET",
 ): Promise<RouteResponse> {
   return new Promise((resolve, reject) => {
     const url = new URL(origin)
     const outgoing = httpRequest(
-      { hostname: url.hostname, port: url.port, path, headers },
+      { hostname: url.hostname, port: url.port, path, headers, method },
       (response) => {
         const chunks: Buffer[] = []
         response.on("data", (chunk: Buffer) => chunks.push(chunk))
@@ -161,6 +162,43 @@ async function createFixture() {
 }
 
 describe("get()", () => {
+  it("rejects unsupported methods before checking sessions, targets or storage", async () => {
+    const { origin, mountPath, save, restore, findPathTargets, findArtifact, storage } =
+      await createFixture()
+    save("dist/assets/app.css", "private-asset")
+    const read = vi.spyOn(storage, "read")
+
+    for (const method of ["POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
+      const response = await request(
+        origin,
+        `${mountPath}/assets/app.css`,
+        { cookie: "hub_session=member-session" },
+        method,
+      )
+
+      expect.soft(response.status, method).toBe(404)
+    }
+    expect(restore).not.toHaveBeenCalled()
+    expect(findPathTargets).not.toHaveBeenCalled()
+    expect(findArtifact).not.toHaveBeenCalled()
+    expect(read).not.toHaveBeenCalled()
+  })
+
+  it("keeps GET and HEAD available while omitting the HEAD body", async () => {
+    const { origin, mountPath, save } = await createFixture()
+    save("dist/assets/app.css", "private-asset")
+    const headers = { cookie: "hub_session=member-session" }
+
+    const get = await request(origin, `${mountPath}/assets/app.css`, headers, "GET")
+    const head = await request(origin, `${mountPath}/assets/app.css`, headers, "HEAD")
+
+    expect(get.status).toBe(200)
+    expect(get.body.toString()).toBe("private-asset")
+    expect(head.status).toBe(200)
+    expect(head.body).toHaveLength(0)
+    expect(head.headers["content-length"]).toBe(get.headers["content-length"])
+  })
+
   it("serves mounted files, nested indexes and HTML routes without falling back for missing assets", async () => {
     const fixture = await createFixture()
     const { origin, mountPath, save, findPathTargets, isRepositoryVisible, viewer, target } =
@@ -299,6 +337,102 @@ describe("get()", () => {
 
       expect(denied.status).toBe(change === "session expiry" ? 401 : 404)
       expect(denied.body.toString()).not.toContain("private-asset")
+    },
+  )
+
+  it("denies the bridge when the same Build becomes a template during authorization", async () => {
+    const { origin, mountPath, preview, target, findPathTargets, findArtifact, storage } =
+      await createFixture()
+    preview.reviewBridgeSource = 'globalThis.reviewEnabled = "__REPLICA_REVIEW_ENABLED__";'
+    findPathTargets
+      .mockResolvedValueOnce([target])
+      .mockResolvedValue([{ ...target, template: true }])
+    const read = vi.spyOn(storage, "read")
+
+    const response = await request(origin, `${mountPath}/__replica/bridge/v1.js`)
+
+    expect(response.status).toBe(404)
+    expect(response.body.toString()).not.toContain('globalThis.reviewEnabled = "true"')
+    expect(findArtifact).not.toHaveBeenCalled()
+    expect(read).not.toHaveBeenCalled()
+  })
+
+  it("discards a named template screenshot when the same Build loses template eligibility during its read", async () => {
+    const { origin, mountPath, target, save, storage, findPathTargets } = await createFixture()
+    findPathTargets.mockResolvedValue([{ ...target, template: true }])
+    save("screenshots/templates/welcome/desktop.png", Uint8Array.of(7, 8))
+    const read = storage.read.bind(storage)
+    const reading = vi.spyOn(storage, "read").mockImplementation(async (key) => {
+      const result = await read(key)
+      findPathTargets.mockResolvedValue([target])
+      return result
+    })
+
+    const response = await request(
+      origin,
+      `${mountPath}/__replica/screenshots/templates/welcome/desktop.png`,
+    )
+
+    expect(reading).toHaveBeenCalledOnce()
+    expect(response.status).toBe(404)
+    expect(response.body).toHaveLength(0)
+  })
+
+  it.each(["identity", "locality"])(
+    "denies a template bridge when repository %s changes without changing the Build",
+    async (change) => {
+      const { origin, mountPath, target, findPathTargets, isRepositoryVisible } =
+        await createFixture()
+      const initial = { ...target, template: true }
+      const changed = {
+        ...initial,
+        repository:
+          change === "identity"
+            ? { ...target.repository, id: randomUUID() }
+            : { ...target.repository, local: true },
+      }
+      isRepositoryVisible.mockImplementation((_viewer, id) =>
+        Promise.resolve(id === target.repository.id),
+      )
+      findPathTargets.mockResolvedValueOnce([initial]).mockResolvedValue([changed])
+
+      const response = await request(origin, `${mountPath}/__replica/bridge/v1.js`)
+
+      expect(response.status).toBe(404)
+      expect(response.body).toHaveLength(0)
+    },
+  )
+
+  it("serves the hosted bridge for an encoded reserved path instead of a stored shadow", async () => {
+    const { origin, mountPath, save, findArtifact, storage } = await createFixture()
+    save("dist/__replica/bridge/v1.js", "globalThis.shadowedBridge = true")
+    const read = vi.spyOn(storage, "read")
+
+    const canonical = await request(origin, `${mountPath}/__replica/bridge/v1.js`)
+    const encoded = await request(origin, `${mountPath}/%5f_replica/bridge/v1.js`)
+
+    expect(canonical.status).toBe(200)
+    expect(encoded.status).toBe(200)
+    expect(encoded.body).toEqual(canonical.body)
+    expect(findArtifact).not.toHaveBeenCalled()
+    expect(read).not.toHaveBeenCalled()
+  })
+
+  it.each(["/%5f_replica/unknown", "/__replica"])(
+    "rejects reserved path %s before an artifact lookup or SPA fallback",
+    async (path) => {
+      const { origin, mountPath, save, findArtifact, storage } = await createFixture()
+      save("dist/index.html", "<html><head></head><body>Private SPA</body></html>")
+      const read = vi.spyOn(storage, "read")
+
+      const response = await request(origin, `${mountPath}${path}`, {
+        cookie: "hub_session=member-session",
+        accept: "text/html",
+      })
+
+      expect(response.status).toBe(404)
+      expect(findArtifact).not.toHaveBeenCalled()
+      expect(read).not.toHaveBeenCalled()
     },
   )
 

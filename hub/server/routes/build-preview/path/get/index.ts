@@ -20,6 +20,10 @@ export function get(
     response.setHeader("X-Content-Type-Options", "nosniff")
     response.setHeader("Referrer-Policy", "no-referrer")
     try {
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        response.status(404).end()
+        return
+      }
       const rawPath = request.originalUrl.split("?")[0] ?? ""
       const match = /^\/previews\/github\/([1-9]\d{0,18})\/([1-9]\d{0,18})(\/.*)?$/.exec(rawPath)
       const path = match?.[3] ?? "/"
@@ -69,7 +73,14 @@ export function get(
         )
           return false
         const live = await preview.findPathTargets?.(match![1]!, match![2]!)
-        return live?.length === 1 && live[0]?.buildId === target.buildId
+        const currentTarget = live?.length === 1 ? live[0] : undefined
+        return Boolean(
+          currentTarget &&
+          currentTarget.buildId === target.buildId &&
+          currentTarget.template === target.template &&
+          currentTarget.repository.id === target.repository.id &&
+          currentTarget.repository.local === target.repository.local,
+        )
       }
       if (!(await authorized())) {
         response.status(404).end()
@@ -86,7 +97,7 @@ export function get(
       )
       response.setHeader("Cross-Origin-Resource-Policy", "same-origin")
       response.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-      if (path === "/__replica/bridge/v1.js") {
+      if (decoded === "/__replica/bridge/v1.js") {
         const review = (preview.reviewBridgeSource ?? "")
           .replaceAll('"__REPLICA_HUB_ORIGIN__"', JSON.stringify(preview.applicationOrigin))
           .replaceAll('"__REPLICA_REVIEW_ENABLED__"', JSON.stringify(String(!target.template)))
@@ -99,9 +110,9 @@ export function get(
       }
       const screenshot =
         readTemplateScreenshotPath(path) ??
-        (path === "/__replica/screenshots/narrow.png" ? "screenshots/narrow.png" : null)
+        (decoded === "/__replica/screenshots/narrow.png" ? "screenshots/narrow.png" : null)
       if (
-        (path.startsWith("/__replica/") && !screenshot) ||
+        ((decoded === "/__replica" || decoded.startsWith("/__replica/")) && !screenshot) ||
         (screenshot &&
           screenshot !== "screenshots/desktop.png" &&
           screenshot !== "screenshots/narrow.png" &&

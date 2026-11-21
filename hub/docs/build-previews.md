@@ -30,7 +30,7 @@ This allowance bounds concurrent buffered preview files, not total process memor
 
 ## Access and compatibility
 
-Every private document, asset, screenshot, and bridge request requires a live Hub session and repository visibility for that exact Build. Hub checks authority again after reading stored bytes. Session expiry, repository removal, branch retirement, or access revocation denies subsequent requests. Numeric path IDs are locators, not capabilities; anonymous users and share cookies cannot authorize this mount.
+Every private document, asset, screenshot, and bridge request requires a live Hub session and repository visibility for that exact Build. Hub checks authority again after reading stored bytes. Session expiry, repository removal, branch retirement, access revocation, or a change in template classification denies the request. Numeric path IDs are locators, not capabilities; anonymous users and share cookies cannot authorize this mount.
 
 Resources use private revalidation rather than a fresh immutable browser cache, so the browser cannot skip the next authorization check. Screenshots and bridge responses are private and not stored. Already returned bytes cannot be recalled.
 
@@ -42,7 +42,7 @@ Private wildcard grants, cookies, authorization endpoints, and the `preview_orig
 
 ## File and bridge behavior
 
-The `/previews/` mount precedes the Hub SPA fallback, including when preview serving is disabled. Preview misses never return the Hub page. The canonical root without its final slash redirects with 308 and preserves its query.
+The `/previews/` mount accepts only GET and HEAD and precedes the Hub SPA fallback, including when preview serving is disabled. Preview misses never return the Hub page. The canonical root without its final slash redirects with 308 and preserves its query.
 
 Hub rejects malformed provider IDs, traversal, encoded separators, backslashes, controls, and unsafe package paths before storage access. `/` serves `dist/index.html`; a directory first tries its nested `index.html`. Missing extensionless HTML navigations may use the root SPA document. Dotted routes receive that fallback only when the saved template manifest declares them. Missing scripts and other assets return 404. Content types come from the stored path and responses disable MIME sniffing.
 
