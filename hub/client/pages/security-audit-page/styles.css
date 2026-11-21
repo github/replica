@@ -28,6 +28,10 @@
   max-width: 100%;
 }
 
+.security-audit-page__scope button > span:first-child {
+  max-width: none;
+}
+
 .security-audit-page__scope button > span:first-child,
 .security-audit-page__scope button > span:first-child > span {
   min-width: 0;
