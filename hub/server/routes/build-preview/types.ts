@@ -1,22 +1,12 @@
 import type { ArtifactStorage } from "../../domains/artifacts/create-artifact-storage/types.ts"
-import type { BuildPreviewTarget } from "../../repositories/build-artifacts/find-build-preview-target/index.ts"
 
 export interface BuildPreviewRouteDependencies {
   applicationOrigin: string
-  previewBaseOrigin: string
+  previewBaseOrigin?: string
   encryptionKey: Buffer
   storage: ArtifactStorage
   bridgeSource: string
   reviewBridgeSource?: string
-  findTargetById(
-    buildId: string,
-    target: BuildPreviewTarget,
-  ): Promise<{
-    buildId: string
-    startPage: string
-    artifactPath: string
-    templateRepository?: { id: string; local: boolean }
-  } | null>
   findArtifact(
     buildId: string,
     path: string,
@@ -25,5 +15,8 @@ export interface BuildPreviewRouteDependencies {
     shareLinkId: string,
     buildId: string,
   ): Promise<{ expiresAt: Date; startPage: string; hosted?: true } | null>
-  restoreSession?(sessionDigest: string): Promise<object | null>
+  findPathTargets?(
+    repositoryId: string,
+    workflowRunId: string,
+  ): Promise<{ buildId: string; repository: { id: string; local: boolean }; template: boolean }[]>
 }

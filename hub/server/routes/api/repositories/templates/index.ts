@@ -2,8 +2,6 @@ import type { Request, RequestHandler } from "express"
 import { z } from "zod"
 
 import { hashAuthenticationValue } from "../../../../domains/authentication/hash-authentication-value/index.ts"
-import { createBuildPreviewOrigin } from "../../../../domains/build-preview/create-build-preview-origin/index.ts"
-import { createPreviewGrant } from "../../../../domains/build-preview/create-preview-grant/index.ts"
 import {
   readTemplateManifest,
   TemplateManifestUnavailable,
@@ -37,7 +35,6 @@ const accessQuery = z.discriminatedUnion("target", [
   z.strictObject({
     target: z.literal("preview"),
     route: z.string().max(2048),
-    preview_origin: z.url(),
   }),
   z.strictObject({
     target: z.literal("desktop"),
@@ -67,7 +64,8 @@ function presentTemplate(
   preview: BuildPreviewRouteDependencies | undefined,
   initialRoute: string,
 ) {
-  const previewable = preview && build?.artifacts.some(({ path }) => path === "dist/index.html")
+  const previewable =
+    preview && build?.mountPath && build?.artifacts.some(({ path }) => path === "dist/index.html")
   function screenshot(theme: "light" | "dark") {
     return previewable &&
       build?.artifacts.some(({ path }) => path === templateScreenshotPath(entry.id, theme))
@@ -86,7 +84,6 @@ function presentTemplate(
         ? accessUrl(preview, repositoryId, build.id, {
             target: "preview",
             route: initialRoute,
-            preview_origin: createBuildPreviewOrigin(build.id, preview.previewBaseOrigin),
           })
         : null,
     screenshotUrl: screenshot("light"),
@@ -218,40 +215,32 @@ export function templateRoutes(
         if (!preview || !buildId.success || !query.success) return null
         const snapshot = await load(viewer, repositoryId, buildId.data)
         if (!snapshot?.build?.artifacts.some(({ path }) => path === "dist/index.html")) return null
-        const origin = createBuildPreviewOrigin(buildId.data, preview.previewBaseOrigin)
+        const mountPath = snapshot.build.mountPath
+        if (!mountPath) return null
+        const origin = preview.applicationOrigin
         if (!(await product.isRepositoryVisible(viewer, repositoryId))) return null
         if (query.data.target === "preview") {
           const route = templateReturnPath(query.data.route)
-          return route && query.data.preview_origin === origin
-            ? { buildId: buildId.data, origin, route }
-            : null
+          return route ? { buildId: buildId.data, origin, mountPath, route } : null
         }
         const { template, theme } = query.data
         if (!snapshot.templates.some(({ id }) => id === template)) return null
         const screenshotPath = templateScreenshotPath(template, theme)
         return snapshot.build.artifacts.some(({ path }) => path === screenshotPath)
-          ? { buildId: buildId.data, origin, screenshotPath }
+          ? { buildId: buildId.data, origin, mountPath, screenshotPath }
           : null
       },
-      (response, result, cookie) => {
+      (response, result) => {
         if (!preview) return
-        const destination = new URL("/__replica/authorize", result.origin)
-        destination.searchParams.set(
-          "grant",
-          createPreviewGrant(
-            {
-              buildId: result.buildId,
-              target: "template",
-              screenshotPath: result.screenshotPath,
-              expiresAt: new Date(Date.now() + 30_000),
-              sessionDigest: hashAuthenticationValue(cookie),
-            },
-            preview.encryptionKey,
-          ),
-        )
-        if (result.route) destination.searchParams.set("route", result.route)
+        response.setHeader("Cache-Control", "private, no-store")
+        const route = result.screenshotPath
+          ? `/__replica/${result.screenshotPath}`
+          : result.route || "/"
         response.setHeader("Referrer-Policy", "no-referrer")
-        response.redirect(302, destination.toString())
+        response.redirect(
+          302,
+          new URL(`${result.mountPath}${route.slice(1)}`, result.origin).toString(),
+        )
       },
     ),
   }

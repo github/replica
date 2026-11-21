@@ -2,6 +2,7 @@ import { generateKeyPairSync } from "node:crypto"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { Prisma } from "./generated/prisma/client.ts"
+import { createConfiguredArtifactStorage } from "./domains/artifacts/create-configured-artifact-storage"
 import { logger } from "./integrations/pino"
 import { runApi } from "./run-api"
 import { startServerProcesses } from "./start-server-processes"
@@ -68,6 +69,7 @@ describe("server runtime", () => {
     vi.doUnmock("./routes/api/product/create-product-route-dependencies/index.ts")
     vi.doUnmock("./routes/api/settings/github/create-github-setup-route-dependencies/index.ts")
     vi.doUnmock("./routes/api/github/webhooks/create-github-webhook-route-dependencies/index.ts")
+    vi.doUnmock("./routes/build-preview/create-build-preview-route-dependencies/index.ts")
     vi.mocked(parseRuntimeConfig).mockReturnValue(apiConfiguration)
     vi.mocked(runApi).mockResolvedValue(undefined)
     vi.spyOn(process, "exit").mockImplementation((code) => {
@@ -381,7 +383,7 @@ describe("server runtime", () => {
     )
   })
 
-  it("loads route-owned authentication composition when auth is configured", async () => {
+  it("composes authenticated private previews without a wildcard preview origin", async () => {
     const createAuthenticationRouteDependencies = vi.fn()
     const createCopilotConnectionRouteDependencies = vi.fn()
     const createLearningsRouteDependencies = vi.fn()
@@ -401,6 +403,19 @@ describe("server runtime", () => {
     }
     configureSharedSettings()
     configureGitHubApp()
+    vi.stubEnv("HUB_PREVIEW_ORIGIN", undefined)
+    const storage = {
+      isReady: vi.fn().mockResolvedValue(true),
+      read: vi.fn(),
+      write: vi.fn(),
+      delete: vi.fn(),
+    }
+    vi.mocked(createConfiguredArtifactStorage).mockResolvedValue(storage)
+    const preview = { applicationOrigin: "https://hub.example.test", storage }
+    const createBuildPreviewRouteDependencies = vi.fn().mockReturnValue(preview)
+    vi.doMock("./routes/build-preview/create-build-preview-route-dependencies/index.ts", () => ({
+      createBuildPreviewRouteDependencies,
+    }))
     const copilotConnection = {
       applicationOrigin: "https://hub.example.test",
     }
@@ -410,6 +425,7 @@ describe("server runtime", () => {
     vi.mocked(parseRuntimeConfig).mockReturnValue({
       ...apiConfiguration,
       databaseUrl: "postgresql://hub.example.test/replica",
+      hasArtifactStorage: true,
     })
     createAuthenticationRouteDependencies.mockResolvedValue(authentication)
     createCopilotConnectionRouteDependencies.mockResolvedValue(copilotConnection)
@@ -446,6 +462,10 @@ describe("server runtime", () => {
 
     expect(createAuthenticationRouteDependencies).toHaveBeenCalledWith(process.env)
     expect(createProductRouteDependencies).toHaveBeenCalledOnce()
+    expect(createProductRouteDependencies).toHaveBeenCalledWith(
+      expect.objectContaining({ applicationOrigin: "https://hub.example.test" }),
+    )
+    expect(createBuildPreviewRouteDependencies).toHaveBeenCalledWith(process.env, storage)
     expect(createCopilotConnectionRouteDependencies).toHaveBeenCalledWith(
       process.env,
       logger,
@@ -465,6 +485,7 @@ describe("server runtime", () => {
         githubSetup,
         learnings,
         product,
+        preview,
       }),
     )
   })

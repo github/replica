@@ -5,8 +5,6 @@ import type { AddressInfo } from "node:net"
 import express from "express"
 import { describe, expect, it, vi, type Mock } from "vitest"
 
-import { hashAuthenticationValue } from "../../../../../../../domains/authentication/hash-authentication-value"
-import { readPreviewGrant } from "../../../../../../../domains/build-preview/read-preview-grant"
 import type { CurrentSessionDependencies } from "../../../../../auth/types"
 import type { ProductRouteDependencies } from "../../../../../product/types"
 import type { BuildPreviewRouteDependencies } from "../../../../../../build-preview/types"
@@ -30,6 +28,7 @@ async function withAccessRoute(
     membershipId: randomUUID(),
     userId: randomUUID(),
     provider: "github",
+    sessionProvider: "github",
     login: "mona",
     name: "Mona",
     role: "MEMBER" as const,
@@ -46,11 +45,11 @@ async function withAccessRoute(
       buildId: randomUUID(),
       startPage: "/checkout",
       artifactPath: "dist/index.html",
+      mountPath: "/previews/github/2001/3002/",
     }),
   }
   const preview: BuildPreviewRouteDependencies = {
     applicationOrigin: "https://hub.example.com",
-    previewBaseOrigin: "https://preview.example.com",
     encryptionKey: randomBytes(32),
     storage: {
       isReady: vi.fn(),
@@ -59,8 +58,8 @@ async function withAccessRoute(
       delete: vi.fn(),
     },
     bridgeSource: "",
-    findTargetById: vi.fn(),
     findArtifact: vi.fn(),
+    findPathTargets: vi.fn(),
   }
   const app = express()
   app.get(
@@ -94,8 +93,8 @@ describe("get()", () => {
     })
   })
 
-  it("redirects authorized members to a short-lived Build-origin grant", async () => {
-    await withAccessRoute(async (url, product, preview) => {
+  it("redirects a UUID Build access URL to its fixed prefix while preserving the requested route", async () => {
+    await withAccessRoute(async (url, product) => {
       const request = new URL(url)
       request.searchParams.set("target", "preview")
       request.searchParams.set("route", "/checkout?step=shipping#address")
@@ -106,14 +105,10 @@ describe("get()", () => {
 
       expect(response.status).toBe(302)
       const destination = new URL(response.headers.get("location")!)
-      expect(destination.origin).toMatch(/^https:\/\/[\da-f-]+\.preview\.example\.com$/)
-      expect(destination.pathname).toBe("/__replica/authorize")
-      const grant = readPreviewGrant(destination.searchParams.get("grant")!, preview.encryptionKey)
-      expect(grant).toMatchObject({
-        target: "preview",
-        sessionDigest: hashAuthenticationValue("member-session"),
-      })
-      expect(destination.searchParams.get("route")).toBe("/checkout?step=shipping#address")
+      expect(destination.toString()).toBe(
+        "https://hub.example.com/previews/github/2001/3002/checkout?step=shipping#address",
+      )
+      expect(response.headers.get("set-cookie")).toBeNull()
       expect(response.headers.get("cache-control")).toBe("no-store")
       expect(response.headers.get("referrer-policy")).toBe("no-referrer")
       const [repositoryId, prototypeId] = new URL(url).pathname.slice(1).split("/")
@@ -133,10 +128,95 @@ describe("get()", () => {
         headers: { cookie: "hub_session=member-session" },
         redirect: "manual",
       })
+      expect(response.status).toBe(404)
+      expect(response.headers.get("location")).toBeNull()
+    })
+  })
+
+  it.each(["desktop", "narrow"])("redirects %s access to the same fixed prefix", async (target) => {
+    await withAccessRoute(async (url) => {
+      const response = await fetch(`${url}?target=${target}`, {
+        headers: { cookie: "hub_session=member-session" },
+        redirect: "manual",
+      })
+
+      expect(response.status).toBe(302)
+      expect(response.headers.get("location")).toBe(
+        `https://hub.example.com/previews/github/2001/3002/__replica/screenshots/${target}.png`,
+      )
+    })
+  })
+
+  it("does not use a public-share wildcard when the Build has no canonical GitHub identifiers", async () => {
+    await withAccessRoute(async (url, product, preview) => {
+      preview.previewBaseOrigin = "https://share.example.net"
+      product.findBuildPreviewTarget.mockResolvedValue({
+        buildId: randomUUID(),
+        startPage: "/",
+        artifactPath: "dist/index.html",
+        mountPath: null,
+      })
+      const response = await fetch(`${url}?target=preview`, {
+        headers: { cookie: "hub_session=member-session" },
+        redirect: "manual",
+      })
+
+      expect(response.status).toBe(404)
+      expect(response.headers.get("location")).toBeNull()
+      expect(response.headers.get("set-cookie")).toBeNull()
+    })
+  })
+
+  it("does not redirect a fixed-prefix Build after repository access is revoked", async () => {
+    await withAccessRoute(async (url, product) => {
+      vi.mocked(product.isRepositoryVisible).mockResolvedValue(false)
+
+      const response = await fetch(`${url}?target=preview`, {
+        headers: { cookie: "hub_session=member-session" },
+        redirect: "manual",
+      })
 
       expect(response.status).toBe(404)
       expect(response.headers.get("location")).toBeNull()
     })
+  })
+
+  it("uses the same unavailable response for an invisible identifierless Build and an absent target", async () => {
+    const viewer = {
+      membershipId: randomUUID(),
+      userId: randomUUID(),
+      provider: "github",
+      sessionProvider: "github",
+      login: "mona",
+      name: "Mona",
+      role: "MEMBER" as const,
+    }
+    const restore = vi.fn<CurrentSessionDependencies["restore"]>()
+    await withAccessRoute(async (url, product) => {
+      product.findBuildPreviewTarget.mockResolvedValue({
+        buildId: randomUUID(),
+        startPage: "/",
+        artifactPath: "dist/index.html",
+        mountPath: null,
+      })
+      restore.mockResolvedValueOnce(viewer).mockImplementation(() => {
+        vi.mocked(product.isRepositoryVisible).mockResolvedValue(false)
+        return Promise.resolve(viewer)
+      })
+      const headers = { cookie: "hub_session=member-session" }
+      const invisible = await fetch(`${url}?target=preview`, { headers, redirect: "manual" })
+      expect(invisible.status).toBe(404)
+      expect(product.findBuildPreviewTarget).toHaveBeenCalledOnce()
+
+      restore.mockResolvedValue(viewer)
+      vi.mocked(product.isRepositoryVisible).mockResolvedValue(true)
+      product.findBuildPreviewTarget.mockResolvedValue(null)
+      const absent = await fetch(`${url}?target=preview`, { headers, redirect: "manual" })
+      expect(absent.status).toBe(404)
+      expect(await invisible.json()).toEqual(await absent.json())
+      expect(invisible.headers.get("location")).toBeNull()
+      expect(absent.headers.get("location")).toBeNull()
+    }, restore)
   })
 
   it("discards the target when session authority changes during the read", async () => {
@@ -165,21 +245,6 @@ describe("get()", () => {
     }, restore)
   })
 
-  it("rejects a tampered Build origin hint", async () => {
-    await withAccessRoute(async (url) => {
-      const request = new URL(url)
-      request.searchParams.set("target", "preview")
-      request.searchParams.set("preview_origin", "https://untrusted.example.com")
-      const response = await fetch(request, {
-        headers: { cookie: "hub_session=member-session" },
-        redirect: "manual",
-      })
-
-      expect(response.status).toBe(400)
-      expect(response.headers.get("location")).toBeNull()
-    })
-  })
-
   it("rejects an unsafe deep-link route", async () => {
     await withAccessRoute(async (url) => {
       const request = new URL(url)
@@ -195,8 +260,8 @@ describe("get()", () => {
     })
   })
 
-  it("carries long valid routes outside the bounded encrypted grant", async () => {
-    await withAccessRoute(async (url, _product, preview) => {
+  it("preserves long valid routes in the canonical redirect", async () => {
+    await withAccessRoute(async (url) => {
       const route = `/${"a".repeat(1500)}`
       const request = new URL(url)
       request.searchParams.set("target", "preview")
@@ -208,10 +273,7 @@ describe("get()", () => {
 
       expect(response.status).toBe(302)
       const destination = new URL(response.headers.get("location")!)
-      expect(destination.searchParams.get("route")).toBe(route)
-      expect(
-        readPreviewGrant(destination.searchParams.get("grant")!, preview.encryptionKey),
-      ).toMatchObject({ target: "preview" })
+      expect(destination.pathname).toBe(`/previews/github/2001/3002${route}`)
     })
   })
 })

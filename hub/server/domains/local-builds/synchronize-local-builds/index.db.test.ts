@@ -256,6 +256,7 @@ describe("synchronizeLocalBuilds()", () => {
         buildId: build.id,
         startPage: "/",
         artifactPath: expected.path,
+        mountPath: null,
       })
       if (!target) throw new Error(`Missing ${expected.target} preview target.`)
 

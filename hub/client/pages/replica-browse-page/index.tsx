@@ -15,6 +15,7 @@ import { PrototypeWorkspace } from "@features/prototype-workspace"
 import { useCopilotHandoff } from "@hooks/use-copilot-handoff"
 import { createPrototypeSubmission } from "@utils/create-prototype-submission"
 import { createPreviewPrototypePrompt } from "@utils/create-preview-prototype-prompt"
+import { getPreviewBasePath } from "@utils/prototype-controls/preview-base-path.mjs"
 
 import type { ReplicaBrowsePageProps } from "./types"
 
@@ -82,7 +83,7 @@ export function ReplicaBrowsePage({
   let address = data.selectedBuild?.previewUrl ?? ""
   if (address && route) {
     const url = new URL(address)
-    url.pathname = route.pathname
+    url.pathname = `${getPreviewBasePath(url.pathname)}${route.pathname.slice(1)}`
     url.search = route.search
     url.hash = route.hash
     address = url.toString()

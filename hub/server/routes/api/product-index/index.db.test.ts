@@ -198,9 +198,8 @@ describe("real product index", () => {
 
   it("pins the gallery screenshot to the newest eligible Build without returning Build history", async () => {
     const applicationOrigin = "http://127.0.0.1:5173"
-    const previewBaseOrigin = "http://preview.localhost:3001"
     const { id: repositoryId } = await prisma.repository.create({
-      data: { nameWithOwner: "team/design", defaultBranch: "main" },
+      data: { githubRepositoryId: 2001n, nameWithOwner: "team/design", defaultBranch: "main" },
     })
     const registeredAt = new Date("2026-10-01")
     const entry = { kind: "dist", path: "dist/index.html" } as const
@@ -231,6 +230,7 @@ describe("real product index", () => {
               id: reviewBuildId,
               number: 2,
               state: "successful",
+              githubWorkflowRunId: 3002n,
               createdAt: new Date("2026-10-03"),
               artifacts: artifacts(entry, desktop),
             },
@@ -275,7 +275,7 @@ describe("real product index", () => {
       name: "Mona",
       role: "MEMBER",
     })
-    const product = createProductRouteDependencies({ applicationOrigin, previewBaseOrigin })
+    const product = createProductRouteDependencies({ applicationOrigin })
     await withServer(restore, product, async (baseUrl) => {
       const response = await fetch(`${baseUrl}/api/repositories/${repositoryId}`, {
         headers: { cookie: "hub_session=member-session" },
@@ -298,12 +298,9 @@ describe("real product index", () => {
       const screenshotUrl = new URL(desktopScreenshotUrl ?? "")
       expect(screenshotUrl.origin).toBe(applicationOrigin)
       expect(screenshotUrl.pathname).toBe(
-        `/api/repositories/${repositoryId}/prototypes/${prototypeId}/builds/2/access`,
+        "/previews/github/2001/3002/__replica/screenshots/desktop.png",
       )
-      expect(screenshotUrl.searchParams.get("target")).toBe("desktop")
-      expect([null, `http://${reviewBuildId}.preview.localhost:3001`]).toContain(
-        screenshotUrl.searchParams.get("preview_origin"),
-      )
+      expect(screenshotUrl.search).toBe("")
       expect(index.prototypes.find(({ id }) => id === previewOnlyPrototypeId)).toMatchObject({
         reviewBuild: { number: 1, desktopScreenshotUrl: null },
         builds: [],

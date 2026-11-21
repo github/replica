@@ -15,12 +15,12 @@ export function createPreviewBridgeTestHarness() {
   const windows: JSDOM[] = []
   const animationFrameTimers = new Map<JSDOM, Set<number>>()
 
-  function bridgeWindow({ reviewEnabled = true } = {}) {
+  function bridgeWindow({ reviewEnabled = true, url = PREVIEW_ORIGIN } = {}) {
     const parent = new JSDOM("", { url: HUB_ORIGIN })
     const preview = new JSDOM("<!doctype html><body></body>", {
       pretendToBeVisual: true,
       runScripts: "outside-only",
-      url: PREVIEW_ORIGIN,
+      url,
     })
     windows.push(parent, preview)
     Object.defineProperty(preview.window, "parent", { value: parent.window })

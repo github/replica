@@ -6,6 +6,7 @@ import {
 } from "./controls.mjs"
 import { targetIssue } from "./dom-target.mjs"
 import { controlOrder } from "./controls-validation.mjs"
+import { getPreviewBasePath } from "./preview-base-path.mjs"
 
 export const CONTROLS_DOCUMENT_BYTES = 256_000
 
@@ -642,8 +643,8 @@ export function installBindings(input) {
 }
 
 /** Reads only this page's static definitions; ordinary apps can omit the document. */
-export async function loadBindings() {
-  const response = await fetch("/controls.replica.json", {
+export async function loadBindings(basePath = getPreviewBasePath(window.location.pathname)) {
+  const response = await fetch(`${basePath}controls.replica.json`, {
     credentials: "same-origin",
     redirect: "error",
   })

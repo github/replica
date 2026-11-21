@@ -239,18 +239,22 @@ it("ignores another window even when it claims the registered parent origin", ()
   expect(post).not.toHaveBeenCalled()
 })
 
-it("does not activate local canvas review on a Hub-served preview", () => {
-  document.body.innerHTML = '<script src="/__replica/bridge/v1.js"></script>'
-  const post = vi.spyOn(window, "postMessage")
-  window.dispatchEvent(
-    new MessageEvent("message", {
-      origin: "http://127.0.0.1:1234",
-      source: window,
-      data: { type: "replica:canvas:request-ready", nonce: "hub-preview" },
-    }),
-  )
-  expect(post).not.toHaveBeenCalled()
-})
+it.each(["/", "/previews/github/123/456/"])(
+  "leaves review ownership with the hosted bridge at %s",
+  (base) => {
+    window.history.replaceState({}, "", `${base}settings`)
+    document.body.innerHTML = `<script src="${base}__replica/bridge/v1.js"></script>`
+    const post = vi.spyOn(window, "postMessage")
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        origin: "http://127.0.0.1:1234",
+        source: window,
+        data: { type: "replica:canvas:request-ready", nonce: "hub-preview" },
+      }),
+    )
+    expect(post).not.toHaveBeenCalled()
+  },
+)
 
 it("places a marker only for a uniquely matched element from the local canvas", () => {
   document.body.innerHTML =

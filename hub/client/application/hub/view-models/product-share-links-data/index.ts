@@ -16,8 +16,7 @@ export function productShareLinksData(
   const { repository, prototype, selectedBuild } = resource
   const hosted = prototype.canManageShareLinks !== undefined
   const base = `/repositories/${repository.id}/prototypes/${prototype.id}`
-  const selected =
-    selectedBuild?.state === "successful" && selectedBuild.previewUrl ? selectedBuild : null
+  const selected = selectedBuild?.state === "successful" ? selectedBuild : null
   const now = Date.now()
   const active = response.links.filter(
     (link) => response.enabled && !link.revokedAt && Date.parse(link.expiresAt) > now,
@@ -35,7 +34,7 @@ export function productShareLinksData(
       ? { newPrototypePath: resourcePath(`/repositories/${repository.id}/new`, search) }
       : {}),
     buildOptions: prototype.builds
-      .filter((build) => build.state === "successful" && build.previewUrl)
+      .filter((build) => build.state === "successful")
       .map((build) => ({
         number: build.number,
         label: `v${build.number}`,

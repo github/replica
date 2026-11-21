@@ -126,12 +126,8 @@ describe("real local review flow", () => {
     const userId = "33333333-3333-4333-8333-333333333333"
     const prototypePath = `/repositories/${repositoryId}/prototypes/${prototypeId}`
     const reviewPath = `/api${prototypePath}/review-comments`
-    const previewOrigin = "https://build.preview.example.test"
-    const previewUrl = new URL(
-      `/api${prototypePath}/builds/3/access?target=preview`,
-      window.location.origin,
-    )
-    previewUrl.searchParams.set("preview_origin", previewOrigin)
+    const previewOrigin = window.location.origin
+    const previewUrl = new URL("/previews/github/123/456/", window.location.origin)
     const repository = {
       id: repositoryId,
       nameWithOwner: "local/review-prototype",

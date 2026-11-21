@@ -29,6 +29,14 @@
   const BRIDGE_NODE_ATTRIBUTE = "data-replica-bridge"
   const textEncoder = new TextEncoder()
   const nativeReplaceState = History.prototype.replaceState
+  const previewBase =
+    /^\/previews\/github\/[1-9]\d*\/[1-9]\d*\//.exec(location.pathname)?.[0] ?? "/"
+
+  function logicalPathname() {
+    return location.pathname.startsWith(previewBase)
+      ? location.pathname.slice(previewBase.length - 1)
+      : location.pathname
+  }
 
   let selectionMode = null
   let selectionRequestId = null
@@ -304,7 +312,7 @@
 
   function currentRoute() {
     return {
-      pathname: truncate(location.pathname, PATHNAME_MAXIMUM_BYTES),
+      pathname: truncate(logicalPathname(), PATHNAME_MAXIMUM_BYTES),
       search: truncate(controlFreeSearch(), SEARCH_MAXIMUM_BYTES),
       hash: truncate(location.hash, HASH_MAXIMUM_BYTES),
     }
@@ -1462,7 +1470,7 @@
   function clearPendingFragmentOnNavigation() {
     if (
       pendingFragmentRoute &&
-      (pendingFragmentRoute.pathname !== location.pathname ||
+      (pendingFragmentRoute.pathname !== logicalPathname() ||
         pendingFragmentRoute.search !== controlFreeSearch() ||
         pendingFragmentRoute.hash !== location.hash)
     ) {
@@ -1487,7 +1495,7 @@
     fragmentRestoreToken = token
     pendingFragmentRoute = null
     const matchesDocument = () =>
-      route.pathname === location.pathname && route.search === controlFreeSearch()
+      route.pathname === logicalPathname() && route.search === controlFreeSearch()
     if (!matchesDocument()) return
 
     const acknowledge = () => {

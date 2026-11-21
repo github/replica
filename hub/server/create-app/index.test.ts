@@ -39,7 +39,7 @@ describe("createApp()", () => {
       const base = `http://127.0.0.1:${port}`
 
       await fetch(`${base}/api/shared/secret-share-id?grant=secret-public-grant`)
-      await fetch(`${base}/__replica/authorize?grant=secret-preview-grant`)
+      await fetch(`${base}/__replica/share/authorize?grant=secret-preview-grant`)
 
       expect(records).toHaveLength(2)
       for (const record of records) {
@@ -247,7 +247,6 @@ describe("createApp()", () => {
         delete: vi.fn(),
       },
       bridgeSource: "",
-      findTargetById: vi.fn(),
       findArtifact: vi.fn(),
       readAvailableShareLink: readAvailableLink,
     }

@@ -71,7 +71,6 @@ async function withRoute(
       delete: vi.fn(),
     },
     bridgeSource: "",
-    findTargetById: vi.fn(),
     findArtifact: vi.fn(),
   }
   const sharing: PublicSharingRouteDependencies = {

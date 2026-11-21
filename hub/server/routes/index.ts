@@ -16,7 +16,6 @@ import { get as handleApiReadyGet } from "./api/ready/get/index.ts"
 import { get as handleWorkspaceGet } from "./api/workspace/get/index.ts"
 import { patch as handleWelcomePatch } from "./api/workspace/welcome/patch/index.ts"
 import { templateRoutes } from "./api/repositories/templates/index.ts"
-import { canBrowseTemplates } from "./api/product/template-repository-access/index.ts"
 import { get as handleRepositoryAuthorsGet } from "./api/repositories/authors/get/index.ts"
 import { get as handleRepositoryGet } from "./api/repositories/show/get/index.ts"
 import { mountRepositoryAnalytics } from "./api/repositories/analytics/index.ts"
@@ -35,8 +34,8 @@ import { createCollaborationHandlers } from "./api/review-comments/collaboration
 import { createInboxHandlers } from "./api/notifications/index.ts"
 import { get as handleBuildPreviewAccessGet } from "./api/repositories/prototypes/builds/access/get/index.ts"
 import { get as handlePrototypeManagementGet } from "./api/repositories/prototype-management/get/index.ts"
-import { get as handleBuildPreviewAuthorizeGet } from "./build-preview/authorize/get/index.ts"
 import { get as handleBuildPreviewServeGet } from "./build-preview/serve/get/index.ts"
+import { get as handlePathPreviewGet } from "./build-preview/path/get/index.ts"
 import { get as handleSharePreviewAuthorizeGet } from "./build-preview/share-authorize/get/index.ts"
 import { get as handleSharingSettingsGet } from "./api/public-sharing/settings/get/index.ts"
 import { patch as handleSharingSettingsPatch } from "./api/public-sharing/settings/patch/index.ts"
@@ -95,24 +94,18 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
     product,
     publicSharing,
   } = dependencies
-  if (preview) {
-    app.get("/__replica/authorize", handleBuildPreviewAuthorizeGet(preview))
+  if (preview?.previewBaseOrigin) {
     if (publicSharing) {
       app.get("/__replica/share/authorize", handleSharePreviewAuthorizeGet(preview, publicSharing))
     }
-    app.get(
-      "/{*path}",
-      handleBuildPreviewServeGet(preview, async (digest, repository) => {
-        const current = await authentication?.currentSession.restore(digest)
-        return Boolean(
-          current &&
-          product &&
-          canBrowseTemplates(current, repository.local) &&
-          (await product.isRepositoryVisible(current, repository.id)),
-        )
-      }),
-    )
+    app.get("/{*path}", handleBuildPreviewServeGet(preview))
   }
+  if (preview?.findPathTargets && authentication && product)
+    app.use("/previews", handlePathPreviewGet(preview, authentication.currentSession, product))
+  app.use("/previews", (_request, response) => {
+    response.setHeader("Cache-Control", "private, no-store")
+    response.status(404).end()
+  })
   app.get("/api/health", handleApiHealthGet)
   app.get("/api/ready", (request, response) =>
     handleApiReadyGet(request, response, { isReady, logger }),

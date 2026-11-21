@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 
 import type { ReviewRoute } from "@utils/review-anchor/types"
 import { controlsUrlEvent } from "@utils/prototype-controls-url/constants"
+import { getPreviewBasePath } from "@utils/prototype-controls/preview-base-path.mjs"
 
 export function usePrototypeViewerUrl({
   selectedBuild,
@@ -54,7 +55,9 @@ export function usePrototypeViewerUrl({
         : null
     const destination = route
       ? `${route.pathname}${route.search}${route.hash}`
-      : (initialRoute ?? previousPath ?? `${preview.pathname}${preview.search}${preview.hash}`)
+      : (initialRoute ??
+        previousPath ??
+        `${preview.pathname.slice(getPreviewBasePath(preview.pathname).length - 1)}${preview.search}${preview.hash}`)
     url.searchParams.set("return_path", destination)
     if (minimized) url.searchParams.set("view", "minimized")
     else url.searchParams.delete("view")

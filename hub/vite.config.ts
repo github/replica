@@ -25,12 +25,18 @@ export default defineConfig(({ mode }) => ({
   server: {
     port: 5173,
     strictPort: true,
-    proxy: { "/api": { target: "http://127.0.0.1:3001", ws: true } },
+    proxy: {
+      "/api": { target: "http://127.0.0.1:3001", ws: true },
+      "/previews": { target: "http://127.0.0.1:3001" },
+    },
   },
   preview: {
     port: 5173,
     strictPort: true,
-    proxy: { "/api": { target: "http://127.0.0.1:3001", ws: true } },
+    proxy: {
+      "/api": { target: "http://127.0.0.1:3001", ws: true },
+      "/previews": { target: "http://127.0.0.1:3001" },
+    },
   },
   resolve: { alias: { ...viteAliases, [controlsValidatorModule]: controlsValidatorPath } },
   optimizeDeps: { include: [controlsValidatorModule] },

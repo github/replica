@@ -88,6 +88,7 @@ appendFileSync(process.env.TRACE, JSON.stringify({ command: process.argv[1].spli
         REPLICA_BUILD_ONLY: inputs.buildOnly ?? "false",
         REPLICA_OUTPUT_DIRECTORY: inputs.outputDirectory,
         REPLICA_SCREENSHOTS: inputs.screenshots,
+        REPLICA_BASE_PATH: inputs.basePath ?? "/",
       },
     })
   }
@@ -168,6 +169,8 @@ describe("Replica composite action", () => {
           workspace,
           "--screenshots",
           path.join(runner, "replica-screenshots"),
+          "--base-path",
+          "/",
         ])
         assert.deepEqual(called("create-package").args.slice(1), [
           "--root",

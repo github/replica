@@ -22,6 +22,20 @@ function renderPage(overrides: Partial<ReplicaBrowsePageProps> = {}) {
 }
 
 describe("ReplicaBrowsePage()", () => {
+  it("keeps a direct template address under its owning-run mount after navigation", () => {
+    const base = `${window.location.origin}/previews/github/123/456/`
+    renderPage({
+      data: {
+        ...replicaBrowseData,
+        selectedBuild: { number: 1, frameTitle: "Template preview", previewUrl: base },
+      },
+      route: { pathname: "/settings", search: "?q=a%20b", hash: "#details" },
+    })
+    expect(screen.getByRole("textbox", { name: replicaBrowseData.previewUrlLabel })).toHaveValue(
+      `${base}settings?q=a%20b#details`,
+    )
+  })
+
   it("matches the browse payload without prototype-only metadata", () => {
     expect(replicaBrowseData).not.toHaveProperty("author")
     expect(replicaBrowseData).not.toHaveProperty("buildOptions")
