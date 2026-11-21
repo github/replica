@@ -432,21 +432,30 @@ class LocalTasksetConnector(_ScopedConnector):
     def delete(self, reference: str, context: OperationContext) -> bool:
         """Delete one uploaded taskset; mounted tasksets remain operator-owned."""
         self._check(context, hide=True)
-        mounted = self._mounted.get(reference)
-        if mounted is not None:
+        if reference.startswith("mounted-taskset:"):
             raise ConnectorError(
                 "taskset_retention_required",
                 "A mounted taskset remains under operator-controlled retention.",
                 category="conflict",
             )
-        if not reference.startswith("taskset:"):
+        if reference.startswith("uploaded-taskset:"):
+            value = reference.removeprefix("uploaded-taskset:")
+        elif reference.startswith("taskset:"):
+            if reference in self._mounted:
+                raise ConnectorError(
+                    "taskset_retention_required",
+                    "A mounted taskset remains under operator-controlled retention.",
+                    category="conflict",
+                )
+            value = reference.removeprefix("taskset:")
+        else:
             raise ConnectorError(
                 "taskset_not_found",
                 "The taskset was not found.",
                 category="not_found",
             )
         try:
-            digest = ContentDigest("sha256", reference.removeprefix("taskset:"))
+            digest = ContentDigest("sha256", value)
         except ValueError:
             raise ConnectorError(
                 "taskset_not_found",

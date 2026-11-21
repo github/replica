@@ -320,17 +320,24 @@ class LocalRuntime:
                 taskset_digest if taskset_digest is not None else self.taskset_digest
             )
             try:
-                copy = self.connectors.privacy.get_copy(
-                    _runtime_copy_id("taskset", f"taskset:{selected_taskset.removeprefix('sha256:')}"),
-                    self._operation_context(
-                        f"taskset_privacy_{uuid.uuid4().hex}",
-                        max_seconds=30,
-                        owner=RuntimeOwner("service", "decision-runtime"),
-                    ),
+                privacy_context = self._operation_context(
+                    f"taskset_privacy_{uuid.uuid4().hex}",
+                    max_seconds=30,
+                    owner=RuntimeOwner("service", "decision-runtime"),
                 )
-                self._assert_not_revoked(
-                    _copy_provenance(copy), operation="training"
-                )
+                for copy_id in _taskset_runtime_copy_ids(selected_taskset):
+                    try:
+                        copy = self.connectors.privacy.get_copy(
+                            copy_id,
+                            privacy_context,
+                        )
+                    except ConnectorError as error:
+                        if error.category == "not_found":
+                            continue
+                        raise
+                    self._assert_not_revoked(
+                        _copy_provenance(copy), operation="training"
+                    )
             except ConnectorError as error:
                 if error.category != "not_found":
                     raise _runtime_connector_failure(error) from None
@@ -403,10 +410,11 @@ class LocalRuntime:
             idempotency_key=idempotency_key,
         )
         reference = f"taskset:{claimed.value}"
+        storage_reference = f"uploaded-taskset:{claimed.value}"
         provisional = _runtime_copy(
             "taskset",
-            reference,
-            reference,
+            f"uploaded:{reference}",
+            storage_reference,
             _manifest_provenance(bundle.manifest, str(claimed)),
             scope=self.scope,
             connector=type(self.connectors.tasksets).__name__,
@@ -427,14 +435,17 @@ class LocalRuntime:
                     operation="taskset upload",
                 )
                 try:
-                    self.connectors.privacy.get_copy(provisional["id"], context)
+                    existing = self.connectors.privacy.get_copy(
+                        provisional["id"],
+                        context,
+                    )
                 except ConnectorError as error:
                     if error.category != "not_found":
                         raise
                     self.connectors.privacy.put_copy(provisional, context)
                     reserved = True
                 registered = self.connectors.tasksets.register(bundle, context)
-                if reserved:
+                if reserved or existing["useState"] in ("registering", "deleted"):
                     self.connectors.privacy.tombstone_copy(
                         provisional["id"],
                         state="active",
@@ -765,10 +776,20 @@ class LocalRuntime:
         mounted: bool,
     ) -> None:
         provenance = _taskset_provenance(taskset)
+        identity = (
+            f"mounted:{taskset.reference}"
+            if mounted
+            else f"uploaded:{taskset.reference}"
+        )
+        storage_reference = (
+            f"mounted-taskset:{taskset.digest.value}"
+            if mounted
+            else f"uploaded-taskset:{taskset.digest.value}"
+        )
         record = _runtime_copy(
             "taskset",
-            taskset.reference,
-            taskset.reference,
+            identity,
+            storage_reference,
             provenance,
             scope=self.scope,
             connector=type(self.connectors.tasksets).__name__,
@@ -1187,7 +1208,21 @@ class LocalRuntime:
                     cancellation=context.cancellation,
                 )
         work = self.state_directory / "work" / context.operation_id
-        work.mkdir(mode=0o700)
+        try:
+            work.mkdir(mode=0o700)
+        except OSError:
+            with self._lock:
+                self._inference_cancellations.pop(context.operation_id, None)
+            if retry_lock is not None:
+                self._release_inference_idempotency_lock(
+                    idempotency_key,
+                    retry_lock,
+                )
+            raise RuntimeFailure(
+                "work_directory_unavailable",
+                "The inference work directory could not be created.",
+                500,
+            ) from None
         try:
             adapter = self.local_connectors.candidates.artifact_path(
                 candidate_id,
@@ -2071,6 +2106,14 @@ def _taskset_provenance(taskset: TasksetArtifact) -> dict[str, Any]:
 
 def _runtime_copy_id(kind: str, reference: str) -> str:
     return "copy_" + hashlib.sha256(f"{kind}\0{reference}".encode()).hexdigest()[:32]
+
+
+def _taskset_runtime_copy_ids(taskset_digest: str) -> tuple[str, str]:
+    reference = f"taskset:{taskset_digest.removeprefix('sha256:')}"
+    return (
+        _runtime_copy_id("taskset", f"uploaded:{reference}"),
+        _runtime_copy_id("taskset", f"mounted:{reference}"),
+    )
 
 
 def _runtime_copy(

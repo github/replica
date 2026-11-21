@@ -564,6 +564,55 @@ class RuntimeDeletionTest(unittest.TestCase):
         self.assertEqual(failed.exception.code, "privacy_unavailable")
         self.assertFalse((self.state_dir / "tasksets" / digest).exists())
 
+    def test_successful_taskset_retry_reactivates_failed_registration_inventory(self):
+        digest, upload = taskset_upload(self.taskset_dir)
+        runtime = LocalRuntime(
+            self.state_dir,
+            None,
+            environment="test",
+            scope=RuntimeScope("tenant-one", "github/example"),
+        )
+        self.addCleanup(runtime.close)
+        real_register = runtime.connectors.tasksets.register
+        attempts = 0
+
+        def fail_once(bundle, context):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise ConnectorError(
+                    "taskset_unavailable",
+                    "Taskset storage is unavailable.",
+                    category="unavailable",
+                    retryable=True,
+                )
+            return real_register(bundle, context)
+
+        with mock.patch.object(
+            runtime.connectors.tasksets,
+            "register",
+            side_effect=fail_once,
+        ):
+            with self.assertRaises(RuntimeFailure):
+                runtime.register_taskset(
+                    digest,
+                    upload,
+                    idempotency_key="failed-taskset-registration",
+                )
+            runtime.register_taskset(
+                digest,
+                upload,
+                idempotency_key="successful-taskset-registration",
+            )
+
+        disclosed = runtime.disclose({"tasksetDigest": f"sha256:{digest}"})
+        uploaded = next(
+            item
+            for item in disclosed["items"]
+            if item["storage"]["reference"].startswith("uploaded-taskset:")
+        )
+        self.assertEqual(uploaded["useState"], "active")
+
     def test_mounting_an_uploaded_taskset_reconciles_operator_retention(self):
         digest, upload = taskset_upload(self.taskset_dir)
         runtime = LocalRuntime(
@@ -590,13 +639,18 @@ class RuntimeDeletionTest(unittest.TestCase):
         )
 
         self.assertEqual(receipt["state"], "completed")
-        taskset_item = next(item for item in receipt["items"] if item["kind"] == "taskset")
+        taskset_item = next(
+            item
+            for item in receipt["items"]
+            if item["kind"] == "taskset" and item["state"] == "retained"
+        )
         self.assertEqual(taskset_item["state"], "retained")
         self.assertEqual(
             taskset_item["retention"]["mode"],
             "operator_managed",
         )
         self.assertTrue((self.taskset_dir / "taskset.json").is_file())
+        self.assertFalse((self.state_dir / "tasksets" / digest).exists())
 
     def test_concurrent_inference_retries_share_one_backend_execution(self):
         started = self._control("retry-inference-started")
@@ -652,6 +706,33 @@ class RuntimeDeletionTest(unittest.TestCase):
         self.assertEqual(responses[0], responses[1])
         self.assertEqual(calls.read_text(encoding="utf-8").splitlines(), ["predict"])
         self.assertEqual(runtime._inference_idempotency_locks, {})
+
+    def test_inference_work_directory_failure_releases_retry_and_cancellation_state(self):
+        runtime = self._runtime()
+        finished = self._train(runtime)
+        runtime.promote(
+            finished["candidateId"],
+            promoted_by="privacy-operator",
+            expected_generation=0,
+            idempotency_key="promote-before-work-failure",
+        )
+        original_mkdir = Path.mkdir
+
+        def fail_inference_work(path, *args, **kwargs):
+            if path.parent.name == "work" and path.name.startswith("inference_"):
+                raise OSError("disk unavailable")
+            return original_mkdir(path, *args, **kwargs)
+
+        with mock.patch.object(Path, "mkdir", new=fail_inference_work):
+            with self.assertRaises(RuntimeFailure) as failed:
+                runtime.evaluate(
+                    self._evaluation(),
+                    idempotency_key="work-directory-failure",
+                )
+
+        self.assertEqual(failed.exception.code, "work_directory_unavailable")
+        self.assertEqual(runtime._inference_idempotency_locks, {})
+        self.assertEqual(runtime._inference_cancellations, {})
 
     def test_explicit_missing_mounted_taskset_fails_startup(self):
         missing = self._control("missing-taskset")
