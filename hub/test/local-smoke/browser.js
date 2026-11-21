@@ -30,15 +30,10 @@ Object(async (page) => {
     const welcome = prototypes.getByRole("link", { name: "Welcome", exact: true })
     const noBuild = prototypes.getByRole("link", { name: "No Build", exact: true })
     await welcome.waitFor()
-    const screenshot = prototypes.getByRole("img", { name: "Welcome, Build 1", exact: true })
-    await screenshot.scrollIntoViewIfNeeded()
-    const screenshotLoaded = await screenshot.evaluate(async (image) => {
-      await image.decode()
-      return image.naturalWidth === 1 && image.naturalHeight === 1
-    })
-    if (!screenshotLoaded) {
-      throw new Error("The gallery did not display the saved Welcome screenshot.")
-    }
+    const welcomeCard = prototypes.locator(".prototype-card").filter({ has: welcome })
+    await welcomeCard.locator(".prototype-card__fallback").waitFor()
+    if (await welcomeCard.locator(".prototype-card__preview img").count())
+      throw new Error("The local Welcome Build has no supported private screenshot URL.")
     const galleryNames = await prototypes.getByRole("link").allTextContents()
 
     await admin.getByRole("link", { name: "Edit prototype listings", exact: true }).click()

@@ -6,6 +6,7 @@ import { createServer, request as httpRequest, type IncomingHttpHeaders } from "
 import type { AddressInfo } from "node:net"
 import path from "node:path"
 import { Readable } from "node:stream"
+import { runInNewContext } from "node:vm"
 import express, { type ErrorRequestHandler } from "express"
 import { describe, expect, it, onTestFinished, vi, type Mock } from "vitest"
 
@@ -389,6 +390,9 @@ describe("get()", () => {
   it("disables review behavior in the public preview bridge", async () => {
     await withServeRoute(
       async ({ origin, buildId, shareCookie, dependencies, findArtifact, read }) => {
+        dependencies.bridgeSource =
+          "globalThis.ReplicaHostedPreviewBridge={installHostedBridge:globalThis.installHostedBridge}"
+        const installHostedBridge = vi.fn()
         const response = await request(
           origin,
           "/__replica/bridge/v1.js",
@@ -398,9 +402,13 @@ describe("get()", () => {
         expect(response.status).toBe(200)
         expect(response.headers["content-type"]).toMatch(/^text\/javascript/)
         expect(response.headers["cache-control"]).toBe("private, no-store")
-        expect(response.body.toString()).toBe(
-          `globalThis.reviewBridge={origin:"https://hub.example.com",enabled:"false" !== "false"};\n${dependencies.bridgeSource};ReplicaHostedPreviewBridge.installHostedBridge("https://hub.example.com");`,
-        )
+        const context = { installHostedBridge, reviewBridge: undefined }
+        runInNewContext(response.body.toString(), context)
+        expect(context.reviewBridge).toEqual({
+          origin: "https://hub.example.com",
+          enabled: false,
+        })
+        expect(installHostedBridge).toHaveBeenCalledExactlyOnceWith("https://hub.example.com", "/")
         expect(findArtifact).not.toHaveBeenCalled()
         expect(read).not.toHaveBeenCalled()
       },

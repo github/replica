@@ -13,7 +13,7 @@ import { installControlsUrl } from "@utils/install-prototype-controls-url"
 import { nonDefaultValues } from "@utils/prototype-controls-url/non-default-values"
 import { controlsStatus } from "@utils/prototype-controls-status"
 
-export function installControlsBridge(parentOrigin: string) {
+export function installControlsBridge(parentOrigin: string, basePath?: string) {
   let epoch = ""
   let runtime: ControlsRuntime | undefined
   let release: (() => void) | undefined
@@ -51,7 +51,7 @@ export function installControlsBridge(parentOrigin: string) {
   )
   async function load() {
     try {
-      bindings = await loadBindings()
+      bindings = await loadBindings(basePath)
       if (disposed) {
         bindings?.dispose()
         return

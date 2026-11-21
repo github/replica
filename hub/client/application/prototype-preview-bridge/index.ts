@@ -867,7 +867,7 @@ function receiveCanvasMessage(event: MessageEvent<unknown>) {
 const installed = Symbol.for("replica.canvas.bridge.v1")
 const bridgeWindow = window as Window & { [installed]?: boolean | (() => void) }
 
-function install(origin: string) {
+function install(origin: string, controlsBasePath?: string) {
   const previous = bridgeWindow[installed]
   if (previous === true)
     throw new Error("Remove the old source bridge before using the extension-owned bridge.")
@@ -877,7 +877,7 @@ function install(origin: string) {
   resolvedRequest = null
   resolvedRoute = ""
   resolvedGeometry.clear()
-  const releaseControls = installControlsBridge(origin)
+  const releaseControls = installControlsBridge(origin, controlsBasePath)
   let geometryFrame: number | null = null
   function refreshGeometry() {
     if (geometryFrame !== null) window.cancelAnimationFrame(geometryFrame)
@@ -973,7 +973,11 @@ function install(origin: string) {
   }
 }
 
-export function installBridge(origin: string, environment: "canvas" | "hosted" = "canvas") {
+export function installBridge(
+  origin: string,
+  environment: "canvas" | "hosted" = "canvas",
+  controlsBasePath?: string,
+) {
   if (environment === "canvas") {
     if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) {
       throw new Error("Invalid Replica canvas parent.")
@@ -991,5 +995,5 @@ export function installBridge(origin: string, environment: "canvas" | "hosted" =
       throw new Error("Invalid Replica Hub parent.")
     }
   }
-  install(origin)
+  install(origin, controlsBasePath)
 }

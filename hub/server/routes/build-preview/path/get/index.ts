@@ -103,7 +103,7 @@ export function get(
         const review = (preview.reviewBridgeSource ?? "")
           .replaceAll('"__REPLICA_HUB_ORIGIN__"', JSON.stringify(preview.applicationOrigin))
           .replaceAll('"__REPLICA_REVIEW_ENABLED__"', JSON.stringify(String(!target.template)))
-        const source = `${review}\n${preview.bridgeSource};ReplicaHostedPreviewBridge.installHostedBridge(${JSON.stringify(preview.applicationOrigin)});`
+        const source = `${review}\n${preview.bridgeSource};ReplicaHostedPreviewBridge.installHostedBridge(${JSON.stringify(preview.applicationOrigin)},${JSON.stringify(mountPath)});`
         response.type("text/javascript")
         response.setHeader("Content-Length", Buffer.byteLength(source))
         response.end(source)

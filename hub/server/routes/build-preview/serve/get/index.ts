@@ -64,7 +64,7 @@ export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler
         const reviewSource = (dependencies.reviewBridgeSource ?? "")
           .replaceAll('"__REPLICA_HUB_ORIGIN__"', JSON.stringify(dependencies.applicationOrigin))
           .replaceAll('"__REPLICA_REVIEW_ENABLED__"', JSON.stringify("false"))
-        const source = `${reviewSource}\n${dependencies.bridgeSource};ReplicaHostedPreviewBridge.installHostedBridge(${JSON.stringify(dependencies.applicationOrigin)});`
+        const source = `${reviewSource}\n${dependencies.bridgeSource};ReplicaHostedPreviewBridge.installHostedBridge(${JSON.stringify(dependencies.applicationOrigin)},"/");`
         response.setHeader("Cache-Control", "private, no-store")
         response.type("text/javascript").send(source)
         return

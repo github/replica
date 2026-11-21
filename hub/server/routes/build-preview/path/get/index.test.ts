@@ -9,8 +9,11 @@ import {
 } from "node:http"
 import type { AddressInfo } from "node:net"
 import { join, resolve } from "node:path"
+import { runInNewContext } from "node:vm"
+import { JSDOM } from "jsdom"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
+import { hostedPreviewBridgeSource } from "../../../../assets/hosted-preview-bridge"
 import { createApp } from "../../../../create-app"
 import type { ArtifactStorage } from "../../../../domains/artifacts/create-artifact-storage/types"
 import { reserveBuildPreviewBytes } from "../../../../domains/build-preview/reserve-build-preview-bytes"
@@ -508,6 +511,112 @@ describe("get()", () => {
     expect((await request(origin, "/previews/route", { accept: "text/html" })).status).toBe(404)
   })
 
+  it.each(["public", "private"])(
+    "boots ready Controls from the %s Build root on a canonical-looking deep route",
+    async (delivery) => {
+      const { origin, mountPath, preview, target, save, findPathTargets } = await createFixture(
+        undefined,
+        { publicSharing: true },
+      )
+      preview.bridgeSource = hostedPreviewBridgeSource
+      save("dist/index.html", "<html><head></head><body>Prototype details</body></html>")
+      save(
+        "dist/controls.replica.json",
+        JSON.stringify({
+          version: 1,
+          scope: "hostedPage",
+          controls: [
+            {
+              id: "title",
+              label: "Title",
+              type: "text",
+              default: "Build title",
+              binding: { type: "query", key: "title", mode: "in-place" },
+            },
+          ],
+        }),
+      )
+      const share = createSharePreviewSession(
+        {
+          buildId: target.buildId,
+          shareLinkId: randomUUID(),
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+        preview.encryptionKey,
+      )
+      const headers: Record<string, string> =
+        delivery === "public"
+          ? {
+              host: `${target.buildId}.preview.localhost:${new URL(origin).port}`,
+              cookie: `replica_share_preview=${encodeURIComponent(share)}`,
+              accept: "text/html",
+            }
+          : { cookie: "hub_session=member-session", accept: "text/html" }
+      const pathname = `${mountPath}/details`
+      const page = await request(origin, pathname, headers)
+      expect(page.status).toBe(200)
+      expect(page.body.toString()).toContain("Prototype details")
+      const dom = new JSDOM(page.body.toString(), {
+        url: `${origin}${pathname}`,
+        runScripts: "outside-only",
+        pretendToBeVisual: true,
+      })
+      onTestFinished(() => dom.window.close())
+      const frame = dom.window
+      frame.TextEncoder = TextEncoder
+      frame.TextDecoder = TextDecoder
+      frame.structuredClone = <T>(value: T): T => frame.JSON.parse(frame.JSON.stringify(value)) as T
+      const readControls = vi.fn(async (path: string) => {
+        const response = await request(origin, path, headers)
+        return new Response(new Uint8Array(response.body), {
+          status: response.status,
+          headers: { "content-type": String(response.headers["content-type"]) },
+        })
+      })
+      frame.fetch = readControls
+      const post = vi.spyOn(frame.parent, "postMessage").mockImplementation(() => {})
+      const script = frame.document.querySelector("script[src]")!
+      const bootstrap = await request(origin, script.getAttribute("src")!, headers)
+      expect(bootstrap.status).toBe(200)
+
+      frame.eval(bootstrap.body.toString())
+      frame.dispatchEvent(
+        new frame.MessageEvent("message", {
+          source: frame.parent,
+          origin,
+          data: {
+            protocol: "replica:controls",
+            version: 1,
+            epoch: "hosted-epoch",
+            requestId: "hello",
+            type: "hello",
+          },
+        }),
+      )
+
+      await vi.waitFor(() =>
+        expect(post.mock.calls.at(-1)?.[0]).toMatchObject({
+          type: "reply",
+          state: {
+            status: "ready",
+            runtimeAvailable: true,
+            scopes: [
+              {
+                declaration: { scope: "hostedPage" },
+                snapshot: { values: { title: "Build title" } },
+              },
+            ],
+          },
+        }),
+      )
+      expect(readControls).toHaveBeenCalledExactlyOnceWith(
+        `${delivery === "public" ? "/" : `${mountPath}/`}controls.replica.json`,
+        { credentials: "same-origin", redirect: "error" },
+      )
+      if (delivery === "public") expect(findPathTargets).not.toHaveBeenCalled()
+    },
+  )
+
   it("denies the bridge when the same Build becomes a template during authorization", async () => {
     const { origin, mountPath, preview, target, findPathTargets, findArtifact, storage } =
       await createFixture()
@@ -572,7 +681,10 @@ describe("get()", () => {
   )
 
   it("serves the hosted bridge for an encoded reserved path instead of a stored shadow", async () => {
-    const { origin, mountPath, save, findArtifact, storage } = await createFixture()
+    const { origin, mountPath, preview, save, findArtifact, storage } = await createFixture()
+    preview.bridgeSource =
+      "globalThis.ReplicaHostedPreviewBridge={installHostedBridge:globalThis.installHostedBridge}"
+    const installHostedBridge = vi.fn()
     save("dist/__replica/bridge/v1.js", "globalThis.shadowedBridge = true")
     const read = vi.spyOn(storage, "read")
 
@@ -582,6 +694,8 @@ describe("get()", () => {
     expect(canonical.status).toBe(200)
     expect(encoded.status).toBe(200)
     expect(encoded.body).toEqual(canonical.body)
+    runInNewContext(canonical.body.toString(), { installHostedBridge })
+    expect(installHostedBridge).toHaveBeenCalledExactlyOnceWith(origin, `${mountPath}/`)
     expect(findArtifact).not.toHaveBeenCalled()
     expect(read).not.toHaveBeenCalled()
   })

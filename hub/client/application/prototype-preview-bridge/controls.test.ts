@@ -3,6 +3,7 @@ import { beforeEach, expect, it, onTestFinished, vi } from "vitest"
 
 import { getControlsRuntime } from "@utils/prototype-controls/controls.mjs"
 import { installControlsBridge } from "./controls"
+import { installHostedBridge } from "./install-hosted-bridge"
 import { controlsEnvelope } from "@utils/prototype-controls-protocol"
 
 const origin = "http://127.0.0.1:1234"
@@ -94,6 +95,80 @@ it("connects ordinary local JSON bindings and stores settings in the prototype U
     ),
   )
 })
+
+it.each([
+  { label: "public", basePath: "/", pathname: "/previews/github/2001/3002/details" },
+  {
+    label: "private",
+    basePath: "/previews/github/2001/3002/",
+    pathname: "/previews/github/2001/3002/checkout/cart",
+  },
+])(
+  "loads ready $label hosted Controls from the supplied Build root",
+  async ({ basePath, pathname }) => {
+    window.history.replaceState(null, "", pathname)
+    document.body.innerHTML = '<input id="title" value="Original">'
+    const field = document.querySelector<HTMLInputElement>("#title")!
+    vi.spyOn(field, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 100, 30))
+    vi.spyOn(document, "readyState", "get").mockReturnValue("complete")
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((path: string) =>
+        Promise.resolve(
+          path === `${basePath}controls.replica.json`
+            ? Response.json({
+                ...declaration,
+                controls: [
+                  {
+                    ...declaration.controls[0],
+                    binding: { type: "field", selector: "#title" },
+                  },
+                ],
+              })
+            : new Response("Not found", { status: 404 }),
+        ),
+      ),
+    )
+    const post = vi.spyOn(window.parent, "postMessage").mockImplementation(() => {})
+    const installed = Symbol.for("replica.canvas.bridge.v1")
+    onTestFinished(() => {
+      const bridgeWindow = window as Window & { [installed]?: () => void }
+      bridgeWindow[installed]?.()
+    })
+
+    installHostedBridge(origin, basePath)
+    hello()
+
+    await vi.waitFor(() =>
+      expect(post.mock.calls.at(-1)?.[0]).toMatchObject({
+        type: "reply",
+        state: { status: "ready", runtimeAvailable: true },
+      }),
+    )
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(`${basePath}controls.replica.json`, {
+      credentials: "same-origin",
+      redirect: "error",
+    })
+    const controller = getControlsRuntime().list()[0]!
+    message({
+      protocol: "replica:controls",
+      version: 1,
+      epoch: "canvas-epoch",
+      requestId: "update",
+      type: "command",
+      command: {
+        operation: "update",
+        scope: "canvasPage",
+        fingerprint: JSON.stringify(controller.declaration),
+        revision: controller.getSnapshot().revision,
+        id: "title",
+        value: "Hosted title",
+      },
+    })
+    await vi.waitFor(() => expect(field.value).toBe("Hosted title"))
+    expect(window.location.pathname).toBe(pathname)
+  },
+)
 
 it("rejects foreign frames, origins, epochs and stale commands without changing app state", async () => {
   const post = await setup()
