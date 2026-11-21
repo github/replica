@@ -56,7 +56,11 @@ export function repositoryShowData(
     prototypes: data.prototypes.map((prototype) => {
       const builds = [...prototype.builds].sort((first, second) => second.number - first.number)
       const latestBuild = prototype.latestBuild === undefined ? builds[0] : prototype.latestBuild
-      const reviewBuild = builds.find((build) => build.previewUrl && build.desktopScreenshotUrl)
+      const reviewBuild =
+        prototype.reviewBuild ??
+        builds.find((build) => build.previewUrl && build.desktopScreenshotUrl)
+      const previewAvailable =
+        Boolean(prototype.reviewBuild) || builds.some((build) => build.previewUrl)
       const prototypeAuthor = prototype.authorId
         ? data.authors.find((item) => item.id === prototype.authorId)
         : options.real
@@ -88,7 +92,7 @@ export function repositoryShowData(
         latestBuild: latestBuild
           ? { state: latestBuild.state, stateLabel: buildStateLabel(latestBuild.state) }
           : undefined,
-        previewFallbackLabel: builds.some((build) => build.previewUrl)
+        previewFallbackLabel: previewAvailable
           ? "Preview available. No screenshot was captured."
           : "No preview available",
         reviewBuild: reviewBuild?.desktopScreenshotUrl
@@ -129,7 +133,6 @@ export function repositoryShowData(
         previous: "Previous",
         next: "Next",
         pagination: "Prototype pages",
-        updating: "Updating prototypes",
         shown: `${data.prototypes.length} shown`,
       },
     },

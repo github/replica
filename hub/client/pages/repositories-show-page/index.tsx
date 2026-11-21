@@ -131,7 +131,6 @@ export function RepositoriesShowPage({
           tabIndex={-1}
           data-prototype-results
         >
-          {controls.pending ? <Text role="status">{data.listing.copy.updating}</Text> : null}
           {controls.error ? (
             <HubAlert
               title={data.listing.copy.resultsFailed}

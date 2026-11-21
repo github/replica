@@ -16,6 +16,16 @@ export async function seedLocalWorkspace(root: string, artifactDirectory: string
   const write = await storage.write(storageKey, bytes)
   if (write.status !== "ok") throw new Error(`Could not save the smoke Build: ${write.status}.`)
 
+  const screenshotKey = "welcome_smoke_desktop"
+  const screenshot = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4AWP4DwQACfsD/c8LaHIAAAAASUVORK5CYII=",
+    "base64",
+  )
+  const screenshotWrite = await storage.write(screenshotKey, screenshot)
+  if (screenshotWrite.status !== "ok") {
+    throw new Error(`Could not save the smoke Build screenshot: ${screenshotWrite.status}.`)
+  }
+
   const registeredAt = new Date("2026-01-01T00:00:00Z")
   const templateArtifacts = [
     { path: "dist/index.html", kind: "dist", value: "<h1>Default template</h1>" },
@@ -91,12 +101,20 @@ export async function seedLocalWorkspace(root: string, artifactDirectory: string
                 startedAt: registeredAt,
                 finishedAt: registeredAt,
                 artifacts: {
-                  create: {
-                    kind: "dist",
-                    path: "dist/index.html",
-                    storageKey,
-                    byteLength: bytes.byteLength,
-                  },
+                  create: [
+                    {
+                      kind: "dist",
+                      path: "dist/index.html",
+                      storageKey,
+                      byteLength: bytes.byteLength,
+                    },
+                    {
+                      kind: "screenshot",
+                      path: "screenshots/desktop.png",
+                      storageKey: screenshotKey,
+                      byteLength: screenshot.byteLength,
+                    },
+                  ],
                 },
               },
             },

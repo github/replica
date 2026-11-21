@@ -126,6 +126,19 @@ describe("get()", () => {
     })
   })
 
+  it("does not grant screenshot access when the repository is no longer visible", async () => {
+    await withAccessRoute(async (url, product) => {
+      vi.mocked(product.isRepositoryVisible).mockResolvedValueOnce(true).mockResolvedValue(false)
+      const response = await fetch(`${url}?target=desktop`, {
+        headers: { cookie: "hub_session=member-session" },
+        redirect: "manual",
+      })
+
+      expect(response.status).toBe(404)
+      expect(response.headers.get("location")).toBeNull()
+    })
+  })
+
   it("discards the target when session authority changes during the read", async () => {
     const viewer = {
       membershipId: randomUUID(),

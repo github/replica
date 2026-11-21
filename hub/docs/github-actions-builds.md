@@ -195,6 +195,8 @@ To publish larger files, run Hub with this limit and update every selected workf
 
 Each pass after the dist import also looks for screenshots. Hub attaches them only when their `distDigest` matches the successful Build. Repeated passes add no duplicates and never replace existing artifact records. Invalid packages are logged and ignored; a digest mismatch leaves screenshots unattached. A Build whose screenshots never arrive stays successful and previewable without them.
 
+The capture job takes the prototype screenshot at `/` and captures declared template routes separately. The Prototypes gallery shows the newest successful Build with a saved desktop screenshot, even if a newer Build is pending, failed, or has not yet imported its screenshot. The current Build status does not change. If a thumbnail is missing, check the `replica-screenshots-v1` upload and Hub import before changing the workflow.
+
 ## Recovery
 
 GitHub does not retry failed webhook deliveries, so scheduled jobs recover missed events and stalled imports. Each job is idempotent, and none deletes Builds or artifacts.

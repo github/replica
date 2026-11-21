@@ -86,11 +86,14 @@
 }
 
 .repository-selector [role="menu"] {
-  width: min(
+  width: max-content;
+  min-width: min(
     var(--hub-repository-control-width),
     calc(100vw - var(--hub-repository-sidebar-inset) - var(--hub-repository-sidebar-inset))
   );
-  min-width: 0;
+  max-width: calc(
+    100vw - var(--hub-repository-sidebar-inset) - var(--hub-repository-sidebar-inset)
+  );
 }
 
 .repository-selector [role="menu"]::before {

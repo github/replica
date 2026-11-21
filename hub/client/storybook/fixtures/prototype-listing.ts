@@ -25,7 +25,6 @@ export const prototypeListing: PrototypeListing = {
     previous: "Previous",
     next: "Next",
     pagination: "Prototype pages",
-    updating: "Updating prototypes",
     shown: "1 shown",
   },
 }

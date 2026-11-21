@@ -119,6 +119,9 @@ export const repositoryResponseSchema = z.object({
     prototypeSchema.extend({
       authorId: z.string().nullable().optional(),
       authorLogin: z.string().min(1).nullable(),
+      reviewBuild: z
+        .object({ number: identifier, desktopScreenshotUrl: httpUrl.nullable() })
+        .nullish(),
     }),
   ),
   pagination: paginationSchema,

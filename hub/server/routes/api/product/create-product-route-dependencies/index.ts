@@ -423,7 +423,7 @@ export function createProductRouteDependencies({
     },
     findRepositoryIndex: (viewer, repositoryId, filters) =>
       readScoped(viewer, (repositoryScope) =>
-        findRepositoryIndex(prisma, repositoryId, filters, repositoryScope),
+        findRepositoryIndex(prisma, repositoryId, filters, repositoryScope, buildArtifactUrl),
       ),
     findPrototypeDetail: (viewer, repositoryId, prototypeId, buildNumber, buildPage) =>
       readScoped(viewer, (repositoryScope) =>

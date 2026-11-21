@@ -117,12 +117,8 @@ export function PrototypeCard({
           <h2 className="prototype-card__branch-name">{title}</h2>
 
           {prototype.author.url ? (
-            <a
-              href={prototype.author.url}
-              className="prototype-card__author-link"
-              aria-label={prototype.author.label}
-            >
-              {prototype.author.label}
+            <a href={prototype.author.url} className="prototype-card__author-link">
+              {prototype.author.ownerLabel}
             </a>
           ) : (
             <span className="prototype-card__author">{prototype.author.label}</span>
