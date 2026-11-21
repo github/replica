@@ -126,7 +126,7 @@ def _taskset_registration(create_fixture):
             context,
         )
         case.assertEqual(registered.digest, fixture.taskset_digest)
-        case.assertEqual(registered.reference, f"taskset:{registered.digest.value}")
+        case.assertTrue(registered.reference.endswith(registered.digest.value))
         case.assertEqual(
             _validated_taskset_digest(registered.taskset),
             fixture.taskset_digest,
@@ -396,6 +396,7 @@ def _privacy_inventory(create_fixture):
             "permittedPurposes": ["training"],
             "reviewDigests": ["sha256:" + "2" * 64],
             "evidenceDigests": ["sha256:" + "3" * 64],
+            "evidenceDigest": "sha256:" + "4" * 64,
             "tasksetDigest": str(fixture.taskset_digest),
             "runtimeCopyId": fixture.taskset_reference,
             "storage": {
@@ -409,6 +410,13 @@ def _privacy_inventory(create_fixture):
             "parentRuntimeCopyIds": [],
         }
         case.assertEqual(fixture.connectors.privacy.put_copy(record, context), record)
+        second = {
+            **record,
+            "id": "copy_contract_second",
+            "runtimeCopyId": "taskset:second",
+            "storage": {**record["storage"], "reference": "taskset:second"},
+        }
+        case.assertEqual(fixture.connectors.privacy.put_copy(second, context), second)
         case.assertEqual(
             fixture.connectors.privacy.get_copy("copy_contract", context),
             record,
@@ -420,7 +428,36 @@ def _privacy_inventory(create_fixture):
             context=context,
         )
         case.assertEqual(tuple(page), (record,))
-        case.assertIsNone(cursor)
+        case.assertEqual(cursor, record["id"])
+        second_page, end = fixture.connectors.privacy.list_copies(
+            {
+                "exportId": "export_contract",
+                "grantId": "grant_contract",
+                "evidenceDigest": "sha256:" + "4" * 64,
+            },
+            cursor=cursor,
+            limit=1,
+            context=context,
+        )
+        case.assertEqual(tuple(second_page), (second,))
+        case.assertIsNone(end)
+        no_match, no_cursor = fixture.connectors.privacy.list_copies(
+            {"exportId": "export_other"},
+            cursor=None,
+            limit=10,
+            context=context,
+        )
+        case.assertEqual(tuple(no_match), ())
+        case.assertIsNone(no_cursor)
+        for invalid_limit in (0, 101):
+            with case.assertRaises(ConnectorError) as invalid:
+                fixture.connectors.privacy.list_copies(
+                    {"grantId": "grant_contract"},
+                    cursor=None,
+                    limit=invalid_limit,
+                    context=context,
+                )
+            case.assertEqual(invalid.exception.category, "invalid_input")
         revoked = fixture.connectors.privacy.tombstone_copy(
             "copy_contract",
             state="revoked",
@@ -476,6 +513,9 @@ def _copy_deletion(create_fixture):
         candidate = fixture.connectors.candidates.put(
             _candidate("delete"), context
         )
+        kept_candidate = fixture.connectors.candidates.put(
+            _candidate("kept"), context
+        )
         case.assertTrue(
             fixture.connectors.tasksets.delete(registered.reference, context)
         )
@@ -484,6 +524,33 @@ def _copy_deletion(create_fixture):
             fixture.connectors.tasksets.delete(registered.reference, context)
         )
         case.assertFalse(fixture.connectors.candidates.delete(candidate.id, context))
+        with case.assertRaises(ConnectorError) as missing_taskset:
+            fixture.connectors.tasksets.resolve(registered.reference, context)
+        case.assertEqual(missing_taskset.exception.category, "not_found")
+        with case.assertRaises(ConnectorError) as missing_candidate:
+            fixture.connectors.candidates.get(candidate.id, context)
+        case.assertEqual(missing_candidate.exception.category, "not_found")
+        other = _context(fixture.other_tenant_scope, "copy-delete-other")
+        with case.assertRaises(ConnectorError) as hidden_taskset:
+            fixture.connectors.tasksets.delete(fixture.taskset_reference, other)
+        case.assertIn(hidden_taskset.exception.category, ("not_found", "unauthorized"))
+        with case.assertRaises(ConnectorError) as hidden_candidate:
+            fixture.connectors.candidates.delete(kept_candidate.id, other)
+        case.assertIn(hidden_candidate.exception.category, ("not_found", "unauthorized"))
+        case.assertEqual(
+            fixture.connectors.tasksets.resolve(
+                fixture.taskset_reference,
+                _context(fixture.scope, "copy-delete-owner-read"),
+            ).reference,
+            fixture.taskset_reference,
+        )
+        case.assertEqual(
+            fixture.connectors.candidates.get(
+                kept_candidate.id,
+                _context(fixture.scope, "copy-delete-owner-candidate-read"),
+            ),
+            kept_candidate,
+        )
 
     return run
 
@@ -507,6 +574,12 @@ def _deletion_receipts(create_fixture):
             fixture.connectors.privacy.create_deletion(request, context),
             receipt,
         )
+        with case.assertRaises(ConnectorError) as reused:
+            fixture.connectors.privacy.create_deletion(
+                {**request, "selectors": {"grantId": "grant_other"}},
+                context,
+            )
+        case.assertEqual(reused.exception.category, "conflict")
         updated = dict(receipt, state="pending", updatedAt="2026-11-18T00:01:00Z")
         saved = fixture.connectors.privacy.update_deletion(
             receipt["id"],
@@ -515,6 +588,14 @@ def _deletion_receipts(create_fixture):
             context=context,
         )
         case.assertEqual(saved["version"], receipt["version"] + 1)
+        with case.assertRaises(ConnectorError) as stale:
+            fixture.connectors.privacy.update_deletion(
+                receipt["id"],
+                saved,
+                expected_version=receipt["version"],
+                context=context,
+            )
+        case.assertEqual(stale.exception.category, "conflict")
         case.assertEqual(
             fixture.connectors.privacy.get_deletion(receipt["id"], context),
             saved,

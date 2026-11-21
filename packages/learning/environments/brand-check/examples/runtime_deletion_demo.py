@@ -88,12 +88,7 @@ def main() -> None:
             },
             key="delete-compose-demo",
         )
-        receipt = call(
-            args.url,
-            token,
-            "GET",
-            f"/v1/deletions/{receipt['id']}",
-        )
+        receipt = wait_for_deletion(args.url, token, receipt["id"])
         if receipt["state"] != "completed":
             raise RuntimeError(f"Deletion did not complete: {receipt['state']}")
         refused = call_error(args.url, token, "POST", "/score", evaluation_request())
@@ -224,6 +219,16 @@ def wait_for_job(url: str, token: str, job_id: str) -> dict:
             return job
         time.sleep(0.05)
     raise RuntimeError("Training job did not finish.")
+
+
+def wait_for_deletion(url: str, token: str, deletion_id: str) -> dict:
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        receipt = call(url, token, "GET", f"/v1/deletions/{deletion_id}")
+        if receipt["state"] == "completed":
+            return receipt
+        time.sleep(0.05)
+    raise RuntimeError("Deletion did not finish.")
 
 
 def call(

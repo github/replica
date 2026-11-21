@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest import mock
 from urllib import error, parse, request
 
-from replica_brand_check.connectors import ConnectorError, RuntimeScope
+from replica_brand_check.connectors import ConnectorError, RuntimeOwner, RuntimeScope
 from replica_brand_check.runtime import FixtureBackend, LocalRuntime, RuntimeFailure
 from replica_brand_check.runtime_server import RuntimeHTTPServer
 from replica_brand_check.taskset import TasksetError
@@ -22,7 +22,14 @@ TOKEN = "runtime-deletion-test-token-0123456789"
 EXPORT_ID = "export_privacy_contract"
 GRANT_ID = "grant_training_contract"
 REVIEW_DIGEST = "sha256:" + "1" * 64
-EVIDENCE_DIGEST = "sha256:" + "2" * 64
+RAW_EVIDENCE_DIGEST = "sha256:" + "2" * 64
+EVIDENCE_DIGEST = "sha256:" + __import__("hashlib").sha256(
+    json.dumps(
+        [RAW_EVIDENCE_DIGEST],
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+).hexdigest()
 
 
 class BlockingBackend(FixtureBackend):
@@ -72,6 +79,14 @@ class CountingBlockingInferenceBackend(BlockingInferenceBackend):
         return super().predict(*args, **kwargs)
 
 
+class InvalidInferenceResultBackend(FixtureBackend):
+    """Persist a result that runtime response validation must reject."""
+
+    def predict(self, *args, **kwargs):
+        del args, kwargs
+        return {RULE: {"probabilities": {"yes": 2, "no": -1}}}
+
+
 class RuntimeDeletionTest(unittest.TestCase):
     def setUp(self):
         self.taskset_dir = write_taskset(
@@ -87,11 +102,14 @@ class RuntimeDeletionTest(unittest.TestCase):
         manifest.update(
             {
                 "exportId": EXPORT_ID,
-                "permittingGrants": [
-                    {"id": GRANT_ID, "purposes": ["training", "evaluation"]}
-                ],
-                "reviewDigest": REVIEW_DIGEST,
-                "evidenceDigest": EVIDENCE_DIGEST,
+                "provenance": {
+                    "exportDigest": "sha256:" + "4" * 64,
+                    "grantIds": [GRANT_ID],
+                    "purposes": ["training", "evaluation"],
+                    "reviewDigests": [REVIEW_DIGEST],
+                    "evidenceDigests": [RAW_EVIDENCE_DIGEST],
+                    "evidenceDigest": EVIDENCE_DIGEST,
+                },
                 "retention": {
                     "policy": "delete_on_withdrawal",
                     "expiresAt": "2026-12-19T00:00:00Z",
@@ -265,6 +283,286 @@ class RuntimeDeletionTest(unittest.TestCase):
             )
         self.assertEqual(promotion.exception.code, "deletion_revoked")
 
+    def test_explicit_retention_keeps_bytes_but_revokes_every_use(self):
+        runtime = self._runtime()
+        finished = self._train(runtime)
+        runtime.promote(
+            finished["candidateId"],
+            promoted_by="privacy-operator",
+            expected_generation=0,
+            idempotency_key="promote-before-retention",
+        )
+        receipt = runtime.request_deletion(
+            {"exportId": EXPORT_ID},
+            requested_by="privacy-operator",
+            reason="legal hold",
+            retention={
+                "mode": "retain",
+                "legalReason": "A documented litigation hold applies.",
+                "expiresAt": "2027-01-01T00:00:00Z",
+            },
+            idempotency_key="retain-export",
+        )
+
+        self.assertEqual(receipt["state"], "completed")
+        self.assertTrue(receipt["items"])
+        self.assertTrue(all(item["state"] == "retained" for item in receipt["items"]))
+        self.assertTrue((self.state_dir / "candidates" / finished["candidateId"]).is_dir())
+        self.assertTrue(any((self.state_dir / "tasksets").iterdir()))
+        for operation in (
+            lambda: runtime.submit(
+                backend="fixture",
+                max_updates=1,
+                max_seconds=5,
+                max_credits=1,
+            ),
+            lambda: runtime.promote(
+                finished["candidateId"],
+                promoted_by="privacy-operator",
+                expected_generation=1,
+                idempotency_key="promote-retained",
+            ),
+            lambda: runtime.evaluate(self._evaluation()),
+        ):
+            with self.assertRaises(RuntimeFailure) as blocked:
+                operation()
+            self.assertEqual(blocked.exception.code, "deletion_revoked")
+
+    def test_rejects_malformed_retention_requests(self):
+        runtime = self._runtime()
+        for retention in (
+            {"mode": "retain"},
+            {"mode": "retain", "legalReason": "hold", "retainUntil": "2027-01-01"},
+            {"mode": "retain", "legalReason": "hold", "expiresAt": "not-a-date"},
+            {"mode": "delete_on_withdrawal", "legalReason": "hold"},
+        ):
+            with self.subTest(retention=retention):
+                with self.assertRaises(RuntimeFailure) as invalid:
+                    runtime.request_deletion(
+                        {"exportId": EXPORT_ID},
+                        requested_by="privacy-operator",
+                        reason="invalid retention",
+                        retention=retention,
+                        idempotency_key="invalid-" + str(len(str(retention))),
+                    )
+                self.assertEqual(invalid.exception.code, "invalid_input")
+
+    def test_refuses_missing_provenance_and_non_training_permission(self):
+        digest, upload = taskset_upload(self.taskset_dir)
+        runtime = LocalRuntime(
+            self.state_dir,
+            None,
+            environment="test",
+            scope=RuntimeScope("tenant-one", "github/example"),
+        )
+        self.addCleanup(runtime.close)
+        missing = json.loads(json.dumps(upload))
+        missing["manifest"]["provenance"].pop("grantIds")
+        with self.assertRaises(RuntimeFailure) as invalid:
+            runtime.register_taskset(
+                digest,
+                missing,
+                idempotency_key="missing-provenance",
+            )
+        self.assertEqual(invalid.exception.code, "taskset_provenance_invalid")
+
+        evaluation_only = json.loads(json.dumps(upload))
+        evaluation_only["manifest"]["provenance"]["purposes"] = ["evaluation"]
+        directory = self._control("evaluation-only")
+        directory.mkdir()
+        (directory / "images").mkdir()
+        (directory / "taskset.json").write_text(
+            json.dumps(evaluation_only["manifest"]),
+            encoding="utf-8",
+        )
+        (directory / "tasks.jsonl").write_text(
+            "".join(json.dumps(task) + "\n" for task in evaluation_only["tasks"]),
+            encoding="utf-8",
+        )
+        for image in evaluation_only["images"]:
+            destination = directory / image["path"]
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(base64.b64decode(image["dataBase64"]))
+        evaluation_digest, evaluation_upload = taskset_upload(directory)
+        runtime.register_taskset(
+            evaluation_digest,
+            evaluation_upload,
+            idempotency_key="evaluation-only-upload",
+        )
+        with self.assertRaises(RuntimeFailure) as forbidden:
+            runtime.submit(
+                backend="fixture",
+                max_updates=1,
+                max_seconds=5,
+                max_credits=1,
+                taskset_digest=f"sha256:{evaluation_digest}",
+            )
+        self.assertEqual(forbidden.exception.code, "training_not_permitted")
+
+    def test_deletion_removes_inference_retry_results_and_cached_taskset(self):
+        digest, upload = taskset_upload(self.taskset_dir)
+        runtime = LocalRuntime(
+            self.state_dir,
+            None,
+            environment="test",
+            scope=RuntimeScope("tenant-one", "github/example"),
+        )
+        self.addCleanup(runtime.close)
+        runtime.register_taskset(digest, upload, idempotency_key="upload-for-cache-deletion")
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(
+                backend="fixture",
+                max_updates=8,
+                max_seconds=5,
+                max_credits=8,
+                taskset_digest=f"sha256:{digest}",
+            )["id"],
+        )
+        runtime.promote(
+            finished["candidateId"],
+            promoted_by="privacy-operator",
+            expected_generation=0,
+            idempotency_key="promote-before-retry-deletion",
+        )
+        runtime.evaluate(self._evaluation(), idempotency_key="durable-inference")
+        inference_path = (
+            self.state_dir
+            / "inference"
+            / ".idempotency"
+            / __import__("hashlib").sha256(b"durable-inference").hexdigest()
+        )
+        self.assertTrue(inference_path.is_file())
+        self.assertTrue(runtime._tasksets)
+
+        receipt = runtime.request_deletion(
+            {"exportId": EXPORT_ID},
+            requested_by="privacy-operator",
+            reason="delete retry result",
+            idempotency_key="delete-retry-result",
+        )
+
+        self.assertEqual(receipt["state"], "completed")
+        self.assertFalse(inference_path.exists())
+        self.assertEqual(runtime._tasksets, {})
+        self.assertEqual(runtime._verified_taskset_directories, {})
+
+    def test_restart_backfills_existing_tasksets_candidates_and_reports(self):
+        runtime = self._runtime()
+        finished = self._train(runtime)
+        runtime.promote(
+            finished["candidateId"],
+            promoted_by="privacy-operator",
+            expected_generation=0,
+            idempotency_key="promote-before-backfill",
+        )
+        runtime.close()
+        shutil.rmtree(self.state_dir / "privacy")
+
+        reopened = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            environment="test",
+            scope=RuntimeScope("tenant-one", "github/example"),
+        )
+        self.addCleanup(reopened.close)
+        disclosed = reopened.disclose({"exportId": EXPORT_ID})
+
+        self.assertEqual(
+            {item["kind"] for item in disclosed["items"]},
+            {"taskset", "candidate", "report"},
+        )
+        self.assertEqual(
+            reopened.evaluate(self._evaluation())["candidateId"],
+            finished["candidateId"],
+        )
+
+    def test_restart_removes_legacy_inference_retries_without_provenance(self):
+        runtime = self._runtime()
+        runtime.close()
+        legacy = self.state_dir / "inference" / ".idempotency" / ("a" * 64)
+        legacy.write_text(
+            json.dumps(
+                {
+                    "requestDigest": "sha256:" + "1" * 64,
+                    "result": {RULE: {"probabilities": {"yes": 1, "no": 0}}},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        reopened = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            environment="test",
+            scope=RuntimeScope("tenant-one", "github/example"),
+        )
+        self.addCleanup(reopened.close)
+
+        self.assertFalse(legacy.exists())
+
+    def test_upgrade_reconciles_backfilled_copies_against_completed_withdrawal(self):
+        digest, upload = taskset_upload(self.taskset_dir)
+        runtime = LocalRuntime(
+            self.state_dir,
+            None,
+            environment="test",
+            scope=RuntimeScope("tenant-one", "github/example"),
+        )
+        runtime.register_taskset(digest, upload, idempotency_key="legacy-upload")
+        finished = self._wait_for_job(
+            runtime,
+            runtime.submit(
+                backend="fixture",
+                max_updates=2,
+                max_seconds=5,
+                max_credits=2,
+                taskset_digest=f"sha256:{digest}",
+            )["id"],
+        )
+        context = runtime._operation_context(
+            "legacy-completed-deletion",
+            max_seconds=30,
+            owner=RuntimeOwner("human", "privacy-operator"),
+            idempotency_key="legacy-completed-deletion",
+        )
+        receipt = runtime.connectors.privacy.create_deletion(
+            {
+                "selectors": {"exportId": EXPORT_ID},
+                "requestedBy": "privacy-operator",
+                "reason": "legacy completed withdrawal",
+                "retention": None,
+            },
+            context,
+        )
+        runtime.connectors.privacy.update_deletion(
+            receipt["id"],
+            {
+                **receipt,
+                "state": "completed",
+                "updatedAt": "2026-11-20T00:00:00Z",
+                "completedAt": "2026-11-20T00:00:00Z",
+            },
+            expected_version=receipt["version"],
+            context=context,
+        )
+        shutil.rmtree(self.state_dir / "privacy" / "copies")
+        (self.state_dir / "privacy" / "copies").mkdir(mode=0o700)
+        runtime.close()
+
+        reopened = LocalRuntime(
+            self.state_dir,
+            None,
+            environment="test",
+            scope=RuntimeScope("tenant-one", "github/example"),
+        )
+        self.addCleanup(reopened.close)
+
+        self.assertFalse((self.state_dir / "tasksets" / digest).exists())
+        self.assertFalse(
+            (self.state_dir / "candidates" / finished["candidateId"]).exists()
+        )
+
     def test_deletion_api_derives_distinct_default_retry_keys_from_each_body(self):
         runtime = self._runtime()
         _server, _thread, base_url = self._serve(runtime)
@@ -341,7 +639,11 @@ class RuntimeDeletionTest(unittest.TestCase):
         )
 
         self.assertEqual(duplicate["id"], first["id"])
-        self.assertEqual(reopened.deletion(first["id"]), completed)
+        reopened_receipt = reopened.deletion(first["id"])
+        self.assertEqual(reopened_receipt["id"], completed["id"])
+        self.assertEqual(reopened_receipt["state"], "completed")
+        self.assertEqual(reopened_receipt["selectors"], completed["selectors"])
+        self.assertEqual(reopened_receipt["items"], completed["items"])
 
     def test_partial_connector_failure_stays_retryable_and_completes_after_restart(self):
         runtime = self._runtime()
@@ -370,7 +672,7 @@ class RuntimeDeletionTest(unittest.TestCase):
                 reason="source taskset deleted",
                 idempotency_key="delete-with-retry",
             )
-            pending = self._wait_for_deletion(runtime, requested["id"], state="pending")
+            pending = requested
 
         self.assertEqual(pending["state"], "pending")
         self.assertTrue(pending["pendingItems"])
@@ -495,10 +797,66 @@ class RuntimeDeletionTest(unittest.TestCase):
         thread.join(5)
 
         self.assertFalse(thread.is_alive())
+        receipt = self._wait_for_deletion(runtime, receipt["id"])
         self.assertEqual(receipt["state"], "completed")
         self.assertEqual(len(failures), 1)
         self.assertIsInstance(failures[0], RuntimeFailure)
         self.assertEqual(failures[0].code, "deletion_revoked")
+
+    def test_withdrawal_waits_for_in_flight_retry_inventory_before_completion(self):
+        started = self._control("retry-withdrawal-started")
+        release = self._control("retry-withdrawal-release")
+        calls = self._control("retry-withdrawal-calls")
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={
+                "fixture": CountingBlockingInferenceBackend(started, release, calls)
+            },
+            environment="test",
+            scope=RuntimeScope("tenant-one", "github/example"),
+        )
+        self.addCleanup(release.write_text, "release", encoding="utf-8")
+        self.addCleanup(runtime.close)
+        finished = self._train(runtime)
+        runtime.promote(
+            finished["candidateId"],
+            promoted_by="privacy-operator",
+            expected_generation=0,
+            idempotency_key="promote-before-retry-withdrawal",
+        )
+        failures = []
+
+        def evaluate():
+            try:
+                runtime.evaluate(
+                    self._evaluation(),
+                    idempotency_key="withdrawn-inference-retry",
+                )
+            except Exception as failure:
+                failures.append(failure)
+
+        thread = threading.Thread(target=evaluate)
+        thread.start()
+        deadline = time.monotonic() + 5
+        while not started.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        receipt = runtime.request_deletion(
+            {"exportId": EXPORT_ID},
+            requested_by="privacy-operator",
+            reason="withdraw during durable retry",
+            idempotency_key="delete-during-durable-retry",
+        )
+        self.assertEqual(receipt["state"], "pending")
+        release.write_text("release", encoding="utf-8")
+        thread.join(5)
+        completed = self._wait_for_deletion(runtime, receipt["id"])
+
+        self.assertEqual(completed["state"], "completed")
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0].code, "deletion_revoked")
+        remaining = list((self.state_dir / "inference" / ".idempotency").iterdir())
+        self.assertEqual(remaining, [])
 
     def test_candidate_inventory_is_durable_before_candidate_bytes(self):
         runtime = self._runtime()
@@ -564,6 +922,41 @@ class RuntimeDeletionTest(unittest.TestCase):
         self.assertEqual(failed.exception.code, "privacy_unavailable")
         self.assertFalse((self.state_dir / "tasksets" / digest).exists())
 
+    def test_inventory_failure_does_not_delete_a_preexisting_uploaded_taskset(self):
+        digest, upload = taskset_upload(self.taskset_dir)
+        runtime = LocalRuntime(
+            self.state_dir,
+            None,
+            environment="test",
+            scope=RuntimeScope("tenant-one", "github/example"),
+        )
+        self.addCleanup(runtime.close)
+        runtime.register_taskset(digest, upload, idempotency_key="first-upload")
+        copy_id = next(
+            item["id"]
+            for item in runtime.disclose({"tasksetDigest": f"sha256:{digest}"})["items"]
+            if item["kind"] == "taskset"
+        )
+        (self.state_dir / "privacy" / "copies" / f"{copy_id}.json").unlink()
+
+        with mock.patch.object(
+            runtime.connectors.privacy,
+            "put_copy",
+            side_effect=ConnectorError(
+                "privacy_unavailable",
+                "Privacy inventory is unavailable.",
+                category="unavailable",
+                retryable=True,
+            ),
+        ), self.assertRaises(RuntimeFailure):
+            runtime.register_taskset(
+                digest,
+                upload,
+                idempotency_key="retry-existing-upload",
+            )
+
+        self.assertTrue((self.state_dir / "tasksets" / digest).is_dir())
+
     def test_successful_taskset_retry_reactivates_failed_registration_inventory(self):
         digest, upload = taskset_upload(self.taskset_dir)
         runtime = LocalRuntime(
@@ -612,6 +1005,57 @@ class RuntimeDeletionTest(unittest.TestCase):
             if item["storage"]["reference"].startswith("uploaded-taskset:")
         )
         self.assertEqual(uploaded["useState"], "active")
+
+    def test_legacy_failed_registration_cannot_delete_verified_taskset(self):
+        digest, upload = taskset_upload(self.taskset_dir)
+        runtime = LocalRuntime(
+            self.state_dir,
+            None,
+            environment="test",
+            scope=RuntimeScope("tenant-one", "github/example"),
+        )
+        runtime.register_taskset(digest, upload, idempotency_key="verified-upload")
+        current = runtime.disclose({"tasksetDigest": f"sha256:{digest}"})["items"][0]
+        legacy = {
+            **current,
+            "id": "copy_"
+            + __import__("hashlib")
+            .sha256(f"taskset\0uploaded:taskset:{digest}".encode())
+            .hexdigest()[:32],
+            "runtimeCopyId": f"uploaded:taskset:{digest}",
+            "sourceTrainingExportId": "export_stale_failed_upload",
+            "useState": "deleted",
+            "retention": {
+                "mode": "registration_failed",
+                "deletedAt": "2026-11-20T00:00:00Z",
+            },
+        }
+        context = runtime._operation_context(
+            "legacy-registration",
+            max_seconds=30,
+            owner=RuntimeOwner("service", "test"),
+        )
+        runtime.connectors.privacy.put_copy(legacy, context)
+        runtime.close()
+
+        reopened = LocalRuntime(
+            self.state_dir,
+            None,
+            environment="test",
+            scope=RuntimeScope("tenant-one", "github/example"),
+        )
+        self.addCleanup(reopened.close)
+        receipt = reopened.request_deletion(
+            {"exportId": "export_stale_failed_upload"},
+            requested_by="privacy-operator",
+            reason="withdraw stale failed upload",
+            idempotency_key="delete-stale-failed-upload",
+        )
+
+        self.assertEqual(receipt["state"], "completed")
+        self.assertTrue((self.state_dir / "tasksets" / digest).is_dir())
+        retained = next(item for item in receipt["items"] if item["runtimeCopyId"] == legacy["id"])
+        self.assertEqual(retained["state"], "retained")
 
     def test_mounting_an_uploaded_taskset_reconciles_operator_retention(self):
         digest, upload = taskset_upload(self.taskset_dir)
@@ -774,6 +1218,13 @@ class RuntimeDeletionTest(unittest.TestCase):
         self.assertEqual(failed.exception.code, "work_directory_unavailable")
         self.assertEqual(runtime._inference_idempotency_locks, {})
         self.assertEqual(runtime._inference_cancellations, {})
+        self.assertFalse(
+            any(
+                item["kind"] == "inference"
+                and item["useState"] == "registering"
+                for item in runtime.disclose({"exportId": EXPORT_ID})["items"]
+            )
+        )
 
     def test_inference_artifact_failure_removes_work_directory(self):
         runtime = self._runtime()
@@ -806,6 +1257,87 @@ class RuntimeDeletionTest(unittest.TestCase):
         self.assertEqual(runtime._inference_idempotency_locks, {})
         self.assertEqual(runtime._inference_cancellations, {})
 
+    def test_invalid_inference_response_removes_uninventoried_retry_result(self):
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"fixture": InvalidInferenceResultBackend()},
+            environment="test",
+            scope=RuntimeScope("tenant-one", "github/example"),
+        )
+        self.addCleanup(runtime.close)
+        finished = self._train(runtime)
+        runtime.promote(
+            finished["candidateId"],
+            promoted_by="privacy-operator",
+            expected_generation=0,
+            idempotency_key="promote-invalid-response",
+        )
+
+        with self.assertRaises(RuntimeFailure) as invalid:
+            runtime.evaluate(
+                self._evaluation(),
+                idempotency_key="invalid-response-retry",
+            )
+
+        self.assertEqual(invalid.exception.code, "inference_failed")
+        self.assertEqual(
+            list((self.state_dir / "inference" / ".idempotency").iterdir()),
+            [],
+        )
+
+    def test_failed_inference_cleanup_remains_inventoried_for_deletion_retry(self):
+        runtime = LocalRuntime(
+            self.state_dir,
+            self.taskset_dir,
+            backends={"fixture": InvalidInferenceResultBackend()},
+            environment="test",
+            scope=RuntimeScope("tenant-one", "github/example"),
+        )
+        self.addCleanup(runtime.close)
+        finished = self._train(runtime)
+        runtime.promote(
+            finished["candidateId"],
+            promoted_by="privacy-operator",
+            expected_generation=0,
+            idempotency_key="promote-cleanup-failure",
+        )
+        connector = runtime.inference_connectors["fixture"]
+        real_delete = connector.delete
+        failure = ConnectorError(
+            "inference_result_delete_unavailable",
+            "Retry storage is unavailable.",
+            category="unavailable",
+            retryable=True,
+        )
+
+        with mock.patch.object(connector, "delete", side_effect=failure):
+            with self.assertRaises(RuntimeFailure):
+                runtime.evaluate(
+                    self._evaluation(),
+                    idempotency_key="cleanup-failure-retry",
+                )
+            disclosed = runtime.disclose({"exportId": EXPORT_ID})
+            retry_copy = next(
+                item for item in disclosed["items"] if item["kind"] == "inference"
+            )
+            self.assertEqual(retry_copy["useState"], "registering")
+            receipt = runtime.request_deletion(
+                {"exportId": EXPORT_ID},
+                requested_by="privacy-operator",
+                reason="delete failed retry cleanup",
+                idempotency_key="delete-failed-retry-cleanup",
+            )
+            self.assertEqual(receipt["state"], "pending")
+
+        self.assertTrue(real_delete(retry_copy["storage"]["reference"], runtime._operation_context(
+            "cleanup-retry",
+            max_seconds=30,
+            owner=RuntimeOwner("service", "test"),
+        )))
+        completed = self._wait_for_deletion(runtime, receipt["id"])
+        self.assertEqual(completed["state"], "completed")
+
     def test_explicit_missing_mounted_taskset_fails_startup(self):
         missing = self._control("missing-taskset")
 
@@ -830,6 +1362,14 @@ class RuntimeDeletionTest(unittest.TestCase):
 
     def _control(self, name):
         return self.state_dir.with_name(f"{self.state_dir.name}-{name}")
+
+    @staticmethod
+    def _aggregate_digest(values):
+        import hashlib
+
+        return "sha256:" + hashlib.sha256(
+            json.dumps(values, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
 
     def _train(self, runtime):
         job = runtime.submit(

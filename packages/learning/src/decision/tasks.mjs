@@ -208,10 +208,7 @@ export function planDecisionTasks(bundle, builds) {
         .filter((record) => record.kind === "grant")
         .map((record) => record.id)
         .sort(compare),
-      reviewDigests: manifest.records
-        .filter((record) => record.kind === "memory")
-        .map((record) => record.digest)
-        .sort(compare),
+      reviewDigests: bundle.memories.map((memory) => memory.reviewDigest).sort(compare),
       evidenceDigests: manifest.records
         .filter((record) => ["collection", "episode", "event"].includes(record.kind))
         .map((record) => record.digest)

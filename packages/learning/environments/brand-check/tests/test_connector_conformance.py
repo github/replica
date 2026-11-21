@@ -209,9 +209,9 @@ class _MemoryTasksets:
                 category="conflict",
             )
         if previous is not None:
-            return previous[1]
+            return replace(previous[1], created=False)
         self._holders.append(holder)
-        artifact = TasksetArtifact(reference, digest, taskset)
+        artifact = TasksetArtifact(reference, digest, taskset, created=True)
         self._items[(_scope_key(context.scope), reference)] = taskset
         self._registrations[(_scope_key(context.scope), reference)] = (
             identity,
@@ -238,11 +238,26 @@ class _MemoryTasksets:
 
     def delete(self, reference, context):
         _check_context(context)
+        if context.scope != self._scope:
+            raise ConnectorError(
+                "scope_unauthorized",
+                "The operation scope does not match this connector bundle.",
+                category="unauthorized",
+            )
         key = (_scope_key(context.scope), reference)
         existed = key in self._items
         self._items.pop(key, None)
         self._registrations.pop(key, None)
         return existed
+
+    def list(self, context):
+        _check_context(context)
+        scope = _scope_key(context.scope)
+        return tuple(
+            self.resolve(reference, context)
+            for record_scope, reference in sorted(self._items)
+            if record_scope == scope
+        )
 
 
 class _MemoryArtifacts:
@@ -457,6 +472,7 @@ class _MemoryCandidates:
         self._items = {}
         self._promotions = {}
         self._promotion_idempotency = {}
+        self._owner_scope = None
 
     def put(self, candidate, context):
         _check_context(context)
@@ -468,6 +484,8 @@ class _MemoryCandidates:
                     category="integrity",
                 )
         key = (_scope_key(context.scope), candidate.id)
+        if self._owner_scope is None:
+            self._owner_scope = key[0]
         existing = self._items.get(key)
         if existing is not None and existing != candidate:
             raise ConnectorError(
@@ -542,10 +560,26 @@ class _MemoryCandidates:
 
     def delete(self, candidate_id, context):
         _check_context(context)
-        key = (_scope_key(context.scope), candidate_id)
+        scope = _scope_key(context.scope)
+        if self._owner_scope is not None and scope != self._owner_scope:
+            raise ConnectorError(
+                "candidate_not_found",
+                "The candidate was not found.",
+                category="not_found",
+            )
+        key = (scope, candidate_id)
         existed = key in self._items
         self._items.pop(key, None)
         return existed
+
+    def list(self, context):
+        _check_context(context)
+        scope = _scope_key(context.scope)
+        return tuple(
+            candidate
+            for (record_scope, _candidate_id), candidate in sorted(self._items.items())
+            if record_scope == scope
+        )
 
 
 class _MemoryPrivacy:
@@ -593,7 +627,7 @@ class _MemoryPrivacy:
             matches = {
                 "exportId": record.get("sourceTrainingExportId"),
                 "grantId": record.get("permittingGrantIds", ()),
-                "evidenceDigest": record.get("evidenceDigests", ()),
+                "evidenceDigest": record.get("evidenceDigest"),
                 "tasksetDigest": record.get("tasksetDigest"),
             }
             if all(
@@ -620,7 +654,15 @@ class _MemoryPrivacy:
         retry = (_scope_key(context.scope), context.idempotency_key)
         prior = self._retries.get(retry)
         if prior is not None:
-            return dict(self._deletions[prior])
+            request_identity, deletion_key = prior
+            identity = json.dumps(request, sort_keys=True, separators=(",", ":"))
+            if request_identity != identity:
+                raise ConnectorError(
+                    "idempotency_conflict",
+                    "The idempotency key was reused with different input.",
+                    category="conflict",
+                )
+            return dict(self._deletions[deletion_key])
         deletion_id = f"deletion_{len(self._deletions) + 1}"
         receipt = {
             "schemaVersion": "replica.runtime-deletion-receipt/v1",
@@ -640,7 +682,10 @@ class _MemoryPrivacy:
         }
         key = (_scope_key(context.scope), deletion_id)
         self._deletions[key] = receipt
-        self._retries[retry] = key
+        self._retries[retry] = (
+            json.dumps(request, sort_keys=True, separators=(",", ":")),
+            key,
+        )
         return dict(receipt)
 
     def get_deletion(self, deletion_id, context):
@@ -732,6 +777,15 @@ class _MemoryExecution:
         _check_credential(credential, "inference", context)
         self.inference_contexts.append(context)
         return {"operationId": context.operation_id}
+
+    def delete(self, reference, context):
+        del reference
+        _check_context(context)
+        return True
+
+    def list_results(self, context):
+        _check_context(context)
+        return ()
 
 
 def _check_credential(

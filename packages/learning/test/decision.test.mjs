@@ -455,10 +455,7 @@ describe("replica-learning decision", () => {
     assert.deepEqual(tasksetManifest.provenance.purposes, ["training"])
     assert.deepEqual(
       tasksetManifest.provenance.reviewDigests,
-      bundle.manifest.records
-        .filter((record) => record.kind === "memory")
-        .map((record) => record.digest)
-        .sort(),
+      bundle.memories.map((memory) => memory.reviewDigest).sort(),
     )
     assert.deepEqual(
       tasksetManifest.provenance.evidenceDigests,
@@ -466,6 +463,12 @@ describe("replica-learning decision", () => {
         .filter((record) => ["collection", "episode", "event"].includes(record.kind))
         .map((record) => record.digest)
         .sort(),
+    )
+    assert.equal(
+      tasksetManifest.provenance.evidenceDigest,
+      `sha256:${createHash("sha256")
+        .update(canonicalJson(tasksetManifest.provenance.evidenceDigests))
+        .digest("hex")}`,
     )
     assert.deepEqual(tasksetManifest.retention, { mode: "delete_on_withdrawal" })
   })

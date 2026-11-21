@@ -162,6 +162,7 @@ class TasksetArtifact:
     reference: str
     digest: ContentDigest
     taskset: Taskset
+    created: bool = field(default=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -338,6 +339,8 @@ class TasksetConnector(Protocol):
 
     def delete(self, reference: str, context: OperationContext) -> bool: ...
 
+    def list(self, context: OperationContext) -> Sequence[TasksetArtifact]: ...
+
 
 class ArtifactConnector(Protocol):
     def put(self, artifact: Artifact, context: OperationContext) -> Artifact: ...
@@ -406,6 +409,8 @@ class CandidateConnector(Protocol):
     def current(self, context: OperationContext) -> Promotion | None: ...
 
     def delete(self, candidate_id: str, context: OperationContext) -> bool: ...
+
+    def list(self, context: OperationContext) -> Sequence[Candidate]: ...
 
 
 class PrivacyConnector(Protocol):
@@ -477,6 +482,12 @@ class TrainingConnector(Protocol):
 
 class InferenceConnector(Protocol):
     name: str
+
+    def delete(self, reference: str, context: OperationContext) -> bool: ...
+
+    def list_results(
+        self, context: OperationContext
+    ) -> Sequence[Mapping[str, Any]]: ...
 
     def predict(
         self,

@@ -62,7 +62,7 @@ class ConnectorDeletionConformanceTest(unittest.TestCase):
             {
                 "exportId": "export_contract",
                 "grantId": "grant_contract",
-                "evidenceDigest": "sha256:" + "b" * 64,
+                "evidenceDigest": "sha256:" + "e" * 64,
                 "tasksetDigest": "sha256:" + "a" * 64,
             },
             cursor=None,
@@ -73,7 +73,7 @@ class ConnectorDeletionConformanceTest(unittest.TestCase):
             {
                 "exportId": "export_contract",
                 "grantId": "grant_contract",
-                "evidenceDigest": "sha256:" + "b" * 64,
+                "evidenceDigest": "sha256:" + "e" * 64,
                 "tasksetDigest": "sha256:" + "a" * 64,
             },
             cursor=cursor,
@@ -315,6 +315,7 @@ class ConnectorDeletionConformanceTest(unittest.TestCase):
             "permittedPurposes": ["training"],
             "reviewDigests": ["sha256:" + "c" * 64],
             "evidenceDigests": ["sha256:" + "b" * 64],
+            "evidenceDigest": "sha256:" + "e" * 64,
             "tasksetDigest": taskset_digest,
             "runtimeCopyId": copy_id,
             "storage": {
@@ -325,7 +326,7 @@ class ConnectorDeletionConformanceTest(unittest.TestCase):
             "promotionState": "not_promoted",
             "useState": "active",
             "retention": {
-                "policy": "delete_on_withdrawal",
+                "mode": "delete_on_withdrawal",
                 "expiresAt": "2026-12-19T00:00:00Z",
             },
             "parentRuntimeCopyIds": [],
