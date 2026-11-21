@@ -38,6 +38,8 @@ The new Hub has one protected manual workflow for a named non-production Azure i
 
 For requests to create a prototype repository or set up an existing repository for prototyping, read [prototype repository setup](docs/prototype-repository-setup.md) before acting. It owns target selection, starter installation, the fresh-session handoff, and the path from local preview to optional guidance, a team baseline, or Hub. On native Windows, follow its Git Bash instructions for starter creation.
 
+When creating a starter, default to a local folder the user controls. If the requested parent is known to let other accounts modify its contents, suggest a destination under the user's home folder instead. Do not ask the user to audit folder permissions.
+
 ## Browser validation and Playwright fallback
 
 Use the browser canvas first for agent-driven rendered checks, interaction tests, screenshots and visual review across Replica. Keep the normal visual preview open; the Replica prototype canvas's publishing controls are separate from browser inspection. Discover the browser canvas's actual open and action schemas before use, then address the open panel through its `instanceId`. Actions that take only that handle need no separate page acquisition. Supply a separate page identifier only if the discovered schema requires one, using a runtime-returned value rather than inventing or deriving it.
