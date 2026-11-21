@@ -15,6 +15,7 @@ from urllib import error, parse, request
 from replica_brand_check.connectors import ConnectorError, RuntimeScope
 from replica_brand_check.runtime import FixtureBackend, LocalRuntime, RuntimeFailure
 from replica_brand_check.runtime_server import RuntimeHTTPServer
+from replica_brand_check.taskset import TasksetError
 from tests.support import PNG, RULE, make_task, taskset_upload, write_taskset
 
 TOKEN = "runtime-deletion-test-token-0123456789"
@@ -392,8 +393,8 @@ class RuntimeDeletionTest(unittest.TestCase):
         self.assertGreaterEqual(attempts, 1)
 
     def test_pending_revocation_cancels_racing_work_and_blocks_new_uses(self):
-        started = self.taskset_dir.parent / "deletion-job-started"
-        release = self.taskset_dir.parent / "deletion-job-release"
+        started = self._control("deletion-job-started")
+        release = self._control("deletion-job-release")
         runtime = LocalRuntime(
             self.state_dir,
             self.taskset_dir,
@@ -452,8 +453,8 @@ class RuntimeDeletionTest(unittest.TestCase):
         self.assertEqual(receipt["state"], "completed")
 
     def test_withdrawal_cancels_in_flight_inference_before_receipt_completion(self):
-        started = self.taskset_dir.parent / "deletion-inference-started"
-        release = self.taskset_dir.parent / "deletion-inference-release"
+        started = self._control("deletion-inference-started")
+        release = self._control("deletion-inference-release")
         runtime = LocalRuntime(
             self.state_dir,
             self.taskset_dir,
@@ -534,6 +535,35 @@ class RuntimeDeletionTest(unittest.TestCase):
             [],
         )
 
+    def test_taskset_inventory_is_reserved_before_uploaded_bytes(self):
+        digest, upload = taskset_upload(self.taskset_dir)
+        runtime = LocalRuntime(
+            self.state_dir,
+            None,
+            environment="test",
+            scope=RuntimeScope("tenant-one", "github/example"),
+        )
+        self.addCleanup(runtime.close)
+
+        with mock.patch.object(
+            runtime.connectors.privacy,
+            "put_copy",
+            side_effect=ConnectorError(
+                "privacy_unavailable",
+                "Privacy inventory is unavailable.",
+                category="unavailable",
+                retryable=True,
+            ),
+        ), self.assertRaises(RuntimeFailure) as failed:
+            runtime.register_taskset(
+                digest,
+                upload,
+                idempotency_key="upload-without-inventory",
+            )
+
+        self.assertEqual(failed.exception.code, "privacy_unavailable")
+        self.assertFalse((self.state_dir / "tasksets" / digest).exists())
+
     def test_mounting_an_uploaded_taskset_reconciles_operator_retention(self):
         digest, upload = taskset_upload(self.taskset_dir)
         runtime = LocalRuntime(
@@ -569,9 +599,9 @@ class RuntimeDeletionTest(unittest.TestCase):
         self.assertTrue((self.taskset_dir / "taskset.json").is_file())
 
     def test_concurrent_inference_retries_share_one_backend_execution(self):
-        started = self.taskset_dir.parent / "retry-inference-started"
-        release = self.taskset_dir.parent / "retry-inference-release"
-        calls = self.taskset_dir.parent / "retry-inference-calls"
+        started = self._control("retry-inference-started")
+        release = self._control("retry-inference-release")
+        calls = self._control("retry-inference-calls")
         runtime = LocalRuntime(
             self.state_dir,
             self.taskset_dir,
@@ -621,6 +651,18 @@ class RuntimeDeletionTest(unittest.TestCase):
         self.assertEqual(len(responses), 2)
         self.assertEqual(responses[0], responses[1])
         self.assertEqual(calls.read_text(encoding="utf-8").splitlines(), ["predict"])
+        self.assertEqual(runtime._inference_idempotency_locks, {})
+
+    def test_explicit_missing_mounted_taskset_fails_startup(self):
+        missing = self._control("missing-taskset")
+
+        with self.assertRaises(TasksetError):
+            LocalRuntime(
+                self.state_dir,
+                missing,
+                environment="test",
+                scope=RuntimeScope("tenant-one", "github/example"),
+            )
 
     def _runtime(self):
         runtime = LocalRuntime(
@@ -632,6 +674,9 @@ class RuntimeDeletionTest(unittest.TestCase):
         )
         self.addCleanup(runtime.close)
         return runtime
+
+    def _control(self, name):
+        return self.state_dir.with_name(f"{self.state_dir.name}-{name}")
 
     def _train(self, runtime):
         job = runtime.submit(

@@ -238,7 +238,7 @@ class LocalTasksetConnector(_ScopedConnector):
         self.digest = None
         self.reference = None
         self._mounted: dict[str, Taskset] = {}
-        if taskset_directory is not None and Path(taskset_directory).exists():
+        if taskset_directory is not None:
             self.taskset = load_taskset(taskset_directory)
             self.digest = taskset_digest(self.taskset)
             self.reference = f"taskset:{self.digest.value}"
@@ -2185,10 +2185,10 @@ class LocalPrivacyConnector(_ScopedConnector):
         context: OperationContext,
     ) -> Mapping[str, Any]:
         self._check(context)
-        if state not in ("active", "revoked", "deleted", "retained"):
+        if state not in ("registering", "active", "revoked", "deleted", "retained"):
             raise ConnectorError(
                 "runtime_copy_state_invalid",
-                "A runtime copy tombstone must be revoked, deleted, or retained.",
+                "A runtime copy state must be registering, active, revoked, deleted, or retained.",
                 category="invalid_input",
             )
         path = self._copy_path(copy_id)
@@ -2367,7 +2367,8 @@ class LocalPrivacyConnector(_ScopedConnector):
             saved.get("schemaVersion") != "replica.runtime-copy/v1"
             or not isinstance(saved.get("id"), str)
             or saved.get("kind") not in ("taskset", "candidate", "report")
-            or saved.get("useState") not in ("active", "revoked", "deleted", "retained")
+            or saved.get("useState")
+            not in ("registering", "active", "revoked", "deleted", "retained")
             or not isinstance(saved.get("sourceTrainingExportId"), str)
             or not isinstance(saved.get("tasksetDigest"), str)
             or not isinstance(saved.get("storage"), dict)

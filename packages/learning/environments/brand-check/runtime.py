@@ -232,7 +232,9 @@ class LocalRuntime:
         self._inference_cancellations: dict[
             str, tuple[Cancellation, Mapping[str, Any]]
         ] = {}
-        self._inference_idempotency_locks: dict[str, threading.Lock] = {}
+        self._inference_idempotency_locks: dict[
+            str, tuple[threading.Lock, int]
+        ] = {}
         self._tasksets: OrderedDict[str, TasksetArtifact] = OrderedDict()
         self._verified_taskset_directories: dict[str, Path] = {}
         try:
@@ -400,13 +402,45 @@ class LocalRuntime:
             owner=RuntimeOwner("service", "decision-runtime"),
             idempotency_key=idempotency_key,
         )
+        reference = f"taskset:{claimed.value}"
+        provisional = _runtime_copy(
+            "taskset",
+            reference,
+            reference,
+            _manifest_provenance(bundle.manifest, str(claimed)),
+            scope=self.scope,
+            connector=type(self.connectors.tasksets).__name__,
+            created_at=bundle.manifest.get("createdAt"),
+            retention=dict(
+                bundle.manifest.get(
+                    "retention",
+                    {"mode": "delete_on_withdrawal"},
+                )
+            ),
+            use_state="registering",
+        )
+        reserved = False
         try:
             with self._lock:
                 self._assert_not_revoked(
                     _manifest_provenance(bundle.manifest, str(claimed)),
                     operation="taskset upload",
                 )
+                try:
+                    self.connectors.privacy.get_copy(provisional["id"], context)
+                except ConnectorError as error:
+                    if error.category != "not_found":
+                        raise
+                    self.connectors.privacy.put_copy(provisional, context)
+                    reserved = True
                 registered = self.connectors.tasksets.register(bundle, context)
+                if reserved:
+                    self.connectors.privacy.tombstone_copy(
+                        provisional["id"],
+                        state="active",
+                        retention=provisional["retention"],
+                        context=context,
+                    )
                 self._record_taskset_copy(registered, context, mounted=False)
                 self._cache_taskset(registered)
                 self._record_usage(
@@ -421,6 +455,19 @@ class LocalRuntime:
                     },
                 )
         except ConnectorError as error:
+            if reserved:
+                try:
+                    self.connectors.privacy.tombstone_copy(
+                        provisional["id"],
+                        state="deleted",
+                        retention={
+                            "mode": "registration_failed",
+                            "deletedAt": _now(),
+                        },
+                        context=context,
+                    )
+                except ConnectorError:
+                    pass
             raise _runtime_connector_failure(error) from None
         return {
             "schemaVersion": TASKSET_UPLOAD_SCHEMA,
@@ -1099,16 +1146,24 @@ class LocalRuntime:
                 raise _runtime_connector_failure(error) from None
             provenance = _copy_provenance(copy)
             if idempotency_key is not None:
-                retry_lock = self._inference_idempotency_locks.setdefault(
+                lock, users = self._inference_idempotency_locks.get(
                     idempotency_key,
-                    threading.Lock(),
+                    (threading.Lock(), 0),
                 )
+                self._inference_idempotency_locks[idempotency_key] = (
+                    lock,
+                    users + 1,
+                )
+                retry_lock = lock
         if retry_lock is not None:
             retry_lock.acquire()
             try:
                 self._assert_not_revoked(provenance, operation="inference")
             except Exception:
-                retry_lock.release()
+                self._release_inference_idempotency_lock(
+                    idempotency_key,
+                    retry_lock,
+                )
                 raise
         with self._lock:
             cancellation = Cancellation()
@@ -1143,7 +1198,10 @@ class LocalRuntime:
             with self._lock:
                 self._inference_cancellations.pop(context.operation_id, None)
             if retry_lock is not None:
-                retry_lock.release()
+                self._release_inference_idempotency_lock(
+                    idempotency_key,
+                    retry_lock,
+                )
             raise _runtime_connector_failure(error) from None
         started = time.monotonic()
         operation_error: Exception | None = None
@@ -1154,7 +1212,10 @@ class LocalRuntime:
             with self._lock:
                 self._inference_cancellations.pop(context.operation_id, None)
             if retry_lock is not None:
-                retry_lock.release()
+                self._release_inference_idempotency_lock(
+                    idempotency_key,
+                    retry_lock,
+                )
             raise RuntimeFailure(
                 "capacity_temporarily_unavailable",
                 f"Promoted candidate backend {manifest['backend']} is already serving "
@@ -1242,7 +1303,28 @@ class LocalRuntime:
             }
         finally:
             if retry_lock is not None:
-                retry_lock.release()
+                self._release_inference_idempotency_lock(
+                    idempotency_key,
+                    retry_lock,
+                )
+
+    def _release_inference_idempotency_lock(
+        self,
+        idempotency_key: str | None,
+        lock: threading.Lock,
+    ) -> None:
+        lock.release()
+        assert idempotency_key is not None
+        with self._lock:
+            current, users = self._inference_idempotency_locks[idempotency_key]
+            assert current is lock and users > 0
+            if users == 1:
+                del self._inference_idempotency_locks[idempotency_key]
+            else:
+                self._inference_idempotency_locks[idempotency_key] = (
+                    lock,
+                    users - 1,
+                )
 
     def _run_job(self, job_id: str) -> None:
         job: dict[str, Any] = {}
@@ -2003,6 +2085,7 @@ def _runtime_copy(
     retention: Mapping[str, Any],
     promotion_state: str = "not_applicable",
     parent_copy_ids: tuple[str, ...] = (),
+    use_state: str = "active",
 ) -> dict[str, Any]:
     return {
         "schemaVersion": RUNTIME_COPY_SCHEMA,
@@ -2022,7 +2105,7 @@ def _runtime_copy(
         "runtimeCopyId": identity,
         "storage": {"connector": connector, "reference": reference},
         "createdAt": created_at if isinstance(created_at, str) else _now(),
-        "useState": "active",
+        "useState": use_state,
         "promotionState": promotion_state,
         "retention": dict(retention),
         "parentRuntimeCopyIds": list(parent_copy_ids),
