@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { readdir, symlink, writeFile } from "node:fs/promises"
+import { readdir, symlink, truncate, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { describe, it } from "node:test"
 
@@ -51,6 +51,38 @@ describe("validateBuildOutput()", () => {
         { path: "index.html", bytes: 15 },
       ],
     })
+  })
+
+  it("accepts a 100 MiB index and rejects one additional byte", async () => {
+    const root = await buildRoot()
+    const index = path.join(root, "dist", "index.html")
+    const maximumBytes = 100 * 1024 * 1024
+    await truncate(index, maximumBytes)
+
+    assert.deepEqual(await validateBuildOutput(root), {
+      bytes: maximumBytes,
+      files: [{ path: "index.html", bytes: maximumBytes }],
+    })
+
+    await truncate(index, maximumBytes + 1)
+
+    await assert.rejects(
+      validateBuildOutput(root),
+      /Build output file must be no larger than 104857600 bytes: index\.html has 104857601 bytes\./,
+    )
+  })
+
+  it("retains the 100 MiB aggregate limit for individually allowed files", async () => {
+    const root = await buildRoot()
+    await writeFile(path.join(root, "dist", "index.html"), "hi")
+    const asset = path.join(root, "dist", "data.bin")
+    await writeFile(asset, "")
+    await truncate(asset, 100 * 1024 * 1024 - 1)
+
+    await assert.rejects(
+      validateBuildOutput(root),
+      /Build output files must total no more than 104857600 bytes; found 104857601\./,
+    )
   })
 
   it("rejects symbolic links", async () => {

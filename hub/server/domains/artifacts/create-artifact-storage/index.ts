@@ -4,7 +4,7 @@ import { log } from "../../../integrations/pino/log/index.ts"
 import { parseArtifactStorageSettings } from "../parse-artifact-storage-settings/index.ts"
 import type { ArtifactStorage, ArtifactStorageSettings } from "./types.ts"
 
-export const artifactMaxBytes = 32 * 1024 * 1024
+export const artifactMaxBytes = 100 * 1024 * 1024
 const keyPattern = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
 
 export async function createArtifactStorage(
