@@ -122,4 +122,4 @@ Definition edits need a page reload; there is no Replica file watcher or live sc
 
 Check the repository's existing test/build commands and that the built asset is `/controls.replica.json`. Exercise each requested control's observable app effect, defaults and reset. Include distinct conditions, failures and page lifetimes where used; avoid redundant cases.
 
-With authorized startup, follow the repository's browser validation workflow. Inspect the live page before interactions. Test the actual panel and app separately from JSON validation or jsdom evidence. Report blocked checks precisely rather than claiming a package installation or successful build proves rendered behavior.
+Follow the repository's local preview policy and browser validation workflow. Inspect the live page before interactions. Test the actual panel and app separately from JSON validation or jsdom evidence. Report blocked checks precisely rather than claiming a package installation or successful build proves rendered behavior.

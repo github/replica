@@ -14,17 +14,15 @@ browser failures. Keep common authorization and evidence limits in this root.
 
 ## Target and readiness
 
-Find the worktree-specific preview/server command if one exists, whether starting
-it is authorized, target URL source, base paths/routes, deterministic readiness
-assertions and failure signals. Static/offline preview is valid. Do not assume
-a server, port, framework or scaffold.
+Find the worktree's declared local preview command, the source of the actual URL, base paths and routes, readiness checks, and failure signals. Static or offline preview is valid. Do not assume a server, port, framework or scaffold.
+
+Refer to the routine local preview policy in `AGENTS.md`: a request to create or modify a prototype authorizes the declared local command, unless the user or repository policy explicitly requires separate approval. Record any such exceptions with their source. A command declaration is not by itself permission to run it. Context research remains read-only and does not start previews or install dependencies.
 
 Record the early-preview policy: once the authorized route is known and the
 preview is running, show its current state before UI edits and keep it visible.
 Prefer the Replica prototype canvas when available; otherwise use an available
 browser canvas or supported local browser and disclose the limitation.
-Starting a server still requires repository authorization. Distinguish canvas
-availability from Hub connection status. Preserve the exact authorized URL,
+Distinguish canvas availability from Hub connection status. Preserve the exact authorized URL,
 including deployment base, path, query and hash. A printed URL or HTML response
 alone does not prove application bootstrap or route readiness.
 
