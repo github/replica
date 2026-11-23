@@ -51,6 +51,7 @@ export function useNotificationInbox({
   const generation = useRef(0)
   const pendingCount = useRef<AbortController | null>(null)
   const countReceivedAt = useRef<number | null>(null)
+  const suppliedCountRevision = useRef(0)
   const loaded = useRef(false)
   const oldest = useRef<{ all: number | null; unread: number | null }>({ all: null, unread: null })
   const ownReadUpdate = useRef<NotificationReadUpdate | null>(null)
@@ -70,6 +71,7 @@ export function useNotificationInbox({
       if (!path) return
 
       const requestGeneration = ++generation.current
+      const countRevision = suppliedCountRevision.current
       setLoading(before !== null || !loaded.current)
       setFailed(false)
       try {
@@ -120,17 +122,22 @@ export function useNotificationInbox({
           return [...page.notifications, ...retained].sort((a, b) => b.id - a.id)
         })
         setNextBefore(page.nextBefore)
-        countReceivedAt.current = performance.now()
-        setUnreadCount(page.unreadCount)
-        callbacks.current.onUnreadCountChange?.(page.unreadCount)
+        if (countRevision === suppliedCountRevision.current) {
+          countReceivedAt.current = performance.now()
+          setUnreadCount(page.unreadCount)
+          callbacks.current.onUnreadCountChange?.(page.unreadCount)
+        }
       } catch {
         if (requestGeneration !== generation.current) return
 
         setNotifications([])
         loaded.current = false
         oldest.current = { all: null, unread: null }
-        countReceivedAt.current = null
-        setUnreadCount(0)
+        if (countRevision === suppliedCountRevision.current) {
+          countReceivedAt.current = null
+          setUnreadCount(0)
+          callbacks.current.onUnreadCountChange?.(0)
+        }
         setNextBefore(null)
         setFailed(true)
       } finally {
@@ -178,12 +185,20 @@ export function useNotificationInbox({
   }, [path])
 
   useEffect(() => {
-    if (autoCount) loadCount()
+    if (autoCount && countReceivedAt.current === null) loadCount()
     return () => {
       pendingCount.current?.abort()
       pendingCount.current = null
     }
   }, [autoCount, loadCount])
+
+  const receiveUnreadCount = useCallback((count: number) => {
+    suppliedCountRevision.current += 1
+    pendingCount.current?.abort()
+    pendingCount.current = null
+    countReceivedAt.current = performance.now()
+    setUnreadCount(count)
+  }, [])
 
   function needsCountRefresh(saved: NotificationReadUpdate, startedAt?: number) {
     const lastCount = countReceivedAt.current
@@ -315,8 +330,14 @@ export function useNotificationInbox({
     },
     onLoadMore: () => void load(nextBefore),
     onRetry: () => void load(),
-    onOpen: () => void load(),
-    onUnreadCountChange: setUnreadCount,
+    onOpen: (clearPrevious = false) => {
+      if (clearPrevious) {
+        loaded.current = false
+        setNotifications([])
+      }
+      void load()
+    },
+    onUnreadCountChange: receiveUnreadCount,
     onReadUpdate: (id: number, saved: NotificationReadUpdate) => {
       generation.current += 1
       const needsCount = loaded.current && needsCountRefresh(saved)

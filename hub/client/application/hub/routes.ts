@@ -22,9 +22,13 @@ export default [
   ...productPublicRoutes,
   ...settingsPublicRoutes,
   layout("routes/workspace/index.tsx", [
+    layout("routes/workspace-nav/index.tsx", [
+      route("repositories/:repositoryId", "routes/repository/index.tsx"),
+      route("repositories/:repositoryId/new", "routes/product-new/index.tsx"),
+      route("notifications", "routes/settings-notifications/index.tsx"),
+    ]),
     ...productWorkspaceRoutes,
     ...settingsWorkspaceRoutes,
-    route("repositories/:repositoryId", "routes/repository/index.tsx"),
     route("repositories/:repositoryId/prototypes/:prototypeId", "routes/prototype/index.tsx"),
     route(
       "repositories/:repositoryId/prototypes/:prototypeId/builds",

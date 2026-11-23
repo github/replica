@@ -1,9 +1,11 @@
-import { useState } from "react"
+import { createContext, useContext, useState } from "react"
 import type { PropsWithChildren, ReactNode } from "react"
 
 import "./styles.css"
 
-/** Shares the existing sidebar geometry and narrow-screen collapse across Hub scopes. */
+const WorkspaceFrameContext = createContext(false)
+
+/** Shares navigation layout and narrow-screen collapse across Hub scopes. */
 export function WorkspaceFrame({
   children,
   navigation,
@@ -12,6 +14,7 @@ export function WorkspaceFrame({
   navigation: (collapsed: boolean, onCollapsedChange: (collapsed: boolean) => void) => ReactNode
   defaultNavigationCollapsed?: boolean
 }>) {
+  const framed = useContext(WorkspaceFrameContext)
   const [navigationCollapsed, setNavigationCollapsed] = useState(
     () =>
       defaultNavigationCollapsed ||
@@ -19,10 +22,14 @@ export function WorkspaceFrame({
       false,
   )
 
+  if (framed) return children
+
   return (
     <main className="repository-workspace" data-navigation-collapsed={navigationCollapsed}>
       {navigation(navigationCollapsed, setNavigationCollapsed)}
-      <div className="repository-workspace__content">{children}</div>
+      <div className="repository-workspace__content">
+        <WorkspaceFrameContext value={true}>{children}</WorkspaceFrameContext>
+      </div>
     </main>
   )
 }

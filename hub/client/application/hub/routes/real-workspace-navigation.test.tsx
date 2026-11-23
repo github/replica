@@ -29,7 +29,7 @@ type RouteModule = {
 const routeModules = import.meta.glob<RouteModule>(
   [
     "../root.tsx",
-    "./{home,workspace,repositories,repository,product-new,settings-administrators,settings-audit,settings-copilot,settings-notifications,settings-sessions,settings-welcome}/index.tsx",
+    "./{home,workspace,workspace-nav,repositories,repository,product-new,settings-administrators,settings-audit,settings-copilot,settings-notifications,settings-sessions,settings-welcome}/index.tsx",
   ],
   { eager: true },
 )
@@ -176,6 +176,133 @@ function sidebarDestinations() {
 }
 
 describe("real workspace navigation", () => {
+  it("keeps the collapsed navigation and Inbox count across main pages", async () => {
+    const repository = {
+      id: "11111111-1111-4111-8111-111111111111",
+      nameWithOwner: "team/alpha",
+      defaultBranch: "main",
+      capabilities: { reviewPrototypes: true, manageSharing: false, browseTemplates: true },
+    }
+    const otherRepository = {
+      ...repository,
+      id: "22222222-2222-4222-8222-222222222222",
+      nameWithOwner: "team/beta",
+    }
+    const galleryPath = `/repositories/${repository.id}`
+    const createPath = `${galleryPath}/new`
+    const inboxPath = `/notifications?repositoryId=${repository.id}`
+    const galleryCount = 3
+    const inboxCount = 1
+    const notification = {
+      id: 7,
+      version: 1,
+      actor: { login: "mona", name: "Mona", avatarUrl: null },
+      kind: "mention",
+      excerpt: "Please review the landing page.",
+      createdAt: "2026-11-20T12:00:00.000Z",
+      read: false,
+      repository: repository.nameWithOwner,
+      prototype: "Landing page",
+      path: `${galleryPath}/prototypes/33333333-3333-4333-8333-333333333333?comment=7`,
+      updatePath: "/api/notifications/7",
+      target: { prototypeId: "33333333-3333-4333-8333-333333333333", threadId: 7, commentId: 7 },
+    }
+    const inboxReads: [limit: string | null, unread: string | null][] = []
+    const galleryReads: (string | null)[] = []
+    await renderApplication(galleryPath, [
+      ...workspaceApi([otherRepository, repository], {
+        role: "MEMBER",
+        reviewInboxAvailable: true,
+      }),
+      galleryApi(repository, (request) =>
+        galleryReads.push(new URL(request.url).searchParams.get("q")),
+      ),
+      json(`/api/repositories/${repository.id}/templates`, {
+        repository,
+        templates: [],
+        canCreate: true,
+      }),
+      http.get(`${window.location.origin}/api/notifications/inbox`, ({ request }) => {
+        const query = new URL(request.url).searchParams
+        const limit = query.get("limit")
+        inboxReads.push([limit, query.get("unread")])
+        return HttpResponse.json({
+          notifications: [notification],
+          nextBefore: limit === "1" ? notification.id : null,
+          unreadCount: limit === "1" ? galleryCount : inboxCount,
+        })
+      }),
+    ])
+
+    function mainNavigation() {
+      return screen.getByRole("navigation", { name: "Repository navigation" })
+    }
+
+    function navLink(name: string | RegExp) {
+      return within(mainNavigation()).getByRole("link", { name })
+    }
+
+    function navInboxBadge(count: number) {
+      return within(navLink(/^Inbox\b/)).queryByText(String(count))
+    }
+
+    await waitFor(() => expect(navInboxBadge(galleryCount)).toBeVisible())
+    expect(inboxReads).toEqual([["1", "true"]])
+    expect(navLink("Prototypes")).toHaveAttribute("aria-current", "page")
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }))
+    const originalNavigation = mainNavigation()
+
+    function expectNavigation(destination: string, path: string) {
+      const current = mainNavigation()
+      expect.soft(current === originalNavigation, `Same navigation on ${destination}`).toBe(true)
+      expect
+        .soft(
+          screen.queryByRole("button", { name: "Expand sidebar", expanded: false }) !== null,
+          `Collapsed navigation on ${destination}`,
+        )
+        .toBe(true)
+      expect(
+        screen.getByRole("button", {
+          name: `Choose repository. ${repository.nameWithOwner} selected`,
+        }),
+      ).toBeEnabled()
+      expect(within(current).getByRole("link", { current: "page" })).toHaveAttribute("href", path)
+      expect(window.location.pathname + window.location.search).toBe(path)
+    }
+
+    fireEvent.click(navLink("Create"))
+    expect(await screen.findByRole("heading", { name: "What should we create?" })).toBeVisible()
+    expectNavigation("Create", createPath)
+
+    fireEvent.click(navLink(/^Inbox\b/))
+    const inbox = await screen.findByRole("region", { name: "Inbox" })
+    expect(await within(inbox).findByText(notification.excerpt)).toBeVisible()
+    await waitFor(() => expect(navInboxBadge(inboxCount)).toBeVisible())
+    expectNavigation("Inbox", inboxPath)
+
+    fireEvent.click(navLink("Prototypes"))
+    expect(await screen.findByRole("heading", { name: "Prototypes" })).toBeVisible()
+    expectNavigation("Prototypes", galleryPath)
+    expect.soft(navInboxBadge(inboxCount), "Inbox count after leaving the list").toBeVisible()
+
+    const searchBox = screen.getByRole("searchbox", { name: "Search prototypes" })
+    fireEvent.change(searchBox, { target: { value: "landing" } })
+    fireEvent.keyDown(searchBox, { key: "Enter" })
+    expect(await screen.findByRole("heading", { name: "No prototypes found" })).toBeVisible()
+    expect(window.location.search).toBe("?q=landing")
+    expect(galleryReads).toContain("landing")
+
+    act(() => window.history.back())
+    await waitFor(() =>
+      expect(screen.getByRole("searchbox", { name: "Search prototypes" })).toHaveValue(""),
+    )
+    expect(window.location.pathname + window.location.search).toBe(galleryPath)
+    expect(inboxReads).toEqual([
+      ["1", "true"],
+      ["50", null],
+    ])
+  })
+
   it("opens Create and returns to Inbox without waiting for permissions or reloading the same workspace", async () => {
     const repository = {
       id: "11111111-1111-4111-8111-111111111111",

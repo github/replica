@@ -1,7 +1,7 @@
 import type { MouseEventHandler, ReactNode } from "react"
 
 import type { RepositorySelectorStatus } from "@components/repository-selector/types"
-import { WorkspaceSidebar } from "@features/workspace-sidebar"
+import { WorkspaceNav } from "@features/workspace-nav"
 
 import type { RepositoryNavigationData } from "./types"
 
@@ -22,7 +22,7 @@ export function RepositoryNavigation({
   repositoryChoices?: RepositorySelectorStatus
 }) {
   return (
-    <WorkspaceSidebar
+    <WorkspaceNav
       collapsed={collapsed}
       data={{ ...data, repository: data }}
       inboxPreview={inboxPreview}

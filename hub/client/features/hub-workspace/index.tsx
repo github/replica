@@ -1,7 +1,7 @@
 import type { PropsWithChildren } from "react"
 
 import { HubAlert } from "@components/hub-alert"
-import { WorkspaceSidebar } from "@features/workspace-sidebar"
+import { WorkspaceNav } from "@features/workspace-nav"
 import { WorkspaceFrame } from "@features/workspace-frame"
 
 import type { HubWorkspaceData } from "./types"
@@ -19,7 +19,7 @@ export function HubWorkspace({
     <WorkspaceFrame
       defaultNavigationCollapsed={defaultNavigationCollapsed}
       navigation={(collapsed, onCollapsedChange) => (
-        <WorkspaceSidebar data={data} collapsed={collapsed} onCollapsedChange={onCollapsedChange} />
+        <WorkspaceNav data={data} collapsed={collapsed} onCollapsedChange={onCollapsedChange} />
       )}
     >
       {data.repositoryUnavailableMessage ? (

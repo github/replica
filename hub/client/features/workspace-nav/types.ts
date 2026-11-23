@@ -17,7 +17,7 @@ export interface RepositoryNavigationContext {
   selectedRepositoryId: string
 }
 
-export interface WorkspaceSidebarData extends WorkspaceAccountData, RepositoryInboxData {
+export interface WorkspaceNavData extends WorkspaceAccountData, RepositoryInboxData {
   emptyRepositoryLabel?: string
   welcomeLabel?: string
   welcomePath?: string | null
@@ -25,6 +25,7 @@ export interface WorkspaceSidebarData extends WorkspaceAccountData, RepositoryIn
   liveInbox?: ReturnType<typeof useNotificationInbox> & {
     copy: NotificationInboxConfiguration["copy"]
   }
+  inboxPreviewScope?: string
   navigationLabel: string
   settingsNavigationLabel?: string
   selectedSection?:
