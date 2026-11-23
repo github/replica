@@ -160,17 +160,20 @@ export function createPrivatePreviewReader({
       }
       return response.sendStatus(404)
     }
-    let path: string
+    let relative: string
     try {
-      const relative = decodeURIComponent(relativePath)
-      path = `dist/${relative}${!relative || relative.endsWith("/") ? "index.html" : ""}`
+      relative = decodeURIComponent(relativePath)
     } catch {
       return response.sendStatus(404)
     }
+    const directory = !relative || relative.endsWith("/")
+    const path = `dist/${relative}${directory ? "index.html" : ""}`
+    const allowEntryPointFallback =
+      document && !relative.replace(/\/$/, "").split("/").at(-1)?.includes(".")
     if (normalizeBuildArtifactPath(path) !== path) return response.sendStatus(404)
 
     try {
-      const file = await authorizeFile(access, address, path, document)
+      const file = await authorizeFile(access, address, path, allowEntryPointFallback)
       if (response.destroyed) return
       if (!file) return response.sendStatus(404)
       if (
@@ -178,7 +181,7 @@ export function createPrivatePreviewReader({
         !Number.isSafeInteger(file.byteLength) ||
         file.byteLength < 0 ||
         file.byteLength > maximumPrivatePreviewFileBytes ||
-        (file.path !== path && !(document && file.path === "dist/index.html"))
+        (file.path !== path && !(allowEntryPointFallback && file.path === "dist/index.html"))
       )
         return unavailable(response)
       const release = reserveBuildPreviewBytes(file.byteLength)
@@ -199,7 +202,7 @@ export function createPrivatePreviewReader({
         if (stored.status === "not-found") return response.sendStatus(404)
         if (stored.status !== "ok" || stored.bytes.byteLength !== file.byteLength)
           return unavailable(response)
-        const current = await authorizeFile(access, address, path, document)
+        const current = await authorizeFile(access, address, path, allowEntryPointFallback)
         if (closed) return
         if (
           !current ||

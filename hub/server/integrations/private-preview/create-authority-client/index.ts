@@ -58,7 +58,7 @@ export function createAuthorityClient(hubOrigin: string, readerSecret: string) {
         runId: string
         access: string
         path: string
-        document: boolean
+        allowEntryPointFallback: boolean
       },
     ) {
       return request(endpoint, input, fileReply)

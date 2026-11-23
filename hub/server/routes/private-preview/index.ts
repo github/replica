@@ -20,7 +20,7 @@ const fileBody = z.strictObject({
   ...addressShape,
   access: z.string().regex(previewTokenPattern),
   path: z.string().max(2048),
-  document: z.boolean(),
+  allowEntryPointFallback: z.boolean(),
 })
 
 export function mountPrivatePreview(
@@ -133,11 +133,11 @@ export function mountPrivatePreview(
   router.post("/reader/file", async (request, response) => {
     const parsed = fileBody.safeParse(request.body)
     if (!parsed.success) return response.sendStatus(400)
-    const { repositoryId, runId, access, path, document } = parsed.data
+    const { repositoryId, runId, access, path, allowEntryPointFallback } = parsed.data
     const address = privatePreviewAddress(repositoryId, runId)
     if (!address) return response.sendStatus(400)
     try {
-      const file = await authority.authorizeFile(access, address, path, document)
+      const file = await authority.authorizeFile(access, address, path, allowEntryPointFallback)
       return file ? response.json(file) : response.sendStatus(404)
     } catch {
       return response.sendStatus(503)

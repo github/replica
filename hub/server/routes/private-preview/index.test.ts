@@ -10,14 +10,18 @@ import type { AddressInfo } from "node:net"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createApp } from "../../create-app"
+import { createPreviewSession } from "../../domains/build-preview/create-preview-session"
 import { createPrivatePreviewAuthority } from "../../domains/private-preview/create-authority"
 import {
   privatePreviewManifestPath,
+  readerAuthorizePath,
   readerExchangePath,
   type PrivatePreviewAuthority,
 } from "../../domains/private-preview/types"
+import { createSharePreviewSession } from "../../domains/public-sharing/create-share-preview-session"
 import { createLogger } from "../../integrations/pino/create-logger"
 import { privatePreviewAddress } from "../../utils/private-preview-address"
+import type { BuildPreviewRouteDependencies } from "../build-preview/types"
 
 const address = privatePreviewAddress("901", "1201")!
 const hubOrigin = "https://hub.example.com"
@@ -59,7 +63,7 @@ async function listen(app: RequestListener) {
   }
 }
 
-async function startHub() {
+async function startHub(preview?: BuildPreviewRouteDependencies) {
   const readerSecret = randomBytes(32).toString("base64url")
   const grant = randomBytes(32).toString("base64url")
   const access = randomBytes(32).toString("base64url")
@@ -75,6 +79,7 @@ async function startHub() {
     createApp({
       logger: createLogger({ level: "silent" }),
       trustedProxyHops: 1,
+      preview,
       privatePreview: { settings: { hubOrigin, readerOrigin, readerSecret }, authority },
     }),
   )
@@ -181,6 +186,77 @@ describe("private preview Hub routes", () => {
     expect(authority.authorizeFile).not.toHaveBeenCalled()
   })
 
+  it("preserves legacy and hosted-public Build assets under the Hub-only route prefix", async () => {
+    const buildId = randomUUID()
+    const encryptionKey = randomBytes(32)
+    const expiresAt = new Date(Date.now() + 60_000)
+    const previewBaseOrigin = "https://builds.example.com"
+    const path = "/api/private-preview/style.css"
+    const bytes = Buffer.from("body { color: black; }")
+    const findArtifact = vi.fn<BuildPreviewRouteDependencies["findArtifact"]>((id, artifactPath) =>
+      Promise.resolve(
+        id === buildId && artifactPath === `dist${path}`
+          ? { storageKey: "synthetic-style", byteLength: bytes.length }
+          : null,
+      ),
+    )
+    const { request, authority } = await startHub({
+      applicationOrigin: hubOrigin,
+      previewBaseOrigin,
+      encryptionKey,
+      bridgeSource: "",
+      storage: {
+        isReady: vi.fn(),
+        read: vi.fn().mockResolvedValue({ status: "ok", bytes }),
+        write: vi.fn(),
+        delete: vi.fn(),
+      },
+      findTargetById: vi
+        .fn()
+        .mockResolvedValue({ buildId, startPage: "/", artifactPath: "dist/index.html" }),
+      findArtifact,
+      restoreSession: vi.fn().mockResolvedValue({ userId: randomUUID() }),
+      readAvailableShareLink: vi
+        .fn()
+        .mockResolvedValue({ expiresAt, startPage: "/", hosted: true }),
+    })
+    const legacy = createPreviewSession(buildId, "a".repeat(64), expiresAt, encryptionKey)
+    const shared = createSharePreviewSession(
+      { buildId, shareLinkId: randomUUID(), expiresAt },
+      encryptionKey,
+    )
+    const host = `${buildId}.${new URL(previewBaseOrigin).host}`
+
+    const responses = await Promise.all(
+      [`replica_preview=${legacy}`, `replica_share_preview=${shared}`].map((cookie) =>
+        request(path, { host, cookie, accept: "text/css" }),
+      ),
+    )
+    expect(responses.map(({ status }) => status)).toEqual([200, 200])
+    expect(responses.map(({ body }) => body)).toEqual([bytes.toString(), bytes.toString()])
+
+    const launchHeaders = { cookie: "hub_session=synthetic" }
+    expect((await request(address.launch, { ...launchHeaders, host })).status).toBe(404)
+    expect(authority.launch).not.toHaveBeenCalled()
+
+    const launch = await request(address.launch, launchHeaders)
+    expect(launch.status).toBe(302)
+    expect(launch.headers.location).toBe(`${readerOrigin}${address.begin}`)
+  })
+
+  it("rejects private launch on an unknown host even without a configured Build host", async () => {
+    const { request, authority } = await startHub()
+
+    const launch = await request(address.launch, {
+      host: "unconfigured.example.com",
+      cookie: "hub_session=synthetic",
+    })
+
+    expect(launch.status).toBe(404)
+    expect(launch.headers.location).toBeUndefined()
+    expect(authority.launch).not.toHaveBeenCalled()
+  })
+
   it("only lets the backend Reader credential reach the exchange authority", async () => {
     const { request, grant, access, readerSecret, authority } = await startHub()
     const challengeDigest = randomBytes(32).toString("hex")
@@ -211,6 +287,57 @@ describe("private preview Hub routes", () => {
 })
 
 describe("createPrivatePreviewAuthority()", () => {
+  it("authorizes the nested index first and only uses the entry point when it is absent", async () => {
+    const { authority, target, sessionDigest, read, findDistFile } = authorityFixture()
+    const hub = await startHub()
+    hub.authority.authorizeFile.mockImplementation((...args) => authority.authorizeFile(...args))
+    read.mockResolvedValue({
+      buildId: target.buildId,
+      sessionDigest,
+      readerOrigin,
+      tokenDigest: randomBytes(32).toString("hex"),
+      challengeDigest: null,
+      expiresAt: new Date(Date.now() + 30_000),
+    })
+    const path = "dist/docs/index.html"
+    const nested = { storageKey: "nested-index", byteLength: 20 }
+    const entry = { storageKey: "entry-index", byteLength: 23 }
+    const headers = {
+      "content-type": "application/json",
+      authorization: `Bearer ${hub.readerSecret}`,
+    }
+    const body = JSON.stringify({
+      repositoryId: address.repositoryId,
+      runId: address.runId,
+      access: hub.access,
+      path,
+      allowEntryPointFallback: true,
+    })
+    findDistFile.mockImplementation((_, requested) =>
+      Promise.resolve(requested === path ? nested : requested === "dist/index.html" ? entry : null),
+    )
+
+    const direct = await hub.request(readerAuthorizePath, headers, body)
+
+    expect(direct.status).toBe(200)
+    expect(JSON.parse(direct.body)).toEqual({ ...nested, path })
+    expect(findDistFile.mock.calls).toEqual([[target.buildId, path]])
+
+    findDistFile.mockClear()
+    findDistFile.mockImplementation((_, requested) =>
+      Promise.resolve(requested === "dist/index.html" ? entry : null),
+    )
+
+    const fallback = await hub.request(readerAuthorizePath, headers, body)
+
+    expect(fallback.status).toBe(200)
+    expect(JSON.parse(fallback.body)).toEqual({ ...entry, path: "dist/index.html" })
+    expect(findDistFile.mock.calls).toEqual([
+      [target.buildId, path],
+      [target.buildId, "dist/index.html"],
+    ])
+  })
+
   it("does not issue a handoff for a dist package built for a different mount", async () => {
     const { authority, target, sessionDigest, findDistFile, readStorage, issue } =
       authorityFixture()

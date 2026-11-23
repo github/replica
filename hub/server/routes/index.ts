@@ -97,7 +97,6 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
     product,
     publicSharing,
   } = dependencies
-  if (privatePreview) mountPrivatePreview(app, privatePreview)
   if (preview) {
     app.get("/__replica/authorize", handleBuildPreviewAuthorizeGet(preview))
     if (publicSharing) {
@@ -116,6 +115,7 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
       }),
     )
   }
+  if (privatePreview) mountPrivatePreview(app, privatePreview)
   app.get("/api/health", handleApiHealthGet)
   app.get("/api/ready", (request, response) =>
     handleApiReadyGet(request, response, { isReady, logger }),

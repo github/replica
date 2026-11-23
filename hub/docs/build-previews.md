@@ -22,7 +22,7 @@ The canonical reader path is `/previews/github/<githubRepositoryId>/<owningWorkf
 
 Use the compiled `npm run start:preview-reader` command in a separate service. For local checks, use `npm run dev:preview-reader` and an `ARTIFACT_STORAGE_PROVIDER=filesystem` read-only directory. The reader does not load a Hub `.env`, initialize Prisma, or use a database, GitHub App, or Hub session signing credentials. Azure storage can use the existing `AZURE_STORAGE_ACCOUNT`, `AZURE_STORAGE_CONTAINER`, and optional `AZURE_CLIENT_ID` settings with a dedicated identity granted only blob read access on the artifact container.
 
-Use separate sites for Hub and the reader. Both accept requests only on their configured external HTTPS host. A deployment that terminates TLS at a proxy must prevent direct access to either listening port and overwrite forwarded headers at the controlled ingress. Only then configure its exact hop count. The reader's direct health probe can use TCP; its `/health` HTTP endpoint requires the same trusted HTTPS ingress as other routes.
+Use separate sites for Hub and the reader. Different hostnames alone are not enough: two generated Container Apps endpoints under `azurecontainerapps.io` do not qualify. Both services accept requests only on their configured external HTTPS host. A deployment that terminates TLS at a proxy must prevent direct access to either listening port and overwrite forwarded headers at the controlled ingress. Only then configure its exact hop count. The reader's direct health probe can use TCP; its `/health` HTTP endpoint requires the same trusted HTTPS ingress as other routes.
 
 ### Authorization and isolation
 

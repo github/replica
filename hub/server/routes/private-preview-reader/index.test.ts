@@ -20,10 +20,10 @@ const asset = {
   path: "dist/style.css",
 }
 
-async function startReader() {
+async function startReader(startPage = "/") {
   type ReaderOptions = Parameters<typeof createPrivatePreviewReader>[0]
   const access = randomBytes(32).toString("base64url")
-  const exchange = vi.fn<ReaderOptions["exchange"]>().mockResolvedValue({ access, startPage: "/" })
+  const exchange = vi.fn<ReaderOptions["exchange"]>().mockResolvedValue({ access, startPage })
   const authorizeFile = vi.fn<ReaderOptions["authorizeFile"]>().mockResolvedValue(asset)
   const readArtifact = vi
     .fn<ReaderOptions["readArtifact"]>()
@@ -181,6 +181,55 @@ describe("createPrivatePreviewReader()", () => {
     expect(response.status).toBe(404)
     expect(response.body).not.toContain(fixtureBytes.toString())
     expect(authorizeFile).not.toHaveBeenCalled()
+    expect(readArtifact).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { startPage: "/docs", candidate: "dist/docs" },
+    { startPage: "/docs/", candidate: "dist/docs/index.html" },
+  ])(
+    "allows the entry point when the $startPage start document is absent",
+    async ({ startPage, candidate }) => {
+      const { request, signIn, access, authorizeFile, readArtifact } = await startReader(startPage)
+      const { exchanged, cookie } = await signIn()
+      const bytes = Buffer.from("<!doctype html><title>Synthetic entry point</title>")
+      authorizeFile.mockResolvedValue({
+        path: "dist/index.html",
+        storageKey: "synthetic-entry",
+        byteLength: bytes.length,
+      })
+      readArtifact.mockResolvedValue({ status: "ok", bytes })
+      expect(exchanged.headers.location).toBe(`${address.mount}${startPage.slice(1)}`)
+
+      const response = await request(exchanged.headers.location!, {
+        headers: { cookie: cookie.split(";")[0]!, "sec-fetch-dest": "document" },
+      })
+
+      expect(response.status).toBe(200)
+      expect(response.body).toBe(bytes.toString())
+      expect(authorizeFile.mock.calls).toEqual([
+        [access, address, candidate, true],
+        [access, address, candidate, true],
+      ])
+    },
+  )
+
+  it("does not treat a missing explicit HTML file as a document route", async () => {
+    const { request, signIn, access, authorizeFile, readArtifact } = await startReader()
+    const { cookie } = await signIn()
+    authorizeFile.mockResolvedValue(null)
+
+    const response = await request(`${address.mount}docs/index.html`, {
+      headers: { cookie: cookie.split(";")[0]!, "sec-fetch-dest": "document" },
+    })
+
+    expect(response.status).toBe(404)
+    expect(authorizeFile).toHaveBeenCalledExactlyOnceWith(
+      access,
+      address,
+      "dist/docs/index.html",
+      false,
+    )
     expect(readArtifact).not.toHaveBeenCalled()
   })
 

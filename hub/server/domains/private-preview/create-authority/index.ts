@@ -141,7 +141,7 @@ export function createPrivatePreviewAuthority<CurrentViewer extends Viewer>({
       })
       return exchanged ? { access: token, startPage } : null
     },
-    async authorizeFile(token, address, path, document) {
+    async authorizeFile(token, address, path, allowEntryPointFallback) {
       if (normalizeBuildArtifactPath(path) !== path || !path.startsWith("dist/")) return null
       const session = await access.read(hashAuthenticationValue(token), readerOrigin, null)
       if (!session) return null
@@ -151,7 +151,7 @@ export function createPrivatePreviewAuthority<CurrentViewer extends Viewer>({
         async ({ buildId }) => {
           let selectedPath = path
           let artifact = await findDistFile(buildId, selectedPath)
-          if (!artifact && document && !path.split("/").at(-1)?.includes(".")) {
+          if (!artifact && allowEntryPointFallback && path !== "dist/index.html") {
             selectedPath = "dist/index.html"
             artifact = await findDistFile(buildId, selectedPath)
           }

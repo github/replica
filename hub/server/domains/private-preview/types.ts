@@ -43,6 +43,6 @@ export interface PrivatePreviewAuthority {
     access: string,
     address: PrivatePreviewAddress,
     path: string,
-    document: boolean,
+    allowEntryPointFallback: boolean,
   ): Promise<PrivatePreviewFile | null>
 }

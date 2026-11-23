@@ -47,8 +47,14 @@ const app = createPrivatePreviewReader({
   readArtifact,
   exchange: (grant, { repositoryId, runId }, challengeDigest) =>
     authority.exchange(readerExchangePath, { repositoryId, runId, grant, challengeDigest }),
-  authorizeFile: (access, { repositoryId, runId }, path, document) =>
-    authority.authorizeFile(readerAuthorizePath, { repositoryId, runId, access, path, document }),
+  authorizeFile: (access, { repositoryId, runId }, path, allowEntryPointFallback) =>
+    authority.authorizeFile(readerAuthorizePath, {
+      repositoryId,
+      runId,
+      access,
+      path,
+      allowEntryPointFallback,
+    }),
 })
 const server = createServer({ headersTimeout: 10_000, requestTimeout: 15_000 }, app)
 // Container liveness can use a TCP probe; HTTP routes require the HTTPS ingress host.
