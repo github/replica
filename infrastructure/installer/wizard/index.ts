@@ -1,6 +1,7 @@
 import { configureAzure } from "../../azure/install/configure/index.ts"
 import { assertDraftMatchesConfig, loadConfig, parseConfig, saveConfig } from "../config/index.ts"
 import { installAzure } from "../../azure/install/index.ts"
+import { installAzurePrivatePreview } from "../../azure/install/private-preview/index.ts"
 import type { DeploymentConfig, RunCommand, WizardUI } from "../types.ts"
 import type { WizardSession } from "../session/index.ts"
 import { formatDeploymentSummary } from "../deployment-summary/index.ts"
@@ -13,6 +14,7 @@ export async function runWizard({
   directory,
   existing,
   configureOnly = false,
+  preparePrivatePreview = false,
   session: originalSession,
   entryAction = originalSession?.draft ? "resume" : existing ? "update" : "create",
   signal,
@@ -23,6 +25,7 @@ export async function runWizard({
   directory: string
   existing?: DeploymentConfig
   configureOnly?: boolean
+  preparePrivatePreview?: boolean
   session?: WizardSession
   entryAction?: "create" | "update" | "resume"
   signal?: AbortSignal
@@ -81,6 +84,37 @@ export async function runWizard({
       await terminal.phase?.(phase)
     },
   }
+  const savedPreviewStage = session?.draft?.answers.privatePreviewStage
+  if (configureOnly && (preparePrivatePreview || savedPreviewStage))
+    throw new Error("Private preview preparation is not available in configuration-only mode.")
+  if (entryAction === "resume" && preparePrivatePreview && !savedPreviewStage)
+    throw new Error("Resume the existing setup first. Then use Update to prepare private previews.")
+  let previewStage = savedPreviewStage
+  if (!previewStage && preparePrivatePreview)
+    previewStage = entryAction === "create" ? "after-create" : "prepare"
+  const previewOptions = { directory, run, ui, signal }
+  const disabledResult =
+    "The private preview reader is staged without ingress. Private previews remain disabled."
+  const checkpointPreviewTarget = async (config: DeploymentConfig) => {
+    if (!session) return
+    // The preview-only path skips Azure configuration, so bind Resume to the selected target here.
+    const target = { cloud: config.cloud, ...config.azure, name: config.name, owner: config.owner }
+    for (const key of [
+      "cloud", "tenantId", "subscriptionId", "location", "name", "owner", "resourceGroup",
+    ] as const)
+      await session.answer(key, target[key])
+    await session.answer("privatePreviewStage", "prepare")
+  }
+  if (previewStage === "prepare") {
+    if (!existing) throw new Error("Select the saved Hub installation before preparing private previews.")
+    await checkpointPreviewTarget(existing)
+    await installAzurePrivatePreview(existing, previewOptions)
+    await session?.complete()
+    ui.complete?.()
+    return disabledResult
+  }
+  if (previewStage === "after-create")
+    await session?.answer("privatePreviewStage", "after-create")
   if (entryAction === "resume" && session?.draft?.deploymentStarted) {
     if (!existing)
       throw new Error(
@@ -142,7 +176,12 @@ export async function runWizard({
       config.npmRegistry = registry
     },
   })
+  if (previewStage === "after-create") {
+    await checkpointPreviewTarget(config)
+    await installAzurePrivatePreview(config, previewOptions)
+  }
   await session?.complete()
   ui.complete?.()
-  return formatDeploymentSummary(result, path)
+  const summary = formatDeploymentSummary(result, path)
+  return previewStage === "after-create" ? `${summary}\n${disabledResult}` : summary
 }

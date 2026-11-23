@@ -23,6 +23,7 @@ const { values } = parseArgs({
     config: { type: "string" },
     post: { type: "boolean" },
     "configure-only": { type: "boolean" },
+    "prepare-private-preview": { type: "boolean" },
     "non-interactive": { type: "boolean" },
     "approve-deployment": { type: "boolean" },
     "no-fullscreen": { type: "boolean" },
@@ -33,7 +34,7 @@ if (values.help) {
   console.log(
     values.post
       ? "Usage: npm run setup:post -- [--config FILE] [--no-fullscreen]\nConfigure sign-in/setup access, configure GitHub App, or restart an existing saved Hub.\nInteractive only. Reuses the deployed image; never builds, bootstraps infrastructure, or runs database setup.\nSecret input uses private files, never command-line values. Configuration actions review a scoped Terraform plan; restart targets only the active serving revision."
-      : "Usage: npm run setup:server -- [--config FILE] [--configure-only] [--no-fullscreen]\nStart by choosing Create, Update, Resume (when available), or Exit before local writes or Azure calls.\nConfig paths are relative to infrastructure/ when using the root shortcut.\nCreate keeps previous files and uses a fresh path; --config FILE uses that path only when unused.\nUpdate/Resume can select local configurations or explicit config-file paths.\nInteractive setup progress is saved in a private companion draft; restart to resume setup.\nAutomation: --config FILE --non-interactive --approve-deployment\nApproval includes billable resources, role assignments, image publication, temporary provisioning cleanup, and a maintenance-window release.\nAutomation requires a clean source checkout and does not authorize removing state network restrictions; rerun interactively for separate consent.",
+      : "Usage: npm run setup:server -- [--config FILE] [--configure-only | --prepare-private-preview] [--no-fullscreen]\nStart by choosing Create, Update, Resume (when available), or Exit before local writes or Azure calls.\nConfig paths are relative to infrastructure/ when using the root shortcut.\nCreate keeps previous files and uses a fresh path; --config FILE uses that path only when unused.\nUpdate/Resume can select local configurations or explicit config-file paths.\nInteractive setup progress is saved in a private companion draft; restart to resume setup.\n--prepare-private-preview prepares only a disabled reader on Update, or after the usual Hub release on Create. It never enables previews.\nAutomation: --config FILE --non-interactive --approve-deployment\nApproval includes billable resources, role assignments, image publication, temporary provisioning cleanup, and a maintenance-window release.\nAutomation requires a clean source checkout and does not authorize removing state network restrictions; rerun interactively for separate consent.",
   )
 } else {
   const abort = new AbortController()
@@ -51,6 +52,13 @@ if (values.help) {
   try {
     let existing: DeploymentConfig | undefined
     let entry: InstallerEntry | undefined
+    if (
+      values["prepare-private-preview"] &&
+      (values.post || values["non-interactive"] || values["configure-only"] || values["approve-deployment"])
+    )
+      throw new Error(
+        "Private preview preparation requires interactive setup:server with separate approval.",
+      )
     if (
       values.post &&
       (values["non-interactive"] || values["configure-only"] || values["approve-deployment"])
@@ -138,6 +146,7 @@ if (values.help) {
             directory: dirname(path),
             existing,
             configureOnly: values["configure-only"],
+            preparePrivatePreview: values["prepare-private-preview"],
             session,
             entryAction: entry.action,
             signal: abort.signal,
