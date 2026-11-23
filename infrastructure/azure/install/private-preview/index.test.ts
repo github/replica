@@ -4,6 +4,8 @@ import { resolve } from "node:path"
 import { afterEach, expect, it, vi } from "vitest"
 
 import type { DeploymentConfig, InstallerUI, RunCommand } from "../../../installer/types.ts"
+import { installationWorkspace } from "../../../installer/workspace/index.ts"
+import { leaseOwnership } from "../lease/ownership/index.ts"
 import { installationNames } from "../settings.ts"
 import { installAzurePrivatePreview } from "./index.ts"
 
@@ -80,7 +82,8 @@ async function fixture({
     [group, previewGroupId], [environment, environmentId], [identity, identityId], [app, appId],
     [storage, containerId], [imagePull, pullGrantId], [artifactsRead, readGrantId],
   ])
-  const installerLease = `${names.stateAccount}/terraform/${config.name}/installer.lock`
+  const installerLockBlob = `${config.name}/installer.lock`
+  const installerLease = `${names.stateAccount}/terraform/${installerLockBlob}`
   const releaseLease = "testhubhub/releases/deployment.lock"
   const held = new Map<string, string>()
   const image = (digestCharacter: string) =>
@@ -223,7 +226,14 @@ async function fixture({
           ])
         case "storage container-rm list":
           return JSON.stringify(live.has(storage) ? [{ id: containerId, publicAccess: null }] : [])
-        case "storage blob list": return "[]"
+        case "storage blob list":
+          return JSON.stringify(flag("--account-name") === names.stateAccount && state ? [{
+            name: "test-hub/private-preview.tfstate",
+            lease: { status: "unlocked", state: "available", duration: null },
+          }] : [])
+        case "containerapp job list": return "[]"
+        case "containerapp list": return JSON.stringify(["test-hub-hub"])
+        case "containerapp replica list": return JSON.stringify(["test-hub-replica"])
         case "containerapp env show": return JSON.stringify({ tags, subnetId: null })
         case "identity show":
           return JSON.stringify({ tags, principalId })
@@ -244,6 +254,8 @@ async function fixture({
         case "containerapp show":
           return JSON.stringify(flag("--name") === "test-hub-hub" ? {
             id: `${hubProvider}/Microsoft.App/containerApps/test-hub-hub`,
+            name: "test-hub-hub",
+            tags,
             provisioningState: "Succeeded",
             latestReadyRevisionName: hubRevision.name,
             traffic: [{ weight: 100, latestRevision: true }],
@@ -276,7 +288,23 @@ async function fixture({
     throw new Error(`Unexpected command ${executable} ${args.join(" ")}`)
   })
 
-  return { stage: () => installAzurePrivatePreview(config, { directory, run, ui }), run, applied, ui }
+  return {
+    stage: () => installAzurePrivatePreview(config, { directory, run, ui }),
+    async seedInstallerLease(operation?: "private-preview") {
+      const workspace = installationWorkspace(config, directory)
+      await mkdir(workspace, { mode: 0o700 })
+      const proof = await leaseOwnership(
+        { config, directory: workspace }, names.stateAccount, "terraform", installerLockBlob, operation,
+      )
+      const leaseId = randomUUID()
+      await proof.save(leaseId)
+      held.set(installerLease, leaseId)
+      return leaseId
+    },
+    run,
+    applied,
+    ui,
+  }
 }
 
 it.each([undefined, []])("stages the disabled reader with no tracked resources (state: %j)", async (tracked) => {
@@ -333,6 +361,32 @@ it("refuses a foreign release lease without trying recovery or applying", async 
   expect(test.run.mock.calls.some(([, args]) =>
     args.includes("break") || args.includes("stop") || args.includes("deactivate"),
   )).toBe(false)
+})
+
+it("leaves a normal installer's proved lease untouched when the release lease is foreign", async () => {
+  const test = await fixture({ existing: [], foreignReleaseLease: true })
+  await test.seedInstallerLease()
+
+  await expect(test.stage()).rejects.toThrow(/installer\.lock.*(held|unverifiable)/i)
+
+  expect(test.ui.select).not.toHaveBeenCalled()
+  expect(test.applied).toEqual([])
+  expect(test.run.mock.calls.some(([, args]) =>
+    args.some((arg) => ["renew", "release", "break", "stop", "deactivate"].includes(arg)),
+  )).toBe(false)
+})
+
+it("resumes staging with its own saved installer lease proof", async () => {
+  const tracked = [group, environment]
+  const test = await fixture({ existing: tracked, tracked })
+  const leaseId = await test.seedInstallerLease("private-preview")
+
+  await expect(test.stage()).resolves.toBeUndefined()
+
+  expect(test.applied).toHaveLength(1)
+  expect(test.run).toHaveBeenCalledWith("az", expect.arrayContaining([
+    "lease", "renew", "--blob-name", "test-hub/installer.lock", "--lease-id", leaseId,
+  ]), expect.anything())
 })
 
 it.each(["approval", "plan"] as const)("blocks staging if Hub rolls forward during %s", async (hubChangesDuring) => {

@@ -178,13 +178,14 @@ async function prepareReader(context: AzureInstallation) {
   ))) throw new Error("Private preview preparation was not approved. No cloud writes started.")
   await ui.phase?.("provision")
   const lock = await acquireLease(
-    context, names.stateAccount, "terraform", `${config.name}/installer.lock`, false, { recover: false },
+    context, names.stateAccount, "terraform", `${config.name}/installer.lock`, false,
+    { operation: "private-preview" },
   )
   let keepInstallationLock = false
   let releaseLock: Awaited<ReturnType<typeof acquireLease>> | undefined
   try {
     releaseLock = await acquireLease(
-      context, storageName, "releases", "deployment.lock", false, { recover: false },
+      context, storageName, "releases", "deployment.lock", false, { operation: "private-preview" },
     )
     const release = releaseLock
     await verifyServingHub()
