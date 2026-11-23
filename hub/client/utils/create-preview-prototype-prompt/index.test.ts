@@ -49,6 +49,17 @@ describe("createPreviewPrototypePrompt()", () => {
     ).toContain('Set .prototype.startPage to "/welcome?tab=first#details".')
   })
 
+  it("retains a declared template landing page when the preview is unavailable", () => {
+    expect(
+      createPreviewPrototypePrompt({
+        ...options,
+        previewUrl: undefined,
+        initialRoute: "/welcome?tab=first#details",
+        templateLandingPageInstructions: "Set .prototype.startPage to %{route}.",
+      }),
+    ).toContain('Set .prototype.startPage to "/welcome?tab=first#details".')
+  })
+
   it.each([
     "/a/../b",
     "/%252e%252e",

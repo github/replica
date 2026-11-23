@@ -90,6 +90,8 @@ export function prototypeShowData(
     copyPrivatePreviewLinkLabel: "Copy private Hub link",
     copiedPrivatePreviewLinkLabel: "Private Hub link copied",
     openPrivatePreviewInNewTabLabel: "Open private preview in new tab",
+    desktopScreenshotUrl: selectedBuild?.desktopScreenshotUrl ?? undefined,
+    narrowScreenshotUrl: selectedBuild?.narrowScreenshotUrl ?? undefined,
     pageTitle: `${data.prototype.name} · ${data.repository.nameWithOwner}`,
     prototypeId: data.prototype.id,
     repositoryId: data.repository.id,

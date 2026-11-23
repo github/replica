@@ -14,6 +14,9 @@ export interface PrototypesShowPageData extends PrototypeWorkspaceData {
   copyPrivatePreviewLinkLabel: string
   copiedPrivatePreviewLinkLabel: string
   openPrivatePreviewInNewTabLabel: string
+  privateReviewLink?: string
+  desktopScreenshotUrl?: string
+  narrowScreenshotUrl?: string
   mentionCandidatesPath?: string
   mentionCopy?: MentionSource["copy"]
   initialCommentId?: number
@@ -103,6 +106,7 @@ export interface PrototypesShowPageProps extends PrototypeDetailsControls {
   onOpenApp?: (url: string) => void
   authorizeHandoff?: () => Promise<boolean | "copy">
   viewerUrl?: string
+  monitorPreview?: boolean
   minimized?: boolean
   initialMinimized?: boolean
   onMinimizedChange?: (minimized: boolean) => void

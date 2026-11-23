@@ -18,6 +18,8 @@ export interface ReplicaBrowsePageData
   dragControlsLabel: string
   minimizedPreview: boolean
   controlsIdentity?: string
+  screenshot?: string
+  darkScreenshot?: string
   forkLabel: string
   branchFromLabel: string
   branchPlaceholder: string
@@ -40,6 +42,7 @@ export interface ReplicaBrowsePageProps {
   iframeRef: RefObject<HTMLIFrameElement | null>
   previewTheme: "light" | "dark"
   route?: ReviewRoute | null
+  previewReady?: boolean
   viewerUrl?: string
   minimized?: boolean
   initialMinimized?: boolean

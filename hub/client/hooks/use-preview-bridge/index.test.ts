@@ -1,5 +1,5 @@
 import { act, renderHook } from "@testing-library/react"
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import type { AnchorReference } from "@utils/review-anchor/types"
 import type { PreviewBridgeCommand, PreviewBridgeMessage } from "@utils/preview-bridge/types"
@@ -8,9 +8,13 @@ import { usePreviewBridge } from "."
 
 const PREVIEW_URL = "http://b1.preview.replica.localhost:19500/"
 const PREVIEW_ORIGIN = new URL(PREVIEW_URL).origin
+const HUB_ORIGIN = "https://hub.example.test"
+const HOSTED_PREVIEW_URL =
+  `${HUB_ORIGIN}/api/repositories/2001/prototypes/1/builds/7/access?` +
+  new URLSearchParams({ preview_origin: PREVIEW_ORIGIN, route: "/?tab=overview#top" }).toString()
 const REQUEST_ID = "00000000-0000-4000-8000-000000000001"
 const EMPTY_ANCHORS: AnchorReference[] = []
-const ANCHOR_REFERENCE: AnchorReference = {
+const ANCHOR_REFERENCE = {
   commentId: 1,
   originBuild: true,
   anchor: {
@@ -25,15 +29,163 @@ const ANCHOR_REFERENCE: AnchorReference = {
     viewport: { width: 1_280, height: 720, scrollX: 0, scrollY: 0 },
     elementOffset: { x: 0.5, y: 0.5 },
   },
-}
-const READY_MESSAGE: PreviewBridgeMessage = {
+} satisfies AnchorReference
+const READY_MESSAGE = {
   protocolVersion: 1,
   requestId: "bridge-request",
   type: "replica:bridge:ready",
   payload: { route: { pathname: "/", search: "", hash: "" } },
+} satisfies PreviewBridgeMessage
+
+function renderHostedPreviewBridge() {
+  const iframe = document.createElement("iframe")
+  document.body.append(iframe)
+  onTestFinished(() => iframe.remove())
+  const frameWindow = iframe.contentWindow
+  if (!frameWindow) throw new Error("Expected iframe content window")
+  const iframeRef = { current: iframe }
+  const postMessage = vi.spyOn(frameWindow, "postMessage").mockImplementation(() => {})
+  const { result } = renderHook(() =>
+    usePreviewBridge({
+      iframeRef,
+      previewUrl: HOSTED_PREVIEW_URL,
+      previewTheme: "light",
+      anchors: EMPTY_ANCHORS,
+    }),
+  )
+
+  function commandId(type: PreviewBridgeCommand["type"]) {
+    const [command, targetOrigin] =
+      postMessage.mock.calls.findLast(
+        ([command]) => (command as PreviewBridgeCommand).type === type,
+      ) ?? []
+    if (!command) throw new Error(`Expected ${type} command`)
+    expect(targetOrigin).toBe(PREVIEW_ORIGIN)
+    return (command as PreviewBridgeCommand).requestId
+  }
+
+  function receive(
+    data: PreviewBridgeMessage & { navigationId?: string },
+    { origin = PREVIEW_ORIGIN, source }: { origin?: string; source?: Window } = {},
+  ) {
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", { origin, source: source ?? frameWindow, data }),
+      )
+    })
+  }
+
+  function load() {
+    act(() => result.current.handleFrameLoad())
+    return commandId("replica:bridge:request-ready")
+  }
+
+  return { result, receive, load, commandId }
 }
 
 describe("usePreviewBridge()", () => {
+  it("binds hosted readiness to the current frame, Build origin, and request-ready ID", () => {
+    const { result, receive, load } = renderHostedPreviewBridge()
+    const previousId = load()
+    receive({ ...READY_MESSAGE, requestId: previousId, navigationId: previousId })
+    expect(result.current.ready).toBe(true)
+
+    const navigationId = load()
+    expect(navigationId).not.toBe(previousId)
+    const ready = { ...READY_MESSAGE, requestId: navigationId, navigationId }
+    receive(ready, { origin: HUB_ORIGIN })
+    receive(ready, { source: window })
+    receive({ ...READY_MESSAGE, requestId: navigationId })
+    receive({ ...ready, navigationId: previousId })
+    receive({ ...ready, requestId: previousId })
+    receive({ ...ready, requestId: previousId, navigationId: previousId })
+    expect(result.current.ready).toBe(false)
+    expect(result.current.route).toBeNull()
+
+    receive(ready)
+    expect(result.current.ready).toBe(true)
+    expect(result.current.route).toEqual(ready.payload.route)
+  })
+
+  it("clears hosted selection on a changed SPA route and accepts only the new selection reply", () => {
+    const { result, receive, load, commandId } = renderHostedPreviewBridge()
+    const initialRoute = READY_MESSAGE.payload.route
+    let navigationId = load()
+    function reportReady(route: typeof initialRoute) {
+      navigationId = commandId("replica:bridge:request-ready")
+      receive({ ...READY_MESSAGE, requestId: navigationId, navigationId, payload: { route } })
+    }
+    function reportRoute(route: typeof initialRoute) {
+      receive({
+        ...READY_MESSAGE,
+        type: "replica:bridge:route-changed",
+        requestId: "spa-route-change",
+        navigationId,
+        payload: { route },
+      })
+    }
+    const element = {
+      protocolVersion: 1,
+      type: "replica:bridge:element-selected",
+    } as const
+    reportReady(initialRoute)
+
+    act(() => result.current.startElementSelection())
+    const firstSelection = {
+      ...element,
+      requestId: commandId("replica:bridge:select-element"),
+      payload: { anchor: ANCHOR_REFERENCE.anchor },
+    }
+    receive(firstSelection)
+    receive({ ...firstSelection, navigationId: "different-navigation" })
+    expect(result.current.selectedAnchor).toBeNull()
+    expect(result.current.selecting).toBe(true)
+
+    receive({ ...firstSelection, navigationId })
+    expect(result.current.selectedAnchor).toEqual(firstSelection.payload.anchor)
+    reportRoute(initialRoute)
+    expect(result.current.selectedAnchor).toEqual(firstSelection.payload.anchor)
+
+    const secondRoute = { ...initialRoute, search: "?tab=details" }
+    reportRoute(secondRoute)
+    expect(result.current.route).toEqual(secondRoute)
+    expect(result.current.selectedAnchor).toBeNull()
+    reportReady(secondRoute)
+
+    act(() => result.current.startElementSelection())
+    const pendingSelection = {
+      ...firstSelection,
+      navigationId,
+      requestId: commandId("replica:bridge:select-element"),
+      payload: { anchor: { ...ANCHOR_REFERENCE.anchor, route: secondRoute } },
+    }
+    expect(result.current.selecting).toBe(true)
+
+    const finalRoute = { ...secondRoute, hash: "#summary" }
+    reportRoute(finalRoute)
+    expect(result.current.route).toEqual(finalRoute)
+    expect(result.current.selecting).toBe(false)
+    reportReady(finalRoute)
+    receive(pendingSelection)
+    expect(result.current.selectedAnchor).toBeNull()
+
+    act(() => result.current.startElementSelection())
+    const currentRequestId = commandId("replica:bridge:select-element")
+    receive(pendingSelection)
+    expect(result.current.selectedAnchor).toBeNull()
+    expect(result.current.selecting).toBe(true)
+
+    const currentAnchor = { ...ANCHOR_REFERENCE.anchor, route: finalRoute }
+    receive({
+      ...pendingSelection,
+      navigationId,
+      requestId: currentRequestId,
+      payload: { anchor: currentAnchor },
+    })
+    expect(result.current.selectedAnchor).toEqual(currentAnchor)
+    expect(result.current.selecting).toBe(false)
+  })
+
   it("accepts conversation dismissal only from the trusted review-enabled frame", () => {
     const iframe = document.createElement("iframe")
     document.body.append(iframe)

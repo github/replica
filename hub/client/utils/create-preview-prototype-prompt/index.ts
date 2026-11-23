@@ -22,10 +22,10 @@ export function createPreviewPrototypePrompt({
 }) {
   let pageContext = ""
   let landingPageInstructions = ""
-  if (previewUrl) {
+  if (previewUrl || initialRoute) {
     try {
-      const url = new URL(previewUrl)
-      const startingRoute = initialRoute ?? `${url.pathname}${url.search}${url.hash}`
+      const url = previewUrl ? new URL(previewUrl) : null
+      const startingRoute = initialRoute ?? (url && `${url.pathname}${url.search}${url.hash}`) ?? ""
       const reportedRoute = route ? `${route.pathname}${route.search}${route.hash}` : startingRoute
       const viewedRoute =
         initialRoute !== undefined || templateLandingPageInstructions
@@ -34,9 +34,7 @@ export function createPreviewPrototypePrompt({
       const decodedPathname = decodeURIComponent(viewedRoute?.split(/[?#]/, 1)[0] ?? "")
       if (
         viewedRoute &&
-        ["http:", "https:"].includes(url.protocol) &&
-        !url.username &&
-        !url.password &&
+        (!url || (["http:", "https:"].includes(url.protocol) && !url.username && !url.password)) &&
         decodedPathname.startsWith("/") &&
         !decodedPathname.startsWith("//") &&
         !decodedPathname.includes("\\") &&

@@ -1,5 +1,6 @@
 import { createRef } from "react"
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { waitFor } from "storybook/test"
 
 import { useHubTheme } from "@hooks/use-hub-theme"
 import { localReplicaBrowseData, replicaBrowseData } from "@/storybook/fixtures/replica-browse"
@@ -152,6 +153,23 @@ export const Minimized: Story = {
 
 export const Empty: Story = {
   args: { data: { ...data, selectedBuild: undefined } },
+}
+
+export const TemplateScreenshotFallback: Story = {
+  args: {
+    ...Template.args,
+    previewReady: false,
+    data: {
+      ...data,
+      ...Template.args?.data,
+      screenshot: new URL("/prototype-preview/templates/welcome.png", window.location.href).href,
+    },
+  },
+  play: async ({ canvas }) => {
+    await waitFor(() => canvas.getByRole("link", { name: "Open saved screenshot" }), {
+      timeout: 12_000,
+    })
+  },
 }
 
 export const NewerBuildFailed: Story = {

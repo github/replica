@@ -21,6 +21,8 @@ export function productBrowseData(
     selectedSection: "new",
     browseReplica: true,
     controlsIdentity: response.controlsIdentity,
+    screenshot: template.screenshotUrl ?? undefined,
+    darkScreenshot: template.darkScreenshotUrl ?? undefined,
     templateId: template.id,
     pageTitle: `${template.name} template`,
     repositoryName: repository.nameWithOwner,
