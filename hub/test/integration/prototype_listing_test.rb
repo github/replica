@@ -178,6 +178,8 @@ class PrototypeListingTest < ActionDispatch::IntegrationTest
     assert_equal [ mine.id.to_s ], listing(repository, author: "me").fetch("prototypes").pluck("id")
     all = listing(repository).fetch("prototypes")
     assert_equal [ mine, unknown, automated ].map { _1.id.to_s }.sort, all.pluck("id").sort
+    search_label = author.fetch("ownerLabel")
+    assert_includes listing(repository, q: search_label).fetch("prototypes").pluck("id"), automated.id.to_s
     legacy = all.find { _1.fetch("id") == unknown.id.to_s }
     assert_equal I18n.t("repositories.show.unknown_author"), legacy.fetch("author").fetch("ownerLabel")
     assert_nil automated.reload.author_id

@@ -2,7 +2,7 @@
 class Analytics::CustomConfiguration
   FIELD_TYPES = {
     "event_id" => :string, "event_name" => :string, "occurred_at" => :string,
-    "actor_id" => :optional, "repository_id" => :integer, "prototype_id" => :optional,
+    "actor_id" => :optional, "actor_kind" => :string, "repository_id" => :integer, "prototype_id" => :optional,
     "build_id" => :optional, "thread_id" => :optional, "comment_id" => :optional,
     "properties" => :object
   }.freeze
@@ -114,7 +114,7 @@ class Analytics::CustomConfiguration
   def render(event)
     fields = {
       "event_id" => event.uuid, "event_name" => event.name,
-      "occurred_at" => event.occurred_at.iso8601(6), "actor_id" => event.actor_id,
+      "occurred_at" => event.occurred_at.iso8601(6), "actor_id" => event.actor_id, "actor_kind" => event.actor_kind,
       "repository_id" => event.repository_id,
       "prototype_id" => event.properties["prototype_id"],
       "build_id" => event.properties["build_id"], "thread_id" => event.properties["thread_id"],

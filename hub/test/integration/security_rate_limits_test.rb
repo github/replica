@@ -102,6 +102,30 @@ class SecurityRateLimitsTest < ActionDispatch::IntegrationTest
     assert_response :created
   end
 
+  test "anonymous invalid task disconnects are limited by source before denial audits" do
+    delete session_path
+    statuses = []
+    70.times do |index|
+      delete "/api/tasks/connection", headers: {
+        "REMOTE_ADDR" => "192.0.2.10", "Authorization" => "Bearer invalid-#{index}"
+      }
+      statuses << response.status
+    end
+
+    assert_includes statuses, 429
+    assert_operator SecurityAuditEvent.where(action: "task_connection.destroy", outcome: "denied").count, :<=, 60
+    assert_no_difference "SecurityAuditEvent.where(action: 'task_connection.destroy', outcome: 'denied').count" do
+      delete "/api/tasks/connection", headers: {
+        "REMOTE_ADDR" => "192.0.2.10", "Authorization" => "Bearer another-invalid"
+      }
+      assert_response :too_many_requests
+    end
+    delete "/api/tasks/connection", headers: {
+      "REMOTE_ADDR" => "192.0.2.11", "Authorization" => "Bearer invalid"
+    }
+    assert_response :unauthorized
+  end
+
   test "all analytics operations share five mutations per minute across repositories" do
     post repository_analytics_destinations_path(2001), params: { destination: analytics_input }, as: :json
     assert_response :see_other

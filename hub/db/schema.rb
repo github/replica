@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_10_103000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_10_110000) do
   create_table "analytics_deliveries", force: :cascade do |t|
     t.integer "attempts", default: 0, null: false
     t.datetime "created_at", null: false
@@ -63,11 +63,13 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_10_103000) do
     t.integer "repository_id", null: false
     t.string "source_key", null: false
     t.string "uuid", null: false
+    t.string "actor_kind", default: "system", null: false
     t.index ["id", "repository_id"], name: "index_analytics_events_on_id_and_repository_id", unique: true
     t.index ["occurred_at"], name: "index_analytics_events_on_occurred_at"
     t.index ["repository_id"], name: "index_analytics_events_on_repository_id"
     t.index ["source_key"], name: "index_analytics_events_on_source_key", unique: true
     t.index ["uuid"], name: "index_analytics_events_on_uuid", unique: true
+    t.check_constraint "(actor_kind = 'system' AND actor_id IS NULL) OR (actor_kind IN ('person', 'workload') AND actor_id IS NOT NULL)", name: "analytics_events_actor_kind"
     t.check_constraint "json_valid(properties) AND json_type(properties) = 'object'", name: "analytics_events_properties"
     t.check_constraint "name IN ('prototype_registered', 'prototype_first_published', 'build_published', 'review_comment_created', 'review_reply_added', 'review_thread_resolved', 'review_thread_reopened')", name: "analytics_events_name"
   end

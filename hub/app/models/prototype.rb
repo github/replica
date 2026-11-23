@@ -129,6 +129,7 @@ class Prototype < ApplicationRecord
             user: self.registration_task_connection ? nil : author || Current.user,
             task_connection: self.registration_task_connection
           ),
+          actor_kind: ("workload" if self.registration_task_connection),
           occurred_at: registered_at,
           properties: { prototype_id: id }
       end

@@ -7,6 +7,7 @@ export function previewCustomBody(template: string, secretValues: string[]): str
     event_name: "prototype_registered",
     occurred_at: "2026-01-01T12:00:00.000000Z",
     actor_id: "example-actor",
+    actor_kind: "person",
     repository_id: 2001,
     prototype_id: 3001,
     build_id: null,

@@ -2,6 +2,7 @@
 
 import { constants } from "node:fs"
 import { lstat, mkdir, open, realpath, rename, unlink } from "node:fs/promises"
+import { execFileSync } from "node:child_process"
 import { homedir } from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
@@ -93,7 +94,7 @@ export function createTaskClient({ origin, stateDirectory, checkout, fetchImpl =
     }
   }
 
-  async function request(route, { method = "POST", body, token } = {}) {
+  async function request(route, { method = "POST", body, token, allowUnauthorized = false } = {}) {
     const headers = { Accept: "application/json" }
     if (body) headers["Content-Type"] = "application/json"
     if (token) headers.Authorization = `Bearer ${token}`
@@ -109,6 +110,7 @@ export function createTaskClient({ origin, stateDirectory, checkout, fetchImpl =
     } catch {
       throw new Error("Hub request failed. Check approved network access before retrying.")
     }
+    if (allowUnauthorized && response.status === 401) return null
     if (!response.ok) throw new Error(`Hub rejected the request (HTTP ${response.status}).`)
     if (response.status === 204) return null
     if (!response.body) throw new Error("Hub returned an empty task response.")
@@ -355,7 +357,11 @@ export function createTaskClient({ origin, stateDirectory, checkout, fetchImpl =
       if (!state.accessToken) {
         throw new Error("Deny the pending request in Hub before removing its private state.")
       }
-      await request("/api/tasks/connection", { method: "DELETE", token: state.accessToken })
+      await request("/api/tasks/connection", {
+        method: "DELETE",
+        token: state.accessToken,
+        allowUnauthorized: true,
+      })
       await unlink(statePath)
       return { status: "disconnected" }
     },
@@ -368,10 +374,19 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     if (!/^[a-zA-Z0-9_-]{1,80}$/.test(taskName || "")) {
       throw new Error("Supply a unique task name using letters, numbers, underscores or hyphens.")
     }
+    let checkout
+    try {
+      checkout = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim()
+    } catch {
+      throw new Error("Run the task client from inside a Git repository checkout.")
+    }
     const client = createTaskClient({
       origin,
       stateDirectory: path.join(homedir(), ".config", "replica", "tasks", taskName),
-      checkout: process.cwd(),
+      checkout,
     })
     let result
     if (command === "start" && repository && branch) {

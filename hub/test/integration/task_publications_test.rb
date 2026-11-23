@@ -76,6 +76,59 @@ class TaskPublicationsTest < ActionDispatch::IntegrationTest
     assert_not prototype.reload.registered?
   end
 
+  test "lost write access returns the same denial for existing and nonexistent prototype IDs" do
+    _, headers = connect_task
+    prototype = prototypes.create(repository: @repository, branch_name: "prototype/welcome")
+    build = builds.create_successful(prototype:, commit_sha: "b" * 40)
+    prototype.update!(current_build: build)
+    stub_branch_head(prototype, build.commit_sha)
+    stub_github_permissions(
+      [ repository_payload(@repository.github_id, @repository.name_with_owner) ],
+      { @repository.github_id => "pull" }
+    )
+    nonexistent_id = Prototype.maximum(:id) + 1
+
+    [ prototype.id, nonexistent_id ].each do |prototype_id|
+      register_task_id(prototype_id, build.commit_sha, headers)
+
+      assert_response :forbidden
+      assert_empty response.body
+    end
+
+    assert_not prototype.reload.registered?
+  end
+
+  test "rejects branch-head evidence when GitHub App credentials change during lookup" do
+    _, headers = connect_task
+    prototype, build = publication_target
+    configuration = GithubAppConfiguration.current
+    stub_branch_head(prototype, build.commit_sha) do
+      configuration.update!(credential_revision: configuration.credential_revision + 1)
+    end
+
+    register_task(prototype, build.commit_sha, headers)
+
+    assert_response :unauthorized
+    assert_not prototype.reload.registered?
+    assert_nil prototype.registration_task_connection_id
+  end
+
+  test "rejects branch-head evidence when the GitHub App installation changes during lookup" do
+    _, headers = connect_task
+    prototype, build = publication_target
+    configuration = GithubAppConfiguration.current
+    stub_github_installation_token(installation_id: configuration.installation_id + 1)
+    stub_branch_head(prototype, build.commit_sha) do
+      configuration.update!(installation_id: configuration.installation_id + 1)
+    end
+
+    register_task(prototype, build.commit_sha, headers)
+
+    assert_response :unauthorized
+    assert_not prototype.reload.registered?
+    assert_nil prototype.registration_task_connection_id
+  end
+
   test "a task cannot register another branch or another repository by supplying its prototype ID" do
     _, headers = connect_task
     approved_target = prototypes.create(repository: @repository, branch_name: "prototype/welcome")
@@ -149,17 +202,40 @@ class TaskPublicationsTest < ActionDispatch::IntegrationTest
   end
 
   def register_task(prototype, commit_sha, headers)
+    register_task_id(prototype.id, commit_sha, headers)
+  end
+
+  def register_task_id(prototype_id, commit_sha, headers)
     put "/api/tasks/prototype/registration",
-      params: { prototype_id: prototype.id, commit_sha: commit_sha },
+      params: { prototype_id:, commit_sha: },
       headers: headers, as: :json
   end
 
-  def stub_branch_head(prototype, sha)
-    stub_request(:get, "#{GITHUB_API_URL}/repos/#{@repository.github_path}/git/ref/heads/#{prototype.branch_name}")
-      .to_return \
-        status: 200,
-        body: JSON.generate(ref: "refs/heads/#{prototype.branch_name}", object: { type: "commit", sha: sha }),
-        headers: { "Content-Type" => "application/json" }
+  def publication_target
+    prototype = prototypes.create(repository: @repository, branch_name: "prototype/welcome")
+    build = builds.create_successful(prototype:, commit_sha: "b" * 40)
+    prototype.update!(current_build: build)
+    [ prototype, build ]
+  end
+
+  def stub_branch_head(prototype, sha, &during_lookup)
+    response = {
+      status: 200,
+      body: JSON.generate(ref: "refs/heads/#{prototype.branch_name}", object: { type: "commit", sha: }),
+      headers: { "Content-Type" => "application/json" }
+    }
+    request = stub_request(
+      :get,
+      "#{GITHUB_API_URL}/repos/#{@repository.github_path}/git/ref/heads/#{prototype.branch_name}"
+    )
+    if during_lookup
+      request.to_return do
+        during_lookup.call
+        response
+      end
+    else
+      request.to_return(**response)
+    end
   end
 
   def assert_ready_build(prototype, build, registration:)

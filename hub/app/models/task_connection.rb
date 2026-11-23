@@ -57,6 +57,10 @@ class TaskConnection < ApplicationRecord
   validate :approval_is_unchanged, on: :update
 
   scope :live, -> { where(revoked_at: nil).where.not(consumed_at: nil).where("expires_at > ?", Time.current) }
+  scope :displayable, -> {
+    where(revoked_at: nil).where.not(approved_at: nil).where("expires_at > ?", Time.current)
+      .where("consumed_at IS NOT NULL OR approval_expires_at > ?", Time.current)
+  }
 
   # Creates distinct public comparison and private redemption proofs.
   def self.start!(repository, branch_name:)
@@ -129,11 +133,11 @@ class TaskConnection < ApplicationRecord
   end
 
   # Serializes publication and revocation without holding locks during GitHub requests.
-  def with_publication_authorization!(consumed: true)
+  def with_publication_authorization!(consumed: true, configuration: nil, installation: nil)
     original_user_id = approving_user_id
     raise Unauthorized if approved_at.nil? || approving_user.nil? || (consumed && consumed_at.nil?)
 
-    authorize_user!(approving_user) do
+    authorize_user!(approving_user, configuration:, installation:) do
       raise Unauthorized if approving_user_id != original_user_id || approved_at.nil? ||
         revoked_at || expires_at.nil? || expires_at <= Time.current || (consumed && consumed_at.nil?)
 
@@ -181,12 +185,12 @@ class TaskConnection < ApplicationRecord
   private
 
   # Existing App and deployment barriers invalidate authorization delayed across a cutoff.
-  def authorize_user!(user)
+  def authorize_user!(user, configuration: nil, installation: nil)
     generation = SessionRevocation.current.generation
-    configuration = GithubAppConfiguration.current
+    configuration ||= GithubAppConfiguration.current
     raise Forbidden if repository.local? || configuration.nil?
 
-    snapshot = configuration.installation_snapshot
+    snapshot = installation || configuration.installation_snapshot
     raise Forbidden if !repository.authorization.authorized?(user, minimum: :write, fresh: true, configuration:)
 
     SessionRevocation.with_generation!(generation) do

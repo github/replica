@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { spawnSync } from "node:child_process"
 import { chmod, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { test } from "node:test"
@@ -187,6 +188,102 @@ test("rechecks saved approval instead of reporting revoked credentials as approv
   await client.poll()
   await assert.rejects(client.poll(), { message: "Hub rejected the request (HTTP 401)." })
   await assert.rejects(client.status(), { message: "Hub rejected the request (HTTP 401)." })
+})
+
+test("disconnect clears a definitively unauthorized bearer so the task can be reused", async (t) => {
+  let starts = 0
+  const { client, stateDirectory } = await fixture(t, async (url, options) => {
+    if (url.pathname === "/api/tasks/connections") {
+      starts++
+      return response(approval(), 201)
+    }
+    if (url.pathname.endsWith("/token")) {
+      return response({
+        status: "approved",
+        connectionId: 7,
+        repositoryId: 2001,
+        ...scope,
+        accessToken,
+        approvedAt: "2026-11-10T10:01:00Z",
+        expiresAt: "2026-11-11T10:01:00Z",
+      })
+    }
+    assert.equal(options.method, "DELETE")
+    return response({}, 401)
+  })
+  await client.start(scope)
+  await client.poll()
+  await client.disconnect()
+  await assert.rejects(lstat(path.join(stateDirectory, "connection.json")), { code: "ENOENT" })
+  await client.start(scope)
+  assert.equal(starts, 2)
+})
+
+test("disconnect preserves bearer state on server and transport failures", async (t) => {
+  for (const failure of ["server", "transport"]) {
+    const { client, stateDirectory } = await fixture(t, async (url) => {
+      if (url.pathname === "/api/tasks/connections") return response(approval(), 201)
+      if (url.pathname.endsWith("/token")) {
+        return response({
+          status: "approved",
+          connectionId: 7,
+          repositoryId: 2001,
+          ...scope,
+          accessToken,
+          approvedAt: "2026-11-10T10:01:00Z",
+          expiresAt: "2026-11-11T10:01:00Z",
+        })
+      }
+      if (failure === "transport") throw new Error("offline")
+      return response({}, 503)
+    })
+    await client.start(scope)
+    await client.poll()
+    const statePath = path.join(stateDirectory, "connection.json")
+    const before = await readFile(statePath, "utf8")
+    await assert.rejects(client.disconnect())
+    assert.equal(await readFile(statePath, "utf8"), before)
+    await assert.rejects(client.start(scope), /already has private/)
+  }
+})
+
+test("disconnect preserves pending and expired proofs when exchange outcome is uncertain", async (t) => {
+  for (const status of ["pending", "expired"]) {
+    const { client, stateDirectory } = await fixture(t, async (url) =>
+      url.pathname.endsWith("/token") ? response({ status }) : response(approval(), 201),
+    )
+    await client.start(scope)
+    assert.equal((await client.poll()).status, status)
+    const statePath = path.join(stateDirectory, "connection.json")
+    const before = await readFile(statePath, "utf8")
+    await assert.rejects(client.disconnect(), /Deny the pending request/)
+    assert.equal(await readFile(statePath, "utf8"), before)
+    await assert.rejects(client.start(scope), /already has private/)
+  }
+})
+
+test("CLI rejects private state inside the enclosing checkout from a subdirectory", async (t) => {
+  const { checkout } = await fixture(t)
+  const init = spawnSync("git", ["init", "--quiet", checkout], { encoding: "utf8" })
+  assert.equal(init.status, 0, init.stderr)
+  const subdirectory = path.join(checkout, "project")
+  const home = path.join(checkout, "fake-home")
+  const stateDirectory = path.join(home, ".config", "replica", "tasks", "dummy")
+  await mkdir(subdirectory)
+  await mkdir(stateDirectory, { recursive: true, mode: 0o700 })
+  await writeFile(
+    path.join(stateDirectory, "connection.json"),
+    JSON.stringify({ origin, ...scope, deviceCode }),
+    { mode: 0o600 },
+  )
+
+  const cli = spawnSync(
+    process.execPath,
+    [path.resolve("script/task-client.mjs"), "status", origin, "dummy"],
+    { cwd: subdirectory, env: { ...process.env, HOME: home }, encoding: "utf8" },
+  )
+  assert.equal(cli.status, 1)
+  assert.match(cli.stderr, /outside the repository checkout/)
 })
 
 test("refuses readable or symbolic-link state and noncanonical origins", async (t) => {

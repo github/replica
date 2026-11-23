@@ -39,6 +39,34 @@ class AnalyticsCustomConfigurationTest < ActiveSupport::TestCase
     assert_not_includes settings.public_settings.to_json, "import"
   end
 
+  test "renders workload actor kind without changing other template output" do
+    repository = repositories.create
+    prototype = prototypes.create(repository:, branch_name: "prototype/workload")
+    approver = users.create
+    now = Time.current.change(usec: 0)
+    connection = TaskConnection.create! \
+      repository:,
+      branch_name: prototype.branch_name,
+      user_code: SecureRandom.hex(5),
+      approval_expires_at: now + 10.minutes,
+      approving_user: approver,
+      approved_at: now,
+      expires_at: now + 24.hours
+    prototype.register!(name: "Automated prototype", registration_task_connection: connection)
+    event = Analytics::Event.find_by!(source_key: "prototype/#{prototype.id}/registered")
+    template = JSON.parse(@input.fetch("template")).merge("actor_kind" => { "$field" => "actor_kind" })
+    settings = Analytics::CustomConfiguration.from_input!(@input.merge("template" => template.to_json))
+
+    payload = JSON.parse(settings.render(event))
+
+    assert_equal "workload", payload.fetch("actor_kind")
+    assert_equal event.name, payload.fetch("event")
+    assert_equal event.uuid, payload.fetch("id")
+    assert_equal event.actor_id, payload.fetch("actor")
+    assert_equal event.properties, payload.fetch("payload").first
+    assert_equal "Bearer very-private", payload.fetch("payload").last
+  end
+
   test "allows literal provider field names that begin with a dollar sign" do
     input = @input.merge("template" => { "$insert_id" => { "$field" => "event_id" } }.to_json)
     settings = Analytics::CustomConfiguration.from_input!(input)

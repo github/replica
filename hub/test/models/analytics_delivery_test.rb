@@ -141,7 +141,7 @@ class AnalyticsDeliveryTest < ActiveSupport::TestCase
         payload = JSON.parse(request.body)
         payload["messageId"] == event.uuid && payload["userId"] == event.actor_id &&
           payload["timestamp"] == event.occurred_at.iso8601(6) &&
-          payload["properties"] == event.properties
+          payload["properties"] == event.properties.merge("actor_type" => "person")
       end.to_return(status: 200, body: '{"success":true}')
     delivery = event.deliveries.sole
     2.times { delivery.deliver! }

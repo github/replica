@@ -41,8 +41,8 @@ class TaskConnectionsController < SuperglueController
 
   # @route GET /tasks/connections (task_connections)
   def index
-    @connections = TaskConnection.where(approving_user: Current.user, revoked_at: nil)
-      .where("expires_at > ?", Time.current).includes(:repository).order(created_at: :desc)
+    @connections = TaskConnection.displayable.where(approving_user: Current.user)
+      .includes(:repository).order(created_at: :desc)
   end
 
   # @route DELETE /tasks/connections/:id (task_connection)

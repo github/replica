@@ -223,6 +223,45 @@ class TaskPrototypeRegistrationTest < ActiveSupport::TestCase
     assert_not SecurityAuditEvent.exists?(action: "task_connection.register")
   end
 
+  test "does not use branch-head evidence after the GitHub App credential identity changes during lookup" do
+    connection = approved_connection
+    configuration = GithubAppConfiguration.current
+    build = @build
+
+    with_current_head(lambda { |*_args, **_kwargs|
+      configuration.update!(credential_revision: configuration.credential_revision + 1)
+      build.commit_sha
+    }) do
+      assert_raises(GithubAppConfiguration::Superseded) do
+        @prototype.register_from_task_connection!(connection:, commit_sha: @build.commit_sha)
+      end
+    end
+
+    assert_not @prototype.reload.registered?
+    assert_nil @prototype.registration_task_connection_id
+    assert_not Analytics::Event.exists?(name: "prototype_registered")
+  end
+
+  test "does not use branch-head evidence after the GitHub App installation changes during lookup" do
+    connection = approved_connection
+    configuration = GithubAppConfiguration.current
+    stub_github_installation_token(installation_id: configuration.installation_id + 1)
+    build = @build
+
+    with_current_head(lambda { |*_args, **_kwargs|
+      configuration.update!(installation_id: configuration.installation_id + 1)
+      build.commit_sha
+    }) do
+      assert_raises(GithubAppConfiguration::Superseded) do
+        @prototype.register_from_task_connection!(connection:, commit_sha: @build.commit_sha)
+      end
+    end
+
+    assert_not @prototype.reload.registered?
+    assert_nil @prototype.registration_task_connection_id
+    assert_not Analytics::Event.exists?(name: "prototype_registered")
+  end
+
   test "rejects a head observation whose owner revision changes during remote lookup" do
     connection = approved_connection
     revision = @prototype.head_observation_revision

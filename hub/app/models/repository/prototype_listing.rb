@@ -21,8 +21,10 @@ class Repository::PrototypeListing < ActiveRecord::AssociatedObject
       relation = relation.left_joins(:author).where \
         "prototypes.name LIKE :query ESCAPE '\\' OR prototypes.description LIKE :query ESCAPE '\\' " \
           "OR prototypes.branch_name LIKE :query ESCAPE '\\' OR users.login LIKE :query ESCAPE '\\' " \
-          "OR users.name LIKE :query ESCAPE '\\'",
-        query: "%#{Prototype.sanitize_sql_like(query)}%"
+          "OR users.name LIKE :query ESCAPE '\\' OR " \
+          "(prototypes.registration_task_connection_id IS NOT NULL AND :automation LIKE :query ESCAPE '\\')",
+        query: "%#{Prototype.sanitize_sql_like(query)}%",
+        automation: I18n.t("repositories.show.filters.automation")
     end
     matching_count = relation.count
     raise InvalidQuery if page && (!page.is_a?(String) || !page.match?(/\A[1-9]\d{0,8}\z/))

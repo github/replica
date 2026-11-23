@@ -256,13 +256,14 @@ describe("AnalyticsPage()", () => {
     fireEvent.change(body, {
       target: {
         value:
-          '{"token":{"$secret":"api_token"},"literal":"Bearer private-key-123","repo":{"$field":"repository_id"},"actor":{"$field":"actor_id"}}',
+          '{"token":{"$secret":"api_token"},"literal":"Bearer private-key-123","repo":{"$field":"repository_id"},"actor":{"$field":"actor_id"},"actor_kind":{"$field":"actor_kind"}}',
       },
     })
     expect(preview).toHaveTextContent('"token": "[redacted]"')
     expect(preview).toHaveTextContent("Bearer [redacted]")
     expect(preview).toHaveTextContent('"repo": 2001')
     expect(preview).toHaveTextContent('"actor": "example-actor"')
+    expect(preview).toHaveTextContent('"actor_kind": "person"')
     expect(preview).not.toHaveTextContent("private-key-123")
     fireEvent.change(body, { target: { value: '{"token":"private-key-123"' } })
     expect(preview).toHaveTextContent("Preview unavailable. Check the JSON body.")

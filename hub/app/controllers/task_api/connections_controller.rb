@@ -1,6 +1,9 @@
 # Uses task credentials independently of browser Sessions and human canvas grants.
 class TaskApi::ConnectionsController < ActionController::API
   include TaskApiAuthentication
+  include SecurityRateLimiting
+
+  before_action -> { enforce_security_rate_limit(:task_disconnect, identity: trusted_request_ip) }, only: :destroy
 
   rate_limit to: 10, within: 1.minute, only: :create, name: "create", by: -> { trusted_request_ip },
     with: -> { head :too_many_requests }

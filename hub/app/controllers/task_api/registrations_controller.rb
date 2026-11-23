@@ -15,8 +15,9 @@ class TaskApi::RegistrationsController < ActionController::API
       raise ActionController::BadRequest
     end
 
-    prototype = credential.repository.prototypes.where(branch_name: credential.branch_name)
-      .find(expected_id.to_i)
+    prototype = credential.with_publication_authorization! do |live|
+      live.repository.prototypes.where(branch_name: live.branch_name).find(expected_id.to_i)
+    end
     result = prototype.register_from_task_connection! \
       connection: credential,
       commit_sha: params.require(:commit_sha)

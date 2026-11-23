@@ -10,11 +10,12 @@ class Prototype::TaskRegistration < ActiveRecord::AssociatedObject
     observed = Prototype.find(record.id)
     configuration = GithubAppConfiguration.current
     raise TaskConnection::Forbidden if configuration.nil?
+    installation = configuration.installation_snapshot
 
     remote_sha = if observed.reviewable? && observed.branch_deleted_at.nil?
       observed.repository.branch_presence.current_head(observed.branch_name, configuration:)
     end
-    connection.with_publication_authorization! do |live_connection|
+    connection.with_publication_authorization!(configuration:, installation:) do |live_connection|
       record.with_lock do
         publish!(connection: live_connection, observed:, remote_sha:, commit_sha:)
       end

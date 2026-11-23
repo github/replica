@@ -159,6 +159,26 @@ class TaskConnectionsTest < ActionDispatch::IntegrationTest
     assert connection.reload.revoked_at
   end
 
+  test "connection list follows the approval redemption deadline" do
+    with_task_connection_deadlines do |expected_ids|
+      get "/tasks/connections", as: :json
+      assert_response :success
+      ids = response.parsed_body.fetch("data").fetch("grants").map { _1.fetch("id") }
+      assert_equal expected_ids.sort, ids.sort
+    end
+  end
+
+  test "session revocation count follows the approval redemption deadline" do
+    User.find_by!(github_id: 1001).update!(hub_admin: true)
+    with_task_connection_deadlines do |expected_ids|
+      get session_revocation_path, as: :json
+      assert_response :success
+      assert_equal I18n.t("session_revocation.counts",
+        browsers: 1, canvases: 0, tasks: expected_ids.size, pairings: 0),
+        response.parsed_body.fetch("data").fetch("counts")
+    end
+  end
+
   test "a browser can deny a pending task without issuing a credential" do
     connection, device_code = start_task_connection
 
@@ -233,6 +253,26 @@ class TaskConnectionsTest < ActionDispatch::IntegrationTest
   end
 
   private
+
+  def with_task_connection_deadlines
+    now = Time.current.change(usec: 0)
+    travel_to now - 25.hours
+    approved_task_connection
+    travel_to now
+    unconsumed, = start_task_connection
+    post "/tasks/approve/#{unconsumed.user_code}"
+    assert_response :see_other
+    consumed, = approved_task_connection
+    revoked, = approved_task_connection
+    delete "/tasks/connections/#{revoked.id}"
+    assert_response :see_other
+
+    [ [ unconsumed.approval_expires_at - 1.second, [ unconsumed.id, consumed.id ] ],
+      [ unconsumed.approval_expires_at, [ consumed.id ] ] ].each do |time, expected_ids|
+      travel_to time
+      yield expected_ids
+    end
+  end
 
   def start_task_connection
     post "/api/tasks/connections", params: {
