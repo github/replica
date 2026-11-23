@@ -14,11 +14,26 @@ import { privatePreviewResourceCount, validatePrivatePreviewPlan } from "./plan/
 
 const previewContainer = "private-preview-artifacts"
 const imageDigest = /^[a-z0-9][a-z0-9.:/-]+@sha256:[a-f0-9]{64}$/
+const readerAddress = "azurerm_container_app.reader"
 const disabledCommand = [
   "node",
   "-e",
   "require('node:net').createServer(socket => socket.destroy()).listen(3002, '0.0.0.0')",
 ]
+
+type Revision = { name: string; active: boolean; health: string; image: string }
+type ReaderState = {
+  format_version: string
+  values?: {
+    root_module?: {
+      child_modules?: unknown[]
+      resources?: {
+        address: string
+        values?: { id?: string; template?: { container?: { image?: string }[] }[] }
+      }[]
+    }
+  }
+}
 
 export async function installAzurePrivatePreview(
   config: DeploymentConfig,
@@ -79,7 +94,7 @@ async function prepareReader(context: AzureInstallation) {
   const acrId = `${foundationId}/providers/Microsoft.ContainerRegistry/registries/${names.registry}`
   const stateId = `/subscriptions/${subscriptionId}/resourceGroups/${names.stateGroup}/providers/Microsoft.Storage/storageAccounts/${names.stateAccount}`
   const sameId = (actual: string | undefined, expected: string) =>
-    actual?.toLowerCase() === expected.toLowerCase()
+    typeof actual === "string" && actual.toLowerCase() === expected.toLowerCase()
   const owned = (tags: Record<string, string> | undefined, manager = "terraform") =>
     tags?.application === "replica-hub" &&
     tags.installation === config.name &&
@@ -114,24 +129,66 @@ async function prepareReader(context: AzureInstallation) {
     "storage", "account", "show", "--ids", storageId,
     "--query", "{id:id,allowBlobPublicAccess:allowBlobPublicAccess,allowSharedKeyAccess:allowSharedKeyAccess}",
   )
-  const hub = await read<{ id: string; provisioningState: string; image: string }>(
-    "containerapp", "show", "--name", `${config.name}-hub`, "--resource-group", resourceGroup,
-    "--query", "{id:id,provisioningState:properties.provisioningState,image:properties.template.containers[?name=='hub'].image | [0]}",
-  )
   if (!sameId(registry.id, acrId) || !sameId(storage.id, storageId) ||
-      storage.allowBlobPublicAccess !== false || storage.allowSharedKeyAccess !== false ||
-      !sameId(hub.id, `${providerId}/Microsoft.App/containerApps/${config.name}-hub`) ||
-      hub.provisioningState !== "Succeeded" || !imageDigest.test(hub.image) ||
-      !hub.image.startsWith(`${registry.loginServer}/`))
-    block("The released Hub image, installation registry or private artifact account could not be verified.")
+      storage.allowBlobPublicAccess !== false || storage.allowSharedKeyAccess !== false)
+    block("The installation registry or private artifact account could not be verified.")
+  const isPinnedImage = (image: string | undefined): image is string =>
+    typeof image === "string" && imageDigest.test(image) && image.startsWith(`${registry.loginServer}/`)
+  const revisions = (name: string, group: string, container: string) =>
+    read<Revision[]>(
+      "containerapp", "revision", "list", "--all", "--name", name, "--resource-group", group,
+      "--query", `[].{name:name,active:properties.active,health:properties.healthState,image:properties.template.containers[?name=='${container}'].image | [0]}`,
+    )
+  const hubName = `${config.name}-hub`
+  const servingHub = async () => {
+    const hub = await read<{
+      id: string
+      provisioningState: string
+      latestReadyRevisionName: string
+      traffic: { weight: number; revisionName?: string; latestRevision?: boolean }[] | null
+    }>(
+      "containerapp", "show", "--name", hubName, "--resource-group", resourceGroup, "--query",
+      "{id:id,provisioningState:properties.provisioningState,latestReadyRevisionName:properties.latestReadyRevisionName,traffic:properties.configuration.ingress.traffic}",
+    )
+    const traffic = hub.traffic?.filter(({ weight }) => weight !== 0)
+    const [target] = traffic ?? []
+    const targetRevision = target?.latestRevision
+      ? hub.latestReadyRevisionName
+      : target?.revisionName
+    if (!sameId(hub.id, `${providerId}/Microsoft.App/containerApps/${hubName}`) ||
+        hub.provisioningState !== "Succeeded" || traffic?.length !== 1 || target?.weight !== 100 ||
+        !targetRevision?.startsWith(`${hubName}--`) || !/^[a-z0-9-]+$/.test(targetRevision))
+      return block("Hub does not have a verifiable serving revision receiving all traffic.")
+    const active = (await revisions(hubName, resourceGroup, "hub"))
+      .filter((revision) => revision.active && revision.name === targetRevision)
+    const [revision] = active
+    if (active.length !== 1 || revision.health !== "Healthy" || !isPinnedImage(revision.image))
+      return block("The serving Hub revision is not healthy or its immutable image could not be verified.")
+    return { name: revision.name, image: revision.image }
+  }
+  const approvedHub = await servingHub()
+  const verifyServingHub = async () => {
+    const current = await servingHub()
+    if (current.name !== approvedHub.name || current.image !== approvedHub.image)
+      block("The serving Hub revision changed during preparation. Resume to review its current image.")
+  }
 
   if (!(await ui.confirm(
     "Prepare a disabled private preview reader? This can create billable Azure resources. It does not update Hub or enable previews.",
   ))) throw new Error("Private preview preparation was not approved. No cloud writes started.")
   await ui.phase?.("provision")
-  const lock = await acquireLease(context, names.stateAccount, "terraform", `${config.name}/installer.lock`)
-  let applyStarted = false
+  const lock = await acquireLease(
+    context, names.stateAccount, "terraform", `${config.name}/installer.lock`, false, { recover: false },
+  )
+  let keepInstallationLock = false
+  let releaseLock: Awaited<ReturnType<typeof acquireLease>> | undefined
   try {
+    releaseLock = await acquireLease(
+      context, storageName, "releases", "deployment.lock", false, { recover: false },
+    )
+    const release = releaseLock
+    await verifyServingHub()
+    let plan: unknown
     const terraform = terraformModule({
       directory: resolve(import.meta.dirname, "../../private-preview"),
       dataDirectory: join(directory, "terraform", "private-preview"),
@@ -140,13 +197,20 @@ async function prepareReader(context: AzureInstallation) {
       env: context.env,
       signal,
       preapproved: true,
-      validatePlan: validatePrivatePreviewPlan,
+      validatePlan: (candidate) => {
+        validatePrivatePreviewPlan(candidate)
+        plan = candidate
+      },
       beforeApply: async () => {
-        await reconcile()
-        applyStarted = true
+        const { live } = await reconcile()
+        validatePrivatePreviewPlan(plan, new Set(live.keys()))
+        await verifyServingHub()
+        await lock.verify()
+        await release.verify()
+        keepInstallationLock = true
       },
     })
-    const inspect = async (verifyReady = false) => {
+    const inspect = async (savedImage: string | undefined, verifyReady: boolean) => {
       const entries = new Map<string, string>()
       const readerGroupExists = await verifyInstallationGroup(context, readerGroup)
       const list = readerGroupExists
@@ -156,7 +220,7 @@ async function prepareReader(context: AzureInstallation) {
       for (const [address, id] of [
         ["azurerm_container_app_environment.reader", environmentId],
         ["azurerm_user_assigned_identity.reader", identityId],
-        ["azurerm_container_app.reader", appId],
+        [readerAddress, appId],
       ] as const) {
         if (list.some((item) => sameId(item.id, id))) entries.set(address, id)
       }
@@ -201,7 +265,7 @@ async function prepareReader(context: AzureInstallation) {
           entries.set(address, role.id)
         }
       }
-      if (entries.has("azurerm_container_app.reader")) {
+      if (entries.has(readerAddress)) {
         const reader = await read<{
           tags: Record<string, string>
           environmentId?: string
@@ -209,14 +273,14 @@ async function prepareReader(context: AzureInstallation) {
           secretNames: string[] | null
           identityType: string
           identityIds: string[]
-          containers: { command: string[]; args: string[] | null; envNames: string[] | null }[]
+          containers: { command: string[]; args: string[] | null; envNames: string[] | null; image: string }[]
           status: string
           running: string
           latest: string
           ready: string
         }>(
           "containerapp", "show", "--ids", appId, "--query",
-          "{tags:tags,environmentId:properties.managedEnvironmentId || properties.environmentId,ingress:properties.configuration.ingress,secretNames:properties.configuration.secrets[].name,identityType:identity.type,identityIds:keys(identity.userAssignedIdentities),containers:properties.template.containers[].{command:command,args:args,envNames:env[].name},status:properties.provisioningState,running:properties.runningStatus,latest:properties.latestRevisionName,ready:properties.latestReadyRevisionName}",
+          "{tags:tags,environmentId:properties.managedEnvironmentId || properties.environmentId,ingress:properties.configuration.ingress,secretNames:properties.configuration.secrets[].name,identityType:identity.type,identityIds:keys(identity.userAssignedIdentities),containers:properties.template.containers[].{command:command,args:args,envNames:env[].name,image:image},status:properties.provisioningState,running:properties.runningStatus,latest:properties.latestRevisionName,ready:properties.latestReadyRevisionName}",
         )
         const [container] = reader.containers
         if (!owned(reader.tags) || !sameId(reader.environmentId, environmentId) ||
@@ -226,6 +290,13 @@ async function prepareReader(context: AzureInstallation) {
             JSON.stringify(container.command) !== JSON.stringify(disabledCommand) ||
             container.args?.length || container.envNames?.length)
           block("The reader app no longer matches the disabled configuration. It was not overwritten.")
+        if (savedImage !== undefined) {
+          const active = (await revisions(appName, readerGroup, "disabled"))
+            .filter((revision) => revision.active)
+          if (container.image !== savedImage || active.length !== 1 ||
+              active[0].name !== reader.latest || active[0].image !== savedImage)
+            block("The active reader revision does not match the saved image. It was not overwritten.")
+        }
         if (verifyReady && (reader.status !== "Succeeded" ||
             reader.running !== "Running" || !reader.ready || reader.ready !== reader.latest))
           block("Azure has not reported the disabled revision ready. Resume to recheck; previews remain disabled.")
@@ -234,33 +305,64 @@ async function prepareReader(context: AzureInstallation) {
     }
     const backend = await writeBackendFile(context, "private-preview")
     await terraform.init(backend)
-    const reconcile = async () => {
+    const reconcile = async (verifyReady = false) => {
       const stateBlob = await read<{ exists: boolean }>(
         "storage", "blob", "exists", "--account-name", names.stateAccount, "--container-name", "terraform",
         "--name", `${config.name}/private-preview.tfstate`, "--auth-mode", "login",
       )
       if (typeof stateBlob.exists !== "boolean") block("The saved reader state could not be verified.")
-      const tracked = new Set(stateBlob.exists ? await terraform.state() : [])
-      const live = await inspect()
-      if (tracked.size !== live.size || [...tracked].some((address) => !live.has(address)))
+      const tracked = new Map<string, string>()
+      let savedImage: string | undefined
+      if (stateBlob.exists) {
+        const snapshot = await terraform.stateSnapshot<ReaderState>()
+        const state = snapshot.values?.root_module
+        if (snapshot.format_version !== "1.0" || (snapshot.values !== undefined && !state) ||
+            state?.child_modules?.length ||
+            (state?.resources !== undefined && !Array.isArray(state.resources)))
+          return block("The saved reader state has an unexpected shape.")
+        for (const resource of state?.resources ?? []) {
+          const id = resource.values?.id
+          if (typeof resource.address !== "string" || typeof id !== "string" || !id ||
+              tracked.has(resource.address))
+            return block("The saved reader resource IDs could not be verified.")
+          tracked.set(resource.address, id)
+          if (resource.address === readerAddress) {
+            savedImage = resource.values?.template?.[0]?.container?.[0]?.image
+            if (!isPinnedImage(savedImage))
+              return block("The saved reader state does not contain a verified immutable image.")
+          }
+        }
+      }
+      const live = await inspect(savedImage, verifyReady)
+      if (tracked.size !== live.size ||
+          [...tracked].some(([address, id]) => !sameId(live.get(address), id)))
         block("Azure and saved reader state disagree. Review existing resources and recover state explicitly; the pending plan was not applied.")
+      return { live, savedImage }
     }
-    await reconcile()
+    const { savedImage } = await reconcile()
+    const image = savedImage ?? approvedHub.image
     const variables = join(directory, "private-preview.tfvars.json")
     await writePrivateFile(variables, JSON.stringify({
       subscription_id: subscriptionId, resource_group_name: resourceGroup, location,
       name: config.name, owner: config.owner, acr_id: acrId, registry_server: registry.loginServer,
-      storage_account_id: storageId, image: hub.image,
+      storage_account_id: storageId, image,
     }))
     await terraform.apply(variables)
     await ui.phase?.("verify")
-    if ((await inspect(true)).size !== privatePreviewResourceCount)
+    const ready = await reconcile(true)
+    if (ready.live.size !== privatePreviewResourceCount || ready.savedImage !== image)
       block("Azure did not report all disabled reader resources.")
-    await lock.release()
-  } catch (error) {
-    if (!applyStarted && !signal?.aborted) await lock.release()
-    throw error
+    keepInstallationLock = false
   } finally {
-    lock.reportRetained()
+    try {
+      if (releaseLock?.held && !signal?.aborted) await releaseLock.release()
+    } finally {
+      releaseLock?.reportRetained()
+      try {
+        if (!keepInstallationLock && !signal?.aborted) await lock.release()
+      } finally {
+        lock.reportRetained()
+      }
+    }
   }
 }
