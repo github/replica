@@ -76,6 +76,7 @@ export function HubNavigation({
     )
       return
     event.preventDefault()
+    if (anchor.getAttribute("aria-current") === "page" && destination.href === current.href) return
     void navigate(`${destination.pathname}${destination.search}${destination.hash}`)
   }
 

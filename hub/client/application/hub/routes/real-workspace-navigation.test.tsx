@@ -1,5 +1,5 @@
 import type { RouteConfigEntry } from "@react-router/dev/routes"
-import { act, fireEvent, render, screen, within } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { http, HttpResponse, type HttpHandler, type JsonBodyType } from "msw"
 import { setupServer } from "msw/node"
 import type { ComponentType } from "react"
@@ -13,7 +13,7 @@ import {
 } from "react-router"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
-import type { RepositoryRecord } from "@application/hub/contracts/types"
+import type { RepositoryRecord, WorkspaceResponse } from "@application/hub/contracts/types"
 import { HubThemeProvider } from "@hooks/use-hub-theme"
 
 import routes from "../routes"
@@ -90,10 +90,17 @@ function workspaceApi(
   repositories: RepositoryRecord[],
   {
     provider = "github",
+    respondToWorkspace,
     reviewInboxAvailable = false,
+    role = "ADMINISTRATOR",
   }: {
     provider?: "github" | "local"
+    respondToWorkspace?: (
+      request: Request,
+      workspace: WorkspaceResponse,
+    ) => Response | Promise<Response>
     reviewInboxAvailable?: boolean
+    role?: "MEMBER" | "ADMINISTRATOR"
   } = {},
 ) {
   const user = {
@@ -102,28 +109,52 @@ function workspaceApi(
     name: provider === "local" ? "Local developer" : "The Octocat",
   }
   const userId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+  const workspace = {
+    viewer: { id: userId, ...user, avatarUrl: null },
+    capabilities: {
+      createPrototypes: false,
+      reviewPrototypes: false,
+      manageSharing: false,
+      administerHub: role === "ADMINISTRATOR",
+    },
+    repositories,
+    reviewInboxAvailable,
+    welcomeHidden: false,
+  }
   return [
     json("/api/auth/session", {
       authenticated: true,
       membershipId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       userId,
       ...user,
-      role: "ADMINISTRATOR",
+      role,
       reviewInboxAvailable,
     }),
-    json("/api/workspace", {
-      viewer: { id: userId, ...user, avatarUrl: null },
-      capabilities: {
-        createPrototypes: false,
-        reviewPrototypes: false,
-        manageSharing: false,
-        administerHub: true,
-      },
-      repositories,
-      reviewInboxAvailable,
-      welcomeHidden: false,
-    }),
+    http.get(`${window.location.origin}/api/workspace`, ({ request }) =>
+      respondToWorkspace ? respondToWorkspace(request, workspace) : HttpResponse.json(workspace),
+    ),
   ]
+}
+
+function galleryApi(repository: RepositoryRecord, onRead?: (request: Request) => void) {
+  return http.get(`${window.location.origin}/api/repositories/${repository.id}`, ({ request }) => {
+    onRead?.(request)
+    return HttpResponse.json({
+      repository,
+      prototypes: [],
+      authors: [],
+      pagination: { page: 1, pageSize: 24, pageCount: 1, totalCount: 0 },
+    })
+  })
+}
+
+function deferPermission() {
+  let release!: () => void
+  const pending = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  onTestFinished(release)
+  return { pending, release }
 }
 
 function selectedRepository(nameWithOwner: string) {
@@ -145,6 +176,165 @@ function sidebarDestinations() {
 }
 
 describe("real workspace navigation", () => {
+  it("opens Create and returns to Inbox without waiting for permissions or reloading the same workspace", async () => {
+    const repository = {
+      id: "11111111-1111-4111-8111-111111111111",
+      nameWithOwner: "team/alpha",
+      defaultBranch: "main",
+      capabilities: { reviewPrototypes: true, manageSharing: false, browseTemplates: true },
+    }
+    const permission = deferPermission()
+    const navigationReads = vi.fn()
+    const permissionReads = vi.fn()
+    const inboxPath = `/notifications?repositoryId=${repository.id}`
+    const createPath = `/repositories/${repository.id}/new`
+    const router = await renderApplication(inboxPath, [
+      ...workspaceApi([repository], {
+        role: "MEMBER",
+        reviewInboxAvailable: true,
+        async respondToWorkspace(request, workspace) {
+          const query = new URL(request.url).searchParams
+          if (query.get("view") === "navigation") {
+            navigationReads()
+            return HttpResponse.json({ ...workspace, repositoryPermissionsAvailable: true })
+          }
+          permissionReads(query.get("repositoryId"))
+          await permission.pending
+          return HttpResponse.json(workspace)
+        },
+      }),
+      json("/api/notifications/inbox", { notifications: [], nextBefore: null, unreadCount: 0 }),
+      json(`/api/repositories/${repository.id}/templates`, {
+        repository,
+        templates: [],
+        canCreate: true,
+      }),
+    ])
+    expect(screen.getByRole("heading", { name: "Inbox" })).toBeVisible()
+    await waitFor(() => expect(permissionReads).toHaveBeenCalledExactlyOnceWith(repository.id))
+
+    fireEvent.click(screen.getByRole("link", { name: "Create" }))
+    expect(await screen.findByRole("heading", { name: "What should we create?" })).toBeVisible()
+    expect(router.state.location.pathname).toBe(createPath)
+
+    fireEvent.click(screen.getByRole("link", { name: "Inbox" }))
+    expect(await screen.findByRole("heading", { name: "Inbox" })).toBeVisible()
+    expect(router.state.location.pathname + router.state.location.search).toBe(inboxPath)
+    expect(navigationReads).toHaveBeenCalledOnce()
+    expect(permissionReads).toHaveBeenCalledExactlyOnceWith(repository.id)
+  })
+
+  it("refreshes the workspace when switching repositories and ignores a late grant for the old repository", async () => {
+    const first = {
+      id: "11111111-1111-4111-8111-111111111111",
+      nameWithOwner: "team/alpha",
+      defaultBranch: "main",
+      capabilities: { reviewPrototypes: true, manageSharing: false, browseTemplates: true },
+    }
+    const next = {
+      ...first,
+      id: "22222222-2222-4222-8222-222222222222",
+      nameWithOwner: "team/beta",
+    }
+    const firstPermission = deferPermission()
+    const nextPermission = deferPermission()
+    const grants = new Map([
+      [first.id, { permission: firstPermission, capabilities: { administerRepository: true } }],
+      [next.id, { permission: nextPermission, capabilities: { managePrototypeListings: true } }],
+    ])
+    const navigationReads = vi.fn()
+    const permissionReads = new Map<string, AbortSignal>()
+    await renderApplication(`/repositories/${first.id}`, [
+      ...workspaceApi([first, next], {
+        role: "MEMBER",
+        async respondToWorkspace(request, workspace) {
+          const query = new URL(request.url).searchParams
+          if (query.get("view") === "navigation") {
+            navigationReads()
+            return HttpResponse.json({ ...workspace, repositoryPermissionsAvailable: true })
+          }
+          const repositoryId = query.get("repositoryId") ?? ""
+          const grant = grants.get(repositoryId)
+          if (!grant) return HttpResponse.json({ error: "Repository not found" }, { status: 404 })
+          permissionReads.set(repositoryId, request.signal)
+          await grant.permission.pending
+          return HttpResponse.json({
+            ...workspace,
+            repositories: workspace.repositories.map((repository) =>
+              repository.id === repositoryId
+                ? {
+                    ...repository,
+                    capabilities: { ...repository.capabilities, ...grant.capabilities },
+                  }
+                : repository,
+            ),
+          })
+        },
+      }),
+      galleryApi(first),
+      galleryApi(next),
+    ])
+    await waitFor(() => expect([...permissionReads.keys()]).toEqual([first.id]))
+
+    fireEvent.click(await selectedRepository(first.nameWithOwner))
+    fireEvent.click(await screen.findByRole("link", { name: next.nameWithOwner }))
+    expect(await selectedRepository(next.nameWithOwner)).toBeVisible()
+    await waitFor(() => expect([...permissionReads.keys()]).toEqual([first.id, next.id]))
+    expect(navigationReads).toHaveBeenCalledTimes(2)
+    expect(permissionReads.get(first.id)?.aborted).toBe(true)
+    expect(screen.queryByRole("link", { name: "Edit prototype listings" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "Security audit" })).not.toBeInTheDocument()
+
+    nextPermission.release()
+    const editListings = await screen.findByRole("link", { name: "Edit prototype listings" })
+    expect(editListings).toHaveAttribute("href", `/repositories/${next.id}/prototypes/manage`)
+
+    await act(() => {
+      firstPermission.release()
+      return firstPermission.pending
+    })
+    expect(screen.getByRole("link", { name: "Edit prototype listings" })).toBeVisible()
+    expect(screen.queryByRole("link", { name: "Security audit" })).not.toBeInTheDocument()
+  })
+
+  it("skips a plain click on the current URL but loads a changed URL and explicit refresh", async () => {
+    const repository = {
+      id: "11111111-1111-4111-8111-111111111111",
+      nameWithOwner: "team/alpha",
+      defaultBranch: "main",
+      capabilities: { reviewPrototypes: true, manageSharing: false, browseTemplates: true },
+    }
+    const galleryPath = `/repositories/${repository.id}`
+    const galleryReads = vi.fn<(query: string | null) => void>()
+    const workspaceReads = vi.fn()
+    const router = await renderApplication(`${galleryPath}?q=prototype`, [
+      ...workspaceApi([repository], {
+        role: "MEMBER",
+        respondToWorkspace(_request, workspace) {
+          workspaceReads()
+          return HttpResponse.json(workspace)
+        },
+      }),
+      galleryApi(repository, (request) => galleryReads(new URL(request.url).searchParams.get("q"))),
+    ])
+
+    fireEvent.click(screen.getByRole("link", { name: "Prototypes" }))
+    await waitFor(() => expect(router.state.location.search).toBe(""))
+    expect(galleryReads.mock.calls).toEqual([["prototype"], [null]])
+
+    const locationKey = router.state.location.key
+    const readsBeforeClick = workspaceReads.mock.calls.length
+    expect(fireEvent.click(screen.getByRole("link", { name: "Prototypes" }))).toBe(false)
+    expect(router.state.location.key).toBe(locationKey)
+    expect(router.state.navigation.state).toBe("idle")
+    expect(galleryReads).toHaveBeenCalledTimes(2)
+    expect(workspaceReads).toHaveBeenCalledTimes(readsBeforeClick)
+
+    await act(() => router.revalidate())
+    expect(galleryReads).toHaveBeenCalledTimes(3)
+    expect(workspaceReads).toHaveBeenCalledTimes(readsBeforeClick + 1)
+  })
+
   it("keeps the selected repository's sidebar when following Hub links and uses the first repository for a bare URL", async () => {
     const first = {
       id: "11111111-1111-4111-8111-111111111111",
@@ -159,14 +349,8 @@ describe("real workspace navigation", () => {
     }
     const router = await renderApplication("/repositories", [
       ...workspaceApi([first, selected], { reviewInboxAvailable: true }),
-      ...[first, selected].map((repository) =>
-        json(`/api/repositories/${repository.id}`, {
-          repository,
-          prototypes: [],
-          authors: [],
-          pagination: { page: 1, pageSize: 24, pageCount: 1, totalCount: 0 },
-        }),
-      ),
+      galleryApi(first),
+      galleryApi(selected),
       json("/api/session-revocation", {
         status: {
           activeSessionCount: 3,

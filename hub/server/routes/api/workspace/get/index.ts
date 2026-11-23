@@ -26,6 +26,7 @@ export function get(
         return
       }
       const selectedRepository = z.uuid().safeParse(request.query.repositoryId)
+      const navigationOnly = request.query.view === "navigation"
       const read = await readProductWithCurrentAuthority(
         initial,
         cookie,
@@ -38,7 +39,9 @@ export function get(
           const requested = selectedRepository.success
             ? selectedRepository.data.toLowerCase()
             : null
-          const selected = repositories.find(({ id }) => id === requested) ?? repositories[0]
+          const selected = navigationOnly
+            ? undefined
+            : (repositories.find(({ id }) => id === requested) ?? repositories[0])
           let permission = "none"
           let permissionUnavailable = false
           if (selected) {
@@ -101,6 +104,11 @@ export function get(
           avatarUrl: null,
         },
         repositories: presentedRepositories,
+        ...(navigationOnly &&
+        current.sessionProvider === "github" &&
+        product.getRepositoryPermission
+          ? { repositoryPermissionsAvailable: true }
+          : {}),
         ...(product.reviewInbox ? { reviewInboxAvailable: true } : {}),
         ...(manageSharing ? { publicSharingSettingsAvailable: true } : {}),
         ...(welcomeHidden !== undefined ? { welcomeHidden } : {}),

@@ -32,7 +32,7 @@ export async function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "re
   }
   let workspace
   try {
-    workspace = await getWorkspace(request)
+    workspace = await getWorkspace(request, mock ? undefined : "navigation")
   } catch (error) {
     if (!mock && error instanceof ApiRequestError && error.status === 401) throw redirect("/")
     throw error

@@ -106,6 +106,8 @@ Application code adapts internal links and same-origin GET forms to SPA navigati
 
 Pending page navigation shows a thin green pulse moving to the right, with a screen-reader loading announcement and a static bar for reduced-motion preferences. Loading feedback does not move page content. The Prototypes gallery keeps its current results visible without adding a separate loading message.
 
+Ordinary signed-in routes request `/api/workspace?view=navigation` for the viewer, readable repositories, and preferences without waiting on GitHub management permission. The layout retains this data when the same repository moves between the path and the `repositoryId` query parameter or only page filters change. It refreshes when repository selection changes, after mutations, or on an explicit revalidation. GitHub management controls wait for a separate, live lookup for the selected repository. This affects what Hub shows, not the authorization required to open protected pages or submit changes.
+
 Routine notices and successful form results appear as dismissible toasts stacked in the bottom-right corner. They do not take focus, expire on a timer, or occupy space in the page layout. Dismissing a toast hides that message until it changes or its owning page or result remounts. Validation failures, access restrictions, action choices and consequential warnings remain inline beside the affected content.
 
 ### Rails conversion route map
