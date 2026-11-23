@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent,
   type SyntheticEvent,
 } from "react"
 import { CheckCircleIcon, LightBulbIcon, XCircleIcon, type Icon } from "@primer/octicons-react"
@@ -202,7 +203,32 @@ function ActivityGrid({ activity, today }: { activity: LearningActivityDay[]; to
     () => pastDays.findLast((day) => day.runState !== "none")?.date ?? today,
   )
   const selectedDay = pastDays.find((day) => day.date === selectedDate) ?? null
+  const calendarRef = useRef<HTMLDivElement>(null)
   const scrollerRef = useRef<HTMLDivElement>(null)
+
+  function moveSelectedDate(event: KeyboardEvent<HTMLButtonElement>) {
+    const offsets: Record<string, number> = {
+      ArrowDown: 1,
+      ArrowLeft: -7,
+      ArrowRight: 7,
+      ArrowUp: -1,
+    }
+    const offset = offsets[event.key]
+    if (offset === undefined) return
+
+    event.preventDefault()
+    const next = new Date(`${selectedDate}T00:00:00.000Z`)
+    next.setUTCDate(next.getUTCDate() + offset)
+    const nextDate = next.toISOString().slice(0, 10)
+    if (!nextDate.startsWith(`${today.slice(0, 4)}-`) || nextDate > today) return
+
+    const nextButton = calendarRef.current?.querySelector<HTMLButtonElement>(
+      `[data-date="${nextDate}"]`,
+    )
+    if (!nextButton) return
+    setSelectedDate(nextDate)
+    nextButton.focus()
+  }
 
   // On a narrow screen recent weeks matter most, so open with the selected day in view.
   useLayoutEffect(() => {
@@ -247,6 +273,7 @@ function ActivityGrid({ activity, today }: { activity: LearningActivityDay[]; to
             className="learning-library__calendar"
             role="group"
             aria-label={`Daily learning activity for ${today.slice(0, 4)}`}
+            ref={calendarRef}
             style={{ "--weeks": weeks.length } as CSSProperties}
           >
             <div className="learning-library__weekday-labels" aria-hidden="true">
@@ -301,8 +328,11 @@ function ActivityGrid({ activity, today }: { activity: LearningActivityDay[]; to
                       className={`learning-library__day learning-library__day--level-${level}${
                         day.runState === "failed" ? " learning-library__day--failed" : ""
                       }`}
+                      data-date={day.date}
+                      onKeyDown={moveSelectedDate}
                       key={day.date}
                       onClick={() => setSelectedDate(day.date)}
+                      tabIndex={selectedDate === day.date ? 0 : -1}
                       style={{ "--activity-level": level / 4 } as CSSProperties}
                       title={accessibleLabel}
                       type="button"
@@ -315,6 +345,19 @@ function ActivityGrid({ activity, today }: { activity: LearningActivityDay[]; to
         </div>
 
         <div className="learning-library__activity-footer">
+          <div className="learning-library__date-picker">
+            <label htmlFor="learning-activity-date">Choose a day</label>
+            <TextInput
+              id="learning-activity-date"
+              max={today}
+              min={`${today.slice(0, 4)}-01-01`}
+              onChange={(event) => {
+                if (event.target.value) setSelectedDate(event.target.value)
+              }}
+              type="date"
+              value={selectedDate}
+            />
+          </div>
           <div className="learning-library__legend" aria-hidden="true">
             <span>Less</span>
             {[0, 1, 2, 3, 4].map((level) => (
@@ -382,6 +425,12 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
   const [rejecting, setRejecting] = useState(false)
   const [announcement, setAnnouncement] = useState("")
   const [formError, setFormError] = useState("")
+  const detailHeadingRef = useRef<HTMLHeadingElement>(null)
+  const learningListRef = useRef<HTMLDivElement>(null)
+  const statusFiltersRef = useRef<HTMLDivElement>(null)
+  const focusAfterDetailRef = useRef<
+    { type: "learning"; id: string } | { type: "status"; status: LearningLifecycle } | null
+  >(null)
   const selected = learnings.find((learning) => learning.id === selectedId) ?? null
   const filtered = learnings.filter(
     (learning) =>
@@ -399,14 +448,39 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
   const currentPage = Math.min(page, pageCount)
   const visible = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
+  useLayoutEffect(() => {
+    if (selectedId) {
+      detailHeadingRef.current?.focus()
+      return
+    }
+
+    const focusTarget = focusAfterDetailRef.current
+    focusAfterDetailRef.current = null
+    if (!focusTarget) return
+
+    const controls =
+      focusTarget.type === "learning"
+        ? learningListRef.current?.querySelectorAll<HTMLButtonElement>("[data-learning-id]")
+        : statusFiltersRef.current?.querySelectorAll<HTMLButtonElement>("[data-lifecycle-status]")
+    const control = Array.from(controls ?? []).find((item) =>
+      focusTarget.type === "learning"
+        ? item.dataset.learningId === focusTarget.id
+        : item.dataset.lifecycleStatus === focusTarget.status,
+    )
+    control?.focus()
+  }, [selectedId])
+
   function decide(status: "active" | "rejected", rejectionReason?: string) {
     if (!selected || !data.canDecide) return
+    focusAfterDetailRef.current = { type: "status", status }
+    const updatedAt = `${data.today}T12:00:00.000Z`
     setLearnings((current) =>
       current.map((learning) =>
         learning.id === selected.id
           ? {
               ...learning,
               status,
+              updatedAt,
               ...(status === "rejected" && rejectionReason ? { rejectionReason } : {}),
             }
           : learning,
@@ -440,9 +514,10 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
       setFormError("Enter a title and guidance.")
       return
     }
+    const updatedAt = `${data.today}T12:00:00.000Z`
     setLearnings((current) =>
       current.map((learning) =>
-        learning.id === selected.id ? { ...learning, title, guidance } : learning,
+        learning.id === selected.id ? { ...learning, title, guidance, updatedAt } : learning,
       ),
     )
     setEditing(false)
@@ -477,6 +552,7 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
             <button
               className="learning-library__back"
               onClick={() => {
+                focusAfterDetailRef.current = { type: "learning", id: selected.id }
                 setSelectedId(null)
                 setEditing(false)
                 setRejecting(false)
@@ -497,7 +573,7 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
                   </Label>
                   <span>{selected.topic}</span>
                 </div>
-                <Heading as="h2" size="4">
+                <Heading as="h2" ref={detailHeadingRef} size="4" tabIndex={-1}>
                   {selected.title}
                 </Heading>
                 <Text as="p" className="learning-library__guidance">
@@ -687,11 +763,13 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
                   className="learning-library__filters"
                   role="group"
                   aria-label="Learning status"
+                  ref={statusFiltersRef}
                 >
                   {(["suggested", "active", "rejected"] as const).map((status) => (
                     <button
                       aria-pressed={lifecycle === status}
                       className="learning-library__filter"
+                      data-lifecycle-status={status}
                       key={status}
                       onClick={() => {
                         setLifecycle(status)
@@ -721,7 +799,7 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
                   />
                 </FormControl>
               </div>
-              <div className="learning-library__table-wrap">
+              <div className="learning-library__table-wrap" ref={learningListRef}>
                 <table className="learning-library__table">
                   <thead>
                     <tr>
@@ -743,6 +821,7 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
                             <div>
                               <button
                                 className="learning-library__learning-link"
+                                data-learning-id={learning.id}
                                 onClick={() => setSelectedId(learning.id)}
                                 type="button"
                               >

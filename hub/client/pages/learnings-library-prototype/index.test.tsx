@@ -159,10 +159,19 @@ describe("LearningsLibraryPrototype()", () => {
     selectSection("Suggested")
     const suggestion = getLearning("Keep form labels visible")
     fireEvent.click(within(suggestion).getByRole("button", { name: "Keep form labels visible" }))
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { name: "Keep form labels visible" }),
+    )
     fireEvent.click(screen.getByRole("button", { name: /accept learning/i }))
 
+    expect(document.activeElement).toBe(getSectionControl("Active"))
     selectSection("Active")
-    expect(getLearning("Keep form labels visible")).toBeVisible()
+    const acceptedLearning = getLearning("Keep form labels visible")
+    expect(acceptedLearning).toBeVisible()
+    expect(within(acceptedLearning).getByText("November 20, 2026")).toHaveAttribute(
+      "datetime",
+      "2026-11-20T12:00:00.000Z",
+    )
     selectSection("Suggested")
     expect(
       screen.queryByRole("button", { name: "Keep form labels visible" }),
@@ -200,11 +209,20 @@ describe("LearningsLibraryPrototype()", () => {
 
     const backToLearnings = screen.queryByRole("button", { name: /learnings/i })
     if (backToLearnings) fireEvent.click(backToLearnings)
-    selectSection("Rejected")
+    expect(document.activeElement).toBe(getSectionControl("Rejected"))
     const rejectedLearning = getLearning(rejectionTitle)
     expect(rejectedLearning).toBeVisible()
+    expect(within(rejectedLearning).getByText("November 20, 2026")).toHaveAttribute(
+      "datetime",
+      "2026-11-20T12:00:00.000Z",
+    )
     fireEvent.click(within(rejectedLearning).getByRole("button", { name: rejectionTitle }))
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: rejectionTitle }))
     expect(screen.getByText("The placeholder disappears while typing.")).toBeVisible()
+    fireEvent.click(screen.getByRole("button", { name: /learnings/i }))
+    expect(document.activeElement).toBe(
+      within(getLearning(rejectionTitle)).getByRole("button", { name: rejectionTitle }),
+    )
     expect(fetch).not.toHaveBeenCalled()
   })
 
@@ -225,6 +243,10 @@ describe("LearningsLibraryPrototype()", () => {
 
     expect(screen.getByRole("heading", { name: "Make primary actions clear" })).toBeVisible()
     expect(screen.getByText("Use short, specific labels for primary actions.")).toBeVisible()
+    expect(screen.getByText("November 20, 2026", { selector: "time" })).toHaveAttribute(
+      "datetime",
+      "2026-11-20T12:00:00.000Z",
+    )
   })
 
   it("updates the activity measure and exposes the selected run's separate counts and status", () => {
@@ -267,7 +289,7 @@ describe("LearningsLibraryPrototype()", () => {
     expect(categorizedDay).toHaveAccessibleName(/4 comments categorized/i)
   })
 
-  it("lays out the calendar year by weekday and leaves upcoming days unclickable", () => {
+  it("lays out the calendar and supports keyboard date selection", () => {
     renderPrototype(createPrototypeData(false))
     const calendar = screen.getByRole("group", { name: "Daily learning activity for 2026" })
     expect(within(calendar).getAllByRole("button", { name: /^September / })).toHaveLength(30)
@@ -302,6 +324,23 @@ describe("LearningsLibraryPrototype()", () => {
     expect(
       within(calendar).getByRole("button", { name: /^November 17, 2026,.*no run$/ }),
     ).toBeVisible()
+
+    const dateButtons = within(calendar).getAllByRole("button")
+    expect(dateButtons.filter((button) => button.tabIndex === 0)).toHaveLength(1)
+    expect(dateButtons.filter((button) => button.tabIndex === -1)).toHaveLength(323)
+
+    fireEvent.change(screen.getByLabelText("Choose a day"), {
+      target: { value: "2026-11-18" },
+    })
+    expect(wednesday).toHaveAttribute("aria-pressed", "true")
+    fireEvent.keyDown(wednesday, { key: "ArrowDown" })
+    const novemberNineteen = within(calendar).getByRole("button", {
+      name: /^November 19, 2026,/,
+    })
+    expect(novemberNineteen).toHaveAttribute("aria-pressed", "true")
+    expect(document.activeElement).toBe(novemberNineteen)
+    fireEvent.keyDown(novemberNineteen, { key: "ArrowRight" })
+    expect(document.activeElement).toBe(novemberNineteen)
   })
 
   it("pages long lists and starts each status on its first page", () => {

@@ -260,11 +260,23 @@
 }
 
 .learning-library__activity-footer {
-  justify-content: flex-end;
+  flex-wrap: wrap;
   color: var(--hub-fg-muted);
 }
 
+.learning-library__date-picker {
+  display: grid;
+  gap: 0.25rem;
+  color: var(--hub-fg-muted);
+  font-size: 0.75rem;
+}
+
+.learning-library__date-picker input {
+  width: 10rem;
+}
+
 .learning-library__legend {
+  align-self: flex-end;
   display: flex;
   align-items: center;
   gap: 0.25rem;
