@@ -46,11 +46,11 @@ An already-delivered page, file or chunk cannot be recalled, and bytes already b
 
 ## Access
 
-A share link is public while deployment sharing is enabled and the link remains active. Anyone with its URL can open it without GitHub sign-in. Hub does not send the visitor's identity, repository details, screenshots, or review conversations to the shared preview.
+A share link is public while deployment sharing is enabled and the link remains active. Anyone with its URL can open it without GitHub sign-in, but cannot view or add review comments. For comments, share the Hub prototype link with people who can sign in and have repository access. Hub does not send the visitor's identity, repository details, screenshots, or review conversations to the shared preview.
 
 This includes a suspended account or someone who has left the organisation. Until expiry or revocation, possessing the URL is enough; Hub does not authenticate the public visitor. The creator-access check can stop links after observed repository-access loss, but it does not remove this residual risk or guarantee immediate offboarding. Security acceptance remains pending.
 
-Both the Hub and canvas creation pages warn that anyone with the URL can view the Build and that prototype content may expose sensitive or customer information. Authors must check the Build's content before creating a public link. The absence of private review data does not make the prototype itself safe to publish.
+Both the Hub and canvas creation pages explain that anyone with the URL can view the Build. Authors must check the Build's content before creating a public link: prototype content may expose sensitive or customer information. The absence of private review data does not make the prototype itself safe to publish.
 
 Each link points to one Build. A newer Build does not change an existing link.
 

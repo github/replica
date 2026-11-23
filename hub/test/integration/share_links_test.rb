@@ -67,13 +67,14 @@ class ShareLinksTest < ActionDispatch::IntegrationTest
     assert_equal "denied", SecurityAuditEvent.where(action: "share_link.create").last.outcome
   end
 
-  test "creation page warns about public access to sensitive or customer information" do
+  test "creation page explains public access and commenting" do
     get @path, as: :json
     assert_response :success
-    description = JSON.parse(response.body).fetch("data").fetch("description")
+    data = JSON.parse(response.body).fetch("data")
+    description = data.fetch("description")
     assert_includes description, "Anyone with a link"
     assert_includes description, "without signing in"
-    assert_includes description, "sensitive or customer information"
+    assert_includes description, "cannot view or add comments"
   end
 
   test "a policy change during GitHub authorization blocks creation even after re enabling" do

@@ -12,7 +12,7 @@ export function HubContentPageHeader({
   headingRef,
 }: {
   title: string
-  description?: string
+  description?: ReactNode
   trailing?: ReactNode
   headingAs?: "h1" | "h2"
   headingRef?: Ref<HTMLHeadingElement>

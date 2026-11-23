@@ -17,6 +17,16 @@
   color: var(--hub-fg-muted);
 }
 
+.canvas-share-description {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hub-space-8);
+}
+
+.canvas-share-description svg {
+  flex-shrink: 0;
+}
+
 .canvas-share-internal {
   display: flex;
   flex-direction: column;

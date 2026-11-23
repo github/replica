@@ -2,7 +2,7 @@ import type { ReactNode, Ref } from "react"
 
 export interface ShareLinksContentLabels {
   heading: string
-  description?: string
+  description?: ReactNode
   noBuildHeading: string
   noBuildLabel: string
   emptyHeading: string

@@ -27,7 +27,7 @@ const data: ShareLinksIndexPageData = {
   copyLabel: "Copy link",
   deleteLabel: "Delete link",
   description:
-    "Anyone with a link can view this Build without signing in. The prototype may expose sensitive or customer information. Check its content before creating a public link.",
+    "Anyone with a link can view its Build without signing in, but cannot view or add comments. To collect comments, share the Hub prototype link with people who have repository access.",
   emptyHeading: "No active share links",
   emptyLabel: "Create a link when someone needs signed-out access.",
   form: {
