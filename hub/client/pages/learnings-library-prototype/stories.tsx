@@ -48,7 +48,6 @@ const learnings = [
         buildNumber: 4,
         createdAt: "2026-11-18T17:20:00Z",
         reviewPath: "/repositories/2001/prototypes/13?build=4&comment=104",
-        stance: "supports",
       },
       {
         id: "evidence-2",
@@ -58,17 +57,6 @@ const learnings = [
         buildNumber: 2,
         createdAt: "2026-11-17T14:05:00Z",
         reviewPath: "/repositories/2001/prototypes/17?build=2&comment=131",
-        stance: "supports",
-      },
-      {
-        id: "evidence-3",
-        body: "This form is short enough that the placeholder is clear to me.",
-        authorLogin: "octocat",
-        prototypeName: "Signup flow",
-        buildNumber: 4,
-        createdAt: "2026-11-16T10:42:00Z",
-        reviewPath: "/repositories/2001/prototypes/13?build=4&comment=109",
-        stance: "opposes",
       },
     ],
   },
@@ -90,7 +78,6 @@ const learnings = [
         buildNumber: 7,
         createdAt: "2026-11-12T09:30:00Z",
         reviewPath: "/repositories/2001/prototypes/22?build=7&comment=201",
-        stance: "supports",
       },
     ],
   },
@@ -112,7 +99,6 @@ const learnings = [
         buildNumber: 3,
         createdAt: "2026-11-09T15:10:00Z",
         reviewPath: "/repositories/2001/prototypes/24?build=3&comment=246",
-        stance: "opposes",
       },
     ],
   },
@@ -230,7 +216,6 @@ function createManyLearnings(): LearningRecord[] {
           buildNumber,
           createdAt: updatedAt,
           reviewPath: `/repositories/2001/prototypes/${30 + index}?build=${buildNumber}&comment=${500 + index}`,
-          stance: "supports",
         },
       ],
     }
@@ -243,6 +228,9 @@ const data: LearningsLibraryPrototypeData = {
   activity: createActivity(),
   today: "2026-11-20",
 }
+
+const activeLearning = learnings.find((learning) => learning.status === "active")
+if (!activeLearning) throw new Error("Expected an active learning for the edit story")
 
 function StoryPage({ data }: { data: LearningsLibraryPrototypeData }) {
   return (
@@ -323,8 +311,12 @@ export const LearningDetails: Story = {
 }
 
 export const EditingLearning: Story = {
+  args: {
+    data: { ...data, learnings: [activeLearning] },
+  },
   play: async ({ canvas, userEvent }) => {
-    await userEvent.click(canvas.getByRole("button", { name: "Label every form field" }))
+    await userEvent.click(canvas.getByRole("button", { name: /^Active/ }))
+    await userEvent.click(canvas.getByRole("button", { name: activeLearning.title }))
     await userEvent.click(canvas.getByRole("button", { name: "Edit learning" }))
   },
 }

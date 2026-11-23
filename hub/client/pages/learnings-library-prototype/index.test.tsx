@@ -15,17 +15,24 @@ function createPrototypeData(canDecide: boolean): LearningsLibraryPrototypeData 
     buildNumber: 8,
     createdAt: "2026-11-18T16:30:00.000Z",
     reviewPath: "https://github.com/github/prototype/pull/42#discussion_r100",
-    stance: "supports" as const,
   }
-  const opposingEvidence = {
-    id: "evidence-opposing",
-    body: "The field group already has a visible heading.",
+  const secondSupportingEvidence = {
+    id: "evidence-second-supporting",
+    body: "The Save button does not stand out beside Cancel.",
     authorLogin: "mona",
     prototypeName: "Settings refresh",
     buildNumber: 5,
     createdAt: "2026-11-17T14:00:00.000Z",
     reviewPath: "https://github.com/github/prototype/pull/43#discussion_r101",
-    stance: "opposes" as const,
+  }
+  const placeholderEvidence = {
+    id: "evidence-placeholder",
+    body: "The placeholder disappears while I type, so I lose the field name.",
+    authorLogin: "octocat",
+    prototypeName: "Signup refresh",
+    buildNumber: 4,
+    createdAt: "2026-11-16T10:42:00.000Z",
+    reviewPath: "https://github.com/github/prototype/pull/44#discussion_r102",
   }
 
   return {
@@ -47,7 +54,7 @@ function createPrototypeData(canDecide: boolean): LearningsLibraryPrototypeData 
         status: "suggested",
         topic: "Accessibility",
         updatedAt: "2026-11-17T14:00:00.000Z",
-        evidence: [opposingEvidence],
+        evidence: [placeholderEvidence],
       },
       {
         id: "learning-active",
@@ -57,7 +64,7 @@ function createPrototypeData(canDecide: boolean): LearningsLibraryPrototypeData 
         topic: "Content",
         updatedAt: "2026-11-18T16:30:00.000Z",
         acceptedBy: "mona",
-        evidence: [supportingEvidence, opposingEvidence],
+        evidence: [supportingEvidence, secondSupportingEvidence],
       },
       {
         id: "learning-rejected",
@@ -67,7 +74,7 @@ function createPrototypeData(canDecide: boolean): LearningsLibraryPrototypeData 
         topic: "Accessibility",
         updatedAt: "2026-11-16T09:00:00.000Z",
         rejectionReason: "Placeholder text is not a persistent label.",
-        evidence: [opposingEvidence],
+        evidence: [placeholderEvidence],
       },
     ],
     activity: [
@@ -121,6 +128,9 @@ describe("LearningsLibraryPrototype()", () => {
   it("lets a member browse each status without exposing decision controls", () => {
     renderPrototype(createPrototypeData(false))
 
+    expect(screen.getByRole("heading", { name: "Learnings" })).toBeVisible()
+    expect(screen.queryByRole("button", { name: "Back to learnings" })).not.toBeInTheDocument()
+
     for (const [section, title] of [
       ["Suggested", "Keep form labels visible"],
       ["Active", "Make actions clear"],
@@ -143,6 +153,23 @@ describe("LearningsLibraryPrototype()", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("shows a focus indicator after keyboard activation but not pointer activation", () => {
+    renderPrototype(createPrototypeData(false))
+    selectSection("Active")
+
+    const learningButton = screen.getByRole("button", { name: "Make actions clear" })
+    fireEvent.click(learningButton, { detail: 1 })
+    const title = screen.getByRole("heading", { name: "Make actions clear" })
+    expect(document.activeElement).toBe(title)
+    expect(title).not.toHaveClass("learning-library__page-title--focus-visible")
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to learnings" }), { detail: 1 })
+    fireEvent.click(screen.getByRole("button", { name: "Make actions clear" }), { detail: 0 })
+    const reopenedTitle = screen.getByRole("heading", { name: "Make actions clear" })
+    expect(document.activeElement).toBe(reopenedTitle)
+    expect(reopenedTitle).toHaveClass("learning-library__page-title--focus-visible")
+  })
+
   it("accepts a suggestion and requires a reason before moving another to Rejected", () => {
     const fetch = vi.fn()
     vi.stubGlobal("fetch", fetch)
@@ -154,6 +181,13 @@ describe("LearningsLibraryPrototype()", () => {
     expect(document.activeElement).toBe(
       screen.getByRole("heading", { name: "Keep form labels visible" }),
     )
+    expect(screen.queryByRole("button", { name: "Edit learning" })).not.toBeInTheDocument()
+    const pageHeader = screen
+      .getByRole("heading", { name: "Keep form labels visible" })
+      .closest("header")
+    if (!pageHeader) throw new Error("Expected the learning title in the page header")
+    expect(within(pageHeader).getByRole("button", { name: "Accept learning" })).toBeVisible()
+    expect(within(pageHeader).getByRole("button", { name: "Reject suggestion" })).toBeVisible()
     fireEvent.click(screen.getByRole("button", { name: /accept learning/i }))
 
     expect(document.activeElement).toBe(getSectionControl("Active"))
@@ -365,7 +399,7 @@ describe("LearningsLibraryPrototype()", () => {
     expect(screen.getByRole("button", { name: "Paged suggestion 1" })).toBeVisible()
   })
 
-  it("shows both kinds of review evidence, links to the source review, and omits screenshots", () => {
+  it("shows review comments in one quiet section and links to their source reviews", () => {
     const data = createPrototypeData(false)
     const activeLearning = data.learnings.find((learning) => learning.status === "active")
     if (!activeLearning) throw new Error("Expected an active learning")
@@ -381,13 +415,17 @@ describe("LearningsLibraryPrototype()", () => {
     fireEvent.click(within(learning).getByRole("button", { name: "Make actions clear" }))
 
     expect(screen.getByText("The visible label made the form easier to scan.")).toBeVisible()
-    expect(screen.getByText("The field group already has a visible heading.")).toBeVisible()
-    expect(screen.getByText("Topic", { selector: "dt" }).parentElement).toHaveTextContent("Content")
+    expect(screen.getByText("The Save button does not stand out beside Cancel.")).toBeVisible()
+    expect(screen.getByRole("region", { name: "Review comments" })).toBeVisible()
+    expect(
+      screen.queryByRole("heading", {
+        name: /Review evidence|Supporting comments|Different views/,
+      }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText(/Category: Content/)).toBeVisible()
     expect(screen.getByText("2 review comments")).toBeVisible()
     expect(
-      screen
-        .getAllByRole("link", { name: /open original review/i })
-        .map((link) => link.getAttribute("href")),
+      screen.getAllByRole("link", { name: /Build [58]/i }).map((link) => link.getAttribute("href")),
     ).toEqual([
       "https://github.com/github/prototype/pull/42#discussion_r100",
       "https://github.com/github/prototype/pull/43#discussion_r101",

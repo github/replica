@@ -7,7 +7,13 @@ import {
   type KeyboardEvent,
   type SyntheticEvent,
 } from "react"
-import { CheckCircleIcon, LightBulbIcon, XCircleIcon, type Icon } from "@primer/octicons-react"
+import {
+  ArrowLeftIcon,
+  CheckCircleIcon,
+  LightBulbIcon,
+  XCircleIcon,
+  type Icon,
+} from "@primer/octicons-react"
 import {
   Button,
   FormControl,
@@ -20,6 +26,7 @@ import {
 } from "@primer/react-brand"
 
 import { HubCounter } from "@components/hub-counter"
+import { HubIconButton } from "@components/hub-icon-button"
 
 import type {
   LearningActivityDay,
@@ -147,49 +154,29 @@ function monthLabelsByWeek(weeks: Array<Array<CalendarCell | null>>) {
   return labels.map((label, index) => (label && labels[index + 1] ? "" : label))
 }
 
-function evidenceList(
-  evidence: LearningEvidence[],
-  stance: LearningEvidence["stance"],
-  emptyLabel: string,
-) {
-  const items = evidence.filter((item) => item.stance === stance)
+function evidenceList(evidence: LearningEvidence[]) {
   return (
-    <section className="learning-library__evidence-group">
-      <Heading as="h3" size="5">
-        {stance === "supports" ? "Supporting comments" : "Different views"}
-        <span className="learning-library__evidence-count">{items.length}</span>
-      </Heading>
-      {items.length ? (
-        <ul className="learning-library__evidence-list">
-          {items.map((item) => (
-            <li className="learning-library__evidence-item" key={item.id}>
-              <div className="learning-library__evidence-meta">
-                <span className="learning-library__avatar" aria-hidden="true">
-                  {item.authorLogin.slice(0, 1).toUpperCase()}
-                </span>
-                <strong>@{item.authorLogin}</strong>
-                <span aria-hidden="true">·</span>
-                <a href={item.reviewPath}>
-                  {item.prototypeName} · Build {item.buildNumber}
-                </a>
-                <span aria-hidden="true">·</span>
-                <time dateTime={item.createdAt}>{dayLabel(item.createdAt.slice(0, 10))}</time>
-              </div>
-              <Text as="p" variant={item.body === null ? "muted" : "default"}>
-                {item.body ?? "The author deleted this review comment."}
-              </Text>
-              <a className="learning-library__review-link" href={item.reviewPath}>
-                Open original review
-              </a>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <Text as="p" variant="muted">
-          {emptyLabel}
-        </Text>
-      )}
-    </section>
+    <ul className="learning-library__evidence-list">
+      {evidence.map((item) => (
+        <li className="learning-library__evidence-item" key={item.id}>
+          <div className="learning-library__evidence-meta">
+            <span className="learning-library__avatar" aria-hidden="true">
+              {item.authorLogin.slice(0, 1).toUpperCase()}
+            </span>
+            <strong>@{item.authorLogin}</strong>
+            <span aria-hidden="true">·</span>
+            <a href={item.reviewPath}>
+              {item.prototypeName} · Build {item.buildNumber}
+            </a>
+            <span aria-hidden="true">·</span>
+            <time dateTime={item.createdAt}>{dayLabel(item.createdAt.slice(0, 10))}</time>
+          </div>
+          <Text as="p" size="200" variant={item.body === null ? "muted" : "default"}>
+            {item.body ?? "The author deleted this review comment."}
+          </Text>
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -412,6 +399,7 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
   const [rejecting, setRejecting] = useState(false)
   const [announcement, setAnnouncement] = useState("")
   const [formError, setFormError] = useState("")
+  const [detailFocusVisible, setDetailFocusVisible] = useState(false)
   const detailHeadingRef = useRef<HTMLHeadingElement>(null)
   const learningListRef = useRef<HTMLDivElement>(null)
   const statusFiltersRef = useRef<HTMLDivElement>(null)
@@ -523,12 +511,77 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
     decide("rejected", reason.trim())
   }
 
+  function backToLearnings() {
+    if (!selected) return
+    focusAfterDetailRef.current = { type: "learning", id: selected.id }
+    setSelectedId(null)
+    setEditing(false)
+    setRejecting(false)
+    setFormError("")
+  }
+
   return (
     <div className="learning-library-page">
-      <header className="repository-page-header learning-library__page-header">
-        <Heading as="h1" size="6">
-          Learnings
-        </Heading>
+      <header
+        className={`repository-page-header learning-library__page-header${selected ? " learning-library__page-header--detail" : ""}`}
+      >
+        {selected ? (
+          <>
+            <HubIconButton
+              aria-label="Back to learnings"
+              icon={ArrowLeftIcon}
+              onClick={backToLearnings}
+              variant="invisible"
+            />
+            <Heading
+              as="h1"
+              className={`learning-library__page-title${
+                detailFocusVisible ? " learning-library__page-title--focus-visible" : ""
+              }`}
+              ref={detailHeadingRef}
+              size="6"
+              tabIndex={-1}
+            >
+              {selected.title}
+            </Heading>
+            {data.canDecide && !editing && !rejecting && selected.status !== "rejected" ? (
+              <div className="learning-library__page-actions">
+                {selected.status === "suggested" ? (
+                  <>
+                    <Button onClick={() => decide("active")} type="button" variant="primary">
+                      Accept learning
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setFormError("")
+                        setRejecting(true)
+                      }}
+                      type="button"
+                      variant="secondary"
+                    >
+                      Reject suggestion
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    onClick={() => {
+                      setFormError("")
+                      setEditing(true)
+                    }}
+                    type="button"
+                    variant="secondary"
+                  >
+                    Edit learning
+                  </Button>
+                )}
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <Heading as="h1" size="6">
+            Learnings
+          </Heading>
+        )}
       </header>
       <div className="learning-library">
         <p className="learning-library__announcement" role="status">
@@ -536,19 +589,6 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
         </p>
         {selected ? (
           <div className="learning-library__detail">
-            <button
-              className="learning-library__back"
-              onClick={() => {
-                focusAfterDetailRef.current = { type: "learning", id: selected.id }
-                setSelectedId(null)
-                setEditing(false)
-                setRejecting(false)
-                setFormError("")
-              }}
-              type="button"
-            >
-              <span aria-hidden="true">‹</span> Learnings
-            </button>
             <header className="learning-library__detail-header">
               <div>
                 <div className="learning-library__eyebrow">
@@ -558,29 +598,55 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
                   >
                     {lifecycleLabels[selected.status]}
                   </Label>
-                  <span>{selected.topic}</span>
                 </div>
-                <Heading as="h2" ref={detailHeadingRef} size="4" tabIndex={-1}>
-                  {selected.title}
-                </Heading>
                 <Text as="p" className="learning-library__guidance">
                   {selected.guidance}
                 </Text>
+                <p className="learning-library__metadata">
+                  <span>Category: {selected.topic}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>{countLabel(selected.evidence.length, "review comment")}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>
+                    Updated{" "}
+                    <time dateTime={selected.updatedAt}>
+                      {dayLabel(selected.updatedAt.slice(0, 10))}
+                    </time>
+                  </span>
+                  {selected.acceptedBy ? (
+                    <>
+                      <span aria-hidden="true">·</span>
+                      <span>Accepted by @{selected.acceptedBy}</span>
+                    </>
+                  ) : null}
+                </p>
               </div>
-              {data.canDecide && !editing && !rejecting ? (
-                <Button
-                  className="learning-library__edit-button"
-                  onClick={() => {
-                    setFormError("")
-                    setEditing(true)
-                  }}
-                  type="button"
-                  variant="secondary"
-                >
-                  Edit learning
-                </Button>
-              ) : null}
             </header>
+
+            {rejecting ? (
+              <form className="learning-library__decision" onSubmit={rejectLearning}>
+                {formError ? <p role="alert">{formError}</p> : null}
+                <FormControl id="learning-rejection-reason" required fullWidth>
+                  <FormControl.Label>Why reject this suggestion?</FormControl.Label>
+                  <Textarea name="reason" required rows={3} fullWidth resize="vertical" />
+                </FormControl>
+                <div className="learning-library__actions">
+                  <Button type="submit" variant="secondary">
+                    Confirm rejection
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setFormError("")
+                      setRejecting(false)
+                    }}
+                    type="button"
+                    variant="subtle"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            ) : null}
 
             {editing ? (
               <form className="learning-library__edit-form" onSubmit={saveLearning}>
@@ -618,31 +684,6 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
               </form>
             ) : null}
 
-            <dl className="learning-library__metadata">
-              <div>
-                <dt>Topic</dt>
-                <dd>{selected.topic}</dd>
-              </div>
-              <div>
-                <dt>Evidence</dt>
-                <dd>{countLabel(selected.evidence.length, "review comment")}</dd>
-              </div>
-              <div>
-                <dt>Updated</dt>
-                <dd>
-                  <time dateTime={selected.updatedAt}>
-                    {dayLabel(selected.updatedAt.slice(0, 10))}
-                  </time>
-                </dd>
-              </div>
-              {selected.acceptedBy ? (
-                <div>
-                  <dt>Accepted by</dt>
-                  <dd>@{selected.acceptedBy}</dd>
-                </div>
-              ) : null}
-            </dl>
-
             {selected.rejectionReason ? (
               <div className="learning-library__rejection">
                 <strong>
@@ -653,73 +694,8 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
               </div>
             ) : null}
 
-            <div className="learning-library__evidence">
-              <div className="learning-library__section-heading">
-                <div>
-                  <Heading as="h2" size="4">
-                    Why this learning exists
-                  </Heading>
-                  <Text as="p" size="200" variant="muted">
-                    Review comments that support or challenge this guidance.
-                  </Text>
-                </div>
-                <HubCounter>{selected.evidence.length}</HubCounter>
-              </div>
-              {evidenceList(selected.evidence, "supports", "No supporting comments are available.")}
-              {evidenceList(selected.evidence, "opposes", "No comments challenge this guidance.")}
-            </div>
-
-            {data.canDecide && selected.status === "suggested" && !editing ? (
-              rejecting ? (
-                <form
-                  className="learning-library__decision learning-library__decision--reject"
-                  onSubmit={rejectLearning}
-                >
-                  {formError ? <p role="alert">{formError}</p> : null}
-                  <FormControl id="learning-rejection-reason" required fullWidth>
-                    <FormControl.Label>Why reject this suggestion?</FormControl.Label>
-                    <Textarea name="reason" required rows={3} fullWidth resize="vertical" />
-                  </FormControl>
-                  <div className="learning-library__actions">
-                    <Button type="submit" variant="secondary">
-                      Confirm rejection
-                    </Button>
-                    <Button
-                      onClick={() => {
-                        setFormError("")
-                        setRejecting(false)
-                      }}
-                      type="button"
-                      variant="subtle"
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </form>
-              ) : (
-                <div className="learning-library__decision">
-                  <Text as="p">Your decision changes which guidance agents can use.</Text>
-                  <div className="learning-library__actions">
-                    <Button onClick={() => decide("active")} type="button" variant="primary">
-                      Accept learning
-                    </Button>
-                    <Button
-                      onClick={() => {
-                        setFormError("")
-                        setRejecting(true)
-                      }}
-                      type="button"
-                      variant="secondary"
-                    >
-                      Reject suggestion
-                    </Button>
-                  </div>
-                </div>
-              )
-            ) : data.canDecide && selected.status === "active" && !editing ? (
-              <div className="learning-library__decision">
-                <Text as="p">This guidance is available to agents.</Text>
-              </div>
+            {selected.evidence.length ? (
+              <section aria-label="Review comments">{evidenceList(selected.evidence)}</section>
             ) : null}
           </div>
         ) : (
@@ -807,7 +783,10 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
                               <button
                                 className="learning-library__learning-link"
                                 data-learning-id={learning.id}
-                                onClick={() => setSelectedId(learning.id)}
+                                onClick={(event) => {
+                                  setDetailFocusVisible(event.detail === 0)
+                                  setSelectedId(learning.id)
+                                }}
                                 type="button"
                               >
                                 {learning.title}

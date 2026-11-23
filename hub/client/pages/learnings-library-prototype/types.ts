@@ -8,7 +8,6 @@ export interface LearningEvidence {
   buildNumber: number
   createdAt: string
   reviewPath: string
-  stance: "supports" | "opposes"
 }
 
 export interface LearningRecord {
