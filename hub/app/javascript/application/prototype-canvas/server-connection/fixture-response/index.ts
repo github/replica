@@ -11,17 +11,25 @@ export function fixtureResponse(
         { error: "Could not check for servers. Check that lsof is installed." },
         { status: 503 },
       )
-    const servers = ["single", "multiple", "connecting", "connect-failed", "warnings"].includes(
-      scenario,
-    )
+    const servers = [
+      "single",
+      "multiple",
+      "connecting",
+      "connect-failed",
+      "warnings",
+      "saved-preview-server",
+    ].includes(scenario)
       ? [{ url: "http://127.0.0.1:5173/", command: "node vite", pid: 1200 }]
       : []
     if (scenario === "multiple")
       servers.push({ url: "http://127.0.0.1:4173/", command: "node vite preview", pid: 1201 })
     return Response.json({
       servers,
-      warnings:
-        scenario === "warnings"
+      warnings: scenario.startsWith("saved-preview-")
+        ? [
+            "Could not verify that the saved preview belongs to this checkout. Choose a server or start one here.",
+          ]
+        : scenario === "warnings"
           ? ["http://127.0.0.1:4173/ did not return an HTML page (HTTP 503)."]
           : [],
       development: {
@@ -33,6 +41,7 @@ export function fixtureResponse(
           "start-failed",
           "single",
           "multiple",
+          "saved-preview-start",
         ].includes(scenario)
           ? [
               {

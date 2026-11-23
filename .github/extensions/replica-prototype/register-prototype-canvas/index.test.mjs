@@ -2365,6 +2365,12 @@ esac
           assert.equal(typeof status.message, "string")
           assert.notEqual(status.message.trim(), "")
           assert.equal(checked, false)
+          const reopened = await canvas.open({
+            ...ctx,
+            input: { improvementThreadsSample: false },
+          })
+          assert.equal(reopened.status, "Ready to connect")
+          assert.equal(checked, false)
           assert.equal(
             (await prototypeConnection(context.sessionWorkspacePath, context.repositoryPath).read())
               .prototypeUrl,
@@ -2385,6 +2391,7 @@ esac
       })
       const checkedUrls = []
       let discovered = false
+      let serverAvailable = false
       const canvas = await register(
         context,
         [],
@@ -2398,14 +2405,16 @@ esac
           discovered = true
           assert.equal(repositoryPath, context.repositoryPath)
           return {
-            servers: [
-              {
-                url: "http://127.0.0.1:5173/",
-                pid: 123,
-                command: "node",
-                directory: context.repositoryPath,
-              },
-            ],
+            servers: serverAvailable
+              ? [
+                  {
+                    url: "http://127.0.0.1:5173/",
+                    pid: 123,
+                    command: "node",
+                    directory: context.repositoryPath,
+                  },
+                ]
+              : [],
             warnings: [],
           }
         },
@@ -2416,7 +2425,14 @@ esac
         session: { workingDirectory: context.repositoryPath },
       }
       try {
-        const opened = await canvas.open(ctx)
+        const missing = await canvas.open(ctx)
+        assert.equal(missing.status, "Ready to connect")
+        assert.deepEqual(checkedUrls, [])
+        serverAvailable = true
+        const opened = await canvas.open({
+          ...ctx,
+          input: { improvementThreadsSample: false },
+        })
         assert.equal(opened.status, "Prototype connected")
         assert.equal(discovered, true)
         assert.deepEqual(checkedUrls, [prototypeUrl])

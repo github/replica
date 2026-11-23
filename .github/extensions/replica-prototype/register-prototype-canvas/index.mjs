@@ -967,7 +967,8 @@ export async function registerPrototypeCanvas(
             contextOptions.repositoryPath,
           )
           let input = suppliedInput
-          const restoringConnection = !suppliedInput.prototypeUrl && !existing
+          const restoringConnection =
+            !suppliedInput.prototypeUrl && (!existing || existing.kind === "missing")
           if (!suppliedInput.prototypeUrl) {
             try {
               input = {
