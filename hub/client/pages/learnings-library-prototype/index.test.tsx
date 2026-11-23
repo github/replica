@@ -329,9 +329,7 @@ describe("LearningsLibraryPrototype()", () => {
     expect(dateButtons.filter((button) => button.tabIndex === 0)).toHaveLength(1)
     expect(dateButtons.filter((button) => button.tabIndex === -1)).toHaveLength(323)
 
-    fireEvent.change(screen.getByLabelText("Choose a day"), {
-      target: { value: "2026-11-18" },
-    })
+    fireEvent.click(wednesday)
     expect(wednesday).toHaveAttribute("aria-pressed", "true")
     fireEvent.keyDown(wednesday, { key: "ArrowDown" })
     const novemberNineteen = within(calendar).getByRole("button", {

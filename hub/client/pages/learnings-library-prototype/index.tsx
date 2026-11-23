@@ -345,19 +345,6 @@ function ActivityGrid({ activity, today }: { activity: LearningActivityDay[]; to
         </div>
 
         <div className="learning-library__activity-footer">
-          <div className="learning-library__date-picker">
-            <label htmlFor="learning-activity-date">Choose a day</label>
-            <TextInput
-              id="learning-activity-date"
-              max={today}
-              min={`${today.slice(0, 4)}-01-01`}
-              onChange={(event) => {
-                if (event.target.value) setSelectedDate(event.target.value)
-              }}
-              type="date"
-              value={selectedDate}
-            />
-          </div>
           <div className="learning-library__legend" aria-hidden="true">
             <span>Less</span>
             {[0, 1, 2, 3, 4].map((level) => (
