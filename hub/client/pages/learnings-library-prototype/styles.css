@@ -1,0 +1,751 @@
+.learning-library-page {
+  min-height: 100%;
+}
+
+.learning-library {
+  display: grid;
+  gap: 1.5rem;
+  max-width: 88rem;
+  margin-inline: auto;
+  padding: clamp(1rem, 3vw, 1.5rem);
+}
+
+.learning-library h2,
+.learning-library h3,
+.learning-library p {
+  margin: 0;
+}
+
+.learning-library__page-header,
+.learning-library__detail-header,
+.learning-library__section-heading,
+.learning-library__activity-footer,
+.learning-library__toolbar,
+.learning-library__collection-heading,
+.learning-library__decision,
+.learning-library__actions,
+.learning-library__run-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.learning-library__detail-header {
+  align-items: flex-start;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--hub-border-default);
+}
+
+.learning-library__detail-header > div,
+.learning-library__section-heading > div {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.learning-library__description {
+  color: var(--hub-fg-muted);
+}
+
+.learning-library__topic {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--hub-border-default);
+  border-radius: 999px;
+  color: var(--hub-fg-muted);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.learning-library__activity,
+.learning-library__collection {
+  border: 1px solid var(--hub-border-default);
+  border-radius: var(--hub-radius-medium);
+  background: var(--hub-canvas-default);
+}
+
+/* Grid areas keep the measure list beside the graph on wide screens and above it on
+   narrow ones, without changing keyboard order. The graph takes two rows so the
+   calendar and its legend each get one, letting the list center on the calendar.
+   The run summary spans both columns so no empty space sits beside it.
+   The month label sizes live here because the measure list also needs them. */
+.learning-library__activity {
+  --calendar-month-height: 1rem;
+  --calendar-gap: 0.125rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "heading ."
+    "graph measures"
+    "graph ."
+    "summary summary";
+  align-items: start;
+  gap: 1rem 2rem;
+  padding: 1.25rem;
+}
+
+.learning-library__activity-heading {
+  display: grid;
+  grid-area: heading;
+  gap: 0.375rem;
+}
+
+/* Shrinks to the graph's width so the legend sits under its right edge, as on GitHub. */
+.learning-library__graph {
+  display: grid;
+  grid-area: graph;
+  grid-template-rows: subgrid;
+  gap: 0.75rem;
+  justify-self: start;
+  max-width: 100%;
+}
+
+.learning-library__activity > .learning-library__run-summary {
+  grid-area: summary;
+}
+
+.learning-library__section-heading > div > p {
+  color: var(--hub-fg-muted);
+}
+
+/* A vertical list beside the graph, like the year picker on GitHub profiles. It moves
+   down half the month label row so it centers on the squares, not on the labels. */
+.learning-library__metric-switch {
+  display: grid;
+  grid-area: measures;
+  align-self: center;
+  gap: 0.25rem;
+  min-width: 11rem;
+  translate: 0 calc((var(--calendar-month-height) + var(--calendar-gap)) / 2);
+}
+
+.learning-library__metric-button,
+.learning-library__filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2rem;
+  padding: 0.375rem 0.75rem;
+  border: 0;
+  border-radius: var(--hub-radius-medium);
+  background: transparent;
+  color: var(--hub-fg-muted);
+  cursor: pointer;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.learning-library__metric-button {
+  justify-content: flex-start;
+  text-align: start;
+}
+
+.learning-library__metric-button:hover,
+.learning-library__filter:hover {
+  background: var(--hub-canvas-subtle);
+  color: var(--hub-fg-default);
+}
+
+.learning-library__metric-button[aria-pressed="true"] {
+  background: var(--hub-primary-bg);
+  color: var(--hub-primary-fg);
+}
+
+.learning-library__filter {
+  justify-content: center;
+}
+
+/* Matches the selected item in the left sidebar, so "you are here" looks the same
+   everywhere in Hub. */
+.learning-library__filter[aria-pressed="true"] {
+  background: var(--hub-border-muted);
+  color: var(--hub-fg-default);
+  font-weight: 600;
+}
+
+.learning-library__metric-button:focus-visible,
+.learning-library__filter:focus-visible,
+.learning-library__day:focus-visible,
+.learning-library__back:focus-visible,
+.learning-library__learning-link:focus-visible {
+  outline: 2px solid var(--hub-focus);
+  outline-offset: 2px;
+}
+
+/* The padding gives the selected day's outline room; a scroll box would clip it. */
+.learning-library__calendar-scroll {
+  overflow-x: auto;
+  padding: 0.25rem;
+}
+
+/* One grid holds the labels, months and squares so rows stay aligned as squares grow.
+   Squares widen to fill the space, then stop at the cap. They never shrink below the
+   minimum, so a narrow screen scrolls sideways instead of squeezing the weeks. */
+.learning-library__calendar {
+  --cell-min: 0.625rem;
+  --cell-max: 0.875rem;
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-columns: auto repeat(var(--weeks), minmax(var(--cell-min), var(--cell-max)));
+  grid-template-rows: var(--calendar-month-height) repeat(7, auto);
+  gap: var(--calendar-gap);
+  justify-content: start;
+  min-width: min-content;
+}
+
+/* These wrappers only group markup; their children take part in the calendar grid. */
+.learning-library__weekday-labels,
+.learning-library__week {
+  display: contents;
+}
+
+/* A tight line height keeps labeled rows no taller than the squares beside them. */
+.learning-library__weekday-labels > span {
+  align-self: center;
+  padding-inline-end: 0.25rem;
+  color: var(--hub-fg-muted);
+  font-size: 0.625rem;
+  line-height: 1;
+}
+
+.learning-library__month {
+  color: var(--hub-fg-muted);
+  font-size: 0.625rem;
+  line-height: var(--calendar-month-height);
+  white-space: nowrap;
+}
+
+.learning-library__day,
+.learning-library__day-empty,
+.learning-library__day-upcoming {
+  box-sizing: border-box;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 0.125rem;
+}
+
+.learning-library__legend-cell {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 0.125rem;
+}
+
+.learning-library__day {
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--hub-border-default) 65%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--hub-success-emphasis) calc(var(--activity-level, 0) * 100%),
+    var(--hub-canvas-subtle)
+  );
+  cursor: pointer;
+}
+
+/* Days still ahead stay faint so they never read as days without a run. */
+.learning-library__day-upcoming {
+  border: 1px solid color-mix(in srgb, var(--hub-border-default) 35%, transparent);
+}
+
+.learning-library__day--failed {
+  box-shadow: inset 0 0 0 1px var(--hub-fg-danger);
+}
+
+/* Squares sit 2px apart, so a flush ring stays clear of the neighboring days. */
+.learning-library__day:focus-visible,
+.learning-library__day[aria-pressed="true"] {
+  outline-offset: 0;
+}
+
+.learning-library__day[aria-pressed="true"] {
+  outline: 2px solid var(--hub-accent);
+}
+
+.learning-library__activity-footer {
+  justify-content: flex-end;
+  color: var(--hub-fg-muted);
+}
+
+.learning-library__legend {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.6875rem;
+}
+
+.learning-library__legend-cell {
+  display: inline-block;
+  border: 1px solid var(--hub-border-default);
+  background: color-mix(
+    in srgb,
+    var(--hub-success-emphasis) calc(var(--activity-level, 0) * 100%),
+    var(--hub-canvas-subtle)
+  );
+}
+
+.learning-library__legend-cell.learning-library__day--level-1 {
+  --activity-level: 0.25;
+}
+
+.learning-library__legend-cell.learning-library__day--level-2 {
+  --activity-level: 0.5;
+}
+
+.learning-library__legend-cell.learning-library__day--level-3 {
+  --activity-level: 0.75;
+}
+
+.learning-library__legend-cell.learning-library__day--level-4 {
+  --activity-level: 1;
+}
+
+/* A divider instead of a card keeps the day's details tied to the calendar above. */
+.learning-library__run-summary {
+  padding-top: 1rem;
+  border-top: 1px solid var(--hub-border-muted);
+}
+
+.learning-library__run-summary > div:first-child {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.learning-library__run-summary > div:first-child > p {
+  color: var(--hub-fg-muted);
+}
+
+.learning-library__run-metrics,
+.learning-library__metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  margin: 0;
+}
+
+.learning-library__run-metrics > div,
+.learning-library__metadata > div {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.learning-library__run-metrics dt,
+.learning-library__metadata dt {
+  color: var(--hub-fg-muted);
+  font-size: 0.75rem;
+}
+
+.learning-library__run-metrics dd,
+.learning-library__metadata dd {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+/* Keeps the day's counts on one row. Columns size to their labels, so long labels
+   wrap before a count drops to a new line. */
+.learning-library__run-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  justify-content: start;
+  gap: 2rem;
+}
+
+/* Big counts sit above their labels so the totals are what people notice first.
+   The markup still puts each label first, so screen readers hear it in that order. */
+.learning-library__run-metrics > div {
+  align-content: start;
+}
+
+.learning-library__run-metrics dd {
+  grid-row: 1;
+  font-size: var(--brand-text-size-500);
+  line-height: 1;
+}
+
+.learning-library__collection {
+  overflow: hidden;
+}
+
+.learning-library__collection-heading {
+  align-items: flex-start;
+  padding: 1rem 1.25rem;
+}
+
+.learning-library__collection-heading > p {
+  max-width: 35rem;
+  color: var(--hub-fg-muted);
+  text-align: end;
+}
+
+.learning-library__toolbar {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--hub-border-default);
+}
+
+.learning-library__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.125rem;
+}
+
+.learning-library__search {
+  width: min(100%, 20rem);
+}
+
+/* Keep the empty live region available without reserving a blank grid row. */
+.learning-library__visually-hidden,
+.learning-library__announcement:empty {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.learning-library__table-wrap {
+  overflow-x: auto;
+}
+
+.learning-library__table {
+  width: 100%;
+  min-width: 46rem;
+  border-collapse: collapse;
+  text-align: start;
+}
+
+.learning-library__table th,
+.learning-library__table td {
+  padding: 0.875rem 1rem;
+  border-bottom: 1px solid var(--hub-border-muted);
+  text-align: start;
+  vertical-align: top;
+}
+
+.learning-library__table th {
+  color: var(--hub-fg-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.learning-library__table tr:last-child td {
+  border-bottom: 0;
+}
+
+.learning-library__table td {
+  color: var(--hub-fg-muted);
+  font-size: 0.8125rem;
+}
+
+.learning-library__table td:first-child {
+  width: 48%;
+}
+
+.learning-library__table td:first-child p {
+  margin-top: 0.375rem;
+  color: var(--hub-fg-muted);
+  line-height: 1.45;
+}
+
+.learning-library__learning-cell {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+}
+
+.learning-library__state-icon {
+  flex: none;
+  margin-top: 0.125rem;
+}
+
+.learning-library__state-icon--suggested {
+  color: var(--hub-fg-muted);
+}
+
+.learning-library__state-icon--active {
+  color: var(--hub-fg-success);
+}
+
+.learning-library__state-icon--rejected {
+  color: var(--hub-fg-danger);
+}
+
+.learning-library__learning-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--hub-fg-default);
+  cursor: pointer;
+  font-weight: 600;
+  text-align: start;
+}
+
+.learning-library__learning-link:hover {
+  color: var(--hub-fg-link);
+}
+
+.learning-library__learning-link:hover,
+.learning-library__review-link:hover,
+.learning-library__evidence-meta a:hover {
+  text-decoration: underline;
+}
+
+.learning-library__empty {
+  display: grid;
+  justify-items: center;
+  gap: 0.5rem;
+  padding: 3rem 1rem;
+  text-align: center;
+}
+
+.learning-library__empty p {
+  color: var(--hub-fg-muted);
+}
+
+.learning-library__back {
+  justify-self: start;
+  padding: 0.25rem 0;
+  border: 0;
+  background: none;
+  color: var(--hub-fg-link);
+  cursor: pointer;
+}
+
+.learning-library__detail {
+  display: grid;
+  gap: 1.25rem;
+  max-width: 64rem;
+  width: 100%;
+  margin-inline: auto;
+}
+
+.learning-library__detail-header {
+  padding-bottom: 1.5rem;
+}
+
+.learning-library__detail-header > div {
+  min-width: 0;
+}
+
+.learning-library__detail-header h2 {
+  overflow-wrap: anywhere;
+}
+
+/* A long title would otherwise squeeze the button until its label wraps. */
+.learning-library__edit-button {
+  flex: none;
+}
+
+.learning-library__eyebrow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  color: var(--hub-fg-muted);
+  font-size: 0.8125rem;
+}
+
+.learning-library__guidance {
+  max-width: 52rem;
+  font-size: 1.125rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+/* The header above already draws a divider, so only close the bottom. */
+.learning-library__metadata {
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--hub-border-default);
+}
+
+.learning-library__rejection,
+.learning-library__decision,
+.learning-library__edit-form {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--hub-border-default);
+  border-radius: var(--hub-radius-medium);
+  background: var(--hub-canvas-subtle);
+}
+
+.learning-library__rejection p,
+.learning-library__decision > p {
+  color: var(--hub-fg-muted);
+}
+
+.learning-library__rejection {
+  border-color: color-mix(in srgb, var(--hub-fg-danger) 40%, transparent);
+  background: var(--hub-danger-subtle);
+}
+
+.learning-library__rejection strong {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--hub-fg-danger);
+}
+
+.learning-library__rejection p {
+  color: var(--hub-fg-default);
+}
+
+.learning-library__decision {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+
+.learning-library__decision--reject {
+  grid-template-columns: 1fr;
+}
+
+.learning-library__actions {
+  justify-content: flex-start;
+}
+
+.learning-library__edit-form {
+  padding: 1.25rem;
+}
+
+/* Each comment is its own card, so the section around them stays unboxed. */
+.learning-library__evidence {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.learning-library__evidence > .learning-library__section-heading {
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--hub-border-default);
+}
+
+.learning-library__evidence-group {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.learning-library__evidence-group h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.learning-library__evidence-count {
+  color: var(--hub-fg-muted);
+  font-size: 0.8125rem;
+}
+
+.learning-library__evidence-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.learning-library__evidence-item {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.875rem;
+  border: 1px solid var(--hub-border-default);
+  border-radius: var(--hub-radius-medium);
+  background: var(--hub-canvas-default);
+  overflow-wrap: anywhere;
+}
+
+.learning-library__evidence-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  color: var(--hub-fg-muted);
+  font-size: 0.8125rem;
+}
+
+.learning-library__evidence-meta a,
+.learning-library__review-link {
+  color: var(--hub-fg-link);
+}
+
+.learning-library__evidence-meta time {
+  color: var(--hub-fg-muted);
+}
+
+.learning-library__avatar {
+  display: inline-grid;
+  width: 1.25rem;
+  height: 1.25rem;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--hub-accent-subtle);
+  color: var(--hub-fg-default);
+  font-size: 0.6875rem;
+}
+
+.learning-library__evidence-item p {
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.learning-library__review-link {
+  justify-self: start;
+  font-size: 0.8125rem;
+}
+
+@container (max-width: 48rem) {
+  .learning-library__detail-header {
+    flex-wrap: wrap;
+  }
+
+  .learning-library__section-heading,
+  .learning-library__run-summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .learning-library__collection-heading,
+  .learning-library__toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .learning-library__collection-heading > p {
+    text-align: start;
+  }
+
+  .learning-library__run-metrics {
+    gap: 1rem;
+    align-self: stretch;
+  }
+
+  .learning-library__activity {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "heading"
+      "measures"
+      "graph"
+      "graph"
+      "summary";
+  }
+
+  .learning-library__metric-switch {
+    display: flex;
+    flex-wrap: wrap;
+    min-width: 0;
+    translate: none;
+  }
+
+  .learning-library__metric-button {
+    flex: 1;
+    justify-content: center;
+    white-space: normal;
+  }
+
+  .learning-library__search {
+    width: 100%;
+  }
+
+  .learning-library__decision {
+    grid-template-columns: 1fr;
+  }
+}
