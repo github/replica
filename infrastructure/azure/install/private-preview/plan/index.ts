@@ -14,7 +14,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-export function validatePrivatePreviewPlan(plan: unknown): void {
+export function validatePrivatePreviewPlan(plan: unknown, tracked?: ReadonlySet<string>): void {
   const reject = () => {
     throw new Error(
       "Private preview plan blocked: only new disabled reader resources may be created. No changes were applied.",
@@ -34,9 +34,11 @@ export function validatePrivatePreviewPlan(plan: unknown): void {
       resource.change.importing !== undefined ||
       !Array.isArray(resource.change.actions) ||
       resource.change.actions.length !== 1 ||
-      !["create", "no-op"].includes(resource.change.actions[0])
+      !["create", "no-op"].includes(resource.change.actions[0]) ||
+      (tracked && resource.change.actions[0] !== (tracked.has(resource.address) ? "no-op" : "create"))
     )
       return reject()
     seen.add(resource.address)
   }
+  if (tracked && seen.size !== previewResources.size) reject()
 }

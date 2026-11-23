@@ -195,8 +195,6 @@ resource "azurerm_container_app" "reader" {
 
   lifecycle {
     prevent_destroy = true
-    # Keep the original disabled revision when Hub publishes a new image.
-    ignore_changes = [template[0].container[0].image]
   }
 
   depends_on = [azurerm_role_assignment.image_pull]
