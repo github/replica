@@ -144,17 +144,18 @@ export function PrototypeScreen({
   const { notificationId, messageId, commentId } = query
   const thread = review.selectedThread
   const route = thread?.root.anchor.route ?? review.bridge.route
-  if (pageData.privatePreviewUrl) {
-    pageData.privateReviewLink = privateReviewLink({
-      baseUrl: routeUrl,
-      buildNumber:
-        thread?.root.buildNumber ?? (pageData.buildPinned ? data.selectedBuild?.number : undefined),
-      route: route
-        ? `${route.pathname}${route.search}${route.hash}`
-        : (requestedRoute ?? pageData.startPage ?? undefined),
-      threadId: thread?.root.id,
-    })
-  }
+  const reviewLink = pageData.privatePreviewUrl
+    ? privateReviewLink({
+        baseUrl: routeUrl,
+        buildNumber:
+          thread?.root.buildNumber ??
+          (pageData.buildPinned ? data.selectedBuild?.number : undefined),
+        route: route
+          ? `${route.pathname}${route.search}${route.hash}`
+          : (requestedRoute ?? pageData.startPage ?? undefined),
+        threadId: thread?.root.id,
+      })
+    : undefined
   const channel =
     !mock &&
     !pageData.reviewReadOnly &&
@@ -218,6 +219,7 @@ export function PrototypeScreen({
       key={`${data.repository.id}:${data.prototype.id}`}
       data={{
         ...pageData,
+        privateReviewLink: reviewLink,
         initialNotificationId: notificationId ?? undefined,
         initialCommentId: messageId ?? undefined,
         notificationErrorLabel: notificationError,
