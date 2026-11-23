@@ -3,6 +3,7 @@ import { mkdir, readFile, rm } from "node:fs/promises"
 import { resolve } from "node:path"
 import { afterEach, expect, it, vi } from "vitest"
 
+import { CommandExecutionError } from "../../../installer/command/index.ts"
 import type { DeploymentConfig, InstallerUI, RunCommand } from "../../../installer/types.ts"
 import { installationWorkspace } from "../../../installer/workspace/index.ts"
 import { leaseOwnership } from "../lease/ownership/index.ts"
@@ -18,6 +19,14 @@ const storage = "azurerm_storage_container.reader"
 const imagePull = "azurerm_role_assignment.image_pull"
 const artifactsRead = "azurerm_role_assignment.reader_artifacts"
 const addresses = [group, environment, identity, app, storage, imagePull, artifactsRead]
+const acrPullFailure = new CommandExecutionError(
+  "Terraform apply failed.",
+  false,
+  1,
+  "Error: creating Container App: InvalidParameterValueInContainerTemplate: " +
+    "unable to pull image using Managed identity: UNAUTHORIZED: authentication required\n" +
+    "  with azurerm_container_app.reader,",
+)
 
 function azureCommand(args: string[]) {
   const firstFlag = args.findIndex((arg) => arg.startsWith("--"))
@@ -42,6 +51,11 @@ async function fixture({
   finalReadiness,
   postApplyDrift,
   planAction,
+  blobPage = "empty",
+  publicAccess = null,
+  attachedEnvironment = false,
+  roleFinding,
+  failFirstApply = false,
 }: {
   existing: string[]
   tracked?: string[]
@@ -54,6 +68,11 @@ async function fixture({
   finalReadiness?: "pending" | "missing" | "failed"
   postApplyDrift?: "state ID" | "active digest" | "ingress"
   planAction?: { address: string; action: "create" | "no-op" }
+  blobPage?: "empty" | "historical" | "next page" | "missing marker" | "malformed marker"
+  publicAccess?: "Blob" | null
+  attachedEnvironment?: boolean
+  roleFinding?: "overlap" | "inherited" | "duplicate" | "malformed"
+  failFirstApply?: boolean
 }) {
   const directory = resolve(`.installer-preview-test-${randomUUID()}`)
   directories.push(directory)
@@ -122,12 +141,15 @@ async function fixture({
   let plannedImage: string | undefined
   const ui = {
     status: vi.fn(),
+    recoveryNotice: vi.fn(),
     phase: vi.fn<NonNullable<InstallerUI["phase"]>>(),
-    confirm: vi.fn(async () => {
+    confirm: vi.fn<InstallerUI["confirm"]>(async () => {
       if (hubChangesDuring === "approval") moveHub()
       return true
     }),
-    select: vi.fn(async () => { throw new Error("Preview staging attempted lock recovery") }),
+    select: vi.fn<NonNullable<InstallerUI["select"]>>(async () => {
+      throw new Error("Preview staging attempted lock recovery")
+    }),
     wait: async (message) => { throw new Error(message) },
   } satisfies InstallerUI
 
@@ -179,6 +201,12 @@ async function fixture({
           applied.push(args.at(-1)!)
           expect([...held.keys()].sort()).toEqual([installerLease, releaseLease].sort())
           expect(plannedImage).toBe(state?.includes(app) ? originalReaderImage : hubImage)
+          if (failFirstApply && applied.length === 1) {
+            // A failed app creation can leave earlier creates recorded in both Azure and state.
+            state = addresses.filter((address) => address !== app)
+            for (const address of state) live.add(address)
+            throw acrPullFailure
+          }
           for (const address of addresses) live.add(address)
           state = [...addresses]
           savedReaderImage = plannedImage!
@@ -236,33 +264,61 @@ async function fixture({
             ...(live.has(app) ? [{ id: appId }] : []),
           ])
         case "storage container-rm list":
-          return JSON.stringify(live.has(storage) ? [{ id: containerId, publicAccess: null }] : [])
-        case "storage blob list":
-          return JSON.stringify(flag("--account-name") === names.stateAccount && state ? [{
-            name: "test-hub/private-preview.tfstate",
-            lease: { status: "unlocked", state: "available", duration: null },
-          }] : [])
+          return JSON.stringify(live.has(storage) ? [{ id: containerId, publicAccess }] : [])
+        case "storage blob list": {
+          if (flag("--account-name") === names.stateAccount) {
+            return JSON.stringify(state ? [{
+              name: "test-hub/private-preview.tfstate",
+              lease: { status: "unlocked", state: "available", duration: null },
+            }] : [])
+          }
+          const blobs =
+            blobPage === "historical" && flag("--include") === "dsv"
+              ? [{ name: "deleted-preview.json", deleted: true, versionId: "retained-version" }]
+              : []
+          if (flag("--query") === "[].name") return JSON.stringify(blobs.map(({ name }) => name))
+          if (!args.includes("--show-next-marker") || blobPage === "missing marker")
+            return JSON.stringify(blobs)
+          return JSON.stringify([...blobs, {
+            nextMarker: blobPage === "next page" ? "more-blob-entries"
+              : blobPage === "malformed marker" ? false : null,
+          }])
+        }
         case "containerapp job list": return "[]"
         case "containerapp list": return JSON.stringify(["test-hub-hub"])
         case "containerapp replica list": return JSON.stringify(["test-hub-replica"])
-        case "containerapp env show": return JSON.stringify({ tags, subnetId: null })
+        case "containerapp env show": return JSON.stringify({
+          tags,
+          subnetId: attachedEnvironment
+            ? `${hubProvider}/Microsoft.Network/virtualNetworks/hub/subnets/apps` : null,
+        })
         case "identity show":
           return JSON.stringify({ tags, principalId })
-        case "role assignment list":
+        case "role assignment list": {
+          const pull = {
+            id: recreatedPullGrant || (applied.length > 0 && postApplyDrift === "state ID")
+              ? newPullGrantId : pullGrantId,
+            scope: registryId,
+            roleDefinitionName: "AcrPull",
+            principalId,
+          }
+          if (args.includes("--include-inherited") && flag("--scope") === subscription) {
+            return JSON.stringify(roleFinding === "inherited" ? [{
+              id: "/providers/Microsoft.Management/managementGroups/parent/providers/Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000007",
+              scope: "/providers/Microsoft.Management/managementGroups/parent",
+              roleDefinitionName: "Storage Blob Data Reader",
+              principalId,
+            }] : roleFinding === "overlap" && live.has(imagePull) ? [pull] : [])
+          }
           return JSON.stringify([
-            ...(live.has(imagePull)
-              ? [{
-                  id: recreatedPullGrant || (applied.length > 0 && postApplyDrift === "state ID")
-                    ? newPullGrantId : pullGrantId,
-                  scope: registryId,
-                  roleDefinitionName: "AcrPull",
-                  principalId,
-                }]
-              : []),
+            ...(live.has(imagePull) ? [pull] : []),
             ...(live.has(artifactsRead)
               ? [{ id: readGrantId, scope: containerId, roleDefinitionName: "Storage Blob Data Reader", principalId }]
               : []),
+            ...(roleFinding === "duplicate" ? [{ ...pull, id: newPullGrantId }] : []),
+            ...(roleFinding === "malformed" ? [{ ...pull, id: null }] : []),
           ])
+        }
         case "containerapp show":
           return JSON.stringify(flag("--name") === "test-hub-hub" ? {
             id: `${hubProvider}/Microsoft.App/containerApps/test-hub-hub`,
@@ -324,7 +380,19 @@ async function fixture({
     ui,
     heldLeases: () => [...held.keys()],
     installerLease,
+    subscription,
+    principalId,
   }
+}
+
+function expectNoBlobOrGrantWrites(run: Awaited<ReturnType<typeof fixture>>["run"]) {
+  const writes = run.mock.calls.filter(([executable, [service, resource, action]]) => {
+    if (executable !== "az") return false
+    if (service === "role" && resource === "assignment") return action !== "list"
+    return service === "storage" && ["blob", "container", "container-rm"].includes(resource) &&
+      !["list", "show", "exists", "lease"].includes(action)
+  })
+  expect(writes).toEqual([])
 }
 
 it.each([
@@ -362,6 +430,70 @@ it("keeps the original disabled reader image after Hub publishes a new image", a
   const test = await fixture({ existing: tracked, tracked, olderReaderImage: true })
 
   await expect(test.stage()).resolves.toBe("staged")
+})
+
+it("proves empty storage and checks both grant scopes without counting a repeated assignment twice", async () => {
+  const test = await fixture({ existing: addresses, tracked: addresses, roleFinding: "overlap" })
+
+  await expect(test.stage()).resolves.toBe("staged")
+
+  expect(test.run).toHaveBeenCalledWith("az", expect.arrayContaining([
+    "storage", "blob", "list", "--container-name", "private-preview-artifacts",
+    "--auth-mode", "login", "--include", "dsv", "--num-results", "1", "--show-next-marker",
+  ]), expect.anything())
+  const blobReads = test.run.mock.calls.filter(([executable, args]) =>
+    executable === "az" && azureCommand(args) === "storage blob list" &&
+    args.includes("private-preview-artifacts"),
+  )
+  expect(blobReads.every(([, args]) => !args.includes("--query"))).toBe(true)
+  expect(test.run).toHaveBeenCalledWith("az", expect.arrayContaining([
+    "role", "assignment", "list", "--assignee-object-id", test.principalId, "--all", "--include-groups",
+  ]), expect.anything())
+  expect(test.run).toHaveBeenCalledWith("az", expect.arrayContaining([
+    "role", "assignment", "list", "--assignee-object-id", test.principalId,
+    "--scope", test.subscription, "--include-inherited", "--include-groups",
+  ]), expect.anything())
+})
+
+it.each(["historical", "next page", "missing marker", "malformed marker"] as const)(
+  "blocks staging when the dedicated container returns a %s listing",
+  async (blobPage) => {
+    const test = await fixture({ existing: addresses, tracked: addresses, blobPage })
+
+    await expect(test.stage()).rejects.toThrow(/container.*empty/i)
+
+    expect(test.applied).toEqual([])
+    expectNoBlobOrGrantWrites(test.run)
+    expect(test.heldLeases()).toEqual([])
+  },
+)
+
+it("retains the installer lease when post-apply checks discover historical blobs", async () => {
+  const test = await fixture({ existing: [], blobPage: "historical" })
+
+  await expect(test.stage()).rejects.toThrow(/container.*empty/i)
+
+  expect(test.applied).toHaveLength(1)
+  expectNoBlobOrGrantWrites(test.run)
+  expect(test.heldLeases()).toEqual([test.installerLease])
+})
+
+it.each([
+  { options: { publicAccess: "Blob" }, error: /container.*private/i, finding: "public container" },
+  { options: { attachedEnvironment: true }, error: /environment.*network/i, finding: "attached environment" },
+  { options: { roleFinding: "inherited" }, error: /identity.*grant/i, finding: "parent-scope grant" },
+  { options: { roleFinding: "duplicate" }, error: /duplicate grant/i, finding: "distinct duplicate grant" },
+  { options: { roleFinding: "malformed" }, error: /grant|role assignment|access/i, finding: "malformed grant" },
+] as const)("blocks staging with a $finding even when the expected resource IDs match", async ({
+  options, error,
+}) => {
+  const test = await fixture({ existing: addresses, tracked: addresses, ...options })
+
+  await expect(test.stage()).rejects.toThrow(error)
+
+  expect(test.applied).toEqual([])
+  expectNoBlobOrGrantWrites(test.run)
+  expect(test.heldLeases()).toEqual([])
 })
 
 it("does not adopt or recreate an existing preview group when the saved state is absent", async () => {
@@ -465,10 +597,39 @@ it.each([
 }) => {
   const test = await fixture({ existing: [], finalReadiness: "pending", postApplyDrift })
 
-  await expect(test.stage()).rejects.toThrow(error)
+  const failure = test.stage()
+  await expect(failure).rejects.toThrow(error)
+  if (postApplyDrift === "state ID")
+    await expect(failure).rejects.not.toThrow(/(?:plan|changes) (?:was|were) not applied/i)
 
   expect(test.applied).toHaveLength(1)
   expect(test.heldLeases()).toEqual([test.installerLease])
+})
+
+it("retains partial changes after an ACR pull denial and stages only on explicit Resume", async () => {
+  const test = await fixture({ existing: [], failFirstApply: true })
+  test.ui.select.mockResolvedValueOnce("exit")
+
+  const failure = await test.stage().catch((error: unknown) => error)
+
+  expect(failure).toBeInstanceOf(Error)
+  const messages = [
+    (failure as Error).message,
+    ...test.ui.status.mock.calls.flat(),
+    ...test.ui.recoveryNotice.mock.calls.flat(),
+  ].join("\n")
+  expect(messages).toMatch(/Resume/i)
+  expect(test.applied).toHaveLength(1)
+  expect(test.heldLeases()).toEqual([test.installerLease])
+  const preparationPrompts = () => test.ui.confirm.mock.calls
+    .filter(([message]) => /prepare a disabled private preview reader/i.test(message))
+  expect(preparationPrompts()).toHaveLength(1)
+
+  await expect(test.stage()).resolves.toBe("staged")
+
+  expect(preparationPrompts()).toHaveLength(2)
+  expect(test.applied).toHaveLength(2)
+  expect(test.heldLeases()).toEqual([])
 })
 
 it.each(["missing", "failed"] as const)(

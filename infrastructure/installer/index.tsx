@@ -46,6 +46,7 @@ if (values.help) {
   let failure: unknown
   let interrupted = false
   let message: string | undefined
+  let deployedHubSummary: string | undefined
   const interrupt = () => abort.abort()
   process.once("SIGINT", interrupt)
   process.once("SIGTERM", interrupt)
@@ -150,6 +151,7 @@ if (values.help) {
             session,
             entryAction: entry.action,
             signal: abort.signal,
+            onHubDeployed: (summary) => { deployedHubSummary = summary },
           })
         }
       }
@@ -192,6 +194,7 @@ if (values.help) {
     }
   }
   if (failure) {
+    if (deployedHubSummary) console.log(deployedHubSummary)
     const failureMessage =
       failure instanceof SyntaxError
         ? "Setup received invalid JSON data. Review the failed operation locally before retrying; data was not printed."

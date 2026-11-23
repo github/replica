@@ -145,13 +145,20 @@ export async function startInstallerTelemetry(configurationPath: string) {
   function observe(ui: WizardUI): WizardUI
   function observe(ui: InstallerUI): InstallerUI
   function observe(ui: InstallerUI & Partial<WizardUI>): InstallerUI & Partial<WizardUI> {
-    const { cloud, text, field, select } = ui
+    const { cloud, text, field, select, preview } = ui
     return {
       ...ui,
       async phase(name) {
         await ui.phase?.(name)
         setPhase(name)
       },
+      ...(preview && {
+        preview(progress: Parameters<typeof preview>[0]) {
+          preview(progress)
+          if (progress === "review" || progress === "provision" || progress === "verify")
+            setPhase(progress)
+        },
+      }),
       confirm: (message) => step("installer.prompt.confirm", () => ui.confirm(message)),
       wait: (message) => step("installer.prompt.wait", () => ui.wait(message)),
       ...(cloud && { cloud: () => step("installer.prompt.cloud", () => cloud.call(ui)) }),

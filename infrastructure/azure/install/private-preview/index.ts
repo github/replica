@@ -180,7 +180,9 @@ async function prepareReader(context: AzureInstallation): Promise<"declined" | "
   )
   if (approved === false) return "declined"
   if (approved !== true) block("Private preview preparation did not receive an approval decision.")
+  signal?.throwIfAborted()
   await ui.phase?.("provision")
+  signal?.throwIfAborted()
   const lock = await acquireLease(
     context, names.stateAccount, "terraform", `${config.name}/installer.lock`, false,
     { operation: "private-preview" },
@@ -238,11 +240,14 @@ async function prepareReader(context: AzureInstallation): Promise<"declined" | "
       const container = containers.find((item) => sameId(item.id, containerId))
       if (container) {
         entries.set("azurerm_storage_container.reader", containerId)
-        const blobs = await read<unknown[]>(
+        const page = await read<unknown>(
           "storage", "blob", "list", "--account-name", storageName, "--container-name", previewContainer,
-          "--auth-mode", "login", "--num-results", "1", "--query", "[].name",
+          "--auth-mode", "login", "--include", "dsv", "--num-results", "1", "--show-next-marker",
         )
-        if (!Array.isArray(blobs) || blobs.length || ![null, "None"].includes(container.publicAccess))
+        const marker: unknown = Array.isArray(page) && page.length === 1 ? page[0] : undefined
+        if (!marker || typeof marker !== "object" || Object.keys(marker).length !== 1 ||
+            !("nextMarker" in marker) || marker.nextMarker !== null ||
+            ![null, "None"].includes(container.publicAccess))
           block("The dedicated reader container is not confirmed private and empty. No blobs will be changed.")
       }
       if (entries.has("azurerm_container_app_environment.reader")) {
@@ -258,17 +263,27 @@ async function prepareReader(context: AzureInstallation): Promise<"declined" | "
           "identity", "show", "--ids", identityId, "--query", "{tags:tags,principalId:principalId}",
         )
         if (!owned(identity.tags) || !identity.principalId) block("The reader identity could not be verified.")
-        const roles = await read<{ id: string; scope: string; roleDefinitionName: string }[]>(
-          "role", "assignment", "list", "--assignee-object-id", identity.principalId, "--all",
-          "--fill-principal-name", "false", "--query", "[].{id:id,scope:scope,roleDefinitionName:roleDefinitionName}",
+        type Assignment = { id: string; scope: string; roleDefinitionName: string }
+        const listAssignments = (...scope: string[]) => read<Assignment[]>(
+          "role", "assignment", "list", "--assignee-object-id", identity.principalId, ...scope,
+          "--include-groups", "--fill-principal-name", "false",
+          "--query", "[].{id:id,scope:scope,roleDefinitionName:roleDefinitionName}",
         )
-        for (const role of roles) {
+        // --all does not inspect parent management groups; a scoped query does not inspect children.
+        const subscriptionRoles = await listAssignments("--all")
+        const inheritedRoles = await listAssignments("--scope", `/subscriptions/${subscriptionId}`, "--include-inherited")
+        if (!Array.isArray(subscriptionRoles) || !Array.isArray(inheritedRoles))
+          block("The reader identity's role assignments could not be verified.")
+        for (const role of [...subscriptionRoles, ...inheritedRoles]) {
+          if (!role || typeof role.id !== "string" || !role.id)
+            block("The reader identity's role assignments could not be verified.")
           const address = sameId(role.scope, acrId) && role.roleDefinitionName === "AcrPull"
             ? "azurerm_role_assignment.image_pull"
             : sameId(role.scope, containerId) && role.roleDefinitionName === "Storage Blob Data Reader"
               ? "azurerm_role_assignment.reader_artifacts"
               : block("The reader identity has an unexpected grant. Review access before retrying.")
-          if (entries.has(address)) block("The reader identity has a duplicate grant.")
+          const previous = entries.get(address)
+          if (previous && !sameId(previous, role.id)) block("The reader identity has a duplicate grant.")
           entries.set(address, role.id)
         }
       }
@@ -345,7 +360,7 @@ async function prepareReader(context: AzureInstallation): Promise<"declined" | "
       const { entries: live, readiness } = await inspect(savedImage)
       if (tracked.size !== live.size ||
           [...tracked].some(([address, id]) => !sameId(live.get(address), id)))
-        block("Azure and saved reader state disagree. Review existing resources and recover state explicitly; the pending plan was not applied.")
+        block("Azure and saved reader state disagree. Review existing resources and recover state explicitly before retrying.")
       return { live, savedImage, readiness }
     }
     const { savedImage } = await reconcile()
@@ -356,7 +371,16 @@ async function prepareReader(context: AzureInstallation): Promise<"declined" | "
       name: config.name, owner: config.owner, acr_id: acrId, registry_server: registry.loginServer,
       storage_account_id: storageId, image,
     }))
-    await terraform.apply(variables)
+    try {
+      await terraform.apply(variables)
+    } catch (error) {
+      if (keepInstallationLock && !signal?.aborted) {
+        ui.status(
+          "Before using Resume, allow any new registry grant to propagate. Resume compares Azure and saved state before applying changes.",
+        )
+      }
+      throw error
+    }
     await ui.phase?.("verify")
     const final = await reconcile()
     if (final.live.size !== privatePreviewResourceCount || final.savedImage !== image)
