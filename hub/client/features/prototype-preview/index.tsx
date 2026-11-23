@@ -1,4 +1,5 @@
 import { LinkExternalIcon, ScreenFullIcon } from "@primer/octicons-react"
+import { useEffect, useState } from "react"
 
 import { CopyableTextInput } from "@components/copyable-text-input"
 import { HubIconButton } from "@components/hub-icon-button"
@@ -21,12 +22,23 @@ export function PrototypePreview({
   previewTheme,
   modalOpen = false,
   onLoad,
+  ready,
+  fallback,
   minimized = false,
   minimize,
   controlsIdentity,
   controlsToolbar,
   minimizedControlsToolbar,
 }: PrototypePreviewProps) {
+  const [unavailableUrl, setUnavailableUrl] = useState<string>()
+  useEffect(() => {
+    if (ready !== false) return
+
+    const timer = window.setTimeout(() => setUnavailableUrl(previewUrl), 8000)
+    return () => window.clearTimeout(timer)
+  }, [ready, previewUrl])
+  const unavailable = ready === false && unavailableUrl === previewUrl && Boolean(fallback)
+
   return (
     <div className={`review-shell__preview${minimized ? " review-shell__preview--minimized" : ""}`}>
       <div className="review-shell__address-bar">
@@ -74,7 +86,8 @@ export function PrototypePreview({
           title={frameTitle}
           sandbox="allow-downloads allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
           className="review-shell__frame"
-          tabIndex={modalOpen ? -1 : undefined}
+          hidden={unavailable}
+          tabIndex={modalOpen || unavailable ? -1 : undefined}
           style={{ colorScheme: previewTheme }}
           onLoad={onLoad}
           onPointerEnter={(event) => {
@@ -84,8 +97,9 @@ export function PrototypePreview({
           }}
         />
 
+        {unavailable ? fallback : null}
         {children}
-        {controlsIdentity ? (
+        {controlsIdentity && !unavailable ? (
           <BuildControls
             key={controlsIdentity}
             identity={controlsIdentity}

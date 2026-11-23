@@ -86,6 +86,8 @@ export function prototypeShowData(
     // The restore control lives on the preview, so stay expanded without one.
     minimizedPreview: Boolean(previewBuild?.previewUrl) && search.get("view") === "minimized",
     privatePreviewUrl: selectedBuild?.privatePreviewUrl,
+    desktopScreenshotUrl: selectedBuild?.desktopScreenshotUrl ?? undefined,
+    narrowScreenshotUrl: selectedBuild?.narrowScreenshotUrl ?? undefined,
     pageTitle: `${data.prototype.name} · ${data.repository.nameWithOwner}`,
     prototypeId: data.prototype.id,
     repositoryId: data.repository.id,

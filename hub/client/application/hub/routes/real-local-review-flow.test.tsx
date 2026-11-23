@@ -346,24 +346,35 @@ describe("real local review flow", () => {
     expect(screen.getByRole("menuitem", { name: "Mark as unread" })).toBeVisible()
     fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" })
 
-    const frame = screen.getByTitle("Local review prototype, Build 3 preview")
+    const frame = screen.getByTitle<HTMLIFrameElement>("Local review prototype, Build 3 preview")
+    const frameWindow = frame.contentWindow
+    if (!frameWindow) throw new Error("Expected iframe content window")
     const commands: PreviewBridgeCommand[] = []
-    vi.spyOn((frame as HTMLIFrameElement).contentWindow!, "postMessage").mockImplementation(
-      (command: PreviewBridgeCommand) => commands.push(command),
+    vi.spyOn(frameWindow, "postMessage").mockImplementation((command: PreviewBridgeCommand) => {
+      commands.push(command)
+    })
+    fireEvent.load(frame)
+    const readyRequest = commands.findLast(
+      (command) => command.type === "replica:bridge:request-ready",
     )
+    if (!readyRequest) throw new Error("The preview bridge did not request readiness.")
+    const navigationId = readyRequest.requestId
+
     function receive(message: PreviewBridgeMessage) {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          source: (frame as HTMLIFrameElement).contentWindow,
-          origin: previewOrigin,
-          data: message,
-        }),
-      )
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: frameWindow,
+            origin: previewOrigin,
+            data: { ...message, navigationId },
+          }),
+        )
+      })
     }
     receive({
       type: "replica:bridge:ready",
       protocolVersion: 1,
-      requestId: "ready",
+      requestId: navigationId,
       payload: { route: { pathname: "/", search: "", hash: "" } },
     })
     fireEvent.click(screen.getByRole("button", { name: "Back to comments" }))

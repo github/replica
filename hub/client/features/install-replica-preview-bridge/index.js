@@ -47,6 +47,7 @@
   let geometryFrame = null
   let pendingFragmentRoute = null
   let fragmentRestoreToken = null
+  let navigationId = null
   const anchors = new Map()
   const geometry = new Map()
 
@@ -324,7 +325,13 @@
 
   function post(type, requestId, payload) {
     window.parent.postMessage(
-      { protocolVersion: PROTOCOL_VERSION, requestId, type, payload },
+      {
+        protocolVersion: PROTOCOL_VERSION,
+        requestId,
+        type,
+        payload,
+        ...(navigationId ? { navigationId } : {}),
+      },
       HUB_ORIGIN,
     )
   }
@@ -1530,6 +1537,7 @@
 
     const message = event.data
     if (message.type === "replica:bridge:request-ready") {
+      navigationId = message.requestId
       post("replica:bridge:ready", message.requestId, { route: currentRoute() })
       return
     }

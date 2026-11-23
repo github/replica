@@ -16,6 +16,8 @@ import { authorizeCopilotHandoff } from "@application/hub/requests/authorize-cop
 import { requestJson } from "@application/hub/requests/request-json"
 import { acknowledgeInboxActivity } from "@application/hub/requests/acknowledge-inbox-activity"
 import { MENTION_CANDIDATES_SCHEMA } from "@utils/mention-candidate/schemas"
+import { getUrlOrigin } from "@utils/get-url-origin"
+import { privateReviewLink } from "@utils/private-review-link"
 
 export function PrototypeScreen({
   workspace,
@@ -60,6 +62,17 @@ export function PrototypeScreen({
     }
   }
   const routeUrl = `${window.location.origin}${location.pathname}`
+  const preview = pageData.selectedBuild && new URL(pageData.selectedBuild.previewUrl)
+  const isolated = Boolean(preview && getUrlOrigin(preview.href) !== preview.origin)
+  const requestedRoute = params.get("return_path")
+  if (!mock && isolated && requestedRoute && preview && pageData.selectedBuild) {
+    const checkedLink = new URL(privateReviewLink({ baseUrl: routeUrl, route: requestedRoute }))
+    const checkedRoute = checkedLink.searchParams.get("return_path")
+    if (checkedRoute) {
+      preview.searchParams.set("route", checkedRoute)
+      pageData.selectedBuild.previewUrl = preview.href
+    }
+  }
   const transport = useMemo(() => createReviewTransport(routeUrl), [routeUrl])
   const mentionSource = useMemo(
     () => ({
@@ -104,6 +117,7 @@ export function PrototypeScreen({
     reviewCommentsPath: pageData.reviewCommentsPath,
     viewerLogin: workspace.viewer.login,
     selectedBuild: pageData.selectedBuild,
+    reviewReadOnly: pageData.reviewReadOnly,
     transport,
     filters: query.filters,
     selectedThreadId: query.commentId,
@@ -128,6 +142,19 @@ export function PrototypeScreen({
     },
   })
   const { notificationId, messageId, commentId } = query
+  const thread = review.selectedThread
+  const route = thread?.root.anchor.route ?? review.bridge.route
+  if (pageData.privatePreviewUrl) {
+    pageData.privateReviewLink = privateReviewLink({
+      baseUrl: routeUrl,
+      buildNumber:
+        thread?.root.buildNumber ?? (pageData.buildPinned ? data.selectedBuild?.number : undefined),
+      route: route
+        ? `${route.pathname}${route.search}${route.hash}`
+        : (requestedRoute ?? pageData.startPage ?? undefined),
+      threadId: thread?.root.id,
+    })
+  }
   const channel =
     !mock &&
     !pageData.reviewReadOnly &&
@@ -197,6 +224,7 @@ export function PrototypeScreen({
       }}
       iframeRef={iframeRef}
       previewTheme={resolvedColorMode}
+      monitorPreview={!mock && isolated}
       review={review}
       onNotificationMessageOpened={messageOpened}
       initialMinimized={pageData.minimizedPreview}

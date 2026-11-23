@@ -1,4 +1,4 @@
-import type { PropsWithChildren, RefObject } from "react"
+import type { PropsWithChildren, ReactNode, RefObject } from "react"
 
 export interface PrototypePreviewCopy {
   previewUrlLabel: string
@@ -18,6 +18,8 @@ export type PrototypePreviewProps = PropsWithChildren<{
   previewTheme: "light" | "dark"
   modalOpen?: boolean
   onLoad?: () => void
+  ready?: boolean
+  fallback?: ReactNode
   minimized?: boolean
   minimize?: { label: string; onClick: () => void }
   controlsIdentity?: string

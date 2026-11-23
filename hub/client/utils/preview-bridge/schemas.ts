@@ -16,6 +16,7 @@ import {
 
 const MESSAGE_FIELDS = {
   protocolVersion: z.literal(PREVIEW_BRIDGE_PROTOCOL_VERSION),
+  navigationId: z.uuid().optional(),
   requestId: createByteLimitedStringSchema(PREVIEW_BRIDGE_REQUEST_ID_MAXIMUM_BYTES, {
     required: true,
   }),
