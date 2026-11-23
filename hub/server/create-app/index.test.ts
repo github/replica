@@ -158,6 +158,84 @@ describe("createApp()", () => {
     }
   })
 
+  it("reads navigation without live permissions and verifies them on a full workspace read", async () => {
+    const viewer = {
+      membershipId: randomUUID(),
+      userId: randomUUID(),
+      provider: "github",
+      sessionProvider: "github",
+      login: "octocat",
+      name: "The Octocat",
+      role: "MEMBER" as const,
+    }
+    const repository = {
+      id: randomUUID(),
+      nameWithOwner: "team/alpha",
+      defaultBranch: "main",
+      localPath: null,
+    }
+    const authentication: AuthenticationRouteDependencies = {
+      currentSession: { restore: vi.fn().mockResolvedValue(viewer) },
+      signOut: { applicationOrigin: "https://hub.example.com", secureCookie: false, end: vi.fn() },
+    }
+    const getRepositoryPermission = vi.fn().mockResolvedValue("admin")
+    const product: ProductRouteDependencies = {
+      getRepositoryPermission,
+      isRepositoryVisible: vi.fn().mockResolvedValue(true),
+      listRepositories: vi.fn().mockResolvedValue([repository]),
+      findRepositoryIndex: vi.fn(),
+      findPrototypeDetail: vi.fn(),
+      findPrototypeManagement: vi.fn(),
+      readPrototypeWithIntroduction: vi.fn(),
+      findRepositoryAuthors: vi.fn(),
+      editPrototypeMetadata: vi.fn(),
+      findBuildPreviewTarget: vi.fn(),
+    }
+    const server = createServer(
+      createApp({ authentication, product, logger: createLogger({ level: "silent" }) }),
+    )
+
+    try {
+      server.listen(0, "127.0.0.1")
+      await once(server, "listening")
+      const { port } = server.address() as AddressInfo
+      const base = `http://127.0.0.1:${port}/api/workspace`
+      const headers = { cookie: "hub_session=github-session" }
+
+      expect((await fetch(`${base}?view=navigation`)).status).toBe(401)
+      const navigation = await fetch(`${base}?view=navigation`, { headers })
+      expect(navigation.status).toBe(200)
+      expect(getRepositoryPermission).not.toHaveBeenCalled()
+      const workspace: unknown = await navigation.json()
+      expect(workspace).toMatchObject({
+        viewer: { id: viewer.userId },
+        repositoryPermissionsAvailable: true,
+        repositories: [{ id: repository.id, capabilities: { reviewPrototypes: true } }],
+      })
+      expect(workspace).not.toHaveProperty("repositories.0.capabilities.administerRepository")
+      expect(workspace).not.toHaveProperty("repositories.0.capabilities.managePrototypeListings")
+
+      const verified = await fetch(`${base}?repositoryId=${repository.id}`, { headers })
+      expect(verified.status).toBe(200)
+      expect(getRepositoryPermission).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ membershipId: viewer.membershipId, sessionProvider: "github" }),
+        repository.id,
+      )
+      expect(await verified.json()).toMatchObject({
+        repositories: [
+          {
+            id: repository.id,
+            capabilities: { administerRepository: true, managePrototypeListings: true },
+          },
+        ],
+      })
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()))
+      })
+    }
+  })
+
   it("composes review and public sharing routes without crossing their authorities", async () => {
     const repositoryId = randomUUID()
     const prototypeId = randomUUID()

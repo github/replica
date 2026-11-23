@@ -211,6 +211,10 @@ For example, `GET /api/repositories/:repositoryId/prototypes/:prototypeId/builds
 
 History loads only the requested page and any successful Build pinned by `build`. The picker contains those Builds, without duplicates; use History's page links to reach others. Page totals and the latest Build status still describe the whole prototype. The prototype view's picker lists all Builds. History keeps `canEdit: true` and does not record an introduction. Its links preserve a pinned successful Build across pages and when returning to the prototype.
 
+### Workspace projections
+
+`GET /api/workspace?view=navigation` returns the signed-in viewer, readable repositories, and Hub preferences without checking live GitHub management permissions. `GET /api/workspace` retains the full response and checks management permissions for the selected repository. Both views verify the session and scope repositories to the viewer's access.
+
 ### Prototype metadata edits
 
 Unlike the mock contract above, the real endpoint accepts a strict JSON object with at least one of `name`, `description`, and `startPage`. For example, `{"description":"New overview"}` changes only the description. Any signed-in member can edit a visible prototype. The first edit registers a draft and makes that member its first author, using its valid existing name or branch name when `name` is omitted. Later edits preserve its author and registration time, even when concurrent edits race.
