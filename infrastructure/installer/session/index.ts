@@ -3,7 +3,7 @@ import { lstat, rename, rm } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
 import { configurationFields, InputValidationError, parseAzureId } from "../config/fields/index.ts"
-import { wizardPhases, type WizardPhase } from "../types.ts"
+import { wizardPhases, type DeploymentConfig, type WizardPhase } from "../types.ts"
 import { writePrivateJson } from "../write-private-json/index.ts"
 import { lockSession } from "./lock/index.ts"
 import { privateDirectory, readPrivateFile } from "../private-files/index.ts"
@@ -18,6 +18,7 @@ export interface DraftAnswers {
   resourceGroup?: string
   useProxy?: boolean
   npmRegistry?: string
+  privatePreviewStage?: "after-create" | "prepare"
 }
 
 export interface WizardDraft {
@@ -38,6 +39,7 @@ export interface WizardSession {
   answer<K extends keyof DraftAnswers>(key: K, value: DraftAnswers[K]): Promise<void>
   clear(keys: (keyof DraftAnswers)[]): Promise<void>
   phase(phase: WizardPhase): Promise<void>
+  previewTarget(config: DeploymentConfig, phase: "review" | "provision"): Promise<void>
   restart(): Promise<void>
   complete(): Promise<void>
   close(): Promise<void>
@@ -54,6 +56,7 @@ const answerKeys = [
   "resourceGroup",
   "useProxy",
   "npmRegistry",
+  "privatePreviewStage",
 ] as const
 const dependencies: Partial<Record<keyof DraftAnswers, (keyof DraftAnswers)[]>> = {
   tenantId: ["subscriptionId", "location"],
@@ -75,6 +78,8 @@ function parseAnswer(key: keyof DraftAnswers, value: unknown): string | boolean 
   }
   if (key === "cloud" && value === "azure") return value
   if (key === "useProxy" && typeof value === "boolean") return value
+  if (key === "privatePreviewStage" && (value === "after-create" || value === "prepare"))
+    return value
   if (key === "tenantId" || key === "subscriptionId") return parseAzureId(value)
   if (key === "location" && typeof value === "string" && /^[a-z][a-z0-9]+$/.test(value))
     return value
@@ -255,6 +260,16 @@ export async function openSession(
       update((next) => {
         next.phase = phase
         if (["provision", "release", "verify"].includes(phase)) next.deploymentStarted = true
+      }),
+    previewTarget: (config, phase) =>
+      update((next) => {
+        const { tenantId, subscriptionId, location, resourceGroup } = config.azure
+        Object.assign(next.answers, {
+          cloud: config.cloud, tenantId, subscriptionId, location, resourceGroup,
+          name: config.name, owner: config.owner, privatePreviewStage: "prepare",
+        } satisfies DraftAnswers)
+        next.phase = phase
+        next.deploymentStarted = phase === "provision"
       }),
     restart: () =>
       enqueue(async () => {
