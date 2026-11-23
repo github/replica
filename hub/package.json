@@ -51,6 +51,8 @@
     "dev:api:decision-walkthrough": "node server/scripts/start-decision-walkthrough-api/index.ts",
     "dev:api:live": "node --watch server/scripts/start-live-api/index.ts",
     "start": "node dist/server/index.js",
+    "start:preview-reader": "node dist/server/scripts/start-private-preview-reader/index.js",
+    "dev:preview-reader": "node server/scripts/start-private-preview-reader/index.ts",
     "preview": "vite preview --host 127.0.0.1",
     "extension:assets:check": "node ../.github/extensions/replica-prototype/check-assets/index.mjs",
     "extension:build": "npm run extension:modules:build && vite build --config vite.prototype-canvas.config.mjs && node script/build-prototype-preview-bridge.mjs",

@@ -81,6 +81,7 @@ interface CreateProductRouteDependenciesOptions {
     actorLogin: string
   }) => Promise<void>
   previewBaseOrigin?: string
+  privatePreviewHubOrigin?: string
   getRepositoryPermission?: WorkspaceProductRouteDependencies["getRepositoryPermission"]
   withReviewCommentDeleteLock?: <T>(operation: () => Promise<T>) => Promise<T>
 }
@@ -96,6 +97,7 @@ export function createProductRouteDependencies({
   authorizeReviewMutation,
   onReviewCommentDeleted,
   previewBaseOrigin,
+  privatePreviewHubOrigin,
   getRepositoryPermission: permissionOverride,
   withReviewCommentDeleteLock,
 }: CreateProductRouteDependenciesOptions = {}): WorkspaceProductRouteDependencies {
@@ -435,6 +437,7 @@ export function createProductRouteDependencies({
           buildPage,
           repositoryScope,
           buildArtifactUrl,
+          privatePreviewHubOrigin,
         ),
       ),
     readPrototypeWithIntroduction: (input, prepare) =>
@@ -460,6 +463,7 @@ export function createProductRouteDependencies({
                     undefined,
                     await scope(viewer, transaction),
                     buildArtifactUrl,
+                    privatePreviewHubOrigin,
                   ),
                 recordIntroduction: (userId, prototypeId) =>
                   recordPrototypeIntroduction(transaction, userId, prototypeId),
@@ -567,6 +571,7 @@ export function createProductRouteDependencies({
                     undefined,
                     await scope(viewer, transaction),
                     buildArtifactUrl,
+                    privatePreviewHubOrigin,
                   ),
               })
             },

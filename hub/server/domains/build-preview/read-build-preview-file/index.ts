@@ -1,5 +1,8 @@
 import { contentTypeForBuildPath } from "../../build-artifacts/content-type-for-build-path/index.ts"
 import { normalizeBuildArtifactPath } from "../../build-artifacts/normalize-build-artifact-path/index.ts"
+import { readPrivatePreviewAddress } from "../../../utils/private-preview-address/index.ts"
+import { privatePreviewManifestPath } from "../../private-preview/types.ts"
+import { declaresPreviewMount } from "../declares-preview-mount/index.ts"
 import { injectPreviewBridge } from "../inject-preview-bridge/index.ts"
 import { readTemplateScreenshotPath } from "../template-screenshot-path/index.ts"
 import type {
@@ -46,22 +49,44 @@ export async function readBuildPreviewFile(
   ) {
     return { status: "not-found" }
   }
+  const mounted = readPrivatePreviewAddress(requestPath)
+  let distPath = requestPath
+  if (mounted) {
+    const marker = await dependencies.findArtifact(input.buildId, privatePreviewManifestPath)
+    if (marker && marker.byteLength > 0 && marker.byteLength <= 256) {
+      const release = dependencies.reserveBytes?.(marker.byteLength)
+      if (release === null) return { status: "unavailable" }
+      try {
+        const stored = await dependencies.storage.read(marker.storageKey)
+        if (stored.status === "unavailable") return { status: "unavailable" }
+        if (
+          stored.status === "ok" &&
+          stored.bytes.byteLength === marker.byteLength &&
+          declaresPreviewMount(stored.bytes, mounted.address.mount)
+        ) {
+          distPath = `/${mounted.relativePath}`
+        }
+      } finally {
+        release?.()
+      }
+    }
+  }
   let path =
     readTemplateScreenshotPath(input.requestPath) ??
     (requestPath === "/__replica/screenshots/narrow.png"
       ? "screenshots/narrow.png"
       : `dist${
-          requestPath === "/"
+          distPath === "/"
             ? "/index.html"
-            : requestPath.endsWith("/")
-              ? `${requestPath}index.html`
-              : requestPath
+            : distPath.endsWith("/")
+              ? `${distPath}index.html`
+              : distPath
         }`)
   const normalizedPath = normalizeBuildArtifactPath(path)
   if (!normalizedPath) return { status: "not-found" }
   path = normalizedPath
   let artifact = await dependencies.findArtifact(input.buildId, path)
-  let useSpaFallback = input.acceptsHtml && !requestPath.split("/").at(-1)?.includes(".")
+  let useSpaFallback = input.acceptsHtml && !distPath.split("/").at(-1)?.includes(".")
   if (!artifact && input.acceptsHtml && !useSpaFallback) {
     const manifest = await dependencies.findArtifact(input.buildId, "templates.json")
     if (manifest) {
@@ -77,7 +102,8 @@ export async function readBuildPreviewFile(
         if (storedManifest.bytes.byteLength > manifest.byteLength) {
           return { status: "unavailable" }
         }
-        useSpaFallback = readDeclaredRoutePathnames(storedManifest.bytes).includes(requestPath)
+        const routes = readDeclaredRoutePathnames(storedManifest.bytes)
+        useSpaFallback = routes.includes(requestPath) || routes.includes(distPath)
       } finally {
         release?.()
       }

@@ -1,8 +1,96 @@
 import { describe, expect, it, vi } from "vitest"
 
+import type { ReadBuildPreviewFileDependencies } from "./types"
 import { readBuildPreviewFile } from "."
 
+function mountedAssetFixture(basePath?: string) {
+  const buildId = "00000000-0000-4000-8000-000000000001"
+  const assetBytes = new TextEncoder().encode("body { color: black; }")
+  const markerBytes = new TextEncoder().encode(JSON.stringify({ basePath }))
+  const findArtifact = vi.fn<ReadBuildPreviewFileDependencies["findArtifact"]>(
+    (authorizedBuildId, path) => {
+      if (authorizedBuildId !== buildId) return Promise.resolve(null)
+      if (path === "dist/replica-preview-base.json" && basePath !== undefined) {
+        return Promise.resolve({ storageKey: "base-marker", byteLength: markerBytes.length })
+      }
+      if (path === "dist/assets/style.css") {
+        return Promise.resolve({ storageKey: "style", byteLength: assetBytes.length })
+      }
+      return Promise.resolve(null)
+    },
+  )
+  const read = vi.fn<ReadBuildPreviewFileDependencies["storage"]["read"]>((key) => {
+    if (key === "base-marker") return Promise.resolve({ status: "ok", bytes: markerBytes })
+    if (key === "style") return Promise.resolve({ status: "ok", bytes: assetBytes })
+    return Promise.resolve({ status: "not-found" })
+  })
+  return {
+    buildId,
+    assetBytes,
+    read,
+    dependencies: {
+      findArtifact,
+      storage: { isReady: vi.fn(), read, write: vi.fn(), delete: vi.fn() },
+    },
+  }
+}
+
 describe("readBuildPreviewFile()", () => {
+  it.each([
+    { preview: "legacy", distOnly: false },
+    { preview: "hosted public", distOnly: true },
+  ])("resolves the declared mount for a $preview Build", async ({ distOnly }) => {
+    const mount = "/previews/github/901/1201/"
+    const { buildId, assetBytes, dependencies } = mountedAssetFixture(mount)
+
+    await expect(
+      readBuildPreviewFile(
+        { buildId, acceptsHtml: false, distOnly, requestPath: `${mount}assets/style.css` },
+        dependencies,
+      ),
+    ).resolves.toMatchObject({ status: "ok", bytes: assetBytes })
+    expect(dependencies.findArtifact).toHaveBeenCalledWith(
+      buildId,
+      "dist/replica-preview-base.json",
+    )
+    expect(dependencies.findArtifact).toHaveBeenCalledWith(buildId, "dist/assets/style.css")
+  })
+
+  it.each([
+    {
+      condition: "a different run",
+      mount: "/previews/github/901/1202/",
+      marker: "/previews/github/901/1201/",
+    },
+    {
+      condition: "a different repository",
+      mount: "/previews/github/902/1201/",
+      marker: "/previews/github/901/1201/",
+    },
+    { condition: "an undeclared mount", mount: "/previews/github/901/1201/", marker: undefined },
+  ])("does not alias dist assets for $condition", async ({ mount, marker }) => {
+    const { buildId, dependencies, read } = mountedAssetFixture(marker)
+
+    await expect(
+      readBuildPreviewFile(
+        { buildId, acceptsHtml: false, requestPath: `${mount}assets/style.css` },
+        dependencies,
+      ),
+    ).resolves.toEqual({ status: "not-found" })
+    expect(read).not.toHaveBeenCalledWith("style")
+  })
+
+  it("keeps serving unprefixed dist assets without a mount declaration", async () => {
+    const { buildId, assetBytes, dependencies } = mountedAssetFixture()
+
+    await expect(
+      readBuildPreviewFile(
+        { buildId, acceptsHtml: false, requestPath: "/assets/style.css" },
+        dependencies,
+      ),
+    ).resolves.toMatchObject({ status: "ok", bytes: assetBytes })
+  })
+
   it("serves directory-style routes through the application entry point", async () => {
     const bytes = new TextEncoder().encode("<h1>Checkout</h1>")
     const findArtifact = vi.fn().mockImplementation((_buildId: string, path: string) => {

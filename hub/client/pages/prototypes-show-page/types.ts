@@ -9,6 +9,7 @@ import type { ReviewCommentsCopy } from "@utils/review-comment/types"
 
 export interface PrototypesShowPageData extends PrototypeWorkspaceData {
   buildPinned: boolean
+  privatePreviewUrl?: string
   mentionCandidatesPath?: string
   mentionCopy?: MentionSource["copy"]
   initialCommentId?: number

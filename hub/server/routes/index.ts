@@ -69,6 +69,7 @@ import { get as handleLearningsGet } from "./api/learnings/get/index.ts"
 import { post as handleLearningRunPost } from "./api/learnings/runs/post/index.ts"
 import { post as handleLearningDecisionPost } from "./api/learnings/decision/post/index.ts"
 import type { RouteDependencies } from "./types.ts"
+import { mountPrivatePreview } from "./private-preview/index.ts"
 import { get as handleDecisionModelGet } from "./api/decision-model/get/index.ts"
 import { patch as handleDecisionModelPatch } from "./api/decision-model/patch/index.ts"
 import { post as handleDecisionTrainingPost } from "./api/decision-model/training-jobs/post/index.ts"
@@ -92,9 +93,11 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
     learnings,
     logger,
     preview,
+    privatePreview,
     product,
     publicSharing,
   } = dependencies
+  if (privatePreview) mountPrivatePreview(app, privatePreview)
   if (preview) {
     app.get("/__replica/authorize", handleBuildPreviewAuthorizeGet(preview))
     if (publicSharing) {

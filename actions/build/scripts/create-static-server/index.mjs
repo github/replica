@@ -4,16 +4,20 @@ import { createServer } from "node:http"
 import path from "node:path"
 
 import { CONTENT_TYPES } from "../constants.mjs"
+import { normalizeBasePath } from "../normalize-base-path/index.mjs"
 
 /** Serves checked dist files and falls back to the app entry for browser routes. */
-export function createStaticServer(dist, templatePaths = []) {
+export function createStaticServer(dist, templatePaths = [], basePath = "/") {
+  const base = normalizeBasePath(basePath)
   const templatePathnames = new Set(
     templatePaths.map((route) => decodeURIComponent(new URL(route, "http://localhost").pathname)),
   )
 
   return createServer(async (request, response) => {
     try {
-      const requestPath = decodeURIComponent(new URL(request.url, "http://localhost").pathname)
+      const pathname = new URL(request.url, "http://localhost").pathname
+      if (!pathname.startsWith(base)) return response.writeHead(404).end()
+      const requestPath = decodeURIComponent(`/${pathname.slice(base.length)}`)
       const templateNavigation = templatePathnames.has(requestPath)
       const acceptsHtml = request.headers.accept?.includes("text/html")
 

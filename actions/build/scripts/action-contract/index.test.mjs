@@ -88,6 +88,7 @@ appendFileSync(process.env.TRACE, JSON.stringify({ command: process.argv[1].spli
         REPLICA_BUILD_ONLY: inputs.buildOnly ?? "false",
         REPLICA_OUTPUT_DIRECTORY: inputs.outputDirectory,
         REPLICA_SCREENSHOTS: inputs.screenshots,
+        REPLICA_BASE_PATH: inputs.basePath ?? inputDefault(action, "base-path"),
       },
     })
   }
@@ -114,7 +115,13 @@ appendFileSync(process.env.TRACE, JSON.stringify({ command: process.argv[1].spli
 describe("Replica composite action", () => {
   for (const options of [
     { builds: true, captures: true },
-    { skipBuild: "true", outputDirectory: "website/public", builds: false, captures: true },
+    {
+      skipBuild: "true",
+      outputDirectory: "website/public",
+      basePath: "/previews/github/10/20/",
+      builds: false,
+      captures: true,
+    },
     { screenshots: "separate", builds: true, captures: false },
   ]) {
     it(`builds=${options.builds} and captures=${options.captures} with the expected steps`, async () => {
@@ -127,6 +134,7 @@ describe("Replica composite action", () => {
         skipBuild: options.skipBuild ?? "false",
         outputDirectory: options.outputDirectory ?? "dist",
         screenshots: options.screenshots ?? "inline",
+        basePath: options.basePath,
       }
       const { calls, actionPath, workspace, runner } = await runAction(action, inputs)
       const scripts = calls.filter((call) => call.command === "node")
@@ -153,6 +161,8 @@ describe("Replica composite action", () => {
         inputs.outputDirectory,
         "--output",
         path.join(runner, "replica-build-root"),
+        "--base-path",
+        options.basePath ?? "/",
       ])
       assert.equal(
         calls.some((call) => call.command === "playwright"),
@@ -168,6 +178,8 @@ describe("Replica composite action", () => {
           workspace,
           "--screenshots",
           path.join(runner, "replica-screenshots"),
+          "--base-path",
+          options.basePath ?? "/",
         ])
         assert.deepEqual(called("create-package").args.slice(1), [
           "--root",
@@ -259,6 +271,8 @@ describe("Replica composite action", () => {
       "site",
       "--output",
       path.join(runner, "replica-build-root"),
+      "--base-path",
+      "/",
     ])
     assert.deepEqual(calls[2].args.slice(1), [
       "--root",

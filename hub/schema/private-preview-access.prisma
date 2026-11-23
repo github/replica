@@ -1,0 +1,14 @@
+model PrivatePreviewAccess {
+  // ID columns
+  tokenDigest String @id @map("token_digest") @db.Char(64)
+  buildId     String @map("build_id") @db.Uuid
+
+  // Attribute columns
+  sessionDigest   String   @map("session_digest") @db.Char(64)
+  readerOrigin    String   @map("reader_origin") @db.VarChar(255)
+  challengeDigest String?  @map("challenge_digest") @db.Char(64)
+  expiresAt       DateTime @map("expires_at") @db.Timestamptz(3)
+
+  @@index([expiresAt])
+  @@map("private_preview_access")
+}

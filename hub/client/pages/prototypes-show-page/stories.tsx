@@ -250,6 +250,27 @@ export const Empty: Story = {
   },
 }
 
+export const StandalonePrivatePreview: Story = {
+  args: {
+    data: {
+      ...data,
+      selectedBuild: undefined,
+      emptyHeading: "Private preview",
+      emptyLabel: "This Build opens in a separate tab.",
+      privatePreviewUrl: "https://hub.example.com/api/private-preview/launch/2001/4001",
+    },
+  },
+}
+
+export const PrivateLinkWithEmbeddedReview: Story = {
+  args: {
+    data: {
+      ...data,
+      privatePreviewUrl: "https://hub.example.com/api/private-preview/launch/2001/4001",
+    },
+  },
+}
+
 export const PreviewHostingUnavailable: Story = {
   args: {
     onSaveDetails: noop,
