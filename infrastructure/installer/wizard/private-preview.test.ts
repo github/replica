@@ -9,8 +9,9 @@ import * as previewInstaller from "../../azure/install/private-preview/index.ts"
 import type { DeploymentResult } from "../../azure/install/types.ts"
 import { loadConfig, saveConfig } from "../config/index.ts"
 import { formatDeploymentSummary } from "../deployment-summary/index.ts"
-import { openSession } from "../session/index.ts"
+import { openSession, readSession } from "../session/index.ts"
 import type { DeploymentConfig, RunCommand, WizardUI } from "../types.ts"
+import * as privateJson from "../write-private-json/index.ts"
 import { runWizard } from "./index.ts"
 
 const directories: string[] = []
@@ -68,7 +69,10 @@ async function fixture(saved: boolean) {
   })
   const interrupted = new Error("Synthetic interruption in preview staging")
   const preview = vi.spyOn(previewInstaller, "installAzurePrivatePreview")
-    .mockRejectedValue(interrupted)
+    .mockImplementation(async (_, { ui }) => {
+      await ui.phase?.("provision")
+      throw interrupted
+    })
   const run = vi.fn<RunCommand>(async (executable, args) => {
     throw new Error(`Unexpected command ${executable} ${args.join(" ")}`)
   })
@@ -80,10 +84,15 @@ async function fixture(saved: boolean) {
     wait: vi.fn(),
     status: vi.fn(),
     notice: vi.fn(),
+    preview: vi.fn(),
   }
-  const signal = new AbortController().signal
-  const options = { directory, path, run, ui, signal, ...(saved && { existing: config }) }
-  return { options, config, result, hub, preview, interrupted }
+  const controller = new AbortController()
+  const options = { directory, path, run, ui, signal: controller.signal, ...(saved && { existing: config }) }
+  return { options, config, result, hub, preview, interrupted, controller }
+}
+
+function targetAnswers({ cloud, name, owner, azure }: DeploymentConfig) {
+  return { cloud, name, owner, ...azure, privatePreviewStage: "prepare" }
 }
 
 async function startSession(path: string) {
@@ -135,9 +144,22 @@ it("stages opted-in preview after creating Hub and checkpoints a preview-only re
   })
 })
 
-it("rejects resuming an interrupted preview-only Update after its saved target changes", async () => {
+it("checkpoints preview-only Update before cloud work and rejects Resume after a target change", async () => {
   const { options, config, hub, preview, interrupted } = await fixture(true)
   const session = await startSession(options.path)
+  preview.mockImplementation(async (_, { ui }) => {
+    await ui.phase?.("review")
+    expect(await readSession(options.path)).toEqual({})
+    const saveDraft = vi.spyOn(privateJson, "writePrivateJson")
+    await ui.phase?.("provision")
+    expect(saveDraft).toHaveBeenCalledOnce()
+    expect((await readSession(options.path)).draft).toMatchObject({
+      phase: "provision",
+      deploymentStarted: true,
+      answers: targetAnswers(config),
+    })
+    throw interrupted
+  })
 
   await expect(
     runWizard({ ...options, session, entryAction: "update", preparePrivatePreview: true }),
@@ -160,6 +182,42 @@ it("rejects resuming an interrupted preview-only Update after its saved target c
   expect(hub).not.toHaveBeenCalled()
 })
 
+it.each(["before approval", "failed approval checkpoint"] as const)(
+  "cannot route preview-only Update into Hub Resume after interruption at %s",
+  async (interruption) => {
+    const { options, controller, interrupted, hub, preview } = await fixture(true)
+    const session = await startSession(options.path)
+    vi.mocked(options.ui.wait).mockImplementation(async () => {
+      controller.abort(interrupted)
+      controller.signal.throwIfAborted()
+    })
+    const cloudWrite = vi.fn()
+    preview.mockImplementation(async (_, { ui, signal }) => {
+      await ui.phase?.("review")
+      if (interruption === "before approval") controller.abort(interrupted)
+      signal?.throwIfAborted()
+      vi.spyOn(privateJson, "writePrivateJson").mockRejectedValueOnce(
+        Object.assign(new Error("Synthetic disk failure"), { code: "EIO" }),
+      )
+      await ui.phase?.("provision")
+      cloudWrite()
+      return "staged"
+    })
+
+    await expect(runWizard({ ...options, session, entryAction: "update", preparePrivatePreview: true }))
+      .rejects.toBe(interrupted)
+    if (interruption === "failed approval checkpoint") expect(options.ui.wait).toHaveBeenCalledOnce()
+    expect(cloudWrite).not.toHaveBeenCalled()
+    await session.close()
+    const reopened = await startSession(options.path)
+    expect(reopened.draft).toBeUndefined()
+    await expect(runWizard({
+      ...options, signal: undefined, session: reopened, entryAction: "resume",
+    })).rejects.toThrow()
+    expect(hub).not.toHaveBeenCalled()
+  },
+)
+
 it.each([
   { stage: "after-create", runsHub: true },
   { stage: "prepare", runsHub: false },
@@ -177,13 +235,17 @@ it.each([
 it("cleans up a declined preview-only Update and permits an ordinary Update", async () => {
   const { options, config, result, hub, preview } = await fixture(true)
   const session = await startSession(options.path)
-  preview.mockResolvedValue("declined")
+  preview.mockImplementation(async (_, { ui }) => {
+    await ui.phase?.("review")
+    return "declined"
+  })
 
   await expect(runWizard({ ...options, session, entryAction: "update", preparePrivatePreview: true }))
     .resolves.toMatch(/skip|declin|not (?:approved|staged|prepared)/i)
 
   expect(preview).toHaveBeenCalledOnce()
   expect(hub).not.toHaveBeenCalled()
+  expect(vi.mocked(options.ui.preview!).mock.calls).toEqual([["review"], ["skipped"]])
   await expect(readFile(session.path, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   await expect(loadConfig(options.path)).resolves.toEqual(config)
 
@@ -201,11 +263,18 @@ it.each(["create", "resume"] as const)(
     const { options, config, result, hub, preview } = await fixture(entryAction === "resume")
     const session = entryAction === "create"
       ? await startSession(options.path)
-      : await resumeSession(options.path, "after-create", true)
-    preview.mockResolvedValue("declined")
+      : await resumeSession(options.path, "after-create")
+    const onHubDeployed = vi.fn()
+    preview.mockImplementation(async () => {
+      expect(onHubDeployed).toHaveBeenCalledExactlyOnceWith(formatDeploymentSummary(result, options.path))
+      expect((await readSession(options.path)).draft).toMatchObject({
+        phase: "review", deploymentStarted: false, answers: targetAnswers(config),
+      })
+      return "declined"
+    })
 
     const summary = await runWizard({
-      ...options, session, entryAction, preparePrivatePreview: entryAction === "create",
+      ...options, session, entryAction, preparePrivatePreview: entryAction === "create", onHubDeployed,
     })
 
     expect(summary).toContain(formatDeploymentSummary(result, options.path))
@@ -217,6 +286,90 @@ it.each(["create", "resume"] as const)(
     await expect(loadConfig(options.path)).resolves.toEqual(config)
   },
 )
+
+it.each(["legacy started draft", "failed Hub-to-preview checkpoint"] as const)(
+  "preserves and blocks a Hub replay after %s",
+  async (interruption) => {
+    const { options, hub, preview, interrupted } = await fixture(interruption === "legacy started draft")
+    const session = interruption === "legacy started draft"
+      ? await resumeSession(options.path, "after-create", true)
+      : await startSession(options.path)
+    if (interruption === "failed Hub-to-preview checkpoint") {
+      vi.mocked(options.ui.wait).mockRejectedValue(interrupted)
+      await expect(runWizard({
+        ...options,
+        session,
+        entryAction: "create",
+        preparePrivatePreview: true,
+        onHubDeployed: () => {
+          vi.spyOn(privateJson, "writePrivateJson").mockRejectedValueOnce(
+            Object.assign(new Error("Synthetic disk failure"), { code: "EIO" }),
+          )
+        },
+      })).rejects.toBe(interrupted)
+      expect(hub).toHaveBeenCalledOnce()
+    }
+
+    const draft = await readFile(session.path, "utf8")
+    await session.close()
+    const reopened = await startSession(options.path)
+    expect(reopened.draft).toMatchObject({
+      deploymentStarted: true, answers: { privatePreviewStage: "after-create" },
+    })
+    hub.mockClear()
+    await expect(runWizard({ ...options, existing: await loadConfig(options.path), session: reopened }))
+      .rejects.toThrow(/will not replay/i)
+    expect(await readFile(reopened.path, "utf8")).toBe(draft)
+    expect(hub).not.toHaveBeenCalled()
+    expect(preview).not.toHaveBeenCalled()
+  },
+)
+
+it.each(["preflight failure", "abort"] as const)(
+  "reports completed Hub independently of a preview %s",
+  async (outcome) => {
+    const { options, config, result, preview, controller, interrupted } = await fixture(false)
+    const session = await startSession(options.path)
+    const onHubDeployed = vi.fn()
+    preview.mockImplementation(async (_, { ui, signal }) => {
+      expect(onHubDeployed).toHaveBeenCalledExactlyOnceWith(formatDeploymentSummary(result, options.path))
+      expect((await readSession(options.path)).draft).toMatchObject({
+        phase: "review", deploymentStarted: false, answers: targetAnswers(config),
+      })
+      await ui.phase?.("review")
+      if (outcome === "abort") controller.abort(interrupted)
+      signal?.throwIfAborted()
+      throw interrupted
+    })
+
+    await expect(runWizard({
+      ...options, session, entryAction: "create", preparePrivatePreview: true, onHubDeployed,
+    })).rejects.toBe(interrupted)
+
+    await expect(loadConfig(options.path)).resolves.toEqual(config)
+    if (outcome === "preflight failure")
+      expect(await readSession(options.path)).toEqual({})
+    else
+      expect((await readSession(options.path)).draft).toMatchObject({
+        phase: "review", deploymentStarted: false, answers: targetAnswers(config),
+      })
+  },
+)
+
+it("preserves previously started preview progress when a new preflight fails", async () => {
+  const { options, hub, preview, interrupted } = await fixture(true)
+  const session = await resumeSession(options.path, "prepare", true)
+  const draft = await readFile(session.path, "utf8")
+  preview.mockImplementation(async (_, { ui }) => {
+    await ui.phase?.("review")
+    throw interrupted
+  })
+
+  await expect(runWizard({ ...options, session })).rejects.toBe(interrupted)
+
+  expect(await readFile(session.path, "utf8")).toBe(draft)
+  expect(hub).not.toHaveBeenCalled()
+})
 
 it.each([false, true])(
   "declines resumed preview without rerunning Hub (prior deploymentStarted: %s)",
@@ -249,7 +402,7 @@ it.each([false, true])(
   },
 )
 
-it("keeps the preview-only draft when readiness must be rechecked", async () => {
+it("keeps the preview-only draft for a flagless Resume when readiness must be rechecked", async () => {
   const { options, hub, preview } = await fixture(true)
   const session = await startSession(options.path)
   const pending = new Error("Resume to recheck")
@@ -263,11 +416,20 @@ it("keeps the preview-only draft when readiness must be rechecked", async () => 
     .rejects.toBe(pending)
 
   expect(hub).not.toHaveBeenCalled()
+  expect(vi.mocked(options.ui.preview!).mock.calls).toEqual([["provision"], ["verify"]])
   expect(JSON.parse(await readFile(session.path, "utf8"))).toMatchObject({
     phase: "verify",
     deploymentStarted: true,
     answers: { privatePreviewStage: "prepare" },
   })
+
+  await session.close()
+  const reopened = await startSession(options.path)
+  preview.mockResolvedValueOnce("staged")
+  await expect(runWizard({ ...options, session: reopened })).resolves.toMatch(/reader is staged/i)
+  expect(hub).not.toHaveBeenCalled()
+  expect(options.ui.preview).toHaveBeenLastCalledWith("staged")
+  await expect(readFile(reopened.path, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
 
 it("rejects preview opt-in in configure-only mode without deploying", async () => {

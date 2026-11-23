@@ -40,6 +40,7 @@ export const wizardPhases = [
   "verify",
 ] as const
 export type WizardPhase = (typeof wizardPhases)[number]
+export type PreviewProgress = "review" | "provision" | "verify" | "staged" | "skipped"
 export type NoticeLevel = "info" | "success" | "warning" | "error"
 
 export interface FieldDefinition {
@@ -66,6 +67,7 @@ export interface InstallerUI {
 export interface WizardUI extends InstallerUI {
   welcome?(show: boolean): void
   complete?(): void
+  preview?(progress: PreviewProgress): void
   cloud(): Promise<"azure">
   field?(definition: FieldDefinition, initialValue?: string): Promise<string>
   text(message: string, initialValue?: string): Promise<string>

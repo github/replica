@@ -3,7 +3,7 @@ import { lstat, rename, rm } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
 import { configurationFields, InputValidationError, parseAzureId } from "../config/fields/index.ts"
-import { wizardPhases, type WizardPhase } from "../types.ts"
+import { wizardPhases, type DeploymentConfig, type WizardPhase } from "../types.ts"
 import { writePrivateJson } from "../write-private-json/index.ts"
 import { lockSession } from "./lock/index.ts"
 import { privateDirectory, readPrivateFile } from "../private-files/index.ts"
@@ -39,6 +39,7 @@ export interface WizardSession {
   answer<K extends keyof DraftAnswers>(key: K, value: DraftAnswers[K]): Promise<void>
   clear(keys: (keyof DraftAnswers)[]): Promise<void>
   phase(phase: WizardPhase): Promise<void>
+  previewTarget(config: DeploymentConfig, phase: "review" | "provision"): Promise<void>
   restart(): Promise<void>
   complete(): Promise<void>
   close(): Promise<void>
@@ -259,6 +260,16 @@ export async function openSession(
       update((next) => {
         next.phase = phase
         if (["provision", "release", "verify"].includes(phase)) next.deploymentStarted = true
+      }),
+    previewTarget: (config, phase) =>
+      update((next) => {
+        const { tenantId, subscriptionId, location, resourceGroup } = config.azure
+        Object.assign(next.answers, {
+          cloud: config.cloud, tenantId, subscriptionId, location, resourceGroup,
+          name: config.name, owner: config.owner, privatePreviewStage: "prepare",
+        } satisfies DraftAnswers)
+        next.phase = phase
+        next.deploymentStarted = phase === "provision"
       }),
     restart: () =>
       enqueue(async () => {
