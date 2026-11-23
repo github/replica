@@ -75,6 +75,7 @@ export function usePreviewBridge({
       if (
         !reviewEnabled &&
         type !== "replica:bridge:request-ready" &&
+        type !== "replica:bridge:request-navigation-ready" &&
         type !== "replica:bridge:restore-fragment" &&
         type !== "replica:bridge:set-theme"
       )
@@ -107,7 +108,10 @@ export function usePreviewBridge({
     setResolutions(new Map())
     pendingSelectionRequest.current = null
     fragmentRestoration.current = null
-    const id = post("replica:bridge:request-ready", {})
+    const id = post(
+      isolated ? "replica:bridge:request-navigation-ready" : "replica:bridge:request-ready",
+      {},
+    )
     const frame = iframeRef.current?.contentWindow
     navigation.current =
       id && previewUrl && frame ? { id, url: previewUrl, frame, ready: false } : null
@@ -294,7 +298,7 @@ export function usePreviewBridge({
           setSelectionFailure(null)
           pendingSelectionRequest.current = null
           post("replica:bridge:clear-selection", {})
-          const id = post("replica:bridge:request-ready", {})
+          const id = post("replica:bridge:request-navigation-ready", {})
           navigation.current =
             id && previewUrl ? { id, url: previewUrl, frame: frameWindow, ready: false } : null
           setReady(false)

@@ -7,6 +7,7 @@ import { createPreviewBridgeTestHarness } from "./create-preview-bridge-test-har
 const harness = createPreviewBridgeTestHarness()
 const { anchor, areaAnchor, bridgeWindow, dispatchMessage, message, postedMessages, renderFrames } =
   harness
+const SCOPED_REQUEST_ID = "00000000-0000-4000-8000-000000000001"
 
 beforeEach(() => onTestFinished(harness.close))
 
@@ -146,51 +147,116 @@ describe("installReplicaPreviewBridge()", () => {
     )
   })
 
-  it("keeps default-branch previews browse-only without consuming application shortcuts", () => {
-    const { parent, preview, postMessage } = bridgeWindow({ reviewEnabled: false })
-    const applicationShortcut = vi.fn()
-    preview.addEventListener("keydown", applicationShortcut)
-    for (const [key, shiftKey] of [
-      ["c", false],
-      ["h", false],
-      ["C", true],
-    ] as const) {
-      const event = new preview.KeyboardEvent("keydown", { key, shiftKey, cancelable: true })
-      preview.dispatchEvent(event)
-      expect(event.defaultPrevented).toBe(false)
+  it.each(["legacy", "scoped"])(
+    "keeps default-branch previews browse-only after a %s handshake",
+    (handshake) => {
+      const { parent, preview, postMessage } = bridgeWindow({ reviewEnabled: false })
+      const request =
+        handshake === "legacy"
+          ? message("replica:bridge:request-ready")
+          : { ...message("replica:bridge:request-navigation-ready"), requestId: SCOPED_REQUEST_ID }
+      const navigation = handshake === "legacy" ? {} : { navigationId: SCOPED_REQUEST_ID }
+      dispatchMessage(preview, parent, request)
+      expect(postMessage.mock.lastCall).toEqual([
+        {
+          protocolVersion: 1,
+          requestId: request.requestId,
+          type: "replica:bridge:ready",
+          payload: { route: { pathname: "/", search: "", hash: "" } },
+          ...navigation,
+        },
+        "http://replica.localhost:19500",
+      ])
+      if (handshake === "legacy") {
+        expect(postMessage.mock.lastCall?.[0]).not.toHaveProperty("navigationId")
+      }
+      postMessage.mockClear()
+
+      const applicationShortcut = vi.fn()
+      preview.addEventListener("keydown", applicationShortcut)
+      for (const [key, shiftKey] of [
+        ["c", false],
+        ["h", false],
+        ["C", true],
+      ] as const) {
+        const event = new preview.KeyboardEvent("keydown", { key, shiftKey, cancelable: true })
+        preview.dispatchEvent(event)
+        expect(event.defaultPrevented).toBe(false)
+      }
+      expect(applicationShortcut).toHaveBeenCalledTimes(3)
+      expect(postMessage).not.toHaveBeenCalled()
+
+      dispatchMessage(preview, parent, message("replica:bridge:select-element"))
+      dispatchMessage(preview, parent, message("replica:bridge:select-area"))
+      dispatchMessage(
+        preview,
+        parent,
+        message("replica:bridge:resolve-anchors", {
+          replace: true,
+          anchors: [{ commentId: 1, originBuild: true, anchor: anchor() }],
+        }),
+      )
+      expect(preview.document.documentElement.style.cursor).toBe("")
+      expect(preview.document.querySelector("[data-replica-bridge]")).toBeNull()
+      expect(postMessage).not.toHaveBeenCalled()
+
+      dispatchMessage(preview, parent, message("replica:bridge:set-theme", { theme: "dark" }))
+      expect(preview.document.documentElement.dataset.replicaTheme).toBe("dark")
+      preview.history.pushState({}, "", "/settings?tab=profile#name")
+      expect(postMessage.mock.lastCall).toEqual([
+        {
+          protocolVersion: 1,
+          requestId: expect.any(String) as unknown,
+          type: "replica:bridge:route-changed",
+          payload: { route: { pathname: "/settings", search: "?tab=profile", hash: "#name" } },
+          ...navigation,
+        },
+        "http://replica.localhost:19500",
+      ])
+      if (handshake === "legacy") {
+        expect(postMessage.mock.lastCall?.[0]).not.toHaveProperty("navigationId")
+      }
+    },
+  )
+
+  it("requires a v4 UUID to scope replies without changing the legacy ready response", () => {
+    const { parent, preview, postMessage } = bridgeWindow()
+    const scoped = {
+      ...message("replica:bridge:request-navigation-ready"),
+      requestId: SCOPED_REQUEST_ID,
     }
-    expect(applicationShortcut).toHaveBeenCalledTimes(3)
+
+    dispatchMessage(preview, parent, { ...scoped, requestId: "legacy-request-id" })
+    dispatchMessage(preview, parent, {
+      ...scoped,
+      requestId: "00000000-0000-1000-8000-000000000001",
+    })
+    dispatchMessage(preview, parent, { ...scoped, payload: { extra: true } })
     expect(postMessage).not.toHaveBeenCalled()
 
-    dispatchMessage(preview, parent, message("replica:bridge:select-element"))
-    dispatchMessage(preview, parent, message("replica:bridge:select-area"))
-    dispatchMessage(
-      preview,
-      parent,
-      message("replica:bridge:resolve-anchors", {
-        replace: true,
-        anchors: [{ commentId: 1, originBuild: true, anchor: anchor() }],
-      }),
-    )
-    expect(preview.document.documentElement.style.cursor).toBe("")
-    expect(preview.document.querySelector("[data-replica-bridge]")).toBeNull()
-    expect(postMessage).not.toHaveBeenCalled()
-
-    dispatchMessage(preview, parent, message("replica:bridge:set-theme", { theme: "dark" }))
-    expect(preview.document.documentElement.dataset.replicaTheme).toBe("dark")
-    dispatchMessage(preview, parent, message("replica:bridge:request-ready"))
-    expect(postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "replica:bridge:ready",
-        payload: { route: { pathname: "/", search: "", hash: "" } },
-      }),
+    dispatchMessage(preview, parent, scoped)
+    const ready = {
+      protocolVersion: 1,
+      type: "replica:bridge:ready",
+      payload: { route: { pathname: "/", search: "", hash: "" } },
+    }
+    expect(postMessage.mock.lastCall).toEqual([
+      { ...ready, requestId: SCOPED_REQUEST_ID, navigationId: SCOPED_REQUEST_ID },
       "http://replica.localhost:19500",
-    )
-    preview.history.pushState({}, "", "/settings?tab=profile#name")
-    expect(postMessage).toHaveBeenCalledWith(
+    ])
+
+    const legacy = message("replica:bridge:request-ready")
+    dispatchMessage(preview, parent, legacy)
+    expect(postMessage.mock.lastCall).toEqual([
+      { ...ready, requestId: legacy.requestId },
+      "http://replica.localhost:19500",
+    ])
+    expect(postMessage.mock.lastCall?.[0]).not.toHaveProperty("navigationId")
+    preview.history.pushState({}, "", "/settings")
+    expect(postMessage).toHaveBeenLastCalledWith(
       expect.objectContaining({
         type: "replica:bridge:route-changed",
-        payload: { route: { pathname: "/settings", search: "?tab=profile", hash: "#name" } },
+        navigationId: SCOPED_REQUEST_ID,
       }),
       "http://replica.localhost:19500",
     )
