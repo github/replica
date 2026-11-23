@@ -8,8 +8,10 @@ export async function leaseOwnership(
   account: string,
   container: string,
   blob: string,
+  operation?: "private-preview",
 ) {
-  const target = JSON.stringify([context.config, account, container, blob])
+  const coordinates = [context.config, account, container, blob]
+  const target = JSON.stringify(operation ? [...coordinates, operation] : coordinates)
   const key = createHash("sha256").update(target).digest("hex")
   const path = join(context.directory, `lease-${key}.json`)
   let original = await readPrivateFile(path, { createDirectory: false })

@@ -15,7 +15,7 @@ export async function acquireLease(
   container: string,
   blob: string,
   create = false,
-  { recover = true }: { recover?: boolean } = {},
+  { operation }: { operation?: "private-preview" } = {},
 ) {
   const { azure, directory, ui } = context
   const args = [
@@ -68,7 +68,8 @@ export async function acquireLease(
       )
     }
   }
-  const ownership = await leaseOwnership(context, account, container, blob)
+  const ownership = await leaseOwnership(context, account, container, blob, operation)
+  const recover = operation !== "private-preview"
   const unavailable =
     `The lock at ${account}/${container}/${blob} is held or unverifiable. ` +
     "Wait for its owner or recover it separately. This step will not clear the lock or stop Hub."
