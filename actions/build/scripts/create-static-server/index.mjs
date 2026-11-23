@@ -15,7 +15,10 @@ export function createStaticServer(dist, templatePaths = [], basePath = "/") {
 
   return createServer(async (request, response) => {
     try {
-      const pathname = new URL(request.url, "http://localhost").pathname
+      const { pathname, search } = new URL(request.url, "http://localhost")
+      if (base !== "/" && pathname === base.slice(0, -1)) {
+        return response.writeHead(308, { Location: `${base}${search}` }).end()
+      }
       if (!pathname.startsWith(base)) return response.writeHead(404).end()
       const requestPath = decodeURIComponent(`/${pathname.slice(base.length)}`)
       const templateNavigation = templatePathnames.has(requestPath)
@@ -26,14 +29,15 @@ export function createStaticServer(dist, templatePaths = [], basePath = "/") {
         return
       }
 
-      const relativePath = requestPath === "/" ? "index.html" : requestPath.slice(1)
+      const relativePath = requestPath.slice(1)
 
       if (relativePath.includes("\\") || relativePath.split("/").includes("..")) {
         response.writeHead(400).end()
         return
       }
 
-      let filePath = path.join(dist, relativePath)
+      const documentPath = requestPath.endsWith("/") ? `${relativePath}index.html` : relativePath
+      let filePath = path.join(dist, documentPath)
       let details
       try {
         details = await lstat(filePath)

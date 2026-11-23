@@ -54,6 +54,46 @@ describe("createStaticServer()", () => {
     }
   })
 
+  it("uses a nested index only when the document path ends in a slash", async () => {
+    const dist = await temporaryDirectory()
+    const app = "<!doctype html><h1>App</h1>"
+    const guide = "<!doctype html><h1>Guide</h1>"
+    await mkdir(path.join(dist, "guide"))
+    await writeFile(path.join(dist, "index.html"), app)
+    await writeFile(path.join(dist, "guide/index.html"), guide)
+    const base = "/previews/github/2001/4001/"
+    const server = createStaticServer(dist, ["/guide", "/guide/"], base)
+    const port = await listenOnLoopback(server)
+    const origin = `http://127.0.0.1:${port}${base}`
+    try {
+      const headers = { Accept: "text/html" }
+      const directory = await fetch(`${origin}guide/`, { headers })
+      assert.equal(directory.status, 200)
+      assert.equal(await directory.text(), guide)
+      const browserRoute = await fetch(`${origin}guide`, { headers })
+      assert.equal(browserRoute.status, 200)
+      assert.equal(await browserRoute.text(), app)
+    } finally {
+      await closeServer(server)
+    }
+  })
+
+  it("redirects the slashless Build mount to its canonical root without dropping the query", async () => {
+    const dist = await temporaryDirectory()
+    const base = "/previews/github/2001/4001/"
+    const server = createStaticServer(dist, [], base)
+    const port = await listenOnLoopback(server)
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}${base.slice(0, -1)}?theme=dark`, {
+        redirect: "manual",
+      })
+      assert.equal(response.status, 308)
+      assert.equal(response.headers.get("location"), `${base}?theme=dark`)
+    } finally {
+      await closeServer(server)
+    }
+  })
+
   it("falls back for declared dotted and directory routes without hiding missing assets", async () => {
     const dist = await temporaryDirectory()
     const html = "<!doctype html><h1>App</h1>"
