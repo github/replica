@@ -51,6 +51,7 @@ en:
         author: Author
         me: Me
         all_authors: All authors
+        automation: Automation
         search_authors: Search authors
         more_authors: More
         first_authors: First authors

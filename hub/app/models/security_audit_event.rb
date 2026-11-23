@@ -36,10 +36,10 @@ class SecurityAuditEvent < ApplicationRecord
   RETENTION = 90.days
   OUTCOMES = %w[succeeded denied failed].freeze
   CONTEXT_IDS = %w[
-    session_id canvas_grant_id canvas_pairing_id share_link_id
+    session_id canvas_grant_id canvas_pairing_id task_connection_id share_link_id
     analytics_destination_id github_app_configuration_id target_user_id
   ].freeze
-  SOURCES = %w[browser canvas command bootstrap].freeze
+  SOURCES = %w[browser canvas task command bootstrap].freeze
   DEVICE_FAMILIES = %w[desktop mobile unknown].freeze
   BROWSER_FAMILIES = %w[edge firefox chrome safari unknown].freeze
 

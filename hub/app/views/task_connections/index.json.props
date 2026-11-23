@@ -1,0 +1,22 @@
+json.kind "connections"
+json.pageTitle t("task_connections.index.heading")
+json.productName t("application.name")
+json.heading t("task_connections.index.heading")
+json.description t("task_connections.index.description")
+json.emptyLabel t("task_connections.index.empty")
+json.backLabel t("task_connections.index.back")
+json.backPath repositories_path
+json.revokeLabel t("task_connections.index.revoke")
+json.notice flash[:notice]
+json.authenticityToken form_authenticity_token
+json.grants do
+  json.array! @connections do |connection|
+    json.id connection.id
+    json.repository connection.repository.name_with_owner
+    json.branch connection.branch_name
+    json.expiresLabel t \
+      "task_connections.index.expires",
+      date: connection.expires_at.utc.strftime("%B %-d, %Y at %H:%M UTC")
+    json.revokePath task_connection_path(connection)
+  end
+end

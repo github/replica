@@ -14,6 +14,7 @@ export const prototypeListing: PrototypeListing = {
     author: "Author",
     me: "Me",
     allAuthors: "All authors",
+    automation: "Automation",
     searchAuthors: "Search authors",
     moreAuthors: "More",
     firstAuthors: "First authors",

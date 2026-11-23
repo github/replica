@@ -13,9 +13,10 @@ class Repository::PrototypeListing < ActiveRecord::AssociatedObject
   def page(user:, query: nil, author: nil, page: nil)
     query = normalized_query(query)
     author = normalized_author(author)
-    author_id = author == "me" ? user.id : author.presence&.to_i
+    author_id = author == "me" ? user.id : (author.to_i if author.match?(/\A[1-9]\d*\z/))
     relation = base
     relation = relation.where(author_id:) if author_id
+    relation = relation.where.not(registration_task_connection_id: nil) if author == "automation"
     if query.present?
       relation = relation.left_joins(:author).where \
         "prototypes.name LIKE :query ESCAPE '\\' OR prototypes.description LIKE :query ESCAPE '\\' " \
@@ -85,7 +86,7 @@ class Repository::PrototypeListing < ActiveRecord::AssociatedObject
   # Named authors use immutable saved IDs; Me always resolves on the server.
   def normalized_author(value)
     return "" if value.nil? || value == ""
-    return value if value == "me"
+    return value if %w[me automation].include?(value)
     raise InvalidQuery unless value.is_a?(String) && value.match?(/\A[1-9]\d{0,17}\z/)
 
     value

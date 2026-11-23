@@ -100,6 +100,18 @@ For a non-Default template, both prompts also instruct the agent to make the cur
 
 ## Add a prototype to the gallery
 
+### Register from a headless task
+
+A repository writer can [approve a task connection](authentication-and-repository-authorization.md#branch-scoped-task-connections) for one branch without opening the desktop canvas. Approval lasts exactly 24 hours with no automatic extension. Follow-up commits on that branch need no further approval within that period. Each request still checks the approving person's current write access and the connection's scope, expiry and revocation.
+
+The task explicitly names the discovered Prototype and the exact commit to register. Hub requires a successful imported Build for that commit and checks the current remote branch head. A moved branch, retired identity or replacement history stops the request; an explicit retry can select the intended new commit without renewing an otherwise live connection. Discovery and workflow success alone never add branches to the gallery.
+
+Registration preserves saved title, description and start page, using the branch name as the initial title when none exists. Repeated requests preserve the first registration and metadata. Even an already registered branch cannot report a task ready using another commit's successful preview. The response identifies the exact saved Build and supplies an authenticated link pinned to it; this does not create a public share or expand repository access.
+
+Headless task registrations display **Automation** instead of the approving person's name. The **Automation** author filter selects those registrations; **All authors** includes them and **Me** does not attribute them to the person who approved access. Expired or revoked task connections retain that first-registration attribution. Later human edits or another task do not transfer it. Legacy records without attribution still display **Author unavailable**.
+
+### Register from Hub
+
 Hub discovers non-default branches without assuming they are prototypes. The gallery shows a separate alert for each eligible, unlisted branch the current person pushed within the past 12 hours. Each alert identifies the branch and offers **Add to Hub**, which registers it immediately with its branch name as its title and returns to the gallery. The less prominent **Hide message** action permanently hides that branch's alert for the signed-in person who clicks it, including after later pushes, reloads, and sign-ins. It does not hide anyone else's alerts or change discovery, Builds, or registration. The branch remains available through **Manage prototypes**. Local branch alerts use the same saved preference for the local identity. If another writer has already added the branch, submitting an older alert leaves its saved details and first author unchanged. Writers can edit its title and description afterward through the gear beside **Prototypes**.
 
 Hub uses GitHub's repository activity timestamps and actor identity, not commit author dates or the time Hub discovered a Build. Pushes, force pushes, and branch creation count; merges and branch deletion do not. Hub reads all activity pages for the current person over the last day and applies the 12-hour cutoff on each page request. Alerts disappear after that window, but older eligible branches remain available through the gear.

@@ -104,6 +104,13 @@ export function PrototypeAuthorOptions({
       <ActionMenu.Item {...choiceProps} value="" selected={!listing.author}>
         {copy.allAuthors}
       </ActionMenu.Item>
+      <ActionMenu.Item
+        {...choiceProps}
+        value="automation"
+        selected={listing.author === "automation"}
+      >
+        {copy.automation}
+      </ActionMenu.Item>
 
       {failed ? (
         <li role="presentation" className="prototype-author-filter__status">

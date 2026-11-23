@@ -1,0 +1,24 @@
+en:
+  task_connections:
+    show:
+      heading: Approve prototype task
+      description: Give this task permission to publish one prototype branch. This does not sign Copilot in to your browser account.
+      code_label: Connection code
+      code_instruction: Only approve if this code, repository and branch match the request in your Copilot conversation.
+      repository_label: Repository
+      branch_label: Branch
+      approval_deadline: "This request must be approved and connected by %{date}."
+      permissions: The task can register this branch and read its publication status. Approval includes follow-up commits on this branch, but no other branches. It does not allow public sharing, screenshots, review changes or Hub administration. Your approval is recorded separately from the task's registration identity.
+      expiration: Access expires 24 hours after approval. Follow-up commits and automatic requests never extend it. Hub checks your current repository write access before each operation. Review the exact expiry and revoke access from
+      approve: Approve task
+      cancel: Deny request
+      approved: Task approved. Return to Copilot to finish connecting before the request deadline.
+      denied: Task request denied. No credential was issued.
+    index:
+      heading: Prototype task connections
+      description: Approved tasks can publish follow-up commits on their listed branch until expiry. Revoking a connection stops future access without deleting published Builds.
+      empty: No active task connections.
+      expires: "Expires %{date}. This deadline does not extend."
+      revoke: Revoke
+      revoked: Task connection revoked. Future access is blocked.
+      back: Back to repositories

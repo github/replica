@@ -22,6 +22,7 @@ Other boundaries:
 - Every repository page checks the person's current GitHub access.
 - Signed-out pages reveal no setup, installation, or repository details.
 - If GitHub cannot confirm access, Hub denies that repository request.
+- [Task connections](authentication-and-repository-authorization.md#branch-scoped-task-connections) have explicit writer consent for one repository/branch and a fixed 24-hour lifetime. The connection is a workload identity, not the approving person's browser or canvas identity. It authorizes no screenshots, public shares, review changes or administration. Same-user repository code is not isolated by the reference client's private file permissions; actual cloud-host credential isolation remains a rollout gate.
 - With a private organization App, every organization member can read a public repository's Hub reviews. See [App ownership and repository visibility](authentication-and-repository-authorization.md#app-ownership-and-repository-visibility) before connecting repositories or changing visibility.
 - Changing review data requires a Hub Session, repository access, and an anti-forgery token.
 - Analytics-destination changes additionally require [fresh GitHub authorization](fresh-authorization.md) on the initiating Session or canvas grant. Verification in another scope cannot unlock them.

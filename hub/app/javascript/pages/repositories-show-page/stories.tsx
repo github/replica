@@ -168,27 +168,12 @@ export const Multiple: Story = {
           name: "Navigation",
           description: "Explore a different navigation layout.",
           path: "/repositories/2001/prototypes/2",
+          author: { avatarUrl: null, label: "Automation", ownerLabel: "Automation", url: null },
           latestBuild: { state: "running", stateLabel: "Running" },
-          reviewBuild: undefined,
-          previewFallbackLabel: "No successful Build yet",
+          reviewBuild: welcomePrototype.reviewBuild,
         },
       ],
       prototypesCountLabel: "2 prototypes",
-    },
-  },
-}
-
-export const WideViewSwitching: Story = {
-  ...Multiple,
-  globals: { viewport: { value: "wideDesktop", isRotated: false } },
-  parameters: {
-    viewport: {
-      options: {
-        wideDesktop: {
-          name: "Wide desktop",
-          styles: { width: "1920px", height: "1080px" },
-        },
-      },
     },
   },
 }

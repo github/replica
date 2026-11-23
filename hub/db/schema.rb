@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_07_220000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_10_103000) do
   create_table "analytics_deliveries", force: :cascade do |t|
     t.integer "attempts", default: 0, null: false
     t.datetime "created_at", null: false
@@ -482,8 +482,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_07_220000) do
     t.bigint "head_observation_revision", default: 0, null: false
     t.datetime "branch_deleted_at"
     t.string "retired_head_sha"
+    t.integer "registration_task_connection_id"
     t.index ["author_id"], name: "index_prototypes_on_author_id"
     t.index ["current_build_id"], name: "index_prototypes_on_current_build_id"
+    t.index ["registration_task_connection_id"], name: "index_prototypes_on_registration_task_connection_id"
     t.index ["repository_id", "author_id", "registered_at", "id"], name: "index_prototypes_on_gallery_author", where: "branch_deleted_at IS NULL AND registered_at IS NOT NULL"
     t.index ["repository_id", "branch_name", "branch_deleted_at"], name: "idx_on_repository_id_branch_name_branch_deleted_at_37960952d6"
     t.index ["repository_id", "branch_name"], name: "index_prototypes_on_active_branch", unique: true, where: "branch_deleted_at IS NULL"
@@ -493,6 +495,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_07_220000) do
     t.check_constraint "length(trim(branch_name)) BETWEEN 1 AND 255", name: "prototypes_branch_name"
     t.check_constraint "name IS NULL OR length(trim(name)) BETWEEN 1 AND 255", name: "prototypes_name"
     t.check_constraint "registered_at IS NULL OR name IS NOT NULL", name: "prototypes_registration"
+    t.check_constraint "registration_task_connection_id IS NULL OR author_id IS NULL", name: "prototypes_registration_actor"
     t.check_constraint "replica = 0 OR registered_at IS NULL", name: "prototypes_replica_unregistered"
     t.check_constraint "retired_head_sha IS NULL OR (branch_deleted_at IS NOT NULL AND length(retired_head_sha) = 40 AND retired_head_sha NOT GLOB '*[^0-9a-f]*')", name: "prototypes_retired_head"
     t.check_constraint "start_page IS NULL OR (length(CAST(start_page AS BLOB)) BETWEEN 1 AND 2048 AND substr(start_page, 1, 1) = '/' AND substr(start_page, 1, 2) != '//')", name: "prototypes_start_page"
@@ -671,6 +674,31 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_07_220000) do
     t.check_constraint "revision >= 0", name: "sharing_settings_revision"
   end
 
+  create_table "task_connections", force: :cascade do |t|
+    t.integer "repository_id", null: false
+    t.integer "approving_user_id"
+    t.string "branch_name", null: false
+    t.string "device_code_digest"
+    t.string "user_code", null: false
+    t.datetime "approval_expires_at", null: false
+    t.datetime "approved_at"
+    t.datetime "expires_at"
+    t.datetime "consumed_at"
+    t.datetime "revoked_at"
+    t.string "token_digest"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["approving_user_id"], name: "index_task_connections_on_approving_user_id"
+    t.index ["device_code_digest"], name: "index_task_connections_on_device_code_digest", unique: true
+    t.index ["id", "repository_id", "branch_name"], name: "task_connections_registration_identity", unique: true
+    t.index ["repository_id"], name: "index_task_connections_on_repository_id"
+    t.index ["token_digest"], name: "index_task_connections_on_token_digest", unique: true
+    t.index ["user_code"], name: "index_task_connections_on_user_code", unique: true
+    t.check_constraint "(approved_at IS NULL AND approving_user_id IS NULL AND expires_at IS NULL) OR (approved_at IS NOT NULL AND approving_user_id IS NOT NULL AND expires_at IS NOT NULL AND julianday(expires_at) = julianday(approved_at) + 1)", name: "task_connections_approval"
+    t.check_constraint "(consumed_at IS NULL AND token_digest IS NULL) OR (approved_at IS NOT NULL AND consumed_at IS NOT NULL AND token_digest IS NOT NULL AND device_code_digest IS NULL)", name: "task_connections_consumption"
+    t.check_constraint "length(trim(branch_name)) BETWEEN 1 AND 255", name: "task_connections_branch"
+  end
+
   create_table "users", force: :cascade do |t|
     t.string "avatar_url"
     t.datetime "created_at", null: false
@@ -802,6 +830,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_07_220000) do
   add_foreign_key "prototype_introductions", "users", on_delete: :cascade
   add_foreign_key "prototypes", "builds", column: ["current_build_id", "id"], primary_key: ["id", "prototype_id"], on_delete: :restrict
   add_foreign_key "prototypes", "repositories"
+  add_foreign_key "prototypes", "task_connections", column: ["registration_task_connection_id", "repository_id", "branch_name"], primary_key: ["id", "repository_id", "branch_name"], on_delete: :restrict
   add_foreign_key "prototypes", "users", column: "author_id"
   add_foreign_key "review_comment_reactions", "review_comments", on_delete: :cascade
   add_foreign_key "review_comment_reactions", "users", on_delete: :restrict
@@ -821,5 +850,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_07_220000) do
   add_foreign_key "share_links", "prototypes", on_delete: :restrict
   add_foreign_key "share_links", "users", column: "created_by_id", on_delete: :restrict
   add_foreign_key "share_preview_grants", "share_links", on_delete: :cascade
+  add_foreign_key "task_connections", "repositories", on_delete: :restrict
+  add_foreign_key "task_connections", "users", column: "approving_user_id", on_delete: :restrict
   add_foreign_key "webhook_deliveries", "builds", on_delete: :nullify
 end

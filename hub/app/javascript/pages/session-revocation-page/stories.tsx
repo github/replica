@@ -19,17 +19,17 @@ export const sessionRevocationData: SessionRevocationPageData = {
   pageTitle: "End all Hub sessions",
   heading: "End all Hub sessions",
   description:
-    "Sign everyone out of this Hub and disconnect existing Copilot canvas connections. People can sign in and approve new connections afterward.",
+    "Sign everyone out of this Hub and disconnect existing Copilot canvas and task connections. People can sign in and approve new connections afterward.",
   canRevoke: true,
   signedOut: false,
   scope:
-    "Existing browser sessions, canvas access and refresh credentials, pending canvas approvals, preview handoffs, and signed-in preview access will end. Public share links and public previews will not change.",
+    "Existing browser sessions, canvas access and refresh credentials, task credentials, pending approvals, preview handoffs, and signed-in preview access will end. Public share links and public previews will not change.",
   ownSession:
     "Your own session (@octocat) will end too. This browser will show the result without requiring another sign-in.",
   verification:
     "GitHub must have verified this browser's account within the last five minutes. If verification is required, Hub ends the sessions after it succeeds.",
   counts:
-    "3 browser sessions, 2 canvas connections, and 1 pending approval. Counts can change before confirmation.",
+    "3 browser sessions, 2 canvas connections, 1 task connection, and 1 pending approval. Counts can change before confirmation.",
   emptyLabel: null,
   confirmLabel: "I understand this will end everyone's sessions, including my own.",
   submitLabel: "End all sessions",
@@ -43,9 +43,9 @@ const result: SessionRevocationPageData = {
   ...sessionRevocationData,
   heading: "All existing Hub sessions ended",
   description:
-    "Your session has ended. Existing browser sessions, canvas access and refresh credentials, pending approvals, and signed-in preview handoffs no longer authorize access. Sign in again to continue.",
+    "Your session has ended. Existing browser sessions, canvas access and refresh credentials, task credentials, pending approvals, and signed-in preview handoffs no longer authorize access. Sign in again to continue.",
   scope:
-    "Public share links and public previews have not changed. People can sign in and approve new canvas connections.",
+    "Public share links and public previews have not changed. People can sign in and approve new canvas or task connections.",
   canRevoke: false,
   signedOut: true,
   administrationWorkspace: null,
@@ -73,9 +73,10 @@ export const OnlyYourSession: Story = {
   args: {
     data: {
       ...sessionRevocationData,
-      counts: "1 browser session, 0 canvas connections, and 0 pending approvals.",
+      counts:
+        "1 browser session, 0 canvas connections, 0 task connections, and 0 pending approvals.",
       emptyLabel:
-        "No other browser sessions, canvas connections, or pending approvals are active. Your own session will still end.",
+        "No other browser sessions, canvas connections, task connections, or pending approvals are active. Your own session will still end.",
     },
   },
 }

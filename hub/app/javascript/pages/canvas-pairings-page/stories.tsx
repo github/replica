@@ -92,3 +92,84 @@ export const ApprovedPending: Story = {
 }
 
 export const Empty: Story = { args: { data: { ...connections, grants: [], notice: null } } }
+
+export const TaskApproval: Story = {
+  args: {
+    data: {
+      ...approval,
+      pageTitle: "Approve prototype task",
+      heading: "Approve prototype task",
+      description: "Give this task permission to publish one prototype branch.",
+      codeInstruction:
+        "Only approve if this code, repository and branch match the request in your Copilot conversation.",
+      repository: "github/prototype",
+      branch: "prototype/welcome",
+      branchLabel: "Branch",
+      approvalDeadline:
+        "This request must be approved and connected by December 1, 2026 at 10:00 UTC.",
+      permissions:
+        "The task can register this branch and read its publication status. Approval includes follow-up commits on this branch, but no other branches. It does not allow public sharing, screenshots, review changes or Hub administration. Your approval is recorded separately from the task's registration identity.",
+      learningsConsentVersion: undefined,
+      expiration:
+        "Access expires 24 hours after approval. Follow-up commits and automatic requests never extend it. Hub checks your current repository write access before each operation. Review the exact expiry and revoke access from",
+      connectionsLabel: "Prototype task connections",
+      connectionsPath: "/tasks/connections",
+      approveLabel: "Approve task",
+      approvePath: "/tasks/approve/ABCDEF1234",
+      cancelLabel: "Deny request",
+      cancelPath: "/tasks/approve/ABCDEF1234",
+      cancelMethod: "delete",
+    },
+  },
+}
+
+const taskConnections: CanvasPairingsPageData = {
+  ...connections,
+  pageTitle: "Prototype task connections",
+  heading: "Prototype task connections",
+  description:
+    "Approved tasks can publish follow-up commits on their listed branch until expiry. Revoking a connection stops future access without deleting published Builds.",
+  emptyLabel: "No active task connections.",
+  grants: [
+    {
+      id: 1,
+      repository: "github/prototype",
+      branch: "prototype/welcome",
+      expiresLabel: "Expires December 2, 2026 at 10:00 UTC. This deadline does not extend.",
+      revokePath: "/tasks/connections/1",
+    },
+  ],
+}
+
+export const TaskConnections: Story = { args: { data: taskConnections } }
+
+export const TaskConnectionsMultiple: Story = {
+  args: {
+    data: {
+      ...taskConnections,
+      grants: [
+        ...taskConnections.grants,
+        {
+          id: 2,
+          repository: "github/prototype",
+          branch: "prototype/navigation",
+          expiresLabel: "Expires December 2, 2026 at 12:00 UTC. This deadline does not extend.",
+          revokePath: "/tasks/connections/2",
+        },
+      ],
+    },
+  },
+}
+
+export const TaskConnectionsEmpty: Story = {
+  args: { data: { ...taskConnections, grants: [] } },
+}
+
+export const TaskApprovedPending: Story = {
+  args: {
+    data: {
+      ...taskConnections,
+      notice: "Task approved. Return to Copilot to finish connecting before the request deadline.",
+    },
+  },
+}

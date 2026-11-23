@@ -61,6 +61,20 @@ Rails.application.routes.draw do
     post "canvas/pair/:user_code", to: "canvas_pairings#approve", as: :approve_canvas_pairing
     get "canvas/connections", to: "canvas_pairings#index", as: :canvas_connections
     delete "canvas/connections/:id", to: "canvas_pairings#destroy", as: :canvas_connection
+    get "tasks/approve/:user_code", to: "task_connections#show", as: :task_approval
+    post "tasks/approve/:user_code", to: "task_connections#approve"
+    delete "tasks/approve/:user_code", to: "task_connections#cancel"
+    get "tasks/connections", to: "task_connections#index", as: :task_connections
+    delete "tasks/connections/:id", to: "task_connections#destroy", as: :task_connection
+    namespace :task_api, path: "api/tasks" do
+      post "connections", to: "connections#create"
+      post "connections/token", to: "connections#token"
+      get "connection", to: "connections#show"
+      delete "connection", to: "connections#destroy"
+      resource :prototype, only: :show do
+        resource :registration, only: :update
+      end
+    end
     namespace :canvas_api, path: "api/canvas" do
       post "pairings", to: "pairings#create"
       post "pairings/token", to: "pairings#show", as: :pairing_token

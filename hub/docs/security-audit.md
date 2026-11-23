@@ -78,6 +78,7 @@ Open **End all Hub sessions** from the deployment audit or administrator page. T
 | Learnings | Run requests and accepted, rejected, or retired learnings, with rejected or failed attempts, in the repository's audit |
 | GitHub App emergency recovery | Same-App host credential repair and rejected/failed command attempts |
 | Canvas connections | Anonymous pairing creation, browser approval, credential issuance and renewal, interactive inactivity extension, and revocation through browser, access-token, or refresh-token routes |
+| Task connections | Anonymous branch request, explicit browser approval or denial, one-use credential issuance, revocation, and rejected or failed API authorization |
 | Operator enrollment | Verified designation and rejected enrollment attempts |
 | Hub administrators | Existing-user listing and confirmation access, designation, removal, and rejected role changes |
 | Public-sharing policy | Deployment settings access, enable, disable and rejected changes; permanent link revocation and confirmed creator repository-access loss |
@@ -85,6 +86,8 @@ Open **End all Hub sessions** from the deployment audit or administrator page. T
 | Audit access | Successful reads and rejected access attempts |
 
 Outcomes distinguish succeeded, denied, and failed operations. A missing actor is valid for initial setup, signed-out requests, and operator commands. Command records have no browser or source IP. Local database changes and their success records commit together. A failed audit write raises an error rather than silently dropping evidence. External GitHub calls stay outside database transactions; their audit follows the confirmed result, not an invented rollback of the remote operation.
+
+Task API records use the `task` source and a nonsecret `task_connection_id` when authenticated. Their human actor is absent: the approving user is consent provenance on the retained connection, not the actor of later task requests. Browser approval and browser revocation record the person actually performing those actions. Private proof and token values never enter the audit.
 
 Local HTTP 429 responses stay in ordinary request logs, not the 90-day audit trail. This applies to anonymous requests and authenticated operators alike. Admitted attempts still record their normal decisions. Missing required input is a failed operation. Enrollment distinguishes rejected identity, state, proof, or OAuth authorization from GitHub outages, rate limits, and invalid service responses.
 

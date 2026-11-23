@@ -40,6 +40,7 @@ export interface PrototypeListing {
     author: string
     me: string
     allAuthors: string
+    automation: string
     searchAuthors: string
     moreAuthors: string
     firstAuthors: string
