@@ -6,6 +6,7 @@ import type { PREVIEW_BRIDGE_MESSAGE_SCHEMA } from "./schemas"
 
 export interface PreviewBridgeCommandPayloads {
   "replica:bridge:request-ready": Record<string, never>
+  "replica:bridge:request-navigation-ready": Record<string, never>
   "replica:bridge:restore-fragment": { route: ReviewRoute }
   "replica:bridge:set-theme": { theme: "light" | "dark" }
   "replica:bridge:select-element": Record<string, never>

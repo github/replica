@@ -1,4 +1,3 @@
-import { GlobeIcon } from "@primer/octicons-react"
 import { Stack } from "@primer/react-brand"
 import { useEffect, useRef, useState } from "react"
 import type { SubmitEvent } from "react"
@@ -6,11 +5,11 @@ import type { SubmitEvent } from "react"
 import type { CopilotAppSubmission } from "@components/copilot-app-continuation/types"
 import { CopilotAppContinuationDialog } from "@components/copilot-app-continuation-dialog"
 import { HubAlert } from "@components/hub-alert"
-import { HubEmptyState } from "@components/hub-empty-state"
 import { HubToast } from "@components/hub-toast"
 import { PrototypeBriefComposer } from "@components/prototype-brief-composer"
 import { MinimizedReviewToolbar } from "@features/minimized-review-toolbar"
 import { PrototypePreview } from "@features/prototype-preview"
+import { PreviewUnavailable } from "@features/preview-unavailable"
 import { PrototypeWorkspace } from "@features/prototype-workspace"
 import { useCopilotHandoff } from "@hooks/use-copilot-handoff"
 import { createPrototypeSubmission } from "@utils/create-prototype-submission"
@@ -23,6 +22,7 @@ export function ReplicaBrowsePage({
   iframeRef,
   previewTheme,
   route,
+  previewReady,
   viewerUrl,
   minimized: controlledMinimized,
   initialMinimized = false,
@@ -80,13 +80,32 @@ export function ReplicaBrowsePage({
   }, [expanded, submission, iframeRef])
 
   let address = data.selectedBuild?.previewUrl ?? ""
+  const openUrl = address ? new URL(address) : null
   if (address && route) {
     const url = new URL(address)
     url.pathname = route.pathname
     url.search = route.search
     url.hash = route.hash
     address = url.toString()
+    if (openUrl?.searchParams.has("route")) {
+      openUrl.searchParams.set("route", `${route.pathname}${route.search}${route.hash}`)
+    }
   }
+  const fallback = (
+    <PreviewUnavailable
+      heading={data.selectedBuild ? "Interactive preview unavailable" : data.emptyHeading}
+      description={
+        data.selectedBuild
+          ? "Your browser may block this preview when embedded. You can still start a prototype."
+          : data.emptyLabel
+      }
+      screenshot={
+        previewTheme === "dark" ? (data.darkScreenshot ?? data.screenshot) : data.screenshot
+      }
+      screenshotAlt={`${data.prototypeName} template screenshot`}
+      openUrl={openUrl?.href}
+    />
+  )
 
   async function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -140,17 +159,13 @@ export function ReplicaBrowsePage({
                   controlsToolbar={workspaceControlsToolbar}
                   minimizedControlsToolbar={controlsToolbar}
                   onLoad={onFrameLoad}
+                  ready={previewReady}
+                  fallback={fallback}
                   minimized={minimized}
                   minimize={{ label: data.minimizeHubLabel, onClick: () => changeMinimized(true) }}
                 />
               ) : (
-                <div className="review-shell__empty">
-                  <HubEmptyState
-                    visual={<GlobeIcon size={24} />}
-                    heading={data.emptyHeading}
-                    description={data.emptyLabel}
-                  />
-                </div>
+                <div className="review-shell__empty">{fallback}</div>
               )}
             </Stack>
 

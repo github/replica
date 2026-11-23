@@ -11,6 +11,7 @@ export interface PrototypeReviewOptions {
   reviewCommentsPath: string
   viewerLogin: string
   transport?: ReviewCommentsTransport
+  reviewReadOnly?: boolean
   filters?: ReviewCommentFilters
   onFiltersChange?: (filters: ReviewCommentFilters) => void
   selectedThreadId?: number | null

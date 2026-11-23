@@ -78,6 +78,10 @@
   border-radius: 0 0 0.75rem 0.75rem;
 }
 
+.review-shell__frame[hidden] {
+  display: none;
+}
+
 .review-shell__preview--minimized {
   border: 0;
   border-radius: 0;

@@ -86,6 +86,7 @@ function TemplateScreen({ loaderData }: { loaderData: ProductTemplateResponse })
       iframeRef={iframeRef}
       previewTheme={resolvedColorMode}
       route={bridge.route}
+      previewReady={real ? bridge.ready : undefined}
       onFrameLoad={bridge.handleFrameLoad}
       initialMinimized={pageData.minimizedPreview}
       viewerUrl={real ? viewer.viewerUrl : undefined}
