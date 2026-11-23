@@ -3,12 +3,20 @@
 }
 
 .review-workspace-layer[data-minimized="true"] .repository-navigation,
+.repository-workspace:has(
+    > .repository-workspace__content .review-workspace-layer[data-minimized="true"]
+  )
+  .repository-navigation,
 .review-workspace-layer[data-minimized="true"] .review-shell__header,
 .review-page--minimized .review-branch-composer {
   display: none;
 }
 
-.review-workspace-layer[data-minimized="true"] .repository-workspace__content {
+.review-workspace-layer[data-minimized="true"] .repository-workspace__content,
+.repository-workspace:has(
+    > .repository-workspace__content .review-workspace-layer[data-minimized="true"]
+  )
+  > .repository-workspace__content {
   inset: 0;
   transition: none;
 }

@@ -1,7 +1,3 @@
-import type {
-  RepositoryNavigationContext,
-  WorkspaceSidebarData,
-} from "@features/workspace-sidebar/types"
+import type { RepositoryNavigationContext, WorkspaceNavData } from "@features/workspace-nav/types"
 
-export interface RepositoryNavigationData
-  extends WorkspaceSidebarData, RepositoryNavigationContext {}
+export interface RepositoryNavigationData extends WorkspaceNavData, RepositoryNavigationContext {}

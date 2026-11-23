@@ -14,6 +14,12 @@ import { updatePrototype } from "@application/hub/requests/update-prototype"
 import { PrototypeScreen } from "@application/hub/screens/prototype-screen"
 
 import type { Route } from "./+types/index"
+import type { WorkspaceRouteHandle } from "../workspace/types"
+
+export const handle = {
+  workspaceSection: "prototypes",
+  defaultNavigationCollapsed: true,
+} satisfies WorkspaceRouteHandle
 
 type ActionResponse = ReturnType<typeof data<PrototypeActionResult>>
 

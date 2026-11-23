@@ -11,6 +11,7 @@ interface Props {
   status?: number
   onRetry?: () => void
   retrying?: boolean
+  embedded?: boolean
 }
 
 export function RouteFeedback({
@@ -20,9 +21,11 @@ export function RouteFeedback({
   status,
   onRetry,
   retrying = false,
+  embedded = false,
 }: Props) {
+  const Container = embedded ? "section" : "main"
   return (
-    <main className="hub-route-feedback" tabIndex={-1}>
+    <Container className="hub-route-feedback" tabIndex={-1}>
       <div className="hub-route-feedback__content" role={kind === "error" ? "alert" : "status"}>
         <div className="hub-route-feedback__logo" aria-hidden="true">
           <ReplicaLogo />
@@ -41,12 +44,12 @@ export function RouteFeedback({
                 {retrying ? "Retrying..." : "Try again"}
               </Button>
             ) : null}
-            <Button as="a" href="/" variant="secondary">
+            <Button as="a" href={embedded ? "/repositories" : "/"} variant="secondary">
               Repositories
             </Button>
           </div>
         ) : null}
       </div>
-    </main>
+    </Container>
   )
 }

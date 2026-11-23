@@ -19,6 +19,7 @@ type RouteModule = {
   clientAction?: ActionFunction
   ErrorBoundary?: ComponentType
   HydrateFallback?: ComponentType
+  handle?: unknown
 }
 
 const routeModules = import.meta.glob<RouteModule>([
@@ -43,6 +44,7 @@ function applicationRoute(entry: RouteConfigEntry): RouteObject {
         action: module.clientAction,
         ErrorBoundary: module.ErrorBoundary,
         HydrateFallback: module.HydrateFallback,
+        handle: module.handle,
         // Data routers expose loader data through a hook, unlike framework route props.
         Component: Page ? () => <Page loaderData={useLoaderData()} /> : undefined,
       }

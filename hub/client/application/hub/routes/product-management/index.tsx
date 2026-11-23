@@ -24,6 +24,9 @@ import { productManagementData } from "@application/hub/view-models/product-mana
 
 import { productActionError } from "../product-action-error"
 import { requestProductJson } from "../request-product-json"
+import type { WorkspaceRouteHandle } from "../workspace/types"
+
+export const handle = { workspaceSection: "prototypes" } satisfies WorkspaceRouteHandle
 
 function mockMode() {
   return import.meta.env.DEV && import.meta.env.MODE === "mock"

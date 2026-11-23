@@ -1,18 +1,22 @@
+import { useContext } from "react"
 import { useSearchParams } from "react-router"
 
 import type { WorkspaceResponse } from "@application/hub/contracts/types"
 import { hubWorkspace } from "@application/hub/view-models/hub-workspace"
+import { WorkspaceInboxCountContext } from "@application/hub/workspace-inbox-count-context"
 import { useNotificationInbox } from "@hooks/use-notification-inbox"
 import { NotificationsPage } from "@pages/notifications-page"
 import { notificationInboxConfiguration } from "@utils/notification/inbox-configuration"
 
 export function RealInboxScreen({ workspace }: { workspace: WorkspaceResponse }) {
   const [search, setSearch] = useSearchParams()
+  const onUnreadCountChange = useContext(WorkspaceInboxCountContext)
   const inbox = useNotificationInbox({
     path: notificationInboxConfiguration.path,
     authenticityToken: "",
     unreadOnly: search.get("unread") === "true",
     synchronize: true,
+    onUnreadCountChange,
   })
   return (
     <NotificationsPage

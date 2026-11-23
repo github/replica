@@ -7,12 +7,18 @@ import { cancelCopilotAuthorization } from "@application/hub/requests/cancel-cop
 import { continueCopilotAuthorization } from "@application/hub/requests/continue-copilot-authorization"
 import { getCopilotAuthorization } from "@application/hub/requests/get-copilot-authorization"
 import { getCurrentHubSession } from "@application/hub/requests/get-current-hub-session"
-import { loadAdministratorWorkspace } from "@application/hub/load-administrator-workspace"
 import { ApiContractError } from "@application/hub/requests/api-contract-error"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
 import { resourcePath } from "@application/hub/view-models/resource-path"
+import { useAdministrationNavigation } from "@application/hub/use-administration-navigation"
 
 import type { Route } from "./+types/index"
+import type { WorkspaceRouteHandle } from "../workspace/types"
+
+export const handle = {
+  workspaceSection: "copilot",
+  independentOfRepositoryNavigation: true,
+} satisfies WorkspaceRouteHandle
 
 const authorizationIdSchema = z.uuid()
 
@@ -27,16 +33,13 @@ export async function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "re
   if (session.role !== "ADMINISTRATOR") {
     throw new Response("Administrator access is required.", { status: 403 })
   }
-  const [{ authorization }, workspace] = await Promise.all([
-    getCopilotAuthorization(request, authorizationId.data),
-    loadAdministratorWorkspace(request, session, "copilot"),
-  ])
+  const { authorization } = await getCopilotAuthorization(request, authorizationId.data)
   const connect = authorization.operation === "CONNECT_COPILOT"
   return {
     authorization,
     authorizationId: authorizationId.data,
+    viewerId: session.userId,
     page: {
-      administrationWorkspace: workspace,
       productName: "Replica Hub",
       pageTitle: connect ? "Complete Copilot connection" : "Complete Copilot disconnection",
       heading: connect ? "Complete Copilot connection" : "Complete Copilot disconnection",
@@ -60,6 +63,7 @@ export function meta() {
 export default function SettingsCopilotAuthorization({
   loaderData,
 }: Pick<Route.ComponentProps, "loaderData">) {
+  const workspace = useAdministrationNavigation("copilot", loaderData.viewerId)
   const navigate = useNavigate()
   const [result, setResult] = useState<{ pending: boolean; error: string | null }>({
     pending: false,
@@ -89,8 +93,7 @@ export default function SettingsCopilotAuthorization({
             navigate(
               resourcePath("/settings/copilot", new URLSearchParams(), {
                 result: outcome,
-                repositoryId:
-                  loaderData.page.administrationWorkspace.repository?.selectedRepositoryId ?? null,
+                repositoryId: workspace.repository?.selectedRepositoryId ?? null,
               }),
             ),
           )
@@ -108,7 +111,10 @@ export default function SettingsCopilotAuthorization({
           })
       }}
     >
-      <FreshAuthorizationPage data={loaderData.page} error={result.error} />
+      <FreshAuthorizationPage
+        data={{ ...loaderData.page, administrationWorkspace: workspace }}
+        error={result.error}
+      />
     </div>
   )
 }

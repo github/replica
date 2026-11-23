@@ -11,17 +11,22 @@ import "./styles.css"
 export function CanvasPairingsPage({
   data,
   busy = false,
+  embedded = false,
 }: {
   data: CanvasPairingsPageData
   busy?: boolean
+  embedded?: boolean
 }) {
+  const Container = embedded ? "section" : "main"
   return (
-    <main className="canvas-pairings">
+    <Container className="canvas-pairings">
       <div className="canvas-pairings__frame">
-        <header className="canvas-pairings__brand">
-          <MarkGithubIcon size={20} aria-hidden="true" />
-          <Text weight="semibold">{data.productName}</Text>
-        </header>
+        {!embedded ? (
+          <header className="canvas-pairings__brand">
+            <MarkGithubIcon size={20} aria-hidden="true" />
+            <Text weight="semibold">{data.productName}</Text>
+          </header>
+        ) : null}
 
         <section className="canvas-pairings__card">
           <Heading as="h1" size="3">
@@ -126,6 +131,6 @@ export function CanvasPairingsPage({
           )}
         </section>
       </div>
-    </main>
+    </Container>
   )
 }

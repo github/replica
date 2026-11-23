@@ -1,6 +1,6 @@
-import type { WorkspaceSidebarData } from "@features/workspace-sidebar/types"
+import type { WorkspaceNavData } from "@features/workspace-nav/types"
 
-export interface HubWorkspaceData extends WorkspaceSidebarData {
+export interface HubWorkspaceData extends WorkspaceNavData {
   productName: string
   navigationLabel: string
   repositoriesLabel: string

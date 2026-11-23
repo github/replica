@@ -9,7 +9,7 @@ import { renderHubFlow } from "./fixtures/render-hub-flow"
 
 describe("Hub mock session flow", () => {
   // The complete sign-in/redirect/sign-out flow exceeded 5s with two Windows workers.
-  it("opens signed-out sign-in without a workspace and signs in and out through the retained controls", async () => {
+  it("opens signed-out sign-in from the repository landing and signs in and out", async () => {
     const store = createMockStore({ origin: window.location.origin })
     store.session.select("signed-out")
     const workspaceReads = vi.fn(() =>
@@ -17,7 +17,7 @@ describe("Hub mock session flow", () => {
     )
     const server = setupServer(...createMockHandlers(store))
     server.use(http.get(`${store.origin}/api/workspace`, workspaceReads))
-    const router = await renderHubFlow(server, "/sign-in")
+    const router = await renderHubFlow(server, "/repositories")
 
     const signIn = await screen.findByRole("button", { name: "Sign in with GitHub" })
     expect(

@@ -1,9 +1,8 @@
-import { useState } from "react"
+import { useContext, useState } from "react"
 import { useNavigate } from "react-router"
 import { z } from "zod"
 
 import { SessionRevocationPage } from "@pages/session-revocation-page"
-import { loadAdministratorWorkspace } from "@application/hub/load-administrator-workspace"
 import { ApiContractError } from "@application/hub/requests/api-contract-error"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
 import { cancelSessionRevocationAuthorization } from "@application/hub/requests/cancel-session-revocation-authorization"
@@ -12,10 +11,18 @@ import { getCurrentHubSession } from "@application/hub/requests/get-current-hub-
 import { getSessionRevocationAuthorization } from "@application/hub/requests/get-session-revocation-authorization"
 import { getSessionRevocationStatus } from "@application/hub/requests/get-session-revocation-status"
 import { sessionRevocationErrorMessage } from "@application/hub/session-revocation-error-message"
+import { useAdministrationNavigation } from "@application/hub/use-administration-navigation"
 import { resourcePath } from "@application/hub/view-models/resource-path"
 import { sessionRevocationPageData } from "@application/hub/view-models/session-revocation-page-data"
+import { WorkspaceCompletionContext } from "@application/hub/workspace-completion-context"
 
 import type { Route } from "./+types/index"
+import type { WorkspaceRouteHandle } from "../workspace/types"
+
+export const handle = {
+  workspaceSection: "sessions",
+  independentOfRepositoryNavigation: true,
+} satisfies WorkspaceRouteHandle
 
 const authorizationIdSchema = z.uuid()
 
@@ -30,18 +37,14 @@ export async function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "re
   if (session.role !== "ADMINISTRATOR") {
     throw new Response("Administrator access is required.", { status: 403 })
   }
-  const [{ authorization }, { status }, workspace] = await Promise.all([
-    getSessionRevocationAuthorization(request, authorizationId.data),
+  const [{ status }] = await Promise.all([
     getSessionRevocationStatus(request),
-    loadAdministratorWorkspace(request, session, "sessions"),
+    getSessionRevocationAuthorization(request, authorizationId.data),
   ])
   return {
-    authorization,
     authorizationId: authorizationId.data,
-    workspace,
-    page: sessionRevocationPageData(session, status, {
-      authorizationId: authorizationId.data,
-    }),
+    session,
+    status,
   }
 }
 
@@ -52,24 +55,22 @@ export function meta() {
 export default function SettingsSessionRevocationAuthorization({
   loaderData,
 }: Pick<Route.ComponentProps, "loaderData">) {
+  const workspace = useAdministrationNavigation("sessions", loaderData.session.userId)
+  const complete = useContext(WorkspaceCompletionContext)
+  const page = sessionRevocationPageData(loaderData.session, loaderData.status, {
+    workspace,
+    authorizationId: loaderData.authorizationId,
+  })
   const navigate = useNavigate()
   const [submission, setSubmission] = useState<
-    | { state: "idle"; error: string | null }
-    | { state: "pending"; error: null }
-    | { state: "ended"; error: null }
+    { state: "idle"; error: string | null } | { state: "pending"; error: null }
   >({ state: "idle", error: null })
-  if (submission.state === "ended") {
-    return (
-      <SessionRevocationPage data={sessionRevocationPageData(null, null, { result: "ended" })} />
-    )
-  }
+  if (!complete) throw new Error("Session revocation requires the signed-in layout.")
   return (
     <div
       onSubmit={(event) => {
         if (!(event.target instanceof HTMLFormElement)) return
-        if (
-          event.target.action !== new URL(loaderData.page.submitPath, window.location.href).href
-        ) {
+        if (event.target.action !== new URL(page.submitPath, window.location.href).href) {
           return
         }
         event.preventDefault()
@@ -88,15 +89,17 @@ export default function SettingsSessionRevocationAuthorization({
                 void navigate(
                   resourcePath("/settings/sessions", new URLSearchParams(), {
                     result: "cancelled",
-                    repositoryId:
-                      loaderData.page.administrationWorkspace?.repository?.selectedRepositoryId ??
-                      null,
+                    repositoryId: workspace.repository?.selectedRepositoryId ?? null,
                   }),
                 )
               })
             : continueSessionRevocationAuthorization(request, loaderData.authorizationId).then(
                 () => {
-                  setSubmission({ state: "ended", error: null })
+                  complete(
+                    <SessionRevocationPage
+                      data={sessionRevocationPageData(null, null, { result: "ended" })}
+                    />,
+                  )
                 },
               )
         void operation.catch((error: unknown) => {
@@ -113,9 +116,7 @@ export default function SettingsSessionRevocationAuthorization({
         })
       }}
     >
-      <SessionRevocationPage
-        data={{ ...loaderData.page, alert: submission.error ?? loaderData.page.alert }}
-      />
+      <SessionRevocationPage data={{ ...page, alert: submission.error ?? page.alert }} />
     </div>
   )
 }

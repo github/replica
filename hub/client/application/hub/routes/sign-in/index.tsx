@@ -8,6 +8,7 @@ import { getSession } from "@application/hub/requests/get-session"
 import type { Route } from "./+types/index"
 
 export async function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "request">) {
+  if (!(import.meta.env.DEV && import.meta.env.MODE === "mock")) throw redirect("/")
   const session = await getSession(request)
   if (session.viewer) throw redirect("/")
   return null

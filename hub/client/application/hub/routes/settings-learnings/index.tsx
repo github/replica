@@ -29,6 +29,9 @@ import { settingsLearnings } from "@application/hub/view-models/settings-learnin
 
 import { productActionError } from "../product-action-error"
 import { requestProductJson } from "../request-product-json"
+import type { WorkspaceRouteHandle } from "../workspace/types"
+
+export const handle = { workspaceSection: "learnings" } satisfies WorkspaceRouteHandle
 
 type LearningActionResult = ProductActionResult & {
   revalidate?: boolean

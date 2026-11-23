@@ -1,14 +1,14 @@
 import { render, screen } from "@testing-library/react"
-import { createMemoryRouter, Outlet, RouterProvider } from "react-router"
+import { createMemoryRouter, Outlet, RouterProvider, useLoaderData } from "react-router"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
-import { HubApplication } from "@application/hub-application"
 import { HubThemeProvider } from "@hooks/use-hub-theme"
 
 import routeConfig from "../routes"
 import { HubNavigation } from "../hub-navigation"
-import { clientLoader as rootLoader } from "../root"
-import { clientLoader as homeLoader } from "../routes/home"
+import Home, { handle as homeHandle } from "../routes/home"
+import Repositories, { handle as repositoriesHandle } from "../routes/repositories"
+import Workspace, { clientLoader as loadWorkspace } from "../routes/workspace"
 import NoRepositoryAccess from "../routes/no-repository-access"
 
 function renderHub(path: string) {
@@ -18,15 +18,20 @@ function renderHub(path: string) {
     [
       {
         path: "/",
-        loader: rootLoader,
         Component: () => (
           <HubNavigation>
             <Outlet />
           </HubNavigation>
         ),
         children: [
-          { index: true, loader: homeLoader, Component: HubApplication },
-          { path: "repositories", Component: () => <main>Private workspace</main> },
+          {
+            loader: loadWorkspace,
+            Component: () => <Workspace loaderData={useLoaderData<typeof loadWorkspace>()} />,
+            children: [
+              { index: true, Component: Home, handle: homeHandle },
+              { path: "repositories", Component: Repositories, handle: repositoriesHandle },
+            ],
+          },
           { path: "signed-in/no-access", Component: NoRepositoryAccess },
         ],
       },
@@ -42,13 +47,17 @@ function renderHub(path: string) {
   return router
 }
 
-function stubApi(sessionResponse: () => Response) {
+function stubApi(sessionResponse: () => Response, workspaceResponse?: () => Response) {
   const request = vi.fn((input: RequestInfo | URL) => {
     const url = new URL(input instanceof Request ? input.url : String(input), "http://localhost")
     if (url.pathname === "/api/auth/providers") {
       return Promise.resolve(Response.json({ providers: ["github"] }))
     }
     if (url.pathname === "/api/auth/session") return Promise.resolve(sessionResponse())
+    if (url.pathname === "/api/workspace")
+      return Promise.resolve(
+        workspaceResponse?.() ?? Response.json({ error: "Sign in to continue." }, { status: 401 }),
+      )
     return Promise.reject(new Error(`Unexpected API request: ${url.pathname}`))
   })
   vi.stubGlobal("fetch", request)
@@ -162,20 +171,29 @@ describe("repository access recovery redirects", () => {
     ["github", "ADMINISTRATOR"],
     ["entra", "MEMBER"],
   ] as const)("keeps a restored %s %s in the workspace", async (provider, role) => {
-    stubApi(() =>
-      Response.json({
-        authenticated: true,
-        membershipId: "11111111-1111-4111-8111-111111111111",
-        userId: "22222222-2222-4222-8222-222222222222",
-        provider,
-        login: "member",
-        name: null,
-        role,
-      }),
+    stubApi(
+      () => new Response(null, { status: 500 }),
+      () =>
+        Response.json({
+          viewer: {
+            id: "22222222-2222-4222-8222-222222222222",
+            login: "member",
+            name: null,
+            avatarUrl: null,
+            provider,
+          },
+          repositories: [],
+          capabilities: {
+            createPrototypes: false,
+            reviewPrototypes: false,
+            manageSharing: false,
+            administerHub: role === "ADMINISTRATOR",
+          },
+        }),
     )
     const router = renderHub("/repositories")
 
-    expect(await screen.findByText("Private workspace")).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "No repositories available" })).toBeVisible()
     expect(router.state.location.pathname).toBe("/repositories")
   })
 
@@ -209,7 +227,7 @@ describe("repository access recovery redirects", () => {
     )
 
     await expect(
-      rootLoader({ request: new Request("http://localhost/repositories") }),
+      loadWorkspace({ request: new Request("http://localhost/") }),
     ).rejects.toMatchObject({ status: 403 })
   })
 })

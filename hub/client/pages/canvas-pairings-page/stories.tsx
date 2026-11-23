@@ -1,5 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 
+import { HubWorkspace } from "@features/hub-workspace"
+import { authenticatedHubWorkspaceData } from "@/storybook/fixtures/hub-administration"
+
 import { CanvasPairingsPage } from "."
 import type { CanvasPairingsPageData } from "./types"
 
@@ -83,10 +86,27 @@ export const ApprovalDenied: Story = {
   },
 }
 
-export const Connected: Story = { args: { data: connections } }
+export const Connected: Story = {
+  args: { data: connections, embedded: true },
+  decorators: [
+    (Story) => (
+      <HubWorkspace
+        data={{
+          ...authenticatedHubWorkspaceData,
+          canvasConnectionsPath: "/canvas/connections",
+          selectedSection: "canvas",
+        }}
+      >
+        <Story />
+      </HubWorkspace>
+    ),
+  ],
+}
 
 export const Multiple: Story = {
+  ...Connected,
   args: {
+    ...Connected.args,
     data: {
       ...connections,
       grants: [
@@ -103,7 +123,9 @@ export const Multiple: Story = {
 }
 
 export const ApprovedPending: Story = {
+  ...Connected,
   args: {
+    ...Connected.args,
     data: {
       ...connections,
       grants: [],
@@ -112,4 +134,7 @@ export const ApprovedPending: Story = {
   },
 }
 
-export const Empty: Story = { args: { data: { ...connections, grants: [], notice: null } } }
+export const Empty: Story = {
+  ...Connected,
+  args: { ...Connected.args, data: { ...connections, grants: [], notice: null } },
+}

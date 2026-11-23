@@ -1,9 +1,9 @@
-import { data, useFetcher, useLocation } from "react-router"
+import { data, useFetcher, useLocation, useOutletContext } from "react-router"
 import { z } from "zod"
 
+import type { WorkspaceResponse } from "@application/hub/contracts/types"
 import { ApiContractError } from "@application/hub/requests/api-contract-error"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
-import { getWorkspace } from "@application/hub/requests/get-workspace"
 import {
   changeRepositoryAnalytics,
   finishRepositoryAnalyticsAuthorization,
@@ -22,10 +22,17 @@ import { settingsController } from "../settings-controller"
 import type { SettingsRouteData } from "../settings-controller/types"
 import { settingsMeta } from "../settings-meta"
 import { readDestinationForm } from "./read-destination-form"
+import type { WorkspaceRouteHandle } from "../workspace/types"
+
+export const handle = { workspaceSection: "analytics" } satisfies WorkspaceRouteHandle
 
 const mock = settingsController("analytics", "workspace")
-type AnalyticsRouteData =
-  SettingsRouteData | { surface: "repository-analytics"; page: AnalyticsPageData }
+type RepositoryAnalyticsRouteData = {
+  surface: "repository-analytics"
+  id: string
+  analytics: Awaited<ReturnType<typeof getRepositoryAnalytics>>
+}
+type AnalyticsRouteData = SettingsRouteData | RepositoryAnalyticsRouteData
 type AnalyticsActionResult =
   | SettingsActionResult
   | {
@@ -49,47 +56,10 @@ export async function clientLoader(
   if (isMockMode()) return mock.clientLoader(args)
   const { request } = args
   const id = readRepositoryId(args.params.repositoryId)
-  const [workspace, analytics] = await Promise.all([
-    getWorkspace(request),
-    getRepositoryAnalytics(request, id),
-  ])
-  const repository = workspace.repositories.find((entry) => entry.id === id)
-  if (!repository) throw new Response("Repository not found.", { status: 404 })
-  const search = new URL(request.url).searchParams
-  const path = `/repositories/${id}/analytics`
   return {
     surface: "repository-analytics",
-    page: {
-      ...analyticsPageData(
-        {
-          ...repositoryWorkspace(workspace, repository, search, true),
-          selectedSection: "analytics",
-        },
-        resourcePath(path, search),
-        analytics.destinations.map((destination) => ({
-          ...destination,
-          path: resourcePath(path, search, { destinationId: destination.id }),
-        })),
-        {
-          readOnly: !analytics.canMutate,
-          historyAvailable: analytics.canExportHistory,
-          notice: !analytics.canMutate
-            ? "Hosted destination changes are unavailable until Hub can verify fresh GitHub repository authorization."
-            : null,
-          exportNotice: !analytics.outboundEnabled
-            ? "Outbound analytics delivery is disabled on this Hub."
-            : undefined,
-        },
-      ),
-      authorization: analytics.authorization,
-      alert:
-        search.get("authorization") === "cancelled"
-          ? "GitHub authorization was cancelled. No changes were saved."
-          : search.get("authorization") === "unavailable" ||
-              (search.has("authorizationId") && !analytics.authorization)
-            ? "This authorization is unavailable. Submit the change again if needed."
-            : null,
-    },
+    id,
+    analytics: await getRepositoryAnalytics(request, id),
   }
 }
 
@@ -155,14 +125,47 @@ export function meta({ loaderData }: { loaderData?: AnalyticsRouteData }) {
 
 export default function SettingsAnalytics({ loaderData }: { loaderData: AnalyticsRouteData }) {
   if (loaderData.surface === "repository-analytics") {
-    return <ConnectedAnalytics page={loaderData.page} />
+    return <ConnectedAnalytics route={loaderData} />
   }
   return <SettingsRouteScreen section="analytics" data={loaderData} />
 }
 
-function ConnectedAnalytics({ page }: { page: AnalyticsPageData }) {
+function ConnectedAnalytics({ route: { id, analytics } }: { route: RepositoryAnalyticsRouteData }) {
+  const workspace = useOutletContext<WorkspaceResponse>()
   const location = useLocation()
   const fetcher = useFetcher<AnalyticsActionResult>()
+  const repository = workspace.repositories.find((entry) => entry.id === id)
+  if (!repository) throw new ApiRequestError(404, "Repository not found.")
+  const search = new URLSearchParams(location.search)
+  const path = `/repositories/${id}/analytics`
+  const page = {
+    ...analyticsPageData(
+      { ...repositoryWorkspace(workspace, repository, search, true), selectedSection: "analytics" },
+      resourcePath(path, search),
+      analytics.destinations.map((destination) => ({
+        ...destination,
+        path: resourcePath(path, search, { destinationId: destination.id }),
+      })),
+      {
+        readOnly: !analytics.canMutate,
+        historyAvailable: analytics.canExportHistory,
+        notice: !analytics.canMutate
+          ? "Hosted destination changes are unavailable until Hub can verify fresh GitHub repository authorization."
+          : null,
+        exportNotice: !analytics.outboundEnabled
+          ? "Outbound analytics delivery is disabled on this Hub."
+          : undefined,
+      },
+    ),
+    authorization: analytics.authorization,
+    alert:
+      search.get("authorization") === "cancelled"
+        ? "GitHub authorization was cancelled. No changes were saved."
+        : search.get("authorization") === "unavailable" ||
+            (search.has("authorizationId") && !analytics.authorization)
+          ? "This authorization is unavailable. Submit the change again if needed."
+          : null,
+  }
   const result = fetcher.data
   const busy = fetcher.state !== "idle"
   return (

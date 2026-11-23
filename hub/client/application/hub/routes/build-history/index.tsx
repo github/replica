@@ -6,6 +6,9 @@ import { getBuildHistory } from "@application/hub/requests/get-build-history"
 import { BuildHistoryScreen } from "@application/hub/screens/build-history-screen"
 
 import type { Route } from "./+types/index"
+import type { WorkspaceRouteHandle } from "../workspace/types"
+
+export const handle = { workspaceSection: "prototypes" } satisfies WorkspaceRouteHandle
 
 export async function clientLoader({
   request,

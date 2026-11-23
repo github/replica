@@ -22,7 +22,7 @@ import { RepositorySelector } from "@components/repository-selector"
 import type { RepositorySelectorStatus } from "@components/repository-selector/types"
 import { WorkspaceNavigation } from "@components/workspace-navigation"
 
-import type { WorkspaceSidebarData } from "./types"
+import type { WorkspaceNavData } from "./types"
 import { WorkspaceInbox } from "./inbox"
 
 const administrationIcons = {
@@ -33,8 +33,8 @@ const administrationIcons = {
   sessions: SignOutIcon,
 }
 
-/** Uses one sidebar while keeping repository and Hub permissions independent. */
-export function WorkspaceSidebar({
+/** Keeps repository and Hub navigation permissions independent. */
+export function WorkspaceNav({
   collapsed,
   data,
   inboxPreview,
@@ -43,7 +43,7 @@ export function WorkspaceSidebar({
   repositoryChoices,
 }: {
   collapsed: boolean
-  data: WorkspaceSidebarData
+  data: WorkspaceNavData
   inboxPreview?: (close: () => void) => ReactNode
   onInboxClick?: MouseEventHandler<HTMLAnchorElement>
   onCollapsedChange: (collapsed: boolean) => void
@@ -195,6 +195,7 @@ export function WorkspaceSidebar({
                 </li>
                 {repository && link.section === "prototypes" ? (
                   <WorkspaceInbox
+                    key={data.inboxPreviewScope}
                     collapsed={collapsed}
                     data={data}
                     inboxPreview={inboxPreview}
@@ -206,6 +207,7 @@ export function WorkspaceSidebar({
           })}
           {!repository ? (
             <WorkspaceInbox
+              key={data.inboxPreviewScope}
               collapsed={collapsed}
               data={data}
               inboxPreview={inboxPreview}

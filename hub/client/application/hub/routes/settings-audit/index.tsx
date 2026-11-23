@@ -1,25 +1,33 @@
-import { redirect } from "react-router"
+import { redirect, useOutletContext } from "react-router"
 import { z } from "zod"
 
 import { SecurityAuditPage } from "@pages/security-audit-page"
-import { loadAdministratorWorkspace } from "@application/hub/load-administrator-workspace"
+import type { CurrentHubSession } from "@application/hub/administrator-contracts/types"
+import type { WorkspaceResponse } from "@application/hub/contracts/types"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
 import { getCurrentHubSession } from "@application/hub/requests/get-current-hub-session"
 import { getSecurityAudits } from "@application/hub/requests/get-security-audits"
-import { getWorkspace } from "@application/hub/requests/get-workspace"
 import { SettingsRouteScreen } from "@application/hub/screens/settings-route-screen"
-import { hubWorkspace } from "@application/hub/view-models/hub-workspace"
+import { useAdministrationNavigation } from "@application/hub/use-administration-navigation"
 import { securityAuditPageData } from "@application/hub/view-models/security-audit-page-data"
 
 import { settingsController } from "../settings-controller"
 import type { SettingsRouteData } from "../settings-controller/types"
 import { settingsMeta } from "../settings-meta"
+import type { WorkspaceRouteHandle } from "../workspace/types"
+
+export const handle = {
+  workspaceSection: "audit",
+  independentOfRepositoryNavigation: true,
+} satisfies WorkspaceRouteHandle
 
 const controller = settingsController("audit", "workspace")
 
 type RealAuditRouteData = {
   surface: "security-audit"
-  page: ReturnType<typeof securityAuditPageData>
+  session: CurrentHubSession
+  response: Awaited<ReturnType<typeof getSecurityAudits>>
+  repositoryId?: string
 }
 
 function isMockMode() {
@@ -81,20 +89,7 @@ export async function clientLoader(
     await getCurrentHubSession(request)
     throw new Response("Your account no longer has Hub administrator access.", { status: 403 })
   }
-  if (!repositoryId) {
-    const navigation = await loadAdministratorWorkspace(request, session, "audit")
-    return { surface: "security-audit", page: securityAuditPageData(session, response, navigation) }
-  }
-  const workspace = await getWorkspace(request)
-  const repository = workspace.repositories.find(({ id }) => id === repositoryId)
-  if (workspace.viewer.id !== session.userId || !repository?.capabilities?.administerRepository) {
-    throw new Response("Repository not found.", { status: 404 })
-  }
-  const navigation = hubWorkspace(workspace, url.searchParams, "audit")
-  return {
-    surface: "security-audit",
-    page: securityAuditPageData(session, response, navigation, repository),
-  }
+  return { surface: "security-audit", session, response, repositoryId }
 }
 
 export async function clientAction(args: Parameters<typeof controller.clientAction>[0]) {
@@ -117,7 +112,31 @@ export default function SettingsAudit({
   loaderData: SettingsRouteData | RealAuditRouteData
 }) {
   if (loaderData.surface === "security-audit") {
-    return <SecurityAuditPage data={loaderData.page} />
+    return <RealSecurityAudit data={loaderData} />
   }
   return <SettingsRouteScreen section="audit" data={loaderData} />
+}
+
+function RealSecurityAudit({ data }: { data: RealAuditRouteData }) {
+  const workspace = useOutletContext<WorkspaceResponse>()
+  const navigation = useAdministrationNavigation("audit", data.session.userId)
+  const selected = workspace.repositories.find(
+    ({ id }) => id === navigation.repository?.selectedRepositoryId,
+  )
+  const repository = data.repositoryId
+    ? {
+        id: data.repositoryId,
+        nameWithOwner: workspace.repositories.find(({ id }) => id === data.repositoryId)
+          ?.nameWithOwner,
+      }
+    : undefined
+  return (
+    <SecurityAuditPage
+      data={securityAuditPageData(data.session, data.response, navigation, {
+        repository,
+        availableRepository:
+          repository ?? (selected?.capabilities?.administerRepository ? selected : undefined),
+      })}
+    />
+  )
 }
