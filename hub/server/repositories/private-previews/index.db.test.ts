@@ -10,6 +10,19 @@ function digest() {
   return randomBytes(32).toString("hex")
 }
 
+async function createAccessBuild() {
+  const repository = await prisma.repository.create({
+    data: { defaultBranch: "main", nameWithOwner: "example/synthetic" },
+  })
+  const prototype = await prisma.prototype.create({
+    data: { repositoryId: repository.id, branchName: "prototype/welcome" },
+  })
+  return prisma.build.create({
+    data: { number: 1, prototypeId: prototype.id },
+    select: { id: true },
+  })
+}
+
 describe("createPrivatePreviewAccessStore()", () => {
   it("allows only one concurrent exchange and preserves the winning access scope", async () => {
     const store = createPrivatePreviewAccessStore(prisma)
@@ -17,7 +30,7 @@ describe("createPrivatePreviewAccessStore()", () => {
     const grantDigest = digest()
     const challengeDigest = digest()
     const sessionDigest = digest()
-    const buildId = randomUUID()
+    const { id: buildId } = await createAccessBuild()
     const grantExpiresAt = new Date(Date.now() + 30_000)
     await store.issue({
       tokenDigest: grantDigest,
@@ -59,11 +72,12 @@ describe("createPrivatePreviewAccessStore()", () => {
       const readerOrigin = "https://preview.example.net"
       const grantDigest = digest()
       const challengeDigest = digest()
+      const { id: buildId } = await createAccessBuild()
       const grantExpiresAt = new Date(Date.now() + (condition === "expired" ? -30_000 : 30_000))
       await store.issue({
         tokenDigest: grantDigest,
         sessionDigest: digest(),
-        buildId: randomUUID(),
+        buildId,
         readerOrigin,
         challengeDigest,
         expiresAt: grantExpiresAt,
@@ -88,6 +102,24 @@ describe("createPrivatePreviewAccessStore()", () => {
   )
 })
 
+function distArtifact(path = "dist/index.html") {
+  return { kind: "dist" as const, path, storageKey: randomUUID(), byteLength: 32 }
+}
+
+function workflowBuild(githubWorkflowRunId: bigint, number = 1) {
+  return {
+    number,
+    state: "successful" as const,
+    githubWorkflowRunId,
+    githubWorkflowRunAttempt: 1,
+    artifacts: { create: distArtifact() },
+  }
+}
+
+function find(repo: bigint, run: bigint) {
+  return findPrivatePreviewTarget(prisma, privatePreviewAddress(String(repo), String(run))!)
+}
+
 describe("findPrivatePreviewTarget()", () => {
   it("resolves the dist-owning run, not the current Build or a contributing run", async () => {
     const repositoryId = 9_007_199_254_740_993n
@@ -107,21 +139,7 @@ describe("findPrivatePreviewTarget()", () => {
     const builds = await Promise.all(
       [owningRunId, currentRunId].map((runId, index) =>
         prisma.build.create({
-          data: {
-            prototypeId: prototype.id,
-            number: index + 1,
-            state: "successful",
-            githubWorkflowRunId: runId,
-            githubWorkflowRunAttempt: 1,
-            artifacts: {
-              create: {
-                kind: "dist",
-                path: "dist/index.html",
-                storageKey: randomUUID(),
-                byteLength: 32,
-              },
-            },
-          },
+          data: { prototypeId: prototype.id, ...workflowBuild(runId, index + 1) },
         }),
       ),
     )
@@ -137,10 +155,6 @@ describe("findPrivatePreviewTarget()", () => {
         completedAt: new Date(),
       },
     })
-    function find(repo: bigint, run: bigint) {
-      return findPrivatePreviewTarget(prisma, privatePreviewAddress(String(repo), String(run))!)
-    }
-
     await expect(find(repositoryId, owningRunId)).resolves.toMatchObject({
       buildId: builds[0]!.id,
       repositoryId: repository.id,
@@ -148,4 +162,112 @@ describe("findPrivatePreviewTarget()", () => {
     await expect(find(repositoryId, contributingRunId)).resolves.toBeNull()
     await expect(find(repositoryId + 1n, owningRunId)).resolves.toBeNull()
   })
+
+  it("resolves the retained Build on a retired branch even after the name is reused", async () => {
+    const repositoryId = 401n
+    const runId = 402n
+    const repository = await prisma.repository.create({
+      data: {
+        defaultBranch: "main",
+        nameWithOwner: "example/synthetic",
+        githubRepositoryId: repositoryId,
+      },
+    })
+    const branchName = "prototype/welcome"
+    const retired = await prisma.prototype.create({
+      data: {
+        repositoryId: repository.id,
+        branchName,
+        branchDeletedAt: new Date("2026-01-03T00:00:00Z"),
+        startPage: "/retained/",
+        builds: { create: workflowBuild(runId) },
+      },
+      select: { builds: { select: { id: true } } },
+    })
+    await prisma.prototype.create({
+      data: {
+        repositoryId: repository.id,
+        branchName,
+        builds: { create: workflowBuild(runId + 1n) },
+      },
+    })
+
+    await expect(find(repositoryId, runId)).resolves.toEqual({
+      buildId: retired.builds[0]!.id,
+      repositoryId: repository.id,
+      startPage: "/retained/",
+    })
+  })
+
+  it("does not choose between multiple Builds with the same repository and owning run", async () => {
+    const repositoryId = 501n
+    const runId = 502n
+    const repository = await prisma.repository.create({
+      data: {
+        defaultBranch: "main",
+        nameWithOwner: "example/synthetic",
+        githubRepositoryId: repositoryId,
+      },
+    })
+    await Promise.all(
+      ["prototype/one", "prototype/two"].map((branchName) =>
+        prisma.prototype.create({
+          data: {
+            repositoryId: repository.id,
+            branchName,
+            builds: { create: workflowBuild(runId) },
+          },
+        }),
+      ),
+    )
+
+    await expect(find(repositoryId, runId)).resolves.toBeNull()
+  })
+
+  it.each([
+    { reason: "a removed repository", repository: { removedAt: new Date("2026-01-03T00:00:00Z") } },
+    { reason: "a local repository", repository: { localPath: "/synthetic/repository" } },
+    { reason: "a replica branch", prototype: { replica: true } },
+    { reason: "the default branch", prototype: { branchName: "main" } },
+    {
+      reason: "the install-workflow branch",
+      prototype: { branchName: "replica/install-workflow" },
+    },
+    { reason: "a failed Build", build: { state: "failed" as const } },
+    {
+      reason: "a Build without a dist entry point",
+      build: {
+        artifacts: {
+          create: [
+            distArtifact("dist/other.html"),
+            { ...distArtifact(), kind: "screenshot" as const },
+          ],
+        },
+      },
+    },
+  ])(
+    "rejects $reason even when the owning run matches",
+    async ({ repository, prototype, build }) => {
+      const repositoryId = 601n
+      const runId = 602n
+      const { id } = await prisma.repository.create({
+        data: {
+          defaultBranch: "main",
+          nameWithOwner: "example/synthetic",
+          githubRepositoryId: repositoryId,
+          ...repository,
+        },
+      })
+      await prisma.prototype.create({
+        data: {
+          repositoryId: id,
+          branchName: "prototype/welcome",
+          ...prototype,
+          builds: { create: { ...workflowBuild(runId), ...build } },
+        },
+      })
+
+      await expect(find(repositoryId, runId)).resolves.toBeNull()
+    },
+  )
 })

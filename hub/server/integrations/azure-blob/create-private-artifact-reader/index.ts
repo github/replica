@@ -36,7 +36,11 @@ export function createPrivateBlobArtifactReader(settings: {
         stream.destroy()
       }
     } catch (error) {
-      if (error instanceof Error && "statusCode" in error && error.statusCode === 404) {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        (error as { details?: { errorCode?: string } }).details?.errorCode === "BlobNotFound"
+      ) {
         return { status: "not-found" } as const
       }
       return { status: "unavailable" } as const

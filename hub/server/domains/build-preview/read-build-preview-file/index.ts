@@ -1,6 +1,6 @@
 import { contentTypeForBuildPath } from "../../build-artifacts/content-type-for-build-path/index.ts"
 import { normalizeBuildArtifactPath } from "../../build-artifacts/normalize-build-artifact-path/index.ts"
-import { readPrivatePreviewAddress } from "../../../utils/private-preview-address/index.ts"
+import { readPrivatePreviewAddress } from "../../../utils/read-private-preview-address/index.ts"
 import { privatePreviewManifestPath } from "../../private-preview/types.ts"
 import { declaresPreviewMount } from "../declares-preview-mount/index.ts"
 import { injectPreviewBridge } from "../inject-preview-bridge/index.ts"

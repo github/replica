@@ -2,12 +2,13 @@ import { constants } from "node:fs"
 import { open } from "node:fs/promises"
 import { join } from "node:path"
 
-import { previewStorageKeyPattern } from "../../../domains/private-preview/types.ts"
 import { withArtifactDirectory } from "../with-artifact-directory/index.ts"
+
+const storageKeyPattern = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
 
 export function createPrivateArtifactReader(directory: string) {
   return async (key: string, length: number, signal: AbortSignal) => {
-    if (!previewStorageKeyPattern.test(key)) return { status: "unavailable" } as const
+    if (!storageKeyPattern.test(key)) return { status: "unavailable" } as const
     async function read(root: string) {
       signal.throwIfAborted()
       const handle = await open(
@@ -25,6 +26,7 @@ export function createPrivateArtifactReader(directory: string) {
           if (!result.bytesRead) return { status: "unavailable" } as const
           offset += result.bytesRead
         }
+        signal.throwIfAborted()
         return { status: "ok", bytes } as const
       } finally {
         await handle.close()

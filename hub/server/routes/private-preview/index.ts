@@ -62,37 +62,80 @@ export function mountPrivatePreview(
     }
     try {
       const sessionDigest = hashAuthenticationValue(session)
+      const status = await authority.launch(sessionDigest, address)
+      if (status === "denied") return response.sendStatus(404)
+      if (status === "incompatible") {
+        return response
+          .status(409)
+          .type("text")
+          .send(
+            "This Build does not support private previews. Open its Build in Hub or publish a Build compiled for the private preview path.",
+          )
+      }
       if (challenge === undefined) {
-        const status = await authority.launch(sessionDigest, address)
-        if (status === "denied") return response.sendStatus(404)
-        if (status === "incompatible") {
-          return response
-            .status(409)
-            .type("text")
-            .send(
-              "This Build does not support private previews. Open its Build in Hub or publish a Build compiled for the private preview path.",
-            )
-        }
         return response.status(302).location(`${settings.readerOrigin}${address.begin}`).end()
       }
-      const grant = await authority.issue(sessionDigest, address, challenge)
-      if (!grant) return response.sendStatus(404)
-      const nonce = randomBytes(18).toString("base64url")
-      response.setHeader("Referrer-Policy", "origin")
       response.setHeader(
         "Content-Security-Policy",
-        `default-src 'none'; script-src 'nonce-${nonce}'; form-action ${settings.readerOrigin}; base-uri 'none'; frame-ancestors 'none'`,
+        "default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
       )
+      // Preserve the form POST's Origin without sending the challenge in its referrer.
+      response.setHeader("Referrer-Policy", "origin")
       return response.type("html")
-        .send(`<!doctype html><meta charset="utf-8"><title>Open private preview</title>
-<form method="post" action="${settings.readerOrigin}${address.exchange}">
-<input type="hidden" name="grant" value="${grant}">
-<button type="submit">Open private preview</button></form>
-<script nonce="${nonce}">document.forms[0].submit()</script>`)
+        .send(`<!doctype html><meta charset="utf-8"><title>Confirm private preview</title>
+<h1>Open private preview?</h1>
+<p>Open the Build from repository ${address.repositoryId}, workflow run ${address.runId}, on the shared preview site.</p>
+<form method="post" action="${address.launch}">
+<input type="hidden" name="challenge" value="${challenge}">
+<button type="submit">Open private preview</button></form>`)
     } catch {
       return response.sendStatus(503)
     }
   })
+
+  router.post(
+    "/launch/:repositoryId/:runId",
+    (request, response, next) => {
+      if (
+        request.get("origin") !== settings.hubOrigin ||
+        !request.is("application/x-www-form-urlencoded")
+      ) {
+        return response.sendStatus(404)
+      }
+      next()
+    },
+    express.urlencoded({ extended: false, limit: "1kb", parameterLimit: 1, inflate: false }),
+    async (request, response) => {
+      const address = privatePreviewAddress(request.params.repositoryId, request.params.runId)
+      const session = readCookie(request, hubSessionCookieName)
+      const confirmation = z
+        .strictObject({ challenge: z.string().regex(previewDigestPattern) })
+        .safeParse(request.body)
+      if (!address || !session || !confirmation.success) return response.sendStatus(404)
+      try {
+        const grant = await authority.issue(
+          hashAuthenticationValue(session),
+          address,
+          confirmation.data.challenge,
+        )
+        if (!grant) return response.sendStatus(404)
+        const nonce = randomBytes(18).toString("base64url")
+        response.setHeader("Referrer-Policy", "origin")
+        response.setHeader(
+          "Content-Security-Policy",
+          `default-src 'none'; script-src 'nonce-${nonce}'; form-action ${settings.readerOrigin}; base-uri 'none'; frame-ancestors 'none'`,
+        )
+        return response.type("html")
+          .send(`<!doctype html><meta charset="utf-8"><title>Open private preview</title>
+<form method="post" action="${settings.readerOrigin}${address.exchange}">
+<input type="hidden" name="grant" value="${grant}">
+<button type="submit">Open private preview</button></form>
+<script nonce="${nonce}">document.forms[0].submit()</script>`)
+      } catch {
+        return response.sendStatus(503)
+      }
+    },
+  )
 
   function isReader(request: Request, response: Response) {
     const authorization = Buffer.from(request.get("authorization") ?? "")

@@ -55,7 +55,6 @@ export async function findPrototypeDetail(
           description: true,
           startPage: true,
           branchName: true,
-          branchDeletedAt: true,
           author: { select: { profile: { select: { login: true, name: true, provider: true } } } },
           currentBuildId: true,
         },
@@ -118,7 +117,7 @@ export async function findPrototypeDetail(
                 ],
               },
             },
-            select: { path: true, storageKey: true },
+            select: { kind: true, path: true, storageKey: true },
           },
         },
       })
@@ -159,10 +158,11 @@ export async function findPrototypeDetail(
         const privateAddress =
           privatePreviewHubOrigin &&
           !repository.localPath &&
-          !prototype.branchDeletedAt &&
           build.state === "successful" &&
-          build.artifacts.some(({ path }) => path === "dist/index.html") &&
-          build.artifacts.some(({ path }) => path === "dist/replica-preview-base.json") &&
+          build.artifacts.some(({ kind, path }) => kind === "dist" && path === "dist/index.html") &&
+          build.artifacts.some(
+            ({ kind, path }) => kind === "dist" && path === "dist/replica-preview-base.json",
+          ) &&
           privatePreviewAddress(
             String(repository.githubRepositoryId),
             String(build.githubWorkflowRunId),

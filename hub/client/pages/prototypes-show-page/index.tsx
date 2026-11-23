@@ -138,9 +138,9 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
       <CopyableTextInput
         compact
         value={data.privatePreviewUrl}
-        label="Private Hub link"
-        copyLabel="Copy private Hub link"
-        copiedLabel="Private Hub link copied"
+        label={data.privatePreviewLinkLabel}
+        copyLabel={data.copyPrivatePreviewLinkLabel}
+        copiedLabel={data.copiedPrivatePreviewLinkLabel}
         copyErrorLabel={data.copyPreviewUrlErrorLabel}
       />
       <HubIconButton
@@ -149,8 +149,8 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
         target="_blank"
         rel="noopener noreferrer"
         icon={LinkExternalIcon}
-        aria-label="Open private preview in new tab"
-        description="Open private preview in new tab"
+        aria-label={data.openPrivatePreviewInNewTabLabel}
+        description={data.openPrivatePreviewInNewTabLabel}
         variant="invisible"
         size="small"
       />

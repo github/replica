@@ -12,6 +12,7 @@ model Build {
   shareLinks             ShareLink[]
   decisionEvaluations    DecisionBuildEvaluation[]
   githubRunCompletions   GitHubBuildRunCompletion[]
+  privatePreviewAccesses PrivatePreviewAccess[]
 
   // Attribute columns
   number                   Int

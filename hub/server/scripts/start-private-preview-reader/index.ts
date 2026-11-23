@@ -1,6 +1,6 @@
 import { createServer } from "node:http"
 
-import { parseArtifactStorageSettings } from "../../domains/artifacts/parse-artifact-storage-settings/index.ts"
+import { readArtifactStorageEnvironment } from "../../domains/artifacts/read-artifact-storage-environment/index.ts"
 import { readPrivatePreviewSettings } from "../../domains/private-preview/read-settings/index.ts"
 import { readerAuthorizePath, readerExchangePath } from "../../domains/private-preview/types.ts"
 import { createPrivateArtifactReader } from "../../integrations/filesystem/create-private-artifact-reader/index.ts"
@@ -10,29 +10,14 @@ import { createPrivatePreviewReader } from "../../routes/private-preview-reader/
 const settings = readPrivatePreviewSettings(process.env)
 if (!settings) throw new Error("The private preview reader is disabled.")
 
-const provider = process.env.ARTIFACT_STORAGE_PROVIDER
-const account = process.env.AZURE_STORAGE_ACCOUNT
-const storage = parseArtifactStorageSettings(
-  provider === "azure"
-    ? {
-        provider: "azure-blob",
-        accountUrl: `https://${account ?? ""}.blob.core.windows.net`,
-        container: process.env.AZURE_STORAGE_CONTAINER,
-        managedIdentityClientId: process.env.AZURE_CLIENT_ID,
-      }
-    : { provider, directory: process.env.ARTIFACT_STORAGE_DIRECTORY },
-)
+const storage = readArtifactStorageEnvironment(process.env)
 const trustedProxyHops = Number(process.env.PRIVATE_PREVIEW_TRUSTED_PROXY_HOPS ?? 0)
 const port = Number(process.env.PORT ?? 3002)
-if (
-  !Number.isInteger(port) ||
-  port < 1 ||
-  port > 65535 ||
-  !Number.isInteger(trustedProxyHops) ||
-  trustedProxyHops < 0 ||
-  trustedProxyHops > 10
-) {
-  throw new Error("Private preview port or trusted proxy hop count is invalid.")
+if (!Number.isInteger(port) || port < 1 || port > 65535) {
+  throw new Error("PORT must be an integer between 1 and 65535.")
+}
+if (!Number.isInteger(trustedProxyHops) || trustedProxyHops < 1 || trustedProxyHops > 10) {
+  throw new Error("PRIVATE_PREVIEW_TRUSTED_PROXY_HOPS must be an integer between 1 and 10.")
 }
 const readArtifact =
   storage.provider === "filesystem"

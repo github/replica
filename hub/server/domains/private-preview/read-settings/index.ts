@@ -1,5 +1,7 @@
 import { getDomain } from "tldts"
 
+export class PrivatePreviewConfigurationError extends Error {}
+
 export interface PrivatePreviewSettings {
   hubOrigin: string
   readerOrigin: string
@@ -9,7 +11,9 @@ export interface PrivatePreviewSettings {
 function readOrigin(value: string | undefined, key: string): URL {
   const origin = URL.parse(value ?? "")
   if (!origin || origin.origin !== value || origin.protocol !== "https:") {
-    throw new Error(`${key} must be an exact HTTPS origin without a trailing slash.`)
+    throw new PrivatePreviewConfigurationError(
+      `${key} must be an exact HTTPS origin without a trailing slash.`,
+    )
   }
   return origin
 }
@@ -23,12 +27,14 @@ export function readPrivatePreviewSettings(
       environment.HUB_PRIVATE_PREVIEW_ORIGIN !== undefined ||
       environment.HUB_PRIVATE_PREVIEW_READER_SECRET !== undefined
     ) {
-      throw new Error("Set HUB_PRIVATE_PREVIEW_ENABLED explicitly for private preview settings.")
+      throw new PrivatePreviewConfigurationError(
+        "Set HUB_PRIVATE_PREVIEW_ENABLED explicitly for private preview settings.",
+      )
     }
     return undefined
   }
   if (environment.HUB_PRIVATE_PREVIEW_ENABLED !== "true") {
-    throw new Error("HUB_PRIVATE_PREVIEW_ENABLED must be true or false.")
+    throw new PrivatePreviewConfigurationError("HUB_PRIVATE_PREVIEW_ENABLED must be true or false.")
   }
   const hub = readOrigin(environment.HUB_APPLICATION_ORIGIN, "HUB_APPLICATION_ORIGIN")
   const reader = readOrigin(environment.HUB_PRIVATE_PREVIEW_ORIGIN, "HUB_PRIVATE_PREVIEW_ORIGIN")
@@ -42,14 +48,18 @@ export function readPrivatePreviewSettings(
     reader.hostname.endsWith(`.${hub.hostname}`) ||
     (hubDomain !== null && hubDomain === readerDomain)
   ) {
-    throw new Error("Private preview requires a separate site from Hub.")
+    throw new PrivatePreviewConfigurationError("Private preview requires a separate site from Hub.")
   }
   if (!hubParentDomain || !readerParentDomain) {
-    throw new Error("Private preview requires DNS hostnames for Hub and the reader.")
+    throw new PrivatePreviewConfigurationError(
+      "Private preview requires DNS hostnames for Hub and the reader.",
+    )
   }
   const readerSecret = environment.HUB_PRIVATE_PREVIEW_READER_SECRET
   if (!readerSecret || !/^[A-Za-z0-9_-]{43}$/.test(readerSecret)) {
-    throw new Error("HUB_PRIVATE_PREVIEW_READER_SECRET must be a 32-byte base64url secret.")
+    throw new PrivatePreviewConfigurationError(
+      "HUB_PRIVATE_PREVIEW_READER_SECRET must be a 32-byte base64url secret.",
+    )
   }
   return { hubOrigin: hub.origin, readerOrigin: reader.origin, readerSecret }
 }

@@ -1,7 +1,11 @@
 import "dotenv/config"
 
 import { createConfiguredArtifactStorage } from "./domains/artifacts/create-configured-artifact-storage/index.ts"
-import { readPrivatePreviewSettings } from "./domains/private-preview/read-settings/index.ts"
+import { canViewPrivatePreview } from "./domains/private-preview/can-view-private-preview/index.ts"
+import {
+  PrivatePreviewConfigurationError,
+  readPrivatePreviewSettings,
+} from "./domains/private-preview/read-settings/index.ts"
 import { LocalSignInConfigurationError } from "./domains/authentication/errors.ts"
 import { readLearningConfiguration } from "./domains/learning/read-learning-configuration/index.ts"
 import { readDecisionRuntimeConfiguration } from "./domains/decision-model/read-decision-runtime-configuration/index.ts"
@@ -68,7 +72,9 @@ try {
         configuredTrustedProxyHops < 0 ||
         configuredTrustedProxyHops > 10)
     ) {
-      throw new Error("HUB_TRUSTED_PROXY_HOPS must be an integer between 0 and 10.")
+      throw new AuthenticationConfigurationError(
+        "HUB_TRUSTED_PROXY_HOPS must be an integer between 0 and 10.",
+      )
     }
     const trustedProxyHops = runsApi ? configuredTrustedProxyHops : 0
     let authentication: AuthenticationRouteDependencies | undefined
@@ -87,12 +93,20 @@ try {
       const authenticationConfiguration =
         readAuthenticationConfigurationState(authenticationEnvironment)
       const privatePreviewSettings = readPrivatePreviewSettings(authenticationEnvironment)
+      if (privatePreviewSettings && trustedProxyHops === 0) {
+        throw new PrivatePreviewConfigurationError(
+          "Private preview requires HUB_TRUSTED_PROXY_HOPS between 1 and 10.",
+        )
+      }
       if (
         privatePreviewSettings &&
-        (!storage || !configuration.databaseUrl || !authenticationConfiguration.providerConfigured)
+        (!storage ||
+          !configuration.databaseUrl ||
+          (!authenticationConfiguration.githubConfigured &&
+            !authenticationConfiguration.localConfigured))
       ) {
         throw new AuthenticationConfigurationError(
-          "Private preview requires Hub sign-in, a database, and artifact storage.",
+          "Private preview requires GitHub sign-in or configured local administrator sign-in, a database, and artifact storage.",
         )
       }
       if (authenticationConfiguration.githubStatus === "incomplete") {
@@ -242,6 +256,7 @@ try {
                 ? authenticationEnvironment.HUB_PREVIEW_ORIGIN
                 : undefined,
               privatePreviewHubOrigin: privatePreviewSettings?.hubOrigin,
+              privatePreviewLocalSignIn: authenticationConfiguration.localConfigured,
               withReviewCommentDeleteLock: (operation) =>
                 learningDependencies.serializeReviewCommentDeletion(operation),
             })
@@ -252,6 +267,8 @@ try {
                 await import("./repositories/private-previews/create-private-preview-access-store/index.ts")
               const { findPrivatePreviewTarget } =
                 await import("./repositories/private-previews/find-private-preview-target/index.ts")
+              const { findPrivatePreviewDistFile } =
+                await import("./repositories/private-previews/find-private-preview-dist-file/index.ts")
               const { prisma } = await import("./integrations/prisma/index.ts")
               privatePreview = {
                 settings: privatePreviewSettings,
@@ -264,12 +281,9 @@ try {
                   ),
                   isRepositoryVisible: product.isRepositoryVisible.bind(product),
                   hasCurrentRepositoryAccess: async (viewer, repositoryId) => {
-                    if (viewer.sessionProvider === "local") {
-                      return Boolean(
-                        authenticationConfiguration.localConfigured &&
-                        viewer.role === "ADMINISTRATOR",
-                      )
-                    }
+                    if (!canViewPrivatePreview(viewer, authenticationConfiguration.localConfigured))
+                      return false
+                    if (viewer.sessionProvider === "local") return true
                     const permission = await product?.getVerifiedRepositoryPermission?.(
                       viewer,
                       repositoryId,
@@ -278,10 +292,7 @@ try {
                   },
                   findTarget: (address) => findPrivatePreviewTarget(prisma, address),
                   findDistFile: (buildId, path) =>
-                    prisma.buildArtifact.findFirst({
-                      where: { buildId, path, kind: "dist", build: { state: "successful" } },
-                      select: { storageKey: true, byteLength: true },
-                    }),
+                    findPrivatePreviewDistFile(prisma, buildId, path),
                 }),
               }
             }
@@ -413,6 +424,7 @@ try {
 } catch (error) {
   logger.fatal(
     error instanceof AuthenticationConfigurationError ||
+      error instanceof PrivatePreviewConfigurationError ||
       error instanceof PublicSharingConfigurationError ||
       error instanceof LocalSignInConfigurationError ||
       error instanceof LocalDevelopmentConfigurationError ||

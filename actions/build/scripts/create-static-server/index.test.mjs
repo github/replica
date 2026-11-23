@@ -11,6 +11,27 @@ import { listenOnLoopback } from "../listen-on-loopback/index.mjs"
 import { createStaticServer } from "./index.mjs"
 
 describe("createStaticServer()", () => {
+  it("serves a declared route only under the configured Build mount", async () => {
+    const dist = await temporaryDirectory()
+    const html = "<!doctype html><h1>App</h1>"
+    const base = "/previews/github/2001/4001/"
+    await writeFile(path.join(dist, "index.html"), html)
+    const server = createStaticServer(dist, ["/settings/v2.0"], base)
+    const port = await listenOnLoopback(server)
+    const origin = `http://127.0.0.1:${port}`
+    const headers = { Accept: "text/html" }
+    try {
+      const response = await fetch(`${origin}${base}settings/v2.0`, { headers })
+      assert.equal(response.status, 200)
+      assert.equal(await response.text(), html)
+      for (const route of ["/settings/v2.0", "/previews/github/2001/4002/settings/v2.0"]) {
+        assert.equal((await fetch(`${origin}${route}`, { headers })).status, 404, route)
+      }
+    } finally {
+      await closeServer(server)
+    }
+  })
+
   it("serves client-side browser routes but never replaces missing assets with HTML", async () => {
     const dist = await temporaryDirectory()
     await writeFile(path.join(dist, "index.html"), "<!doctype html><h1>App</h1>")

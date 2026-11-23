@@ -16,10 +16,8 @@ import {
 } from "../../domains/private-preview/types.ts"
 import { readCookie } from "../../integrations/express/read-cookie/index.ts"
 import { normalizeStartPage } from "../../utils/normalize-start-page/index.ts"
-import {
-  privatePreviewAddress,
-  readPrivatePreviewAddress,
-} from "../../utils/private-preview-address/index.ts"
+import { privatePreviewAddress } from "../../utils/private-preview-address/index.ts"
+import { readPrivatePreviewAddress } from "../../utils/read-private-preview-address/index.ts"
 
 const challengeCookie = "__Host-replica-preview-challenge"
 const challengeLifetime = 5 * 60_000
@@ -32,6 +30,7 @@ const contentPolicy = [
   "media-src 'self' blob:",
   "font-src 'self' data:",
   "connect-src 'self'",
+  "worker-src 'none'",
   "frame-ancestors 'none'",
   "form-action 'none'",
   "base-uri 'none'",

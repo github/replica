@@ -10,25 +10,27 @@ The canonical reader path is `/previews/github/<githubRepositoryId>/<owningWorkf
 
 ### Runtime settings
 
-| Setting                             | Hub                                       | Reader                                     |
-| ----------------------------------- | ----------------------------------------- | ------------------------------------------ |
-| `HUB_PRIVATE_PREVIEW_ENABLED`       | Set to `true` to opt in; unset by default | Must be `true` to start                    |
-| `HUB_APPLICATION_ORIGIN`            | Exact public HTTPS origin                 | Same, for launch and authority calls       |
-| `HUB_PRIVATE_PREVIEW_ORIGIN`        | Exact public HTTPS reader origin          | Same, for browser ingress                  |
-| `HUB_PRIVATE_PREVIEW_READER_SECRET` | Dedicated random 32-byte base64url secret | Same secret; not a Hub session signing key |
-| `PORT`, `HOST`                      | Normal Hub settings                       | Defaults to `3002`, `127.0.0.1`            |
-| Trusted proxy hops                  | `HUB_TRUSTED_PROXY_HOPS`                  | `PRIVATE_PREVIEW_TRUSTED_PROXY_HOPS`       |
-| Artifact storage                    | Normal Hub settings                       | Same storage with read-only permissions    |
+| Setting                             | Hub                                       | Reader                                      |
+| ----------------------------------- | ----------------------------------------- | ------------------------------------------- |
+| `HUB_PRIVATE_PREVIEW_ENABLED`       | Set to `true` to opt in; unset by default | Must be `true` to start                     |
+| `HUB_APPLICATION_ORIGIN`            | Exact public HTTPS origin                 | Same, for launch and authority calls        |
+| `HUB_PRIVATE_PREVIEW_ORIGIN`        | Exact public HTTPS reader origin          | Same, for browser ingress                   |
+| `HUB_PRIVATE_PREVIEW_READER_SECRET` | Dedicated random 32-byte base64url secret | Same secret; not a Hub session signing key  |
+| `PORT`, `HOST`                      | Normal Hub settings                       | Defaults to `3002`, `127.0.0.1`             |
+| Trusted proxy hops                  | `HUB_TRUSTED_PROXY_HOPS` (1–10)           | `PRIVATE_PREVIEW_TRUSTED_PROXY_HOPS` (1–10) |
+| Artifact storage                    | Normal Hub settings                       | Same storage with read-only permissions     |
 
 Use the compiled `npm run start:preview-reader` command in a separate service. For local checks, use `npm run dev:preview-reader` and an `ARTIFACT_STORAGE_PROVIDER=filesystem` read-only directory. The reader does not load a Hub `.env`, initialize Prisma, or use a database, GitHub App, or Hub session signing credentials. Azure storage can use the existing `AZURE_STORAGE_ACCOUNT`, `AZURE_STORAGE_CONTAINER`, and optional `AZURE_CLIENT_ID` settings with a dedicated identity granted only blob read access on the artifact container.
 
 Use separate sites for Hub and the reader. Different hostnames alone are not enough: two generated Container Apps endpoints under `azurecontainerapps.io` do not qualify. Both services accept requests only on their configured external HTTPS host. A deployment that terminates TLS at a proxy must prevent direct access to either listening port and overwrite forwarded headers at the controlled ingress. Only then configure its exact hop count. The reader's direct health probe can use TCP; its `/health` HTTP endpoint requires the same trusted HTTPS ingress as other routes.
 
+When upgrading an installation that already ran the initial private preview migration, coordinate the forward migration with the Hub API upgrade. It preserves access rows and renames their table. The previous Hub API cannot serve private previews against the updated table.
+
 ### Authorization and isolation
 
-Hub owns the launch at `/api/private-preview/launch/<githubRepositoryId>/<owningWorkflowRunId>`. It checks the current viewer and Build, then issues a 30-second, one-use handoff tied to that Build, the Hub session, the reader and the browser's challenge. A fixed Hub form posts the handoff to the reader without serving prototype HTML; grants and session credentials do not enter link URLs. The reader exchanges it with Hub and sets a host-only, secure, HTTP-only cookie for that exact Build. Hub checks the current session, repository scope, and GitHub viewer permission on each authorization, before and after the reader's bounded file read. Conditional requests do not bypass authorization. Responses are not cached. Loss of access or an unavailable authority (including GitHub permission checks) prevents the reader from returning bytes. Only the reader sends credentials to the server-to-server endpoints; those endpoints do not enable browser CORS. Keep request bodies, cookies, authorization headers and redirect details out of ingress logs.
+Hub owns the launch at `/api/private-preview/launch/<githubRepositoryId>/<owningWorkflowRunId>`. Standalone launch supports GitHub sessions and explicitly configured local administrator sessions, not Entra sessions. After the reader starts the browser challenge, Hub shows an unframeable confirmation page for the exact Build. The viewer must confirm on Hub. That same-origin POST checks current access again and issues a 30-second, one-use handoff tied to the Build, Hub session, reader, and challenge. A fixed Hub form posts it to the reader without serving prototype HTML; grants and session credentials do not enter link URLs. The reader exchanges it with Hub and sets a host-only, secure, HTTP-only cookie for that exact Build. Hub checks the current session, repository scope, and, for GitHub viewers, current repository permission on each authorization, before and after the reader's bounded file read. Conditional requests do not bypass authorization. Responses are not cached. Loss of access or an unavailable authority (including GitHub permission checks) prevents the reader from returning bytes. Only the reader sends credentials to the server-to-server endpoints; those endpoints do not enable browser CORS. Keep request bodies, cookies, authorization headers and redirect details out of ingress logs.
 
-The reader is separate from Hub, **not** per-Build browser isolation. Active content on its shared hostname can act as that origin, including reading another already-authorized Build in the same browser. Worker and iframe use are disabled. Keep this option off until the separate-origin deployment and browser handoff are verified and the shared-host tradeoff is accepted. Embedded review, Controls integration and interactive templates are not part of this reader.
+The reader is separate from Hub, **not** per-Build browser isolation. Active content on its shared hostname can act as that origin, including reading another already-authorized Build in the same browser. Worker and iframe use are disabled. Bundles that depend on an HTML `<base>` element are unsupported; compile the router and asset paths for the mount instead. Keep this option off until the separate-origin deployment and browser handoff are verified and the shared-host tradeoff is accepted. Embedded review, Controls integration and interactive templates are not part of this reader.
 
 ## Legacy isolated access flow
 

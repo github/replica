@@ -6,6 +6,44 @@ import { GitHubProviderRequestError } from "../errors"
 import { readRepositoryPermission } from "."
 
 describe("readRepositoryPermission()", () => {
+  it("reuses only the scoped token and checks current permission for every read", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({
+          token: "synthetic",
+          expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+        }),
+      )
+      .mockResolvedValueOnce(Response.json({ id: 42, full_name: "sandbox/private" }))
+      .mockResolvedValueOnce(Response.json({ user: { id: 501 }, permission: "read" }))
+      .mockResolvedValueOnce(Response.json({ id: 42, full_name: "sandbox/private" }))
+      .mockResolvedValueOnce(Response.json({ user: { id: 501 }, permission: "none" }))
+      .mockResolvedValueOnce(new Response(null, { status: 404 }))
+    const input = {
+      credentials: { appId: "16", installationId: "17", privateKey },
+      githubRepositoryId: 42n,
+      login: "reviewer",
+      subject: "501",
+    }
+
+    await expect(readRepositoryPermission(input, request)).resolves.toBe("read")
+    await expect(readRepositoryPermission(input, request)).resolves.toBe("none")
+    await expect(
+      readRepositoryPermission({ ...input, githubRepositoryId: 43n }, request),
+    ).resolves.toBeNull()
+    expect(request.mock.calls.map(([, options]) => options?.method)).toEqual([
+      "POST",
+      "GET",
+      "GET",
+      "GET",
+      "GET",
+      "POST",
+    ])
+    expect(request.mock.calls[5]?.[1]?.body).toBe(JSON.stringify({ repository_ids: [43] }))
+  })
+
   it.each(["reviewer", `${"r".repeat(34)}_corp`])(
     "checks repository and branch eligibility for account %s",
     async (login) => {

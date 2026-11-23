@@ -147,7 +147,7 @@ describe("private preview Hub routes", () => {
     expect(exchange.status).toBe(404)
   })
 
-  it("uses the Hub session and sends the grant in a POST form to the Reader", async () => {
+  it("starts at the canonical launch URL and asks for Hub confirmation without issuing a grant", async () => {
     const { request, grant, authority } = await startHub()
     const session = randomBytes(32).toString("base64url")
     const sessionDigest = createHash("sha256").update(session).digest("hex")
@@ -163,15 +163,73 @@ describe("private preview Hub routes", () => {
     expect(begin.headers.location).toBe(`${readerOrigin}${address.begin}`)
     expect(authority.launch).toHaveBeenCalledWith(sessionDigest, address)
 
-    const handoff = await request(`${address.launch}?challenge=${challenge}`, headers)
+    const confirmation = await request(`${address.launch}?challenge=${challenge}`, headers)
+
+    expect(confirmation.status).toBe(200)
+    expect(confirmation.headers.location).toBeUndefined()
+    expect(confirmation.headers["cache-control"]).toContain("no-store")
+    expect(confirmation.headers["referrer-policy"]).toBe("origin")
+    expect(confirmation.body).toContain(`<form method="post" action="${address.launch}">`)
+    expect(confirmation.body).toContain(`name="challenge" value="${challenge}"`)
+    expect(confirmation.body).toContain('<button type="submit">')
+    expect(confirmation.body).not.toMatch(/<script\b|\bon(?:load|submit)\s*=/i)
+    expect(confirmation.body).not.toContain(grant)
+    expect(confirmation.body).not.toContain(session)
+    expect(authority.issue).not.toHaveBeenCalled()
+  })
+
+  it("sends the grant to the Reader only after a same-origin Hub confirmation", async () => {
+    const { request, grant, authority } = await startHub()
+    const session = randomBytes(32).toString("base64url")
+    const sessionDigest = createHash("sha256").update(session).digest("hex")
+    const challenge = randomBytes(32).toString("hex")
+
+    const handoff = await request(
+      address.launch,
+      {
+        cookie: `hub_session=${session}`,
+        origin: hubOrigin,
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      new URLSearchParams({ challenge }).toString(),
+    )
+
     expect(handoff.status).toBe(200)
     expect(handoff.headers.location).toBeUndefined()
     expect(handoff.headers["cache-control"]).toContain("no-store")
     const exchangeUrl = `${readerOrigin}${address.exchange}`
     expect(handoff.body).toContain(`<form method="post" action="${exchangeUrl}">`)
     expect(handoff.body).toContain(`name="grant" value="${grant}"`)
+    const nonce = handoff.body.match(/<script nonce="([^"]+)">[^<]*\.submit\(\)/)?.[1]
+    expect(nonce).toBeTruthy()
+    expect(handoff.headers["content-security-policy"]).toContain(`script-src 'nonce-${nonce}'`)
     expect(handoff.body).not.toContain(session)
-    expect(authority.issue).toHaveBeenCalledWith(sessionDigest, address, challenge)
+    expect(authority.issue).toHaveBeenCalledExactlyOnceWith(sessionDigest, address, challenge)
+  })
+
+  it.each([
+    {
+      reason: "a different origin on the same site",
+      origin: "https://other.example.com",
+      signedIn: true,
+    },
+    { reason: "no origin", origin: undefined, signedIn: true },
+    { reason: "no Hub session", origin: hubOrigin, signedIn: false },
+  ])("rejects confirmation with $reason without issuing a grant", async ({ origin, signedIn }) => {
+    const { request, authority } = await startHub()
+    const challenge = randomBytes(32).toString("hex")
+    const headers: Record<string, string> = { "content-type": "application/x-www-form-urlencoded" }
+    if (origin) headers.origin = origin
+    if (signedIn) headers.cookie = `hub_session=${randomBytes(32).toString("base64url")}`
+
+    const confirmation = await request(
+      address.launch,
+      headers,
+      new URLSearchParams({ challenge }).toString(),
+    )
+
+    expect(confirmation.status).toBe(404)
+    expect(authority.issue).not.toHaveBeenCalled()
   })
 
   it("does not serve canonical preview files on the Hub origin", async () => {

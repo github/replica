@@ -158,6 +158,17 @@ describe("createPrivatePreviewReader()", () => {
       expect(response.headers["content-type"]).toMatch(type)
       expect(response.headers["cache-control"]).toContain("no-store")
       expect(response.body).toBe(bytes.toString())
+      if (destination === "document") {
+        const directives = String(response.headers["content-security-policy"])
+          .split(";")
+          .map((directive) => directive.trim())
+        expect(directives.filter((directive) => directive.startsWith("worker-src "))).toEqual([
+          "worker-src 'none'",
+        ])
+        expect(directives.filter((directive) => directive.startsWith("base-uri "))).toEqual([
+          "base-uri 'none'",
+        ])
+      }
       expect(calls).toEqual(["authorize", "read", "authorize"])
       expect(authorizeFile).toHaveBeenLastCalledWith(
         access,

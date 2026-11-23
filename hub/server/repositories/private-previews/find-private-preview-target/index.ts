@@ -24,7 +24,6 @@ export async function findPrivatePreviewTarget(
         select: {
           replica: true,
           branchName: true,
-          branchDeletedAt: true,
           startPage: true,
           repository: {
             select: { id: true, removedAt: true, localPath: true, defaultBranch: true },
@@ -38,7 +37,6 @@ export async function findPrivatePreviewTarget(
   const { prototype } = build
   if (
     prototype.replica ||
-    prototype.branchDeletedAt ||
     prototype.repository.removedAt ||
     prototype.repository.localPath ||
     prototype.branchName === prototype.repository.defaultBranch ||
