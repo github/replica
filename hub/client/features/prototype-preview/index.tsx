@@ -30,14 +30,17 @@ export function PrototypePreview({
   controlsToolbar,
   minimizedControlsToolbar,
 }: PrototypePreviewProps) {
-  const [unavailableUrl, setUnavailableUrl] = useState<string>()
+  const [expired, setExpired] = useState<{ url: string | undefined } | null>(null)
+  if (expired && (ready !== false || expired.url !== previewUrl)) setExpired(null)
+
   useEffect(() => {
     if (ready !== false) return
 
-    const timer = window.setTimeout(() => setUnavailableUrl(previewUrl), 8000)
+    const timer = window.setTimeout(() => setExpired({ url: previewUrl }), 8000)
     return () => window.clearTimeout(timer)
   }, [ready, previewUrl])
-  const unavailable = ready === false && unavailableUrl === previewUrl && Boolean(fallback)
+  const unavailable =
+    ready === false && expired !== null && expired.url === previewUrl && Boolean(fallback)
 
   return (
     <div className={`review-shell__preview${minimized ? " review-shell__preview--minimized" : ""}`}>

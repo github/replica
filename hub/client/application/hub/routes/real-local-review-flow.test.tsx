@@ -355,7 +355,7 @@ describe("real local review flow", () => {
     })
     fireEvent.load(frame)
     const readyRequest = commands.findLast(
-      (command) => command.type === "replica:bridge:request-ready",
+      (command) => command.type === "replica:bridge:request-navigation-ready",
     )
     if (!readyRequest) throw new Error("The preview bridge did not request readiness.")
     const navigationId = readyRequest.requestId
