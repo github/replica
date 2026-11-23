@@ -1,7 +1,9 @@
 export const shareCopy = {
   title: "Share prototype",
+  description: "Local and uncommitted changes are not included.",
   internal: "Internal prototype link",
-  internalDescription: "Requires GitHub sign-in and repository access.",
+  internalDescription:
+    "People with GitHub sign-in and repository access can view and comment on the prototype.",
   internalUnavailable: "Internal prototype link unavailable.",
   internalCopy: "Copy internal prototype link",
   internalOpen: "Open internal prototype link",
@@ -10,7 +12,7 @@ export const shareCopy = {
   group: "Publish and share",
   back: "Back to preview",
   warning:
-    "Anyone with a link can view its Build without signing in. The prototype may expose sensitive or customer information. Check its content before sharing. Local and uncommitted changes are not included.",
+    "Anyone with a link can view its Build without signing in, but cannot view or add comments.",
   target: "New links share this published Build:",
   oldBuild: "This is the last published Build, not the current local preview.",
   includeControlSettings: "Include current control settings",

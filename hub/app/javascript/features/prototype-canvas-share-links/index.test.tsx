@@ -61,14 +61,12 @@ function fixture(display = state) {
 }
 
 describe("ShareLinksPage()", () => {
-  it("warns about anyone-with-the-link access and sensitive or customer information before creation", () => {
+  it("explains public access and commenting before creation", () => {
     fixture()
     expect(screen.getByText(shareCopy.warning)).toHaveTextContent(
       "Anyone with a link can view its Build without signing in",
     )
-    expect(screen.getByText(shareCopy.warning)).toHaveTextContent(
-      "sensitive or customer information",
-    )
+    expect(screen.getByText(shareCopy.warning)).toHaveTextContent("cannot view or add comments")
     expect(screen.getByRole("button", { name: shareCopy.create })).toBeInTheDocument()
   })
 
@@ -407,7 +405,10 @@ describe("ShareLinksPage()", () => {
     expect(
       checkbox.compareDocumentPosition(internalHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
-    expect(f.container.querySelector(".hub-content-page-header__description")).toBeNull()
+    expect(
+      screen.getByText(shareCopy.description).compareDocumentPosition(checkbox) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
     fireEvent.click(checkbox)
     expect(onChange).toHaveBeenCalledExactlyOnceWith(false)
     expect(f.props.onCreate).not.toHaveBeenCalled()

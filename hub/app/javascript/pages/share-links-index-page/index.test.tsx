@@ -48,11 +48,11 @@ const PAGE_DATA: ShareLinksIndexPageData = {
 }
 
 describe("ShareLinksIndexPage()", () => {
-  it("warns that public links can expose sensitive or customer information before creation", () => {
+  it("explains public access and commenting before creation", () => {
     render(<ShareLinksIndexPage data={PAGE_DATA} />, { wrapper: HubThemeProvider })
     expect(
-      screen.getByText(/Anyone with a link can view this Build without signing in/),
-    ).toHaveTextContent("sensitive or customer information")
+      screen.getByText(/Anyone with a link can view its Build without signing in/),
+    ).toHaveTextContent("cannot view or add comments")
     expect(screen.getByRole("button", { name: "Create share link" })).toBeInTheDocument()
   })
 

@@ -1,4 +1,4 @@
-import { LinkExternalIcon, TrashIcon, XIcon } from "@primer/octicons-react"
+import { InfoIcon, LinkExternalIcon, TrashIcon, XIcon } from "@primer/octicons-react"
 import { Button, Heading, Tooltip } from "@primer/react-brand/esm"
 import { useEffect, useRef, useState, type RefObject } from "react"
 
@@ -155,6 +155,12 @@ export function ShareLinksPage({
         <ShareLinksContent
           labels={{
             heading: shareCopy.title,
+            description: (
+              <span className="canvas-share-description">
+                <InfoIcon aria-hidden="true" />
+                {shareCopy.description}
+              </span>
+            ),
             noBuildHeading: shareCopy.noBuildHeading,
             noBuildLabel: shareCopy.noBuild,
             emptyHeading: shareCopy.emptyHeading,
