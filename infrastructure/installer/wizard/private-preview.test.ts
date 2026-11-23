@@ -6,7 +6,9 @@ import { afterEach, expect, it, vi } from "vitest"
 import * as azureConfiguration from "../../azure/install/configure/index.ts"
 import * as azureInstaller from "../../azure/install/index.ts"
 import * as previewInstaller from "../../azure/install/private-preview/index.ts"
+import type { DeploymentResult } from "../../azure/install/types.ts"
 import { loadConfig, saveConfig } from "../config/index.ts"
+import { formatDeploymentSummary } from "../deployment-summary/index.ts"
 import { openSession } from "../session/index.ts"
 import type { DeploymentConfig, RunCommand, WizardUI } from "../types.ts"
 import { runWizard } from "./index.ts"
@@ -41,7 +43,7 @@ async function fixture(saved: boolean) {
   if (saved) await saveConfig(path, config, { exclusive: true })
   vi.spyOn(azureConfiguration, "configureAzure").mockResolvedValue(config)
   const group = `/subscriptions/${config.azure.subscriptionId}/resourceGroups/${config.azure.resourceGroup}`
-  const hub = vi.spyOn(azureInstaller, "installAzure").mockResolvedValue({
+  const result: DeploymentResult = {
     name: config.name,
     subscriptionId: config.azure.subscriptionId,
     tenantId: config.azure.tenantId,
@@ -58,6 +60,11 @@ async function fixture(saved: boolean) {
       vault: `${group}/providers/Microsoft.KeyVault/vaults/testvault`,
       stateStorage: `${group}/providers/Microsoft.Storage/storageAccounts/teststate`,
     },
+  }
+  const hub = vi.spyOn(azureInstaller, "installAzure").mockImplementation(async (_, { ui }) => {
+    await ui.phase?.("provision")
+    await ui.phase?.("verify")
+    return result
   })
   const interrupted = new Error("Synthetic interruption in preview staging")
   const preview = vi.spyOn(previewInstaller, "installAzurePrivatePreview")
@@ -72,20 +79,27 @@ async function fixture(saved: boolean) {
     confirm: vi.fn(),
     wait: vi.fn(),
     status: vi.fn(),
+    notice: vi.fn(),
   }
   const signal = new AbortController().signal
   const options = { directory, path, run, ui, signal, ...(saved && { existing: config }) }
-  return { options, config, hub, preview, interrupted }
+  return { options, config, result, hub, preview, interrupted }
 }
 
-async function resumeSession(path: string, stage: "after-create" | "prepare") {
+async function startSession(path: string) {
   const session = await openSession(path)
   sessions.push(session)
+  return session
+}
+
+async function resumeSession(
+  path: string, stage: "after-create" | "prepare", deploymentStarted = false,
+) {
+  const session = await startSession(path)
   await session.answer("privatePreviewStage", stage)
+  await session.phase(deploymentStarted ? "verify" : "review")
   await session.close()
-  const reopened = await openSession(path)
-  sessions.push(reopened)
-  return reopened
+  return startSession(path)
 }
 
 it("creates Hub without staging preview by default", async () => {
@@ -100,8 +114,7 @@ it("creates Hub without staging preview by default", async () => {
 
 it("stages opted-in preview after creating Hub and checkpoints a preview-only retry", async () => {
   const { options, config, hub, preview, interrupted } = await fixture(false)
-  const session = await openSession(options.path)
-  sessions.push(session)
+  const session = await startSession(options.path)
 
   await expect(runWizard({ ...options, session, entryAction: "create", preparePrivatePreview: true }))
     .rejects.toBe(interrupted)
@@ -124,8 +137,7 @@ it("stages opted-in preview after creating Hub and checkpoints a preview-only re
 
 it("rejects resuming an interrupted preview-only Update after its saved target changes", async () => {
   const { options, config, hub, preview, interrupted } = await fixture(true)
-  const session = await openSession(options.path)
-  sessions.push(session)
+  const session = await startSession(options.path)
 
   await expect(
     runWizard({ ...options, session, entryAction: "update", preparePrivatePreview: true }),
@@ -138,8 +150,7 @@ it("rejects resuming an interrupted preview-only Update after its saved target c
     ...config,
     azure: { ...config.azure, resourceGroup: "other-hub-rg" },
   })
-  const reopened = await openSession(options.path)
-  sessions.push(reopened)
+  const reopened = await startSession(options.path)
   const existing = await loadConfig(options.path)
 
   await expect(runWizard({ ...options, existing, session: reopened }))
@@ -161,6 +172,102 @@ it.each([
   expect(preview).toHaveBeenCalledOnce()
   if (runsHub) expect(hub).toHaveBeenCalledBefore(preview)
   else expect(hub).not.toHaveBeenCalled()
+})
+
+it("cleans up a declined preview-only Update and permits an ordinary Update", async () => {
+  const { options, config, result, hub, preview } = await fixture(true)
+  const session = await startSession(options.path)
+  preview.mockResolvedValue("declined")
+
+  await expect(runWizard({ ...options, session, entryAction: "update", preparePrivatePreview: true }))
+    .resolves.toMatch(/skip|declin|not (?:approved|staged|prepared)/i)
+
+  expect(preview).toHaveBeenCalledOnce()
+  expect(hub).not.toHaveBeenCalled()
+  await expect(readFile(session.path, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  await expect(loadConfig(options.path)).resolves.toEqual(config)
+
+  await session.close()
+  const reopened = await startSession(options.path)
+  await expect(runWizard({ ...options, session: reopened, entryAction: "update" }))
+    .resolves.toBe(formatDeploymentSummary(result, options.path))
+  expect(hub).toHaveBeenCalledOnce()
+  expect(preview).toHaveBeenCalledOnce()
+})
+
+it.each(["create", "resume"] as const)(
+  "returns the full Hub summary and removes the draft when preview is declined after Hub succeeds on %s",
+  async (entryAction) => {
+    const { options, config, result, hub, preview } = await fixture(entryAction === "resume")
+    const session = entryAction === "create"
+      ? await startSession(options.path)
+      : await resumeSession(options.path, "after-create", true)
+    preview.mockResolvedValue("declined")
+
+    const summary = await runWizard({
+      ...options, session, entryAction, preparePrivatePreview: entryAction === "create",
+    })
+
+    expect(summary).toContain(formatDeploymentSummary(result, options.path))
+    expect(summary).not.toMatch(/reader is staged/i)
+    expect(hub).toHaveBeenCalledOnce()
+    expect(preview).toHaveBeenCalledOnce()
+    expect(hub).toHaveBeenCalledBefore(preview)
+    await expect(readFile(session.path, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(loadConfig(options.path)).resolves.toEqual(config)
+  },
+)
+
+it.each([false, true])(
+  "declines resumed preview without rerunning Hub (prior deploymentStarted: %s)",
+  async (deploymentStarted) => {
+    const { options, hub, preview } = await fixture(true)
+    const session = await resumeSession(options.path, "prepare", deploymentStarted)
+    const originalDraft = session.draft
+    preview.mockImplementation(async (_, { ui }) => {
+      await ui.phase?.("review")
+      return "declined"
+    })
+
+    const summary = await runWizard({ ...options, session })
+
+    expect(preview).toHaveBeenCalledOnce()
+    expect(hub).not.toHaveBeenCalled()
+    if (deploymentStarted) {
+      expect(JSON.parse(await readFile(session.path, "utf8"))).toEqual(originalDraft)
+      const messages = [
+        summary, ...vi.mocked(options.ui.notice!).mock.calls.map(([, message]) => message),
+        ...vi.mocked(options.ui.status).mock.calls.flat(),
+      ]
+      expect(messages.join("\n")).toMatch(
+        /(?:draft|progress).*(?:kept|preserved|retained)|(?:kept|preserved|retained).*(?:draft|progress)/i,
+      )
+    } else {
+      await expect(readFile(session.path, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    expect(summary).not.toMatch(/reader is staged/i)
+  },
+)
+
+it("keeps the preview-only draft when readiness must be rechecked", async () => {
+  const { options, hub, preview } = await fixture(true)
+  const session = await startSession(options.path)
+  const pending = new Error("Resume to recheck")
+  preview.mockImplementation(async (_, { ui }) => {
+    await ui.phase?.("provision")
+    await ui.phase?.("verify")
+    throw pending
+  })
+
+  await expect(runWizard({ ...options, session, entryAction: "update", preparePrivatePreview: true }))
+    .rejects.toBe(pending)
+
+  expect(hub).not.toHaveBeenCalled()
+  expect(JSON.parse(await readFile(session.path, "utf8"))).toMatchObject({
+    phase: "verify",
+    deploymentStarted: true,
+    answers: { privatePreviewStage: "prepare" },
+  })
 })
 
 it("rejects preview opt-in in configure-only mode without deploying", async () => {
