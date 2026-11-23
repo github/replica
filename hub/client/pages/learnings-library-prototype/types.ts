@@ -17,8 +17,6 @@ export interface LearningRecord {
   guidance: string
   status: LearningLifecycle
   topic: string
-  reviewerCount: number
-  prototypeCount: number
   updatedAt: string
   acceptedBy?: string
   rejectionReason?: string

@@ -625,9 +625,7 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
               </div>
               <div>
                 <dt>Evidence</dt>
-                <dd>
-                  {selected.reviewerCount} reviewers · {selected.prototypeCount} prototypes
-                </dd>
+                <dd>{countLabel(selected.evidence.length, "review comment")}</dd>
               </div>
               <div>
                 <dt>Updated</dt>
@@ -821,9 +819,7 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
                         <td>
                           <span className="learning-library__topic">{learning.topic}</span>
                         </td>
-                        <td>
-                          {learning.reviewerCount} reviewers · {learning.prototypeCount} prototypes
-                        </td>
+                        <td>{countLabel(learning.evidence.length, "review comment")}</td>
                         <td>
                           <time dateTime={learning.updatedAt}>
                             {dayLabel(learning.updatedAt.slice(0, 10))}

@@ -37,8 +37,6 @@ function createPrototypeData(canDecide: boolean): LearningsLibraryPrototypeData 
         guidance: "Give every field a visible label.",
         status: "suggested",
         topic: "Accessibility",
-        reviewerCount: 2,
-        prototypeCount: 1,
         updatedAt: "2026-11-18T16:30:00.000Z",
         evidence: [supportingEvidence],
       },
@@ -48,8 +46,6 @@ function createPrototypeData(canDecide: boolean): LearningsLibraryPrototypeData 
         guidance: "Use placeholder text to identify each field.",
         status: "suggested",
         topic: "Accessibility",
-        reviewerCount: 1,
-        prototypeCount: 1,
         updatedAt: "2026-11-17T14:00:00.000Z",
         evidence: [opposingEvidence],
       },
@@ -59,8 +55,6 @@ function createPrototypeData(canDecide: boolean): LearningsLibraryPrototypeData 
         guidance: "Use clear labels for primary actions.",
         status: "active",
         topic: "Content",
-        reviewerCount: 3,
-        prototypeCount: 2,
         updatedAt: "2026-11-18T16:30:00.000Z",
         acceptedBy: "mona",
         evidence: [supportingEvidence, opposingEvidence],
@@ -71,8 +65,6 @@ function createPrototypeData(canDecide: boolean): LearningsLibraryPrototypeData 
         guidance: "Rely on placeholder text to identify each field.",
         status: "rejected",
         topic: "Accessibility",
-        reviewerCount: 1,
-        prototypeCount: 1,
         updatedAt: "2026-11-16T09:00:00.000Z",
         rejectionReason: "Placeholder text is not a persistent label.",
         evidence: [opposingEvidence],
@@ -212,6 +204,7 @@ describe("LearningsLibraryPrototype()", () => {
     expect(document.activeElement).toBe(getSectionControl("Rejected"))
     const rejectedLearning = getLearning(rejectionTitle)
     expect(rejectedLearning).toBeVisible()
+    expect(within(rejectedLearning).getByText("1 review comment")).toBeVisible()
     expect(within(rejectedLearning).getByText("November 20, 2026")).toHaveAttribute(
       "datetime",
       "2026-11-20T12:00:00.000Z",
@@ -219,6 +212,7 @@ describe("LearningsLibraryPrototype()", () => {
     fireEvent.click(within(rejectedLearning).getByRole("button", { name: rejectionTitle }))
     expect(document.activeElement).toBe(screen.getByRole("heading", { name: rejectionTitle }))
     expect(screen.getByText("The placeholder disappears while typing.")).toBeVisible()
+    expect(screen.getByText("1 review comment")).toBeVisible()
     fireEvent.click(screen.getByRole("button", { name: /learnings/i }))
     expect(document.activeElement).toBe(
       within(getLearning(rejectionTitle)).getByRole("button", { name: rejectionTitle }),
@@ -372,15 +366,24 @@ describe("LearningsLibraryPrototype()", () => {
   })
 
   it("shows both kinds of review evidence, links to the source review, and omits screenshots", () => {
-    renderPrototype(createPrototypeData(false))
+    const data = createPrototypeData(false)
+    const activeLearning = data.learnings.find((learning) => learning.status === "active")
+    if (!activeLearning) throw new Error("Expected an active learning")
+    activeLearning.evidence = activeLearning.evidence.map((comment) => ({
+      ...comment,
+      authorLogin: "octocat",
+      prototypeName: "Checkout refresh",
+    }))
+    renderPrototype(data)
     selectSection("Active")
     const learning = getLearning("Make actions clear")
+    expect(within(learning).getByText("2 review comments")).toBeVisible()
     fireEvent.click(within(learning).getByRole("button", { name: "Make actions clear" }))
 
     expect(screen.getByText("The visible label made the form easier to scan.")).toBeVisible()
     expect(screen.getByText("The field group already has a visible heading.")).toBeVisible()
     expect(screen.getByText("Topic", { selector: "dt" }).parentElement).toHaveTextContent("Content")
-    expect(screen.getByText(/3 reviewers · 2 prototypes/)).toBeVisible()
+    expect(screen.getByText("2 review comments")).toBeVisible()
     expect(
       screen
         .getAllByRole("link", { name: /open original review/i })

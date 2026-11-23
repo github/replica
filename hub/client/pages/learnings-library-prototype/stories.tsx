@@ -38,8 +38,6 @@ const learnings = [
       "Give every input a visible label that stays in place after someone starts typing. Do not rely on placeholder text as the only label.",
     status: "suggested",
     topic: "Accessibility",
-    reviewerCount: 3,
-    prototypeCount: 2,
     updatedAt: "2026-11-18T17:20:00Z",
     evidence: [
       {
@@ -81,8 +79,6 @@ const learnings = [
       "Use one primary button for the main action in a form, and label it with the result it produces.",
     status: "active",
     topic: "Visual hierarchy",
-    reviewerCount: 4,
-    prototypeCount: 3,
     updatedAt: "2026-11-12T09:30:00Z",
     acceptedBy: "mona",
     evidence: [
@@ -104,8 +100,6 @@ const learnings = [
     guidance: "Replace text labels with familiar icons to keep action bars compact.",
     status: "rejected",
     topic: "Navigation",
-    reviewerCount: 2,
-    prototypeCount: 2,
     updatedAt: "2026-11-09T15:10:00Z",
     rejectionReason:
       "The reviewers found that people could not tell what the icons did without labels.",
@@ -222,8 +216,6 @@ function createManyLearnings(): LearningRecord[] {
       guidance: pattern.guidance,
       status,
       topic: pattern.topic,
-      reviewerCount: 2 + (index % 4),
-      prototypeCount: 1 + (index % 3),
       updatedAt,
       ...(status === "active" ? { acceptedBy: "mona" } : {}),
       ...(status === "rejected"
