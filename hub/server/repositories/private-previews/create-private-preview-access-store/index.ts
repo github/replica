@@ -16,6 +16,14 @@ export function createPrivatePreviewAccessStore(database: PrismaClient) {
     async read(tokenDigest: string, readerOrigin: string, challengeDigest: string | null) {
       return database.privatePreviewAccess.findFirst({
         where: { tokenDigest, readerOrigin, challengeDigest, expiresAt: { gt: new Date() } },
+        select: {
+          tokenDigest: true,
+          sessionDigest: true,
+          buildId: true,
+          readerOrigin: true,
+          challengeDigest: true,
+          expiresAt: true,
+        },
       })
     },
     async exchange(input: {
