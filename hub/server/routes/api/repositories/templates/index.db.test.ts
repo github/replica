@@ -71,6 +71,7 @@ async function withRepository(
         previewBaseOrigin: "http://preview.localhost:3001",
         encryptionKey: randomBytes(32),
         bridgeSource: "",
+        restoreSession: restore,
         findTargetById: (buildId, target) => findBuildPreviewTarget(prisma, { buildId, target }),
         findArtifact: (buildId, path) => findBuildArtifact(prisma, buildId, path),
         storage: {
