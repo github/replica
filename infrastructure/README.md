@@ -259,6 +259,24 @@ Resume setup restores answers, not prior approval or a position from which comma
 
 Generated backend files remain usable with the existing manual release tooling. Do not destroy the foundation or state account when removing an app without separately authorizing loss of images, secrets, and state history. Key Vault purge protection deliberately prevents immediate permanent deletion of secrets.
 
+### Prepare a disabled private preview reader
+
+Private previews are off by default. To prepare the optional Azure reader, run `npm run setup:server -- --prepare-private-preview` in a terminal:
+
+- **Create** runs the normal Hub installation first, then asks separately whether to prepare the disabled reader.
+- **Update** prepares the disabled reader for a saved installation without rebuilding, stopping, or updating Hub.
+- **Resume** uses the saved setup choice and checks Azure against saved reader state. If they disagree, the wizard stops. Review the existing resources and recover the protected `private-preview` Terraform state before retrying. Do not delete resources or clear a lease to make the check pass.
+
+The reader has its own resource group and Container Apps environment without access to Hub's private database network. The prepared app has no ingress and no application secrets. It uses the installation's immutable Hub image and a TCP listener that closes every connection. A ready probe means the image can start, not that preview authorization or artifact reads work. The wizard never starts the preview executable, changes Hub's address or revision, or enables the launch feature.
+
+The dedicated identity can pull the image from the installation registry and read only the new, private `private-preview-artifacts` container. That container is empty. The ordinary `artifacts` container includes both preview and non-preview build files, and its opaque blob keys do not distinguish them. Keep those blobs, keys, and grants unchanged. This step does not add a writer, copy files, or backfill existing builds. Preparation stops if the dedicated container is not confirmed private and empty.
+
+**Activation is not available in this wizard.** Before a separate rollout, verify a path that populates the dedicated container with only eligible files under the exact keys the reader receives from Hub. Verify that the existing Hub origin and reader origin satisfy the [runtime's separate-site policy](../hub/docs/build-previews.md#runtime-settings). Two generated `azurecontainerapps.io` names do not satisfy it. Do not change Hub's existing address or weaken that policy to proceed.
+
+A future rollout must put `npm run start:preview-reader` behind controlled HTTPS ingress, set the exact same `HUB_APPLICATION_ORIGIN` and `HUB_PRIVATE_PREVIEW_ORIGIN` on Hub and reader, and provide both the same dedicated `HUB_PRIVATE_PREVIEW_READER_SECRET`, not a Hub signing secret. Use `PRIVATE_PREVIEW_TRUSTED_PROXY_HOPS` only after verifying that ingress overwrites forwarded headers and direct access to the listener is blocked. The reader needs `HUB_PRIVATE_PREVIEW_ENABLED=true` to start. Verify reader readiness, identity and handoff before opting Hub in; a TCP probe alone is not that proof. Give the reader no database, GitHub App, or Hub signing credentials.
+
+No rollback is required for a completed preparation: it cannot launch previews. If a future rollout is reverted, disable new launches on Hub first and restore previously verified compatible revisions, using the disabled reader revision where appropriate. Retain all storage, Hub's public address, and legacy preview and share behavior. Do not serve private preview HTML from Hub as a fallback. Rerunning preparation is not a rollback tool and refuses to overwrite a reader that is no longer disabled.
+
 ### Local checks
 
 ```sh
@@ -666,7 +684,7 @@ node --test tests/diagnostics.test.mjs
 node --test deploy-hub/index.test.ts stop-hub/index.test.ts ../installer/command/describe/index.test.ts
 ```
 
-Run the same Terraform initialization, formatting, validation, and test commands from `foundation/` and `provision/` to check the optional modules. CI checks each module using both supported Terraform versions in [the workflow matrix](../.github/workflows/hub-infrastructure.yml).
+Run the same Terraform initialization, formatting, validation, and test commands from `foundation/`, `provision/`, and `private-preview/` to check the optional modules. CI checks each module using both supported Terraform versions in [the workflow matrix](../.github/workflows/hub-infrastructure.yml).
 
 Terraform tests use AzureRM mocks, not an Azure subscription. Orchestration tests replace command execution and HTTPS requests, proving ordering and failure gates rather than Azure behavior. Readiness includes a bounded, non-writing container-properties request through Hub's managed identity; it detects unavailable storage but does not prove write or delete authorization. Worker readiness remains initialization-only. Before production, an authorized tenant exercise must verify provisioning, private PostgreSQL connectivity and TLS, separate database roles, Key Vault resolution, identity-based Blob/ACR access after RBAC propagation, failed setup blocking rollout, maintenance shutdown and revision behavior, HTTPS/readiness, persistence across replacement, custom TLS when configured, backup restoration, and owned-resource teardown. No real-cloud result is implied by these local checks.
 

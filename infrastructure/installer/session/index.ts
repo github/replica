@@ -18,6 +18,7 @@ export interface DraftAnswers {
   resourceGroup?: string
   useProxy?: boolean
   npmRegistry?: string
+  privatePreviewStage?: "after-create" | "prepare"
 }
 
 export interface WizardDraft {
@@ -54,6 +55,7 @@ const answerKeys = [
   "resourceGroup",
   "useProxy",
   "npmRegistry",
+  "privatePreviewStage",
 ] as const
 const dependencies: Partial<Record<keyof DraftAnswers, (keyof DraftAnswers)[]>> = {
   tenantId: ["subscriptionId", "location"],
@@ -75,6 +77,8 @@ function parseAnswer(key: keyof DraftAnswers, value: unknown): string | boolean 
   }
   if (key === "cloud" && value === "azure") return value
   if (key === "useProxy" && typeof value === "boolean") return value
+  if (key === "privatePreviewStage" && (value === "after-create" || value === "prepare"))
+    return value
   if (key === "tenantId" || key === "subscriptionId") return parseAzureId(value)
   if (key === "location" && typeof value === "string" && /^[a-z][a-z0-9]+$/.test(value))
     return value

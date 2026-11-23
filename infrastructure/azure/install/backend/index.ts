@@ -243,22 +243,28 @@ export async function prepareBackend(context: AzureInstallation) {
       )
     }
   }
-  const backend = async (key: string) => {
-    const path = join(directory, `${key}-backend.hcl`)
-    await writePrivateFile(
-      path,
-      [
-        `resource_group_name = ${JSON.stringify(names.stateGroup)}`,
-        `storage_account_name = ${JSON.stringify(names.stateAccount)}`,
-        'container_name = "terraform"',
-        `key = ${JSON.stringify(`${config.name}/${key}.tfstate`)}`,
-        "use_azuread_auth = true",
-        "use_oidc = false",
-        `subscription_id = ${JSON.stringify(config.azure.subscriptionId)}`,
-        `tenant_id = ${JSON.stringify(config.azure.tenantId)}`,
-      ].join("\n") + "\n",
-    )
-    return path
+  return {
+    backend: (key: string) => writeBackendFile(context, key),
+    account: names.stateAccount,
+    id: storage.id,
   }
-  return { backend, account: names.stateAccount, id: storage.id }
+}
+
+export async function writeBackendFile({ config, directory }: AzureInstallation, key: string) {
+  const names = installationNames(config)
+  const path = join(directory, `${key}-backend.hcl`)
+  await writePrivateFile(
+    path,
+    [
+      `resource_group_name = ${JSON.stringify(names.stateGroup)}`,
+      `storage_account_name = ${JSON.stringify(names.stateAccount)}`,
+      'container_name = "terraform"',
+      `key = ${JSON.stringify(`${config.name}/${key}.tfstate`)}`,
+      "use_azuread_auth = true",
+      "use_oidc = false",
+      `subscription_id = ${JSON.stringify(config.azure.subscriptionId)}`,
+      `tenant_id = ${JSON.stringify(config.azure.tenantId)}`,
+    ].join("\n") + "\n",
+  )
+  return path
 }
