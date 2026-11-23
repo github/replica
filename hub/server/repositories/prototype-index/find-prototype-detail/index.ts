@@ -154,10 +154,32 @@ export async function findPrototypeDetail(
       const selectedBuild = buildNumber
         ? (successfulBuilds.find(({ number }) => number === buildNumber) ?? null)
         : (successfulBuilds[0] ?? null)
+      const previewRunIds =
+        privatePreviewHubOrigin && repository.githubRepositoryId && !repository.localPath
+          ? successfulBuilds.flatMap(({ githubWorkflowRunId }) =>
+              githubWorkflowRunId && githubWorkflowRunId > 0n ? [githubWorkflowRunId] : [],
+            )
+          : []
+      const uniquePreviewRunIds = new Set(
+        previewRunIds.length
+          ? (
+              await transaction.build.groupBy({
+                by: ["githubWorkflowRunId"],
+                // Include every Build in the repository, even outside this page or prototype.
+                where: {
+                  githubWorkflowRunId: { in: previewRunIds },
+                  prototype: { repositoryId },
+                },
+                _count: { _all: true },
+              })
+            )
+              .filter(({ _count }) => _count._all === 1)
+              .map(({ githubWorkflowRunId }) => githubWorkflowRunId)
+          : [],
+      )
       const buildRecords = builds.map((build) => {
         const privateAddress =
-          privatePreviewHubOrigin &&
-          !repository.localPath &&
+          uniquePreviewRunIds.has(build.githubWorkflowRunId) &&
           build.state === "successful" &&
           build.artifacts.some(({ kind, path }) => kind === "dist" && path === "dist/index.html") &&
           build.artifacts.some(
