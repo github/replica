@@ -200,11 +200,15 @@ export REPLICA_TRUSTED_MODEL_DIRS="$(pwd)/models/d1-omni-600M"
 .venv/bin/replica-decision-runtime \
   --environment development \
   --tenant local --repository github/example \
-  --taskset /path/to/taskset --state /path/to/runtime-state \
+  --state /path/to/runtime-state \
   --d1-model "$(pwd)/models/d1-omni-600M" --port 8010
 ```
 
-Keep the `.cache/huggingface/download` metadata when moving this directory. The runtime verifies every pinned artifact's metadata and SHA-256 digest before loading model code or weights. Changing the base-model revision invalidates existing adapters; retrain and explicitly promote a candidate built against the new pin.
+Upload tasksets through the authenticated route before submitting a D1 job. Starting with `--taskset /path/to/taskset` pins D1 training and inference to that taskset's digest and learning text; it is not only a default for jobs that omit `tasksetDigest`.
+
+New D1 adapters carry the taskset digest and learning-text digests needed for upload-only inference. An adapter created before this contract needs its original `--taskset` mount for the learning-text check. Before removing that mount, train and explicitly promote a new adapter from the uploaded taskset.
+
+Keep the `.cache/huggingface/download` metadata when moving the model directory. The runtime verifies every pinned artifact's metadata and SHA-256 digest before loading model code or weights. Changing the base-model revision invalidates existing adapters; retrain and explicitly promote a candidate built against the new pin.
 
 Submit a real job with `"backend":"d1-omni"`. The runtime applies the same update and wall-time bounds, operation scope, taskset pin, durable lease, idempotency, cancellation, candidate evidence, promotion, and usage reporting as the fixture path. The local model backend needs no external credential, so the runtime does not mint one for its training or inference calls.
 

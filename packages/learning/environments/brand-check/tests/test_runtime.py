@@ -7,8 +7,10 @@ import json
 import multiprocessing
 import os
 import shutil
+import signal
 import socket
 import stat
+import sys
 import threading
 import time
 import unittest
@@ -21,6 +23,7 @@ from unittest import mock
 from urllib import error, request
 
 import replica_brand_check.runtime as runtime_module
+import replica_brand_check.runtime_server as runtime_server_module
 from replica_brand_check.connectors import (
     ConnectorError,
     Credential,
@@ -2670,6 +2673,76 @@ class LocalRuntimeTest(unittest.TestCase):
         self.assertEqual(scored["candidateId"], finished["candidateId"])
         self.assertEqual(scored["promotionGeneration"], 3)
         self.assertEqual(self._http_json(f"{base_url}/ready"), {"status": "ready"})
+
+    def test_http_ready_returns_safe_runtime_capability_detail(self):
+        runtime = mock.Mock(spec=LocalRuntime)
+        readiness = {
+            "status": "ready",
+            "backend": {
+                "backend": "d1-omni",
+                "accelerator": "cuda",
+                "inference": True,
+                "training": True,
+                "status": "ready",
+                "modelDirectory": {
+                    "available": True,
+                    "trusted": True,
+                    "revisionVerified": True,
+                    "artifactsVerified": True,
+                },
+            },
+        }
+        runtime.ready.return_value = readiness
+        _server, _thread, base_url = self._serve(runtime)
+
+        response = self._http_json(f"{base_url}/ready")
+
+        self.assertEqual(response, readiness)
+        self.assertNotIn("path", response["backend"]["modelDirectory"])
+        self.assertNotIn("candidateId", response)
+        self.assertNotIn("tasksetDigest", response)
+
+    def test_runtime_main_starts_d1_without_a_mounted_taskset(self):
+        runtime = mock.Mock()
+        server = mock.Mock()
+        argv = [
+            "replica-decision-runtime",
+            "--state",
+            str(self.state_dir),
+            "--d1-model",
+            "reviewed-model",
+        ]
+
+        with mock.patch.object(sys, "argv", argv), mock.patch.dict(
+            os.environ,
+            {runtime_server_module.TOKEN_VARIABLE: TOKEN},
+        ), mock.patch.object(
+            runtime_server_module,
+            "D1OmniBackend",
+        ) as d1_backend, mock.patch.object(
+            runtime_server_module,
+            "LocalRuntime",
+            return_value=runtime,
+        ) as local_runtime, mock.patch.object(
+            runtime_server_module,
+            "RuntimeHTTPServer",
+            return_value=server,
+        ), mock.patch.object(
+            runtime_server_module.signal,
+            "getsignal",
+            return_value=signal.SIG_DFL,
+        ), mock.patch.object(
+            runtime_server_module.signal,
+            "signal",
+        ):
+            runtime_server_module.main()
+
+        d1_backend.assert_called_once_with(Path("reviewed-model"))
+        runtime_args = local_runtime.call_args.args
+        self.assertIsNone(runtime_args[1])
+        self.assertIs(runtime_args[2]["d1-omni"], d1_backend.return_value)
+        server.serve_forever.assert_called_once_with()
+        runtime.close.assert_called_once_with()
 
     def test_header_deadline_releases_a_connection_slot(self):
         runtime = self._runtime()
