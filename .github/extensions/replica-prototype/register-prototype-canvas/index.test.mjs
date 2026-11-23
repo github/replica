@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { mkdir, writeFile } from "node:fs/promises"
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import path from "node:path"
 import { describe, it } from "node:test"
@@ -89,6 +89,19 @@ async function register(
   checkServer = async () => ({ available: true }),
   canvasOptions = {},
   onJoin = () => {},
+  discover = async (repositoryPath) => {
+    assert.equal(repositoryPath, context.repositoryPath)
+    return {
+      servers: [
+        {
+          url: "http://localhost:5173/#/cli/cli/actions",
+          pid: 123,
+          command: "node",
+        },
+      ],
+      warnings: [],
+    }
+  },
 ) {
   let canvas
   await registerPrototypeCanvas(
@@ -112,19 +125,7 @@ async function register(
         }
       },
     },
-    async (repositoryPath) => {
-      assert.equal(repositoryPath, context.repositoryPath)
-      return {
-        servers: [
-          {
-            url: "http://localhost:5173/#/cli/cli/actions",
-            pid: 123,
-            command: "node",
-          },
-        ],
-        warnings: [],
-      }
-    },
+    discover,
     checkServer,
     canvasOptions,
   )
@@ -2303,7 +2304,134 @@ esac
     })
   }
 
-  it("connects a detected server without chat and restores it after provider restart", async () => {
+  for (const [label, discover] of [
+    ["the saved server is not discovered", async () => ({ servers: [], warnings: [] })],
+    [
+      "server discovery fails",
+      async () => {
+        throw new Error("Could not inspect running servers.")
+      },
+    ],
+  ]) {
+    it(`keeps a saved preview in setup when ${label}`, async () => {
+      await withContext(async (context) => {
+        const prototypeUrl = "http://localhost:5173/#/saved/route"
+        await prototypeConnection(context.sessionWorkspacePath, context.repositoryPath).save({
+          prototypeUrl,
+        })
+        const startupMarker = path.join(context.repositoryPath, "auto-started")
+        const executable = path.join(context.repositoryPath, "node_modules", ".bin", "vite")
+        await mkdir(path.dirname(executable), { recursive: true })
+        await writeFile(
+          path.join(context.repositoryPath, "package.json"),
+          JSON.stringify({ scripts: { dev: "vite" } }),
+        )
+        await writeFile(
+          executable,
+          '#!/usr/bin/env node\nimport { writeFileSync } from "node:fs";\nwriteFileSync("auto-started", "yes");\n',
+        )
+        await chmod(executable, 0o755)
+        let checked = false
+        const canvas = await register(
+          context,
+          [],
+          async () => {
+            checked = true
+            return { available: true }
+          },
+          {},
+          () => {},
+          discover,
+        )
+        const ctx = {
+          instanceId: "unverified-saved-preview",
+          sessionId: "test-session",
+          session: { workingDirectory: context.repositoryPath },
+        }
+        try {
+          const opened = await canvas.open(ctx)
+          await assert.rejects(readFile(startupMarker), { code: "ENOENT" })
+          assert.equal(opened.status, "Ready to connect")
+          const html = await (await fetch(opened.url)).text()
+          const { token, prototypeUrl: connectedUrl } = JSON.parse(
+            html.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1],
+          )
+          assert.equal(connectedUrl, null)
+          const status = await (
+            await fetch(new URL("/api/server/status", opened.url), {
+              headers: { "X-Replica-Canvas-Token": token },
+            })
+          ).json()
+          assert.equal(typeof status.message, "string")
+          assert.notEqual(status.message.trim(), "")
+          assert.equal(checked, false)
+          assert.equal(
+            (await prototypeConnection(context.sessionWorkspacePath, context.repositoryPath).read())
+              .prototypeUrl,
+            prototypeUrl,
+          )
+        } finally {
+          await canvas.onClose(ctx)
+        }
+      })
+    })
+  }
+
+  it("restores a discovered worktree server with its saved route, query, and hash", async () => {
+    await withContext(async (context) => {
+      const prototypeUrl = "http://127.0.0.1:5173/saved/route?mode=preview#section"
+      await prototypeConnection(context.sessionWorkspacePath, context.repositoryPath).save({
+        prototypeUrl,
+      })
+      const checkedUrls = []
+      let discovered = false
+      const canvas = await register(
+        context,
+        [],
+        async (url) => {
+          checkedUrls.push(url)
+          return { available: true }
+        },
+        {},
+        () => {},
+        async (repositoryPath) => {
+          discovered = true
+          assert.equal(repositoryPath, context.repositoryPath)
+          return {
+            servers: [
+              {
+                url: "http://127.0.0.1:5173/",
+                pid: 123,
+                command: "node",
+                directory: context.repositoryPath,
+              },
+            ],
+            warnings: [],
+          }
+        },
+      )
+      const ctx = {
+        instanceId: "owned-saved-preview",
+        sessionId: "test-session",
+        session: { workingDirectory: context.repositoryPath },
+      }
+      try {
+        const opened = await canvas.open(ctx)
+        assert.equal(opened.status, "Prototype connected")
+        assert.equal(discovered, true)
+        assert.deepEqual(checkedUrls, [prototypeUrl])
+        const html = await (await fetch(opened.url)).text()
+        const { prototypeUrl: restoredUrl } = JSON.parse(
+          html.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1],
+        )
+        assert.equal(restoredUrl, prototypeUrl)
+      } finally {
+        await canvas.onClose(ctx)
+      }
+    })
+  })
+
+  it("connects a detected server without chat and does not restore an unrelated server", async () => {
     await withContext(async (context) => {
       const prompts = []
       const canvas = await register(context, prompts)
@@ -2368,11 +2496,18 @@ esac
           input: null,
         })
         assert.equal(reopened.title, "Preview")
-        assert.equal(reopened.status, "Prototype connected")
-        assert.match(
-          await (await fetch(reopened.url)).text(),
-          /http:\/\/localhost:4321\/other-worktree/,
+        assert.equal(reopened.status, "Ready to connect")
+        const restoredHtml = await (await fetch(reopened.url)).text()
+        const restoredConfig = JSON.parse(
+          restoredHtml.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1],
         )
+        assert.equal(restoredConfig.prototypeUrl, null)
+        const restoredServers = await (
+          await fetch(new URL("/api/servers", reopened.url), {
+            headers: { "X-Replica-Canvas-Token": restoredConfig.token },
+          })
+        ).json()
+        assert.match(restoredServers.warnings.join(" "), /saved preview/)
         assert.equal(prompts.length, 0)
 
         await prototypeConnection(context.sessionWorkspacePath, context.repositoryPath).save({
@@ -2397,7 +2532,7 @@ esac
           })
         assert.equal((await connection.read()).prototypeUrl, "http://localhost:4321/different")
         await explicit.onClose(openContext)
-        assert.equal((await explicit.open(openContext)).status, "Prototype connected")
+        assert.equal((await explicit.open(openContext)).status, "Ready to connect")
       } finally {
         await canvas.onClose(openContext)
         await restored?.onClose({ ...openContext, instanceId: "fresh-panel" })
