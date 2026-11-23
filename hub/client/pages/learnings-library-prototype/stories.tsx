@@ -118,7 +118,7 @@ const learnings = [
         buildNumber: 3,
         createdAt: "2026-11-09T15:10:00Z",
         reviewPath: "/repositories/2001/prototypes/24?build=3&comment=246",
-        stance: "supports",
+        stance: "opposes",
       },
     ],
   },
@@ -204,7 +204,7 @@ const generatedAreas = [
   "audit log",
 ]
 
-/** Creates enough learnings in every status to need more than one page. */
+/** Gives the Suggested and Active lists enough entries to try pagination. */
 function createManyLearnings(): LearningRecord[] {
   const combinations = generatedAreas.flatMap((area) =>
     generatedPatterns.map((pattern) => ({ area, pattern })),
@@ -215,6 +215,7 @@ function createManyLearnings(): LearningRecord[] {
       .replace(".000", "")
     const status: LearningRecord["status"] =
       index < 60 ? "suggested" : index < 90 ? "active" : "rejected"
+    const buildNumber = 1 + (index % 5)
     return {
       id: `generated-learning-${index + 1}`,
       title: `${pattern.title} in ${area}`,
@@ -234,9 +235,9 @@ function createManyLearnings(): LearningRecord[] {
           body: `I expected the ${area} prototype to ${pattern.title.toLowerCase()}.`,
           authorLogin: index % 2 ? "hubot" : "octocat",
           prototypeName: area.charAt(0).toUpperCase() + area.slice(1),
-          buildNumber: 1 + (index % 5),
+          buildNumber,
           createdAt: updatedAt,
-          reviewPath: `/repositories/2001/prototypes/${30 + index}?build=1&comment=${500 + index}`,
+          reviewPath: `/repositories/2001/prototypes/${30 + index}?build=${buildNumber}&comment=${500 + index}`,
           stance: "supports",
         },
       ],
