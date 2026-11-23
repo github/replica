@@ -84,7 +84,8 @@ export async function runWizard({
       await terminal.phase?.(phase)
     },
   }
-  const savedPreviewStage = session?.draft?.answers.privatePreviewStage
+  const savedDraft = session?.draft
+  const savedPreviewStage = savedDraft?.answers.privatePreviewStage
   if (configureOnly && (preparePrivatePreview || savedPreviewStage))
     throw new Error("Private preview preparation is not available in configuration-only mode.")
   if (entryAction === "resume" && preparePrivatePreview && !savedPreviewStage)
@@ -92,9 +93,9 @@ export async function runWizard({
   let previewStage = savedPreviewStage
   if (!previewStage && preparePrivatePreview)
     previewStage = entryAction === "create" ? "after-create" : "prepare"
-  const previewOptions = { directory, run, ui, signal }
   const disabledResult =
     "The private preview reader is staged without ingress. Private previews remain disabled."
+  const skippedResult = "Private preview preparation was skipped."
   const checkpointPreviewTarget = async (config: DeploymentConfig) => {
     if (!session) return
     // The preview-only path skips Azure configuration, so bind Resume to the selected target here.
@@ -105,13 +106,33 @@ export async function runWizard({
       await session.answer(key, target[key])
     await session.answer("privatePreviewStage", "prepare")
   }
+  const prepareReader = (config: DeploymentConfig) =>
+    installAzurePrivatePreview(config, {
+      directory,
+      run,
+      signal,
+      ui: {
+        ...ui,
+        async phase(phase) {
+          // Read-only checks and a declined prompt must not overwrite saved recovery progress.
+          if (phase === "review") return terminal.phase?.(phase)
+          if (phase === "provision" && savedPreviewStage === "prepare")
+            await checkpointPreviewTarget(config)
+          await ui.phase?.(phase)
+        },
+      },
+    })
   if (previewStage === "prepare") {
     if (!existing) throw new Error("Select the saved Hub installation before preparing private previews.")
-    await checkpointPreviewTarget(existing)
-    await installAzurePrivatePreview(existing, previewOptions)
+    if (!savedPreviewStage) await checkpointPreviewTarget(existing)
+    const outcome = await prepareReader(existing)
+    if (outcome === "declined" && savedDraft?.deploymentStarted) {
+      ui.complete?.()
+      return `${skippedResult} Saved progress from the earlier attempt was kept for Resume.`
+    }
     await session?.complete()
     ui.complete?.()
-    return disabledResult
+    return outcome === "declined" ? skippedResult : disabledResult
   }
   if (previewStage === "after-create")
     await session?.answer("privatePreviewStage", "after-create")
@@ -176,12 +197,13 @@ export async function runWizard({
       config.npmRegistry = registry
     },
   })
+  const summary = formatDeploymentSummary(result, path)
+  let previewSummary: string | undefined
   if (previewStage === "after-create") {
     await checkpointPreviewTarget(config)
-    await installAzurePrivatePreview(config, previewOptions)
+    previewSummary = await prepareReader(config) === "declined" ? skippedResult : disabledResult
   }
   await session?.complete()
   ui.complete?.()
-  const summary = formatDeploymentSummary(result, path)
-  return previewStage === "after-create" ? `${summary}\n${disabledResult}` : summary
+  return previewSummary ? `${summary}\n${previewSummary}` : summary
 }

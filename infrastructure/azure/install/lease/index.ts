@@ -105,6 +105,7 @@ export async function acquireLease(
       if (result !== undefined) await confirmLeaseResume(context, account, container, blob)
     }
   }
+  const resumed = result !== undefined
   const proposed = ownership.lease ?? randomUUID()
   while (result === undefined) {
     if (recover) await recoverLease(context, account, container, blob)
@@ -160,6 +161,7 @@ export async function acquireLease(
     throw new Error("Azure returned a different lease identity. Ownership was not verified.")
   let released = false
   return {
+    resumed,
     get held() {
       return !released
     },

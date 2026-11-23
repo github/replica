@@ -48,7 +48,7 @@ export async function installAzurePrivatePreview(
   await verifyAzureTarget(config, run)
   const workspace = await openInstallationWorkspace(config, directory)
   try {
-    await prepareReader({
+    return await prepareReader({
       config,
       directory: workspace.directory,
       run,
@@ -74,7 +74,7 @@ export async function installAzurePrivatePreview(
   }
 }
 
-async function prepareReader(context: AzureInstallation) {
+async function prepareReader(context: AzureInstallation): Promise<"declined" | "staged"> {
   const { config, directory, run, ui, azure, signal } = context
   const { resourceGroup, subscriptionId, location } = config.azure
   const names = installationNames(config)
@@ -134,6 +134,8 @@ async function prepareReader(context: AzureInstallation) {
     block("The installation registry or private artifact account could not be verified.")
   const isPinnedImage = (image: string | undefined): image is string =>
     typeof image === "string" && imageDigest.test(image) && image.startsWith(`${registry.loginServer}/`)
+  const isReaderRevision = (name: unknown): name is string =>
+    typeof name === "string" && name.startsWith(`${appName}--`) && /^[a-z0-9-]+$/.test(name)
   const revisions = (name: string, group: string, container: string) =>
     read<Revision[]>(
       "containerapp", "revision", "list", "--all", "--name", name, "--resource-group", group,
@@ -173,15 +175,18 @@ async function prepareReader(context: AzureInstallation) {
       block("The serving Hub revision changed during preparation. Resume to review its current image.")
   }
 
-  if (!(await ui.confirm(
+  const approved = await ui.confirm(
     "Prepare a disabled private preview reader? This can create billable Azure resources. It does not update Hub or enable previews.",
-  ))) throw new Error("Private preview preparation was not approved. No cloud writes started.")
+  )
+  if (approved === false) return "declined"
+  if (approved !== true) block("Private preview preparation did not receive an approval decision.")
   await ui.phase?.("provision")
   const lock = await acquireLease(
     context, names.stateAccount, "terraform", `${config.name}/installer.lock`, false,
     { operation: "private-preview" },
   )
-  let keepInstallationLock = false
+  // A renewed lease may protect an earlier apply, even if this attempt never reaches apply.
+  let keepInstallationLock = lock.resumed
   let releaseLock: Awaited<ReturnType<typeof acquireLease>> | undefined
   try {
     releaseLock = await acquireLease(
@@ -211,8 +216,9 @@ async function prepareReader(context: AzureInstallation) {
         keepInstallationLock = true
       },
     })
-    const inspect = async (savedImage: string | undefined, verifyReady: boolean) => {
+    const inspect = async (savedImage: string | undefined) => {
       const entries = new Map<string, string>()
+      let readiness: "ready" | "pending" | "unverified" = "unverified"
       const readerGroupExists = await verifyInstallationGroup(context, readerGroup)
       const list = readerGroupExists
         ? await read<{ id: string }[]>("resource", "list", "--resource-group", readerGroup, "--query", "[].{id:id}")
@@ -278,7 +284,7 @@ async function prepareReader(context: AzureInstallation) {
           status: string
           running: string
           latest: string
-          ready: string
+          ready: string | null
         }>(
           "containerapp", "show", "--ids", appId, "--query",
           "{tags:tags,environmentId:properties.managedEnvironmentId || properties.environmentId,ingress:properties.configuration.ingress,secretNames:properties.configuration.secrets[].name,identityType:identity.type,identityIds:keys(identity.userAssignedIdentities),containers:properties.template.containers[].{command:command,args:args,envNames:env[].name,image:image},status:properties.provisioningState,running:properties.runningStatus,latest:properties.latestRevisionName,ready:properties.latestReadyRevisionName}",
@@ -298,15 +304,17 @@ async function prepareReader(context: AzureInstallation) {
               active[0].name !== reader.latest || active[0].image !== savedImage)
             block("The active reader revision does not match the saved image. It was not overwritten.")
         }
-        if (verifyReady && (reader.status !== "Succeeded" ||
-            reader.running !== "Running" || !reader.ready || reader.ready !== reader.latest))
-          block("Azure has not reported the disabled revision ready. Resume to recheck; previews remain disabled.")
+        if (reader.status === "Succeeded" && reader.running === "Running" && isReaderRevision(reader.latest)) {
+          if (reader.ready === reader.latest) readiness = "ready"
+          else if (reader.ready === null || isReaderRevision(reader.ready))
+            readiness = "pending"
+        }
       }
-      return entries
+      return { entries, readiness }
     }
     const backend = await writeBackendFile(context, "private-preview")
     await terraform.init(backend)
-    const reconcile = async (verifyReady = false) => {
+    const reconcile = async () => {
       const stateBlob = await read<{ exists: boolean }>(
         "storage", "blob", "exists", "--account-name", names.stateAccount, "--container-name", "terraform",
         "--name", `${config.name}/private-preview.tfstate`, "--auth-mode", "login",
@@ -334,11 +342,11 @@ async function prepareReader(context: AzureInstallation) {
           }
         }
       }
-      const live = await inspect(savedImage, verifyReady)
+      const { entries: live, readiness } = await inspect(savedImage)
       if (tracked.size !== live.size ||
           [...tracked].some(([address, id]) => !sameId(live.get(address), id)))
         block("Azure and saved reader state disagree. Review existing resources and recover state explicitly; the pending plan was not applied.")
-      return { live, savedImage }
+      return { live, savedImage, readiness }
     }
     const { savedImage } = await reconcile()
     const image = savedImage ?? approvedHub.image
@@ -350,10 +358,15 @@ async function prepareReader(context: AzureInstallation) {
     }))
     await terraform.apply(variables)
     await ui.phase?.("verify")
-    const ready = await reconcile(true)
-    if (ready.live.size !== privatePreviewResourceCount || ready.savedImage !== image)
+    const final = await reconcile()
+    if (final.live.size !== privatePreviewResourceCount || final.savedImage !== image)
       block("Azure did not report all disabled reader resources.")
+    if (final.readiness === "unverified")
+      block("Azure did not confirm the disabled revision is running. Resume to investigate; previews remain disabled.")
     keepInstallationLock = false
+    if (final.readiness === "pending")
+      block("Azure has not reported the disabled revision ready. Resume to recheck; previews remain disabled.")
+    return "staged"
   } finally {
     try {
       if (releaseLock?.held && !signal?.aborted) await releaseLock.release()

@@ -19,6 +19,11 @@ const imagePull = "azurerm_role_assignment.image_pull"
 const artifactsRead = "azurerm_role_assignment.reader_artifacts"
 const addresses = [group, environment, identity, app, storage, imagePull, artifactsRead]
 
+function azureCommand(args: string[]) {
+  const firstFlag = args.findIndex((arg) => arg.startsWith("--"))
+  return args.slice(0, firstFlag < 0 ? args.length : firstFlag).join(" ")
+}
+
 afterEach(async () => {
   await Promise.all(
     directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
@@ -34,6 +39,8 @@ async function fixture({
   readerImageDrift,
   olderReaderImage = false,
   recreatedPullGrant = false,
+  finalReadiness,
+  postApplyDrift,
   planAction,
 }: {
   existing: string[]
@@ -44,6 +51,8 @@ async function fixture({
   readerImageDrift?: "template" | "active revision"
   olderReaderImage?: boolean
   recreatedPullGrant?: boolean
+  finalReadiness?: "pending" | "missing" | "failed"
+  postApplyDrift?: "state ID" | "active digest" | "ingress"
   planAction?: { address: string; action: "create" | "no-op" }
 }) {
   const directory = resolve(`.installer-preview-test-${randomUUID()}`)
@@ -111,15 +120,16 @@ async function fixture({
   const applied: string[] = []
   let planFile: string | undefined
   let plannedImage: string | undefined
-  const ui: InstallerUI = {
+  const ui = {
     status: vi.fn(),
+    phase: vi.fn<NonNullable<InstallerUI["phase"]>>(),
     confirm: vi.fn(async () => {
       if (hubChangesDuring === "approval") moveHub()
       return true
     }),
     select: vi.fn(async () => { throw new Error("Preview staging attempted lock recovery") }),
     wait: async (message) => { throw new Error(message) },
-  }
+  } satisfies InstallerUI
 
   const run = vi.fn<RunCommand>(async (executable, args) => {
     const flag = (name: string) => {
@@ -177,7 +187,7 @@ async function fixture({
     }
     if (executable === "az") {
       const privateStorage = { allowSharedKeyAccess: false, allowBlobPublicAccess: false }
-      switch (args.slice(0, args.findIndex((arg) => arg.startsWith("--"))).join(" ")) {
+      switch (azureCommand(args)) {
         case "account show":
           return JSON.stringify({ id: config.azure.subscriptionId, tenantId: config.azure.tenantId })
         case "group exists":
@@ -205,6 +215,7 @@ async function fixture({
               : { status: "unlocked", state: "available", duration: null })
           }
           if (operation === "acquire") {
+            expect(ui.phase).toHaveBeenCalledWith("provision")
             if (foreign || held.has(key)) throw new Error("Fixture lease is already locked")
             const proposed = flag("--proposed-lease-id")!
             held.set(key, proposed)
@@ -241,7 +252,8 @@ async function fixture({
           return JSON.stringify([
             ...(live.has(imagePull)
               ? [{
-                  id: recreatedPullGrant ? newPullGrantId : pullGrantId,
+                  id: recreatedPullGrant || (applied.length > 0 && postApplyDrift === "state ID")
+                    ? newPullGrantId : pullGrantId,
                   scope: registryId,
                   roleDefinitionName: "AcrPull",
                   principalId,
@@ -263,7 +275,8 @@ async function fixture({
           } : {
             id: appId,
             tags, environmentId, identityType: "UserAssigned", identityIds: [identityId],
-            ingress: hasIngress ? { external: true } : null,
+            ingress: hasIngress || (applied.length > 0 && postApplyDrift === "ingress")
+              ? { external: true } : null,
             secretNames: [],
             containers: [{
               command: ["node", "-e", "require('node:net').createServer(socket => socket.destroy()).listen(3002, '0.0.0.0')"],
@@ -271,7 +284,11 @@ async function fixture({
               args: [],
               envNames: [],
             }],
-            status: "Succeeded", running: "Running", latest: readerRevision, ready: readerRevision,
+            status: applied.length > 0 && finalReadiness === "failed" ? "Failed" : "Succeeded",
+            running: "Running", latest: readerRevision,
+            ready: applied.length > 0 && finalReadiness
+              ? finalReadiness === "missing" ? undefined : null
+              : readerRevision,
           })
         case "containerapp revision list": {
           if (flag("--name") === "test-hub-hub") return JSON.stringify([hubRevision])
@@ -280,7 +297,8 @@ async function fixture({
             name: readerRevision,
             active: true,
             health: "Healthy",
-            image: readerImageDrift === "active revision" ? image("b") : savedReaderImage,
+            image: readerImageDrift === "active revision" ||
+              (applied.length > 0 && postApplyDrift === "active digest") ? image("b") : savedReaderImage,
           }])
         }
       }
@@ -304,13 +322,37 @@ async function fixture({
     run,
     applied,
     ui,
+    heldLeases: () => [...held.keys()],
+    installerLease,
   }
 }
+
+it.each([
+  { approval: false, outcome: "returns declined" },
+  { approval: undefined, outcome: "rejects a missing approval response" },
+])("$outcome before the provision checkpoint or any cloud write", async ({ approval }) => {
+  const test = await fixture({ existing: [] })
+  test.ui.confirm.mockResolvedValueOnce(approval as boolean)
+
+  if (approval === false) await expect(test.stage()).resolves.toBe("declined")
+  else await expect(test.stage()).rejects.toThrow()
+
+  expect(test.ui.confirm).toHaveBeenCalledOnce()
+  expect(test.ui.phase).not.toHaveBeenCalledWith("provision")
+  const readOnlyCommands = [
+    "az account show", "az group exists", "az group show", "az storage account show",
+    "az acr show", "az containerapp show", "az containerapp revision list",
+  ]
+  const commands = test.run.mock.calls.map(([executable, args]) =>
+    executable === "az" ? `az ${azureCommand(args)}` : `${executable} ${args.join(" ")}`,
+  )
+  expect(commands.filter((command) => !readOnlyCommands.includes(command))).toEqual([])
+})
 
 it.each([undefined, []])("stages the disabled reader with no tracked resources (state: %j)", async (tracked) => {
   const test = await fixture({ existing: [], tracked })
 
-  await expect(test.stage()).resolves.toBeUndefined()
+  await expect(test.stage()).resolves.toBe("staged")
 
   expect(test.applied).toHaveLength(1)
 })
@@ -319,7 +361,7 @@ it("keeps the original disabled reader image after Hub publishes a new image", a
   const tracked = [group, environment, identity, app, storage, imagePull, artifactsRead]
   const test = await fixture({ existing: tracked, tracked, olderReaderImage: true })
 
-  await expect(test.stage()).resolves.toBeUndefined()
+  await expect(test.stage()).resolves.toBe("staged")
 })
 
 it("does not adopt or recreate an existing preview group when the saved state is absent", async () => {
@@ -346,7 +388,7 @@ it("applies the staging plan when partial reader resources match saved state", a
   const tracked = [group, environment]
   const test = await fixture({ existing: tracked, tracked })
 
-  await expect(test.stage()).resolves.toBeUndefined()
+  await expect(test.stage()).resolves.toBe("staged")
 
   expect(test.applied).toHaveLength(1)
 })
@@ -381,13 +423,65 @@ it("resumes staging with its own saved installer lease proof", async () => {
   const test = await fixture({ existing: tracked, tracked })
   const leaseId = await test.seedInstallerLease("private-preview")
 
-  await expect(test.stage()).resolves.toBeUndefined()
+  await expect(test.stage()).resolves.toBe("staged")
 
   expect(test.applied).toHaveLength(1)
+  expect(test.heldLeases()).toEqual([])
   expect(test.run).toHaveBeenCalledWith("az", expect.arrayContaining([
     "lease", "renew", "--blob-name", "test-hub/installer.lock", "--lease-id", leaseId,
   ]), expect.anything())
 })
+
+it("keeps a renewed preview installer lease when Resume finds state drift before apply", async () => {
+  const tracked = [group, identity, imagePull]
+  const test = await fixture({ existing: tracked, tracked, recreatedPullGrant: true })
+  const leaseId = await test.seedInstallerLease("private-preview")
+
+  await expect(test.stage()).rejects.toThrow(/state.*disagree/i)
+
+  expect(test.applied).toEqual([])
+  expect(test.run).toHaveBeenCalledWith("az", expect.arrayContaining([
+    "lease", "renew", "--blob-name", "test-hub/installer.lock", "--lease-id", leaseId,
+  ]), expect.anything())
+  expect(test.heldLeases()).toEqual([test.installerLease])
+})
+
+it("releases both leases after a successful apply when only the disabled revision is pending", async () => {
+  const test = await fixture({ existing: [], finalReadiness: "pending" })
+
+  await expect(test.stage()).rejects.toThrow(/Resume to recheck/i)
+
+  expect(test.applied).toHaveLength(1)
+  expect(test.ui.phase).toHaveBeenLastCalledWith("verify")
+  expect(test.heldLeases()).toEqual([])
+})
+
+it.each([
+  { postApplyDrift: "state ID", error: /state.*disagree/i },
+  { postApplyDrift: "active digest", error: /active reader revision.*saved image/i },
+  { postApplyDrift: "ingress", error: /no longer matches the disabled configuration/i },
+] as const)("retains the installer lease when the revision is pending with $postApplyDrift drift", async ({
+  postApplyDrift, error,
+}) => {
+  const test = await fixture({ existing: [], finalReadiness: "pending", postApplyDrift })
+
+  await expect(test.stage()).rejects.toThrow(error)
+
+  expect(test.applied).toHaveLength(1)
+  expect(test.heldLeases()).toEqual([test.installerLease])
+})
+
+it.each(["missing", "failed"] as const)(
+  "retains the installer lease when post-apply ACA readiness is %s",
+  async (finalReadiness) => {
+    const test = await fixture({ existing: [], finalReadiness })
+
+    await expect(test.stage()).rejects.toThrow()
+
+    expect(test.applied).toHaveLength(1)
+    expect(test.heldLeases()).toEqual([test.installerLease])
+  },
+)
 
 it.each(["approval", "plan"] as const)("blocks staging if Hub rolls forward during %s", async (hubChangesDuring) => {
   const test = await fixture({ existing: [], hubChangesDuring })
