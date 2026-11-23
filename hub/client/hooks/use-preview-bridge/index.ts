@@ -65,7 +65,7 @@ export function usePreviewBridge({
   const restoreFragment = getPreviewFrameUrl(previewUrl) !== previewUrl
   const route =
     reportedRoute && reportedRoute.previewUrl === previewUrl ? reportedRoute.route : null
-  const currentReady = ready && (!isolated || (route !== null && navigation.current?.ready))
+  const currentReady = ready && (!isolated || route !== null)
 
   const post = useCallback(
     <Type extends PreviewBridgeCommandType>(
