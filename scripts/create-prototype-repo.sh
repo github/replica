@@ -133,6 +133,11 @@ if [[ ! -f "$files/.agents/skills/setup-skills/SKILL.md" ||
 fi
 
 git init -q --initial-branch=main "$files"
+if ! git -C "$files" add --force --all -- . ||
+   ! git -C "$files" commit -q -m 'chore: initialize prototype' \
+     -m 'Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>'; then
+  fail 'Could not create the initial commit. Check the Git error above, then configure your Git identity or resolve signing or hook failures before retrying.'
+fi
 
 # Defer an interrupt until we know whether this process owns the destination.
 interrupted=0
@@ -146,5 +151,5 @@ trap 'exit 143' TERM
 cp -Rp -- "$files/." "$destination/"
 created=""
 
-printf 'Created %s with %s starter files and a new, uncommitted Git repository.\n' "$destination" "$count"
+printf 'Created %s with %s starter files committed on main in a new Git repository.\n' "$destination" "$count"
 printf 'Start a new agent session in that directory and run /setup-skills.\n'

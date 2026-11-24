@@ -53,11 +53,11 @@ if (-not (Test-Path -LiteralPath $gitBash -PathType Leaf)) {
 
 Keep the script path and destination as separate arguments. For the reviewed download, pass `'./install-starter.sh'` and `'.\my prototype'` instead. If the script starts and returns an error, report the error. Do not retry it in another shell.
 
-Choose a destination that does not exist and whose parent directory exists. Both commands create an independent, uncommitted Git repository with no remote. They copy the starter without Replica's source history, require no GitHub credentials, and publish nothing. Creation does not require or install Node.js or app dependencies. This does not change the [Linux requirements for local Hub Builds](../hub/docs/development.md#build-local-prototype-repositories).
+Choose a destination that does not exist and whose parent directory exists. Both commands create an independent Git repository with one local commit on `main` and no remote. The commit gives Copilot a starting point for a worktree. If Git cannot make the commit, check your configured Git name, email, signing, or hooks and retry. Setup copies no Replica history, requires no GitHub credentials, and publishes nothing. Creation does not require or install Node.js or app dependencies. This does not change the [Linux requirements for local Hub Builds](../hub/docs/development.md#build-local-prototype-repositories).
 
 Before asking the user to accept the copied repository's Copilot app configuration, review `.github/github-app.yml` and the startup details in the copied `README.md`. Explain that session startup can install Copilot CLI globally when missing, install or enable the Replica plugin, and will run `npm ci`.
 
-Open the new directory as a local folder in the Copilot app, then start a fresh session in its current checkout. Do not clone again or create a worktree from the uncommitted starter. The session in the Replica checkout cannot discover the copied local skills.
+Open the new directory as a local folder in the Copilot app, then start a fresh session there. The app can create a worktree from the initial commit. Do not clone again. The session in the Replica checkout cannot discover the copied local skills.
 
 Before ending the originating session, provide a paste-ready kickoff message headed **Prompt 1: Continue prototype repository setup**. Tell the user to paste it into the fresh session; a new session does not inherit the previous conversation. Include the user's goal, repository path, supplied references, requested milestone, settled decisions and approvals, completed actions, blockers, and next step. For Windows, include which shell ran creation and whether Copilot Startup was checked.
 
@@ -87,7 +87,7 @@ Guidance drafts are not active guidance. Installed tokens or packages are not pr
 
 ### Share the baseline on GitHub
 
-After reviewing the starter files, guidance, and starting pages, use the intended empty GitHub repository or create one with the agreed owner and visibility. Connect it as a remote named `origin`, make the initial commit, and push the intended default branch only when authorized. For an existing shared repository, follow its contribution process to merge the reviewed changes instead of replacing its remote or history. Ask an engineer for help with these Git steps if needed.
+After reviewing the starter files, guidance, and starting pages, use the intended empty GitHub repository or create one with the agreed owner and visibility. Connect it as a remote named `origin`, commit any reviewed changes, and push the intended default branch only when authorized. For an existing shared repository, follow its contribution process to merge the reviewed changes instead of replacing its remote or history. Ask an engineer for help with these Git steps if needed.
 
 Verify the repository's actual default branch contains the intended baseline before calling it ready for teammates. A local preview is not evidence of a published Hub Build.
 

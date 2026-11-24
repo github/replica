@@ -286,7 +286,31 @@ function bashCommand() {
   return bash
 }
 
-function runBash(args, cwd, { bin, env } = {}) {
+function gitEnvironment(cwd, config) {
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => !/^GIT_/i.test(name)),
+  )
+  env.GIT_CONFIG_NOSYSTEM = "1"
+  env.GIT_CONFIG_GLOBAL = join(cwd, ".replica-test-gitconfig")
+  const settings = Object.entries({
+    "user.useConfigOnly": "true",
+    "user.name": "Replica Test",
+    "user.email": "replica-test@example.test",
+    ...config,
+  }).filter(([, value]) => value !== undefined)
+  env.GIT_CONFIG_COUNT = String(settings.length)
+  for (const [index, [key, value]] of settings.entries()) {
+    env[`GIT_CONFIG_KEY_${index}`] = key
+    env[`GIT_CONFIG_VALUE_${index}`] = value
+  }
+  return env
+}
+
+function fixtureGit(cwd, args) {
+  return execFileSync("git", args, { cwd, env: gitEnvironment(cwd), encoding: "utf8" })
+}
+
+function runBash(args, cwd, { bin, env, gitConfig } = {}) {
   if (bin) {
     // The Git for Windows wrapper prepends to PATH before starting Bash.
     args = [
@@ -306,7 +330,7 @@ exec "$BASH" "$@"`,
   const result = spawnSync(bashCommand(), args, {
     cwd,
     encoding: "utf8",
-    env: { ...process.env, BASH_ENV: "", REPLICA_INTERNAL_STARTER_ROOT: "", TAR_OPTIONS: "", ...env },
+    env: { ...gitEnvironment(cwd, gitConfig), BASH_ENV: "", REPLICA_INTERNAL_STARTER_ROOT: "", TAR_OPTIONS: "", ...env },
     timeout: 30_000,
   })
   assert.ifError(result.error)
@@ -344,8 +368,8 @@ function checkoutFixture(t) {
     mkdirSync(dirname(target), { recursive: true })
     writeFileSync(target, path)
   }
-  execFileSync("git", ["init", "-q", "--initial-branch=main", checkout])
-  execFileSync("git", ["-c", "core.autocrlf=false", "add", "--", "starter/"], { cwd: checkout })
+  fixtureGit(checkout, ["init", "-q", "--initial-branch=main"])
+  fixtureGit(checkout, ["add", "--", "starter/"])
   return { directory, checkout, bootstrap }
 }
 
@@ -429,9 +453,10 @@ function archiveFixture(t, { paths = requiredArchivePaths, missing, file, extraP
   return fixture
 }
 
-function runInstaller(destination, { directory, bootstrap, bin, archive, curlLog }, env) {
+function runInstaller(destination, { directory, bootstrap, bin, archive, curlLog }, { env, gitConfig } = {}) {
   return run(destination, directory, bootstrap, {
     bin,
+    gitConfig,
     env: {
       ...env,
       REPLICA_TEST_ARCHIVE: archive,
@@ -562,28 +587,26 @@ function assertIndependentStarter(destination, paths) {
       path,
     )
   }
-  const actual = execFileSync("git", ["ls-files", "--others", "-z"], {
-    cwd: destination,
-  })
-    .toString()
+  const actual = fixtureGit(destination, ["ls-tree", "-r", "--name-only", "-z", "HEAD"])
     .split("\0")
     .filter(Boolean)
     .sort()
   assert.deepEqual(actual, paths.map(path => path.slice("starter/".length)).sort())
-  assert.equal(
-    execFileSync("git", ["branch", "--show-current"], { cwd: destination }).toString().trim(),
-    "main",
-  )
-  assert.equal(execFileSync("git", ["remote"], { cwd: destination }).toString(), "")
-  assert.equal(spawnSync("git", ["rev-parse", "HEAD"], { cwd: destination }).status, 128)
+  assert.equal(fixtureGit(destination, ["branch", "--show-current"]).trim(), "main")
+  assert.equal(fixtureGit(destination, ["rev-list", "--count", "HEAD"]).trim(), "1")
+  assert.equal(fixtureGit(destination, ["status", "--porcelain", "--untracked-files=all", "--ignored"]), "")
+  assert.equal(fixtureGit(destination, ["remote"]), "")
   assert.ok(!existsSync(join(destination, "node_modules")))
 }
 
-test("creates an independent repository with exactly the tracked starter files", t => {
+test("commits exactly the tracked starter files and supports a Git worktree", t => {
   const directory = workspace(t)
   const destination = join(directory, "prototype")
+  const excludes = join(directory, "git ignore")
+  writeFileSync(excludes, "README.md\n")
   const result = run(destination, directory, script, {
     env: { REPLICA_INTERNAL_STARTER_ROOT: directory },
+    gitConfig: { "core.excludesFile": excludes },
   })
   assert.equal(result.status, 0, result.stderr)
   assert.match(result.stdout, /\/setup-skills\b/)
@@ -593,6 +616,9 @@ test("creates an independent repository with exactly the tracked starter files",
   assert.ok(paths.includes("starter/.github/github-app.yml"))
   assert.ok(paths.includes("starter/scripts/setup-replica-plugin.mjs"))
   assertIndependentStarter(destination, paths)
+  const worktree = join(directory, "prototype worktree")
+  fixtureGit(destination, ["worktree", "add", "--quiet", "-b", "prototype-session", worktree, "main"])
+  assert.equal(fixtureGit(worktree, ["rev-parse", "HEAD"]), fixtureGit(destination, ["rev-parse", "HEAD"]))
   assertNoTemporaryFiles(directory)
 })
 
@@ -608,6 +634,17 @@ test("the standalone installer creates an independent repository from the releas
   assertIndependentStarter(destination, paths)
   assertNoTemporaryFiles(fixture.directory)
   assertNoTemporaryFiles(parent)
+})
+
+test("an initial commit without configured identity leaves no repository or staging", t => {
+  const fixture = archiveFixture(t)
+  const destination = join(fixture.directory, "prototype")
+  const result = runInstaller(destination, fixture, {
+    gitConfig: { "user.name": undefined, "user.email": undefined },
+  })
+  assertRejected(result, /initial commit/i)
+  assert.ok(!existsSync(destination))
+  assertNoTemporaryFiles(fixture.directory)
 })
 
 test("ignores an unrelated symlink in the archive", t => {
@@ -670,7 +707,7 @@ test("refuses existing install destinations, including a dangling link, before d
 test("does not install a downloaded archive when curl reports failure", t => {
   const fixture = archiveFixture(t)
   const destination = join(fixture.directory, "prototype")
-  const result = runInstaller(destination, fixture, { REPLICA_TEST_CURL_STATUS: "22" })
+  const result = runInstaller(destination, fixture, { env: { REPLICA_TEST_CURL_STATUS: "22" } })
   assertRejected(result, /Could not download/)
   assert.ok(existsSync(fixture.curlLog))
   assert.ok(!existsSync(destination))
@@ -721,9 +758,8 @@ test("refuses indexed symlink modes even when the working file is regular", t =>
   const { directory, checkout, bootstrap } = checkoutFixture(t)
   const link = join(checkout, "starter/src/linked")
   writeFileSync(link, "/missing/outside")
-  const object = execFileSync("git", ["hash-object", "-w", "--", "starter/src/linked"], { cwd: checkout })
-    .toString().trim()
-  execFileSync("git", ["update-index", "--add", "--cacheinfo", `120000,${object},starter/src/linked`], { cwd: checkout })
+  const object = fixtureGit(checkout, ["hash-object", "-w", "--", "starter/src/linked"]).trim()
+  fixtureGit(checkout, ["update-index", "--add", "--cacheinfo", `120000,${object},starter/src/linked`])
   const destination = join(directory, "prototype")
   assertRejected(run(destination, directory, bootstrap), /Unsupported starter entry/)
   assert.ok(!existsSync(destination))
@@ -913,9 +949,7 @@ test("copied nested context links retain evidence and anchors, and reject broken
     mkdirSync(dirname(target), { recursive: true })
     writeFileSync(target, text)
   }
-  execFileSync("git", ["-c", "core.autocrlf=false", "add", "--", "starter/.agents/context"], {
-    cwd: checkout,
-  })
+  fixtureGit(checkout, ["add", "--", "starter/.agents/context"])
   const destination = join(directory, "prototype")
   const result = run(destination, directory, bootstrap)
   assert.equal(result.status, 0, result.stderr)

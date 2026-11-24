@@ -14,7 +14,11 @@ import type {
 const exampleDirectoryName = "minimal"
 const exampleBranchName = "prototype/example"
 const gitEnvironment = {
+  GIT_AUTHOR_NAME: "Replica Example",
+  GIT_AUTHOR_EMAIL: "local@example.invalid",
   GIT_AUTHOR_DATE: "2026-01-01T00:00:00Z",
+  GIT_COMMITTER_NAME: "Replica Example",
+  GIT_COMMITTER_EMAIL: "local@example.invalid",
   GIT_COMMITTER_DATE: "2026-01-01T00:00:00Z",
 }
 
@@ -128,43 +132,14 @@ export async function prepareLocalDevelopment(
       cwd: configuration.sourceRoot,
       environment: {
         ...process.env,
+        ...gitEnvironment,
+        GIT_CONFIG_COUNT: "2",
+        GIT_CONFIG_KEY_0: "maintenance.auto",
+        GIT_CONFIG_VALUE_0: "false",
+        GIT_CONFIG_KEY_1: "commit.gpgsign",
+        GIT_CONFIG_VALUE_1: "false",
         REPLICA_INTERNAL_STARTER_ROOT: configuration.root,
       },
-    })
-    await runCommand({
-      command: "git",
-      arguments: [
-        "-c",
-        "maintenance.auto=false",
-        "-c",
-        "user.name=Replica Example",
-        "-c",
-        "user.email=local@example.invalid",
-        "-c",
-        "commit.gpgsign=false",
-        "add",
-        ".",
-      ],
-      cwd: checkout,
-      environment: { ...process.env, ...gitEnvironment },
-    })
-    await runCommand({
-      command: "git",
-      arguments: [
-        "-c",
-        "maintenance.auto=false",
-        "-c",
-        "user.name=Replica Example",
-        "-c",
-        "user.email=local@example.invalid",
-        "-c",
-        "commit.gpgsign=false",
-        "commit",
-        "-m",
-        "chore: start local prototype",
-      ],
-      cwd: checkout,
-      environment: { ...process.env, ...gitEnvironment },
     })
     await runCommand({
       command: npmCommand,
@@ -193,18 +168,7 @@ export async function prepareLocalDevelopment(
     })
     await runCommand({
       command: "git",
-      arguments: [
-        "-c",
-        "maintenance.auto=false",
-        "-c",
-        "user.name=Replica Example",
-        "-c",
-        "user.email=local@example.invalid",
-        "-c",
-        "commit.gpgsign=false",
-        "add",
-        ".",
-      ],
+      arguments: ["-c", "maintenance.auto=false", "-c", "commit.gpgsign=false", "add", "."],
       cwd: checkout,
       environment: { ...process.env, ...gitEnvironment },
     })
@@ -213,10 +177,6 @@ export async function prepareLocalDevelopment(
       arguments: [
         "-c",
         "maintenance.auto=false",
-        "-c",
-        "user.name=Replica Example",
-        "-c",
-        "user.email=local@example.invalid",
         "-c",
         "commit.gpgsign=false",
         "commit",
