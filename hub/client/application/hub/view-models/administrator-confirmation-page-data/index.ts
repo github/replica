@@ -44,7 +44,7 @@ export function administratorConfirmationPageData(
     submitLabel: designating ? "Designate administrator" : "Remove administrator",
     confirmLabel: "I confirm this Hub administrator role change.",
     cancelLabel: "Cancel",
-    cancelPath: resourcePath("/settings/administrators", new URLSearchParams(), {
+    cancelPath: resourcePath("/settings/administrators", {
       repositoryId: workspace.repository?.selectedRepositoryId ?? null,
     }),
     verification:

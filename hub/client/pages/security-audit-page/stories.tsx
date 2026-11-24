@@ -1,16 +1,21 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 
-import { hubAdministrationWorkspaceData } from "@/storybook/fixtures/hub-administration"
-import { prototypeWorkspaceData } from "@/storybook/fixtures/prototype-workspace"
+import {
+  authenticatedHubWorkspaceData,
+  hubAdministrationData,
+  hubAdministrationWorkspaceData,
+} from "@/storybook/fixtures/hub-administration"
+import { signedInRepository } from "@/storybook/fixtures/signed-in-workspace"
+import { keepFormsLocal } from "@/storybook/keep-forms-local"
 
 import { SecurityAuditPage } from "."
 import type { SecurityAuditPageData } from "./types"
 
 const data: SecurityAuditPageData = {
+  ...hubAdministrationData,
   administrationWorkspace: {
     ...hubAdministrationWorkspaceData,
     selectedSection: "audit",
-    securityAuditPath: "/settings/audit?scope=hub",
   },
   pageTitle: "Security audit",
   heading: "Security audit",
@@ -20,34 +25,16 @@ const data: SecurityAuditPageData = {
   selectedScopeId: "hub",
   scopes: [
     { id: "hub", label: "Hub", path: "/settings/audit?scope=hub" },
-    {
-      id: "2001",
-      label: "github/prototype",
-      path: "/settings/audit?scope=repository&repositoryId=2001",
-    },
-    {
-      id: "2002",
-      label: "github/empty",
-      path: "/settings/audit?scope=repository&repositoryId=2002",
-    },
+    ...signedInRepository.repositories.map(({ id, nameWithOwner }) => ({
+      id,
+      label: nameWithOwner,
+      path: `/settings/audit?scope=repository&repositoryId=${id}`,
+    })),
   ],
   retention: "Records are shown newest first. Export and retention controls are not available.",
   emptyLabel: "No retained security actions.",
   nextLabel: "Older actions",
   nextPath: null,
-  repositoriesLabel: "Repositories",
-  repositoriesPath: "/repositories",
-  hubAdminsLabel: "Hub administrators",
-  hubAdminsPath: "/hub_admins",
-  githubAppLabel: "GitHub App",
-  githubAppPath: "/github_app",
-  sharingSettingsLabel: "Public sharing",
-  sharingSettingsPath: "/sharing_settings",
-  sessionRevocationLabel: "End all Hub sessions",
-  sessionRevocationPath: "/session_revocation",
-  signOutLabel: "Sign out",
-  signOutPath: "/session",
-  authenticityToken: "storybook-token",
   columns: {
     time: "Time (UTC)",
     action: "Action",
@@ -61,6 +48,7 @@ const data: SecurityAuditPageData = {
 const meta = {
   title: "Hub/Pages/Security/Audit",
   component: SecurityAuditPage,
+  decorators: [keepFormsLocal],
   parameters: { layout: "fullscreen" },
   args: { data },
 } satisfies Meta<typeof SecurityAuditPage>
@@ -76,6 +64,8 @@ export const HubOnly: Story = {
       administrationWorkspace: {
         ...data.administrationWorkspace!,
         repository: null,
+        canvasConnectionsPath: "/canvas/connections",
+        securityAuditPath: "/settings/audit?scope=hub",
       },
       scopes: data.scopes.filter((scope) => scope.id === "hub"),
     },
@@ -159,15 +149,15 @@ export const Repository: Story = {
       githubAppPath: null,
       sharingSettingsPath: null,
       sessionRevocationPath: null,
-      selectedScopeId: "2001",
+      selectedScopeId: signedInRepository.selectedRepositoryId,
       scopes: data.scopes.filter((scope) => scope.id !== "hub"),
       description:
         "Security actions for github/prototype. Global setup and operator records are not included.",
       workspace: {
-        ...prototypeWorkspaceData,
-        analyticsLabel: "Analytics",
-        analyticsPath: "/repositories/2001/analytics",
-        securityAuditPath: "/settings/audit?scope=repository&repositoryId=2001",
+        ...authenticatedHubWorkspaceData,
+        ...signedInRepository,
+        ...authenticatedHubWorkspaceData.repository,
+        navigationLabel: "Repository navigation",
         selectedSection: "security",
       },
       events: [
@@ -199,7 +189,7 @@ export const LongRepositoryName: Story = {
     data: {
       ...Repository.args!.data!,
       scopes: Repository.args!.data!.scopes.map((scope) =>
-        scope.id === "2001"
+        scope.id === signedInRepository.selectedRepositoryId
           ? {
               ...scope,
               label:

@@ -1,6 +1,5 @@
 import type { z } from "zod"
 
-import { bootstrapHubApi } from "@application/hub/bootstrap-hub-api"
 import { apiErrorSchema } from "@application/hub/contracts"
 
 import { ApiContractError } from "../api-contract-error"
@@ -16,7 +15,6 @@ export async function requestJson<T>(
   init: JsonRequestInit = {},
 ): Promise<T> {
   init.signal?.throwIfAborted()
-  await bootstrapHubApi()
   init.signal?.throwIfAborted()
 
   const headers = new Headers(init.headers)

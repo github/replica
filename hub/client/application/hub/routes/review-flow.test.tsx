@@ -1,66 +1,137 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react"
-import { http, HttpResponse } from "msw"
-import { setupServer } from "msw/node"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
+import { deferred } from "@/test/deferred"
+import { http, stubHubFetch } from "@/test/stub-hub-fetch"
 import { privateReviewLink } from "@utils/private-review-link"
+import type { PreviewBridgeCommand } from "@utils/preview-bridge/types"
+import type { ReviewRoute } from "@utils/review-anchor/types"
+import type { ReviewComment, ReviewRootComment } from "@utils/review-comment/types"
 
-import { createMockHandlers } from "../mocks/create-mock-handlers"
-import { createMockStore } from "../mocks/create-mock-store"
+import { authenticatedWorkspace } from "./fixtures/authenticated-workspace"
+import { previewHandlers } from "./fixtures/preview-handlers"
+import { previewRecords } from "./fixtures/preview-records"
 import { renderHubFlow } from "./fixtures/render-hub-flow"
+import { reviewRecords } from "./fixtures/review-records"
+import { reviewSockets } from "./fixtures/review-sockets"
+
+function reviewFixture(
+  preview = previewRecords({ canReview: true }),
+  buildNumber = preview.latest.number,
+  repositories = [preview.repository],
+) {
+  const { root, reply } = reviewRecords(preview.path, buildNumber)
+  const comments: ReviewComment[] = [root, reply]
+  const commentsPath = `/api${preview.path}/review-comments`
+  const read = vi.fn(() => Response.json({ comments, nextCursor: null, hasMore: false }))
+  const sockets = reviewSockets()
+  const api = stubHubFetch(
+    ...authenticatedWorkspace(repositories, { scopeRepositoryPermissions: true }),
+    ...previewHandlers(preview),
+    http.get(commentsPath, read),
+  )
+  return { ...preview, root, reply, comments, commentsPath, api, read, sockets }
+}
+
+function pinnedReviewPreview(options: Parameters<typeof previewRecords>[0]) {
+  const preview = previewRecords(options)
+  const { historical, path } = preview
+  const access = new URL(`/api${path}/builds/${historical.number}/access`, window.location.origin)
+  access.searchParams.set("target", "preview")
+  access.searchParams.set("preview_origin", new URL(historical.previewUrl!).origin)
+  historical.previewUrl = access.href
+  preview.showPrototypeInfo = false
+  return preview
+}
+
+function pinnedThreadLink(path: string, root: ReviewRootComment) {
+  if (root.buildNumber === null) throw new Error("Expected a thread on a successful Build.")
+  const { pathname, search, hash } = root.anchor.route
+  const link = privateReviewLink({
+    baseUrl: new URL(path, window.location.origin).href,
+    buildNumber: root.buildNumber,
+    route: `${pathname}${search}${hash}`,
+    threadId: root.id,
+  })
+  if (!link) throw new Error("Expected a restorable review link.")
+  return link
+}
+
+function loadPinnedPreview(frame: HTMLIFrameElement) {
+  const previewWindow = frame.contentWindow
+  const { searchParams } = new URL(frame.src)
+  const origin = searchParams.get("preview_origin")
+  if (!previewWindow || !origin) throw new Error("Expected an isolated Build preview.")
+  const messageSource = { source: previewWindow, origin }
+  const loaded = new URL(searchParams.get("route") ?? "/", origin)
+  const post = vi.spyOn(previewWindow, "postMessage").mockImplementation(() => undefined)
+
+  function commands() {
+    return post.mock.calls.map(([command]) => command as PreviewBridgeCommand)
+  }
+
+  fireEvent.load(frame)
+  const ready = commands().find(({ type }) => type === "replica:bridge:request-navigation-ready")
+  if (!ready) throw new Error("Expected Hub to request Build preview readiness.")
+  const navigationId = ready.requestId
+  function reportReady(requestId: string, route: ReviewRoute) {
+    fireEvent(
+      window,
+      new MessageEvent("message", {
+        ...messageSource,
+        data: {
+          type: "replica:bridge:ready",
+          protocolVersion: 1,
+          requestId,
+          navigationId,
+          payload: { route },
+        },
+      }),
+    )
+  }
+  reportReady(navigationId, { pathname: loaded.pathname, search: loaded.search, hash: loaded.hash })
+  const restore = commands().find((command) => command.type === "replica:bridge:restore-fragment")
+  if (restore) reportReady(restore.requestId, restore.payload.route)
+}
 
 describe("Hub prototype review flow", () => {
-  // The full mutation/remount/reopen flow has exceeded 15s with two Windows workers.
-  it("loads the seeded conversation and retains replies, reactions and resolution across routes", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
-    const router = await renderHubFlow(server, "/repositories/2001/prototypes/1")
-    fireEvent.click(screen.getByRole("button", { name: /^Comments, 1/ }))
-    await router.settle(() =>
-      fireEvent.click(
-        screen.getByRole("button", { name: /Could we make the welcome heading clearer\?/ }),
-      ),
+  it("shows a saved reaction and resolved conversation after leaving and reopening review", async () => {
+    const { api, root, path, commentsPath } = reviewFixture()
+    const add = vi.fn()
+    api.use(
+      http.post(`${commentsPath}/1/reactions`, async ({ request }) => {
+        add(await request.json())
+        root.reactions = [{ content: "+1", count: 1, viewerHasReacted: true }]
+        return Response.json({ comments: [root] })
+      }),
+      http.post(`${commentsPath}/1/resolution`, () => {
+        root.resolvedAt = "2026-11-20T12:00:00Z"
+        root.resolvedBy = root.author
+        return Response.json({ comments: [root] })
+      }),
+      http.delete(`${commentsPath}/1/resolution`, () => {
+        root.resolvedAt = null
+        root.resolvedBy = null
+        return Response.json({ comments: [root] })
+      }),
     )
+    const router = await renderHubFlow(api, `${path}?build=3&comment=1`)
     const conversation = await screen.findByRole("dialog", { name: "Conversation" })
-    expect(within(conversation).getByText("I will try a shorter heading.")).toBeVisible()
-    fireEvent.change(within(conversation).getByRole("textbox", { name: "Reply" }), {
-      target: { value: "The shorter heading works well." },
-    })
-    await router.settle(() =>
-      fireEvent.click(within(conversation).getByRole("button", { name: "Reply" })),
-    )
-    expect(
-      await within(conversation).findByText("The shorter heading works well."),
-    ).toBeInTheDocument()
-    await waitFor(() =>
-      expect(within(conversation).getByRole("textbox", { name: "Reply" })).toHaveValue(""),
-    )
     fireEvent.click(within(conversation).getAllByRole("button", { name: "Add reaction" })[0]!)
     await router.settle(() => fireEvent.click(screen.getByRole("menuitem", { name: /Thumbs up/ })))
-    expect(
-      await within(conversation).findByRole("button", { name: "Thumbs up, 1 reaction" }),
-    ).toHaveAttribute("aria-pressed", "true")
+    expect(add).toHaveBeenCalledExactlyOnceWith({
+      review_comment_reaction: { content: "+1", activity_version: 1 },
+    })
     await router.settle(() =>
       fireEvent.click(within(conversation).getByRole("button", { name: "Resolve" })),
     )
     expect(await within(conversation).findByRole("button", { name: "Reopen" })).toBeEnabled()
     expect(within(conversation).queryByRole("textbox", { name: "Reply" })).not.toBeInTheDocument()
 
-    await router.settle(() => router.navigate("/repositories/2001/prototypes/1/builds"))
-    await screen.findByRole("heading", { name: "History", level: 2 })
-    await router.settle(() => router.navigate("/repositories/2001/prototypes/1"))
-    fireEvent.click(await screen.findByRole("button", { name: /^Comments, 1/ }))
-    fireEvent.click(screen.getByRole("button", { name: "Filters" }))
-    await router.settle(() =>
-      fireEvent.click(screen.getByRole("switch", { name: "Show resolved" })),
-    )
-    await router.settle(() =>
-      fireEvent.click(
-        screen.getByRole("button", { name: /Could we make the welcome heading clearer\?/ }),
-      ),
-    )
+    await router.settle(() => router.navigate(`${path}/builds?build=3`))
+    expect(screen.getByRole("heading", { name: "History", level: 2 })).toBeVisible()
+    await router.settle(() => router.navigate(`${path}?build=3&comment=1&commentResolved=1`))
     const reopened = await screen.findByRole("dialog", { name: "Conversation" })
-    expect(within(reopened).getByText("The shorter heading works well.")).toBeInTheDocument()
     expect(within(reopened).getByRole("button", { name: "Thumbs up, 1 reaction" })).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -69,259 +140,318 @@ describe("Hub prototype review flow", () => {
       fireEvent.click(within(reopened).getByRole("button", { name: "Reopen" })),
     )
     expect(await within(reopened).findByRole("textbox", { name: "Reply" })).toBeEnabled()
-  }, 20_000)
+  }, 15_000)
 
-  // Failure and retry have exceeded the 5s Windows case budget.
-  it("retains a failed reply draft and permits a retry without destructive loader revalidation", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
-    const router = await renderHubFlow(server, "/repositories/2001/prototypes/1?build=3")
-    fireEvent.click(screen.getByRole("button", { name: /^Comments, 1/ }))
-    await router.settle(() =>
-      fireEvent.click(
-        screen.getByRole("button", { name: /Could we make the welcome heading clearer\?/ }),
-      ),
-    )
-    const conversation = await screen.findByRole("dialog", { name: "Conversation" })
-    await waitFor(() =>
-      expect(
-        within(screen.getByRole("complementary", { name: "Comments" })).getByRole("button", {
-          name: /Could we make the welcome heading clearer\?/,
+  it.each([422, 500])(
+    "retains a reply draft after HTTP %i without reloading the editor",
+    async (status) => {
+      const { api, path, comments, commentsPath, reply } = reviewFixture()
+      const { promise: blocked, resolve: release } = deferred()
+      onTestFinished(() => release())
+      const failedSave = vi.fn(async () => {
+        await blocked
+        return Response.json({ error: "The reply could not be saved." }, { status })
+      })
+      const router = await renderHubFlow(api, `${path}?build=3&comment=1`)
+      const conversation = await screen.findByRole("dialog", { name: "Conversation" })
+      const input = within(conversation).getByRole("textbox", { name: "Reply" })
+      const submit = within(conversation).getByRole("button", { name: "Reply" })
+      const draft = "Keep this review draft."
+      const failedRead = vi.fn(() =>
+        Response.json({ error: "Loaded resources are unavailable." }, { status: 503 }),
+      )
+      api.use(
+        http.post(`${commentsPath}/1/replies`, failedSave),
+        http.get(`/api${path}`, failedRead),
+        http.get(commentsPath, failedRead),
+        http.get("/api/workspace", failedRead),
+      )
+      fireEvent.change(input, { target: { value: draft } })
+
+      fireEvent.click(submit)
+      await waitFor(() => expect(failedSave).toHaveBeenCalledOnce())
+      expect(submit).toBeDisabled()
+      release()
+      await router.settle()
+
+      expect(await within(conversation).findByRole("alert")).toBeVisible()
+      expect(within(conversation).getByText(reply.body!)).toBeVisible()
+      expect(input).toHaveValue(draft)
+      expect(submit).toBeEnabled()
+      expect(screen.getByTitle("Welcome, Build 3 preview")).toBeInTheDocument()
+      expect(failedRead).not.toHaveBeenCalled()
+
+      api.reset()
+      api.use(
+        http.post(`${commentsPath}/1/replies`, async ({ request }) => {
+          const { review_comment } = (await request.json()) as { review_comment: { body: string } }
+          const saved = { ...reply, id: 3, body: review_comment.body }
+          comments.push(saved)
+          return Response.json({ comments: [saved] })
         }),
-      ).not.toHaveAccessibleName(/Unread/),
-    )
-    const reply = within(conversation).getByRole("textbox", { name: "Reply" })
-    fireEvent.change(reply, { target: { value: "Keep this review draft." } })
-    let finishSave: (() => void) | undefined
-    const saving = new Promise<void>((resolve) => {
-      finishSave = resolve
-    })
-    onTestFinished(() => finishSave?.())
-    const failedSave = vi.fn(async () => {
-      await saving
-      return HttpResponse.json({ error: "Reviews are temporarily unavailable." }, { status: 500 })
-    })
-    const failedReads = vi.fn(() =>
-      HttpResponse.json({ error: "Loaded resources are unavailable." }, { status: 503 }),
-    )
-    server.use(
-      http.post(
-        `${store.origin}/api/repositories/2001/prototypes/1/review-comments/1/replies`,
-        failedSave,
-      ),
-      http.get(`${store.origin}/api/*`, failedReads),
-    )
+      )
+      await router.settle(() => fireEvent.click(submit))
 
-    fireEvent.click(within(conversation).getByRole("button", { name: "Reply" }))
-    await waitFor(() => expect(failedSave).toHaveBeenCalledOnce())
-    expect(within(conversation).getByRole("button", { name: "Reply" })).toBeDisabled()
-    if (!finishSave) throw new Error("The pending reply did not expose its completion.")
-    finishSave()
-    await router.settle()
+      expect(await within(conversation).findByText(draft)).toBeVisible()
+      expect(input).toHaveValue("")
+      expect(within(conversation).queryByRole("alert")).not.toBeInTheDocument()
+    },
+    15_000,
+  )
 
-    expect(await within(conversation).findByRole("alert")).toHaveTextContent(
-      /reply could not be saved/i,
-    )
-    expect(reply).toHaveValue("Keep this review draft.")
-    expect(failedReads).not.toHaveBeenCalled()
-    expect(screen.getByTitle("Welcome, Build 3 preview")).toBeInTheDocument()
-    server.resetHandlers()
-    expect(screen.getByRole("dialog", { name: "Conversation" })).toBe(conversation)
-    expect(reply).toHaveValue("Keep this review draft.")
-    await router.settle(() =>
-      fireEvent.click(within(conversation).getByRole("button", { name: "Reply" })),
-    )
-    expect(await within(conversation).findByText("Keep this review draft.")).toBeInTheDocument()
-    await waitFor(() => expect(reply).toHaveValue(""))
-  }, 10_000)
-
-  it("reports invalid review data and loads real comments after an explicit retry", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
-    server.use(
-      http.get(`${store.origin}/api/repositories/2001/prototypes/1/review-comments`, () =>
-        HttpResponse.json({
-          comments: [{ id: 1, body: "A malformed comment must not become an empty review." }],
+  it("reports invalid review data and loads comments after an explicit retry", async () => {
+    const { api, path, commentsPath } = reviewFixture()
+    api.use(
+      http.get(commentsPath, () =>
+        Response.json({
+          comments: [{ id: 1, body: "A malformed comment." }],
           hasMore: false,
           nextCursor: null,
         }),
       ),
     )
-    const router = await renderHubFlow(server, "/repositories/2001/prototypes/1")
+    const router = await renderHubFlow(api, path)
     fireEvent.click(await screen.findByRole("button", { name: /^Comments, 0/ }))
     const sidebar = screen.getByRole("complementary", { name: "Comments" })
 
     expect(await within(sidebar).findByRole("alert")).toHaveTextContent(/could not be loaded/i)
     expect(within(sidebar).queryByText("No comments have been added.")).not.toBeInTheDocument()
-    server.resetHandlers()
+    api.reset()
     await router.settle(() =>
       fireEvent.click(within(sidebar).getByRole("button", { name: "Retry" })),
     )
     expect(
-      await within(sidebar).findByRole("button", {
-        name: /Could we make the welcome heading clearer\?/,
-      }),
-    ).toBeInTheDocument()
+      await within(sidebar).findByRole("button", { name: /welcome heading clearer/ }),
+    ).toBeVisible()
     expect(within(sidebar).queryByRole("alert")).not.toBeInTheDocument()
   })
 
-  it("reopens the owner's exact thread link for a reader without granting review writes", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const owner = store.session.requireViewer()
-    const thread = store.review
-      .list("2001", "1")
-      .comments.find((comment) => comment.kind === "root")
-    if (!thread || thread.buildNumber === null) {
-      throw new Error("Expected a seeded review thread on a Build")
-    }
-    const { pathname, search, hash } = thread.anchor.route
-    const link = privateReviewLink({
-      baseUrl: `${store.origin}/repositories/2001/prototypes/1`,
-      buildNumber: thread.buildNumber,
-      route: `${pathname}${search}${hash}`,
-      threadId: thread.id,
-    })
-    if (!link) throw new Error("Expected a restorable review link")
+  it("keeps details editable but shows no review conversation when a pinned link is denied", async () => {
+    const preview = pinnedReviewPreview({ canBranch: false })
+    const { historical, path, prototype, repository } = preview
+    const { root, reply } = reviewRecords(path, historical.number)
+    const sockets = reviewSockets()
+    const api = stubHubFetch(
+      ...authenticatedWorkspace([repository], {
+        provider: "local",
+        administerHub: true,
+        scopeRepositoryPermissions: true,
+      }),
+      ...previewHandlers(preview),
+    )
+    await renderHubFlow(api, pinnedThreadLink(path, root))
+    loadPinnedPreview(screen.getByTitle<HTMLIFrameElement>("Welcome, Build 1 preview"))
 
-    const { viewer } = store.session.select("reader")
-    expect(viewer?.id).not.toBe(owner.id)
-    const server = setupServer(...createMockHandlers(store))
-    await renderHubFlow(server, link)
+    expect(api.requests.map(({ url }) => new URL(url).pathname)).toContain(
+      `/api${path}/review-comments`,
+    )
+    expect(screen.queryByRole("dialog", { name: "Conversation" })).not.toBeInTheDocument()
+    const addComment = screen.getByRole("button", { name: "Add a comment" })
+    expect(addComment).toBeDisabled()
+    expect(addComment).toHaveAccessibleDescription(/do not have permission to add review comments/i)
+    fireEvent.click(screen.getByRole("button", { name: "Comments, 0" }))
+    const sidebar = screen.getByRole("complementary", { name: "Comments" })
+    const reviewError = within(sidebar).getByRole("alert")
+    expect(reviewError).toBeVisible()
+    expect(reviewError).toHaveTextContent(/comments could not be loaded/i)
+    expect(within(sidebar).queryByText("No comments have been added.")).not.toBeInTheDocument()
+    expect(screen.queryByText(root.body!)).not.toBeInTheDocument()
+    expect(screen.queryByText(reply.body!)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /^(Reply|Resolve|Add reaction)$/ }),
+    ).not.toBeInTheDocument()
+    expect(sockets).toHaveLength(0)
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit details" }))
+    const editor = screen.getByRole("dialog", { name: "Edit prototype details" })
+    expect(within(editor).getByRole("textbox", { name: "Name" })).toHaveValue(prototype.name)
+    expect(within(editor).getByRole("button", { name: "Save details" })).toBeEnabled()
+    expect(api.requests.filter(({ method }) => method !== "GET")).toEqual([])
+  })
+
+  it("restores the older Build and exact thread from a private Hub link and refreshes it live", async () => {
+    const preview = pinnedReviewPreview({ canReview: true })
+    const { historical, latest, path, repository, prototype, galleryPath } = preview
+    const otherRepository = {
+      id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      nameWithOwner: "team/another-repository",
+      defaultBranch: "main",
+    }
+    repository.capabilities!.manageAnalytics = true
+    const { api, comments, root, reply, sockets } = reviewFixture(preview, historical.number, [
+      otherRepository,
+      repository,
+    ])
+    const otherThread = "A newer conversation about the latest Build."
+    comments.unshift({
+      ...root,
+      id: 21,
+      body: otherThread,
+      createdAt: "2026-11-20T20:00:00.000Z",
+      updatedAt: "2026-11-20T20:00:00.000Z",
+      buildNumber: latest.number,
+      buildPath: `${path}?build=${latest.number}`,
+    })
+    const router = await renderHubFlow(api, pinnedThreadLink(path, root))
     const conversation = await screen.findByRole("dialog", { name: "Conversation" })
 
-    expect(screen.getByTitle(`Welcome, Build ${thread.buildNumber} preview`)).toBeInTheDocument()
-    expect(
-      within(conversation).getByText("Could we make the welcome heading clearer?"),
-    ).toBeVisible()
-    expect(within(conversation).getByText("I will try a shorter heading.")).toBeVisible()
-    expect(within(conversation).getByRole("button", { name: "Resolve" })).toBeDisabled()
-    expect(within(conversation).queryByRole("textbox", { name: "Reply" })).not.toBeInTheDocument()
-    for (const reaction of within(conversation).getAllByRole("button", { name: "Add reaction" })) {
-      expect(reaction).toBeDisabled()
-    }
-    const response = await fetch(
-      `${store.origin}/api/repositories/2001/prototypes/1/review-comments/1/replies`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ review_comment: { body: "Reader must not save a reply." } }),
-      },
+    const frame = screen.getByTitle<HTMLIFrameElement>("Welcome, Build 1 preview")
+    expect(new URL(frame.src).pathname).toBe(`/api${path}/builds/1/access`)
+    loadPinnedPreview(frame)
+    expect(screen.getByRole("textbox", { name: "Preview URL" })).toHaveValue(
+      "https://build-1.example.test/welcome?step=2#heading",
     )
-    expect(response.status).toBe(403)
-    expect(store.review.list("2001", "1").comments).toHaveLength(2)
+    expect(within(conversation).getByText(root.body!)).toBeVisible()
+    expect(within(conversation).getByText(reply.body!)).toBeVisible()
+    expect(within(conversation).queryByText(otherThread)).not.toBeInTheDocument()
+    expect(within(conversation).getByRole("textbox", { name: "Reply" })).toBeEnabled()
+    expect(await screen.findByRole("link", { name: "Analytics" })).toHaveAttribute(
+      "href",
+      `${galleryPath}/analytics`,
+    )
+
+    const channel = `review:${repository.id}:${prototype.id}`
+    expect(sockets).toHaveLength(1)
+    const socket = sockets[0]!
+    expect(socket.send).toHaveBeenCalledExactlyOnceWith(
+      JSON.stringify({ type: "subscribe", channel }),
+    )
+    await router.settle(() => socket.receive({ type: "subscribed", channel }))
+    reply.body = "The heading has been shortened in the draft."
+    await router.settle(() =>
+      socket.receive({ type: "event", channel, event: { type: "changed", payload: null } }),
+    )
+
+    expect(within(conversation).getByText(reply.body)).toBeVisible()
+  })
+
+  it("opens the pinned Inbox conversation and keeps it read on return", async () => {
+    const { api, root, path, repository, prototype } = reviewFixture()
+    const activity = {
+      id: 7,
+      version: 1,
+      actor: root.author,
+      kind: "mention",
+      excerpt: root.body,
+      createdAt: root.createdAt,
+      read: false,
+      repository: repository.nameWithOwner,
+      prototype: prototype.name,
+      path: `${path}?build=3&comment=1&message=1&notification=7`,
+      updatePath: "/api/notifications/7",
+      target: { prototypeId: prototype.id, threadId: root.id, commentId: root.id },
+    }
+    const markRead = vi.fn()
+    api.use(
+      ...authenticatedWorkspace([repository], {
+        reviewInboxAvailable: true,
+        scopeRepositoryPermissions: true,
+      }),
+      http.get("/api/notifications/inbox", () =>
+        Response.json({
+          notifications: [activity],
+          nextBefore: null,
+          unreadCount: activity.read ? 0 : 1,
+        }),
+      ),
+      http.get(activity.updatePath, () => Response.json(activity)),
+      http.patch(activity.updatePath, async ({ request }) => {
+        markRead(await request.json())
+        activity.read = true
+        activity.version += 1
+        return Response.json({ read: true, version: activity.version, unreadCount: 0 })
+      }),
+    )
+    const router = await renderHubFlow(api, "/notifications")
+    const link = within(await screen.findByRole("region", { name: "Inbox" })).getByRole("link")
+    expect(link).toHaveAttribute("href", activity.path)
+
+    await router.settle(() => fireEvent.click(link))
+
+    const thread = await screen.findByRole("dialog", { name: "Conversation" })
+    expect(within(thread).getByText(root.body!)).toBeVisible()
+    expect(router.state.location.pathname + router.state.location.search).toBe(activity.path)
+    await waitFor(() =>
+      expect(markRead).toHaveBeenCalledExactlyOnceWith({
+        notification: { read: true, version: 1 },
+      }),
+    )
+    await router.go(-1)
+    expect(await screen.findByRole("button", { name: "Mark as unread: mona" })).toBeVisible()
   })
 
   it("restores shared review filters through back navigation without discarding the open reply draft", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const reviewReads = vi.spyOn(store.review, "list")
-    const server = setupServer(...createMockHandlers(store))
+    const { api, path, read } = reviewFixture()
     const router = await renderHubFlow(
-      server,
-      "/repositories/2001/prototypes/1?build=3&comment=1&commentSearch=welcome&commentResolved=1",
+      api,
+      `${path}?build=3&comment=1&commentSearch=welcome&commentResolved=1`,
     )
     const conversation = await screen.findByRole("dialog", { name: "Conversation" })
-    expect(within(conversation).getByText("I will try a shorter heading.")).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: /^Comments, 1/ }))
     const sidebar = screen.getByRole("complementary", { name: "Comments" })
     const search = within(sidebar).getByRole("searchbox", { name: "Search comments" })
     expect(search).toHaveValue("welcome")
     fireEvent.click(within(sidebar).getByRole("button", { name: "Filters" }))
     expect(within(sidebar).getByRole("switch", { name: "Show resolved" })).toBeChecked()
-    await waitFor(() =>
-      expect(
-        within(sidebar).getByRole("button", {
-          name: /Could we make the welcome heading clearer\?/,
-        }),
-      ).not.toHaveAccessibleName(/Unread/),
-    )
-    const readsBeforeFiltering = reviewReads.mock.calls.length
-    fireEvent.change(within(conversation).getByRole("textbox", { name: "Reply" }), {
+    const readsBeforeFiltering = read.mock.calls.length
+    const input = within(conversation).getByRole("textbox", { name: "Reply" })
+    fireEvent.change(input, {
       target: { value: "Keep this draft while navigating review filters." },
     })
 
     await router.settle(() =>
       fireEvent.change(search, { target: { value: "No matching conversation" } }),
     )
-
     expect(await within(sidebar).findByText("No comments match these filters.")).toBeVisible()
     expect(new URLSearchParams(router.state.location.search).get("commentSearch")).toBe(
       "No matching conversation",
     )
     await router.go(-1)
 
-    await waitFor(() => expect(search).toHaveValue("welcome"))
+    expect(search).toHaveValue("welcome")
     expect(within(sidebar).getByRole("switch", { name: "Show resolved" })).toBeChecked()
-    expect(
-      within(sidebar).getByRole("button", {
-        name: /Could we make the welcome heading clearer\?/,
-      }),
-    ).toBeInTheDocument()
+    expect(within(sidebar).getByRole("button", { name: /welcome heading clearer/ })).toBeVisible()
     expect(screen.getByRole("dialog", { name: "Conversation" })).toBe(conversation)
-    expect(within(conversation).getByRole("textbox", { name: "Reply" })).toHaveValue(
-      "Keep this draft while navigating review filters.",
-    )
-    expect(new URLSearchParams(router.state.location.search).get("build")).toBe("3")
-    expect(new URLSearchParams(router.state.location.search).get("comment")).toBe("1")
-    expect(reviewReads).toHaveBeenCalledTimes(readsBeforeFiltering)
+    expect(input).toHaveValue("Keep this draft while navigating review filters.")
+    expect(Object.fromEntries(new URLSearchParams(router.state.location.search))).toEqual({
+      build: "3",
+      comment: "1",
+      commentSearch: "welcome",
+      commentResolved: "1",
+    })
+    expect(read).toHaveBeenCalledTimes(readsBeforeFiltering)
   })
 
-  it("cancels a delayed reply when its review screen is left before saving", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
-    const replyStarted = vi.fn()
-    server.events.on("request:start", ({ request }) => {
-      if (request.method === "POST" && new URL(request.url).pathname.endsWith("/1/replies")) {
-        replyStarted()
-      }
-    })
-    const commitReply = vi.spyOn(store.review, "reply")
-    const router = await renderHubFlow(server, "/repositories/2001/prototypes/1")
-    fireEvent.click(await screen.findByRole("button", { name: /^Comments, 1/ }, { timeout: 5000 }))
-    fireEvent.click(
-      await screen.findByRole(
-        "button",
-        { name: /Could we make the welcome heading clearer\?/ },
-        { timeout: 5000 },
-      ),
+  it("aborts a pending reply when its review screen is left", async () => {
+    const { api, path, commentsPath } = reviewFixture()
+    const { promise: blocked, resolve: release } = deferred()
+    const { promise: started, resolve: notify } = deferred<AbortSignal>()
+    onTestFinished(() => release())
+    const save = vi.fn()
+    api.use(
+      http.post(`${commentsPath}/1/replies`, async ({ request }) => {
+        notify(request.signal)
+        await blocked
+        request.signal.throwIfAborted()
+        save()
+        return Response.json({ comments: [] })
+      }),
     )
+    const router = await renderHubFlow(api, `${path}?build=3&comment=1`)
     const conversation = await screen.findByRole("dialog", { name: "Conversation" })
-    await waitFor(
-      () =>
-        expect(
-          within(screen.getByRole("complementary", { name: "Comments" })).getByRole("button", {
-            name: /Could we make the welcome heading clearer\?/,
-          }),
-        ).not.toHaveAccessibleName(/Unread/),
-      { timeout: 5000 },
-    )
-    let replySignal: AbortSignal | undefined
-    const nativeFetch = globalThis.fetch
-    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
-      const url = input instanceof Request ? input.url : input.toString()
-      if (init?.method === "POST" && url.endsWith("/1/replies")) {
-        replySignal = init.signal ?? undefined
-        const headers = new Headers(init.headers)
-        headers.set("X-Replica-Mock-Scenario", "loading")
-        return nativeFetch(input, { ...init, headers })
-      }
-      return nativeFetch(input, init)
-    })
     fireEvent.change(within(conversation).getByRole("textbox", { name: "Reply" }), {
-      target: { value: "This abandoned reply must never be saved." },
+      target: { value: "This abandoned reply must never be shown." },
     })
     fireEvent.click(within(conversation).getByRole("button", { name: "Reply" }))
-    await waitFor(() => expect(replyStarted).toHaveBeenCalledOnce())
+    const signal = await started
+    expect(signal.aborted).toBe(false)
 
-    await router.settle(() => router.navigate("/repositories/2001"))
-    expect(
-      within(await screen.findByRole("region", { name: "Prototypes" })).getByRole("link", {
-        name: "Welcome",
-      }),
-    ).toBeInTheDocument()
-    await waitFor(() => expect(replySignal?.aborted).toBe(true))
+    await router.settle(() => router.navigate(`${path}/builds?build=3`))
+    expect(signal.aborted).toBe(true)
+    release()
+
+    expect(screen.getByRole("heading", { name: "History", level: 2 })).toBeVisible()
     expect(conversation).not.toBeInTheDocument()
-    await new Promise((resolve) => window.setTimeout(resolve, 1600))
-    expect(commitReply).not.toHaveBeenCalled()
-    expect(store.review.list("2001", "1").comments).toHaveLength(2)
+    expect(save).not.toHaveBeenCalled()
   }, 15_000)
 })

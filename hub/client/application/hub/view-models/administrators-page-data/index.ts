@@ -11,7 +11,6 @@ export function administratorsPageData(
   before?: string,
   notice: string | null = null,
 ): HubAdminsPageData {
-  const search = new URLSearchParams()
   const repositoryId = workspace.repository?.selectedRepositoryId ?? null
   return {
     administrationWorkspace: workspace,
@@ -31,7 +30,7 @@ export function administratorsPageData(
     emptyLabel: "No Hub administrators are available.",
     nextLabel: "Next page",
     nextPath: response.nextCursor
-      ? resourcePath("/settings/administrators", search, {
+      ? resourcePath("/settings/administrators", {
           before: response.nextCursor,
           repositoryId,
         })
@@ -68,7 +67,6 @@ export function administratorsPageData(
       actionLabel: "Remove administrator",
       confirmationPath: resourcePath(
         `/settings/administrators/${administrator.membershipId}/revoke`,
-        search,
         { before: before ?? null, repositoryId },
       ),
     })),

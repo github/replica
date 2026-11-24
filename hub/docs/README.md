@@ -3,7 +3,7 @@
 Hub is being rebuilt. The [Hub overview](../README.md) describes what the baseline provides and which product capabilities are not implemented.
 
 - [Architecture](architecture.md): accepted stack, boundaries, and non-goals.
-- [Routed frontend](frontend.md): connected routes, provisional API contracts, local modes, and retained-page inventory.
+- [Routed frontend](frontend.md): connected routes, API contracts, and the signed-in workspace.
 - [Rails conversion route map](frontend.md#rails-conversion-route-map): Rails page URLs, current React Router destinations, and compatibility redirects.
 - [Code architecture conventions](backend-architecture.md): repositories, integrations, utilities, and domains.
 - [Coding conventions](coding-conventions.md): frontend layers and interface rules.
@@ -26,7 +26,7 @@ Hub is being rebuilt. The [Hub overview](../README.md) describes what the baseli
 - [Repository Analytics](analytics.md): event retention, destination settings, access, and outbound delivery.
 - [WebSocket updates](websockets.md): local broadcasts, subscriptions, access hooks, and connection limits.
 - [Testing and operations](testing-and-operations.md): baseline checks and their limits.
-- [Storybook](storybook.md): retained presentation, fixtures, and screenshot evidence.
+- [Storybook](storybook.md): isolated page states, route-to-story map, and screenshot evidence.
 - [Prototype canvas](prototype-canvas.md): the separately retained extension.
 - [Prototype Controls](prototype-controls.md): shared Controls source and generated assets.
 

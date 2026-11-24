@@ -1,221 +1,112 @@
-import { act, render } from "@testing-library/react"
-import type { setupServer } from "msw/node"
-import { createBrowserRouter, RouterProvider, type RouteObject } from "react-router"
-import { onTestFailed, onTestFinished, vi } from "vitest"
+import type { RouteConfigEntry } from "@react-router/dev/routes"
+import { act, render, waitFor } from "@testing-library/react"
+import type { ComponentType } from "react"
+import {
+  createBrowserRouter,
+  RouterProvider,
+  useLoaderData,
+  type ActionFunction,
+  type LoaderFunction,
+  type RouteObject,
+  type ShouldRevalidateFunction,
+} from "react-router"
+import { onTestFinished } from "vitest"
 
 import { HubThemeProvider } from "@hooks/use-hub-theme"
-import * as hubApi from "@application/hub/bootstrap-hub-api"
-import { clientLoader as loadSession, ErrorBoundary, HydrateFallback } from "@application/hub/root"
-import { clientLoader as loadBuildHistory } from "@application/hub/routes/build-history"
-import Home from "@application/hub/routes/home"
-import {
-  clientAction as savePrototype,
-  clientLoader as loadPrototype,
-} from "@application/hub/routes/prototype"
-import { clientLoader as loadRepository } from "@application/hub/routes/repository"
-import { clientAction as changeSession } from "@application/hub/routes/session"
-import SignInRoute, { clientLoader as loadSignIn } from "@application/hub/routes/sign-in"
-import { clientLoader as loadWorkspace } from "@application/hub/routes/workspace"
+import type { stubHubFetch } from "@/test/stub-hub-fetch"
 
-import { RootComponent } from "./root-component"
-import { ErrorWithTools } from "./error-with-tools"
-import { WorkspaceComponent } from "./workspace-component"
-import { RepositoryComponent } from "./repository-component"
-import { PrototypeComponent } from "./prototype-component"
-import { BuildHistoryComponent } from "./build-history-component"
-import { readTestRouteParameter } from "./read-test-route-parameter"
+import routes from "../../../routes"
+
+type RouteModule = {
+  default?: ComponentType<{ loaderData: unknown }>
+  clientLoader?: LoaderFunction
+  clientAction?: ActionFunction
+  shouldRevalidate?: ShouldRevalidateFunction
+  ErrorBoundary?: ComponentType
+  HydrateFallback?: ComponentType
+  handle?: unknown
+}
+
+const modules = import.meta.glob<RouteModule>(
+  ["../../../root.tsx", "../../**/index.tsx", "!../../fixtures/**"],
+  { eager: true },
+)
 
 export async function renderHubFlow(
-  server: ReturnType<typeof setupServer>,
+  api: ReturnType<typeof stubHubFetch>,
   initialEntry: string,
-  {
-    publicRoutes = [],
-    workspaceRoutes = [],
-    withTools = false,
-  }: { publicRoutes?: RouteObject[]; workspaceRoutes?: RouteObject[]; withTools?: boolean } = {},
+  { workspaceRoutes = [] }: { workspaceRoutes?: RouteObject[] } = {},
 ) {
-  vi.stubEnv("DEV", true)
-  vi.stubEnv("MODE", "mock")
-  vi.spyOn(hubApi, "bootstrapHubApi").mockResolvedValue(undefined)
-  server.listen({ onUnhandledRequest: "error" })
-  const pendingRequests = new Map<string, string>()
-  const pendingAbortListeners = new Map<string, { signal: AbortSignal; abort: () => void }>()
-  const idleListeners = new Set<() => void>()
-  let disposed = false
-  function notify() {
-    idleListeners.forEach((listener) => listener())
-  }
-  function finishRequest(requestId: string) {
-    const pending = pendingAbortListeners.get(requestId)
-    if (pending) pending.signal.removeEventListener("abort", pending.abort)
-    pendingAbortListeners.delete(requestId)
-    pendingRequests.delete(requestId)
-    notify()
-  }
-  server.events.on("request:start", ({ request, requestId }) => {
-    pendingRequests.set(requestId, `${request.method} ${request.url}`)
-    if (request.signal.aborted) {
-      finishRequest(requestId)
-      return
+  function applicationRoute(entry: RouteConfigEntry): RouteObject {
+    const root = entry.file === "root.tsx"
+    const module =
+      modules[root ? "../../../root.tsx" : `../../${entry.file.replace(/^routes\//, "")}`]
+    if (!module) throw new Error(`Missing application route module: ${entry.file}`)
+    const Page = module.default
+    const common = {
+      id: entry.id ?? entry.file.replace(/\.tsx$/, ""),
+      path: entry.path,
+      loader: module.clientLoader,
+      action: module.clientAction,
+      shouldRevalidate: module.shouldRevalidate,
+      ErrorBoundary: module.ErrorBoundary,
+      HydrateFallback: module.HydrateFallback,
+      handle: module.handle,
+      Component: Page ? () => <Page loaderData={useLoaderData()} /> : undefined,
     }
-    function abort() {
-      finishRequest(requestId)
-    }
-    pendingAbortListeners.set(requestId, { signal: request.signal, abort })
-    request.signal.addEventListener("abort", abort, { once: true })
-    notify()
-  })
-  server.events.on("request:end", ({ requestId }) => {
-    finishRequest(requestId)
-  })
+    if (entry.index) return { ...common, index: true }
+    const children = entry.children?.map(applicationRoute)
+    if (entry.file === "routes/workspace-content/index.tsx") children?.unshift(...workspaceRoutes)
+    return { ...common, children }
+  }
+
   window.history.replaceState(null, "", initialEntry)
   const router = createBrowserRouter(
-    [
-      {
-        id: "root",
-        loader: loadSession,
-        Component: () => <RootComponent withTools={withTools} />,
-        ErrorBoundary: withTools ? ErrorWithTools : ErrorBoundary,
-        HydrateFallback,
-        children: [
-          { path: "sign-in", loader: loadSignIn, Component: SignInRoute },
-          { path: "session", action: changeSession },
-          ...publicRoutes,
-          {
-            id: "routes/workspace/index",
-            loader: loadWorkspace,
-            Component: WorkspaceComponent,
-            children: [
-              { index: true, Component: Home },
-              { path: "repositories", Component: Home },
-              {
-                path: "/repositories/:repositoryId",
-                loader: ({ request, params }) =>
-                  loadRepository({
-                    request,
-                    params: { repositoryId: readTestRouteParameter(params, "repositoryId") },
-                  }),
-                Component: RepositoryComponent,
-              },
-              {
-                path: "/repositories/:repositoryId/prototypes/:prototypeId",
-                loader: ({ request, params }) =>
-                  loadPrototype({
-                    request,
-                    params: {
-                      repositoryId: readTestRouteParameter(params, "repositoryId"),
-                      prototypeId: readTestRouteParameter(params, "prototypeId"),
-                    },
-                  }),
-                action: ({ request, params }) =>
-                  savePrototype({
-                    request,
-                    params: {
-                      repositoryId: readTestRouteParameter(params, "repositoryId"),
-                      prototypeId: readTestRouteParameter(params, "prototypeId"),
-                    },
-                  }),
-                Component: PrototypeComponent,
-              },
-              {
-                path: "/repositories/:repositoryId/prototypes/:prototypeId/builds",
-                loader: ({ request, params }) =>
-                  loadBuildHistory({
-                    request,
-                    params: {
-                      repositoryId: readTestRouteParameter(params, "repositoryId"),
-                      prototypeId: readTestRouteParameter(params, "prototypeId"),
-                    },
-                  }),
-                Component: BuildHistoryComponent,
-              },
-              ...workspaceRoutes,
-            ],
-          },
-        ],
-      },
-    ],
+    [applicationRoute({ id: "root", file: "root.tsx", children: routes })],
     { window },
   )
+  onTestFinished(() => router.dispose())
+  await waitFor(
+    () => {
+      if (!router.state.initialized) throw new Error("Initial Hub route is not loaded.")
+    },
+    { timeout: 10_000 },
+  )
+  const view = render(<RouterProvider router={router} />, { wrapper: HubThemeProvider })
+  onTestFinished(view.unmount)
+
   function idle() {
     return (
       router.state.initialized &&
       router.state.navigation.state === "idle" &&
       router.state.revalidation === "idle" &&
       [...router.state.fetchers.values()].every((fetcher) => fetcher.state === "idle") &&
-      pendingRequests.size === 0
+      api.pending.size === 0
     )
   }
-  function waitUntilIdle(ready: () => boolean) {
-    return new Promise<void>((resolve) => {
-      function check() {
-        if (!disposed && (!idle() || !ready())) return
-        idleListeners.delete(check)
-        resolve()
-      }
-      idleListeners.add(check)
-      check()
+  async function settle(action?: () => unknown) {
+    await act(async () => {
+      await action?.()
     })
-  }
-  async function settle(action?: () => unknown, ready: () => boolean = () => true) {
-    if (action) {
-      await act(async () => {
-        await action()
-      })
-    }
-    // Committing a route can start the review transport outside React Router.
-    do {
-      await act(async () => {
-        await waitUntilIdle(ready)
-      })
-    } while (!disposed && (!idle() || !ready()))
+    await waitFor(
+      () => {
+        if (!idle()) {
+          const pending = [...api.pending].map(({ method, url }) => `${method} ${url}`)
+          throw new Error(`Hub is not idle (pending requests: ${pending.join(", ")}).`)
+        }
+      },
+      { timeout: 10_000 },
+    )
   }
   async function go(delta: number) {
     const previousKey = router.state.location.key
-    await settle(
-      () => router.navigate(delta),
-      () => router.state.location.key !== previousKey,
-    )
+    await act(() => router.navigate(delta))
+    await waitFor(() => {
+      if (router.state.location.key === previousKey)
+        throw new Error("History entry did not change.")
+    })
+    await settle()
   }
-  const unsubscribe = router.subscribe(notify)
-  onTestFailed(() => {
-    process.stderr.write(
-      "Hub flow failure state: " +
-        JSON.stringify({
-          initialized: router.state.initialized,
-          location: router.state.location.pathname + router.state.location.search,
-          navigation: router.state.navigation.state,
-          revalidation: router.state.revalidation,
-          fetchers: [...router.state.fetchers].map(([key, fetcher]) => ({
-            key,
-            state: fetcher.state,
-            action: fetcher.formAction,
-          })),
-          pendingRequests: [...pendingRequests.values()],
-          errors: Object.fromEntries(
-            Object.entries(router.state.errors ?? {}).map(([id, error]) => [
-              id,
-              error instanceof Error ? error.message : String(error),
-            ]),
-          ),
-        }) +
-        "\n",
-    )
-  })
-  const view = render(<RouterProvider router={router} />, { wrapper: HubThemeProvider })
-  function close() {
-    if (disposed) return
-    view.unmount()
-    router.dispose()
-    unsubscribe()
-    disposed = true
-    pendingAbortListeners.forEach(({ signal, abort }) => signal.removeEventListener("abort", abort))
-    pendingAbortListeners.clear()
-    pendingRequests.clear()
-    notify()
-    server.close()
-  }
-  onTestFinished(close)
   await settle()
-  return Object.assign(router, { settle, go, close })
+  return Object.assign(router, { settle, go })
 }

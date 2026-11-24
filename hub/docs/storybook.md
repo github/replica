@@ -12,9 +12,49 @@ Preserve the catalogue groups: `Components/Name`, `Prototype canvas/Name`, `Hub/
 
 Keep `stories.tsx` beside its implementation. Catalogue-only inventories live under `client/storybook/`. Use local state and isolated TypeScript fixtures from that directory; production code must not depend on story fixtures. The canonical synthetic personas remain `octocat`, `mona`, `github/prototype`, and `github/empty`.
 
+For Hub pages, use a story's own state and callbacks to exercise actions such as paging, editing, and retrying. When a story uses a native form only to show a confirmation or other form state, prevent it from submitting to the Storybook host. Do not start a second API, replace global `fetch`, or share saved state across stories. Request and integration tests verify routing, authorization, and persistence.
+
 Collection surfaces normally need Empty, Single, and Multiple stories. Add cases only for distinct product states such as loading, failure, permissions, draft protection, or recovery. Use the existing theme and viewport controls instead of duplicating light, dark, or narrow stories.
 
 The top-level decorator uses `HubThemeProvider` so portals inherit Brand and Hub theme tokens. Retained pages are presentation examples, not evidence that their old links or server actions are implemented.
+
+## Route-to-story map
+
+Start Storybook before opening these links. Each row points to an example of a distinct app screen. Look in the same story group for other states. Redirects and action-only URLs do not need stories.
+
+| App route                                                                      | Storybook example                                                                                                                                                               |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`, signed out                                                                | [Sign-in](http://localhost:6006/?path=/story/hub-pages-home--default)                                                                                                           |
+| `/`, `/repositories`, no readable repository                                   | [Empty workspace](http://localhost:6006/?path=/story/hub-pages-repositories--real-empty-workspace)                                                                              |
+| `/signed-in/no-access`                                                         | [Account recovery](http://localhost:6006/?path=/story/hub-pages-security-no-repository-access--signed-in-account)                                                               |
+| `/welcome`                                                                     | [Introduction](http://localhost:6006/?path=/story/hub-pages-welcome--introduction)                                                                                              |
+| `/repositories/:repositoryId`                                                  | [Gallery](http://localhost:6006/?path=/story/hub-pages-repositories-show--real-index)                                                                                           |
+| `/repositories/:repositoryId/new`                                              | [Create](http://localhost:6006/?path=/story/hub-pages-repositories-create--multiple)                                                                                            |
+| `/repositories/:repositoryId/templates/:templateId`                            | [Template preview](http://localhost:6006/?path=/story/hub-pages-replica-browse--template)                                                                                       |
+| `/repositories/:repositoryId/prototypes/manage`                                | [Edit prototype listings](http://localhost:6006/?path=/story/hub-pages-prototypes-manage--multiple)                                                                             |
+| `/repositories/:repositoryId/prototypes/:prototypeId`                          | [Review conversation](http://localhost:6006/?path=/story/hub-pages-prototype-review--conversation)                                                                              |
+| `/repositories/:repositoryId/prototypes/:prototypeId/builds`                   | [Build history](http://localhost:6006/?path=/story/hub-pages-builds-index--real-history)                                                                                        |
+| `/repositories/:repositoryId/prototypes/:prototypeId/share-links`              | [Share links](http://localhost:6006/?path=/story/hub-pages-share-links--multiple)                                                                                               |
+| `/repositories/:repositoryId/analytics`                                        | [Analytics](http://localhost:6006/?path=/story/hub-pages-repositories-analytics--configured)                                                                                    |
+| `/repositories/:repositoryId/learnings`                                        | [Learnings](http://localhost:6006/?path=/story/hub-pages-learnings--default)                                                                                                    |
+| `/notifications`                                                               | [Inbox](http://localhost:6006/?path=/story/hub-pages-inbox--cached-refresh)                                                                                                     |
+| `/canvas/connections`                                                          | [Canvas connections](http://localhost:6006/?path=/story/hub-pages-canvas-connection--connected)                                                                                 |
+| `/canvas/pair/:userCode`                                                       | [Approve a connection](http://localhost:6006/?path=/story/hub-pages-canvas-connection--approval)                                                                                |
+| `/shared/:shareId`                                                             | [Shared Build](http://localhost:6006/?path=/story/hub-pages-shared-build--default)                                                                                              |
+| `/admin-enrollment`                                                            | [Administrator enrollment](http://localhost:6006/?path=/story/hub-pages-security-administrator-enrollment--enrollment)                                                          |
+| `/settings/administrators`                                                     | [Administrator roster](http://localhost:6006/?path=/story/hub-pages-security-hub-administrators--multiple)                                                                      |
+| `/settings/administrators/:membershipId/:operation`                            | [Removal confirmation](http://localhost:6006/?path=/story/hub-pages-security-hub-administrator-confirmation--remove)                                                            |
+| `/settings/administrators/confirm`                                             | [Administrator continuation](http://localhost:6006/?path=/story/hub-pages-security-fresh-authorization--continuing)                                                             |
+| `/settings/copilot`                                                            | [Copilot connection](http://localhost:6006/?path=/story/hub-pages-security-copilot--connected)                                                                                  |
+| `/settings/copilot/confirm`                                                    | [Copilot continuation](http://localhost:6006/?path=/story/hub-pages-security-fresh-authorization--copilot-connection-confirmation)                                              |
+| `/settings/sessions`                                                           | [End all Hub sessions](http://localhost:6006/?path=/story/hub-pages-security-end-all-sessions--confirmation)                                                                    |
+| `/settings/sessions/confirm`                                                   | [Session revocation continuation](http://localhost:6006/?path=/story/hub-pages-security-end-all-sessions--provider-verified)                                                    |
+| `/settings/sharing`                                                            | [Public sharing](http://localhost:6006/?path=/story/hub-pages-security-public-sharing--disable-confirmation)                                                                    |
+| `/settings/audit?scope=hub`, `/settings/audit?scope=repository&repositoryId=…` | [Hub audit](http://localhost:6006/?path=/story/hub-pages-security-audit--multiple), [repository audit](http://localhost:6006/?path=/story/hub-pages-security-audit--repository) |
+| `/settings/github/setup`                                                       | [Guided GitHub App setup](http://localhost:6006/?path=/story/hub-pages-github-setup-setup--configured)                                                                          |
+| Unknown route                                                                  | [Not found](http://localhost:6006/?path=/story/hub-pages-route-feedback--not-found)                                                                                             |
+
+**Hub / Design / Legacy GitHub App** contains one non-submitting design reference each for settings, manual registration, and installation. Hub does not serve those screens. Use guided GitHub App setup in the app.
 
 ## Component usage
 

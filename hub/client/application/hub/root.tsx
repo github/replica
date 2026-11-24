@@ -1,33 +1,14 @@
 import type { ReactNode } from "react"
-import {
-  Links,
-  Meta,
-  Outlet,
-  Scripts,
-  ScrollRestoration,
-  useFetcher,
-  useFetchers,
-  useRouteError,
-} from "react-router"
+import { Links, Meta, Outlet, Scripts, ScrollRestoration, useRouteError } from "react-router"
 
 import { HubThemeProvider } from "@hooks/use-hub-theme"
 
-import type { Route } from "./+types/root"
-import type { SessionResponse } from "./session-contracts/types"
-import { DevelopmentTools } from "./development-tools"
 import { HubNavigation } from "./hub-navigation"
-import { getSession } from "./requests/get-session"
 import { RouteFeedback } from "./route-feedback"
 import { RouteErrorFeedback } from "./route-error-feedback"
 
 import "@/tokens/base.css"
 import "./styles.css"
-
-export async function clientLoader({
-  request,
-}: Pick<Route.ClientLoaderArgs, "request">): Promise<SessionResponse | null> {
-  return import.meta.env.DEV && import.meta.env.MODE === "mock" ? getSession(request) : null
-}
 
 export function meta() {
   return [{ title: "Replica Hub" }]
@@ -47,7 +28,6 @@ export function Layout({ children }: { children: ReactNode }) {
         <HubThemeProvider>
           <div className="hub-app-frame">
             <div id="app">{children}</div>
-            <DevelopmentTools />
           </div>
         </HubThemeProvider>
         <ScrollRestoration />
@@ -72,21 +52,11 @@ export function ErrorBoundary() {
   )
 }
 
-export default function HubRoot({ loaderData }: Pick<Route.ComponentProps, "loaderData">) {
-  const fetchers = useFetchers()
-  const sessionFetcher = useFetcher()
-  const changingSession = fetchers.some(
-    (fetcher) => fetcher.state !== "idle" && fetcher.formAction === "/session",
-  )
+export default function HubRoot() {
   return (
-    <HubNavigation
-      onSignOut={() => {
-        void sessionFetcher.submit({ intent: "sign-out" }, { method: "post", action: "/session" })
-      }}
-    >
-      {changingSession ? <HydrateFallback /> : null}
-      <div className="hub-route-outlet" hidden={changingSession} inert={changingSession}>
-        <Outlet key={loaderData?.viewer?.id} context={loaderData} />
+    <HubNavigation>
+      <div className="hub-route-outlet">
+        <Outlet />
       </div>
     </HubNavigation>
   )

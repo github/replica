@@ -50,11 +50,10 @@ export function securityAuditPageData(
     availableRepository?: RepositoryScope
   } = {},
 ): SecurityAuditPageData {
-  const search = new URLSearchParams()
   const hub = {
     id: "hub",
     label: "Hub",
-    path: resourcePath("/settings/audit?scope=hub", search, {
+    path: resourcePath("/settings/audit?scope=hub", {
       repositoryId: navigation.repository?.selectedRepositoryId ?? null,
     }),
   }
@@ -62,7 +61,7 @@ export function securityAuditPageData(
     ? {
         id: availableRepository.id,
         label: availableRepository.nameWithOwner ?? "Repository",
-        path: resourcePath("/settings/audit?scope=repository", search, {
+        path: resourcePath("/settings/audit?scope=repository", {
           repositoryId: availableRepository.id,
         }),
       }
@@ -85,7 +84,7 @@ export function securityAuditPageData(
       : "No Hub security actions are available.",
     nextLabel: "Older actions",
     nextPath: response.nextCursor
-      ? resourcePath(scope.path, search, { before: response.nextCursor })
+      ? resourcePath(scope.path, { before: response.nextCursor })
       : null,
     repositoriesLabel: "Home",
     repositoriesPath: "/",

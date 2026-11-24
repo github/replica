@@ -4,6 +4,7 @@ import {
   authenticatedHubWorkspaceData,
   hubAdministrationData,
 } from "@/storybook/fixtures/hub-administration"
+import { keepFormsLocal } from "@/storybook/keep-forms-local"
 
 import { SessionRevocationPage } from "."
 import type { SessionRevocationPageData } from "./types"
@@ -59,6 +60,7 @@ const result: SessionRevocationPageData = {
 const meta = {
   title: "Hub/Pages/Security/End all sessions",
   component: SessionRevocationPage,
+  decorators: [keepFormsLocal],
   excludeStories: ["sessionRevocationData"],
   parameters: { layout: "fullscreen" },
   args: { data: sessionRevocationData },

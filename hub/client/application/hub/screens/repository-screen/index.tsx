@@ -34,7 +34,6 @@ export function RepositoryScreen({
   const [draft, setDraft] = useState({ location, value: search.get("q") ?? "" })
   const query = draft.location === location ? draft.value : (search.get("q") ?? "")
   const view: PrototypeViewMode = search.get("view") === "list" ? "list" : "gallery"
-  const mock = import.meta.env.DEV && import.meta.env.MODE === "mock"
 
   function changeFilter(key: "q" | "author" | "view", value: string) {
     const next = new URLSearchParams(search)
@@ -47,7 +46,7 @@ export function RepositoryScreen({
   return (
     <RepositoriesShowPage
       key={data.repository.id}
-      data={repositoryShowData(workspace, data, search, { real: !mock })}
+      data={repositoryShowData(workspace, data, search)}
       view={view}
       onViewChange={(value) => changeFilter("view", value === "gallery" ? "" : value)}
       controls={{

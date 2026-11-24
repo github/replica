@@ -89,7 +89,7 @@ describe("SecurityAuditPage()", () => {
     )
     expect(screen.getByRole("link", { name: "End all Hub sessions" })).toHaveAttribute(
       "href",
-      "/session_revocation",
+      "/settings/sessions?repositoryId=00000000-0000-4000-8000-000000000101",
     )
   })
 
@@ -109,7 +109,7 @@ describe("SecurityAuditPage()", () => {
     )
     expect(screen.getByRole("link", { name: "Hub administrators" })).toHaveAttribute(
       "href",
-      "/hub_admins",
+      "/settings/administrators?repositoryId=00000000-0000-4000-8000-000000000101",
     )
   })
 

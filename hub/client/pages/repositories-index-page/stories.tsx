@@ -2,23 +2,23 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 
 import type { HubWorkspaceData } from "@features/hub-workspace/types"
 import { authenticatedHubWorkspaceData } from "@/storybook/fixtures/hub-administration"
+import { keepFormsLocal } from "@/storybook/keep-forms-local"
 
 import { RepositoriesIndexPage } from "."
 
 const data: HubWorkspaceData = {
   ...authenticatedHubWorkspaceData,
   repository: null,
+  canvasConnectionsPath: "/canvas/connections",
   welcomeLabel: "Welcome",
   welcomePath: "/welcome",
-  notificationsLabel: "Notifications",
+  notificationsLabel: "Inbox",
   notificationsPath: "/notifications",
   securityAuditPath: null,
 }
 
 const realEmptyWorkspaceData: HubWorkspaceData = {
   ...data,
-  authenticityToken: "",
-  canvasConnectionsPath: "/canvas/connections",
   currentUser: {
     ...data.currentUser,
     provider: "local",
@@ -27,11 +27,7 @@ const realEmptyWorkspaceData: HubWorkspaceData = {
     avatarUrl: null,
   },
   accountMenuLabel: "Account menu for Local developer",
-  repositoriesLabel: "Prototypes",
-  emptyRepositoryLabel: "No repository selected",
   selectedSection: "prototypes",
-  signOutPath: "/api/auth/session/sign-out",
-  notificationsLabel: "Inbox",
   administrationLinks: [
     { section: "admins", label: "Hub administrators", path: "/settings/administrators" },
     { section: "sharing", label: "Public sharing", path: "/settings/sharing" },
@@ -44,6 +40,7 @@ const realEmptyWorkspaceData: HubWorkspaceData = {
 const meta = {
   title: "Hub/Pages/Repositories",
   component: RepositoriesIndexPage,
+  decorators: [keepFormsLocal],
   parameters: { layout: "fullscreen" },
   args: { data },
 } satisfies Meta<typeof RepositoriesIndexPage>
@@ -61,14 +58,8 @@ export const Administrator: Story = {
   args: {
     data: {
       ...data,
-      administrationLinks: [
-        { section: "admins", label: "Hub administrators", path: "/settings/admins" },
-        { section: "sharing", label: "Public sharing", path: "/settings/sharing" },
-        { section: "sessions", label: "End all Hub sessions", path: "/settings/sessions" },
-        { section: "github", label: "GitHub App", path: "/settings/github" },
-        { section: "copilot", label: "Copilot connection", path: "/settings/copilot" },
-      ],
-      securityAuditPath: "/settings/audit?scope=hub",
+      administrationLinks: realEmptyWorkspaceData.administrationLinks,
+      securityAuditPath: realEmptyWorkspaceData.securityAuditPath,
     },
   },
 }

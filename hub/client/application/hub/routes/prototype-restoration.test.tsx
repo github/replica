@@ -1,28 +1,38 @@
 import { fireEvent, screen, within } from "@testing-library/react"
-import { setupServer } from "msw/node"
 import { describe, expect, it } from "vitest"
 
-import { createMockHandlers } from "../mocks/create-mock-handlers"
-import { createMockStore } from "../mocks/create-mock-store"
+import { http, stubHubFetch } from "@/test/stub-hub-fetch"
+
+import { authenticatedWorkspace } from "./fixtures/authenticated-workspace"
+import { previewHandlers } from "./fixtures/preview-handlers"
+import { previewRecords } from "./fixtures/preview-records"
 import { renderHubFlow } from "./fixtures/render-hub-flow"
+
+function servePreview(data: ReturnType<typeof previewRecords>) {
+  return stubHubFetch(
+    ...authenticatedWorkspace([data.repository]),
+    ...previewHandlers(data),
+    http.get(`/api${data.galleryPath}/create/permission`, () => Response.json({ canCreate: true })),
+  )
+}
 
 describe("Hub retained prototype interactions", () => {
   it("loads and restores a minimized preview with its pinned Build and saved URL state", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
+    const data = previewRecords()
+    const api = servePreview(data)
     const search = new URLSearchParams({
       build: "1",
       view: "minimized",
       return_path: "/welcome?step=2#heading",
       "rc.workspace.showDescription": "false",
     })
-    const router = await renderHubFlow(server, `/repositories/2001/prototypes/1?${search}`)
+    const router = await renderHubFlow(api, `${data.path}?${search}`)
 
     expect(screen.getByTitle("Welcome, Build 1 preview")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Maximize Hub UI" })).toBeInTheDocument()
     expect(screen.queryByRole("dialog", { name: "Welcome" })).not.toBeInTheDocument()
 
-    await router.settle(() => router.navigate("/repositories/2001/prototypes/1/builds"))
+    await router.settle(() => router.navigate(`${data.path}/builds`))
     await router.go(-1)
 
     expect(screen.getByTitle("Welcome, Build 1 preview")).toBeInTheDocument()
@@ -32,10 +42,8 @@ describe("Hub retained prototype interactions", () => {
   })
 
   it("lets a reader use the real Controls overlay and retains its state across Builds", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    store.session.select("reader")
-    const server = setupServer(...createMockHandlers(store))
-    const router = await renderHubFlow(server, "/repositories/2001/prototypes/1?build=3")
+    const reader = previewRecords({ canEdit: false, canBranch: false })
+    const router = await renderHubFlow(servePreview(reader), `${reader.path}?build=3`)
     fireEvent.click(screen.getByRole("button", { name: "View prototype" }))
 
     const controls = screen.getByRole("button", { name: "Controls" })
@@ -46,7 +54,7 @@ describe("Hub retained prototype interactions", () => {
     fireEvent.click(controls)
     expect(screen.queryByRole("button", { name: "Expand controls" })).not.toBeInTheDocument()
 
-    await router.settle(() => router.navigate("/repositories/2001/prototypes/1?build=1"))
+    await router.settle(() => router.navigate(`${reader.path}?build=1`))
 
     expect(screen.getByTitle("Welcome, Build 1 preview")).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Controls" }))
@@ -58,24 +66,23 @@ describe("Hub retained prototype interactions", () => {
   })
 
   it("does not reopen a dismissed introduction when returning to another Build of the prototype", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
-    const router = await renderHubFlow(server, "/repositories/2001/prototypes/1?build=3")
+    const data = previewRecords()
+    const router = await renderHubFlow(servePreview(data), `${data.path}?build=3`)
     expect(screen.getByRole("dialog", { name: "Welcome" })).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "View prototype" }))
 
-    await router.settle(() => router.navigate("/repositories/2001/prototypes/1/builds"))
-    await router.settle(() => router.navigate("/repositories/2001/prototypes/1?build=1"))
+    await router.settle(() => router.navigate(`${data.path}/builds`))
+    await router.settle(() => router.navigate(`${data.path}?build=1`))
 
     expect(screen.getByTitle("Welcome, Build 1 preview")).toBeInTheDocument()
     expect(screen.queryByRole("dialog", { name: "Welcome" })).not.toBeInTheDocument()
   })
 
   it("uses only the viewed pathname in the branch prompt while preserving the pinned Build and route", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
+    const data = previewRecords()
+    const api = servePreview(data)
     const route = { pathname: "/welcome", search: "?step=2", hash: "#heading" }
-    const router = await renderHubFlow(server, "/repositories/2001/prototypes/1?build=1")
+    const router = await renderHubFlow(api, `${data.path}?build=1`)
     fireEvent.click(screen.getByRole("button", { name: "View prototype" }))
     fireEvent.click(screen.getByRole("button", { name: "Branch from here" }))
     const brief = screen.getByRole("textbox", { name: "What changes would you like to make?" })
@@ -103,7 +110,7 @@ describe("Hub retained prototype interactions", () => {
     )
     fireEvent.click(screen.getByRole("button", { name: "Start from this prototype" }))
 
-    const dialog = screen.getByRole("dialog", { name: "Continue in Copilot app" })
+    const dialog = await screen.findByRole("dialog", { name: "Continue in Copilot app" })
     const open = within(dialog).getByRole<HTMLAnchorElement>("link", {
       name: /open copilot app/i,
     })
@@ -121,13 +128,15 @@ describe("Hub retained prototype interactions", () => {
     expect(prompt).toContain("`prototype/welcome`")
     expect(screen.getByTitle("Welcome, Build 1 preview")).toBeInTheDocument()
     expect(new URLSearchParams(router.state.location.search).get("build")).toBe("1")
-    expect(router.state.location.pathname).toBe("/repositories/2001/prototypes/1")
+    expect(router.state.location.pathname).toBe(data.path)
   })
 
   it("allows a creator to branch without any Build while omitting unavailable preview Controls", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
-    await renderHubFlow(server, "/repositories/2001/prototypes/3")
+    const data = previewRecords({ name: "Settings" })
+    data.prototype.builds = []
+    data.prototype.latestBuild = null
+    data.selectedBuild = null
+    await renderHubFlow(servePreview(data), data.path)
     fireEvent.click(screen.getByRole("button", { name: "View prototype" }))
 
     expect(document.querySelector("iframe")).not.toBeInTheDocument()

@@ -29,15 +29,15 @@ Each Node.js project's `engines.node` declares its supported versions. Hub, Star
 
 ### Replica Hub
 
-Hub has a TypeScript Express API, React + Vite frontend, and PostgreSQL with Prisma. Hosting and review features are not built yet. Use the [Hub devcontainer](hub/docs/development.md#devcontainer), or npm and a Node.js version matching `engines.node` in [hub/package.json](hub/package.json):
+Hub has a TypeScript Express API, React + Vite frontend, and PostgreSQL with Prisma. To work on the UI without running Hub, use [Storybook](hub/docs/storybook.md):
 
 ```sh
 cd hub
 npm ci
-npm run dev:mock
+npm run storybook
 ```
 
-See [Hub development](hub/docs/development.md) for setup and [Routed frontend](hub/docs/frontend.md) for the current frontend workflow and API contracts. A GitHub App is not required.
+See [Hub development](hub/docs/development.md) to start the real app and [Routed frontend](hub/docs/frontend.md) for routes and API contracts. Local developer sign-in does not require a GitHub App.
 
 ### Replica Starter
 
@@ -118,12 +118,12 @@ Run `npm run test:database` for server cases that save records. Follow the [data
 
 Useful focused commands include:
 
-| Goal            | Command                                         |
-| --------------- | ----------------------------------------------- |
-| TypeScript test | `npm test -- PATH`                             |
-| Type check      | `npm run typecheck`                            |
-| Storybook build | `npm run storybook:build`                      |
-| Prose review    | `bin/review-prose`                              |
+| Goal            | Command                   |
+| --------------- | ------------------------- |
+| TypeScript test | `npm test -- PATH`        |
+| Type check      | `npm run typecheck`       |
+| Storybook build | `npm run storybook:build` |
+| Prose review    | `bin/review-prose`        |
 
 From the repository root, run `hub/bin/review-prose` to include changed prose across all projects. Hub and build-action dependency updates must satisfy the [shared dependency policy](docs/testing-and-review.md#update-dependencies). See [Hub testing and operations](hub/docs/testing-and-operations.md) for the complete Hub check and review workflow.
 

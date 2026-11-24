@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 
 import { hubAdministrationData } from "@/storybook/fixtures/hub-administration"
+import { keepFormsLocal } from "@/storybook/keep-forms-local"
 
 import { HubAdminConfirmationPage } from "."
 import type { HubAdminConfirmationPageData } from "./types"
@@ -42,6 +43,7 @@ const removalData: HubAdminConfirmationPageData = {
 const meta = {
   title: "Hub/Pages/Security/Hub administrator confirmation",
   component: HubAdminConfirmationPage,
+  decorators: [keepFormsLocal],
   parameters: { layout: "fullscreen" },
   args: { data },
 } satisfies Meta<typeof HubAdminConfirmationPage>

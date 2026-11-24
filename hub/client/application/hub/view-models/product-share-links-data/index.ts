@@ -10,11 +10,9 @@ export function productShareLinksData(
   response: ProductSharingResponse,
   search: URLSearchParams,
   origin: string,
-  real = false,
 ): ShareLinksIndexPageData {
   const { resource } = response
   const { repository, prototype, selectedBuild } = resource
-  const hosted = prototype.canManageShareLinks !== undefined
   const base = `/repositories/${repository.id}/prototypes/${prototype.id}`
   const selected =
     selectedBuild?.state === "successful" && selectedBuild.previewUrl ? selectedBuild : null
@@ -29,21 +27,17 @@ export function productShareLinksData(
       selectedBuild: selected,
       search,
       surface: "build",
-      real: real || hosted,
     }),
-    ...(!real && !hosted
-      ? { newPrototypePath: resourcePath(`/repositories/${repository.id}/new`, search) }
-      : {}),
     buildOptions: prototype.builds
       .filter((build) => build.state === "successful" && build.previewUrl)
       .map((build) => ({
         number: build.number,
         label: `v${build.number}`,
-        path: resourcePath(`${base}/share-links`, search, { build: build.number }),
+        path: resourcePath(`${base}/share-links`, { build: build.number }),
         state: build.state,
         stateLabel: "Successful",
       })),
-    closePath: resourcePath(base, search, { build: selected?.number ?? null }),
+    closePath: resourcePath(base, { build: selected?.number ?? null }),
     closeLabel: "Return to prototype",
     alert: null,
     notice: null,
@@ -58,7 +52,7 @@ export function productShareLinksData(
     emptyLabel: "Create a link when someone needs signed-out access.",
     form: {
       buildLabel: selected ? `Build ${selected.number}` : null,
-      createPath: resourcePath(`${base}/share-links`, search),
+      createPath: `${base}/share-links`,
       expirationLabel: "Expires after",
       expirationOptions: [
         ...response.expirationOptions.map((value) => ({
@@ -80,7 +74,7 @@ export function productShareLinksData(
     noBuildLabel: "A successful Build is required before creating a share link.",
     pageTitle: `${prototype.name} share links`,
     shareLinksLabel: "Share links",
-    shareLinksPath: resourcePath(`${base}/share-links`, search, {
+    shareLinksPath: resourcePath(`${base}/share-links`, {
       build: selected?.number ?? null,
     }),
     managementBuildNumber: selected?.number,
@@ -100,7 +94,7 @@ export function productShareLinksData(
       expiresAt: link.expiresAt,
       expiresLabel: `Expires ${new Date(link.expiresAt).toLocaleDateString()}`,
       url: new URL(`/shared/${link.shareId}`, origin).href,
-      deletePath: resourcePath(`${base}/share-links/${link.shareId}`, search),
+      deletePath: `${base}/share-links/${link.shareId}`,
       deletePrompt: `Delete “${link.label}”?`,
     })),
     inactiveShareLinks: response.enabled

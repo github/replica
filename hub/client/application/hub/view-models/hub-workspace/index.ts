@@ -11,9 +11,9 @@ export function hubWorkspace<Section extends HubWorkspaceData["selectedSection"]
   selectedSection: Section,
 ): HubWorkspaceData & { selectedSection: Section } {
   const selected = selectWorkspaceRepository(workspace, search)
-  const repository = selected ? repositoryWorkspace(workspace, selected, search, true) : null
+  const repository = selected ? repositoryWorkspace(workspace, selected) : null
   return {
-    ...(repository ?? workspaceNavigation(workspace, null, search, true)),
+    ...(repository ?? workspaceNavigation(workspace, null)),
     repository,
     selectedSection,
   }

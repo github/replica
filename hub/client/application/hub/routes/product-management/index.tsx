@@ -1,18 +1,10 @@
-import { data, useFetcher, useLocation, useOutletContext } from "react-router"
+import { data, useFetcher, useOutletContext } from "react-router"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 
 import { PrototypeManagementPage } from "@pages/prototype-management-page"
-import {
-  prototypeEditSchema,
-  recordIdentifierSchema,
-  routeIdentifierSchema,
-} from "@application/hub/contracts"
+import { prototypeEditSchema, recordIdentifierSchema } from "@application/hub/contracts"
 import type { WorkspaceResponse } from "@application/hub/contracts/types"
-import {
-  productManagementResponseSchema,
-  productMetadataInputSchema,
-  productMutationResponseSchema,
-} from "@application/hub/product-contracts"
+import { productManagementResponseSchema } from "@application/hub/product-contracts"
 import type {
   ProductActionResult,
   ProductManagementResponse,
@@ -27,10 +19,6 @@ import { requestProductJson } from "../request-product-json"
 import type { WorkspaceRouteHandle } from "../workspace/types"
 
 export const handle = { workspaceSection: "prototypes" } satisfies WorkspaceRouteHandle
-
-function mockMode() {
-  return import.meta.env.DEV && import.meta.env.MODE === "mock"
-}
 
 export function clientLoader({ request, params }: Pick<LoaderFunctionArgs, "request" | "params">) {
   const repositoryId = readRecordIdentifier(params.repositoryId, "repository")
@@ -56,15 +44,11 @@ export async function clientAction({
   const actionValue = form.get("_action")
   const action = typeof actionValue === "string" ? actionValue.split("?")[0] : null
   const match = action?.match(
-    new RegExp(`^/repositories/${repositoryId}/(prototypes|candidates)/([^/]+)/registration$`),
+    new RegExp(`^/repositories/${repositoryId}/prototypes/([^/]+)/registration$`),
   )
-  const mock = mockMode()
   if (
     !match ||
-    (!mock && match[1] !== "prototypes") ||
-    !(match[1] === "candidates" ? routeIdentifierSchema : recordIdentifierSchema).safeParse(
-      match[2],
-    ).success ||
+    !recordIdentifierSchema.safeParse(match[1]).success ||
     form.get("_method") !== "patch"
   ) {
     return data<ProductActionResult>(
@@ -79,39 +63,17 @@ export async function clientAction({
     description: typeof description === "string" ? description.trim() || null : description,
     startPage: typeof startPage === "string" ? startPage.trim() || null : startPage,
   }
-  if (!mock) {
-    const parsed = prototypeEditSchema.safeParse(input)
-    if (!parsed.success) {
-      return data<ProductActionResult>(
-        { saved: false, error: parsed.error.issues.map(({ message }) => message).join(" ") },
-        { status: 422 },
-      )
-    }
-    try {
-      const prototypeId = readRecordIdentifier(match[2], "prototype")
-      await updatePrototype(request, repositoryId, prototypeId, parsed.data, true)
-      return data<ProductActionResult>({ saved: true, notice: "Prototype listing saved." })
-    } catch (error) {
-      return productActionError(error)
-    }
-  }
-  const parsed = productMetadataInputSchema.safeParse(input)
+  const parsed = prototypeEditSchema.safeParse(input)
   if (!parsed.success) {
     return data<ProductActionResult>(
       { saved: false, error: parsed.error.issues.map(({ message }) => message).join(" ") },
       { status: 422 },
     )
   }
-  const candidate = match[1] === "candidates"
-  const endpoint = candidate ? "prototype-candidates" : "prototype-management"
   try {
-    const response = await requestProductJson(
-      request,
-      `/api/repositories/${repositoryId}/${endpoint}/${match[2]}`,
-      productMutationResponseSchema,
-      { method: candidate ? "POST" : "PATCH", body: parsed.data },
-    )
-    return data<ProductActionResult>({ saved: true, notice: response.notice })
+    const prototypeId = readRecordIdentifier(match[1], "prototype")
+    await updatePrototype(request, repositoryId, prototypeId, parsed.data, true)
+    return data<ProductActionResult>({ saved: true, notice: "Prototype listing saved." })
   } catch (error) {
     return productActionError(error)
   }
@@ -133,7 +95,6 @@ export default function ProductManagement({
   loaderData: ProductManagementResponse
 }) {
   const workspace = useOutletContext<WorkspaceResponse>()
-  const location = useLocation()
   const fetcher = useFetcher<ProductActionResult>()
   const busy = fetcher.state !== "idle"
   const result = busy ? undefined : fetcher.data
@@ -147,12 +108,7 @@ export default function ProductManagement({
       }}
     >
       <PrototypeManagementPage
-        data={productManagementData(
-          workspace,
-          loaderData,
-          new URLSearchParams(location.search),
-          !mockMode(),
-        )}
+        data={productManagementData(workspace, loaderData)}
         saving={busy}
         saveError={result?.saved === false ? result.error : null}
         saved={result?.saved}

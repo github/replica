@@ -87,7 +87,7 @@ export default function SettingsAdministratorAuthorization({
   if (!complete) throw new Error("Administrator authorization requires the signed-in layout.")
 
   function administratorsPath(result: "cancelled" | "changed") {
-    return resourcePath("/settings/administrators", new URLSearchParams(), {
+    return resourcePath("/settings/administrators", {
       result,
       repositoryId: workspace.repository?.selectedRepositoryId ?? null,
     })

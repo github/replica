@@ -18,7 +18,6 @@ import { readWorkspaceRepositoryId } from "@application/hub/read-workspace-repos
 import { ApiContractError } from "@application/hub/requests/api-contract-error"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
 import { getCurrentHubSession } from "@application/hub/requests/get-current-hub-session"
-import { getSession } from "@application/hub/requests/get-session"
 import { getWorkspace } from "@application/hub/requests/get-workspace"
 import { RouteErrorFeedback } from "@application/hub/route-error-feedback"
 import { RouteFeedback } from "@application/hub/route-feedback"
@@ -37,10 +36,6 @@ type WorkspaceData = {
   repositoryNavigationError?: ApiRequestError | ApiContractError
 }
 
-function isMockMode() {
-  return import.meta.env.DEV && import.meta.env.MODE === "mock"
-}
-
 async function restoreWorkspaceSession(request: Request) {
   try {
     return await getCurrentHubSession(request)
@@ -57,25 +52,20 @@ async function restoreWorkspaceSession(request: Request) {
 export async function clientLoader({
   request,
 }: Pick<Route.ClientLoaderArgs, "request">): Promise<WorkspaceData | null> {
-  const mock = isMockMode()
   const path = new URL(request.url).pathname.toLowerCase().replace(/\/+$/, "") || "/"
-  if (mock && (path === "/" || path === "/repositories") && !(await getSession(request)).viewer) {
-    throw redirect("/sign-in")
-  }
-
-  const session = !mock && path === "/" ? await restoreWorkspaceSession(request) : undefined
+  const session = path === "/" ? await restoreWorkspaceSession(request) : undefined
   if (session === null) return null
-  const supportsSignedOut = !mock && (path === "/" || path === canvasConnectionsPath)
+  const supportsSignedOut = path === "/" || path === canvasConnectionsPath
 
   try {
-    return { workspace: await getWorkspace(request, mock ? undefined : "navigation") }
+    return { workspace: await getWorkspace(request, "navigation") }
   } catch (error) {
     if (!(error instanceof ApiRequestError || error instanceof ApiContractError)) throw error
     if (error.status === 401) {
       if (supportsSignedOut) return null
-      throw redirect(mock ? "/sign-in" : "/")
+      throw redirect("/")
     }
-    if (mock || error.status === 403) throw error
+    if (error.status === 403) throw error
 
     // An independently authorized Hub page can still open when repository navigation fails.
     const current = session ?? (await restoreWorkspaceSession(request))
@@ -111,7 +101,6 @@ export function shouldRevalidate({
   nextUrl,
   defaultShouldRevalidate,
 }: ShouldRevalidateFunctionArgs) {
-  if (isMockMode()) return defaultShouldRevalidate
   // A different tab can change the session or its readable repositories without a Router action.
   return (
     defaultShouldRevalidate ||
@@ -133,7 +122,6 @@ export default function Workspace({ loaderData }: Pick<Route.ComponentProps, "lo
   }
   const { workspace } = loaderData
   const viewerKey = `${workspace.viewer.id}:${workspace.viewer.provider ?? ""}:${workspace.capabilities?.administerHub ?? false}`
-  if (isMockMode()) return <Outlet key={viewerKey} context={workspace} />
   return <SignedInWorkspace key={viewerKey} data={loaderData} handle={handle} />
 }
 

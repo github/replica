@@ -1,5 +1,5 @@
 import { data, useFetcher, useLocation, useOutletContext } from "react-router"
-import type { ClientActionFunctionArgs, ClientLoaderFunctionArgs } from "react-router"
+import type { ClientActionFunctionArgs } from "react-router"
 import { z } from "zod"
 
 import { WelcomePage } from "@pages/welcome-page"
@@ -7,30 +7,14 @@ import type { WorkspaceResponse } from "@application/hub/contracts/types"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
 import { requestJson } from "@application/hub/requests/request-json"
 import { SettingsFormBoundary } from "@application/hub/screens/settings-form-boundary"
-import { SettingsRouteScreen } from "@application/hub/screens/settings-route-screen"
 import { hubWorkspace } from "@application/hub/view-models/hub-workspace"
-import { welcomeData } from "@application/hub/view-models/settings-welcome"
+import { welcomeData } from "@application/hub/view-models/welcome-data"
 
-import { settingsController } from "../settings-controller"
-import type { SettingsRouteData } from "../settings-controller/types"
-import { settingsMeta } from "../settings-meta"
 import type { WorkspaceRouteHandle } from "../workspace/types"
 
 export const handle = { workspaceSection: "welcome" } satisfies WorkspaceRouteHandle
 
-const mock = settingsController("welcome", "workspace")
-
-function real() {
-  return !(import.meta.env.DEV && import.meta.env.MODE === "mock")
-}
-
-export function clientLoader(args: ClientLoaderFunctionArgs) {
-  return real() ? null : mock.clientLoader(args)
-}
-
-export async function clientAction(args: ClientActionFunctionArgs) {
-  if (!real()) return mock.clientAction(args)
-  const { request } = args
+export async function clientAction({ request }: Pick<ClientActionFunctionArgs, "request">) {
   if (request.method.toUpperCase() !== "POST") {
     throw new Response("Method not allowed.", { status: 405, headers: { Allow: "POST" } })
   }
@@ -52,25 +36,17 @@ export async function clientAction(args: ClientActionFunctionArgs) {
   }
 }
 
-export function meta({ loaderData }: { loaderData?: SettingsRouteData | null }) {
-  return real()
-    ? [{ title: "Welcome - Replica Hub" }]
-    : settingsMeta("welcome", loaderData ?? undefined)
+export function meta() {
+  return [{ title: "Welcome - Replica Hub" }]
 }
 
-export default function SettingsWelcome({ loaderData }: { loaderData: SettingsRouteData | null }) {
-  return loaderData ? <SettingsRouteScreen section="welcome" data={loaderData} /> : <RealWelcome />
-}
-
-function RealWelcome() {
+export default function SettingsWelcome() {
   const workspace = useOutletContext<WorkspaceResponse>()
   const fetcher = useFetcher<{ saved: boolean; error?: string }>()
   const search = new URLSearchParams(useLocation().search)
   const page = welcomeData(
     hubWorkspace(workspace, search, "welcome"),
     workspace.welcomeHidden ?? false,
-    search,
-    true,
   )
   const busy = fetcher.state !== "idle"
   return (

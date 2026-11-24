@@ -1,10 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 
+import { keepFormsLocal } from "@/storybook/keep-forms-local"
+
 import { HubAdminEnrollmentPage } from "."
 
 const meta = {
   title: "Hub/Pages/Security/Administrator enrollment",
   component: HubAdminEnrollmentPage,
+  decorators: [keepFormsLocal],
   parameters: { layout: "fullscreen" },
   args: {
     data: {

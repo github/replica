@@ -1,12 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 
 import { hubAdministrationWorkspaceData } from "@/storybook/fixtures/hub-administration"
+import { keepFormsLocal } from "@/storybook/keep-forms-local"
 
 import { HubAdministrationWorkspace } from "."
 
 const meta = {
   title: "Hub/Features/Hub Administration Workspace",
   component: HubAdministrationWorkspace,
+  decorators: [keepFormsLocal],
   parameters: { layout: "fullscreen" },
   args: {
     data: hubAdministrationWorkspaceData,
@@ -26,7 +28,8 @@ export const NoRepositories: Story = {
     data: {
       ...hubAdministrationWorkspaceData,
       repository: null,
-      securityAuditPath: "/security_audit",
+      canvasConnectionsPath: "/canvas/connections",
+      securityAuditPath: "/settings/audit?scope=hub",
     },
     children: (
       <div style={{ padding: "1.5rem" }}>Deployment-wide content without repositories.</div>

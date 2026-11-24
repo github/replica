@@ -89,7 +89,7 @@ npm run test:local
 
 The test starts the built client and Express on one loopback port with an isolated PostgreSQL worker database. It signs in as the fixed local administrator, registers a draft, and verifies its gallery listing and audit record. It hides **Welcome** and revisits the direct page, opens a named template from the latest successful default-branch Build, and copies a prompt including the current preview route. It opens **Canvas connections** and exercises public sharing in a second signed-out browser context. Reloading after revocation must no longer open the preview. No `.env` or external account is needed. The test removes its database, private storage, and browser session.
 
-The test seeds a small SQL fixture and saved preview bytes, not a Git history. Use the [local Build workflow](development.md#build-local-prototype-repositories) to check Git discovery, Build execution, screenshot capture, and packaging separately. Use the [mock frontend](frontend.md#start-with-mock-data) to explore slow or failing responses, not as evidence that the real API persists changes.
+The test seeds a small SQL fixture and saved preview bytes, not a Git history. Use the [local Build workflow](development.md#build-local-prototype-repositories) to check Git discovery, Build execution, screenshot capture, and packaging separately. Use [Storybook](storybook.md) to inspect loading, error, and recovery states without an API. Use request and integration tests to verify how HTTP responses, session changes, and saved records produce those states.
 
 ## Shared code
 

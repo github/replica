@@ -1,4 +1,5 @@
 import { redirect, useOutletContext } from "react-router"
+import type { ClientLoaderFunctionArgs } from "react-router"
 import { z } from "zod"
 
 import { SecurityAuditPage } from "@pages/security-audit-page"
@@ -7,13 +8,9 @@ import type { WorkspaceResponse } from "@application/hub/contracts/types"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
 import { getCurrentHubSession } from "@application/hub/requests/get-current-hub-session"
 import { getSecurityAudits } from "@application/hub/requests/get-security-audits"
-import { SettingsRouteScreen } from "@application/hub/screens/settings-route-screen"
 import { useAdministrationNavigation } from "@application/hub/use-administration-navigation"
 import { securityAuditPageData } from "@application/hub/view-models/security-audit-page-data"
 
-import { settingsController } from "../settings-controller"
-import type { SettingsRouteData } from "../settings-controller/types"
-import { settingsMeta } from "../settings-meta"
 import type { WorkspaceRouteHandle } from "../workspace/types"
 
 export const handle = {
@@ -21,20 +18,14 @@ export const handle = {
   independentOfRepositoryNavigation: true,
 } satisfies WorkspaceRouteHandle
 
-const controller = settingsController("audit", "workspace")
-
-type RealAuditRouteData = {
+type AuditRouteData = {
   surface: "security-audit"
   session: CurrentHubSession
   response: Awaited<ReturnType<typeof getSecurityAudits>>
   repositoryId?: string
 }
 
-function isMockMode() {
-  return import.meta.env.DEV && import.meta.env.MODE === "mock"
-}
-
-function readRealAuditAddress(url: URL) {
+function readAuditAddress(url: URL) {
   const fields = [...url.searchParams.keys()]
   if (fields.some((field) => field !== "scope" && field !== "before" && field !== "repositoryId")) {
     throw new Response("The Hub security audit address is invalid.", { status: 400 })
@@ -69,14 +60,11 @@ function readRealAuditAddress(url: URL) {
   }
 }
 
-export async function clientLoader(
-  args: Parameters<typeof controller.clientLoader>[0],
-): Promise<SettingsRouteData | RealAuditRouteData> {
-  if (isMockMode()) return controller.clientLoader(args)
-
-  const { request } = args
+export async function clientLoader({
+  request,
+}: Pick<ClientLoaderFunctionArgs, "request">): Promise<AuditRouteData> {
   const url = new URL(request.url)
-  const { before, repositoryId } = readRealAuditAddress(url)
+  const { before, repositoryId } = readAuditAddress(url)
   const session = await getCurrentHubSession(request)
   if (!repositoryId && session.role !== "ADMINISTRATOR") {
     throw new Response("Administrator access is required.", { status: 403 })
@@ -92,32 +80,15 @@ export async function clientLoader(
   return { surface: "security-audit", session, response, repositoryId }
 }
 
-export async function clientAction(args: Parameters<typeof controller.clientAction>[0]) {
-  if (!isMockMode()) {
-    throw new Response("The Hub security audit is read-only.", { status: 405 })
-  }
-  return controller.clientAction(args)
+export function clientAction(): never {
+  throw new Response("The Hub security audit is read-only.", { status: 405 })
 }
 
-export function meta({ loaderData }: { loaderData?: SettingsRouteData | RealAuditRouteData }) {
-  if (loaderData?.surface === "security-audit") {
-    return [{ title: "Security audit - Replica Hub" }]
-  }
-  return settingsMeta("audit", loaderData)
+export function meta() {
+  return [{ title: "Security audit - Replica Hub" }]
 }
 
-export default function SettingsAudit({
-  loaderData,
-}: {
-  loaderData: SettingsRouteData | RealAuditRouteData
-}) {
-  if (loaderData.surface === "security-audit") {
-    return <RealSecurityAudit data={loaderData} />
-  }
-  return <SettingsRouteScreen section="audit" data={loaderData} />
-}
-
-function RealSecurityAudit({ data }: { data: RealAuditRouteData }) {
+export default function SettingsAudit({ loaderData: data }: { loaderData: AuditRouteData }) {
   const workspace = useOutletContext<WorkspaceResponse>()
   const navigation = useAdministrationNavigation("audit", data.session.userId)
   const selected = workspace.repositories.find(

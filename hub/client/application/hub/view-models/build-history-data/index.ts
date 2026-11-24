@@ -10,7 +10,6 @@ export function buildHistoryData(
   workspace: WorkspaceResponse,
   data: BuildHistoryResponse,
   search: URLSearchParams,
-  options: { real?: boolean } = {},
 ): BuildsIndexPageData {
   const prototypePath = `/repositories/${data.repository.id}/prototypes/${data.prototype.id}`
   const path = `${prototypePath}/builds`
@@ -26,15 +25,11 @@ export function buildHistoryData(
     selectedBuild,
     search,
     surface: "history",
-    real: options.real,
   })
 
   return {
     ...workspaceData,
-    shareLinksPath:
-      options.real && !data.prototype.canManageShareLinks
-        ? undefined
-        : workspaceData.shareLinksPath,
+    shareLinksPath: data.prototype.canManageShareLinks ? workspaceData.shareLinksPath : undefined,
     builds: data.builds.map((build) => {
       const githubAuthor =
         build.commitAuthorProvider === undefined || build.commitAuthorProvider === "github"
@@ -67,7 +62,7 @@ export function buildHistoryData(
         numberLabel: `Build ${build.number}`,
         path:
           build.state === "successful"
-            ? resourcePath(prototypePath, search, { build: build.number })
+            ? resourcePath(prototypePath, { build: build.number })
             : null,
         shortCommitSha: build.commitSha?.slice(0, 7) ?? null,
         state: build.state,
@@ -80,13 +75,12 @@ export function buildHistoryData(
     nextPageLabel: "Older Builds",
     nextPagePath:
       data.pagination.page < data.pagination.pageCount
-        ? resourcePath(path, search, {
+        ? resourcePath(path, {
             page: data.pagination.page + 1,
             build: selectedNumber,
           })
         : null,
     newestPageLabel: "Newest Builds",
-    newestPagePath:
-      data.pagination.page > 1 ? resourcePath(path, search, { build: selectedNumber }) : null,
+    newestPagePath: data.pagination.page > 1 ? resourcePath(path, { build: selectedNumber }) : null,
   }
 }

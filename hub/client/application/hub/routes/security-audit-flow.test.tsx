@@ -1,13 +1,12 @@
 import { act, render, screen } from "@testing-library/react"
-import { http, HttpResponse } from "msw"
-import { setupServer } from "msw/node"
 import { createBrowserRouter, RouterProvider, useLoaderData } from "react-router"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
+import { http, stubHubFetch } from "@/test/stub-hub-fetch"
 import type { RepositoryRecord } from "@application/hub/contracts/types"
 import { HubThemeProvider } from "@hooks/use-hub-theme"
 
-import HubRoot, { clientLoader as loadHub, ErrorBoundary, HydrateFallback } from "../root"
+import HubRoot, { ErrorBoundary, HydrateFallback } from "../root"
 
 import SecurityAudit, {
   clientAction as changeAudit,
@@ -29,23 +28,16 @@ function session(role = "ADMINISTRATOR") {
   }
 }
 
-function unavailableServerRoute(): Promise<never> {
-  return Promise.reject(new Error("The audit frontend must use the audit API directly."))
-}
-
 async function renderApplication(
   path: string,
-  handlers: Parameters<typeof setupServer>,
+  handlers: Parameters<typeof stubHubFetch>,
   repositories: RepositoryRecord[] = [],
 ) {
-  vi.stubEnv("MODE", "development")
-  vi.stubEnv("DEV", true)
-  const requests: string[] = []
   const { userId, provider, login, name } = session()
-  const server = setupServer(
+  const api = stubHubFetch(
     ...handlers,
     http.get(`${window.location.origin}/api/workspace`, () =>
-      HttpResponse.json({
+      Response.json({
         viewer: { id: userId, provider, login, name, avatarUrl: null },
         repositories,
         capabilities: {
@@ -57,19 +49,18 @@ async function renderApplication(
       }),
     ),
   )
-  server.events.on("request:start", ({ request }) => {
-    const url = new URL(request.url)
-    requests.push(`${request.method} ${url.pathname}${url.search}`)
-  })
-  server.listen({ onUnhandledRequest: "error" })
-  onTestFinished(() => server.close())
+  function requests() {
+    return api.requests.map((request) => {
+      const url = new URL(request.url)
+      return `${request.method} ${url.pathname}${url.search}`
+    })
+  }
   window.history.replaceState(null, "", path)
   const router = createBrowserRouter(
     [
       {
         id: "root",
-        loader: loadHub,
-        Component: () => <HubRoot loaderData={useLoaderData<typeof loadHub>()} />,
+        Component: HubRoot,
         ErrorBoundary,
         HydrateFallback,
         children: [
@@ -80,8 +71,8 @@ async function renderApplication(
             children: [
               {
                 path: "settings/audit",
-                loader: (args) => loadAudit({ ...args, serverLoader: unavailableServerRoute }),
-                action: (args) => changeAudit({ ...args, serverAction: unavailableServerRoute }),
+                loader: loadAudit,
+                action: changeAudit,
                 Component: () => <SecurityAudit loaderData={useLoaderData<typeof loadAudit>()} />,
               },
             ],
@@ -102,7 +93,7 @@ async function renderApplication(
 }
 
 function authenticatedSession() {
-  return http.get(`${window.location.origin}/api/auth/session`, () => HttpResponse.json(session()))
+  return http.get(`${window.location.origin}/api/auth/session`, () => Response.json(session()))
 }
 
 function expectOnlyRealAuditRequests(requests: string[]) {
@@ -122,7 +113,7 @@ describe("real security audit frontend integration", () => {
       [
         authenticatedSession(),
         http.get(`${window.location.origin}/api/security-audits`, () =>
-          HttpResponse.json({
+          Response.json({
             records: [
               {
                 id: "22222222-2222-4222-8222-222222222222",
@@ -152,10 +143,10 @@ describe("real security audit frontend integration", () => {
     )
 
     expect(await screen.findByText("unknown.future.action")).toBeVisible()
-    expect(requests.filter((request) => request.includes("/api/security-audits"))).toEqual([
+    expect(requests().filter((request) => request.includes("/api/security-audits"))).toEqual([
       `GET /api/security-audits?limit=50&before=${encodeURIComponent(before)}`,
     ])
-    expectOnlyRealAuditRequests(requests)
+    expectOnlyRealAuditRequests(requests())
     const older = new URL(
       screen.getByRole<HTMLAnchorElement>("link", { name: "Older actions" }).href,
     )
@@ -171,7 +162,7 @@ describe("real security audit frontend integration", () => {
     await renderApplication("/settings/audit?scope=hub", [
       authenticatedSession(),
       http.get(`${window.location.origin}/api/security-audits`, () =>
-        HttpResponse.json({
+        Response.json({
           records: [
             {
               id: "22222222-2222-4222-8222-222222222222",
@@ -198,7 +189,7 @@ describe("real security audit frontend integration", () => {
     const { requests, router } = await renderApplication("/settings/audit?scope=hub", [
       authenticatedSession(),
       http.get(`${window.location.origin}/api/security-audits`, () =>
-        HttpResponse.json({ records: [], nextCursor: null }),
+        Response.json({ records: [], nextCursor: null }),
       ),
     ])
     await screen.findByText("No Hub security actions are available.")
@@ -212,7 +203,7 @@ describe("real security audit frontend integration", () => {
 
     expect(await screen.findByText("405")).toBeVisible()
     expect(screen.getByText("The Hub security audit is read-only.")).toBeVisible()
-    expectOnlyRealAuditRequests(requests)
+    expectOnlyRealAuditRequests(requests())
   })
 
   it.each([
@@ -231,33 +222,33 @@ describe("real security audit frontend integration", () => {
     expect(await screen.findByRole("heading", { name: "Invalid address" })).toBeVisible()
     expect(screen.getByText("400")).toBeVisible()
     if (message) expect(screen.getByText(message)).toBeVisible()
-    expect(requests.some((request) => request.includes("/api/security-audits"))).toBe(false)
-    expectOnlyRealAuditRequests(requests)
+    expect(requests().some((request) => request.includes("/api/security-audits"))).toBe(false)
+    expectOnlyRealAuditRequests(requests())
   })
 
   it("requires a current administrator session before loading audit data", async () => {
     const { requests } = await renderApplication("/settings/audit?scope=hub", [
       http.get(`${window.location.origin}/api/auth/session`, () =>
-        HttpResponse.json(session("MEMBER")),
+        Response.json(session("MEMBER")),
       ),
     ])
 
     expect(await screen.findByRole("heading", { name: "Access denied" })).toBeVisible()
     expect(screen.getByText("Administrator access is required.")).toBeVisible()
-    expect(requests.some((request) => request.includes("/api/security-audits"))).toBe(false)
-    expectOnlyRealAuditRequests(requests)
+    expect(requests().some((request) => request.includes("/api/security-audits"))).toBe(false)
+    expectOnlyRealAuditRequests(requests())
   })
 
   it.each([
     {
       label: "an API failure",
-      response: () => HttpResponse.json({ error: "Security audit unavailable." }, { status: 503 }),
+      response: () => Response.json({ error: "Security audit unavailable." }, { status: 503 }),
       message: "Security audit unavailable.",
     },
     {
       label: "malformed JSON",
       response: () =>
-        new HttpResponse("{", {
+        new Response("{", {
           status: 200,
           headers: { "Content-Type": "application/json" },
         }),
@@ -265,12 +256,12 @@ describe("real security audit frontend integration", () => {
     },
     {
       label: "a malformed response",
-      response: () => HttpResponse.json({ records: "not-an-array", nextCursor: null }),
+      response: () => Response.json({ records: "not-an-array", nextCursor: null }),
       message: "The API returned data in an unexpected shape.",
     },
     {
       label: "a network failure",
-      response: () => HttpResponse.error(),
+      response: () => Response.error(),
       message: "Unable to reach the Hub API.",
     },
   ])("keeps $label visible without mock fallback", async ({ response, message }) => {
@@ -280,7 +271,7 @@ describe("real security audit frontend integration", () => {
     ])
 
     expect(await screen.findByText(message)).toBeVisible()
-    expectOnlyRealAuditRequests(requests)
+    expectOnlyRealAuditRequests(requests())
   })
 
   it("rereads the session after an audit 403 and reports lost administrator access", async () => {
@@ -288,13 +279,13 @@ describe("real security audit frontend integration", () => {
     let refreshedSessionRequests = 0
     await renderApplication("/settings/audit?scope=hub", [
       http.get(`${window.location.origin}/api/auth/session`, () => {
-        if (!auditDenied) return HttpResponse.json(session())
+        if (!auditDenied) return Response.json(session())
         refreshedSessionRequests += 1
-        return HttpResponse.json(session("MEMBER"))
+        return Response.json(session("MEMBER"))
       }),
       http.get(`${window.location.origin}/api/security-audits`, () => {
         auditDenied = true
-        return HttpResponse.json({ error: "forbidden" }, { status: 403 })
+        return Response.json({ error: "forbidden" }, { status: 403 })
       }),
     ])
 

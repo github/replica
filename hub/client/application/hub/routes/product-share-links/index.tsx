@@ -127,7 +127,6 @@ export default function ProductShareLinks({ loaderData }: { loaderData: ProductS
           loaderData,
           new URLSearchParams(location.search),
           window.location.origin,
-          !(import.meta.env.DEV && import.meta.env.MODE === "mock"),
         )}
       />
     </ProductFormBoundary>

@@ -4,20 +4,16 @@ import type { ProductCatalogResponse } from "@application/hub/product-contracts/
 
 import { productContinuation } from "../product-continuation"
 import { repositoryWorkspace } from "../repository-workspace"
-import { resourcePath } from "../resource-path"
 
 export function productNewData(
   workspace: WorkspaceResponse,
   response: ProductCatalogResponse,
-  search: URLSearchParams,
-  real = false,
 ): NewPrototypePageData {
   const repositoryPath = `/repositories/${response.repository.id}`
   const submissionMode = response.submissionMode ?? "copilot"
   return {
-    ...repositoryWorkspace(workspace, response.repository, search, real),
-    newPrototypePath:
-      real || response.canCreate ? resourcePath(`${repositoryPath}/new`, search) : null,
+    ...repositoryWorkspace(workspace, response.repository),
+    newPrototypePath: `${repositoryPath}/new`,
     selectedSection: "new",
     repositoryName: response.repository.nameWithOwner,
     pageTitle: "Create",
@@ -40,7 +36,7 @@ export function productNewData(
         template.category ?? (template.id === "default" ? "Starter" : "Repository prototype"),
       description: template.description,
       route: template.route ?? "/",
-      path: resourcePath(`${repositoryPath}/templates/${template.id}`, search),
+      path: `${repositoryPath}/templates/${template.id}`,
       screenshotSrc: template.screenshotUrl ?? undefined,
       darkScreenshotSrc: template.darkScreenshotUrl ?? undefined,
       screenshotAlt: `Preview of ${template.name}`,
@@ -54,7 +50,7 @@ export function productNewData(
       openTemplateLabel: "Open template",
       previewUnavailableLabel: "Preview unavailable",
       noAdditionalTemplatesLabel:
-        real && response.templates.length === 1
+        response.templates.length === 1
           ? "This repository has no additional templates."
           : undefined,
       noSearchResultsHeading: "No templates found",

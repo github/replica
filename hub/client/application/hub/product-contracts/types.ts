@@ -3,7 +3,6 @@ import type { z } from "zod"
 import type {
   productCatalogResponseSchema,
   productManagementResponseSchema,
-  productMetadataInputSchema,
   productPublicResponseSchema,
   productShareInputSchema,
   productShareLinkSchema,
@@ -17,7 +16,6 @@ import type {
 export type ProductTemplate = z.infer<typeof productTemplateSchema>
 export type ProductCatalogResponse = z.infer<typeof productCatalogResponseSchema>
 export type ProductTemplateResponse = z.infer<typeof productTemplateResponseSchema>
-export type ProductMetadataInput = z.infer<typeof productMetadataInputSchema>
 export type ProductManagementResponse = z.infer<typeof productManagementResponseSchema>
 export type ProductShareLink = z.infer<typeof productShareLinkSchema>
 export type ProductShareInput = z.infer<typeof productShareInputSchema>

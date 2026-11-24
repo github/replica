@@ -19,11 +19,10 @@ export default function Home() {
   if (!workspace) return <HubApplication />
   const repository = selectWorkspaceRepository(workspace, search)
   if (repository) return <Navigate replace to={`/repositories/${repository.id}`} />
-  const real = !(import.meta.env.DEV && import.meta.env.MODE === "mock")
   return (
     <RepositoriesIndexPage
       data={{
-        ...workspaceNavigation(workspace, null, search, real),
+        ...workspaceNavigation(workspace, null),
         repository: null,
         selectedSection: "prototypes",
       }}
