@@ -72,8 +72,7 @@ export interface PrototypeWorkspaceHeaderProps {
     sidebarToggleBlocked: boolean
     sidebarOpen: boolean
     onCancelSelection: () => void
-    onStartAreaSelection: () => void
-    onStartElementSelection: () => void
+    onStartSelection: () => void
     onToggleSidebar: () => void
   }
 }

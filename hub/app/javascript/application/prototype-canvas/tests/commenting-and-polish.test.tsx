@@ -180,12 +180,7 @@ describe("App()", () => {
     expect(
       within(menu).getByRole("menuitem", { name: commentsCopy.commentMenuLabel }),
     ).toHaveAttribute("aria-keyshortcuts", "C")
-    expect(
-      within(menu).queryByRole("menuitem", { name: commentsCopy.highlightRegionLabel }),
-    ).not.toBeInTheDocument()
-    expect(
-      within(menu).queryByRole("menuitem", { name: commentsCopy.commentOnElementLabel }),
-    ).not.toBeInTheDocument()
+    expect(within(menu).getAllByRole("menuitem")).toHaveLength(2)
     bridge.post.mockClear()
     fireEvent.keyDown(window, { key: "c" })
     expect(select()).toEqual([])
@@ -237,7 +232,7 @@ describe("App()", () => {
     view.unmount()
   })
 
-  it("toggles comment pins with the menu and Shift+C without closing the sidebar or interrupting typing", async () => {
+  it("toggles comment pins with the menu and the comments panel with Shift+C without interrupting typing", async () => {
     reviewFixture()
     const view = render(
       <App
@@ -261,42 +256,31 @@ describe("App()", () => {
     expect(pin()).toBeVisible()
 
     fireEvent.click(screen.getByRole("button", { name: commentsCopy.commentMenuLabel }))
-    const hide = screen.getByRole("menuitem", { name: "Hide comments" })
-    expect(hide).toHaveAttribute("aria-keyshortcuts", "Shift+C")
-    fireEvent.click(hide)
+    fireEvent.click(screen.getByRole("menuitem", { name: "Hide comments" }))
     expect(pin()).not.toBeInTheDocument()
     expect(search).toBeVisible()
     expect(comments).toHaveAttribute("aria-expanded", "true")
     expect(screen.getByRole("button", { name: /Please align this control/ })).toBeVisible()
 
     fireEvent.click(screen.getByRole("button", { name: commentsCopy.commentMenuLabel }))
-    const show = screen.getByRole("menuitem", { name: "Show comments" })
-    expect(show).toHaveAttribute("aria-keyshortcuts", "Shift+C")
-    fireEvent.click(show)
+    fireEvent.click(screen.getByRole("menuitem", { name: "Show comments" }))
     expect(pin()).toBeVisible()
 
+    expect(comments).toHaveAttribute("aria-keyshortcuts", "Shift+C")
     fireEvent.keyDown(search, { key: "C", shiftKey: true })
-    expect(pin()).toBeVisible()
-    fireEvent.keyDown(window, { key: "C", shiftKey: true })
-    expect(pin()).not.toBeInTheDocument()
     expect(search).toBeVisible()
     fireEvent.keyDown(window, { key: "C", shiftKey: true })
-    expect(pin()).toBeVisible()
-    expect(comments).toHaveAttribute("aria-expanded", "true")
-    fireEvent.click(comments)
+    expect(comments).toHaveAttribute("aria-expanded", "false")
     expect(
       screen.queryByRole("searchbox", { name: commentsCopy.searchLabel }),
     ).not.toBeInTheDocument()
     fireEvent.keyDown(window, { key: "C", shiftKey: true })
-    expect(pin()).not.toBeInTheDocument()
-    expect(comments).toHaveAttribute("aria-expanded", "false")
-    fireEvent.keyDown(window, { key: "C", shiftKey: true })
-    expect(pin()).toBeVisible()
-    expect(comments).toHaveAttribute("aria-expanded", "false")
+    expect(comments).toHaveAttribute("aria-expanded", "true")
+    expect(await screen.findByRole("searchbox", { name: commentsCopy.searchLabel })).toBeVisible()
     view.unmount()
   })
 
-  it("accepts iframe Shift+C only from the focused and activated preview with its pins nonce", async () => {
+  it("accepts iframe Shift+C only from the focused and activated preview with its comments nonce", async () => {
     reviewFixture()
     const view = render(
       <App
@@ -329,7 +313,7 @@ describe("App()", () => {
       act(() => {
         window.dispatchEvent(new MessageEvent("message", { data, origin: requestOrigin, source }))
       })
-      expect(pin()).toBeVisible()
+      expect(comments).toHaveAttribute("aria-expanded", "true")
     }
     function activation(isActive: boolean) {
       Object.defineProperty(navigator, "userActivation", {
@@ -360,18 +344,21 @@ describe("App()", () => {
         }),
       )
     })
-    expect(pin()).not.toBeInTheDocument()
-    expect(screen.getByRole("searchbox", { name: commentsCopy.searchLabel })).toBeVisible()
+    expect(comments).toHaveAttribute("aria-expanded", "false")
+    expect(
+      screen.queryByRole("searchbox", { name: commentsCopy.searchLabel }),
+    ).not.toBeInTheDocument()
+    const reopenNonce = bridge.messages().findLast((data) => data.pinsShortcut === true)?.nonce
     act(() => {
       window.dispatchEvent(
         new MessageEvent("message", {
-          data: message,
+          data: { ...message, nonce: reopenNonce },
           origin,
           source: bridge.frame.contentWindow,
         }),
       )
     })
-    expect(pin()).toBeVisible()
+    expect(comments).toHaveAttribute("aria-expanded", "true")
     view.unmount()
   })
 
@@ -482,7 +469,7 @@ describe("App()", () => {
     }
   })
 
-  it("shows comment pins when switching from Notes, even if they were previously hidden", async () => {
+  it("opens the comments panel with its pins from Notes with Shift+C", async () => {
     const { note } = reviewFixture()
     const view = render(
       <App
@@ -503,10 +490,6 @@ describe("App()", () => {
     bridge.ready()
     await screen.findByRole("searchbox", { name: commentsCopy.searchLabel })
     bridge.resolve(bridge.resolveNonce("#comment-target"))
-    fireEvent.keyDown(window, { key: "C", shiftKey: true })
-    expect(
-      screen.queryByRole("button", { name: "Unread thread started by @octocat" }),
-    ).not.toBeInTheDocument()
 
     fireEvent.click(improvements)
     bridge.ready()
@@ -515,6 +498,7 @@ describe("App()", () => {
     bridge.ready()
     bridge.resolve(bridge.resolveNonce("#comment-target"))
     expect(screen.getByRole("button", { name: "Unread thread started by @octocat" })).toBeVisible()
+    expect(screen.getByRole("searchbox", { name: commentsCopy.searchLabel })).toBeVisible()
     expect(screen.queryByRole("complementary", { name: notesCopy.notes })).not.toBeInTheDocument()
     view.unmount()
   })

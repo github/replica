@@ -67,14 +67,14 @@ export const PREVIEW_BRIDGE_MESSAGE_SCHEMA = z.discriminatedUnion("type", [
   z
     .object({
       ...MESSAGE_FIELDS,
-      type: z.literal("replica:bridge:area-selection-requested"),
+      type: z.literal("replica:bridge:sidebar-toggle-requested"),
       payload: z.object({}).strict(),
     })
     .strict(),
   z
     .object({
       ...MESSAGE_FIELDS,
-      type: z.literal("replica:bridge:sidebar-toggle-requested"),
+      type: z.literal("replica:bridge:options-toggle-requested"),
       payload: z.object({}).strict(),
     })
     .strict(),

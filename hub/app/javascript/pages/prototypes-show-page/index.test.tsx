@@ -246,8 +246,6 @@ const PROTOTYPES_SHOW_PAGE_DATA: PrototypesShowPageData = {
       heading: "Comments",
       closeLabel: "Close comments",
       commentMenuLabel: "Add a comment",
-      commentOnElementLabel: "Comment on element",
-      highlightRegionLabel: "Highlight a region",
       cancelSelectionLabel: "Cancel selection",
       bridgeUnavailableLabel: "Adding comments needs the review bridge.",
       selectionBlockedLabel: "Close or submit the open draft.",
@@ -372,8 +370,7 @@ const BRIDGE = vi.hoisted(() => ({
   options: vi.fn(),
   route: null as ReviewRoute | null,
   selectedAnchor: null as ReviewAnchor | null,
-  startAreaSelection: vi.fn(),
-  startElementSelection: vi.fn(),
+  startSelection: vi.fn(),
 }))
 const REVIEW_COMMENTS_SUBSCRIPTION = vi.hoisted(() =>
   vi.fn<(options: ReviewCommentsSubscriptionOptions) => void>(),
@@ -409,7 +406,6 @@ vi.mock("@hooks/use-preview-bridge", () => ({
     return {
       ready: true,
       selecting: false,
-      selectionMode: null,
       selectionFailure: null,
       resolutions: new Map([
         [
@@ -1348,7 +1344,7 @@ describe("PrototypesShowPage()", () => {
     const frame = screen.getByTitle("prototype/welcome, build 2 preview")
     const source = frame.getAttribute("src")
     const controls = screen.getByRole("button", { name: "Options" })
-    expect(controls).not.toHaveAttribute("aria-keyshortcuts")
+    expect(controls).toHaveAttribute("aria-keyshortcuts", "O")
     const theme = screen.getByRole("button", { name: /Use (dark|light) theme/ })
     expect(controls.className).toBe(theme.className)
     expect(controls).not.toHaveClass(
@@ -1643,16 +1639,10 @@ describe("PrototypesShowPage()", () => {
     expect(screen.getByText("Please align this control.")).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole("button", { name: "Add a comment" }))
-    const elementCommentItem = screen.getByRole("menuitem", { name: "Comment on element" })
-    expect(elementCommentItem).toHaveAttribute("aria-keyshortcuts", "C")
-    fireEvent.click(elementCommentItem)
-    expect(BRIDGE.startElementSelection).toHaveBeenCalled()
-
-    fireEvent.click(screen.getByRole("button", { name: "Add a comment" }))
-    const areaCommentItem = screen.getByRole("menuitem", { name: /^Highlight a region/ })
-    expect(areaCommentItem).toHaveAttribute("aria-keyshortcuts", "H")
-    fireEvent.click(areaCommentItem)
-    expect(BRIDGE.startAreaSelection).toHaveBeenCalled()
+    const commentItem = screen.getByRole("menuitem", { name: "Add a comment" })
+    expect(commentItem).toHaveAttribute("aria-keyshortcuts", "C")
+    fireEvent.click(commentItem)
+    expect(BRIDGE.startSelection).toHaveBeenCalled()
   }, 15_000)
 
   it("filters read conversations in both the sidebar and markers", () => {
@@ -1725,8 +1715,7 @@ describe("PrototypesShowPage()", () => {
     )
     expect(screen.getByRole("button", { name: "Comments, 3" })).toBeDisabled()
     fireEvent.click(newCommentButton)
-    expect(BRIDGE.startElementSelection).not.toHaveBeenCalled()
-    expect(BRIDGE.startAreaSelection).not.toHaveBeenCalled()
+    expect(BRIDGE.startSelection).not.toHaveBeenCalled()
     expect(screen.getByRole("textbox", { name: "Comment" })).toHaveValue("Keep this thought.")
   })
 

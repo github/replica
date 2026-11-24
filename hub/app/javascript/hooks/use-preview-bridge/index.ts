@@ -4,6 +4,7 @@ import { chunkArray } from "@utils/chunk-array"
 import { getPreviewFrameUrl } from "@utils/get-preview-frame-url"
 import { getUrlOrigin } from "@utils/get-url-origin"
 import {
+  OPTIONS_TOGGLE_EVENT,
   PREVIEW_BRIDGE_ANCHORS_PER_MESSAGE,
   PREVIEW_BRIDGE_PROTOCOL_VERSION,
 } from "@utils/preview-bridge/constants"
@@ -14,12 +15,7 @@ import type {
 } from "@utils/preview-bridge/types"
 import type { AnchorResolution, ReviewAnchor, ReviewRoute } from "@utils/review-anchor/types"
 
-import type {
-  PreviewBridgeOptions,
-  PreviewBridgeState,
-  ReviewSelectionFailure,
-  ReviewSelectionMode,
-} from "./types"
+import type { PreviewBridgeOptions, PreviewBridgeState, ReviewSelectionFailure } from "./types"
 
 function isEditableTarget(target: EventTarget | null) {
   if (!(target instanceof Element)) return false
@@ -47,7 +43,7 @@ export function usePreviewBridge({
     previewUrl: string | undefined
     route: ReviewRoute
   } | null>(null)
-  const [selectionMode, setSelectionMode] = useState<ReviewSelectionMode | null>(null)
+  const [selecting, setSelecting] = useState(false)
   const [selectedAnchor, setSelectedAnchor] = useState<ReviewAnchor | null>(null)
   const [selectionFailure, setSelectionFailure] = useState<ReviewSelectionFailure | null>(null)
   const [resolutions, setResolutions] = useState<Map<number, AnchorResolution>>(new Map())
@@ -96,7 +92,7 @@ export function usePreviewBridge({
   const handleFrameLoad = useCallback(() => {
     setReady(false)
     setReportedRoute(null)
-    setSelectionMode(null)
+    setSelecting(false)
     setSelectionFailure(null)
     setResolutions(new Map())
     pendingSelectionRequest.current = null
@@ -104,8 +100,8 @@ export function usePreviewBridge({
     post("replica:bridge:request-ready", {})
   }, [post])
 
-  const startElementSelection = useCallback(() => {
-    if (!ready || selectedAnchor || selectionMode || selectionBlocked) return
+  const startSelection = useCallback(() => {
+    if (!ready || selectedAnchor || selecting || selectionBlocked) return
 
     const requestId = post("replica:bridge:select-element", {})
     if (!requestId) return
@@ -113,52 +109,34 @@ export function usePreviewBridge({
     pendingSelectionRequest.current = requestId
     onSelectionStart?.()
     setSelectionFailure(null)
-    setSelectionMode("element")
-  }, [onSelectionStart, post, ready, selectedAnchor, selectionBlocked, selectionMode])
-
-  const startAreaSelection = useCallback(() => {
-    if (!ready || selectedAnchor || selectionMode || selectionBlocked) return
-
-    const requestId = post("replica:bridge:select-area", {})
-    if (!requestId) return
-
-    pendingSelectionRequest.current = requestId
-    onSelectionStart?.()
-    setSelectionFailure(null)
-    setSelectionMode("area")
-  }, [onSelectionStart, post, ready, selectedAnchor, selectionBlocked, selectionMode])
+    setSelecting(true)
+  }, [onSelectionStart, post, ready, selectedAnchor, selectionBlocked, selecting])
 
   useEffect(() => {
     if (!reviewEnabled) return
 
     function handleCommentShortcut(event: KeyboardEvent) {
       const key = event.key.toLowerCase()
-      const startSelection =
-        !event.shiftKey && key === "c"
-          ? startElementSelection
-          : !event.shiftKey && key === "h"
-            ? startAreaSelection
-            : null
-      const toggleComments = event.shiftKey && key === "c" ? onToggleSidebar : null
+      const action =
+        key !== "c" ? null : event.shiftKey ? (onToggleSidebar ?? null) : startSelection
       if (
         !ready ||
         selectedAnchor !== null ||
-        selectionMode !== null ||
+        selecting ||
         selectionBlocked ||
         event.defaultPrevented ||
         event.repeat ||
         event.metaKey ||
         event.ctrlKey ||
         event.altKey ||
-        (!startSelection && !toggleComments) ||
+        !action ||
         isEditableTarget(event.target)
       ) {
         return
       }
 
       event.preventDefault()
-      if (toggleComments) toggleComments()
-      else startSelection?.()
+      action()
     }
 
     window.addEventListener("keydown", handleCommentShortcut)
@@ -169,9 +147,8 @@ export function usePreviewBridge({
     ready,
     selectedAnchor,
     selectionBlocked,
-    selectionMode,
-    startAreaSelection,
-    startElementSelection,
+    selecting,
+    startSelection,
   ])
 
   const cancelSelection = useCallback(() => {
@@ -179,7 +156,7 @@ export function usePreviewBridge({
     if (!requestId) return
 
     pendingSelectionRequest.current = requestId
-    setSelectionMode(null)
+    setSelecting(false)
   }, [post])
 
   const clearSelection = useCallback(() => {
@@ -267,29 +244,18 @@ export function usePreviewBridge({
         return
       }
 
-      if (
-        message.type === "replica:bridge:element-selection-requested" ||
-        message.type === "replica:bridge:area-selection-requested"
-      ) {
-        if (!ready || selectedAnchor || selectionMode || selectionBlocked) return
+      if (message.type === "replica:bridge:element-selection-requested") {
+        startSelection()
+        return
+      }
 
-        const mode =
-          message.type === "replica:bridge:element-selection-requested" ? "element" : "area"
-        const requestId = post(
-          mode === "element" ? "replica:bridge:select-element" : "replica:bridge:select-area",
-          {},
-        )
-        if (!requestId) return
-
-        pendingSelectionRequest.current = requestId
-        onSelectionStart?.()
-        setSelectionFailure(null)
-        setSelectionMode(mode)
+      if (message.type === "replica:bridge:options-toggle-requested") {
+        if (!selecting) window.dispatchEvent(new Event(OPTIONS_TOGGLE_EVENT))
         return
       }
 
       if (message.type === "replica:bridge:sidebar-toggle-requested") {
-        if (ready && !selectedAnchor && !selectionMode && !selectionBlocked) {
+        if (ready && !selectedAnchor && !selecting && !selectionBlocked) {
           onToggleSidebar?.()
         }
         return
@@ -316,7 +282,7 @@ export function usePreviewBridge({
       if (message.requestId !== pendingSelectionRequest.current) return
 
       pendingSelectionRequest.current = null
-      setSelectionMode(null)
+      setSelecting(false)
       if (
         message.type === "replica:bridge:element-selected" ||
         message.type === "replica:bridge:area-selected"
@@ -331,7 +297,6 @@ export function usePreviewBridge({
     return () => window.removeEventListener("message", handleMessage)
   }, [
     iframeRef,
-    onSelectionStart,
     onToggleSidebar,
     post,
     previewOrigin,
@@ -341,7 +306,8 @@ export function usePreviewBridge({
     reviewEnabled,
     selectedAnchor,
     selectionBlocked,
-    selectionMode,
+    selecting,
+    startSelection,
   ])
 
   useEffect(() => {
@@ -365,14 +331,12 @@ export function usePreviewBridge({
   return {
     ready,
     route,
-    selecting: selectionMode !== null,
-    selectionMode,
+    selecting,
     selectedAnchor,
     selectionFailure,
     resolutions,
     handleFrameLoad,
-    startElementSelection,
-    startAreaSelection,
+    startSelection,
     cancelSelection,
     clearSelection,
     focusAnchor,

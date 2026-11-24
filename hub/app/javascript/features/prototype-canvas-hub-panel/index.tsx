@@ -1,5 +1,5 @@
 import { GitBranchIcon, SyncIcon } from "@primer/octicons-react"
-import { Button, Heading, Tooltip } from "@primer/react-brand/esm"
+import { Button, Heading } from "@primer/react-brand/esm"
 import {
   useCallback,
   useEffect,
@@ -13,6 +13,7 @@ import {
 import { createPortal } from "react-dom"
 
 import { HubCounter } from "@components/hub-counter"
+import { ShortcutTooltip } from "@components/shortcut-tooltip"
 import { HubAlert } from "@components/hub-alert"
 import { MentionProvider } from "@components/mention-provider"
 import { HubSidebar } from "@components/hub-sidebar"
@@ -696,7 +697,18 @@ export function PrototypeCanvasHubPanel({
     }
     return true
   }, [bridgeReady, canLoadComments, onActivate, reviewActive, selectionBlocked, selectionMode])
-  const handleCommentVisibility = useEffectEvent(() => !open && toggleCommentVisibility())
+  const handleCommentsShortcut = useEffectEvent(() => {
+    if (
+      !canLoadComments ||
+      !reviewControlsTarget ||
+      selectionBlocked ||
+      selectionMode !== null ||
+      document.querySelector('[role="dialog"], dialog[open]')
+    )
+      return false
+    toggleComments()
+    return true
+  })
 
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
@@ -704,7 +716,7 @@ export function PrototypeCanvasHubPanel({
         (isAnnotationShortcut(event, "c") && toggleCommentSelection()) ||
         (isAnnotationShortcut(event, "c", true) &&
           !document.querySelector('[role="menu"]') &&
-          handleCommentVisibility())
+          handleCommentsShortcut())
       )
         event.preventDefault()
     }
@@ -719,7 +731,7 @@ export function PrototypeCanvasHubPanel({
     const nonce = bridgeNonceRef.current
     const origin = new URL(frameUrl).origin
     const commentShortcut = canCreateComment && !selectionUnavailable && !open
-    const pinsShortcut = canLoadComments && !selectionBlocked && !selectionMode && !open
+    const pinsShortcut = canLoadComments && !selectionBlocked && !selectionMode
     frame?.contentWindow?.postMessage(
       { type: "replica:canvas:request-ready", nonce, commentShortcut, pinsShortcut },
       origin,
@@ -869,7 +881,7 @@ export function PrototypeCanvasHubPanel({
           navigator.userActivation?.isActive === true &&
           !document.querySelector('[role="menu"]')
         )
-          handleCommentVisibility()
+          handleCommentsShortcut()
         return
       }
       if (data.type === "replica:canvas:conversation-dismiss-requested") {
@@ -1273,7 +1285,6 @@ export function PrototypeCanvasHubPanel({
                 copy={reviewCommentsCopy}
                 selectionBlocked={selectionBlocked}
                 selecting={selectionMode !== null}
-                unifiedSelection
                 visibilityAction={
                   canLoadComments
                     ? {
@@ -1283,16 +1294,16 @@ export function PrototypeCanvasHubPanel({
                     : undefined
                 }
                 onCancelSelection={cancelSelection}
-                onStartAreaSelection={() => void startSelection()}
-                onStartElementSelection={() => void startSelection()}
+                onStartSelection={() => void startSelection()}
               />
-              <Tooltip
+              <ShortcutTooltip
                 ref={commentsButtonRef}
                 text={
                   selectionBlocked
                     ? reviewCommentsCopy.selectionBlockedLabel
                     : reviewCommentsCopy.heading
                 }
+                shortcut="Shift C"
                 type="description"
               >
                 <Button
@@ -1301,6 +1312,7 @@ export function PrototypeCanvasHubPanel({
                   size="small"
                   aria-label={`${reviewCommentsCopy.heading}, ${visibleThreadCount}${hasUnreadVisibleThreads ? `, ${reviewCommentsCopy.unreadLabel}` : ""}`}
                   aria-expanded={commentsOpen && reviewActive}
+                  aria-keyshortcuts="Shift+C"
                   disabled={selectionBlocked}
                   onClick={toggleComments}
                 >
@@ -1312,7 +1324,7 @@ export function PrototypeCanvasHubPanel({
                     />
                   ) : null}
                 </Button>
-              </Tooltip>
+              </ShortcutTooltip>
             </div>,
             reviewControlsTarget,
           )

@@ -27,12 +27,14 @@
   const VIEWPORT_DIMENSION_MAXIMUM = 100_000
   const HIGHLIGHT_FADE_MILLISECONDS = 200
   const BRIDGE_NODE_ATTRIBUTE = "data-replica-bridge"
+  const DRAG_THRESHOLD_PIXELS = 8
   const textEncoder = new TextEncoder()
   const nativeReplaceState = History.prototype.replaceState
 
   let selectionMode = null
   let selectionRequestId = null
   let drawingPointerId = null
+  let pressStart = null
   let shapeOptimizing = false
   let areaStroke = []
   let selectionPending = false
@@ -241,7 +243,6 @@
     if (
       message.type === "replica:bridge:request-ready" ||
       message.type === "replica:bridge:select-element" ||
-      message.type === "replica:bridge:select-area" ||
       message.type === "replica:bridge:cancel-selection" ||
       message.type === "replica:bridge:clear-selection"
     ) {
@@ -1169,6 +1170,7 @@
     selectionMode = null
     selectionRequestId = null
     drawingPointerId = null
+    pressStart = null
     shapeOptimizing = false
     areaStroke = []
     if (wasSelecting) {
@@ -1177,7 +1179,6 @@
     }
     document.removeEventListener("pointermove", handleElementPointerMove, true)
     document.removeEventListener("pointerdown", handleElementPointerDown, true)
-    document.removeEventListener("pointerdown", handleAreaPointerDown, true)
     document.removeEventListener("pointermove", handleAreaPointerMove, true)
     document.removeEventListener("pointerup", handleAreaPointerUp, true)
     document.removeEventListener("pointercancel", handleAreaPointerCancel, true)
@@ -1203,14 +1204,9 @@
 
   function startElementSelection(requestId) {
     prepareSelection(requestId, "element")
+    document.documentElement.style.touchAction = "none"
     document.addEventListener("pointermove", handleElementPointerMove, true)
     document.addEventListener("pointerdown", handleElementPointerDown, true)
-  }
-
-  function startAreaSelection(requestId) {
-    prepareSelection(requestId, "area")
-    document.documentElement.style.touchAction = "none"
-    document.addEventListener("pointerdown", handleAreaPointerDown, true)
     document.addEventListener("pointermove", handleAreaPointerMove, true)
     document.addEventListener("pointerup", handleAreaPointerUp, true)
     document.addEventListener("pointercancel", handleAreaPointerCancel, true)
@@ -1223,18 +1219,53 @@
   }
 
   function handleElementPointerMove(event) {
+    if (selectionMode !== "element") return
+    if (pressStart && event.pointerId === drawingPointerId) {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      const point = { x: event.clientX, y: event.clientY }
+      if (pointDistance(pressStart.point, point) < DRAG_THRESHOLD_PIXELS) return
+      // Dragging past the threshold turns the press into a region selection.
+      selectionMode = "area"
+      shapeOptimizing = event.shiftKey
+      areaStroke = [pressStart.point, point]
+      pressStart = null
+      hideHighlight()
+      showAreaHighlight(shapeOptimizing ? optimizedStroke(areaStroke) : areaStroke)
+      return
+    }
     const element = eventElement(event)
     if (element && element !== highlightedElement) showHighlight(element)
   }
 
   function handleElementPointerDown(event) {
-    if (selectionMode !== "element" || !selectionRequestId) return
+    if (
+      selectionMode !== "element" ||
+      !selectionRequestId ||
+      drawingPointerId !== null ||
+      event.button !== 0
+    ) {
+      return
+    }
     event.preventDefault()
     event.stopImmediatePropagation()
+    drawingPointerId = event.pointerId
+    pressStart = {
+      element: eventElement(event),
+      point: { x: event.clientX, y: event.clientY },
+    }
+  }
+
+  function selectPressedElement(event) {
     const requestId = selectionRequestId
-    const element = eventElement(event)
-    const anchor = element ? capturedAnchor(element, event) : null
+    const element = pressStart.element
+    const anchor = element
+      ? capturedAnchor(element, { clientX: pressStart.point.x, clientY: pressStart.point.y })
+      : null
+    event.preventDefault()
+    event.stopImmediatePropagation()
     stopSelection(true)
+    suppressNextClick()
     if (anchor && isElementAnchor(anchor)) {
       selectionPending = true
       post("replica:bridge:element-selected", requestId, { anchor })
@@ -1243,22 +1274,13 @@
     }
   }
 
-  function handleAreaPointerDown(event) {
-    if (
-      selectionMode !== "area" ||
-      !selectionRequestId ||
-      drawingPointerId !== null ||
-      event.button !== 0
-    ) {
-      return
+  function suppressNextClick() {
+    function suppress(event) {
+      event.preventDefault()
+      event.stopImmediatePropagation()
     }
-
-    event.preventDefault()
-    event.stopImmediatePropagation()
-    drawingPointerId = event.pointerId
-    shapeOptimizing = event.shiftKey
-    areaStroke = [{ x: event.clientX, y: event.clientY }]
-    showAreaHighlight(areaStroke)
+    document.addEventListener("click", suppress, { capture: true, once: true })
+    window.setTimeout(() => document.removeEventListener("click", suppress, true), 0)
   }
 
   function handleAreaPointerMove(event) {
@@ -1281,6 +1303,15 @@
 
   function handleAreaPointerUp(event) {
     if (
+      selectionMode === "element" &&
+      pressStart &&
+      selectionRequestId &&
+      event.pointerId === drawingPointerId
+    ) {
+      selectPressedElement(event)
+      return
+    }
+    if (
       selectionMode !== "area" ||
       !selectionRequestId ||
       drawingPointerId === null ||
@@ -1296,6 +1327,7 @@
     if (!previous || pointDistance(previous, finalPoint) >= 1) areaStroke.push(finalPoint)
 
     const requestId = selectionRequestId
+    suppressNextClick()
     const captured = capturedAreaAnchor(areaStroke, shapeOptimizing || event.shiftKey)
     if (captured.anchor) {
       selectionPending = true
@@ -1312,7 +1344,7 @@
 
   function handleAreaPointerCancel(event) {
     if (
-      selectionMode !== "area" ||
+      selectionMode === null ||
       !selectionRequestId ||
       drawingPointerId === null ||
       event.pointerId !== drawingPointerId
@@ -1369,13 +1401,13 @@
   function handleShortcutKeyDown(event) {
     const key = event.key.toLowerCase()
     const messageType =
-      key === "c" && event.shiftKey
-        ? "replica:bridge:sidebar-toggle-requested"
-        : key === "c"
-          ? "replica:bridge:element-selection-requested"
-          : key === "h" && !event.shiftKey
-            ? "replica:bridge:area-selection-requested"
-            : null
+      key === "o" && !event.shiftKey
+        ? "replica:bridge:options-toggle-requested"
+        : key !== "c"
+          ? null
+          : event.shiftKey
+            ? "replica:bridge:sidebar-toggle-requested"
+            : "replica:bridge:element-selection-requested"
     if (
       selectionMode ||
       selectionPending ||
@@ -1548,10 +1580,6 @@
 
     if (message.type === "replica:bridge:select-element") {
       startElementSelection(message.requestId)
-      return
-    }
-    if (message.type === "replica:bridge:select-area") {
-      startAreaSelection(message.requestId)
       return
     }
     if (message.type === "replica:bridge:cancel-selection") {

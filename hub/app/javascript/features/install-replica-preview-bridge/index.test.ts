@@ -111,7 +111,7 @@ describe("installReplicaPreviewBridge()", () => {
     expect(postMessage).not.toHaveBeenCalled()
   })
 
-  it.each(["prevent-default", "element", "area"])(
+  it.each(["prevent-default", "element"])(
     "does not forward Escape after a later window listener handles it with %s",
     async (action) => {
       const { parent, preview, postMessage } = bridgeWindow()
@@ -163,7 +163,6 @@ describe("installReplicaPreviewBridge()", () => {
     expect(postMessage).not.toHaveBeenCalled()
 
     dispatchMessage(preview, parent, message("replica:bridge:select-element"))
-    dispatchMessage(preview, parent, message("replica:bridge:select-area"))
     dispatchMessage(
       preview,
       parent,
@@ -839,14 +838,16 @@ describe("installReplicaPreviewBridge()", () => {
     expect(highlight?.style.opacity).toBe("1")
     expect(highlight?.style.transition).toBe("opacity 200ms ease-out")
 
-    button.dispatchEvent(
-      new preview.MouseEvent("pointerdown", {
-        bubbles: true,
-        cancelable: true,
-        clientX: 45,
-        clientY: 46,
-      }),
+    const buttonClick = vi.fn()
+    button.addEventListener("click", buttonClick)
+    button.dispatchEvent(pointerEvent(preview, "pointerdown", 45, 46))
+    expect(postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "replica:bridge:element-selected" }),
+      expect.anything(),
     )
+    button.dispatchEvent(pointerEvent(preview, "pointerup", 47, 48))
+    button.dispatchEvent(new preview.MouseEvent("click", { bubbles: true, cancelable: true }))
+    expect(buttonClick).not.toHaveBeenCalled()
 
     const selected = postedMessages(postMessage).at(-1)
     expect(selected).toMatchObject({
@@ -884,7 +885,7 @@ describe("installReplicaPreviewBridge()", () => {
     expect(preview.document.documentElement.style.cursor).toBe("wait")
   })
 
-  it("draws and clears one bounded area with sampled element context", () => {
+  it("turns a comment press dragged past the threshold into one bounded area", () => {
     const { parent, postMessage, preview } = bridgeWindow()
     const button = preview.document.createElement("button")
     button.id = "save"
@@ -906,7 +907,7 @@ describe("installReplicaPreviewBridge()", () => {
       value: () => [button],
     })
 
-    dispatchMessage(preview, parent, message("replica:bridge:select-area"))
+    dispatchMessage(preview, parent, message("replica:bridge:select-element"))
     button.dispatchEvent(pointerEvent(preview, "pointerdown", 20, 40))
     button.dispatchEvent(pointerEvent(preview, "pointermove", 80, 70))
     button.dispatchEvent(pointerEvent(preview, "pointerup", 120, 100))
@@ -944,20 +945,17 @@ describe("installReplicaPreviewBridge()", () => {
     expect(outline?.style.opacity).toBe("0")
   })
 
-  it("requests element selection with C and area selection with H", () => {
+  it("requests selection with C, the sidebar with Shift+C, and options with O, and ignores H", () => {
     const { postMessage, preview } = bridgeWindow()
     const button = preview.document.createElement("button")
     const input = preview.document.createElement("input")
     preview.document.body.append(button)
 
-    preview.document.dispatchEvent(
-      new preview.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "h" }),
-    )
-    expect(postedMessages(postMessage).at(-1)).toMatchObject({
-      type: "replica:bridge:area-selection-requested",
-    })
+    const h = new preview.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "h" })
+    preview.document.dispatchEvent(h)
+    expect(h.defaultPrevented).toBe(false)
+    expect(postMessage).not.toHaveBeenCalled()
 
-    postMessage.mockClear()
     preview.document.dispatchEvent(
       new preview.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "c" }),
     )
@@ -976,6 +974,14 @@ describe("installReplicaPreviewBridge()", () => {
     )
     expect(postedMessages(postMessage).at(-1)).toMatchObject({
       type: "replica:bridge:sidebar-toggle-requested",
+    })
+
+    postMessage.mockClear()
+    preview.document.dispatchEvent(
+      new preview.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "o" }),
+    )
+    expect(postedMessages(postMessage).at(-1)).toMatchObject({
+      type: "replica:bridge:options-toggle-requested",
     })
 
     postMessage.mockClear()
@@ -1007,19 +1013,36 @@ describe("installReplicaPreviewBridge()", () => {
     expect(postMessage).not.toHaveBeenCalled()
   })
 
-  it("rejects an accidental area tap", () => {
+  it("treats a press that stays within the drag threshold as an element comment", () => {
     const { parent, postMessage, preview } = bridgeWindow()
     const button = preview.document.createElement("button")
+    button.id = "save"
+    button.getBoundingClientRect = () => ({
+      bottom: 72,
+      height: 32,
+      left: 20,
+      right: 120,
+      top: 40,
+      width: 100,
+      x: 20,
+      y: 40,
+      toJSON: () => ({}),
+    })
     preview.document.body.append(button)
 
-    dispatchMessage(preview, parent, message("replica:bridge:select-area"))
+    dispatchMessage(preview, parent, message("replica:bridge:select-element"))
     button.dispatchEvent(pointerEvent(preview, "pointerdown", 20, 40))
-    button.dispatchEvent(pointerEvent(preview, "pointerup", 22, 42))
+    button.dispatchEvent(pointerEvent(preview, "pointermove", 25, 44))
+    button.dispatchEvent(pointerEvent(preview, "pointerup", 25, 44))
 
     expect(postedMessages(postMessage).at(-1)).toMatchObject({
-      type: "replica:bridge:selection-failed",
-      payload: { reason: "area-too-small" },
+      type: "replica:bridge:element-selected",
+      payload: { anchor: { selector: "#save" } },
     })
+    expect(
+      preview.document.querySelector<SVGElement>("[data-replica-bridge='area-highlight']")?.style
+        .opacity ?? "0",
+    ).toBe("0")
   })
 
   it("bounds freehand paths and cleans closed shapes when Shift is held", () => {
@@ -1028,7 +1051,7 @@ describe("installReplicaPreviewBridge()", () => {
     preview.document.body.append(surface)
     Object.defineProperty(preview.document, "elementsFromPoint", { value: () => [] })
 
-    dispatchMessage(preview, parent, message("replica:bridge:select-area"))
+    dispatchMessage(preview, parent, message("replica:bridge:select-element"))
     surface.dispatchEvent(pointerEvent(preview, "pointerdown", 10, 50))
     for (let index = 1; index < 200; index += 1) {
       surface.dispatchEvent(
@@ -1045,7 +1068,7 @@ describe("installReplicaPreviewBridge()", () => {
     expect(freehandMessage.payload.anchor.path).toHaveLength(160)
 
     dispatchMessage(preview, parent, message("replica:bridge:clear-selection"))
-    dispatchMessage(preview, parent, message("replica:bridge:select-area"))
+    dispatchMessage(preview, parent, message("replica:bridge:select-element"))
     surface.dispatchEvent(pointerEvent(preview, "pointerdown", 10, 10))
     surface.dispatchEvent(pointerEvent(preview, "pointermove", 60, 10, true))
     surface.dispatchEvent(pointerEvent(preview, "pointermove", 110, 10, true))

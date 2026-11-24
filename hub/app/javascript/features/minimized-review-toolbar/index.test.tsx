@@ -24,8 +24,7 @@ const reviewControls: NonNullable<MinimizedReviewToolbarProps["reviewControls"]>
   sidebarToggleBlocked: false,
   sidebarOpen: false,
   onCancelSelection: vi.fn(),
-  onStartAreaSelection: vi.fn(),
-  onStartElementSelection: vi.fn(),
+  onStartSelection: vi.fn(),
   onToggleSidebar: vi.fn(),
 }
 const props: MinimizedReviewToolbarProps = {
@@ -301,21 +300,15 @@ describe("MinimizedReviewToolbar()", () => {
     expect(props.onMaximize).toHaveBeenCalledOnce()
   })
 
-  it("opens a viewport-fitted menu above the bottom toolbar and runs both review actions", async () => {
+  it("opens a viewport-fitted menu above the bottom toolbar and starts commenting", async () => {
     const { toolbar } = renderToolbar()
     fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
     await waitFor(() => {
       expect(toolbar.style.getPropertyValue("--minimized-review-menu-top")).toBe("464px")
       expect(toolbar.style.getPropertyValue("--minimized-review-menu-left")).toBe("334px")
     })
-    fireEvent.click(
-      screen.getByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
-    )
-    expect(reviewControls.onStartElementSelection).toHaveBeenCalledOnce()
-
-    fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
-    fireEvent.click(screen.getByRole("menuitem", { name: reviewCommentsCopy.highlightRegionLabel }))
-    expect(reviewControls.onStartAreaSelection).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole("menuitem", { name: reviewCommentsCopy.commentMenuLabel }))
+    expect(reviewControls.onStartSelection).toHaveBeenCalledOnce()
   })
 
   it("positions the menu below a top-edge toolbar and clamps its measured width", async () => {

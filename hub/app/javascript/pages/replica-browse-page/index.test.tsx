@@ -1066,7 +1066,6 @@ describe("ReplicaBrowsesShowView()", () => {
       fireEvent.keyDown(window, { key: "C", shiftKey: true })
       for (const type of [
         "replica:bridge:element-selection-requested",
-        "replica:bridge:area-selection-requested",
         "replica:bridge:sidebar-toggle-requested",
       ]) {
         act(() => {

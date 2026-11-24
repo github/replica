@@ -1,5 +1,5 @@
-import { ChatIcon, CommentIcon, EyeIcon, PaintbrushIcon, XIcon } from "@primer/octicons-react"
-import { ActionMenu, Tooltip } from "@primer/react-brand/esm"
+import { ChatIcon, CommentIcon, EyeIcon, XIcon } from "@primer/octicons-react"
+import { ActionMenu } from "@primer/react-brand/esm"
 import { useId } from "react"
 import { HubIconButton } from "@components/hub-icon-button"
 import { HubVisuallyHidden } from "@components/hub-visually-hidden"
@@ -9,8 +9,7 @@ import type { ReviewCommentControlProps } from "./types"
 
 import "./styles.css"
 
-function MenuLabel({ children, shortcut }: { children: string; shortcut?: string[] }) {
-  if (!shortcut) return children
+function MenuLabel({ children, shortcut }: { children: string; shortcut: string[] }) {
   return (
     <span className="review-comment-control__menu-label">
       {children}
@@ -31,11 +30,9 @@ export function ReviewCommentControl({
   copy,
   selectionBlocked,
   selecting,
-  unifiedSelection = false,
   visibilityAction,
   onCancelSelection,
-  onStartAreaSelection,
-  onStartElementSelection,
+  onStartSelection,
 }: ReviewCommentControlProps) {
   const descriptionId = useId()
   const unavailable = !bridgeReady || selectionBlocked
@@ -46,25 +43,19 @@ export function ReviewCommentControl({
       : copy.commentMenuLabel
 
   if (selecting) {
-    const cancel = (
-      <HubIconButton
-        icon={XIcon}
-        aria-label={copy.cancelSelectionLabel}
-        description={unifiedSelection ? undefined : copy.cancelSelectionLabel}
-        aria-keyshortcuts={unifiedSelection ? "C" : undefined}
-        aria-pressed
-        size="small"
-        variant="default"
-        className="review-comment-control__trigger"
-        onClick={onCancelSelection}
-      />
-    )
-    return unifiedSelection ? (
+    return (
       <ShortcutTooltip text={copy.cancelSelectionLabel} shortcut="C" type="description">
-        {cancel}
+        <HubIconButton
+          icon={XIcon}
+          aria-label={copy.cancelSelectionLabel}
+          aria-keyshortcuts="C"
+          aria-pressed
+          size="small"
+          variant="default"
+          className="review-comment-control__trigger"
+          onClick={onCancelSelection}
+        />
       </ShortcutTooltip>
-    ) : (
-      cancel
     )
   }
 
@@ -75,7 +66,7 @@ export function ReviewCommentControl({
         variant="secondary"
         aria-label={copy.commentMenuLabel}
         aria-describedby={descriptionId}
-        aria-keyshortcuts={unifiedSelection ? "C" : undefined}
+        aria-keyshortcuts="C"
         leadingVisual={<ChatIcon size={16} />}
         onClick={(event) => {
           const button = event.currentTarget
@@ -94,44 +85,24 @@ export function ReviewCommentControl({
       <ActionMenu.Overlay aria-label={copy.commentMenuLabel}>
         <ActionMenu.Item
           className="review-comment-control__menu-item"
-          value="element"
+          value="comment"
           leadingVisual={<CommentIcon size={16} />}
           aria-keyshortcuts="C"
-          onClick={onStartElementSelection}
+          onClick={onStartSelection}
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ") {
               event.preventDefault()
-              onStartElementSelection()
+              onStartSelection()
             }
           }}
         >
-          <MenuLabel shortcut={unifiedSelection ? ["C"] : undefined}>
-            {unifiedSelection ? copy.commentMenuLabel : copy.commentOnElementLabel}
-          </MenuLabel>
+          <MenuLabel shortcut={["C"]}>{copy.commentMenuLabel}</MenuLabel>
         </ActionMenu.Item>
-        {!unifiedSelection ? (
-          <ActionMenu.Item
-            className="review-comment-control__menu-item"
-            value="area"
-            leadingVisual={<PaintbrushIcon size={16} />}
-            aria-keyshortcuts="H"
-            onClick={onStartAreaSelection}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault()
-                onStartAreaSelection()
-              }
-            }}
-          >
-            {copy.highlightRegionLabel}
-          </ActionMenu.Item>
-        ) : null}
         {visibilityAction ? (
           <ActionMenu.Item
             className="review-comment-control__menu-item"
             value="visibility"
             leadingVisual={<EyeIcon size={16} />}
-            aria-keyshortcuts="Shift+C"
             onClick={visibilityAction.onToggle}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
@@ -140,7 +111,7 @@ export function ReviewCommentControl({
               }
             }}
           >
-            <MenuLabel shortcut={["Shift", "C"]}>{visibilityAction.label}</MenuLabel>
+            {visibilityAction.label}
           </ActionMenu.Item>
         ) : null}
       </ActionMenu.Overlay>
@@ -156,13 +127,9 @@ export function ReviewCommentControl({
     )
   }
 
-  return unifiedSelection ? (
+  return (
     <ShortcutTooltip id={descriptionId} text={actionDescription} shortcut="C" type="description">
       <div>{menu}</div>
     </ShortcutTooltip>
-  ) : (
-    <Tooltip id={descriptionId} text={actionDescription} type="description">
-      <div>{menu}</div>
-    </Tooltip>
   )
 }

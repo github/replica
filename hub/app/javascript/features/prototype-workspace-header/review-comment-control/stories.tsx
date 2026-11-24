@@ -25,8 +25,7 @@ const meta = {
     selectionBlocked: false,
     selecting: false,
     onCancelSelection: noop,
-    onStartAreaSelection: noop,
-    onStartElementSelection: noop,
+    onStartSelection: noop,
   },
 } satisfies Meta<typeof ReviewCommentControl>
 
@@ -60,7 +59,6 @@ export const CanvasVisibilityMenu: Story = {
       return (
         <ReviewCommentControl
           {...args}
-          unifiedSelection
           visibilityAction={{
             label: visible ? canvasCopy.hideComments : canvasCopy.showComments,
             onToggle: () => setVisible((previous) => !previous),
@@ -90,7 +88,6 @@ export const CanvasCommentsHidden: Story = {
 export const CanvasSelecting: Story = {
   args: {
     selecting: true,
-    unifiedSelection: true,
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.hover(
