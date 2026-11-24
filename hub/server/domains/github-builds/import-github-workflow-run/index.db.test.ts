@@ -1,24 +1,34 @@
-import { createHash, randomInt, randomUUID } from "node:crypto"
+import { createHash, randomBytes, randomInt, randomUUID } from "node:crypto"
+import { once } from "node:events"
+import { createServer, type RequestListener } from "node:http"
 
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 
-import { prisma } from "../../../integrations/prisma"
-import { GitHubCommitLookupError } from "../../../integrations/github/errors"
+import { createApp } from "../../../create-app"
+import { hubSessionCookieName } from "../../../integrations/express/hub-session-cookie-name"
 import type {
   GitHubWorkflowArtifact,
   GitHubWorkflowRun,
 } from "../../../integrations/github/create-github-actions-client/types"
+import { GitHubCommitLookupError } from "../../../integrations/github/errors"
+import { createLogger } from "../../../integrations/pino/create-logger"
+import { prisma } from "../../../integrations/prisma"
+import { createAuthorityClient } from "../../../integrations/private-preview/create-authority-client"
 import { findBuildArtifact } from "../../../repositories/build-artifacts/find-build-artifact"
 import { listGitHubBuildsAwaitingImport } from "../../../repositories/github-builds/list-github-builds-awaiting-import"
+import { createPrivatePreviewAccessStore } from "../../../repositories/private-previews/create-private-preview-access-store"
 import { findPrivatePreviewDistFile } from "../../../repositories/private-previews/find-private-preview-dist-file"
 import { findPrivatePreviewTarget } from "../../../repositories/private-previews/find-private-preview-target"
 import { findPrototypeDetail } from "../../../repositories/prototype-index/find-prototype-detail"
 import { createGitHubWebhookRouteDependencies } from "../../../routes/api/github/webhooks/create-github-webhook-route-dependencies"
+import { createPrivatePreviewReader } from "../../../routes/private-preview-reader"
 import { createZipArchive } from "../../../test/create-zip-archive"
 import { privatePreviewAddress } from "../../../utils/private-preview-address"
 import type { ArtifactStorage } from "../../artifacts/create-artifact-storage/types"
 import { extractDistPackage } from "../../build-artifacts/extract-dist-package"
 import { readBuildPreviewFile } from "../../build-preview/read-build-preview-file"
+import { createPrivatePreviewAuthority } from "../../private-preview/create-authority"
+import { readerAuthorizePath, readerExchangePath } from "../../private-preview/types"
 import { distArtifactName, screenshotArtifactName } from "../constants"
 import { discoverGitHubWorkflowRuns } from "../discover-github-workflow-runs"
 import type { GitHubWorkflowRunJob } from "../get-github-workflow-run-job-definition"
@@ -63,7 +73,7 @@ function createImmutableStorage(): ArtifactStorage {
 
 async function createFixture() {
   const githubRepositoryId = randomInt(1, 2 ** 31)
-  await prisma.repository.create({
+  const repository = await prisma.repository.create({
     data: {
       githubRepositoryId,
       nameWithOwner: `octo/${randomUUID()}`,
@@ -146,6 +156,7 @@ async function createFixture() {
     })
   }
   return {
+    repository,
     run,
     packages,
     hooks,
@@ -213,9 +224,28 @@ async function expectPrivatePreviewHidden(
   ])
 }
 
+async function listenBehindProxy(origin: string, app: RequestListener) {
+  const host = new URL(origin).host
+  const server = createServer((request, response) => {
+    request.headers.host = host
+    request.headers["x-forwarded-proto"] = "https"
+    app(request, response)
+  }).listen(0, "127.0.0.1")
+  await once(server, "listening")
+  onTestFinished(
+    () =>
+      new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      ),
+  )
+  const address = server.address()
+  if (!address || typeof address === "string") throw new Error("Missing test server address.")
+  return `http://127.0.0.1:${address.port}`
+}
+
 describe("importGitHubWorkflowRun", () => {
   describe("private preview publishing", () => {
-    it("publishes only served files under the ordinary Build's opaque keys and exposes its owning run", async () => {
+    it("serves the owning run's published Build only after a Hub handoff", async () => {
       const fixture = await createFixture()
       const { repositoryId, id } = fixture.run
       const address = privatePreviewAddress(String(repositoryId), String(id))!
@@ -228,6 +258,75 @@ describe("importGitHubWorkflowRun", () => {
         screenshotPackage(extractDistPackage(archive).distDigest),
       )
 
+      const settings = {
+        hubOrigin: "https://hub.example.com",
+        readerOrigin: "https://preview.example.net",
+        readerSecret: randomBytes(32).toString("base64url"),
+      }
+      const launch = `${settings.hubOrigin}/api/private-preview/launch/${repositoryId}/${id}`
+      const session = randomBytes(32).toString("base64url")
+      const sessionDigest = createHash("sha256").update(session).digest("hex")
+      const hubCookie = `${hubSessionCookieName}=${session}`
+      const viewer = {
+        userId: randomUUID(),
+        membershipId: randomUUID(),
+        role: "MEMBER" as const,
+        sessionProvider: "github",
+      }
+      // Sign-in and GitHub permissions are fixture boundaries; the grant and playback checks are real.
+      function hasAccess(_viewer: typeof viewer, repo: string) {
+        return Promise.resolve(repo === fixture.repository.id)
+      }
+      const authority = createPrivatePreviewAuthority({
+        readerOrigin: settings.readerOrigin,
+        storage: fixture.storage,
+        access: createPrivatePreviewAccessStore(prisma),
+        restoreSession: (digest) => Promise.resolve(digest === sessionDigest ? viewer : null),
+        isRepositoryVisible: hasAccess,
+        hasCurrentRepositoryAccess: hasAccess,
+        findTarget: (target) => findPrivatePreviewTarget(prisma, target),
+        findDistFile: (buildId, path) => findPrivatePreviewDistFile(prisma, buildId, path),
+      })
+      const hub = await listenBehindProxy(
+        settings.hubOrigin,
+        createApp({
+          logger: createLogger({ level: "silent" }),
+          trustedProxyHops: 1,
+          privatePreview: { settings, authority },
+        }),
+      )
+      const client = createAuthorityClient(hub, settings.readerSecret)
+      const reader = await listenBehindProxy(
+        settings.readerOrigin,
+        createPrivatePreviewReader({
+          settings,
+          trustedProxyHops: 1,
+          exchange: (grant, { repositoryId, runId }, challengeDigest) =>
+            client.exchange(readerExchangePath, { repositoryId, runId, grant, challengeDigest }),
+          authorizeFile: (access, { repositoryId, runId }, path, allowEntryPointFallback) =>
+            client.authorizeFile(readerAuthorizePath, {
+              access,
+              repositoryId,
+              runId,
+              path,
+              allowEntryPointFallback,
+            }),
+          readArtifact: (key) => storage.read(key),
+        }),
+      )
+
+      writer.storage.write.mockImplementationOnce(async (key, bytes) => {
+        const result = await storage.write(key, bytes)
+        const pending = await fixture.findBuild()
+        expect(pending).toMatchObject({ state: "successful", privatePreviewState: "pending" })
+        await expectPrivatePreviewHidden(pending, address)
+        const response = await fetch(`${hub}${address.launch}`, {
+          redirect: "manual",
+          headers: { cookie: hubCookie },
+        })
+        expect(response.status).toBe(404)
+        return result
+      })
       await expect(fixture.importRun(undefined, writer)).resolves.toEqual({
         dist: "imported",
         screenshots: "attached",
@@ -245,24 +344,69 @@ describe("importGitHubWorkflowRun", () => {
       const served = build.artifacts.filter(({ path }) =>
         ["dist/assets/app.bin", "dist/index.html"].includes(path),
       )
-      expect(new Set(writer.storage.write.mock.calls.map(([key]) => key))).toEqual(
-        new Set(served.map(({ storageKey }) => storageKey)),
+      expect(writer.storage.write.mock.calls.map(([key]) => key).sort()).toEqual(
+        served.map(({ storageKey }) => storageKey).sort(),
       )
-      for (const { path, storageKey, byteLength } of served) {
-        const bytes = path.endsWith(".bin") ? asset : Buffer.from("<h1>Home</h1>")
-        await expect(findPrivatePreviewDistFile(prisma, build.id, path)).resolves.toEqual({
-          storageKey,
-          byteLength,
-        })
-        await expect(fixture.storage.read(storageKey)).resolves.toEqual({ status: "ok", bytes })
-        await expect(storage.read(storageKey)).resolves.toEqual({ status: "ok", bytes })
-      }
-      const launch = `https://hub.example.com/api/private-preview/launch/${repositoryId}/${id}`
       await expect(readPrivatePreviewAvailability(build, address)).resolves.toEqual([
         launch,
         launch,
         build.id,
       ])
+
+      const assetPath = `${address.mount}assets/app.bin`
+      expect((await fetch(`${hub}${address.launch}`, { redirect: "manual" })).status).toBe(401)
+
+      const started = await fetch(`${hub}${address.launch}`, {
+        redirect: "manual",
+        headers: { cookie: hubCookie },
+      })
+      expect(started.status).toBe(302)
+      expect(started.headers.get("location")).toBe(`${settings.readerOrigin}${address.begin}`)
+      const begin = await fetch(`${reader}${address.begin}`, { redirect: "manual" })
+      expect(begin.status).toBe(302)
+      const challengeCookie = begin.headers.getSetCookie()[0]!.split(";")[0]!
+      const confirmationUrl = new URL(begin.headers.get("location")!)
+      expect(`${confirmationUrl.origin}${confirmationUrl.pathname}`).toBe(launch)
+      const confirmation = await fetch(
+        `${hub}${confirmationUrl.pathname}${confirmationUrl.search}`,
+        {
+          headers: { cookie: hubCookie },
+        },
+      )
+      expect(confirmation.status).toBe(200)
+      const challenge = (await confirmation.text()).match(/name="challenge" value="([^"]+)"/)![1]!
+
+      const handoff = await fetch(`${hub}${address.launch}`, {
+        method: "POST",
+        headers: { origin: settings.hubOrigin, cookie: hubCookie },
+        body: new URLSearchParams({ challenge }),
+      })
+      expect(handoff.status).toBe(200)
+      const form = await handoff.text()
+      expect(form).toContain(`action="${settings.readerOrigin}${address.exchange}"`)
+      const grant = form.match(/name="grant" value="([^"]+)"/)![1]!
+      const exchanged = await fetch(`${reader}${address.exchange}`, {
+        method: "POST",
+        redirect: "manual",
+        headers: { origin: settings.hubOrigin, cookie: challengeCookie },
+        body: new URLSearchParams({ grant }),
+      })
+      expect(exchanged.status).toBe(303)
+      expect(exchanged.headers.get("location")).toBe(address.mount)
+      const readerCookie = exchanged.headers.getSetCookie()[0]!.split(";")[0]!
+
+      const file = await fetch(`${reader}${assetPath}`, { headers: { cookie: readerCookie } })
+      expect(file.status).toBe(200)
+      expect(Buffer.from(await file.arrayBuffer())).toEqual(asset)
+      expect((await fetch(`${reader}${assetPath}`)).status).toBe(404)
+
+      for (const path of [address.mount, `${address.mount}settings/display`]) {
+        const page = await fetch(`${reader}${path}`, {
+          headers: { cookie: readerCookie, "sec-fetch-dest": "document" },
+        })
+        expect(page.status).toBe(200)
+        expect(await page.text()).toBe("<h1>Home</h1>")
+      }
     })
 
     it.each([
