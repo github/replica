@@ -41,6 +41,7 @@ class NotificationsController < SuperglueController
   # @route GET /notifications/:id (notification)
   def show
     notification = Notification.visible_to(Current.user).find(params[:id])
+    notification.record_opened_by(Current.user)
     render json: { commentId: notification.review_comment.id, version: notification.lock_version }
   end
 

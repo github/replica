@@ -135,7 +135,7 @@ class ShareLink < ApplicationRecord
       Page.new(records:, next_cursor:, has_more:)
     end
 
-    # Creates one public share link with the selected expiration.
+    # Creates one public share link and yields it before committing.
     def create_public!(prototype:, build:, created_by:, label:, expiration: nil,
       authorization_proof: nil, sharing_revision: SharingSetting.revision)
       duration = expiration_duration(expiration)
@@ -149,13 +149,15 @@ class ShareLink < ApplicationRecord
               user: created_by
           end
           created_at = Time.current
-          create! \
+          link = create! \
             prototype:,
             build:,
             created_by:,
             label:,
             created_at:,
             expires_at: duration ? created_at + duration : nil
+          yield link if block_given?
+          link
         end
       end
     end

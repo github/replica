@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_07_220000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_24_170000) do
   create_table "analytics_deliveries", force: :cascade do |t|
     t.integer "attempts", default: 0, null: false
     t.datetime "created_at", null: false
@@ -69,7 +69,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_07_220000) do
     t.index ["source_key"], name: "index_analytics_events_on_source_key", unique: true
     t.index ["uuid"], name: "index_analytics_events_on_uuid", unique: true
     t.check_constraint "json_valid(properties) AND json_type(properties) = 'object'", name: "analytics_events_properties"
-    t.check_constraint "name IN ('prototype_registered', 'prototype_first_published', 'build_published', 'review_comment_created', 'review_reply_added', 'review_thread_resolved', 'review_thread_reopened')", name: "analytics_events_name"
+    t.check_constraint "name IN ('prototype_registered', 'prototype_first_published', 'build_published', 'review_comment_created', 'review_reply_added', 'review_thread_resolved', 'review_thread_reopened', 'share_link_created', 'shared_preview_opened', 'template_previewed', 'canvas_pairing_approved', 'review_reaction_added', 'review_mention_added', 'notification_opened', 'learning_run_requested', 'learning_decision_recorded')", name: "analytics_events_name"
   end
 
   create_table "branch_banner_dismissals", force: :cascade do |t|
@@ -428,6 +428,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_07_220000) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.string "source_key", null: false
+    t.boolean "analytics_opened", default: false, null: false
     t.index ["actor_id"], name: "index_notifications_on_actor_id"
     t.index ["comment_mention_id"], name: "index_notifications_on_comment_mention_id", unique: true
     t.index ["recipient_id", "created_at", "id"], name: "index_notifications_on_recipient_id_and_created_at_and_id"

@@ -1,6 +1,6 @@
 # Repository analytics
 
-Hub records repository activity when a Prototype is registered, a Build is published, or a review conversation changes. It keeps the events for 90 days, even when no analytics destination exists. Repository administrators can send selected events to Segment, Mixpanel, or their own public HTTPS endpoint from **Analytics**.
+Hub records repository activity such as publishing Builds, creating share links, and reviewing Prototypes. It keeps the events for 90 days, even when no analytics destination exists. Repository administrators can send selected events to Segment, Mixpanel, or their own public HTTPS endpoint from **Analytics**.
 
 Security decisions, including destination changes, use the separate [security audit](security-audit.md). They are never delivered to analytics destinations.
 
@@ -12,7 +12,7 @@ Every GitHub-backed destination mutation also requires [fresh GitHub authorizati
 
 The isolated local-development demo keeps its existing analytics editing without pretending to verify GitHub identity. This exception applies only to the local developer acting on a configured local repository with local mode enabled. Local mode requires development, an explicit flag, and a localhost Hub origin; production rejects it. No other sensitive operation receives this exception.
 
-Choose **Add destination** beside **Destinations**, then select a provider, credentials, and event types. Segment and Mixpanel each allow one destination per repository; custom HTTP destinations have distinct names and can be added more than once. Select a region for Segment or Mixpanel. All seven event types are selected initially. Use an Owner/Admin service account for Mixpanel, not a browser project token.
+Choose **Add destination** beside **Destinations**, then select a provider, credentials, and event types. Segment and Mixpanel each allow one destination per repository; custom HTTP destinations have distinct names and can be added more than once. Select a region for Segment or Mixpanel. New destinations start with all available event types selected. Existing destinations keep their saved selection until an administrator changes it. Use an Owner/Admin service account for Mixpanel, not a browser project token.
 
 **New events only** is the default. **Include retained events from the last 90 days** sends only this repository's selected event types when adding a destination. Later edits never resend history.
 
@@ -71,10 +71,21 @@ For example, discovering a branch does not record an event. Adding that branch t
 | `review_reply_added` | Reply added |
 | `review_thread_resolved` | Open thread resolved |
 | `review_thread_reopened` | Resolved thread reopened |
+| `share_link_created` | Signed-in user creates a public share link in Hub |
+| `shared_preview_opened` | Public link starts a preview. Loading only the share page does not count; starting the preview again counts again. No actor is recorded. |
+| `template_previewed` | Signed-in user opens an available preview. Counts once per user, per template, per repository, per UTC day. |
+| `canvas_pairing_approved` | Signed-in user approves a canvas pairing |
+| `review_reaction_added` | User adds a reaction. Repeating an existing reaction does not count. |
+| `review_mention_added` | A new mention is saved. The actor is the comment author, not the person mentioned. |
+| `notification_opened` | Recipient opens a notification for the first time |
+| `learning_run_requested` | Repository administrator queues a run or takes over a waiting scheduled run. Joining a run already requested or in progress does not count again. |
+| `learning_decision_recorded` | Repository administrator accepts, rejects, or retires a learning |
 
 Publication does not require gallery registration. Failed Builds and completed workflows alone do not count. Hub tracks no offline work, local editing, or activity inside previews. Local development records the same Hub-observed events.
 
-Events hold a type, timestamp, stable UUID, repository, and applicable Prototype, Build, thread, and comment IDs. They never hold review text, saved targets, branch names, commit SHAs, or profile fields. A source key makes each recorded transition unique. Product state and its event commit together. A migration marks existing successful Builds as previously published without inventing historical events; the Prototype keeps its first-publication timestamp after events expire.
+Events hold a type, timestamp, stable UUID, repository, and applicable Prototype, Build, thread, and comment IDs. They never hold review text, saved targets, branch names, commit SHAs, or profile fields. A source key makes each fact unique. Database changes and their events commit together. Learning decisions are recorded only after the separate learning store saves them. A failed analytics write does not block template, shared preview, or notification opens.
+
+A migration marks existing successful Builds as previously published without inventing historical events; the Prototype keeps its first-publication timestamp after events expire. Hub does not backfill the new feature events.
 
 Known authors receive one opaque identifier across this Hub's repositories, including commit authors without a Hub login. Hub does not infer identity from names or emails. Unknown authors have no stored actor. Actor IDs are pseudonymous, not anonymous: a destination can correlate actions across repositories. They use a purpose-specific HMAC key derived from `SECRET_KEY_BASE`. Keep that secret stable and backed up; rotating it changes future IDs but not retained events.
 
@@ -82,7 +93,7 @@ For an event without a known author, Segment uses `system/<event UUID>` as its a
 
 ## Provider delivery
 
-An administrator can configure one encrypted destination per built-in provider and multiple independently named custom destinations per repository through `Analytics::Destination#configure!`. Segment requires a source write key; Mixpanel requires a service account username, secret, and numeric project ID. Select a provider-supported region and one or more of the seven event types. Credentials are never returned to clients, and provider responses are not stored.
+An administrator can configure one encrypted destination per built-in provider and multiple independently named custom destinations per repository through `Analytics::Destination#configure!`. Segment requires a source write key; Mixpanel requires a service account username, secret, and numeric project ID. Select a provider-supported region and at least one event type. Credentials are never returned to clients, and provider responses are not stored.
 
 | Provider | Region | Fixed HTTPS endpoint |
 | --- | --- | --- |

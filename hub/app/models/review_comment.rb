@@ -286,6 +286,11 @@ class ReviewComment < ApplicationRecord
     root_id.nil?
   end
 
+  # Identifies the message and its enclosing review without including review content.
+  def analytics_properties
+    { prototype_id:, build_id: build_id || root.build_id, thread_id: root_id || id, comment_id: id }
+  end
+
   # Reports whether this record replies directly to a root comment.
   def reply?
     root_id.present?
@@ -328,10 +333,7 @@ class ReviewComment < ApplicationRecord
         source_key: "comment/#{id}/created",
         actor_id: Analytics.actor_id(user:),
         occurred_at: created_at,
-        properties: {
-          prototype_id:, build_id: build_id || root.build_id,
-          thread_id: root_id || id, comment_id: id
-        }
+        properties: analytics_properties
     end
   end
 

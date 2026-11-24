@@ -23,6 +23,15 @@ en:
       review_reply_added: Reply added
       review_thread_resolved: Conversation resolved
       review_thread_reopened: Conversation reopened
+      share_link_created: Public share link created
+      shared_preview_opened: Public preview opened
+      template_previewed: Template preview opened
+      canvas_pairing_approved: Canvas pairing approved
+      review_reaction_added: Review reaction added
+      review_mention_added: Review mention added
+      notification_opened: Notification first opened
+      learning_run_requested: Learning run requested
+      learning_decision_recorded: Learning decision recorded
     page:
       heading: Analytics
       description: Hub records repository activity for 90 days, even without a destination. Send selected events to your analytics provider.

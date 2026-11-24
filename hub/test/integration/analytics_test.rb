@@ -35,7 +35,9 @@ class AnalyticsIntegrationTest < ActionDispatch::IntegrationTest
     assert_equal Analytics::Event::TYPES, data.fetch("eventTypes").map { _1.fetch("value") }
     assert_equal Analytics::CustomConfiguration::AUTHENTICATION_HEADERS, data.fetch("authenticationHeaders")
 
-    post @destinations_path, params: { destination: configuration }
+    selected_events = %w[prototype_registered template_previewed]
+    settings = configuration.merge(event_types: selected_events)
+    post @destinations_path, params: { destination: settings }
     assert_response :see_other
     destination = @repository.analytics_destinations.sole
     path = repository_analytics_destination_path(@repository.route_id, destination)
@@ -46,19 +48,21 @@ class AnalyticsIntegrationTest < ActionDispatch::IntegrationTest
 
     get @path, headers: { "Accept" => "application/json" }
     card = JSON.parse(response.body).fetch("data").fetch("destinations").sole
+    assert_equal selected_events, card.fetch("eventTypes")
     assert_equal false, card.fetch("deliveryFailed")
     assert_empty card.keys & %w[lastDeliveredAt failureCount retryCount]
 
     patch path, params: {
-      destination: configuration.except(:provider, :history).merge(credentials: { write_key: "rotated-secret" })
+      destination: settings.except(:provider, :history).merge(credentials: { write_key: "rotated-secret" })
     }
     assert_equal "rotated-secret", destination.reload.credentials["write_key"]
-    patch path, params: { destination: configuration.merge(credentials: { write_key: "" }) }
+    patch path, params: { destination: settings.merge(credentials: { write_key: "" }) }
     assert_equal "rotated-secret", destination.reload.credentials["write_key"]
     patch path, params: { operation: "pause" }
     assert_not destination.reload.enabled?
     patch path, params: { operation: "resume" }
     assert destination.reload.enabled?
+    assert_equal selected_events, destination.event_types
     delete path
     assert_response :see_other
     assert_not Analytics::Destination.exists?(destination.id)

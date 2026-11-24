@@ -102,7 +102,15 @@ class ReviewComment::Thread < ActiveRecord::AssociatedObject
       reaction = record.reactions.find_or_create_by! \
         user: user,
         content: content
-      Notification.record_reaction!(reaction) if reaction.previously_new_record?
+      if reaction.previously_new_record?
+        Notification.record_reaction!(reaction)
+        Analytics::Event.record! \
+          repository: record.prototype.repository,
+          name: "review_reaction_added",
+          source_key: "reaction/#{reaction.id}/added",
+          actor_id: Analytics.actor_id(user:),
+          properties: record.analytics_properties
+      end
       record_observed_activity! \
         user,
         activity_version

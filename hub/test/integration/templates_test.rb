@@ -40,6 +40,7 @@ class TemplatesTest < ActionDispatch::IntegrationTest
     get repository_template_path(@repository.route_id, "default"), as: :json
     assert_response :success
     assert_not page_data.key?("controlsIdentity")
+    assert_empty @repository.analytics_events.where(name: "template_previewed")
   end
 
   test "Create offers picker and catalog routes and screenshots from one successful snapshot" do
@@ -127,6 +128,88 @@ class TemplatesTest < ActionDispatch::IntegrationTest
     assert_empty ShareLink.all
   end
 
+  test "records one template preview per repository, viewer and template per UTC day" do
+    viewer = User.find_by!(github_id: 1001)
+    events = @repository.analytics_events.where(name: "template_previewed")
+    path = repository_template_path(@repository.route_id, "welcome")
+    build = successful_build
+    other_payload = repository_payload(2002, "example/another-prototype")
+
+    Time.use_zone("Pacific Time (US & Canada)") do
+      travel_to Time.utc(2026, 9, 15, 23, 59) do
+        get path, as: :json
+        assert_response :success
+        first = events.sole
+        assert_equal Analytics.actor_id(user: viewer), first.actor_id
+        expected = { "repository_id" => @repository.id, "prototype_id" => @owner.id, "build_id" => build.id }
+        assert_equal expected, first.properties
+
+        successful_build(number: 2, commit_sha: "b" * 40)
+        get path, params: { return_path: "/settings?tab=profile" }, as: :json
+        assert_response :success
+        assert_equal first, events.sole
+
+        other = repositories.create \
+          github_id: other_payload.fetch("id"),
+          name_with_owner: other_payload.fetch("full_name"),
+          default_branch: "main"
+        owner = prototypes.create(repository: other, branch_name: "main")
+        stub_github_permissions([ other_payload ], { 2002 => "pull" })
+        successful_build(prototype: owner)
+        get repository_template_path(other.route_id, "welcome"), as: :json
+        assert_response :success
+        assert_equal other.id, other.analytics_events.where(name: "template_previewed").sole.properties.fetch("repository_id")
+
+        assert_difference -> { events.count }, 1 do
+          get repository_template_path(@repository.route_id, "default"), as: :json
+        end
+        assert_response :success
+      end
+
+      travel_to Time.utc(2026, 9, 16) do
+        assert_difference -> { events.count }, 1 do
+          get path, as: :json
+        end
+        assert_response :success
+
+        delete session_path
+        stub_github_oauth_user(github_id: 1002, login: "another-reader")
+        stub_github_permissions \
+          [ @payload, other_payload ],
+          { 2001 => "pull", 2002 => "pull" },
+          github_id: 1002,
+          login: "another-reader"
+        sign_in_to_hub(github_id: 1002)
+        assert_difference -> { events.count }, 1 do
+          get path, as: :json
+        end
+        assert_response :success
+        assert_equal Analytics.actor_id(user: User.find_by!(github_id: 1002)), events.order(:id).last.actor_id
+      end
+    end
+  end
+
+  test "serves a template preview even if its analytics write fails" do
+    build = successful_build
+    original = Analytics::Event.method(:record!)
+    attempted = false
+    Analytics::Event.define_singleton_method(:record!) do |**attributes|
+      if attributes[:name] == "template_previewed"
+        attempted = true
+        raise ActiveRecord::StatementInvalid, "database is locked"
+      end
+
+      original.call(**attributes)
+    end
+
+    get repository_template_path(@repository.route_id, "welcome"), as: :json
+    assert_response :success
+    assert_equal build.number, page_data.fetch("selectedBuild").fetch("number")
+    assert attempted
+  ensure
+    Analytics::Event.define_singleton_method(:record!, original) if original
+  end
+
   test "template controls require the same current preview session and repository read access" do
     build = successful_build
     get preview_build_authorization_path(build.id), params: { return_path: @template.fetch(:path) }
@@ -200,6 +283,7 @@ class TemplatesTest < ActionDispatch::IntegrationTest
     assert_response :not_found
     get repository_template_path(@repository.route_id, "unknown"), as: :json
     assert_response :not_found
+    assert_empty @repository.analytics_events.where(name: "template_previewed")
   end
 
   test "serves dark Default and template captures and keeps legacy screenshots available" do
@@ -357,6 +441,7 @@ class TemplatesTest < ActionDispatch::IntegrationTest
       get repository_template_path(@repository.route_id, "welcome"), params: { return_path: }, as: :json
       assert_response :not_found, return_path.inspect
     end
+    assert_empty @repository.analytics_events.where(name: "template_previewed")
   end
 
   test "requires current access for list detail and screenshots and fails closed" do
@@ -373,6 +458,7 @@ class TemplatesTest < ActionDispatch::IntegrationTest
         assert_response expected
       end
     end
+    assert_empty @repository.analytics_events.where(name: "template_previewed")
   end
 
   private
@@ -381,8 +467,8 @@ class TemplatesTest < ActionDispatch::IntegrationTest
     JSON.parse(response.body).fetch("data")
   end
 
-  def successful_build(template: @template, **attributes)
-    builds.create_successful(prototype: @owner, **attributes).tap do |build|
+  def successful_build(template: @template, prototype: @owner, **attributes)
+    builds.create_successful(prototype:, **attributes).tap do |build|
       write(build, "templates.json", JSON.generate(version: 1, templates: [ template ]))
       %w[desktop narrow].each do |size|
         write(build, "screenshots/#{size}.png", "default #{size}")

@@ -38,7 +38,7 @@ class SharePreviewGrant < ApplicationRecord
     # Creates one grant and returns the secret sent to the preview host.
     def issue!(share_link:, return_path: nil)
       token = SecureRandom.urlsafe_base64(32)
-      transaction do
+      grant = transaction do
         share_link.reload
         raise SharingSetting::Disabled if !share_link.available?
 
@@ -49,6 +49,13 @@ class SharePreviewGrant < ApplicationRecord
           ),
           token_digest: Digest::SHA256.hexdigest(token),
           expires_at: 2.minutes.from_now
+      end
+      Analytics::Event.record_page_view do
+        Analytics::Event.record! \
+          repository: share_link.prototype.repository,
+          name: "shared_preview_opened",
+          source_key: "share_preview_grant/#{grant.id}/issued",
+          properties: { prototype_id: share_link.prototype_id, build_id: share_link.build_id }
       end
       token
     end

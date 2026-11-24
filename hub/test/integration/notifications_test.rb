@@ -46,10 +46,6 @@ class NotificationsTest < ActionDispatch::IntegrationTest
   end
 
   test "lists recipient notifications with exact message links without marking anything read" do
-    get notification_path(@notification)
-    assert_response :success
-    assert_equal @comment.id, response.parsed_body.fetch("commentId")
-
     get inbox_notifications_path
     assert_response :success
     item = response.parsed_body.fetch("notifications").sole
@@ -61,11 +57,46 @@ class NotificationsTest < ActionDispatch::IntegrationTest
     assert_equal repository_prototype_path(@repository.route_id, @build.prototype, comment: @comment.id, notification: @notification.id),
       item.fetch("path")
     assert_nil @notification.reload.read_at
+    events = @repository.analytics_events.where(name: "notification_opened")
+    assert_empty events
 
     get notification_path(@notification)
     assert_response :success
     assert_equal @comment.id, response.parsed_body.fetch("commentId")
+    assert_equal item.fetch("version"), response.parsed_body.fetch("version")
     assert_nil @notification.reload.read_at
+    assert_equal item.fetch("version"), @notification.lock_version
+    event = events.sole
+
+    get notification_path(@notification)
+    assert_response :success
+    assert_equal event, events.sole
+  end
+
+  test "opens a notification even if its analytics write fails and records it on retry" do
+    original = Analytics::Event.method(:record!)
+    attempted = false
+    Analytics::Event.define_singleton_method(:record!) do |**attributes|
+      if attributes[:name] == "notification_opened" && !attempted
+        attempted = true
+        raise ActiveRecord::StatementInvalid, "database is locked"
+      end
+
+      original.call(**attributes)
+    end
+
+    get notification_path(@notification)
+    assert_response :success
+    assert_equal @comment.id, response.parsed_body.fetch("commentId")
+    assert attempted
+    events = @repository.analytics_events.where(name: "notification_opened")
+    assert_empty events
+
+    get notification_path(@notification)
+    assert_response :success
+    assert_equal 1, events.count
+  ensure
+    Analytics::Event.define_singleton_method(:record!, original) if original
   end
 
   test "read updates are recipient scoped and reject stale versions" do
@@ -92,6 +123,7 @@ class NotificationsTest < ActionDispatch::IntegrationTest
 
     get notification_path(@notification)
     assert_response :not_found
+    assert_empty @repository.analytics_events.where(name: "notification_opened")
     patch notification_path(@notification), params: { notification: { read: true, version: 0 } }, as: :json
     assert_response :not_found
   end
@@ -172,6 +204,11 @@ class NotificationsTest < ActionDispatch::IntegrationTest
     get notification_path(reaction.fetch("id"))
     assert_response :success
     assert_equal own_reply.id, response.parsed_body.fetch("commentId")
+    event = @repository.analytics_events.where(name: "notification_opened").sole
+    assert_equal Analytics.actor_id(user: @recipient), event.actor_id
+    expected = { "repository_id" => @repository.id, "prototype_id" => @build.prototype.id, "build_id" => @build.id,
+      "thread_id" => @comment.id, "comment_id" => own_reply.id }
+    assert_equal expected, event.properties
 
     stub_github_permissions([ @repository_payload ], { 2001 => "none" })
     get inbox_notifications_path
@@ -192,6 +229,13 @@ class NotificationsTest < ActionDispatch::IntegrationTest
     assert_response :success
     reactions = response.parsed_body.fetch("notifications").select { _1.fetch("kind") == "reaction" }
     assert_equal %w[heart rocket], reactions.map { _1.fetch("reactionContent") }.sort
+    events = @repository.analytics_events.where(name: "notification_opened")
+    reactions.each do |notification|
+      assert_difference -> { events.count }, 1 do
+        get notification_path(notification.fetch("id"))
+      end
+      assert_response :success
+    end
   end
 
   test "the full inbox and repository sidebar render real counts and presentation copy" do
