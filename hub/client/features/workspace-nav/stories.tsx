@@ -103,3 +103,14 @@ export const ReadOnly: Story = {
     },
   },
 }
+
+export const UnreadInbox: Story = {
+  args: {
+    data: {
+      ...administrator,
+      notificationsLabel: "Inbox",
+      notificationsUnreadCount: undefined,
+      notificationsUnreadLabel: "Inbox, unread notifications",
+    },
+  },
+}

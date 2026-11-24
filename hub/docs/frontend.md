@@ -112,7 +112,7 @@ Signed-in page and filter changes refresh the lightweight workspace alongside pa
 
 In real mode, one layout keeps the signed-in navigation mounted while the route content changes. It owns the picker, collapse choice, and Inbox badge across Welcome, repository pages, Inbox, Canvas connections, and settings. Route metadata selects the active link. Entering prototype review collapses the sidebar. You can reopen it, and changing Builds or leaving review keeps its current state. A page error stays in the content area. A minimized prototype preview hides navigation without resetting it.
 
-The sidebar refreshes its Inbox badge in the background when a signed-in page opens. The Inbox page supplies its own count, and changing filters on other pages does not request another count. The badge keeps the last known count while a request runs or fails. Hub clears the count when Inbox access is denied or the viewer changes.
+The sidebar shows a dot when the viewer has unread Inbox activity. It updates with the workspace as the viewer moves between pages. Hub keeps the last dot state if navigation fails temporarily and discards it when the session ends or the viewer changes. Opening the Inbox or its preview does not supply the dot state.
 
 Hub settings and audit loaders request their own authorized data. They do not request full workspace data to build navigation. An administrator can still use Hub-wide settings if no repository is readable or if repository navigation fails. For Hub administrators, **Security audit** opens the Hub-wide records. The scope menu also offers the selected repository when Hub verifies repository administrator permission. Repository audit and Analytics still check current repository permissions in their APIs.
 
@@ -225,7 +225,7 @@ History loads only the requested page and any successful Build pinned by `build`
 
 ### Workspace projections
 
-`GET /api/workspace?view=navigation` returns the signed-in viewer, readable repositories, and Hub preferences without checking live GitHub management permissions. `GET /api/workspace` retains the full response and checks management permissions for the selected repository. Both views verify the session and scope repositories to the viewer's access.
+`GET /api/workspace?view=navigation` returns the signed-in viewer, readable repositories, Hub preferences, and the [Inbox unread indicator](review-collaboration.md#inbox-and-live-review). It does not check live GitHub repository permissions. `GET /api/workspace` retains the full response and checks management permissions for the selected repository. Both views verify the session and scope repositories to the viewer's access.
 
 ### Prototype metadata edits
 

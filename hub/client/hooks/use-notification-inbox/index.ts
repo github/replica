@@ -21,8 +21,6 @@ export function useNotificationInbox({
   initialUnreadOnly = false,
   unreadOnly: controlledUnreadOnly,
   autoLoad = true,
-  autoCount = false,
-  countRefreshKey,
   synchronize = false,
   limit = 50,
   onReadChange,
@@ -34,8 +32,6 @@ export function useNotificationInbox({
   initialUnreadOnly?: boolean
   unreadOnly?: boolean
   autoLoad?: boolean
-  autoCount?: boolean
-  countRefreshKey?: string
   synchronize?: boolean
   limit?: number
   onReadChange?: (id: number, saved: NotificationReadUpdate) => void
@@ -60,7 +56,6 @@ export function useNotificationInbox({
   const [loading, setLoading] = useState(autoLoad && Boolean(path))
   const [failed, setFailed] = useState(false)
   const generation = useRef(0)
-  const pendingCount = useRef<AbortController | null>(null)
   const countReceivedAt = useRef<number | null>(null)
   const suppliedCountRevision = useRef(0)
   const loaded = useRef(false)
@@ -88,8 +83,6 @@ export function useNotificationInbox({
   const receiveUnreadCount = useCallback(
     (count: number | null) => {
       suppliedCountRevision.current += 1
-      pendingCount.current?.abort()
-      pendingCount.current = null
       countReceivedAt.current = count === null ? null : performance.now()
       setUnreadCount(count ?? 0)
       if (count === null) {
@@ -197,56 +190,11 @@ export function useNotificationInbox({
     }
   }, [autoLoad, load, path])
 
-  const loadCount = useCallback(() => {
-    if (!path) return
-    pendingCount.current?.abort()
-    const requestGeneration = generation.current
-    const controller = new AbortController()
-    pendingCount.current = controller
-    const url = new URL(path, window.location.origin)
-    url.searchParams.set("limit", "1")
-    url.searchParams.set("unread", "true")
-    void fetch(url, { credentials: "same-origin", cache: "no-store", signal: controller.signal })
-      .then(async (response) => {
-        requireInboxResponse(response)
-        const page = NOTIFICATION_PAGE_SCHEMA.parse(await response.json())
-        if (controller.signal.aborted || requestGeneration !== generation.current) return
-
-        // An older preview can still supply rows, but it no longer owns the count.
-        suppliedCountRevision.current += 1
-        countReceivedAt.current = performance.now()
-        setUnreadCount(page.unreadCount)
-      })
-      .catch((error: unknown) => {
-        if (controller.signal.aborted || requestGeneration !== generation.current) return
-        if (error instanceof InboxAccessDeniedError) {
-          receiveUnreadCount(null)
-        } else {
-          countReceivedAt.current = null
-          console.warn("Hub could not refresh the Inbox badge.")
-        }
-      })
-      .finally(() => {
-        if (pendingCount.current === controller) pendingCount.current = null
-      })
-  }, [path, receiveUnreadCount])
-
-  useEffect(() => {
-    if (autoCount && (countRefreshKey !== undefined || countReceivedAt.current === null)) {
-      loadCount()
-    }
-    return () => {
-      pendingCount.current?.abort()
-      pendingCount.current = null
-    }
-  }, [autoCount, countRefreshKey, loadCount])
-
   function needsCountRefresh(saved: NotificationReadUpdate, startedAt?: number) {
     const lastCount = countReceivedAt.current
     return (
       saved.unreadCount === undefined &&
-      (pendingCount.current !== null ||
-        lastCount === null ||
+      (lastCount === null ||
         (startedAt !== undefined && lastCount >= startedAt) ||
         (saved.read && unreadCount <= 1))
     )
@@ -291,13 +239,12 @@ export function useNotificationInbox({
   const receiveReadUpdate = useEffectEvent(({ id, saved, startedAt }: InboxReadUpdate) => {
     if (ownReadUpdate.current === saved) return
     const reloadList = loaded.current || autoLoad || loading
-    const needsCount = (reloadList || autoCount) && needsCountRefresh(saved, startedAt)
+    const needsCount = reloadList && needsCountRefresh(saved, startedAt)
     applyReadUpdate(id, saved, !needsCount)
     if (reloadList) {
       void load()
     } else {
       generation.current += 1
-      if (needsCount) loadCount()
     }
   })
 

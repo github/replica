@@ -32,13 +32,15 @@ export function WorkspaceInbox({
     initialUnreadCount: data.notificationsUnreadCount,
     initialUnreadOnly: true,
     autoLoad: false,
-    autoCount: data.selectedSection !== "notifications",
     synchronize: Boolean(configuration),
     limit: 10,
   })
   const liveInbox =
     data.liveInbox ?? (configuration ? { ...managed, copy: configuration.copy } : undefined)
-  const count = liveInbox?.unreadCount ?? data.notificationsUnreadCount
+  const count =
+    data.notificationsUnreadCount === undefined
+      ? undefined
+      : (liveInbox?.unreadCount ?? data.notificationsUnreadCount)
   const { open, triggerRef, panelRef, enter, leave, close } = useHoverPreview(
     Boolean(inboxPreview || liveInbox),
   )
@@ -57,10 +59,19 @@ export function WorkspaceInbox({
       setPosition({ left, top, width, maxHeight: Math.min(592, window.innerHeight - top - 12) })
     }
     enter()
-    if (!open) liveInbox?.onOpen()
+    if (!open) liveInbox?.onOpen(Boolean(configuration))
   }
 
   if (!data.notificationsPath || !data.notificationsLabel) return null
+  const label = data.notificationsLabel
+  const unreadLabel =
+    liveInbox && count !== undefined
+      ? count
+        ? `${label}, ${count} unread`
+        : undefined
+      : data.notificationsUnread
+        ? data.notificationsUnreadLabel
+        : undefined
 
   return (
     <li
@@ -87,16 +98,8 @@ export function WorkspaceInbox({
       <RepositoryNavigationItem
         href={data.notificationsPath}
         icon={InboxIcon}
-        label={data.notificationsLabel}
-        ariaLabel={
-          liveInbox
-            ? count
-              ? `${data.notificationsLabel}, ${count} unread`
-              : undefined
-            : data.notificationsUnread
-              ? data.notificationsUnreadLabel
-              : undefined
-        }
+        label={label}
+        ariaLabel={unreadLabel ?? label}
         count={count}
         selected={data.selectedSection === "notifications"}
         onClick={(event) => {

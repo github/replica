@@ -50,9 +50,11 @@ export function workspaceNavigation(
     notificationInbox: inboxConnected
       ? { ...notificationInboxConfiguration, connected: true }
       : undefined,
-    notificationsUnread: unreadCount > 0,
-    notificationsUnreadCount: unreadCount,
-    notificationsUnreadLabel: `${real ? "Inbox" : "Notifications"}, ${unreadCount} unread`,
+    notificationsUnread: real ? workspace.inboxHasUnread : unreadCount > 0,
+    notificationsUnreadCount: real ? undefined : unreadCount,
+    notificationsUnreadLabel: real
+      ? "Inbox, unread notifications"
+      : `Notifications, ${unreadCount} unread`,
     administrationLinks: admin
       ? real
         ? [

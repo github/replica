@@ -25,9 +25,7 @@ import { RouteFeedback } from "@application/hub/route-feedback"
 import { useWorkspaceRepositoryPermissions } from "@application/hub/use-workspace-repository-permissions"
 import { hubWorkspace } from "@application/hub/view-models/hub-workspace"
 import { WorkspaceCompletionContext } from "@application/hub/workspace-completion-context"
-import { WorkspaceInboxCountContext } from "@application/hub/workspace-inbox-count-context"
 import { HubWorkspace } from "@features/hub-workspace"
-import { useNotificationInbox } from "@hooks/use-notification-inbox"
 
 import type { Route } from "./+types/index"
 import type { WorkspaceRouteHandle } from "./types"
@@ -132,18 +130,42 @@ export default function Workspace({ loaderData }: Pick<Route.ComponentProps, "lo
     return <Outlet context={null} />
   }
   const { workspace } = loaderData
-  const viewerKey = `${workspace.viewer.id}:${workspace.viewer.provider ?? ""}:${workspace.capabilities?.administerHub ?? false}`
-  if (isMockMode()) return <Outlet key={viewerKey} context={workspace} />
+  const viewerKey = `${workspace.viewer.id}:${workspace.viewer.provider ?? ""}`
+  if (isMockMode()) {
+    return (
+      <Outlet
+        key={`${viewerKey}:${workspace.capabilities?.administerHub ?? false}`}
+        context={workspace}
+      />
+    )
+  }
   return <SignedInWorkspace key={viewerKey} data={loaderData} handle={handle} />
 }
 
-function SignedInWorkspace({
-  data,
-  handle,
-}: {
+type WorkspaceFrameProps = {
   data: WorkspaceData
   handle?: WorkspaceRouteHandle
-}) {
+  inboxHasUnread?: boolean
+}
+
+function SignedInWorkspace({ data, handle }: WorkspaceFrameProps) {
+  const { inboxHasUnread } = data.workspace
+  const [lastUnread, setLastUnread] = useState(inboxHasUnread)
+  if (inboxHasUnread !== undefined && inboxHasUnread !== lastUnread) {
+    setLastUnread(inboxHasUnread)
+  }
+
+  return (
+    <WorkspaceSession
+      key={String(data.workspace.capabilities?.administerHub ?? false)}
+      data={data}
+      handle={handle}
+      inboxHasUnread={inboxHasUnread ?? lastUnread}
+    />
+  )
+}
+
+function WorkspaceSession({ data, handle, inboxHasUnread }: WorkspaceFrameProps) {
   const { key } = useLocation()
   const navigationPending = useNavigation().state !== "idle"
   const revalidator = useRevalidator()
@@ -172,18 +194,12 @@ function SignedInWorkspace({
         }
       }}
     >
-      <WorkspaceNavigationFrame data={data} handle={handle} />
+      <WorkspaceNavigationFrame data={data} handle={handle} inboxHasUnread={inboxHasUnread} />
     </WorkspaceCompletionContext>
   )
 }
 
-function WorkspaceNavigationFrame({
-  data,
-  handle,
-}: {
-  data: WorkspaceData
-  handle?: WorkspaceRouteHandle
-}) {
+function WorkspaceNavigationFrame({ data, handle, inboxHasUnread }: WorkspaceFrameProps) {
   const { pathname, search } = useLocation()
   const parameters = new URLSearchParams(search)
   const repositoryId = readWorkspaceRepositoryId({ pathname, searchParams: parameters })
@@ -194,18 +210,6 @@ function WorkspaceNavigationFrame({
   )
   const section = handle?.workspaceSection
   const navigation = hubWorkspace(workspace, parameters, section)
-  const configuration = checkingWorkspace ? undefined : navigation.notificationInbox
-  const inbox = useNotificationInbox({
-    path: configuration?.path,
-    authenticityToken: navigation.authenticityToken,
-    initialUnreadCount: navigation.notificationsUnreadCount,
-    initialUnreadOnly: true,
-    autoLoad: false,
-    autoCount: Boolean(configuration) && section !== "notifications",
-    countRefreshKey: pathname,
-    synchronize: Boolean(configuration),
-    limit: 10,
-  })
 
   if (checkingWorkspace) {
     return (
@@ -217,31 +221,27 @@ function WorkspaceNavigationFrame({
     )
   }
   return (
-    <WorkspaceInboxCountContext value={inbox.onUnreadCountChange}>
-      <HubWorkspace
-        contentResetKey={pathname}
-        defaultNavigationCollapsed={handle?.defaultNavigationCollapsed}
-        onRetryPermissions={retry}
-        data={{
-          ...navigation,
-          emptyRepositoryLabel: data.repositoryNavigationError
-            ? "Repository navigation unavailable"
-            : navigation.emptyRepositoryLabel,
-          repositoryUnavailableMessage: data.repositoryNavigationError
-            ? "Hub could not load repository navigation."
-            : undefined,
-          liveInbox: configuration
-            ? { ...inbox, copy: configuration.copy, onOpen: () => inbox.onOpen(true) }
-            : undefined,
-          inboxPreviewScope: pathname,
-        }}
-      >
-        {data.repositoryNavigationError && !handle?.independentOfRepositoryNavigation ? (
-          <RouteErrorFeedback error={data.repositoryNavigationError} embedded />
-        ) : (
-          <Outlet context={workspace} />
-        )}
-      </HubWorkspace>
-    </WorkspaceInboxCountContext>
+    <HubWorkspace
+      contentResetKey={pathname}
+      defaultNavigationCollapsed={handle?.defaultNavigationCollapsed}
+      onRetryPermissions={retry}
+      data={{
+        ...navigation,
+        notificationsUnread: inboxHasUnread,
+        emptyRepositoryLabel: data.repositoryNavigationError
+          ? "Repository navigation unavailable"
+          : navigation.emptyRepositoryLabel,
+        repositoryUnavailableMessage: data.repositoryNavigationError
+          ? "Hub could not load repository navigation."
+          : undefined,
+        inboxPreviewScope: pathname,
+      }}
+    >
+      {data.repositoryNavigationError && !handle?.independentOfRepositoryNavigation ? (
+        <RouteErrorFeedback error={data.repositoryNavigationError} embedded />
+      ) : (
+        <Outlet context={workspace} />
+      )}
+    </HubWorkspace>
   )
 }

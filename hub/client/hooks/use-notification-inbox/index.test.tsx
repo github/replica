@@ -22,38 +22,6 @@ const notification: InboxNotification = {
 }
 const page = { notifications: [notification], nextBefore: null, unreadCount: 12 }
 
-function renderClosedBadge() {
-  return renderHook(
-    ({ pathname }) =>
-      useNotificationInbox({
-        path: "/api/notifications/inbox",
-        authenticityToken: "",
-        initialUnreadCount: 4,
-        initialUnreadOnly: true,
-        autoLoad: false,
-        autoCount: true,
-        countRefreshKey: pathname,
-        synchronize: true,
-        limit: 10,
-      }),
-    { initialProps: { pathname: "/repositories/2001" } },
-  )
-}
-
-function badgeResponse(unreadCount: number) {
-  return Response.json({
-    notifications: [{ ...notification, id: 2 }],
-    unreadCount,
-    nextBefore: unreadCount > 1 ? 2 : null,
-  })
-}
-
-function acknowledgeRead(startedAt: number) {
-  const receipt = { id: 1, startedAt, saved: { version: 1, read: true } }
-  notifyInboxRead(receipt)
-}
-
-const badgeUrl = new URL("/api/notifications/inbox?limit=1&unread=true", window.location.origin)
 const unreadInboxUrl = new URL(
   "/api/notifications/inbox?limit=50&unread=true",
   window.location.origin,
@@ -76,6 +44,7 @@ describe("useNotificationInbox()", () => {
         limit: 10,
       }),
     )
+    expect(fetch).not.toHaveBeenCalled()
     act(() => result.current.onOpen())
     await waitFor(() => expect(result.current.notifications).toHaveLength(1))
     act(() => result.current.onOpen())
@@ -195,76 +164,6 @@ describe("useNotificationInbox()", () => {
     expect(result.current.unreadCount).toBe(0)
   })
 
-  it("loads the latest ten when the preview opens and ignores an older count that arrives last", async () => {
-    let finishCount!: (response: Response) => void
-    const pendingCount = new Promise<Response>((resolve) => (finishCount = resolve))
-    const fetch = vi
-      .fn()
-      .mockReturnValueOnce(pendingCount)
-      .mockResolvedValueOnce(Response.json(page))
-    vi.stubGlobal("fetch", fetch)
-    const { result } = renderClosedBadge()
-    expect(fetch).toHaveBeenCalledExactlyOnceWith(badgeUrl, expect.anything())
-
-    act(() => result.current.onOpen())
-    await waitFor(() => expect(result.current.notifications).toHaveLength(1))
-    expect(fetch).toHaveBeenLastCalledWith(
-      new URL("/api/notifications/inbox?limit=10&unread=true", window.location.origin),
-      expect.anything(),
-    )
-    expect(result.current.unreadCount).toBe(12)
-
-    await act(async () => {
-      finishCount(badgeResponse(2))
-      await pendingCount
-    })
-    expect(result.current.unreadCount).toBe(12)
-  })
-
-  it("keeps the newer navigation count when an older preview finishes last", async () => {
-    let finishPreview!: (response: Response) => void
-    const preview = new Promise<Response>((resolve) => (finishPreview = resolve))
-    const fetch = vi
-      .fn()
-      .mockResolvedValueOnce(badgeResponse(2))
-      .mockReturnValueOnce(preview)
-      .mockResolvedValueOnce(badgeResponse(3))
-    vi.stubGlobal("fetch", fetch)
-    const { result, rerender } = renderClosedBadge()
-    await waitFor(() => expect(result.current.unreadCount).toBe(2))
-
-    act(() => result.current.onOpen())
-    rerender({ pathname: "/welcome" })
-    await waitFor(() => expect(result.current.unreadCount).toBe(3))
-
-    await act(async () => {
-      finishPreview(Response.json({ ...page, unreadCount: 2 }))
-      await preview
-    })
-    expect(result.current.notifications).toEqual([notification])
-    expect(result.current.unreadCount).toBe(3)
-  })
-
-  it.each([200, 401])(
-    "keeps the supplied count when an earlier background request returns %s",
-    async (status) => {
-      let finishCount!: (response: Response) => void
-      const pendingCount = new Promise<Response>((resolve) => (finishCount = resolve))
-      const fetch = vi.fn().mockReturnValueOnce(pendingCount)
-      vi.stubGlobal("fetch", fetch)
-      const { result } = renderClosedBadge()
-      expect(fetch).toHaveBeenCalledExactlyOnceWith(badgeUrl, expect.anything())
-
-      act(() => result.current.onUnreadCountChange(7))
-      await act(async () => {
-        finishCount(status === 200 ? badgeResponse(2) : new Response(null, { status }))
-        await pendingCount
-      })
-
-      expect(result.current.unreadCount).toBe(7)
-    },
-  )
-
   it.each([200, 403])(
     "clears cached rows on fresh open and keeps the supplied count when the preview returns %s",
     async (status) => {
@@ -307,29 +206,6 @@ describe("useNotificationInbox()", () => {
       expect(result.current.unreadCount).toBe(7)
     },
   )
-
-  it("uses the supplied count when automatic counting resumes without navigation", async () => {
-    const fetch = vi.fn(() => Promise.resolve(badgeResponse(2)))
-    vi.stubGlobal("fetch", fetch)
-    const { result, rerender } = renderHook(
-      ({ autoCount }) =>
-        useNotificationInbox({
-          path: "/api/notifications/inbox",
-          authenticityToken: "",
-          autoLoad: false,
-          autoCount,
-        }),
-      { initialProps: { autoCount: true } },
-    )
-    await waitFor(() => expect(result.current.unreadCount).toBe(2))
-
-    rerender({ autoCount: false })
-    act(() => result.current.onUnreadCountChange(7))
-    rerender({ autoCount: true })
-
-    expect(result.current.unreadCount).toBe(7)
-    expect(fetch).toHaveBeenCalledOnce()
-  })
 
   it("keeps the last unread count when the preview fails and retries explicitly", async () => {
     const onUnreadCountChange = vi.fn()
@@ -607,146 +483,40 @@ describe("useNotificationInbox()", () => {
     expect(onReadChange).not.toHaveBeenCalled()
   })
 
-  it("adjusts a closed badge once without refetching when the count settled before the read began", async () => {
-    const fetch = vi.fn().mockResolvedValueOnce(badgeResponse(2))
-    vi.stubGlobal("fetch", fetch)
-    const clock = vi.spyOn(performance, "now").mockReturnValue(10)
-    const { result } = renderClosedBadge()
-    await waitFor(() => expect(result.current.unreadCount).toBe(2))
-
-    clock.mockReturnValue(20)
-    act(() => acknowledgeRead(performance.now()))
-
-    expect(result.current.unreadCount).toBe(1)
-    expect(fetch).toHaveBeenCalledExactlyOnceWith(badgeUrl, expect.anything())
-  })
-
-  it("refreshes a closed badge when a read would reduce its settled count to zero", async () => {
+  it("refreshes the open Inbox when another surface saves a read after a failed update", async () => {
+    const other = { ...notification, id: 2, updatePath: "/api/notifications/2" }
+    const saved = { version: 1, read: true }
     const fetch = vi
       .fn()
-      .mockResolvedValueOnce(Response.json({ ...page, unreadCount: 1 }))
-      .mockResolvedValueOnce(badgeResponse(2))
-    vi.stubGlobal("fetch", fetch)
-    const clock = vi.spyOn(performance, "now").mockReturnValue(10)
-    const { result } = renderClosedBadge()
-    await waitFor(() => expect(result.current.unreadCount).toBe(1))
-
-    clock.mockReturnValue(20)
-    act(() => acknowledgeRead(performance.now()))
-
-    await waitFor(() => expect(result.current.unreadCount).toBe(2))
-    expect(fetch).toHaveBeenCalledTimes(2)
-    expect(fetch).toHaveBeenLastCalledWith(badgeUrl, expect.anything())
-  })
-
-  it("refreshes the closed badge after a read and ignores an earlier count that arrives last", async () => {
-    let finishInitial!: (response: Response) => void
-    const initial = new Promise<Response>((resolve) => (finishInitial = resolve))
-    const fetch = vi.fn().mockReturnValueOnce(initial).mockResolvedValueOnce(badgeResponse(1))
-    vi.stubGlobal("fetch", fetch)
-    const clock = vi.spyOn(performance, "now").mockReturnValue(10)
-    const { result } = renderClosedBadge()
-    expect(fetch).toHaveBeenCalledOnce()
-    clock.mockReturnValue(20)
-    const startedAt = performance.now()
-    clock.mockReturnValue(30)
-    act(() => acknowledgeRead(startedAt))
-
-    await waitFor(() => expect(result.current.unreadCount).toBe(1))
-    await act(async () => {
-      finishInitial(badgeResponse(2))
-      await initial
-    })
-    expect(result.current.unreadCount).toBe(1)
-    expect(fetch).toHaveBeenCalledTimes(2)
-    expect(fetch).toHaveBeenLastCalledWith(badgeUrl, expect.anything())
-  })
-
-  it("rechecks the closed badge without subtracting from a count that may already include the read", async () => {
-    let finishInitial!: (response: Response) => void
-    let finishFresh!: (response: Response) => void
-    const initial = new Promise<Response>((resolve) => (finishInitial = resolve))
-    const fresh = new Promise<Response>((resolve) => (finishFresh = resolve))
-    const fetch = vi.fn().mockReturnValueOnce(initial).mockReturnValueOnce(fresh)
-    vi.stubGlobal("fetch", fetch)
-    const clock = vi.spyOn(performance, "now").mockReturnValue(10)
-    const { result } = renderClosedBadge()
-    expect(fetch).toHaveBeenCalledOnce()
-    clock.mockReturnValue(20)
-    const startedAt = performance.now()
-    clock.mockReturnValue(30)
-    finishInitial(badgeResponse(1))
-    await waitFor(() => expect(result.current.unreadCount).toBe(1))
-
-    clock.mockReturnValue(40)
-    act(() => acknowledgeRead(startedAt))
-    expect(result.current.unreadCount).toBe(1)
-    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
-    expect(fetch).toHaveBeenLastCalledWith(badgeUrl, expect.anything())
-
-    await act(async () => {
-      finishFresh(badgeResponse(1))
-      await fresh
-    })
-    expect(result.current.unreadCount).toBe(1)
-  })
-
-  it.each([
-    ["clears", 401, 0],
-    ["keeps", 503, 1],
-  ] as const)(
-    "%s the closed badge count when the background request fails with status %s",
-    async (_outcome, status, count) => {
-      const failure = Promise.resolve(new Response(null, { status }))
-      const fetch = vi
-        .fn()
-        .mockResolvedValueOnce(Response.json({ ...page, unreadCount: 1 }))
-        .mockReturnValueOnce(failure)
-      vi.stubGlobal("fetch", fetch)
-      const clock = vi.spyOn(performance, "now").mockReturnValue(10)
-      const { result } = renderClosedBadge()
-      await waitFor(() => expect(result.current.unreadCount).toBe(1))
-
-      clock.mockReturnValue(20)
-      await act(() => {
-        acknowledgeRead(performance.now())
-        return failure
-      })
-      expect(fetch).toHaveBeenCalledTimes(2)
-      expect(fetch).toHaveBeenLastCalledWith(badgeUrl, expect.anything())
-      expect(result.current.unreadCount).toBe(count)
-    },
-  )
-
-  it("recounts on a separate read after a failed update leaves the badge stale", async () => {
-    const fetch = vi
-      .fn()
-      .mockResolvedValueOnce(badgeResponse(3))
       .mockResolvedValueOnce(
-        Response.json({
-          notifications: [notification, { ...notification, id: 2 }],
-          nextBefore: null,
-          unreadCount: 3,
-        }),
+        Response.json({ ...page, notifications: [other, notification], unreadCount: 2 }),
       )
       .mockResolvedValueOnce(new Response(null, { status: 503 }))
-      .mockResolvedValueOnce(badgeResponse(2))
+      .mockResolvedValueOnce(
+        Response.json({
+          ...page,
+          notifications: [other, { ...notification, ...saved }],
+          unreadCount: 1,
+        }),
+      )
     vi.stubGlobal("fetch", fetch)
-    const clock = vi.spyOn(performance, "now").mockReturnValue(10)
-    const { result } = renderClosedBadge()
-    await waitFor(() => expect(result.current.unreadCount).toBe(3))
-    act(() => result.current.onOpen())
+    const { result } = renderHook(() =>
+      useNotificationInbox({
+        path: "/api/notifications/inbox",
+        authenticityToken: "token",
+        synchronize: true,
+      }),
+    )
     await waitFor(() => expect(result.current.notifications).toHaveLength(2))
     act(() => result.current.onToggleRead(2))
     await waitFor(() => expect(result.current.failed).toBe(true))
-    expect(result.current.unreadCount).toBe(3)
 
-    clock.mockReturnValue(20)
-    act(() => acknowledgeRead(performance.now()))
-
-    await waitFor(() => expect(result.current.unreadCount).toBe(2))
-    expect(fetch).toHaveBeenCalledTimes(4)
-    expect(fetch).toHaveBeenLastCalledWith(badgeUrl, expect.anything())
+    act(() => notifyInboxRead({ id: 1, startedAt: performance.now(), saved }))
+    await waitFor(() =>
+      expect(result.current.notifications).toEqual([other, { ...notification, ...saved }]),
+    )
+    expect(result.current.unreadCount).toBe(1)
+    expect(result.current.failed).toBe(false)
   })
 
   it("reloads an unread filter when another surface marks an unloaded item unread", async () => {

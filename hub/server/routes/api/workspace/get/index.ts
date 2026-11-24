@@ -1,6 +1,7 @@
 import type { RequestHandler } from "express"
 import { z } from "zod"
 
+import { hashAuthenticationValue } from "../../../../domains/authentication/hash-authentication-value/index.ts"
 import { authorizeRepositoryReview } from "../../../../domains/review-comments/authorize-repository-review/index.ts"
 import { hubSessionCookieName } from "../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../../../integrations/express/read-cookie/index.ts"
@@ -21,7 +22,7 @@ export function get(
     try {
       const cookie = readCookie(request, hubSessionCookieName)
       const initial = await readProductSession(cookie, session)
-      if (!initial) {
+      if (!initial || !cookie) {
         response.status(401).json({ error: "Sign in to continue." })
         return
       }
@@ -36,6 +37,12 @@ export function get(
             product.listRepositories(viewer),
             product.welcome?.isHidden(viewer.userId),
           ])
+          const inboxHasUnread = navigationOnly
+            ? await product.reviewInbox?.hasUnread(
+                { viewer, sessionDigest: hashAuthenticationValue(cookie) },
+                repositories,
+              )
+            : undefined
           const requested = selectedRepository.success
             ? selectedRepository.data.toLowerCase()
             : null
@@ -53,7 +60,14 @@ export function get(
               permissionUnavailable = true
             }
           }
-          return { repositories, selected, permission, permissionUnavailable, welcomeHidden }
+          return {
+            repositories,
+            selected,
+            permission,
+            permissionUnavailable,
+            welcomeHidden,
+            inboxHasUnread,
+          }
         },
       )
       if (!read) {
@@ -62,7 +76,14 @@ export function get(
       }
       const {
         current,
-        result: { repositories, selected, permission, permissionUnavailable, welcomeHidden },
+        result: {
+          repositories,
+          selected,
+          permission,
+          permissionUnavailable,
+          welcomeHidden,
+          inboxHasUnread,
+        },
       } = read
       const presentedRepositories = repositories.map(({ localPath, ...repository }) => ({
         ...repository,
@@ -110,6 +131,7 @@ export function get(
           ? { repositoryPermissionsAvailable: true }
           : {}),
         ...(product.reviewInbox ? { reviewInboxAvailable: true } : {}),
+        ...(inboxHasUnread !== undefined ? { inboxHasUnread } : {}),
         ...(manageSharing ? { publicSharingSettingsAvailable: true } : {}),
         ...(welcomeHidden !== undefined ? { welcomeHidden } : {}),
         capabilities: {

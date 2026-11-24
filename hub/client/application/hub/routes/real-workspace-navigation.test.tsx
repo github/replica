@@ -194,7 +194,7 @@ function sidebarDestinations() {
 }
 
 describe("real workspace navigation", () => {
-  it("keeps the collapsed navigation and refreshes the Inbox count across main pages", async () => {
+  it("updates the collapsed sidebar's Inbox dot from navigation without extra Inbox reads", async () => {
     const repository = {
       id: "11111111-1111-4111-8111-111111111111",
       nameWithOwner: "team/alpha",
@@ -210,18 +210,21 @@ describe("real workspace navigation", () => {
     const createPath = `${galleryPath}/new`
     const inboxPath = `/notifications?repositoryId=${repository.id}`
     const prototypeId = "33333333-3333-4333-8333-333333333333"
-    const newestMention = unreadMention(repository, prototypeId)
-    const mentions = [
-      newestMention,
-      ...[6, 5].map((id) => unreadMention(repository, prototypeId, id)),
-    ]
-    let unreadCount = mentions.length
-    const inboxReads: [pathname: string, limit: string | null, unread: string | null][] = []
+    const mention = unreadMention(repository, prototypeId)
+    let inboxHasUnread = false
+    const inboxReads: (string | null)[] = []
     const galleryReads: (string | null)[] = []
     const router = await renderApplication(galleryPath, [
       ...workspaceApi([otherRepository, repository], {
         role: "MEMBER",
         reviewInboxAvailable: true,
+        respondToWorkspace(request, workspace) {
+          return HttpResponse.json(
+            new URL(request.url).searchParams.get("view") === "navigation"
+              ? { ...workspace, inboxHasUnread }
+              : workspace,
+          )
+        },
       }),
       galleryApi(repository, (request) =>
         galleryReads.push(new URL(request.url).searchParams.get("q")),
@@ -232,14 +235,12 @@ describe("real workspace navigation", () => {
         canCreate: true,
       }),
       http.get(`${window.location.origin}/api/notifications/inbox`, ({ request }) => {
-        const query = new URL(request.url).searchParams
-        const limit = query.get("limit")
-        inboxReads.push([window.location.pathname, limit, query.get("unread")])
-        const notifications = mentions.slice(0, Math.min(Number(limit), unreadCount))
+        const limit = new URL(request.url).searchParams.get("limit")
+        inboxReads.push(limit)
         return HttpResponse.json({
-          notifications,
-          nextBefore: notifications.length < unreadCount ? notifications.at(-1)?.id : null,
-          unreadCount,
+          notifications: limit === "50" ? [mention] : [],
+          nextBefore: null,
+          unreadCount: limit === "50" ? 1 : 0,
         })
       }),
     ])
@@ -252,12 +253,7 @@ describe("real workspace navigation", () => {
       return within(mainNavigation()).getByRole("link", { name })
     }
 
-    function findInboxBadge(count: number) {
-      return within(mainNavigation()).findByRole("link", { name: `Inbox, ${count} unread` })
-    }
-
-    expect(await findInboxBadge(3)).toBeVisible()
-    expect(inboxReads).toEqual([[galleryPath, "1", "true"]])
+    expect(navLink("Inbox")).toBeVisible()
     expect(navLink("Prototypes")).toHaveAttribute("aria-current", "page")
     fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }))
     const originalNavigation = mainNavigation()
@@ -280,31 +276,37 @@ describe("real workspace navigation", () => {
       expect(window.location.pathname + window.location.search).toBe(path)
     }
 
-    unreadCount = 2
+    inboxHasUnread = true
     fireEvent.click(navLink("Create"))
     expect(await screen.findByRole("heading", { name: "What should we create?" })).toBeVisible()
     expectNavigation("Create", createPath)
-    expect(await findInboxBadge(2)).toBeVisible()
+    expect(inboxReads).toEqual([])
+    const unreadLink = navLink("Inbox, unread notifications")
+    expect(unreadLink).toBeVisible()
+    expect(unreadLink).not.toHaveTextContent(/\d/)
 
-    unreadCount = 1
-    fireEvent.click(navLink(/^Inbox\b/))
+    inboxHasUnread = false
+    fireEvent.click(unreadLink)
     const inbox = await screen.findByRole("region", { name: "Inbox" })
-    expect(await within(inbox).findByText(newestMention.excerpt)).toBeVisible()
-    expect(await findInboxBadge(1)).toBeVisible()
+    expect(await within(inbox).findByText(mention.excerpt)).toBeVisible()
+    expect(within(inbox).getByLabelText(/^1 unread\b/)).toBeVisible()
+    expect(navLink("Inbox")).toBeVisible()
     expectNavigation("Inbox", inboxPath)
 
-    unreadCount = 2
+    inboxHasUnread = true
     fireEvent.click(navLink("Prototypes"))
     expect(await screen.findByRole("heading", { name: "Prototypes" })).toBeVisible()
     expectNavigation("Prototypes", galleryPath)
-    expect(await findInboxBadge(2)).toBeVisible()
+    expect(navLink("Inbox, unread notifications")).toBeVisible()
 
+    inboxHasUnread = false
     const searchBox = screen.getByRole("searchbox", { name: "Search prototypes" })
     fireEvent.change(searchBox, { target: { value: "landing" } })
     fireEvent.keyDown(searchBox, { key: "Enter" })
     expect(await screen.findByRole("heading", { name: "No prototypes found" })).toBeVisible()
     expect(window.location.search).toBe("?q=landing")
     expect(galleryReads).toContain("landing")
+    expect(navLink("Inbox")).toBeVisible()
 
     act(() => window.history.back())
     await waitFor(() =>
@@ -313,15 +315,10 @@ describe("real workspace navigation", () => {
     expect(window.location.pathname + window.location.search).toBe(galleryPath)
     await act(() => router.navigate(`${galleryPath}#prototypes`))
     expect(window.location.hash).toBe("#prototypes")
-    expect(inboxReads).toEqual([
-      [galleryPath, "1", "true"],
-      [createPath, "1", "true"],
-      ["/notifications", "50", null],
-      [galleryPath, "1", "true"],
-    ])
+    expect(inboxReads).toEqual(["50"])
   }, 15_000)
 
-  it("keeps the Inbox badge during request failures and refreshes it after leaving Inbox", async () => {
+  it("keeps the same viewer's Inbox dot when the preview, list, or navigation cannot refresh it", async () => {
     const repository = {
       id: "11111111-1111-4111-8111-111111111111",
       nameWithOwner: "team/alpha",
@@ -329,63 +326,75 @@ describe("real workspace navigation", () => {
       capabilities: { reviewPrototypes: true, manageSharing: false, browseTemplates: true },
     }
     const galleryPath = `/repositories/${repository.id}`
-    const notification = unreadMention(repository, "33333333-3333-4333-8333-333333333333")
-    const listFailure = deferResponse()
-    const countFailure = deferResponse()
     const inboxReads: (string | null)[] = []
-    let failCount = false
-    let unreadCount = 1
-    await renderApplication(galleryPath, [
-      ...workspaceApi([repository], { role: "MEMBER", reviewInboxAvailable: true }),
+    let navigation: "unread" | "missing" | "unavailable" | "role-changed" = "unread"
+    let previewAvailable = false
+    const router = await renderApplication(galleryPath, [
+      ...workspaceApi([repository], {
+        reviewInboxAvailable: true,
+        respondToWorkspace(request, workspace) {
+          if (new URL(request.url).searchParams.get("view") !== "navigation") {
+            return HttpResponse.json(workspace)
+          }
+          if (navigation === "unavailable") return new HttpResponse(null, { status: 503 })
+          if (navigation === "unread") {
+            return HttpResponse.json({ ...workspace, inboxHasUnread: true })
+          }
+          if (navigation === "role-changed") {
+            return HttpResponse.json({
+              ...workspace,
+              capabilities: { ...workspace.capabilities, administerHub: false },
+            })
+          }
+          return HttpResponse.json(workspace)
+        },
+      }),
       galleryApi(repository),
-      json(`/api${galleryPath}/templates`, { repository, templates: [], canCreate: true }),
-      http.get(`${window.location.origin}/api/notifications/inbox`, async ({ request }) => {
+      json("/api/administrators", { administrators: [], nextCursor: null }),
+      http.get(`${window.location.origin}/api/notifications/inbox`, ({ request }) => {
         const limit = new URL(request.url).searchParams.get("limit")
         inboxReads.push(limit)
-        if (limit === "50") {
-          await listFailure.pending
-          return new HttpResponse(null, { status: 503 })
+        if (limit === "10" && previewAvailable) {
+          return HttpResponse.json({ notifications: [], nextBefore: null, unreadCount: 0 })
         }
-        if (failCount) {
-          await countFailure.pending
-          return new HttpResponse(null, { status: 503 })
-        }
-        return HttpResponse.json({
-          notifications: unreadCount ? [notification] : [],
-          nextBefore: null,
-          unreadCount,
-        })
+        return new HttpResponse(null, { status: 503 })
       }),
     ])
-    const badge = { name: "Inbox, 1 unread" }
-    fireEvent.click(await screen.findByRole("link", badge))
-    const inbox = await screen.findByRole("region", { name: "Inbox" })
-    await waitFor(() => expect(inboxReads).toEqual(["1", "50"]))
-    expect(screen.getByRole("link", badge)).toBeVisible()
+    const dot = { name: "Inbox, unread notifications" }
+    const inboxLink = screen.getByRole<HTMLAnchorElement>("link", dot)
+    fireEvent.focus(inboxLink)
+    const preview = await screen.findByRole("region", { name: "Inbox" })
+    const retryPreview = await within(preview).findByRole("button", { name: "Retry" })
+    expect(screen.getByRole("link", dot)).toBeVisible()
 
-    listFailure.release()
+    previewAvailable = true
+    fireEvent.click(retryPreview)
+    expect(await within(preview).findByText(/^No unread activity\./)).toBeVisible()
+    expect(screen.getByRole("link", dot)).toBeVisible()
+
+    fireEvent.blur(inboxLink)
+    await act(() => router.navigate(inboxLink.pathname + inboxLink.search))
+    const inbox = screen.getByRole("region", { name: "Inbox" })
     expect(await within(inbox).findByRole("button", { name: "Retry" })).toBeVisible()
-    expect(screen.getByRole("link", badge)).toBeVisible()
+    expect(screen.getByRole("link", dot)).toBeVisible()
 
-    failCount = true
-    fireEvent.click(screen.getByRole("link", { name: "Prototypes" }))
-    expect(await screen.findByRole("heading", { name: "Prototypes" })).toBeVisible()
-    await waitFor(() => expect(inboxReads).toEqual(["1", "50", "1"]))
-    expect(screen.getByRole("link", badge)).toBeVisible()
+    navigation = "missing"
+    await act(() => router.navigate(galleryPath))
+    expect(screen.getByRole("heading", { name: "Prototypes" })).toBeVisible()
+    expect(screen.getByRole("link", dot)).toBeVisible()
 
-    await act(() => {
-      countFailure.release()
-      return countFailure.pending
-    })
-    expect(screen.getByRole("link", badge)).toBeVisible()
+    navigation = "unavailable"
+    await act(() => router.navigate(`/settings/administrators?repositoryId=${repository.id}`))
+    expect(screen.getByRole("heading", { name: "Hub administrators" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Repository navigation unavailable" })).toBeDisabled()
+    expect(screen.getByRole("link", dot)).toBeVisible()
+    expect(inboxReads).toEqual(["10", "10", "50"])
 
-    failCount = false
-    unreadCount = 0
-    fireEvent.click(screen.getByRole("link", { name: "Create" }))
-    expect(await screen.findByRole("heading", { name: "What should we create?" })).toBeVisible()
-    expect(await screen.findByRole("link", { name: "Inbox" })).toBeVisible()
-    expect(inboxReads).toEqual(["1", "50", "1", "1"])
-  })
+    navigation = "role-changed"
+    await act(() => router.navigate(galleryPath))
+    expect(screen.queryByRole("link", { name: "Hub administrators" })).not.toBeInTheDocument()
+    expect(screen.getByRole("link", dot)).toBeVisible()
+  }, 15_000)
 
   it("opens Create, Inbox, and Hub settings while repository permissions are pending", async () => {
     const repository = {
@@ -840,7 +849,11 @@ describe("real workspace navigation", () => {
         async respondToWorkspace(request, workspace) {
           const query = new URL(request.url).searchParams
           if (query.get("view") === "navigation") {
-            return HttpResponse.json({ ...workspace, repositoryPermissionsAvailable: true })
+            return HttpResponse.json({
+              ...workspace,
+              repositoryPermissionsAvailable: true,
+              inboxHasUnread: true,
+            })
           }
           if (query.get("repositoryId") !== selected.id) return HttpResponse.json(workspace)
           selectedPermissionReads()
@@ -948,7 +961,7 @@ describe("real workspace navigation", () => {
             collapsed:
               screen.queryByRole("button", { name: "Expand sidebar", expanded: false }) !== null,
             selectedRepository: screen.queryByRole("button", { name: pickerName }) !== null,
-            unreadCount: screen.queryByRole("link", { name: "Inbox, 1 unread" }) !== null,
+            inboxDot: screen.queryByRole("link", { name: "Inbox, unread notifications" }) !== null,
           },
           `Retained navigation on ${destination}`,
         )
@@ -956,7 +969,7 @@ describe("real workspace navigation", () => {
           sameNavigation: [true],
           collapsed: true,
           selectedRepository: true,
-          unreadCount: true,
+          inboxDot: true,
         })
     }
 
@@ -976,9 +989,6 @@ describe("real workspace navigation", () => {
 
       fireEvent.click(link)
       expect(await screen.findByRole("heading", { name: heading })).toBeVisible()
-      if (pathname === "/notifications") {
-        expect(await screen.findByRole("link", { name: "Inbox, 1 unread" })).toBeVisible()
-      }
       expect(router.state.location.pathname + router.state.location.search).toBe(
         target.pathname + target.search,
       )
@@ -1063,7 +1073,7 @@ describe("real workspace navigation", () => {
     },
   )
 
-  it("resets the collapsed nav and private Inbox badge on navigation after an account change", async () => {
+  it("resets the collapsed navigation and Inbox dot when a new viewer has no snapshot", async () => {
     const repository = {
       id: "11111111-1111-4111-8111-111111111111",
       nameWithOwner: "team/alpha",
@@ -1086,21 +1096,14 @@ describe("real workspace navigation", () => {
                     login: "mona",
                   },
                 }
-              : workspace,
+              : { ...workspace, inboxHasUnread: true },
           )
         },
       }),
       galleryApi(repository),
       json(`/api${galleryPath}/templates`, { repository, templates: [], canCreate: true }),
-      http.get(`${window.location.origin}/api/notifications/inbox`, () =>
-        HttpResponse.json({
-          notifications: [],
-          nextBefore: null,
-          unreadCount: changedViewer ? 0 : 5,
-        }),
-      ),
     ])
-    await screen.findByRole("link", { name: "Inbox, 5 unread" })
+    expect(screen.getByRole("link", { name: "Inbox, unread notifications" })).toBeVisible()
     fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }))
 
     changedViewer = true
@@ -1109,7 +1112,7 @@ describe("real workspace navigation", () => {
     expect(await screen.findByRole("heading", { name: "What should we create?" })).toBeVisible()
     expect(screen.getByRole("button", { name: "Account menu for @mona" })).toBeVisible()
     expect(screen.getByRole("button", { name: "Collapse sidebar" })).toBeVisible()
-    expect(screen.queryByRole("link", { name: "Inbox, 5 unread" })).not.toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Inbox" })).toBeVisible()
   })
 
   it("keeps the Canvas connections return destination on a signed-out deep link", async () => {
