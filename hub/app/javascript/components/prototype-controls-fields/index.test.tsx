@@ -387,7 +387,7 @@ describe("ControlsFields()", () => {
     screen.getByRole("textbox", { name: "Title" }).focus()
     controller.update("show", false)
     rerender(example())
-    expect(screen.getByRole("region", { name: "Prototype controls" })).toHaveFocus()
+    expect(screen.getByRole("region", { name: "Prototype options" })).toHaveFocus()
   })
 
   it("puts shared controls first regardless of discovery order and separates scopes without headings", () => {

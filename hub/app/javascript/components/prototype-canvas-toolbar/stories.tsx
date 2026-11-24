@@ -74,8 +74,11 @@ export const MoreActionsOpen: Story = {
   },
 }
 
-export const ControlsClosed: Story = {
-  args: { onControls: () => undefined, controlsOpen: false },
+export const OptionsShortcut: Story = {
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.hover(canvas.getByRole("button", { name: "Options" }))
+    await canvas.findByRole("tooltip")
+  },
 }
 
 export const ControlsOpen: Story = {

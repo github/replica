@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { useState } from "react"
 
 import { reviewCommentsCopy } from "@utils/review-comment/en"
+import { copy as canvasCopy } from "@utils/prototype-canvas/en"
 
 import { ReviewCommentControl } from "."
 
@@ -48,5 +50,39 @@ export const Blocked: Story = {
 export const Selecting: Story = {
   args: {
     selecting: true,
+  },
+}
+
+export const CanvasVisibilityMenu: Story = {
+  render: (args) => {
+    function CanvasControl() {
+      const [visible, setVisible] = useState(true)
+      return (
+        <ReviewCommentControl
+          {...args}
+          cycleShortcut
+          visibilityAction={{
+            label: visible ? canvasCopy.hideComments : canvasCopy.showComments,
+            onToggle: () => setVisible((previous) => !previous),
+          }}
+        />
+      )
+    }
+    return <CanvasControl />
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
+    await canvas.findByRole("menuitem", { name: canvasCopy.hideComments })
+  },
+}
+
+export const CanvasCommentsHidden: Story = {
+  ...CanvasVisibilityMenu,
+  play: async ({ canvas, userEvent }) => {
+    const trigger = canvas.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel })
+    await userEvent.click(trigger)
+    await userEvent.click(await canvas.findByRole("menuitem", { name: canvasCopy.hideComments }))
+    await userEvent.click(trigger)
+    await canvas.findByRole("menuitem", { name: canvasCopy.showComments })
   },
 }

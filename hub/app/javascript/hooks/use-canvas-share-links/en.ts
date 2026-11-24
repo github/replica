@@ -19,7 +19,7 @@ export const shareCopy = {
   controlSettingsDescription:
     "Adds settings for all configured pages to the links you copy or open. Saved share links stay unchanged.",
   controlSettingsWarning:
-    "Settings for controls that have not been published will not take effect for shared links.",
+    "Settings for options that have not been published will not take effect for shared links.",
   controlSettingsWarningTitle: "Local changes are not in the shared Build",
   label: "Label",
   labelPlaceholder: "Usability review",

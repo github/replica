@@ -39,6 +39,7 @@ import { BranchPublication } from "@components/prototype-branch-publication"
 import { CommentingRecovery } from "@components/prototype-commenting-recovery"
 import { useCommentingRecovery } from "@hooks/use-canvas-commenting-recovery"
 import { useReviewError } from "@hooks/use-review-error"
+import { isAnnotationShortcut } from "@utils/is-annotation-shortcut"
 import type { Publication } from "@utils/resolve-prototype-publication"
 import { publicationCopy } from "@utils/resolve-prototype-publication/en"
 import type { usePublishPreference } from "@hooks/use-canvas-publish-preference"
@@ -328,12 +329,9 @@ export function PrototypeCanvasHubPanel({
   const canLoadComments =
     Boolean(status?.repositoryAuthorized && status.branch && status.viewerLogin) ||
     Boolean(prototype)
-  const selectionBlocked =
-    selectedAnchor !== null ||
-    draftActive ||
-    mutation !== null ||
-    preparingSelection ||
-    selectionDisabled
+  const selectionUnavailable =
+    selectedAnchor !== null || draftActive || mutation !== null || selectionDisabled
+  const selectionBlocked = selectionUnavailable || preparingSelection
   useLayoutEffect(() => {
     onInteractionChange?.(
       selectedAnchor !== null ||
@@ -587,7 +585,7 @@ export function PrototypeCanvasHubPanel({
 
   const startSelection = useCallback(
     async (mode: "element" | "area") => {
-      if (!bridgeReady || !canCreateComment || selectionBlocked) return
+      if (!bridgeReady || !canCreateComment || selectionUnavailable) return
       onActivate?.()
       const requestedIdentity = identity
       const selectionRequest = ++selectionRequestRef.current
@@ -636,7 +634,7 @@ export function PrototypeCanvasHubPanel({
       identity,
       onClose,
       prototypeId,
-      selectionBlocked,
+      selectionUnavailable,
       sendBridge,
       status,
     ],
@@ -650,6 +648,88 @@ export function PrototypeCanvasHubPanel({
     sendBridge("replica:canvas:cancel-selection")
     setSelectionMode(null)
   }, [selectionMode, sendBridge])
+
+  const cycleCommentSelection = useEffectEvent(() => {
+    if (
+      !bridgeReady ||
+      !canCreateComment ||
+      selectionUnavailable ||
+      open ||
+      document.querySelector('[role="dialog"], dialog[open], [role="menu"]')
+    )
+      return false
+    if (selectionMode === "area") cancelSelection()
+    else void startSelection(selectionMode === "element" ? "area" : "element")
+    return true
+  })
+
+  const toggleCommentVisibility = useCallback(() => {
+    if (
+      !canLoadComments ||
+      !bridgeReady ||
+      selectionBlocked ||
+      selectionMode !== null ||
+      document.querySelector('[role="dialog"], dialog[open]')
+    )
+      return false
+    if (reviewActive) setShowPins((visible) => !visible)
+    else {
+      setShowPins(true)
+      onActivate?.()
+    }
+    return true
+  }, [bridgeReady, canLoadComments, onActivate, reviewActive, selectionBlocked, selectionMode])
+  const handleCommentVisibility = useEffectEvent(() => !open && toggleCommentVisibility())
+
+  useEffect(() => {
+    function keydown(event: KeyboardEvent) {
+      if (
+        (isAnnotationShortcut(event, "c") && cycleCommentSelection()) ||
+        (isAnnotationShortcut(event, "c", true) &&
+          !document.querySelector('[role="menu"]') &&
+          handleCommentVisibility())
+      )
+        event.preventDefault()
+    }
+    window.addEventListener("keydown", keydown)
+    return () => window.removeEventListener("keydown", keydown)
+  }, [])
+
+  useEffect(() => {
+    const frameUrl = config.previewUrl ?? config.prototypeUrl
+    if (!bridgeReady || !frameUrl) return
+    const frame = frameRef.current
+    const nonce = bridgeNonceRef.current
+    const origin = new URL(frameUrl).origin
+    const commentShortcut = canCreateComment && !selectionUnavailable && !open
+    const pinsShortcut = canLoadComments && !selectionBlocked && !selectionMode && !open
+    frame?.contentWindow?.postMessage(
+      { type: "replica:canvas:request-ready", nonce, commentShortcut, pinsShortcut },
+      origin,
+    )
+    return () => {
+      frame?.contentWindow?.postMessage(
+        {
+          type: "replica:canvas:request-ready",
+          nonce,
+          commentShortcut: false,
+          pinsShortcut: false,
+        },
+        origin,
+      )
+    }
+  }, [
+    bridgeReady,
+    canCreateComment,
+    canLoadComments,
+    config.previewUrl,
+    config.prototypeUrl,
+    frameRef,
+    open,
+    selectionUnavailable,
+    selectionBlocked,
+    selectionMode,
+  ])
 
   const clearSelection = useCallback(() => {
     selectionRequestRef.current += 1
@@ -758,6 +838,20 @@ export function PrototypeCanvasHubPanel({
         return
       }
       if (incompatible) return
+      if (data.type === "replica:canvas:comment-cycle-requested") {
+        if (document.activeElement === frame && navigator.userActivation?.isActive === true)
+          cycleCommentSelection()
+        return
+      }
+      if (data.type === "replica:canvas:comment-visibility-toggle-requested") {
+        if (
+          document.activeElement === frame &&
+          navigator.userActivation?.isActive === true &&
+          !document.querySelector('[role="menu"]')
+        )
+          handleCommentVisibility()
+        return
+      }
       if (data.type === "replica:canvas:conversation-dismiss-requested") {
         window.dispatchEvent(
           new CustomEvent("replica:review-dismiss", {
@@ -1153,6 +1247,15 @@ export function PrototypeCanvasHubPanel({
                 copy={reviewCommentsCopy}
                 selectionBlocked={selectionBlocked}
                 selecting={selectionMode !== null}
+                cycleShortcut
+                visibilityAction={
+                  canLoadComments
+                    ? {
+                        label: reviewActive && showPins ? copy.hideComments : copy.showComments,
+                        onToggle: () => void toggleCommentVisibility(),
+                      }
+                    : undefined
+                }
                 onCancelSelection={cancelSelection}
                 onStartAreaSelection={() => void startSelection("area")}
                 onStartElementSelection={() => void startSelection("element")}
@@ -1162,7 +1265,7 @@ export function PrototypeCanvasHubPanel({
                 text={
                   selectionBlocked
                     ? reviewCommentsCopy.selectionBlockedLabel
-                    : `${reviewCommentsCopy.heading} (${reviewCommentsCopy.sidebarShortcutLabel})`
+                    : reviewCommentsCopy.heading
                 }
                 type="description"
               >
@@ -1172,7 +1275,6 @@ export function PrototypeCanvasHubPanel({
                   size="small"
                   aria-label={`${reviewCommentsCopy.heading}, ${visibleThreadCount}${hasUnreadVisibleThreads ? `, ${reviewCommentsCopy.unreadLabel}` : ""}`}
                   aria-expanded={commentsOpen && reviewActive}
-                  aria-keyshortcuts="Shift+C"
                   disabled={selectionBlocked}
                   onClick={toggleComments}
                 >
@@ -1532,6 +1634,7 @@ export function PrototypeCanvasHubPanel({
           selectedThreadId={selected}
           selectionBlocked={selectionBlocked}
           closeBlocked={draftActive}
+          closeShortcut={null}
           showPins={showPins}
           loading={loading}
           loadFailed={commentsLoadFailed}

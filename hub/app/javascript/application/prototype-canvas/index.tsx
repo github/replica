@@ -13,6 +13,7 @@ import { resolveShareReadiness } from "@utils/resolve-prototype-share-readiness"
 import { Toolbar } from "@components/prototype-canvas-toolbar"
 import type { CanvasConfig } from "@utils/prototype-canvas/types"
 import { useCanvasAgent } from "@hooks/use-canvas-agent"
+import { useCanvasOptionsShortcut } from "@hooks/use-canvas-options-shortcut"
 import { useCanvasPublication } from "@hooks/use-canvas-publication"
 import { useControlsConnection } from "@hooks/use-prototype-controls-connection"
 import { useHubConnection } from "@hooks/use-canvas-hub-connection"
@@ -136,6 +137,21 @@ export function App({ config }: Props) {
     token: config.token,
     hubStatus: hub.status,
     prototypeState: state,
+  })
+  useCanvasOptionsShortcut({
+    frameRef,
+    prototypeUrl: config.prototypeUrl,
+    previewUrl: config.previewUrl,
+    enabled:
+      Boolean(config.prototypeUrl) &&
+      !hubOpen &&
+      !commentInteraction &&
+      !improvementInteraction &&
+      !sharing.state.open,
+    onToggle: () => {
+      setControlsOpen((open) => !open)
+      if (controlsOpen) controlsButtonRef.current?.focus()
+    },
   })
   const shareIntent = useShareIntent({ token: config.token, state, hubStatus: hub.status })
   const publishPreference = usePublishPreference({

@@ -24,6 +24,7 @@ export interface ReviewCommentsSidebarProps {
   selectedThreadId: number | null
   selectionBlocked: boolean
   closeBlocked: boolean
+  closeShortcut?: string | null
   showPins: boolean
   loading: boolean
   loadFailed: boolean

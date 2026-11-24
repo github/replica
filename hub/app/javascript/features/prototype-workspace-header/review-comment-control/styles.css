@@ -25,6 +25,34 @@
   column-gap: var(--brand-control-medium-gap);
 }
 
+.review-comment-control__menu-item > span:has(.review-comment-control__menu-label),
+.review-comment-control__menu-item > span > span:has(> .review-comment-control__menu-label) {
+  width: 100%;
+}
+
+.review-comment-control__menu-label {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--base-size-16);
+  width: 100%;
+}
+
+.review-comment-control__shortcut {
+  display: inline-flex;
+  gap: var(--base-size-4);
+  white-space: nowrap;
+}
+
+.review-comment-control__key {
+  padding: 0 0.35em;
+  border-radius: 0.25em;
+  background-color: color-mix(in srgb, currentColor 10%, transparent);
+  color: inherit;
+  font-family: var(--brand-fontStack-monospace);
+  font-size: calc(1em - 1px);
+  line-height: 1.4;
+}
+
 div:has(> [data-testid="ActionMenu"] .review-comment-control__trigger[aria-expanded="true"])
   + [role="tooltip"] {
   display: none;

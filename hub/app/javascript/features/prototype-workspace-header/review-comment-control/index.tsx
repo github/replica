@@ -1,12 +1,29 @@
-import { ChatIcon, CommentIcon, PaintbrushIcon, XIcon } from "@primer/octicons-react"
+import { ChatIcon, CommentIcon, EyeIcon, PaintbrushIcon, XIcon } from "@primer/octicons-react"
 import { ActionMenu, Tooltip } from "@primer/react-brand/esm"
 import { useId } from "react"
 import { HubIconButton } from "@components/hub-icon-button"
 import { HubVisuallyHidden } from "@components/hub-visually-hidden"
+import { ShortcutTooltip } from "@components/shortcut-tooltip"
 
 import type { ReviewCommentControlProps } from "./types"
 
 import "./styles.css"
+
+function MenuLabel({ children, shortcut }: { children: string; shortcut?: string[] }) {
+  if (!shortcut) return children
+  return (
+    <span className="review-comment-control__menu-label">
+      {children}
+      <span aria-hidden="true" className="review-comment-control__shortcut">
+        {shortcut.map((key) => (
+          <kbd key={key} className="review-comment-control__key">
+            {key}
+          </kbd>
+        ))}
+      </span>
+    </span>
+  )
+}
 
 /** Starts or cancels selecting a target for a review comment. */
 export function ReviewCommentControl({
@@ -14,6 +31,8 @@ export function ReviewCommentControl({
   copy,
   selectionBlocked,
   selecting,
+  cycleShortcut = false,
+  visibilityAction,
   onCancelSelection,
   onStartAreaSelection,
   onStartElementSelection,
@@ -48,6 +67,7 @@ export function ReviewCommentControl({
         variant="secondary"
         aria-label={copy.commentMenuLabel}
         aria-describedby={descriptionId}
+        aria-keyshortcuts={cycleShortcut ? "C" : undefined}
         leadingVisual={<ChatIcon size={16} />}
         onClick={(event) => {
           const button = event.currentTarget
@@ -77,13 +97,15 @@ export function ReviewCommentControl({
             }
           }}
         >
-          {copy.commentOnElementLabel}
+          <MenuLabel shortcut={cycleShortcut ? ["C"] : undefined}>
+            {copy.commentOnElementLabel}
+          </MenuLabel>
         </ActionMenu.Item>
         <ActionMenu.Item
           className="review-comment-control__menu-item"
           value="area"
           leadingVisual={<PaintbrushIcon size={16} />}
-          aria-keyshortcuts="H"
+          aria-keyshortcuts={cycleShortcut ? "C" : "H"}
           onClick={onStartAreaSelection}
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ") {
@@ -92,8 +114,27 @@ export function ReviewCommentControl({
             }
           }}
         >
-          {copy.highlightRegionLabel}
+          <MenuLabel shortcut={cycleShortcut ? ["C"] : undefined}>
+            {copy.highlightRegionLabel}
+          </MenuLabel>
         </ActionMenu.Item>
+        {visibilityAction ? (
+          <ActionMenu.Item
+            className="review-comment-control__menu-item"
+            value="visibility"
+            leadingVisual={<EyeIcon size={16} />}
+            aria-keyshortcuts="Shift+C"
+            onClick={visibilityAction.onToggle}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault()
+                visibilityAction.onToggle()
+              }
+            }}
+          >
+            <MenuLabel shortcut={["Shift", "C"]}>{visibilityAction.label}</MenuLabel>
+          </ActionMenu.Item>
+        ) : null}
       </ActionMenu.Overlay>
     </ActionMenu>
   )
@@ -107,7 +148,11 @@ export function ReviewCommentControl({
     )
   }
 
-  return (
+  return cycleShortcut ? (
+    <ShortcutTooltip id={descriptionId} text={actionDescription} shortcut="C" type="description">
+      <div>{menu}</div>
+    </ShortcutTooltip>
+  ) : (
     <Tooltip id={descriptionId} text={actionDescription} type="description">
       <div>{menu}</div>
     </Tooltip>

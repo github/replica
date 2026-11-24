@@ -62,9 +62,9 @@ describe("Controls examples", () => {
     expect(field).not.toBeVisible()
     expect(screen.getByRole("button", { name: "Expand Composer" })).toHaveFocus()
     expect(container.querySelector(".canvas-controls-header")).toContainElement(
-      screen.getByRole("button", { name: "Reset all controls" }),
+      screen.getByRole("button", { name: "Reset all options" }),
     )
-    fireEvent.click(screen.getByRole("button", { name: "Reset all controls" }))
+    fireEvent.click(screen.getByRole("button", { name: "Reset all options" }))
     await waitFor(() => expect(field).not.toBeChecked())
     fireEvent.click(screen.getByRole("button", { name: "Expand Composer" }))
     expect(field).toBeVisible()

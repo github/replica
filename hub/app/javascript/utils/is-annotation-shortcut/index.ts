@@ -1,6 +1,10 @@
-export function isAnnotationShortcut(event: KeyboardEvent) {
+export function isAnnotationShortcut(
+  event: KeyboardEvent,
+  shortcut: "s" | "c" | "o" = "s",
+  shift = false,
+) {
   if (
-    (event.key !== "s" && event.key !== "S") ||
+    (event.key !== shortcut && event.key !== shortcut.toUpperCase()) ||
     !event.isTrusted ||
     event.defaultPrevented ||
     event.repeat ||
@@ -8,7 +12,7 @@ export function isAnnotationShortcut(event: KeyboardEvent) {
     event.ctrlKey ||
     event.metaKey ||
     event.altKey ||
-    event.shiftKey
+    event.shiftKey !== shift
   )
     return false
 

@@ -113,7 +113,10 @@ describe("App()", () => {
       expect.objectContaining({ type: "replica:canvas:theme", accent: "#0969da" }),
       "http://localhost:4321",
     )
-    expect(post).not.toHaveBeenCalled()
+    expect(post).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "replica:canvas:theme" }),
+      expect.anything(),
+    )
     view.unmount()
   })
   it.each(["light", "dark"] as const)(
@@ -151,8 +154,8 @@ describe("App()", () => {
     )
     await screen.findByRole("button", { name: "Publish" })
     const frame = screen.getByTitle("Demo prototype")
-    fireEvent.click(screen.getByRole("button", { name: "Controls" }))
-    const controls = screen.getByRole("complementary", { name: "Controls" })
+    fireEvent.click(screen.getByRole("button", { name: "Options" }))
+    const controls = screen.getByRole("complementary", { name: "Options" })
     const theme = view.container.querySelector(".canvas-base")
     const browserTheme = screen
       .getByRole("navigation", { name: "Prototype navigation" })

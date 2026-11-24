@@ -66,7 +66,7 @@ describe("ReplicaBrowsePage()", () => {
   })
 
   it.each(["default", "welcome"])(
-    "offers existing Controls in the header and minimized bar for the %s template",
+    "offers existing Options in the header and minimized bar for the %s template",
     async (templateId) => {
       renderPage({
         data: { ...replicaBrowseData, templateId, controlsIdentity: `template-${templateId}` },
@@ -74,10 +74,10 @@ describe("ReplicaBrowsePage()", () => {
       const frame = screen.getByTitle<HTMLIFrameElement>("main replica preview")
       const frameWindow = frame.contentWindow
       const header = document.querySelector(".review-shell__header")
-      const controls = screen.getByRole("button", { name: "Controls" })
+      const controls = screen.getByRole("button", { name: "Options" })
       expect(header).toContainElement(controls)
       expect(document.querySelector(".review-shell__address-bar")).not.toContainElement(controls)
-      expect(screen.getAllByRole("button", { name: "Controls" })).toHaveLength(1)
+      expect(screen.getAllByRole("button", { name: "Options" })).toHaveLength(1)
       expect(controls.className).toBe(
         screen.getByRole("button", { name: /Use (dark|light) theme/ }).className,
       )
@@ -85,21 +85,21 @@ describe("ReplicaBrowsePage()", () => {
         fireEvent.click(controls)
         await Promise.resolve()
       })
-      fireEvent.click(screen.getByRole("button", { name: "Collapse controls" }))
+      fireEvent.click(screen.getByRole("button", { name: "Collapse options" }))
       fireEvent.click(screen.getByRole("button", { name: replicaBrowseData.minimizeHubLabel }))
       const toolbar = screen.getByRole("toolbar", { name: replicaBrowseData.maximizeHubLabel })
-      expect(within(toolbar).getByRole("button", { name: "Controls" })).toHaveAttribute(
+      expect(within(toolbar).getByRole("button", { name: "Options" })).toHaveAttribute(
         "aria-expanded",
         "true",
       )
-      expect(screen.getByRole("button", { name: "Expand controls" })).toBeInTheDocument()
-      fireEvent.click(within(toolbar).getByRole("button", { name: "Controls" }))
-      expect(screen.queryByRole("button", { name: "Expand controls" })).not.toBeInTheDocument()
+      expect(screen.getByRole("button", { name: "Expand options" })).toBeInTheDocument()
+      fireEvent.click(within(toolbar).getByRole("button", { name: "Options" }))
+      expect(screen.queryByRole("button", { name: "Expand options" })).not.toBeInTheDocument()
       fireEvent.click(screen.getByRole("button", { name: replicaBrowseData.maximizeHubLabel }))
-      expect(header).toContainElement(screen.getByRole("button", { name: "Controls" }))
-      fireEvent.click(screen.getByRole("button", { name: "Controls" }))
-      expect(screen.getByRole("button", { name: "Expand controls" })).toBeInTheDocument()
-      expect(screen.getAllByRole("button", { name: "Controls" })).toHaveLength(1)
+      expect(header).toContainElement(screen.getByRole("button", { name: "Options" }))
+      fireEvent.click(screen.getByRole("button", { name: "Options" }))
+      expect(screen.getByRole("button", { name: "Expand options" })).toBeInTheDocument()
+      expect(screen.getAllByRole("button", { name: "Options" })).toHaveLength(1)
       expect(screen.getByTitle("main replica preview")).toBe(frame)
       expect(frame.contentWindow).toBe(frameWindow)
       expect(frame).toHaveAttribute("src", replicaBrowseData.selectedBuild!.previewUrl)
@@ -112,7 +112,7 @@ describe("ReplicaBrowsePage()", () => {
     replicaBrowseData,
   ])("does not offer Controls without a Build or controls identity", (data) => {
     renderPage({ data })
-    expect(screen.queryByRole("button", { name: "Controls" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Options" })).not.toBeInTheDocument()
   })
 
   it.each([{ collapsed: true }, { collapsed: false }])(

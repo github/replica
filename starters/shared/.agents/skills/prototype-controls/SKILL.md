@@ -1,9 +1,11 @@
 ---
 name: prototype-controls
-description: "Create and wire Replica prototype controls. Use when asked to add or change dropdowns, sliders, input fields, toggles or action buttons that configure variants, scenarios, visible UI, app state or data sources, even without canvas terminology. Covers declarations, typed bindings, defaults, conditions, resets and actions. Product UI form fields and filters alone belong to create-prototype."
+description: "Create and wire Replica prototype options (also called controls). Use when asked to add or change dropdowns, sliders, input fields, toggles or action buttons that configure variants, scenarios, visible UI, app state or data sources, even without canvas terminology. Covers declarations, typed bindings, defaults, conditions, resets and actions. Product UI form fields and filters alone belong to create-prototype."
 ---
 
-# Prototype controls
+# Prototype options
+
+Options is the panel's UI name. Treat requests for Replica "options" and "controls" as the same feature. Keep `/prototype-controls`, `public/controls.replica.json`, schema fields and canvas action names unchanged.
 
 Create the controls requested by the prototype author and wire them to actual
 application behavior. Replica renders them in its supplied panel.
