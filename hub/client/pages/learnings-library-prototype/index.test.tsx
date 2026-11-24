@@ -98,6 +98,7 @@ function createPrototypeData(canDecide: boolean): LearningsLibraryPrototypeData 
       },
     ],
     today: "2026-11-20",
+    agentConnectionPath: "/settings/agents?repositoryId=2001",
   }
 }
 
@@ -130,6 +131,11 @@ describe("LearningsLibraryPrototype()", () => {
 
     expect(screen.getByRole("heading", { name: "Learnings" })).toBeVisible()
     expect(screen.queryByRole("button", { name: "Back to learnings" })).not.toBeInTheDocument()
+    const connectLink = screen.getByRole("link", { name: "Connect an agent" })
+    expect(connectLink).toHaveAttribute("href", "/settings/agents?repositoryId=2001")
+    expect(connectLink.closest("p")).toHaveTextContent(
+      "Shared guidance from your team’s prototype reviews.",
+    )
 
     for (const [section, title] of [
       ["Suggested", "Keep form labels visible"],
@@ -151,6 +157,15 @@ describe("LearningsLibraryPrototype()", () => {
     expect(
       screen.queryByRole("button", { name: /accept learning|reject suggestion/i }),
     ).not.toBeInTheDocument()
+  })
+
+  it("keeps the learnings introduction when agent setup is unavailable", () => {
+    const data = createPrototypeData(false)
+    data.agentConnectionPath = undefined
+    renderPrototype(data)
+
+    expect(screen.getByText("Shared guidance from your team’s prototype reviews.")).toBeVisible()
+    expect(screen.queryByRole("link", { name: "Connect an agent" })).not.toBeInTheDocument()
   })
 
   it("shows a focus indicator after keyboard activation but not pointer activation", () => {

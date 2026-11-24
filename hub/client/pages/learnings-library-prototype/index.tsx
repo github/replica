@@ -11,6 +11,7 @@ import {
   ArrowLeftIcon,
   CheckCircleIcon,
   LightBulbIcon,
+  PlugIcon,
   XCircleIcon,
   type Icon,
 } from "@primer/octicons-react"
@@ -700,9 +701,22 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
           </div>
         ) : (
           <>
-            <Text as="p" className="learning-library__description">
-              Shared guidance from your team’s prototype reviews.
-            </Text>
+            <section
+              className="learning-library__agent-connection"
+              aria-label="Using learnings with agents"
+            >
+              <PlugIcon className="learning-library__agent-connection-icon" size={16} />
+              <p>
+                Shared guidance from your team’s prototype reviews.
+                {data.agentConnectionPath ? (
+                  <>
+                    {" "}
+                    Use these learnings in your agent through MCP.{" "}
+                    <a href={data.agentConnectionPath}>Connect an agent</a>
+                  </>
+                ) : null}
+              </p>
+            </section>
             <ActivityGrid activity={data.activity} today={data.today} />
             <section
               className="learning-library__collection"

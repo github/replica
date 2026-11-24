@@ -39,4 +39,6 @@ export interface LearningsLibraryPrototypeData {
   activity: LearningActivityDay[]
   /** UTC date treated as today; it picks the calendar year and which days are still ahead. */
   today: string
+  /** Hub's agent setup page, when MCP connection guidance is available to members. */
+  agentConnectionPath?: string
 }

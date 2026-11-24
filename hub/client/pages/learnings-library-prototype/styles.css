@@ -66,8 +66,35 @@
   gap: 0.375rem;
 }
 
-.learning-library__description {
+/* A quiet row rather than a card, so setup does not compete with the learnings. */
+.learning-library__agent-connection {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.625rem 0.875rem;
+  border: 1px solid var(--hub-border-muted);
+  border-radius: var(--hub-radius-medium);
   color: var(--hub-fg-muted);
+  font-size: 0.875rem;
+}
+
+.learning-library__agent-connection p {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  margin: 0;
+}
+
+.learning-library__agent-connection-icon {
+  flex: none;
+  color: var(--hub-fg-muted);
+}
+
+.learning-library__agent-connection a {
+  margin-inline-start: auto;
+  color: var(--hub-fg-link);
+  font-weight: 600;
 }
 
 .learning-library__topic {

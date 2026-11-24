@@ -227,6 +227,7 @@ const data: LearningsLibraryPrototypeData = {
   learnings: [...learnings],
   activity: createActivity(),
   today: "2026-11-20",
+  agentConnectionPath: "/settings/agents?repositoryId=2001",
 }
 
 const activeLearning = learnings.find((learning) => learning.status === "active")
