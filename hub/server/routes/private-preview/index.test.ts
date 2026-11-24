@@ -396,6 +396,48 @@ describe("createPrivatePreviewAuthority()", () => {
     ])
   })
 
+  it.each([false, true])(
+    "never looks up the preview marker for an authorized Reader (entry fallback: %s)",
+    async (allowEntryPointFallback) => {
+      const { authority, target, sessionDigest, read, findDistFile } = authorityFixture()
+      const hub = await startHub()
+      hub.authority.authorizeFile.mockImplementation((...args) => authority.authorizeFile(...args))
+      read.mockResolvedValue({
+        buildId: target.buildId,
+        sessionDigest,
+        readerOrigin,
+        tokenDigest: createHash("sha256").update(hub.access).digest("hex"),
+        challengeDigest: null,
+        expiresAt: new Date(Date.now() + 30_000),
+      })
+      findDistFile.mockResolvedValue({ storageKey: "stored-artifact", byteLength: 20 })
+
+      const response = await hub.request(
+        readerAuthorizePath,
+        {
+          "content-type": "application/json",
+          authorization: `Bearer ${hub.readerSecret}`,
+        },
+        JSON.stringify({
+          repositoryId: address.repositoryId,
+          runId: address.runId,
+          access: hub.access,
+          path: privatePreviewManifestPath,
+          allowEntryPointFallback,
+        }),
+      )
+
+      expect(response.status).toBe(404)
+      expect(hub.authority.authorizeFile).toHaveBeenCalledWith(
+        hub.access,
+        address,
+        privatePreviewManifestPath,
+        allowEntryPointFallback,
+      )
+      expect(findDistFile).not.toHaveBeenCalled()
+    },
+  )
+
   it("does not issue a handoff for a dist package built for a different mount", async () => {
     const { authority, target, sessionDigest, findDistFile, readStorage, issue } =
       authorityFixture()

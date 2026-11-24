@@ -201,7 +201,7 @@ async function preparePrivatePreviewReplay(source: ArtifactStorage, destination:
     ARTIFACT_STORAGE_PROVIDER: "azure",
     AZURE_STORAGE_ACCOUNT: "synthetic",
     AZURE_STORAGE_CONTAINER: "ordinary-artifacts",
-    LOG_LEVEL: "silent",
+    LOG_LEVEL: "info",
   }
   function monitor(storage: ArtifactStorage) {
     return {
@@ -229,8 +229,7 @@ async function preparePrivatePreviewReplay(source: ArtifactStorage, destination:
     process.env = originalEnvironment
   })
   vi.spyOn(prisma, "$disconnect").mockResolvedValue(undefined)
-  const { runPrivatePreviewReplay } =
-    await import("../../../scripts/replay-private-preview/run/index.ts")
+  const { runPrivatePreviewReplay } = await import("../../../scripts/replay-private-preview/run")
 
   return async function replay(
     { repositoryId, runId, buildId }: { repositoryId: number; runId: number; buildId: string },
@@ -397,7 +396,6 @@ describe("importGitHubWorkflowRun", () => {
       )
 
       writer.storage.write.mockImplementationOnce(async (key, bytes) => {
-        const result = await storage.write(key, bytes)
         const pending = await fixture.findBuild()
         expect(pending).toMatchObject({ state: "successful", privatePreviewState: "pending" })
         await expectPrivatePreviewHidden(pending, address)
@@ -406,7 +404,8 @@ describe("importGitHubWorkflowRun", () => {
           headers: { cookie: hubCookie },
         })
         expect(response.status).toBe(404)
-        return result
+        await expect(storage.read(key)).resolves.toEqual({ status: "not-found" })
+        return storage.write(key, bytes)
       })
       await expect(fixture.importRun(undefined, writer)).resolves.toEqual({
         dist: "imported",
@@ -726,18 +725,29 @@ describe("importGitHubWorkflowRun", () => {
         expect(denied.stderr).toMatch(/\S/)
       }
 
-      sourceRead.mockResolvedValueOnce({ status: "unavailable" })
+      const sourceError = new Error("synthetic backend details")
+      sourceRead.mockRejectedValueOnce(sourceError)
       const failed = await replay(target, repositoryId)
       expect(failed).toMatchObject({ exitCode: 1, stdout: "" })
-      expect(failed.stderr).toMatch(/\S/)
+      const warning = failed.stderr.split("\n").find((line) => line.startsWith("{"))
+      expect(JSON.parse(warning ?? "null")).toMatchObject({
+        level: 40,
+        buildId,
+        runId: String(runId),
+        stage: "verify-source",
+        reason: "source-unavailable",
+      })
+      expect(failed.stderr).not.toContain(sourceError.message)
       await expect(fixture.findBuild(buildId)).resolves.toEqual(before)
       for (const { storageKey } of originals) {
         await expect(destination.read(storageKey)).resolves.toEqual({ status: "not-found" })
       }
 
       const result = await replay(target, repositoryId)
-      expect(result).toMatchObject({ exitCode: undefined, stderr: "" })
+      expect(result.exitCode).toBeUndefined()
+      expect(result.stdout.trimEnd().split("\n")).toHaveLength(1)
       expect(JSON.parse(result.stdout)).toEqual({ status: "ready", buildId, runId: String(runId) })
+      expect(JSON.parse(result.stderr)).toMatchObject({ level: 30, buildId, runId: String(runId) })
       const after = await fixture.findBuild(buildId)
       expect(after).toEqual({ ...before, updatedAt: after.updatedAt, privatePreviewState: "ready" })
       await expect(readReceipts()).resolves.toEqual(receipts)
@@ -757,7 +767,11 @@ describe("importGitHubWorkflowRun", () => {
             : { status: "not-found" },
         )
       }
-      await expect(replay(target, repositoryId)).resolves.toEqual({ ...result, blobCalls: 0 })
+      await expect(replay(target, repositoryId)).resolves.toEqual({
+        ...result,
+        stderr: "",
+        blobCalls: 0,
+      })
     })
 
     it("writes nothing when retained source bytes no longer match the imported dist digest", async () => {

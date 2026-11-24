@@ -13,7 +13,7 @@ import type { GitHubSetupRouteDependencies } from "../routes/api/settings/github
 import type { BuildPreviewRouteDependencies } from "../routes/build-preview/types.ts"
 import type { PrivatePreviewRouteDependencies } from "../routes/private-preview/types.ts"
 import { runApi } from "../run-api/index.ts"
-import { jobProcessors } from "../workers/configuration.ts"
+import { getJobProcessors } from "../workers/configuration.ts"
 import { runJobWorker } from "../workers/run-job-worker/index.ts"
 
 export async function startServerProcesses(options: {
@@ -39,6 +39,8 @@ export async function startServerProcesses(options: {
   githubWebhooks?: GitHubWebhookRouteDependencies
   trustedProxyHops?: number
 }) {
+  const onDemandProcessors = getJobProcessors("on-demand")
+  const scheduledProcessors = getJobProcessors("scheduled")
   const controller = new AbortController()
   function stop() {
     controller.abort(null)
@@ -65,7 +67,7 @@ export async function startServerProcesses(options: {
               name === "on-demand" ? options.onDemandConcurrency : options.scheduledConcurrency,
             shutdownTimeoutMs: options.shutdownTimeoutMs,
             logger: options.logger,
-            processors: jobProcessors[name],
+            processors: name === "on-demand" ? onDemandProcessors : scheduledProcessors,
             signal: controller.signal,
             onReady: () => ready.add(name),
           }),

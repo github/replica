@@ -1,6 +1,8 @@
 import { privatePreviewAddress } from "../../../utils/private-preview-address/index.ts"
 import { readArtifactStorageEnvironment } from "../../artifacts/read-artifact-storage-environment/index.ts"
 
+export class PrivatePreviewWriterConfigurationError extends Error {}
+
 export function readPrivatePreviewWriterSettings(
   environment: Readonly<Record<string, string | undefined>>,
 ) {
@@ -14,20 +16,30 @@ export function readPrivatePreviewWriterSettings(
     return undefined
   }
   if (enabled !== "true") {
-    throw new Error("Set HUB_PRIVATE_PREVIEW_WRITE_ENABLED to true or false.")
+    throw new PrivatePreviewWriterConfigurationError(
+      "Set HUB_PRIVATE_PREVIEW_WRITE_ENABLED to true or false.",
+    )
   }
   if (!repositoryId || !privatePreviewAddress(repositoryId, "1")) {
-    throw new Error(
+    throw new PrivatePreviewWriterConfigurationError(
       "HUB_PRIVATE_PREVIEW_WRITE_REPOSITORY_ID must be a numeric GitHub repository ID.",
     )
   }
-  const source = readArtifactStorageEnvironment(environment)
-  if (source.provider !== "azure-blob" || !container || container === source.container) {
-    throw new Error("Private preview publication requires a dedicated Azure Blob container.")
+  try {
+    const source = readArtifactStorageEnvironment(environment)
+    if (source.provider === "azure-blob" && container && container !== source.container) {
+      const storage = readArtifactStorageEnvironment({
+        ...environment,
+        AZURE_STORAGE_CONTAINER: container,
+      })
+      return { repositoryId, storage }
+    }
+  } catch {
+    throw new PrivatePreviewWriterConfigurationError(
+      "Check the ordinary Azure artifact storage settings and HUB_PRIVATE_PREVIEW_WRITE_CONTAINER.",
+    )
   }
-  const storage = readArtifactStorageEnvironment({
-    ...environment,
-    AZURE_STORAGE_CONTAINER: container,
-  })
-  return { repositoryId, storage }
+  throw new PrivatePreviewWriterConfigurationError(
+    "Private preview publication requires a dedicated Azure Blob container.",
+  )
 }

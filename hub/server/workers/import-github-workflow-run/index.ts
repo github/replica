@@ -1,12 +1,14 @@
 import { readGitHubAppConfiguration } from "../../domains/authentication/read-github-app-configuration/index.ts"
 import type { GitHubWorkflowRunJob } from "../../domains/github-builds/get-github-workflow-run-job-definition/index.ts"
-import { readPrivatePreviewWriterSettings } from "../../domains/private-preview/read-writer-settings/index.ts"
+import type { readPrivatePreviewWriterSettings } from "../../domains/private-preview/read-writer-settings/index.ts"
 import { logger } from "../../integrations/pino/index.ts"
 
-export async function importGitHubWorkflowRunJob(job: GitHubWorkflowRunJob) {
+export async function importGitHubWorkflowRunJob(
+  job: GitHubWorkflowRunJob,
+  preview: ReturnType<typeof readPrivatePreviewWriterSettings>,
+) {
   const credentials = readGitHubAppConfiguration(process.env).appCredentials
   if (!credentials) throw new Error("GitHub App installation settings are incomplete or invalid.")
-  const preview = readPrivatePreviewWriterSettings(process.env)
   const [
     { importGitHubWorkflowRun },
     { createGitHubActionsClient },

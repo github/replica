@@ -4,7 +4,8 @@ import { createArtifactStorage } from "../../../domains/artifacts/create-artifac
 import { createConfiguredArtifactStorage } from "../../../domains/artifacts/create-configured-artifact-storage/index.ts"
 import { publishGitHubBuildPreview } from "../../../domains/private-preview/publish-github-build-preview/index.ts"
 import { readPrivatePreviewWriterSettings } from "../../../domains/private-preview/read-writer-settings/index.ts"
-import { logger } from "../../../integrations/pino/index.ts"
+import { logLevels } from "../../../integrations/pino/constants.ts"
+import { createLogger } from "../../../integrations/pino/create-logger/index.ts"
 import { findPrivatePreviewTarget } from "../../../repositories/private-previews/find-private-preview-target/index.ts"
 import { privatePreviewAddress } from "../../../utils/private-preview-address/index.ts"
 
@@ -52,6 +53,13 @@ export async function runPrivatePreviewReplay(args: string[]) {
     fail(usage)
     return
   }
+
+  const level = logLevels.find((candidate) => candidate === (process.env.LOG_LEVEL ?? "info"))
+  if (!level) {
+    fail("LOG_LEVEL must be trace, debug, info, warn, error, fatal, or silent.")
+    return
+  }
+  const logger = createLogger({ level, destination: process.stderr })
 
   let step = "read writer settings"
   try {

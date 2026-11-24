@@ -68,6 +68,18 @@ function arrangeRuntime(
 }
 
 describe("startServerProcesses()", () => {
+  it("rejects invalid preview writer settings before starting either worker or the API", async () => {
+    vi.stubEnv("HUB_PRIVATE_PREVIEW_WRITE_ENABLED", "true")
+    vi.stubEnv("HUB_PRIVATE_PREVIEW_WRITE_REPOSITORY_ID", "not-a-repository-id")
+    const { running } = arrangeRuntime()
+    vi.mocked(runApi).mockResolvedValueOnce()
+
+    await expect(running).rejects.toThrow("HUB_PRIVATE_PREVIEW_WRITE_REPOSITORY_ID")
+
+    expect(runJobWorker).not.toHaveBeenCalled()
+    expect(runApi).not.toHaveBeenCalled()
+  })
+
   it("passes authentication and trusted proxy settings to the combined API", async () => {
     const authentication = {} as AuthenticationRouteDependencies
     arrangeRuntime(undefined, { authentication, trustedProxyHops: 2 })
