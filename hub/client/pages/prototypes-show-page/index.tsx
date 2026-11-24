@@ -1,4 +1,4 @@
-import { HistoryIcon } from "@primer/octicons-react"
+import { HistoryIcon, LinkExternalIcon } from "@primer/octicons-react"
 import { Stack } from "@primer/react-brand"
 import { useEffect, useRef, useState } from "react"
 import type { SubmitEvent } from "react"
@@ -7,6 +7,8 @@ import { HubAlert } from "@components/hub-alert"
 import type { CopilotAppSubmission } from "@components/copilot-app-continuation/types"
 import { CopilotAppContinuationDialog } from "@components/copilot-app-continuation-dialog"
 import { HubEmptyState } from "@components/hub-empty-state"
+import { HubIconButton } from "@components/hub-icon-button"
+import { CopyableTextInput } from "@components/copyable-text-input"
 import { PrototypeBriefComposer } from "@components/prototype-brief-composer"
 import { PrototypePreview } from "@features/prototype-preview"
 import { MinimizedReviewToolbar } from "@features/minimized-review-toolbar"
@@ -131,6 +133,29 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
     address = viewerUrl ?? address
     externalAddress = viewerUrl ?? externalAddress
   }
+  const privatePreviewActions = data.privatePreviewUrl ? (
+    <div className="review-shell__address-bar">
+      <CopyableTextInput
+        compact
+        value={data.privatePreviewUrl}
+        label={data.privatePreviewLinkLabel}
+        copyLabel={data.copyPrivatePreviewLinkLabel}
+        copiedLabel={data.copiedPrivatePreviewLinkLabel}
+        copyErrorLabel={data.copyPreviewUrlErrorLabel}
+      />
+      <HubIconButton
+        as="a"
+        href={data.privatePreviewUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        icon={LinkExternalIcon}
+        aria-label={data.openPrivatePreviewInNewTabLabel}
+        description={data.openPrivatePreviewInNewTabLabel}
+        variant="invisible"
+        size="small"
+      />
+    </div>
+  ) : null
 
   function branchFromHere() {
     setInfoMode(null)
@@ -260,6 +285,7 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
                 <HubAlert variant="warning" title={data.notificationErrorLabel} layout="compact" />
               ) : null}
 
+              {data.selectedBuild && !minimized ? privatePreviewActions : null}
               {data.selectedBuild ? (
                 <PrototypePreview
                   address={address}
@@ -326,6 +352,7 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
                     heading={data.emptyHeading}
                     description={data.emptyLabel}
                   />
+                  {privatePreviewActions}
                   {conversation}
                 </div>
               )}

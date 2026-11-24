@@ -6,6 +6,7 @@ import express from "express"
 import { describe, expect, it, vi, type Mock } from "vitest"
 
 import { createSharePreviewGrant } from "../../../../domains/public-sharing/create-share-preview-grant"
+import { privatePreviewManifestPath } from "../../../../domains/private-preview/types"
 import type { PublicSharingRouteDependencies } from "../../../api/public-sharing/types"
 import type { BuildPreviewRouteDependencies } from "../../types"
 import { get } from "."
@@ -43,6 +44,8 @@ async function withRoute(
     key: Buffer
     buildId: string
     shareLinkId: string
+    findArtifact: Mock<BuildPreviewRouteDependencies["findArtifact"]>
+    read: Mock<BuildPreviewRouteDependencies["storage"]["read"]>
     readAvailableLink: Mock<PublicSharingRouteDependencies["readAvailableLink"]>
   }) => Promise<void>,
 ) {
@@ -60,19 +63,23 @@ async function withRoute(
       expiresAt: new Date(Date.now() + 60 * 60_000),
       startPage: "/checkout?step=shipping#address",
     })
+  const findArtifact = vi
+    .fn<BuildPreviewRouteDependencies["findArtifact"]>()
+    .mockResolvedValue(null)
+  const read = vi.fn<BuildPreviewRouteDependencies["storage"]["read"]>()
   const preview: BuildPreviewRouteDependencies = {
     applicationOrigin: "https://hub.example.com",
     previewBaseOrigin: `http://preview.localhost:${port}`,
     encryptionKey: key,
     storage: {
       isReady: vi.fn(),
-      read: vi.fn(),
+      read,
       write: vi.fn(),
       delete: vi.fn(),
     },
     bridgeSource: "",
     findTargetById: vi.fn(),
-    findArtifact: vi.fn(),
+    findArtifact,
   }
   const sharing: PublicSharingRouteDependencies = {
     applicationOrigin: "https://hub.example.com",
@@ -93,6 +100,8 @@ async function withRoute(
       key,
       buildId,
       shareLinkId,
+      findArtifact,
+      read,
       readAvailableLink,
     })
   } finally {
@@ -133,28 +142,31 @@ describe("get()", () => {
   })
 
   it("rechecks current link availability before issuing a public preview session", async () => {
-    await withRoute(async ({ origin, key, buildId, shareLinkId, readAvailableLink }) => {
-      readAvailableLink.mockResolvedValue(null)
-      const grant = createSharePreviewGrant(
-        {
-          buildId,
-          shareLinkId,
-          expiresAt: new Date(Date.now() + 30_000),
-        },
-        key,
-      )
+    await withRoute(
+      async ({ origin, key, buildId, shareLinkId, findArtifact, readAvailableLink }) => {
+        readAvailableLink.mockResolvedValue(null)
+        const grant = createSharePreviewGrant(
+          {
+            buildId,
+            shareLinkId,
+            expiresAt: new Date(Date.now() + 30_000),
+          },
+          key,
+        )
 
-      const response = await request(
-        origin,
-        `/__replica/share/authorize?grant=${encodeURIComponent(grant)}`,
-        `${buildId}.preview.localhost:${new URL(origin).port}`,
-        "hub_session=unrelated; replica_preview=private-preview",
-      )
+        const response = await request(
+          origin,
+          `/__replica/share/authorize?grant=${encodeURIComponent(grant)}`,
+          `${buildId}.preview.localhost:${new URL(origin).port}`,
+          "hub_session=unrelated; replica_preview=private-preview",
+        )
 
-      expect(response.status).toBe(404)
-      expect(response.headers["set-cookie"]).toBeUndefined()
-      expect(readAvailableLink).toHaveBeenCalledWith(shareLinkId, buildId)
-    })
+        expect(response.status).toBe(404)
+        expect(response.headers["set-cookie"]).toBeUndefined()
+        expect(readAvailableLink).toHaveBeenCalledWith(shareLinkId, buildId)
+        expect(findArtifact).not.toHaveBeenCalled()
+      },
+    )
   })
 
   it("does not redeem a grant on another Build origin", async () => {
@@ -179,4 +191,77 @@ describe("get()", () => {
       expect(readAvailableLink).not.toHaveBeenCalled()
     })
   })
+
+  it("uses the hosted link's start page inside the pinned Build's declared mount", async () => {
+    await withRoute(
+      async ({ origin, key, buildId, shareLinkId, findArtifact, read, readAvailableLink }) => {
+        readAvailableLink.mockResolvedValue({
+          expiresAt: new Date(Date.now() + 60_000),
+          startPage: "/checkout?item=%2B&item=gift#delivery%20details",
+          hosted: true,
+        })
+        const bytes = Buffer.from(JSON.stringify({ basePath: "/previews/github/901/1201/" }))
+        findArtifact.mockResolvedValue({
+          storageKey: "base-marker",
+          byteLength: bytes.length,
+        })
+        read.mockResolvedValue({ status: "ok", bytes })
+        const grant = createSharePreviewGrant(
+          { buildId, shareLinkId, expiresAt: new Date(Date.now() + 30_000) },
+          key,
+        )
+
+        const response = await request(
+          origin,
+          `/__replica/share/authorize?${new URLSearchParams({ grant })}`,
+          `${buildId}.preview.localhost:${new URL(origin).port}`,
+        )
+
+        expect(response.status).toBe(303)
+        expect(response.headers.location).toBe(
+          "/previews/github/901/1201/checkout?item=%2B&item=gift#delivery%20details",
+        )
+        expect(findArtifact).toHaveBeenCalledWith(buildId, privatePreviewManifestPath)
+      },
+    )
+  })
+
+  it.each(["storage unavailable", "link revoked"] as const)(
+    "does not issue a hosted preview session when %s during the marker lookup",
+    async (failure) => {
+      await withRoute(
+        async ({ origin, key, buildId, shareLinkId, findArtifact, read, readAvailableLink }) => {
+          readAvailableLink.mockResolvedValue({
+            expiresAt: new Date(Date.now() + 60_000),
+            startPage: "/",
+            hosted: true,
+          })
+          const bytes = Buffer.from(JSON.stringify({ basePath: "/previews/github/901/1201/" }))
+          findArtifact.mockResolvedValue({
+            storageKey: "base-marker",
+            byteLength: bytes.length,
+          })
+          read.mockImplementation(() => {
+            if (failure === "storage unavailable") return Promise.resolve({ status: "unavailable" })
+            readAvailableLink.mockResolvedValue(null)
+            return Promise.resolve({ status: "ok", bytes })
+          })
+          const grant = createSharePreviewGrant(
+            { buildId, shareLinkId, expiresAt: new Date(Date.now() + 30_000) },
+            key,
+          )
+
+          const response = await request(
+            origin,
+            `/__replica/share/authorize?${new URLSearchParams({ grant })}`,
+            `${buildId}.preview.localhost:${new URL(origin).port}`,
+          )
+
+          expect(response.status).toBe(failure === "storage unavailable" ? 503 : 404)
+          expect(response.headers.location).toBeUndefined()
+          expect(response.headers["set-cookie"]).toBeUndefined()
+        },
+      )
+    },
+  )
 })

@@ -1,6 +1,11 @@
 import "dotenv/config"
 
 import { createConfiguredArtifactStorage } from "./domains/artifacts/create-configured-artifact-storage/index.ts"
+import { canViewPrivatePreview } from "./domains/private-preview/can-view-private-preview/index.ts"
+import {
+  PrivatePreviewConfigurationError,
+  readPrivatePreviewSettings,
+} from "./domains/private-preview/read-settings/index.ts"
 import { LocalSignInConfigurationError } from "./domains/authentication/errors.ts"
 import { readLearningConfiguration } from "./domains/learning/read-learning-configuration/index.ts"
 import { readDecisionRuntimeConfiguration } from "./domains/decision-model/read-decision-runtime-configuration/index.ts"
@@ -38,6 +43,7 @@ import type { ProductRouteDependencies } from "./routes/api/product/types.ts"
 import type { PublicSharingRouteDependencies } from "./routes/api/public-sharing/types.ts"
 import type { GitHubSetupRouteDependencies } from "./routes/api/settings/github/types.ts"
 import type { BuildPreviewRouteDependencies } from "./routes/build-preview/types.ts"
+import type { PrivatePreviewRouteDependencies } from "./routes/private-preview/types.ts"
 
 class AuthenticationConfigurationError extends Error {}
 
@@ -66,7 +72,9 @@ try {
         configuredTrustedProxyHops < 0 ||
         configuredTrustedProxyHops > 10)
     ) {
-      throw new Error("HUB_TRUSTED_PROXY_HOPS must be an integer between 0 and 10.")
+      throw new AuthenticationConfigurationError(
+        "HUB_TRUSTED_PROXY_HOPS must be an integer between 0 and 10.",
+      )
     }
     const trustedProxyHops = runsApi ? configuredTrustedProxyHops : 0
     let authentication: AuthenticationRouteDependencies | undefined
@@ -76,6 +84,7 @@ try {
     let learnings: LearningsRouteDependencies | undefined
     let product: ProductRouteDependencies | undefined
     let preview: BuildPreviewRouteDependencies | undefined
+    let privatePreview: PrivatePreviewRouteDependencies | undefined
     let publicSharing: PublicSharingRouteDependencies | undefined
     let githubSetup: GitHubSetupRouteDependencies | undefined
     let githubWebhooks: GitHubWebhookRouteDependencies | undefined
@@ -83,6 +92,23 @@ try {
       const authenticationEnvironment = resolveLocalSignInEnvironment(process.env)
       const authenticationConfiguration =
         readAuthenticationConfigurationState(authenticationEnvironment)
+      const privatePreviewSettings = readPrivatePreviewSettings(authenticationEnvironment)
+      if (privatePreviewSettings && trustedProxyHops === 0) {
+        throw new PrivatePreviewConfigurationError(
+          "Private preview requires HUB_TRUSTED_PROXY_HOPS between 1 and 10.",
+        )
+      }
+      if (
+        privatePreviewSettings &&
+        (!storage ||
+          !configuration.databaseUrl ||
+          (!authenticationConfiguration.githubConfigured &&
+            !authenticationConfiguration.localConfigured))
+      ) {
+        throw new AuthenticationConfigurationError(
+          "Private preview requires GitHub sign-in or configured local administrator sign-in, a database, and artifact storage.",
+        )
+      }
       if (authenticationConfiguration.githubStatus === "incomplete") {
         if (authenticationConfiguration.githubProblems.every(({ state }) => state === "invalid")) {
           const names = authenticationConfiguration.githubProblems.map(({ key }) => key).join(", ")
@@ -229,9 +255,47 @@ try {
               previewBaseOrigin: previewConfigured
                 ? authenticationEnvironment.HUB_PREVIEW_ORIGIN
                 : undefined,
+              privatePreviewHubOrigin: privatePreviewSettings?.hubOrigin,
+              privatePreviewLocalSignIn: authenticationConfiguration.localConfigured,
               withReviewCommentDeleteLock: (operation) =>
                 learningDependencies.serializeReviewCommentDeletion(operation),
             })
+            if (privatePreviewSettings && storage) {
+              const { createPrivatePreviewAuthority } =
+                await import("./domains/private-preview/create-authority/index.ts")
+              const { createPrivatePreviewAccessStore } =
+                await import("./repositories/private-previews/create-private-preview-access-store/index.ts")
+              const { findPrivatePreviewTarget } =
+                await import("./repositories/private-previews/find-private-preview-target/index.ts")
+              const { findPrivatePreviewDistFile } =
+                await import("./repositories/private-previews/find-private-preview-dist-file/index.ts")
+              const { prisma } = await import("./integrations/prisma/index.ts")
+              privatePreview = {
+                settings: privatePreviewSettings,
+                authority: createPrivatePreviewAuthority({
+                  readerOrigin: privatePreviewSettings.readerOrigin,
+                  storage,
+                  access: createPrivatePreviewAccessStore(prisma),
+                  restoreSession: authentication.currentSession.restore.bind(
+                    authentication.currentSession,
+                  ),
+                  isRepositoryVisible: product.isRepositoryVisible.bind(product),
+                  hasCurrentRepositoryAccess: async (viewer, repositoryId) => {
+                    if (!canViewPrivatePreview(viewer, authenticationConfiguration.localConfigured))
+                      return false
+                    if (viewer.sessionProvider === "local") return true
+                    const permission = await product?.getVerifiedRepositoryPermission?.(
+                      viewer,
+                      repositoryId,
+                    )
+                    return Boolean(permission && permission !== "none")
+                  },
+                  findTarget: (address) => findPrivatePreviewTarget(prisma, address),
+                  findDistFile: (buildId, path) =>
+                    findPrivatePreviewDistFile(prisma, buildId, path),
+                }),
+              }
+            }
           } else {
             await disableAuthenticationProviders()
           }
@@ -313,6 +377,7 @@ try {
         learnings,
         product,
         preview,
+        privatePreview,
         publicSharing,
         trustedProxyHops,
       })
@@ -334,6 +399,7 @@ try {
           learnings,
           product,
           preview,
+          privatePreview,
           publicSharing,
           trustedProxyHops,
         })
@@ -358,6 +424,7 @@ try {
 } catch (error) {
   logger.fatal(
     error instanceof AuthenticationConfigurationError ||
+      error instanceof PrivatePreviewConfigurationError ||
       error instanceof PublicSharingConfigurationError ||
       error instanceof LocalSignInConfigurationError ||
       error instanceof LocalDevelopmentConfigurationError ||

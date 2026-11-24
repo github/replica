@@ -12,6 +12,7 @@ model Build {
   shareLinks             ShareLink[]
   decisionEvaluations    DecisionBuildEvaluation[]
   githubRunCompletions   GitHubBuildRunCompletion[]
+  privatePreviewAccesses PrivatePreviewAccess[]
 
   // Attribute columns
   number                   Int
@@ -42,5 +43,6 @@ model Build {
   @@unique([id, prototypeId])
   @@unique([prototypeId, number])
   @@unique([prototypeId, commitSha])
+  @@index([githubWorkflowRunId])
   @@map("builds")
 }

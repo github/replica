@@ -85,6 +85,8 @@ The optional [build action](../../actions/build/action.yml) is still available. 
 
 To use the build and publish actions as separate steps, set `build-only: 'true'` on the build action, then call the publish action. Build-only mode leaves the static output in the workspace without packaging, uploads, browser installation, or screenshot capture. Without this option, both actions upload `replica-build-v1`, and GitHub rejects the duplicate artifact name.
 
+For [standalone private previews](build-previews.md#standalone-private-previews), compile the site for `/previews/github/<githubRepositoryId>/<owningWorkflowRunId>/` and pass that path as `base-path` to the action that packages the output. Pass the same path to the standalone screenshot action, if used. Leave the input unset for existing root-based workflows. Setting the input records the mount in the package and changes the capture server's mount; it does not change compiled URLs.
+
 If Hub is offline during an update, the workflow can still upload both artifacts to GitHub. GitHub does not automatically retry failed webhook deliveries. Once Hub returns, polling or requested redelivery can import the retained packages. Hub still needs GitHub API and artifact-download access. Recovery is bounded by the three-day artifact retention and polling window; expired packages cannot be recovered automatically. Re-running the workflow is safe because successful Builds and artifacts are never replaced.
 
 ## Flow
@@ -177,13 +179,13 @@ Deletion events are still recorded when received, rather than confirmed synchron
 
 Both packages use the same path, size, and entry-count limits as local Builds:
 
-| Content                       | Limit                     |
-| ----------------------------- | ------------------------- |
-| Each static file              | 100 MiB (104,857,600 bytes) |
-| All uncompressed `dist/` files | 100 MiB                   |
-| Each screenshot               | 25 MiB                    |
-| All extracted package files   | 150 MiB                   |
-| Downloaded ZIP                | 160 MiB                   |
+| Content                        | Limit                       |
+| ------------------------------ | --------------------------- |
+| Each static file               | 100 MiB (104,857,600 bytes) |
+| All uncompressed `dist/` files | 100 MiB                     |
+| Each screenshot                | 25 MiB                      |
+| All extracted package files    | 150 MiB                     |
+| Downloaded ZIP                 | 160 MiB                     |
 
 A separate data asset must leave room for `index.html` and the rest of the app within the total `dist/` budget. Package validation also enforces path, entry-count, and archive protections.
 

@@ -203,6 +203,10 @@ const PROTOTYPES_SHOW_PAGE_DATA: PrototypesShowPageData = {
   historyPath: "/repositories/2001/prototypes/1/builds",
   moreActionsLabel: "More actions",
   openInNewTabLabel: "Open in new tab",
+  privatePreviewLinkLabel: "Private Hub link",
+  copyPrivatePreviewLinkLabel: "Copy private Hub link",
+  copiedPrivatePreviewLinkLabel: "Private Hub link copied",
+  openPrivatePreviewInNewTabLabel: "Open private preview in new tab",
   minimizeHubLabel: "Minimize Hub UI",
   maximizeHubLabel: "Maximize Hub UI",
   dragControlsLabel: "Move review controls. Drag or use arrow keys.",
@@ -423,6 +427,7 @@ function TestPage({
   prototypeDescription = PROTOTYPES_SHOW_PAGE_DATA.prototypeDescription,
   branchSubmissionMode = PROTOTYPES_SHOW_PAGE_DATA.branchSubmissionMode,
   controlsIdentity,
+  privatePreviewUrl,
 }: {
   initialInfoOpen?: boolean
   showPrototypeInfo?: boolean
@@ -435,6 +440,7 @@ function TestPage({
   prototypeDescription?: string | null
   branchSubmissionMode?: PrototypesShowPageData["branchSubmissionMode"]
   controlsIdentity?: string
+  privatePreviewUrl?: string
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const { resolvedColorMode: previewTheme } = useHubTheme()
@@ -465,6 +471,7 @@ function TestPage({
         prototypeDescription,
         branchSubmissionMode,
         controlsIdentity,
+        privatePreviewUrl,
         showPrototypeInfo,
         alert,
       }}
@@ -1321,6 +1328,35 @@ describe("PrototypesShowPage()", () => {
     const externalUrl = new URL(String(writeText.mock.calls.at(-1)![0]), window.location.origin)
     expect(externalUrl.pathname).toContain("/builds/2/access")
     expect(externalUrl.searchParams.get("route")).toBe("/checkout?step=shipping#address")
+  })
+
+  it("keeps the embedded Build and its copy action alongside the private preview link", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } })
+    const build = PROTOTYPES_SHOW_PAGE_DATA.selectedBuild!
+    const privatePreviewUrl = new URL(
+      "/api/private-preview/launch/2001/4001",
+      window.location.origin,
+    ).toString()
+
+    render(
+      <HubThemeProvider>
+        <TestPage privatePreviewUrl={privatePreviewUrl} />
+      </HubThemeProvider>,
+    )
+
+    expect(screen.getByTitle(build.frameTitle)).toHaveAttribute("src", build.previewUrl)
+    const legacyUrl = window.location.href
+    expect(screen.getByRole("textbox", { name: "Preview URL" })).toHaveValue(legacyUrl)
+    fireEvent.click(screen.getByRole("button", { name: "Copy preview URL" }))
+    expect(writeText).toHaveBeenNthCalledWith(1, legacyUrl)
+    expect(await screen.findByRole("button", { name: "Copied preview URL" })).toBeInTheDocument()
+
+    const open = screen.getByRole("link", { name: "Open private preview in new tab" })
+    expect(open).toHaveAttribute("href", privatePreviewUrl)
+    expect(open).toHaveAttribute("target", "_blank")
+    fireEvent.click(screen.getByRole("button", { name: "Copy private Hub link" }))
+    expect(writeText).toHaveBeenNthCalledWith(2, privatePreviewUrl)
   })
 
   it("copies the current route inside a Hub link without reloading the preview", () => {

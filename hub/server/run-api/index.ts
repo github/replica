@@ -14,6 +14,7 @@ import type { ProductRouteDependencies } from "../routes/api/product/types.ts"
 import type { PublicSharingRouteDependencies } from "../routes/api/public-sharing/types.ts"
 import type { GitHubSetupRouteDependencies } from "../routes/api/settings/github/types.ts"
 import type { BuildPreviewRouteDependencies } from "../routes/build-preview/types.ts"
+import type { PrivatePreviewRouteDependencies } from "../routes/private-preview/types.ts"
 import { attachRealtimeServer } from "../integrations/ws/attach-realtime-server/index.ts"
 import { listenForReviewChanges } from "../integrations/postgres/listen-for-review-changes/index.ts"
 import {
@@ -33,6 +34,7 @@ export async function runApi({
   decisionModels,
   learnings,
   preview,
+  privatePreview,
   product,
   publicSharing,
   trustedProxyHops = 0,
@@ -51,6 +53,7 @@ export async function runApi({
   decisionModels?: DecisionModelRouteDependencies
   learnings?: LearningsRouteDependencies
   preview?: BuildPreviewRouteDependencies
+  privatePreview?: PrivatePreviewRouteDependencies
   product?: ProductRouteDependencies
   publicSharing?: PublicSharingRouteDependencies
   githubSetup?: GitHubSetupRouteDependencies
@@ -113,6 +116,7 @@ export async function runApi({
       product,
       publicSharing,
       preview,
+      privatePreview,
       trustedProxyHops,
     }),
   )

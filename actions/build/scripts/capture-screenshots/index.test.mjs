@@ -98,17 +98,22 @@ describe("captureScreenshots()", () => {
     }
   })
 
-  it("applies Controls defaults under a same-origin script policy", async () => {
+  it("captures a mounted template route with Controls defaults under a same-origin script policy", async () => {
     const root = await temporaryDirectory()
     const screenshots = await temporaryDirectory()
+    const mount = "/previews/github/2001/4001/"
     await mkdir(path.join(root, "dist"))
+    await mkdir(path.join(root, ".github"))
     await writeFile(
       path.join(root, "dist", "index.html"),
-      '<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="script-src \'self\'"></head><body style="margin:0;background:blue"><input id="accent" type="color" value="#0000ff"><script src="/app.js"></script></body></html>',
+      `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="script-src 'self'"></head><body style="margin:0;background:blue"><input id="accent" type="color" value="#0000ff"><script src="${mount}app.js"></script></body></html>`,
     )
     await writeFile(
       path.join(root, "dist", "app.js"),
-      'document.querySelector("input").addEventListener("input",event=>document.body.style.background=event.target.value)',
+      `document.querySelector("input").addEventListener("input", (event) => {
+        document.body.style.background = location.pathname === "${mount}settings/v2.0"
+          ? event.target.value : "green"
+      })`,
     )
     await writeFile(
       path.join(root, "dist", "controls.replica.json"),
@@ -126,9 +131,26 @@ describe("captureScreenshots()", () => {
         ],
       }),
     )
-    await captureScreenshots(root, screenshots)
+    await writeFile(
+      path.join(root, ".github/replica.json"),
+      JSON.stringify({
+        version: 1,
+        templates: [
+          {
+            id: "settings",
+            name: "Settings",
+            category: "Configuration",
+            description: "Edit settings.",
+            path: "/settings/v2.0",
+          },
+        ],
+      }),
+    )
+    await captureScreenshots(root, screenshots, root, ".github/replica.json", mount)
     for (const name of ["desktop", "narrow", "desktop-dark", "narrow-dark"]) {
-      const image = pngjs.PNG.sync.read(await readFile(path.join(screenshots, `${name}.png`)))
+      const image = pngjs.PNG.sync.read(
+        await readFile(path.join(screenshots, "templates/settings", `${name}.png`)),
+      )
       const bottom = (image.height - 1) * image.width * 4
       assert.deepEqual([...image.data.subarray(bottom, bottom + 3)], [255, 0, 0])
     }

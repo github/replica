@@ -1,8 +1,9 @@
 import type { RequestHandler } from "express"
 
+import { readPreviewBuildId } from "../../../../domains/build-preview/read-preview-build-id/index.ts"
+import { resolveBuildPreviewLaunch } from "../../../../domains/build-preview/resolve-build-preview-launch/index.ts"
 import { createSharePreviewSession } from "../../../../domains/public-sharing/create-share-preview-session/index.ts"
 import { readSharePreviewGrant } from "../../../../domains/public-sharing/read-share-preview-grant/index.ts"
-import { readPreviewBuildId } from "../../../../domains/build-preview/read-preview-build-id/index.ts"
 import { createSharePreviewCookie } from "../../../../integrations/express/create-share-preview-cookie/index.ts"
 import { normalizeStartPage } from "../../../../utils/normalize-start-page/index.ts"
 import type { PublicSharingRouteDependencies } from "../../../api/public-sharing/types.ts"
@@ -21,11 +22,28 @@ export function get(
         response.status(404).end()
         return
       }
-      const link = await sharing.readAvailableLink(grant.s, grant.b)
+      let link = await sharing.readAvailableLink(grant.s, grant.b)
       if (!link) {
         response.status(404).end()
         return
       }
+      response.setHeader("Cache-Control", "private, no-store")
+      response.setHeader("Referrer-Policy", "no-referrer")
+      let destination = normalizeStartPage(link.startPage) ?? "/"
+      if (link.hosted) {
+        const launch = await resolveBuildPreviewLaunch(buildId, destination, preview)
+        link = await sharing.readAvailableLink(grant.s, grant.b)
+        if (!link || grant.e <= Date.now()) {
+          response.status(404).end()
+          return
+        }
+        if (launch.status === "unavailable") {
+          response.status(503).end()
+          return
+        }
+        destination = launch.destination
+      }
+
       const expiresAt = new Date(Math.min(Date.now() + 8 * 60 * 60_000, link.expiresAt.getTime()))
       response.setHeader(
         "Set-Cookie",
@@ -40,9 +58,7 @@ export function get(
             new URL(preview.previewBaseOrigin).hostname.endsWith(".localhost"),
         }),
       )
-      response.setHeader("Cache-Control", "private, no-store")
-      response.setHeader("Referrer-Policy", "no-referrer")
-      response.redirect(303, normalizeStartPage(link.startPage) ?? "/")
+      response.redirect(303, destination)
     } catch (error) {
       next(error)
     }

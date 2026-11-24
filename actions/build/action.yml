@@ -2,6 +2,10 @@ name: Replica build
 description: Build a Replica prototype and upload its package, with screenshots inline or in a later job
 
 inputs:
+  base-path:
+    description: Canonical private preview mount for precompiled output and screenshot capture; does not change how the application is compiled
+    required: false
+    default: /
   build-only:
     description: Build static output without packaging, uploading, or capturing screenshots; publish it with a later actions/build/publish step
     required: false
@@ -75,11 +79,13 @@ runs:
       if: inputs.build-only != 'true'
       env:
         REPLICA_OUTPUT_DIRECTORY: ${{ inputs.output-directory }}
+        REPLICA_BASE_PATH: ${{ inputs.base-path }}
       run: |
         node "$GITHUB_ACTION_PATH/scripts/prepare-build-output/index.mjs" \
           --root "$GITHUB_WORKSPACE" \
           --output-directory "$REPLICA_OUTPUT_DIRECTORY" \
-          --output "$RUNNER_TEMP/replica-build-root"
+          --output "$RUNNER_TEMP/replica-build-root" \
+          --base-path "$REPLICA_BASE_PATH"
       shell: bash
 
     - name: Create Replica dist package
@@ -110,7 +116,9 @@ runs:
 
     - name: Capture screenshots
       if: inputs.build-only != 'true' && inputs.screenshots == 'inline'
-      run: node "$GITHUB_ACTION_PATH/scripts/capture-screenshots/index.mjs" --root "$RUNNER_TEMP/replica-build-root" --config-root "$GITHUB_WORKSPACE" --screenshots "$RUNNER_TEMP/replica-screenshots"
+      env:
+        REPLICA_BASE_PATH: ${{ inputs.base-path }}
+      run: node "$GITHUB_ACTION_PATH/scripts/capture-screenshots/index.mjs" --root "$RUNNER_TEMP/replica-build-root" --config-root "$GITHUB_WORKSPACE" --screenshots "$RUNNER_TEMP/replica-screenshots" --base-path "$REPLICA_BASE_PATH"
       shell: bash
 
     - name: Create Replica package

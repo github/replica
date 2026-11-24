@@ -6,6 +6,7 @@ import express from "express"
 import { describe, expect, it, vi, type Mock } from "vitest"
 
 import { createPreviewGrant } from "../../../../domains/build-preview/create-preview-grant"
+import { privatePreviewManifestPath } from "../../../../domains/private-preview/types"
 import type { BuildPreviewRouteDependencies } from "../../types"
 import { get } from "."
 
@@ -32,7 +33,11 @@ async function request(origin: string, path: string, host: string) {
 async function withAuthorizeRoute(
   operation: (
     origin: string,
-    dependencies: BuildPreviewRouteDependencies,
+    mocks: {
+      findArtifact: Mock<BuildPreviewRouteDependencies["findArtifact"]>
+      read: Mock<BuildPreviewRouteDependencies["storage"]["read"]>
+      restoreSession: Mock<NonNullable<BuildPreviewRouteDependencies["restoreSession"]>>
+    },
     key: Buffer,
     findTargetById: Mock<BuildPreviewRouteDependencies["findTargetById"]>,
   ) => Promise<void>,
@@ -44,13 +49,20 @@ async function withAuthorizeRoute(
   await once(server, "listening")
   const { port } = server.address() as AddressInfo
   const findTargetById = vi.fn<BuildPreviewRouteDependencies["findTargetById"]>()
+  const findArtifact = vi
+    .fn<BuildPreviewRouteDependencies["findArtifact"]>()
+    .mockResolvedValue(null)
+  const read = vi.fn<BuildPreviewRouteDependencies["storage"]["read"]>()
+  const restoreSession = vi
+    .fn<NonNullable<BuildPreviewRouteDependencies["restoreSession"]>>()
+    .mockResolvedValue({})
   const dependencies: BuildPreviewRouteDependencies = {
     applicationOrigin: "https://hub.example.com",
     previewBaseOrigin: `http://preview.localhost:${port}`,
     encryptionKey: key,
     storage: {
       isReady: vi.fn(),
-      read: vi.fn(),
+      read,
       write: vi.fn(),
       delete: vi.fn(),
     },
@@ -60,11 +72,17 @@ async function withAuthorizeRoute(
       startPage: "/checkout?step=shipping#address",
       artifactPath: "dist/index.html",
     }),
-    findArtifact: vi.fn(),
+    findArtifact,
+    restoreSession,
   }
   app.get("/__replica/authorize", get(dependencies))
   try {
-    await operation(`http://127.0.0.1:${port}`, dependencies, key, findTargetById)
+    await operation(
+      `http://127.0.0.1:${port}`,
+      { findArtifact, read, restoreSession },
+      key,
+      findTargetById,
+    )
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()))
@@ -108,7 +126,7 @@ describe("get()", () => {
   })
 
   it("does not exchange a grant on another Build origin", async () => {
-    await withAuthorizeRoute(async (origin, _dependencies, key, findTargetById) => {
+    await withAuthorizeRoute(async (origin, { findArtifact }, key, findTargetById) => {
       const grant = createPreviewGrant(
         {
           buildId: randomUUID(),
@@ -128,6 +146,7 @@ describe("get()", () => {
       expect(response.status).toBe(404)
       expect(response.headers["set-cookie"]).toBeUndefined()
       expect(findTargetById).not.toHaveBeenCalled()
+      expect(findArtifact).not.toHaveBeenCalled()
     })
   })
 
@@ -167,4 +186,179 @@ describe("get()", () => {
       expect(unsafe.headers["set-cookie"]).toBeUndefined()
     })
   })
+
+  it.each([
+    [undefined, "/previews/github/901/1201/"],
+    [
+      "/checkout?view=%2B&view=summary#order%20details",
+      "/previews/github/901/1201/checkout?view=%2B&view=summary#order%20details",
+    ],
+    [
+      "/previews/github/901/1201/checkout?step=shipping#address",
+      "/previews/github/901/1201/checkout?step=shipping#address",
+    ],
+    [
+      "/previews/github/901/1201?step=shipping#address",
+      "/previews/github/901/1201/?step=shipping#address",
+    ],
+  ])("launches a marked Build at %s within its declared mount", async (route, destination) => {
+    await withAuthorizeRoute(async (origin, { findArtifact, read }, key, findTargetById) => {
+      const buildId = randomUUID()
+      findTargetById.mockResolvedValue({ buildId, startPage: "/", artifactPath: "dist/index.html" })
+      const bytes = Buffer.from(JSON.stringify({ basePath: "/previews/github/901/1201/" }))
+      findArtifact.mockResolvedValue({
+        storageKey: "base-marker",
+        byteLength: bytes.length,
+      })
+      read.mockResolvedValue({ status: "ok", bytes })
+      const grant = createPreviewGrant(
+        {
+          buildId,
+          target: "preview",
+          expiresAt: new Date(Date.now() + 30_000),
+          sessionDigest: "a".repeat(64),
+        },
+        key,
+      )
+      const query = new URLSearchParams({ grant })
+      if (route !== undefined) query.set("route", route)
+      const response = await request(
+        origin,
+        `/__replica/authorize?${query}`,
+        `${buildId}.preview.localhost:${new URL(origin).port}`,
+      )
+
+      expect(response.status).toBe(303)
+      expect(response.headers.location).toBe(destination)
+      expect(findArtifact).toHaveBeenCalledWith(buildId, privatePreviewManifestPath)
+      expect(read).toHaveBeenCalledWith("base-marker")
+    })
+  })
+
+  it.each([
+    ["oversized metadata", 257, "/previews/github/901/1201/", false],
+    ["noncanonical mount", undefined, "/previews/github/0901/1201/", true],
+    ["mismatched byte length", 1, "/previews/github/901/1201/", true],
+  ])(
+    "ignores a retained declaration with %s",
+    async (_reason, byteLength, basePath, readsStorage) => {
+      await withAuthorizeRoute(async (origin, { findArtifact, read }, key, findTargetById) => {
+        const buildId = randomUUID()
+        const startPage = "/checkout?step=shipping#address"
+        findTargetById.mockResolvedValue({ buildId, startPage, artifactPath: "dist/index.html" })
+        const bytes = Buffer.from(JSON.stringify({ basePath }))
+        findArtifact.mockResolvedValue({
+          storageKey: "base-marker",
+          byteLength: byteLength ?? bytes.length,
+        })
+        read.mockResolvedValue({ status: "ok", bytes })
+        const grant = createPreviewGrant(
+          {
+            buildId,
+            target: "preview",
+            expiresAt: new Date(Date.now() + 30_000),
+            sessionDigest: "a".repeat(64),
+          },
+          key,
+        )
+
+        const response = await request(
+          origin,
+          `/__replica/authorize?${new URLSearchParams({ grant })}`,
+          `${buildId}.preview.localhost:${new URL(origin).port}`,
+        )
+
+        expect(response.status).toBe(303)
+        expect(response.headers.location).toBe(startPage)
+        expect(read).toHaveBeenCalledTimes(readsStorage ? 1 : 0)
+      })
+    },
+  )
+
+  it.each([
+    ["desktop", undefined, "screenshots/desktop.png"],
+    [
+      "template",
+      "screenshots/templates/checkout/desktop.png",
+      "screenshots/templates/checkout/desktop.png",
+    ],
+  ] as const)(
+    "keeps %s screenshots off the mount lookup",
+    async (target, screenshotPath, destination) => {
+      await withAuthorizeRoute(
+        async (origin, { findArtifact, read, restoreSession }, key, findTargetById) => {
+          const buildId = randomUUID()
+          findTargetById.mockResolvedValue({ buildId, startPage: "/", artifactPath: destination })
+          findArtifact.mockResolvedValue({
+            storageKey: "screenshot",
+            byteLength: 10,
+          })
+          const grant = createPreviewGrant(
+            {
+              buildId,
+              target,
+              ...(screenshotPath ? { screenshotPath } : {}),
+              expiresAt: new Date(Date.now() + 30_000),
+              sessionDigest: "a".repeat(64),
+            },
+            key,
+          )
+
+          const response = await request(
+            origin,
+            `/__replica/authorize?${new URLSearchParams({ grant })}`,
+            `${buildId}.preview.localhost:${new URL(origin).port}`,
+          )
+
+          expect(response.status).toBe(303)
+          expect(response.headers.location).toBe(`/__replica/${destination}`)
+          expect(findArtifact).not.toHaveBeenCalledWith(buildId, privatePreviewManifestPath)
+          expect(read).not.toHaveBeenCalled()
+          expect(restoreSession).not.toHaveBeenCalled()
+        },
+      )
+    },
+  )
+
+  it.each(["session revoked", "target removed"] as const)(
+    "does not issue a preview session when %s during the marker lookup",
+    async (change) => {
+      await withAuthorizeRoute(
+        async (origin, { findArtifact, read, restoreSession }, key, findTargetById) => {
+          const buildId = randomUUID()
+          findTargetById.mockResolvedValue({
+            buildId,
+            startPage: "/",
+            artifactPath: "dist/index.html",
+          })
+          const bytes = Buffer.from(JSON.stringify({ basePath: "/previews/github/901/1201/" }))
+          findArtifact.mockResolvedValue({ storageKey: "base-marker", byteLength: bytes.length })
+          read.mockImplementation(() => {
+            if (change === "session revoked") restoreSession.mockResolvedValue(null)
+            else findTargetById.mockResolvedValue(null)
+            return Promise.resolve({ status: "ok", bytes })
+          })
+          const grant = createPreviewGrant(
+            {
+              buildId,
+              target: "preview",
+              expiresAt: new Date(Date.now() + 30_000),
+              sessionDigest: "a".repeat(64),
+            },
+            key,
+          )
+
+          const response = await request(
+            origin,
+            `/__replica/authorize?${new URLSearchParams({ grant })}`,
+            `${buildId}.preview.localhost:${new URL(origin).port}`,
+          )
+
+          expect(response.status).toBe(404)
+          expect(response.headers.location).toBeUndefined()
+          expect(response.headers["set-cookie"]).toBeUndefined()
+        },
+      )
+    },
+  )
 })

@@ -1,12 +1,14 @@
-import { cp, lstat, mkdir, rm } from "node:fs/promises"
+import { cp, lstat, mkdir, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { requiredPathArgument } from "../required-path-argument/index.mjs"
+import { normalizeBasePath } from "../normalize-base-path/index.mjs"
 import { validateBuildOutput } from "../validate-build-output/index.mjs"
 
 /** Copies a safe workspace-relative website into the package's fixed dist layout. */
-export async function prepareBuildOutput(root, outputDirectory, destination) {
+export async function prepareBuildOutput(root, outputDirectory, destination, basePath = "/") {
+  const base = normalizeBasePath(basePath)
   const workspace = path.resolve(root)
   const segments = outputDirectory.replace(/^\.\//, "").replace(/\/$/, "").split("/")
   if (
@@ -59,6 +61,15 @@ export async function prepareBuildOutput(root, outputDirectory, destination) {
   await rm(output, { recursive: true, force: true })
   await mkdir(output, { recursive: true })
   await cp(source, path.join(output, "dist"), { recursive: true, verbatimSymlinks: true })
+  if (base !== "/") {
+    await writeFile(
+      path.join(output, "dist", "replica-preview-base.json"),
+      JSON.stringify({ basePath: base }),
+      {
+        flag: "wx",
+      },
+    )
+  }
   return validateBuildOutput(output)
 }
 
@@ -67,6 +78,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     requiredPathArgument("root"),
     requiredPathArgument("output-directory", { resolve: false }),
     requiredPathArgument("output"),
+    process.argv.includes("--base-path")
+      ? requiredPathArgument("base-path", { resolve: false })
+      : undefined,
   )
   console.log(`Prepared dist/: ${result.files.length} files, ${result.bytes} bytes.`)
 }

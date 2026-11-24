@@ -1,5 +1,6 @@
 import { Prisma, type Build } from "../../../generated/prisma/client.ts"
 import { trimPrototypeMetadata } from "../../../utils/trim-prototype-metadata/index.ts"
+import { privatePreviewAddress } from "../../../utils/private-preview-address/index.ts"
 import { type RepositoryScope, visibleRepositoryWhere } from "../visible-repository-where/index.ts"
 
 const hiddenBranches = ["replica/install-workflow"]
@@ -24,12 +25,19 @@ export async function findPrototypeDetail(
     buildNumber: number,
     target: "preview" | "desktop" | "narrow",
   ) => string,
+  privatePreviewHubOrigin?: string,
 ) {
   const detail = await database.$transaction(
     async (transaction) => {
       const repository = await transaction.repository.findFirst({
         where: { id: repositoryId, ...visibleRepositoryWhere(scope) },
-        select: { id: true, nameWithOwner: true, defaultBranch: true },
+        select: {
+          id: true,
+          nameWithOwner: true,
+          defaultBranch: true,
+          githubRepositoryId: true,
+          localPath: true,
+        },
       })
       if (!repository) return null
 
@@ -84,6 +92,7 @@ export async function findPrototypeDetail(
           id: true,
           number: true,
           state: true,
+          githubWorkflowRunId: true,
           commitSha: true,
           authorProvider: true,
           authorIssuer: true,
@@ -102,12 +111,13 @@ export async function findPrototypeDetail(
                 in: [
                   "dist/index.html",
                   "dist/controls.replica.json",
+                  "dist/replica-preview-base.json",
                   "screenshots/desktop.png",
                   "screenshots/narrow.png",
                 ],
               },
             },
-            select: { path: true, storageKey: true },
+            select: { kind: true, path: true, storageKey: true },
           },
         },
       })
@@ -144,53 +154,94 @@ export async function findPrototypeDetail(
       const selectedBuild = buildNumber
         ? (successfulBuilds.find(({ number }) => number === buildNumber) ?? null)
         : (successfulBuilds[0] ?? null)
-      const buildRecords = builds.map((build) => ({
-        number: build.number,
-        state: build.state,
-        commitSha: build.commitSha,
-        commitAuthorProvider: build.authorProvider,
-        commitAuthorIssuer: build.authorIssuer,
-        commitAuthorProviderUserId: build.authorProviderUserId,
-        commitAuthorLogin: build.authorLogin,
-        commitAuthorName: build.authorName,
-        commitAuthorAvatarUrl: build.authorAvatarUrl,
-        createdAt: build.createdAt,
-        startedAt: build.startedAt,
-        finishedAt: build.finishedAt,
-        failureSummary: build.failureSummary,
-        repositoryId: prototype.repositoryId,
-        prototypeId: prototype.id,
-        previewUrl:
-          build.artifacts.some(({ path }) => path === "dist/index.html") && buildArtifactUrl
-            ? buildArtifactUrl(
-                build.id,
-                prototype.repositoryId,
-                prototype.id,
-                build.number,
-                "preview",
-              )
-            : null,
-        desktopScreenshotUrl:
-          build.artifacts.some(({ path }) => path === "screenshots/desktop.png") && buildArtifactUrl
-            ? buildArtifactUrl(
-                build.id,
-                prototype.repositoryId,
-                prototype.id,
-                build.number,
-                "desktop",
-              )
-            : null,
-        narrowScreenshotUrl:
-          build.artifacts.some(({ path }) => path === "screenshots/narrow.png") && buildArtifactUrl
-            ? buildArtifactUrl(
-                build.id,
-                prototype.repositoryId,
-                prototype.id,
-                build.number,
-                "narrow",
-              )
-            : null,
-      }))
+      const previewRunIds =
+        privatePreviewHubOrigin && repository.githubRepositoryId && !repository.localPath
+          ? successfulBuilds.flatMap(({ githubWorkflowRunId }) =>
+              githubWorkflowRunId && githubWorkflowRunId > 0n ? [githubWorkflowRunId] : [],
+            )
+          : []
+      const uniquePreviewRunIds = new Set(
+        previewRunIds.length
+          ? (
+              await transaction.build.groupBy({
+                by: ["githubWorkflowRunId"],
+                // Include every Build in the repository, even outside this page or prototype.
+                where: {
+                  githubWorkflowRunId: { in: previewRunIds },
+                  prototype: { repositoryId },
+                },
+                _count: { _all: true },
+              })
+            )
+              .filter(({ _count }) => _count._all === 1)
+              .map(({ githubWorkflowRunId }) => githubWorkflowRunId)
+          : [],
+      )
+      const buildRecords = builds.map((build) => {
+        const privateAddress =
+          uniquePreviewRunIds.has(build.githubWorkflowRunId) &&
+          build.state === "successful" &&
+          build.artifacts.some(({ kind, path }) => kind === "dist" && path === "dist/index.html") &&
+          build.artifacts.some(
+            ({ kind, path }) => kind === "dist" && path === "dist/replica-preview-base.json",
+          ) &&
+          privatePreviewAddress(
+            String(repository.githubRepositoryId),
+            String(build.githubWorkflowRunId),
+          )
+        return {
+          number: build.number,
+          state: build.state,
+          commitSha: build.commitSha,
+          commitAuthorProvider: build.authorProvider,
+          commitAuthorIssuer: build.authorIssuer,
+          commitAuthorProviderUserId: build.authorProviderUserId,
+          commitAuthorLogin: build.authorLogin,
+          commitAuthorName: build.authorName,
+          commitAuthorAvatarUrl: build.authorAvatarUrl,
+          createdAt: build.createdAt,
+          startedAt: build.startedAt,
+          finishedAt: build.finishedAt,
+          failureSummary: build.failureSummary,
+          repositoryId: prototype.repositoryId,
+          prototypeId: prototype.id,
+          ...(privateAddress
+            ? { privatePreviewUrl: `${privatePreviewHubOrigin}${privateAddress.launch}` }
+            : {}),
+          previewUrl:
+            build.artifacts.some(({ path }) => path === "dist/index.html") && buildArtifactUrl
+              ? buildArtifactUrl(
+                  build.id,
+                  prototype.repositoryId,
+                  prototype.id,
+                  build.number,
+                  "preview",
+                )
+              : null,
+          desktopScreenshotUrl:
+            build.artifacts.some(({ path }) => path === "screenshots/desktop.png") &&
+            buildArtifactUrl
+              ? buildArtifactUrl(
+                  build.id,
+                  prototype.repositoryId,
+                  prototype.id,
+                  build.number,
+                  "desktop",
+                )
+              : null,
+          narrowScreenshotUrl:
+            build.artifacts.some(({ path }) => path === "screenshots/narrow.png") &&
+            buildArtifactUrl
+              ? buildArtifactUrl(
+                  build.id,
+                  prototype.repositoryId,
+                  prototype.id,
+                  build.number,
+                  "narrow",
+                )
+              : null,
+        }
+      })
       const selectedBuildRecord = selectedBuild
         ? (buildRecords.find(({ number }) => number === selectedBuild.number) ?? null)
         : null
@@ -209,7 +260,11 @@ export async function findPrototypeDetail(
             }
           : null
       return {
-        repository,
+        repository: {
+          id: repository.id,
+          nameWithOwner: repository.nameWithOwner,
+          defaultBranch: repository.defaultBranch,
+        },
         prototype: {
           id: prototype.id,
           repositoryId: prototype.repositoryId,
