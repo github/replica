@@ -62,9 +62,7 @@ export function App({ config }: Props) {
     collapsedGroups: {},
   })
   const [hubOpen, setHubOpen] = useState(false)
-  const [reviewSurface, setReviewSurface] = useState<"comments" | "improvements">(
-    config.pickAndPolish ? "improvements" : "comments",
-  )
+  const [reviewSurface, setReviewSurface] = useState<"comments" | "improvements">("comments")
   const [commentInteraction, setCommentInteraction] = useState(false)
   const [improvementInteraction, setImprovementInteraction] = useState(false)
   const [improvementControls, setImprovementControls] = useState<HTMLDivElement | null>(null)

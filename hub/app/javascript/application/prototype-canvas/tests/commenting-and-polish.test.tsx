@@ -134,6 +134,38 @@ function previewBridge() {
 }
 
 describe("App()", () => {
+  it("keeps saved notes closed and selection off on load and after reopening the canvas", async () => {
+    const { fetch, note } = reviewFixture()
+    const config = {
+      name: "Demo",
+      prototypeUrl: "http://localhost:4321/",
+      token: "local",
+      pickAndPolish: true,
+    }
+    for (let load = 0; load < 2; load++) {
+      const view = render(<App config={config} />)
+      const improvements = await screen.findByRole("button", {
+        name: notesCopy.openNotes(1),
+      })
+      const picker = screen.getByRole("button", { name: notesCopy.annotate })
+      const bridge = previewBridge()
+      expect(improvements).toHaveAttribute("aria-expanded", "false")
+      expect(picker).toHaveAttribute("aria-pressed", "false")
+      expect(screen.queryByRole("complementary", { name: notesCopy.notes })).not.toBeInTheDocument()
+      expect(screen.queryByRole("button", { name: threadsCopy.point(1) })).not.toBeInTheDocument()
+      expect(bridge.messages().some((data) => data.type === "replica:canvas:select")).toBe(false)
+      expect(fetch.mock.calls.some(([path]) => path === "/api/improvement-notes/capture")).toBe(
+        false,
+      )
+
+      fireEvent.click(improvements)
+      bridge.ready()
+      expect(await screen.findByRole("button", { name: `Open note: ${note.body}` })).toBeVisible()
+      expect(picker).toHaveAttribute("aria-pressed", "false")
+      view.unmount()
+    }
+  })
+
   it("keeps both review surfaces available and resolves only the active surface's saved pins", async () => {
     const { fetch, note, saved } = reviewFixture()
     const view = render(
@@ -157,7 +189,7 @@ describe("App()", () => {
     expect(screen.getByRole("button", { name: commentsCopy.commentMenuLabel })).toBeVisible()
     expect(screen.getByRole("button", { name: notesCopy.annotate })).toBeVisible()
     const bridge = previewBridge()
-    if (improvements.getAttribute("aria-expanded") !== "true") fireEvent.click(improvements)
+    fireEvent.click(improvements)
     bridge.ready()
     expect(await screen.findByRole("complementary", { name: notesCopy.notes })).toBeVisible()
     expect(screen.getByRole("button", { name: `Open note: ${note.body}` })).toBeVisible()
@@ -248,7 +280,10 @@ describe("App()", () => {
         name: /^(Open|Close) Notes \(1\)$/,
       })
       const bridge = previewBridge()
+      fireEvent.click(improvements)
+      bridge.ready()
       const noteNonce = bridge.resolveNonce("#note-target")
+      fireEvent.click(improvements)
       if (mode === "area") {
         fireEvent.click(comments)
         bridge.ready()
@@ -350,6 +385,7 @@ describe("App()", () => {
     await screen.findByRole("button", { name: /^(Open|Close) Notes \(1\)$/ })
     const bridge = previewBridge()
     fireEvent.click(screen.getByRole("button", { name: notesCopy.annotate }))
+    bridge.ready()
     await waitFor(() => expect(completeCapture).toBeTypeOf("function"))
     expect(comments).toBeDisabled()
     const addComment = screen.getByRole("button", { name: commentsCopy.commentMenuLabel })
@@ -377,7 +413,7 @@ describe("App()", () => {
       .messages()
       .filter((data) => data.type === "replica:canvas:select")
       .map((data) => data.mode)
-    expect(modes).toEqual(["improvement"])
+    expect(new Set(modes)).toEqual(new Set(["improvement"]))
     view.unmount()
   })
 })

@@ -12,7 +12,7 @@ The outlined **Open an existing prototype** section below the composer works ind
 
 ## Pick & polish
 
-The Replica prototype canvas provides **Pick & polish** by default. The updated extension assets and extension-owned preview bridge must be loaded; an older or unavailable bridge leaves selection disabled with an explanation.
+The Replica prototype canvas provides **Pick & polish** by default, but starts with its Notes sidebar closed and selection off on every load or refresh. Click the note counter to open saved notes, or the crosshair button to start selecting a target. The **S** shortcut also starts selection. The updated extension assets and extension-owned preview bridge must be loaded; an older or unavailable bridge leaves selection disabled with an explanation.
 
 Ordinary **Comments** remain available beside **Pick & polish** in the toolbar. Each counter opens its own sidebar and pins without replacing or converting the other collection. Starting either selection mode activates that surface; only that surface resolves pins and receives selections. Finish or cancel a selection, composer, or open conversation before switching surfaces so unsaved work stays intact. Comments retain their existing Hub connection and permission requirements; Pick & polish retains its local storage and synchronization behavior.
 

@@ -55,7 +55,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
   const [selection, setSelection] = useState<Selection | null>(null)
   const [draft, setDraft] = useState("")
   const [discarding, setDiscarding] = useState(false)
-  const [panelOpen, setPanelOpen] = useState(true)
+  const [panelOpen, setPanelOpen] = useState(false)
   const [message, setMessage] = useState("")
   const [threadInteraction, setThreadInteraction] = useState(false)
   const captureGeneration = useRef(0)
