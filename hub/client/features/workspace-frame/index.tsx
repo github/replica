@@ -28,6 +28,12 @@ function StandaloneFrame({
       (typeof window !== "undefined" && window.matchMedia?.("(max-width: 48rem)").matches) ||
       false,
   )
+  const [previousDefault, setPreviousDefault] = useState(defaultNavigationCollapsed)
+  if (defaultNavigationCollapsed !== previousDefault) {
+    // To restore the sidebar on exit, save its state before entering review.
+    setPreviousDefault(defaultNavigationCollapsed)
+    if (defaultNavigationCollapsed) setNavigationCollapsed(true)
+  }
 
   const content = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {

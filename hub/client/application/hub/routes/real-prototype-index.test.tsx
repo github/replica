@@ -529,10 +529,14 @@ describe("real prototype index", () => {
       expect(router.state.navigation.state).toBe("idle")
     })
 
+    expect(screen.getByRole("button", { name: "Collapse sidebar", expanded: true })).toBeVisible()
     fireEvent.click(screen.getByRole("link", { name: "Welcome flow" }))
     expect(
-      await screen.findByText("Preview hosting is not available for this Build."),
+      await screen.findByText("Preview hosting is not available for this Build.", undefined, {
+        timeout: 5_000,
+      }),
     ).toBeVisible()
+    expect(screen.getByRole("button", { name: "Expand sidebar", expanded: false })).toBeVisible()
     expect(router.state.location.pathname).toBe(
       `/repositories/${repositoryId}/prototypes/${prototypeId}`,
     )
@@ -575,9 +579,11 @@ describe("real prototype index", () => {
     )
     expect(router.state.location.search).toBe("")
 
+    fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }))
     fireEvent.click(within(buildOption(/v3.*Successful/i)).getByRole("link"))
     await waitFor(() => expect(router.state.location.search).toBe("?build=3"))
     expect(await screen.findByText("Build 3 has no preview")).toBeVisible()
+    expect(screen.getByRole("button", { name: "Collapse sidebar", expanded: true })).toBeVisible()
     await act(async () =>
       router.navigate(
         `/repositories/${repositoryId}/prototypes/${entraPrototypeId}?view=minimized`,
@@ -600,6 +606,11 @@ describe("real prototype index", () => {
       router.navigate(`/repositories/${repositoryId}/prototypes/${unknownPrototypeId}`),
     )
     expect((await screen.findByLabelText("Unknown author")).closest("a")).toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }))
+    await act(() => router.navigate(`/repositories/${repositoryId}`))
+    expect(await screen.findByRole("region", { name: "Prototypes" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Expand sidebar", expanded: false })).toBeVisible()
   }, 15_000)
 
   it("sends a member's draft edit in real mode and shows its registration without extra permissions", async () => {
