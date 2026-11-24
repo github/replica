@@ -4,7 +4,21 @@ import { createGitHubAppJwt } from "../create-github-app-jwt/index.ts"
 import { GitHubProviderRequestError } from "../errors.ts"
 import type { RepositoryPermission, RepositoryPermissionInput } from "./types.ts"
 
-const tokenSchema = z.object({ token: z.string().min(1).max(2_000) })
+const tokenSchema = z.object({
+  token: z.string().min(1).max(2_000),
+  expires_at: z.iso.datetime().optional(),
+})
+type TokenEntry = {
+  expiresAt: number
+  pending: Promise<z.infer<typeof tokenSchema> | null>
+}
+const tokenCaches = new WeakMap<
+  RepositoryPermissionInput["credentials"],
+  WeakMap<typeof fetch, Map<number, TokenEntry>>
+>()
+const maximumCachedTokens = 128
+const maximumTokenReuseMs = 120_000
+const expiryMarginMs = 30_000
 const repositorySchema = z.object({
   id: z.number().int().positive(),
   full_name: z
@@ -33,6 +47,16 @@ export async function readRepositoryPermission(
   ) {
     return null
   }
+  let requestCaches = tokenCaches.get(credentials)
+  if (!requestCaches) {
+    requestCaches = new WeakMap()
+    tokenCaches.set(credentials, requestCaches)
+  }
+  let cache = requestCaches.get(request)
+  if (!cache) {
+    cache = new Map()
+    requestCaches.set(request, cache)
+  }
   async function send<Schema extends z.ZodType>(
     path: string,
     token: string,
@@ -58,6 +82,7 @@ export async function readRepositoryPermission(
       throw new GitHubProviderRequestError({ cause: error })
     }
     if (response.status === 404) return null
+    if (response.status === 401 && !body) cache?.delete(numericId)
     if (!response.ok) throw new GitHubProviderRequestError()
     const parsed = schema.safeParse(await response.json().catch(() => undefined))
     if (!parsed.success) throw new GitHubProviderRequestError()
@@ -65,12 +90,34 @@ export async function readRepositoryPermission(
   }
 
   // Narrow the credential so a repository renamed during the lookup cannot authorize its replacement.
-  const token = await send(
-    `/app/installations/${encodeURIComponent(credentials.installationId)}/access_tokens`,
-    await createGitHubAppJwt(credentials, new Date()),
-    tokenSchema,
-    { repository_ids: [numericId] },
-  )
+  let tokenEntry = cache.get(numericId)
+  if (!tokenEntry || tokenEntry.expiresAt <= Date.now()) {
+    cache.delete(numericId)
+    if (cache.size >= maximumCachedTokens) cache.delete(cache.keys().next().value!)
+    const expiresAt = Date.now() + maximumTokenReuseMs
+    const pending = (async () =>
+      send(
+        `/app/installations/${encodeURIComponent(credentials.installationId)}/access_tokens`,
+        await createGitHubAppJwt(credentials, new Date()),
+        tokenSchema,
+        { repository_ids: [numericId] },
+      ))()
+    const entry = { expiresAt, pending }
+    function discard() {
+      if (cache?.get(numericId) === entry) cache.delete(numericId)
+    }
+    cache.set(numericId, entry)
+    void pending.then((token) => {
+      if (!token?.expires_at) {
+        discard()
+        return
+      }
+      entry.expiresAt = Math.min(expiresAt, Date.parse(token.expires_at) - expiryMarginMs)
+      if (entry.expiresAt <= Date.now()) discard()
+    }, discard)
+    tokenEntry = entry
+  }
+  const token = await tokenEntry.pending
   if (!token) return null
   const repository = await send(`/repositories/${numericId}`, token.token, repositorySchema)
   if (!repository || repository.id !== numericId) return null

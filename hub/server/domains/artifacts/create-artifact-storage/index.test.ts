@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto"
-import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rm, symlink, truncate, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createAzureBlobArtifactStorage } from "../../../integrations/azure-blob/create-azure-blob-artifact-storage"
 
-import { artifactMaxBytes, createArtifactStorage } from "."
+import { createArtifactStorage } from "."
 
 vi.mock("../../../integrations/azure-blob/create-azure-blob-artifact-storage", () => ({
   createAzureBlobArtifactStorage: vi.fn(),
@@ -117,15 +117,17 @@ describe("createArtifactStorage()", () => {
     await mkdir(directory)
     onTestFinished(() => rm(directory, { recursive: true, force: true }))
     const storage = await createArtifactStorage({ provider: "filesystem", directory })
+    const maximumBytes = 100 * 1024 * 1024
 
-    expect(await storage.write("limit", new Uint8Array(artifactMaxBytes))).toEqual({ status: "ok" })
+    expect(await storage.write("limit", new Uint8Array(maximumBytes))).toEqual({ status: "ok" })
     const result = await storage.read("limit")
     expect(result.status).toBe("ok")
-    if (result.status === "ok") expect(result.bytes.length).toBe(artifactMaxBytes)
-    expect(await storage.write("large", new Uint8Array(artifactMaxBytes + 1))).toEqual({
+    if (result.status === "ok") expect(result.bytes.length).toBe(maximumBytes)
+    expect(await storage.write("large", new Uint8Array(maximumBytes + 1))).toEqual({
       status: "too-large",
     })
-    await writeFile(`${directory}/large`, new Uint8Array(artifactMaxBytes + 1))
+    await writeFile(`${directory}/large`, "")
+    await truncate(`${directory}/large`, maximumBytes + 1)
     expect(await storage.read("large")).toEqual({ status: "too-large" })
   })
 

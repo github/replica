@@ -481,6 +481,128 @@ class D1ConnectorTest(unittest.TestCase):
                 self.assertEqual(mismatch.exception.category, "integrity")
                 policy.assert_not_called()
 
+    def test_upload_only_backend_uses_adapter_learning_digests_for_inference(self):
+        backend = D1OmniBackend(Path(__file__).parent)
+        learning_text = "Use a visible label."
+        saved = _adapter(
+            tasksetDigest="sha256:" + "a" * 64,
+            learningTextDigests={
+                RULE: "sha256:" + hashlib.sha256(learning_text.encode()).hexdigest()
+            },
+        )
+        policy = mock.Mock()
+        model_module = types.SimpleNamespace(
+            torch=types.SimpleNamespace(load=mock.Mock(return_value=saved)),
+            Policy=policy,
+        )
+
+        with mock.patch(
+            "replica_brand_check.d1_connector.detect_d1_capabilities",
+            return_value=_capable(),
+        ), mock.patch(
+            "replica_brand_check.d1_connector._model_module",
+            return_value=model_module,
+        ):
+            for name, question, expected_code in (
+                (
+                    "changed",
+                    {
+                        "type": "noul",
+                        "instructions": "discarded",
+                        "learning_text": "Use a different learning.",
+                    },
+                    "learning_text_mismatch",
+                ),
+                (
+                    "missing",
+                    {
+                        "type": "noul",
+                        "instructions": "discarded",
+                    },
+                    "learning_text_missing",
+                ),
+            ):
+                with self.subTest(name=name), self.assertRaises(
+                    ConnectorError
+                ) as refused:
+                    backend.predict_with_context(
+                        Path("adapter.pt"),
+                        {
+                            "state": {},
+                            "images": [],
+                            "questions": {RULE: question},
+                        },
+                        context=_context(),
+                        timeout_seconds=1,
+                    )
+
+                self.assertEqual(refused.exception.code, expected_code)
+                self.assertEqual(refused.exception.category, "invalid_input")
+        policy.assert_not_called()
+
+    def test_upload_only_backend_rejects_damaged_adapter_identity_before_loading_policy(self):
+        learning_digest = "sha256:" + hashlib.sha256(
+            b"Use a visible label."
+        ).hexdigest()
+        cases = (
+            (
+                "missing learning digests",
+                _adapter(tasksetDigest="sha256:" + "a" * 64),
+            ),
+            (
+                "malformed learning digest",
+                _adapter(
+                    tasksetDigest="sha256:" + "a" * 64,
+                    learningTextDigests={RULE: "sha256:invalid"},
+                ),
+            ),
+            (
+                "malformed taskset digest",
+                _adapter(
+                    tasksetDigest="sha256:invalid",
+                    learningTextDigests={RULE: learning_digest},
+                ),
+            ),
+        )
+
+        for name, saved in cases:
+            backend = D1OmniBackend(Path(__file__).parent)
+            policy = mock.Mock()
+            model_module = types.SimpleNamespace(
+                torch=types.SimpleNamespace(load=mock.Mock(return_value=saved)),
+                Policy=policy,
+            )
+            with self.subTest(name=name), mock.patch(
+                "replica_brand_check.d1_connector.detect_d1_capabilities",
+                return_value=_capable(),
+            ), mock.patch(
+                "replica_brand_check.d1_connector._model_module",
+                return_value=model_module,
+            ):
+                with self.assertRaises(ConnectorError) as mismatch:
+                    backend.predict_with_context(
+                        Path("adapter.pt"),
+                        {
+                            "state": {},
+                            "images": [],
+                            "questions": {
+                                RULE: {
+                                    "type": "noul",
+                                    "learning_text": "Use a visible label.",
+                                }
+                            },
+                        },
+                        context=_context(),
+                        timeout_seconds=1,
+                    )
+
+            self.assertEqual(
+                mismatch.exception.code,
+                "candidate_adapter_mismatch",
+            )
+            self.assertEqual(mismatch.exception.category, "integrity")
+            policy.assert_not_called()
+
     def test_training_rejects_cpu_and_another_taskset_before_model_loading(self):
         backend = D1OmniBackend(
             Path(__file__).parent,
@@ -615,10 +737,6 @@ class D1ConnectorTest(unittest.TestCase):
         digest = str(taskset_digest(taskset))
         backend = D1OmniBackend(
             Path(__file__).parent,
-            expected_taskset_digest=digest,
-            expected_learning_texts={
-                RULE: "Put a visible label above every form field."
-            },
             part="head",
             tasks_per_update=1,
             group=1,
@@ -751,9 +869,61 @@ class D1ConnectorTest(unittest.TestCase):
         )
         self.assertEqual(saved["state"], Policy.instance.loaded)
         self.assertEqual(saved["tasksetDigest"], digest)
+        learning_text = "Put a visible label above every form field."
+        self.assertEqual(
+            saved["learningTextDigests"],
+            {
+                RULE: "sha256:"
+                + hashlib.sha256(learning_text.encode()).hexdigest()
+            },
+        )
+        self.assertNotIn("learningTexts", saved)
+        self.assertNotIn(learning_text.encode(), result.adapter)
         self.assertEqual(result.baseline_report["tasks"], 1)
         self.assertEqual(result.candidate_report["tasks"], 1)
         self.assertEqual(result.updates_completed, 1)
+
+        serving_policy = mock.Mock()
+        serving_policy.return_value.features.return_value = object()
+        serving_policy.return_value.answers.return_value = {
+            RULE: {"probabilities": {"yes": 0.75, "no": 0.25}}
+        }
+        serving_module = types.SimpleNamespace(
+            torch=types.SimpleNamespace(
+                load=mock.Mock(return_value=pickle.loads(result.adapter))
+            ),
+            Policy=serving_policy,
+        )
+        fresh_backend = D1OmniBackend(Path(__file__).parent)
+        request = {
+            "state": {},
+            "images": ["data:image/png;base64,AA=="],
+            "questions": {
+                RULE: {
+                    "type": "noul",
+                    "instructions": "discarded",
+                    "learning_text": learning_text,
+                }
+            },
+        }
+        with mock.patch(
+            "replica_brand_check.d1_connector.detect_d1_capabilities",
+            return_value=_capable(),
+        ), mock.patch(
+            "replica_brand_check.d1_connector._model_module",
+            return_value=serving_module,
+        ):
+            answers = fresh_backend.predict_with_context(
+                Path("adapter.pt"),
+                fresh_backend.project_request(request),
+                context=_context(),
+                timeout_seconds=1,
+            )
+
+        self.assertEqual(
+            answers,
+            {RULE: {"probabilities": {"yes": 0.75, "no": 0.25}}},
+        )
 
     def test_returns_existing_structured_yes_no_probabilities(self):
         backend = D1OmniBackend(

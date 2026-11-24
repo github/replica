@@ -8,6 +8,7 @@ import { hubSessionCookieName } from "../../../../../../../integrations/express/
 import { readCookie } from "../../../../../../../integrations/express/read-cookie/index.ts"
 import type { CurrentSessionDependencies } from "../../../../../auth/types.ts"
 import { readProductSession } from "../../../../../product/read-product-session/index.ts"
+import { readProductWithCurrentAuthority } from "../../../../../product/read-product-with-current-authority/index.ts"
 import { normalizeStartPage } from "../../../../../../../utils/normalize-start-page/index.ts"
 import type { ProductRouteDependencies } from "../../../../../product/types.ts"
 import type { BuildPreviewRouteDependencies } from "../../../../../../build-preview/types.ts"
@@ -17,6 +18,7 @@ const querySchema = z
     target: z.enum(["preview", "desktop", "narrow"]),
     preview_origin: z.url().optional(),
     route: z.string().max(4096).optional(),
+    route_kind: z.literal("logical").optional(),
   })
   .strict()
 
@@ -41,21 +43,28 @@ export function get(
         response.status(400).json({ error: "Enter a valid Build preview address." })
         return
       }
-      const target = await product.findBuildPreviewTarget(
-        repositoryId.data,
-        prototypeId.data,
-        buildNumber.data,
-        query.data.target,
+      const read = await readProductWithCurrentAuthority(
+        initial,
+        cookie,
+        session,
+        async (viewer) => {
+          if (!(await product.isRepositoryVisible(viewer, repositoryId.data))) return null
+          const target = await product.findBuildPreviewTarget(
+            repositoryId.data,
+            prototypeId.data,
+            buildNumber.data,
+            query.data.target,
+          )
+          return target && (await product.isRepositoryVisible(viewer, repositoryId.data))
+            ? target
+            : null
+        },
       )
-      const current = await readProductSession(cookie, session)
-      if (
-        !current ||
-        current.membershipId !== initial.membershipId ||
-        current.userId !== initial.userId
-      ) {
+      if (!read) {
         response.status(401).json({ error: "Sign in to continue." })
         return
       }
+      const target = read.result
       if (!target) {
         response.status(404).json({ error: "Build preview not found." })
         return
@@ -83,6 +92,7 @@ export function get(
       destination.searchParams.set("grant", grant)
       if (query.data.target === "preview" && requestedRoute) {
         destination.searchParams.set("route", requestedRoute)
+        if (query.data.route_kind) destination.searchParams.set("route_kind", query.data.route_kind)
       }
       response.setHeader("Cache-Control", "no-store")
       response.setHeader("Referrer-Policy", "no-referrer")

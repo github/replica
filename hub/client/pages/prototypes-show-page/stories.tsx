@@ -87,6 +87,10 @@ const data: PrototypesShowPageData = {
   historyPath: "/repositories/2001/prototypes/1/builds",
   moreActionsLabel: "More actions",
   openInNewTabLabel: "Open in new tab",
+  privatePreviewLinkLabel: "Private Hub link",
+  copyPrivatePreviewLinkLabel: "Copy private Hub link",
+  copiedPrivatePreviewLinkLabel: "Private Hub link copied",
+  openPrivatePreviewInNewTabLabel: "Open private preview in new tab",
   minimizeHubLabel: "Minimize Hub UI",
   maximizeHubLabel: "Maximize Hub UI",
   dragControlsLabel: "Move review controls. Drag or use arrow keys.",
@@ -246,6 +250,53 @@ export const Empty: Story = {
       ],
       latestBuild: { number: 2, state: "running", stateLabel: "Running" },
       selectedBuild: undefined,
+    },
+  },
+}
+
+export const StandalonePrivatePreview: Story = {
+  args: {
+    data: {
+      ...data,
+      selectedBuild: undefined,
+      emptyHeading: "Private preview",
+      emptyLabel: "This Build opens in a separate tab.",
+      privatePreviewUrl: "https://hub.example.com/api/private-preview/launch/2001/4001",
+      privateReviewLink: "https://hub.example.com/repositories/2001/prototypes/1?build=3",
+    },
+  },
+}
+
+export const PrivateLinkWithEmbeddedReview: Story = {
+  args: {
+    data: {
+      ...data,
+      privatePreviewUrl: "https://hub.example.com/api/private-preview/launch/2001/4001",
+      privateReviewLink: "https://hub.example.com/repositories/2001/prototypes/1?build=3",
+    },
+  },
+}
+
+export const PrivateReviewLocationUnavailable: Story = {
+  args: {
+    data: {
+      ...data,
+      privatePreviewUrl: "https://hub.example.com/api/private-preview/launch/2001/4001",
+      privateReviewLink: null,
+    },
+  },
+}
+
+export const ReviewScreenshotFallback: Story = {
+  args: {
+    monitorPreview: true,
+    review: reviewState({ bridge: { ...reviewState().bridge, ready: false } }),
+    data: {
+      ...data,
+      desktopScreenshotUrl: new URL(
+        "/prototype-preview/templates/welcome.png",
+        window.location.href,
+      ).href,
     },
   },
 }

@@ -3,6 +3,8 @@ import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
+import { privateReviewLink } from "@utils/private-review-link"
+
 import { createMockHandlers } from "../mocks/create-mock-handlers"
 import { createMockStore } from "../mocks/create-mock-store"
 import { renderHubFlow } from "./fixtures/render-hub-flow"
@@ -163,19 +165,34 @@ describe("Hub prototype review flow", () => {
     expect(within(sidebar).queryByRole("alert")).not.toBeInTheDocument()
   })
 
-  it("allows the reader to inspect the conversation but rejects review changes", async () => {
+  it("reopens the owner's exact thread link for a reader without granting review writes", async () => {
     const store = createMockStore({ origin: window.location.origin })
-    store.session.select("reader")
+    const owner = store.session.requireViewer()
+    const thread = store.review
+      .list("2001", "1")
+      .comments.find((comment) => comment.kind === "root")
+    if (!thread || thread.buildNumber === null) {
+      throw new Error("Expected a seeded review thread on a Build")
+    }
+    const { pathname, search, hash } = thread.anchor.route
+    const link = privateReviewLink({
+      baseUrl: `${store.origin}/repositories/2001/prototypes/1`,
+      buildNumber: thread.buildNumber,
+      route: `${pathname}${search}${hash}`,
+      threadId: thread.id,
+    })
+    if (!link) throw new Error("Expected a restorable review link")
+
+    const { viewer } = store.session.select("reader")
+    expect(viewer?.id).not.toBe(owner.id)
     const server = setupServer(...createMockHandlers(store))
-    const router = await renderHubFlow(server, "/repositories/2001/prototypes/1")
-    fireEvent.click(await screen.findByRole("button", { name: /^Comments, 1/ }))
-    await router.settle(() =>
-      fireEvent.click(
-        screen.getByRole("button", { name: /Could we make the welcome heading clearer\?/ }),
-      ),
-    )
+    await renderHubFlow(server, link)
     const conversation = await screen.findByRole("dialog", { name: "Conversation" })
 
+    expect(screen.getByTitle(`Welcome, Build ${thread.buildNumber} preview`)).toBeInTheDocument()
+    expect(
+      within(conversation).getByText("Could we make the welcome heading clearer?"),
+    ).toBeVisible()
     expect(within(conversation).getByText("I will try a shorter heading.")).toBeVisible()
     expect(within(conversation).getByRole("button", { name: "Resolve" })).toBeDisabled()
     expect(within(conversation).queryByRole("textbox", { name: "Reply" })).not.toBeInTheDocument()

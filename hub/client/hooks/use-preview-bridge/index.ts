@@ -12,6 +12,8 @@ import type {
   PreviewBridgeCommandPayloads,
   PreviewBridgeCommandType,
 } from "@utils/preview-bridge/types"
+import { previewLogicalPathname } from "@utils/preview-logical-pathname"
+import { readPreviewReturnPath } from "@utils/read-preview-return-path"
 import type { AnchorResolution, ReviewAnchor, ReviewRoute } from "@utils/review-anchor/types"
 
 import type {
@@ -41,26 +43,40 @@ export function usePreviewBridge({
   onSelectionStart,
   onToggleSidebar,
   selectionBlocked = false,
+  sidebarToggleBlocked = false,
 }: PreviewBridgeOptions): PreviewBridgeState {
   const [ready, setReady] = useState(false)
   const [reportedRoute, setReportedRoute] = useState<{
     previewUrl: string | undefined
     route: ReviewRoute
+    mount?: string | null
   } | null>(null)
   const [selectionMode, setSelectionMode] = useState<ReviewSelectionMode | null>(null)
   const [selectedAnchor, setSelectedAnchor] = useState<ReviewAnchor | null>(null)
   const [selectionFailure, setSelectionFailure] = useState<ReviewSelectionFailure | null>(null)
   const [resolutions, setResolutions] = useState<Map<number, AnchorResolution>>(new Map())
   const pendingSelectionRequest = useRef<string | null>(null)
+  const navigation = useRef<{
+    id: string
+    url: string
+    frame: Window
+    ready: boolean
+    mount?: string | null
+  } | null>(null)
   const fragmentRestoration = useRef<{
     previewUrl: string | undefined
     requestId: string
     pending: boolean
   } | null>(null)
   const previewOrigin = getUrlOrigin(previewUrl)
+  const accessUrl = previewUrl ? URL.parse(previewUrl) : null
+  // The legacy access URL selects one Build and redirects to its unique origin.
+  const isolated = Boolean(accessUrl && previewOrigin && previewOrigin !== accessUrl.origin)
   const restoreFragment = getPreviewFrameUrl(previewUrl) !== previewUrl
   const route =
     reportedRoute && reportedRoute.previewUrl === previewUrl ? reportedRoute.route : null
+  const previewMount = route ? reportedRoute?.mount : undefined
+  const currentReady = ready && (!isolated || route !== null)
 
   const post = useCallback(
     <Type extends PreviewBridgeCommandType>(
@@ -70,6 +86,7 @@ export function usePreviewBridge({
       if (
         !reviewEnabled &&
         type !== "replica:bridge:request-ready" &&
+        type !== "replica:bridge:request-navigation-ready" &&
         type !== "replica:bridge:restore-fragment" &&
         type !== "replica:bridge:set-theme"
       )
@@ -96,16 +113,23 @@ export function usePreviewBridge({
   const handleFrameLoad = useCallback(() => {
     setReady(false)
     setReportedRoute(null)
+    if (isolated) setSelectedAnchor(null)
     setSelectionMode(null)
     setSelectionFailure(null)
     setResolutions(new Map())
     pendingSelectionRequest.current = null
     fragmentRestoration.current = null
-    post("replica:bridge:request-ready", {})
-  }, [post])
+    const id = post(
+      isolated ? "replica:bridge:request-navigation-ready" : "replica:bridge:request-ready",
+      {},
+    )
+    const frame = iframeRef.current?.contentWindow
+    navigation.current =
+      id && previewUrl && frame ? { id, url: previewUrl, frame, ready: false } : null
+  }, [iframeRef, isolated, post, previewUrl])
 
   const startElementSelection = useCallback(() => {
-    if (!ready || selectedAnchor || selectionMode || selectionBlocked) return
+    if (!currentReady || selectedAnchor || selectionMode || selectionBlocked) return
 
     const requestId = post("replica:bridge:select-element", {})
     if (!requestId) return
@@ -114,10 +138,10 @@ export function usePreviewBridge({
     onSelectionStart?.()
     setSelectionFailure(null)
     setSelectionMode("element")
-  }, [onSelectionStart, post, ready, selectedAnchor, selectionBlocked, selectionMode])
+  }, [currentReady, onSelectionStart, post, selectedAnchor, selectionBlocked, selectionMode])
 
   const startAreaSelection = useCallback(() => {
-    if (!ready || selectedAnchor || selectionMode || selectionBlocked) return
+    if (!currentReady || selectedAnchor || selectionMode || selectionBlocked) return
 
     const requestId = post("replica:bridge:select-area", {})
     if (!requestId) return
@@ -126,7 +150,7 @@ export function usePreviewBridge({
     onSelectionStart?.()
     setSelectionFailure(null)
     setSelectionMode("area")
-  }, [onSelectionStart, post, ready, selectedAnchor, selectionBlocked, selectionMode])
+  }, [currentReady, onSelectionStart, post, selectedAnchor, selectionBlocked, selectionMode])
 
   useEffect(() => {
     if (!reviewEnabled) return
@@ -141,10 +165,10 @@ export function usePreviewBridge({
             : null
       const toggleComments = event.shiftKey && key === "c" ? onToggleSidebar : null
       if (
-        !ready ||
+        !currentReady ||
         selectedAnchor !== null ||
         selectionMode !== null ||
-        selectionBlocked ||
+        (toggleComments ? sidebarToggleBlocked : selectionBlocked) ||
         event.defaultPrevented ||
         event.repeat ||
         event.metaKey ||
@@ -166,10 +190,11 @@ export function usePreviewBridge({
   }, [
     onToggleSidebar,
     reviewEnabled,
-    ready,
+    currentReady,
     selectedAnchor,
     selectionBlocked,
     selectionMode,
+    sidebarToggleBlocked,
     startAreaSelection,
     startElementSelection,
   ])
@@ -211,22 +236,56 @@ export function usePreviewBridge({
       if (!parsedMessage.success) return
 
       const message = parsedMessage.data
+      const current = navigation.current
+      if (
+        isolated &&
+        (!current ||
+          current.url !== previewUrl ||
+          current.frame !== frameWindow ||
+          current.id !== message.navigationId ||
+          (!current.ready &&
+            message.type !== "replica:bridge:ready" &&
+            message.type !== "replica:bridge:preview-mount"))
+      ) {
+        return
+      }
+      if (message.type === "replica:bridge:preview-mount") {
+        if (isolated && current && !current.ready && current.id === message.requestId) {
+          current.mount = message.payload.mount
+        }
+        return
+      }
       if (message.type === "replica:bridge:ready") {
         const restoration = fragmentRestoration.current
+        if (
+          isolated &&
+          (current?.ready ||
+            message.requestId !== (restoration?.pending ? restoration.requestId : current?.id))
+        )
+          return
         if (restoreFragment && previewUrl) {
           if (restoration?.previewUrl === previewUrl && restoration.pending) {
             if (message.requestId !== restoration.requestId) return
 
             restoration.pending = false
           } else if (restoration?.previewUrl !== previewUrl) {
-            const destination = new URL(previewUrl)
+            const access = new URL(previewUrl)
+            const returnPath = readPreviewReturnPath(access.searchParams.get("route") ?? undefined)
+            const destination = isolated ? returnPath && new URL(returnPath, previewOrigin) : access
+            const reportedPathname = message.payload.route.pathname
+            const logicalLaunch = isolated && access.searchParams.get("route_kind") === "logical"
             if (
-              message.payload.route.pathname === destination.pathname &&
+              destination &&
+              (logicalLaunch
+                ? previewLogicalPathname(reportedPathname, current?.mount) === destination.pathname
+                : reportedPathname === destination.pathname ||
+                  previewLogicalPathname(reportedPathname, current?.mount) ===
+                    destination.pathname) &&
               message.payload.route.search === destination.search
             ) {
               const requestId = post("replica:bridge:restore-fragment", {
                 route: {
-                  pathname: destination.pathname,
+                  pathname: reportedPathname,
                   search: destination.search,
                   hash: destination.hash,
                 },
@@ -243,8 +302,9 @@ export function usePreviewBridge({
             }
           }
         }
+        if (current) current.ready = true
         setReady(true)
-        setReportedRoute({ previewUrl, route: message.payload.route })
+        setReportedRoute({ previewUrl, route: message.payload.route, mount: current?.mount })
         return
       }
 
@@ -256,8 +316,22 @@ export function usePreviewBridge({
         )
           return
 
+        if (isolated) {
+          if (JSON.stringify(message.payload.route) === JSON.stringify(route)) return
+
+          setSelectedAnchor(null)
+          setSelectionMode(null)
+          setSelectionFailure(null)
+          pendingSelectionRequest.current = null
+          post("replica:bridge:clear-selection", {})
+          const id = post("replica:bridge:request-navigation-ready", {})
+          navigation.current =
+            id && previewUrl ? { id, url: previewUrl, frame: frameWindow, ready: false } : null
+          setReady(false)
+        }
+
         setResolutions(new Map())
-        setReportedRoute({ previewUrl, route: message.payload.route })
+        setReportedRoute({ previewUrl, route: message.payload.route, mount: current?.mount })
         return
       }
       if (!reviewEnabled) return
@@ -271,7 +345,7 @@ export function usePreviewBridge({
         message.type === "replica:bridge:element-selection-requested" ||
         message.type === "replica:bridge:area-selection-requested"
       ) {
-        if (!ready || selectedAnchor || selectionMode || selectionBlocked) return
+        if (!currentReady || selectedAnchor || selectionMode || selectionBlocked) return
 
         const mode =
           message.type === "replica:bridge:element-selection-requested" ? "element" : "area"
@@ -289,7 +363,7 @@ export function usePreviewBridge({
       }
 
       if (message.type === "replica:bridge:sidebar-toggle-requested") {
-        if (ready && !selectedAnchor && !selectionMode && !selectionBlocked) {
+        if (currentReady && !selectedAnchor && !selectionMode && !sidebarToggleBlocked) {
           onToggleSidebar?.()
         }
         return
@@ -321,6 +395,8 @@ export function usePreviewBridge({
         message.type === "replica:bridge:element-selected" ||
         message.type === "replica:bridge:area-selected"
       ) {
+        if (isolated && JSON.stringify(message.payload.anchor.route) !== JSON.stringify(route))
+          return
         setSelectedAnchor(message.payload.anchor)
       } else if (message.type === "replica:bridge:selection-failed") {
         setSelectionFailure(message.payload.reason)
@@ -331,25 +407,28 @@ export function usePreviewBridge({
     return () => window.removeEventListener("message", handleMessage)
   }, [
     iframeRef,
+    isolated,
+    currentReady,
     onSelectionStart,
     onToggleSidebar,
     post,
     previewOrigin,
     previewUrl,
     restoreFragment,
-    ready,
+    route,
     reviewEnabled,
     selectedAnchor,
     selectionBlocked,
     selectionMode,
+    sidebarToggleBlocked,
   ])
 
   useEffect(() => {
-    if (ready) post("replica:bridge:set-theme", { theme: previewTheme })
-  }, [post, previewTheme, ready])
+    if (currentReady) post("replica:bridge:set-theme", { theme: previewTheme })
+  }, [currentReady, post, previewTheme])
 
   useEffect(() => {
-    if (!ready || !reviewEnabled) return
+    if (!currentReady || !reviewEnabled) return
 
     const batches = chunkArray(anchors, PREVIEW_BRIDGE_ANCHORS_PER_MESSAGE)
     if (batches.length === 0) {
@@ -360,14 +439,15 @@ export function usePreviewBridge({
     batches.forEach((batch, index) => {
       post("replica:bridge:resolve-anchors", { replace: index === 0, anchors: batch })
     })
-  }, [anchors, post, ready, reviewEnabled])
+  }, [anchors, currentReady, post, reviewEnabled, route])
 
   return {
-    ready,
+    ready: Boolean(currentReady),
     route,
+    previewMount,
     selecting: selectionMode !== null,
     selectionMode,
-    selectedAnchor,
+    selectedAnchor: !isolated || currentReady ? selectedAnchor : null,
     selectionFailure,
     resolutions,
     handleFrameLoad,

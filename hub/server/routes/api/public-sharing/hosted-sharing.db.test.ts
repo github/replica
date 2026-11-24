@@ -26,6 +26,7 @@ const environment = {
 }
 const enabledEnvironment = { ...environment, HUB_HOSTED_PUBLIC_SHARING_ENABLED: "true" }
 const linkForm = { buildNumber: 1, expiration: "seven_days", label: "Preview for review" }
+const previewHtml = "<main>Saved Build</main>"
 
 type Viewer = NonNullable<Awaited<ReturnType<CurrentSessionDependencies["restore"]>>>
 type Permission = NonNullable<ProductRouteDependencies["getRepositoryPermission"]>
@@ -81,7 +82,7 @@ function createBuild(prototypeId: string, number: number, subject: string, succe
             artifacts: {
               create: [
                 {
-                  byteLength: 23,
+                  byteLength: Buffer.byteLength(previewHtml),
                   storageKey: `${prototypeId}/${number}/dist`,
                   path: "dist/index.html",
                   kind: "dist",
@@ -110,7 +111,7 @@ async function startHub(
     read: (key) =>
       Promise.resolve(
         key.endsWith("/dist")
-          ? { status: "ok", bytes: Buffer.from("<main>Saved Build</main>") }
+          ? { status: "ok", bytes: Buffer.from(previewHtml) }
           : key.endsWith("/screenshot")
             ? { status: "ok", bytes: Buffer.from("screenshot") }
             : { status: "not-found" },

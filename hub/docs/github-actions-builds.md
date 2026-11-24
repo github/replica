@@ -85,6 +85,8 @@ The optional [build action](../../actions/build/action.yml) is still available. 
 
 To use the build and publish actions as separate steps, set `build-only: 'true'` on the build action, then call the publish action. Build-only mode leaves the static output in the workspace without packaging, uploads, browser installation, or screenshot capture. Without this option, both actions upload `replica-build-v1`, and GitHub rejects the duplicate artifact name.
 
+For [standalone private previews](build-previews.md#standalone-private-previews), compile the site for `/previews/github/<githubRepositoryId>/<owningWorkflowRunId>/` and pass that path as `base-path` to the action that packages the output. Pass the same path to the standalone screenshot action, if used. Leave the input unset for existing root-based workflows. Setting the input records the mount in the package and changes the capture server's mount; it does not change compiled URLs.
+
 If Hub is offline during an update, the workflow can still upload both artifacts to GitHub. GitHub does not automatically retry failed webhook deliveries. Once Hub returns, polling or requested redelivery can import the retained packages. Hub still needs GitHub API and artifact-download access. Recovery is bounded by the three-day artifact retention and polling window; expired packages cannot be recovered automatically. Re-running the workflow is safe because successful Builds and artifacts are never replaced.
 
 ## Flow
@@ -175,11 +177,27 @@ Deletion events are still recorded when received, rather than confirmed synchron
 
 `replica-screenshots-v1` contains `screenshots/**` and `screenshots.json`, `{ "version": 1, "distDigest": "sha256:…" }`. `distDigest` is the SHA-256 of the sorted `path\0sha256\n` lines for every dist file and `templates.json`.
 
-Both packages use the same path, size, and entry-count limits as local Builds.
+Both packages use the same path, size, and entry-count limits as local Builds:
+
+| Content                        | Limit                       |
+| ------------------------------ | --------------------------- |
+| Each static file               | 100 MiB (104,857,600 bytes) |
+| All uncompressed `dist/` files | 100 MiB                     |
+| Each screenshot                | 25 MiB                      |
+| All extracted package files    | 150 MiB                     |
+| Downloaded ZIP                 | 160 MiB                     |
+
+A separate data asset must leave room for `index.html` and the rest of the app within the total `dist/` budget. Package validation also enforces path, entry-count, and archive protections.
+
+Hub buffers the downloaded ZIP and extracted files in memory; storage writes also copy the current file to preserve its bytes during the write. Keep the default on-demand worker concurrency of one for the 1 GiB Azure runtime. Additional concurrent imports need memory headroom. The [preview layer](build-previews.md#file-behavior) bounds buffered responses across concurrent HTTP requests independently of worker concurrency.
+
+To publish larger files, run Hub with this limit and update every selected workflow's Replica publish, screenshots, and optional build actions to the same reviewed revision containing it. Older action pins retain their earlier limits. Updating Replica alone neither deploys Hub nor changes downstream workflow references.
 
 ## Screenshots
 
 Each pass after the dist import also looks for screenshots. Hub attaches them only when their `distDigest` matches the successful Build. Repeated passes add no duplicates and never replace existing artifact records. Invalid packages are logged and ignored; a digest mismatch leaves screenshots unattached. A Build whose screenshots never arrive stays successful and previewable without them.
+
+The capture job takes the prototype screenshot at `/` and captures declared template routes separately. The Prototypes gallery shows the newest successful Build with a saved desktop screenshot, even if a newer Build is pending, failed, or has not yet imported its screenshot. The current Build status does not change. If a thumbnail is missing, check the `replica-screenshots-v1` upload and Hub import before changing the workflow.
 
 ## Recovery
 

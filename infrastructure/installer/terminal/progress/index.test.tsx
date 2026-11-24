@@ -56,3 +56,28 @@ it("keeps the active stage and actual route position available in compact mode",
   expect(terminal.lastFrame()).toMatch(/configure/i)
   expect(terminal.lastFrame()).toMatch(/blocked|waiting|paused|recovery/i)
 })
+
+it("shows only the preview route while verifying the disabled reader", () => {
+  const terminal = render(<Progress phase="verify" preview="verify" />)
+  const verifying = terminal.lastFrame()!
+
+  const complete = state(verifying, "Review")
+  expect(state(verifying, "Provision")).toBe(complete)
+  expect(state(verifying, "Verify")).not.toBe(complete)
+  expect(verifying).not.toMatch(/Cloud|Checks|Configure|Release/)
+
+  terminal.rerender(<Progress phase="verify" preview="verify" compact />)
+  expect(terminal.lastFrame()).toMatch(/Verify\s*\(3\s*\/\s*3\)/i)
+})
+
+it.each([false, true])("distinguishes preview decline from verified staging (compact: %s)", (compact) => {
+  const terminal = render(<Progress phase="review" preview="skipped" compact={compact} />)
+
+  expect(terminal.lastFrame()).toMatch(/Private preview preparation skipped/i)
+  expect(terminal.lastFrame()).not.toMatch(/Complete|Disabled reader staged|Cloud|Checks|Configure|Release/)
+
+  terminal.rerender(<Progress phase="verify" preview="staged" compact={compact} />)
+
+  expect(terminal.lastFrame()).toMatch(/Disabled reader staged/i)
+  expect(terminal.lastFrame()).not.toMatch(/skipped|Cloud|Checks|Configure|Release/)
+})

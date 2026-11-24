@@ -1,5 +1,5 @@
 import { act, renderHook } from "@testing-library/react"
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import type { AnchorReference } from "@utils/review-anchor/types"
 import type { PreviewBridgeCommand, PreviewBridgeMessage } from "@utils/preview-bridge/types"
@@ -8,9 +8,19 @@ import { usePreviewBridge } from "."
 
 const PREVIEW_URL = "http://b1.preview.replica.localhost:19500/"
 const PREVIEW_ORIGIN = new URL(PREVIEW_URL).origin
+const HUB_ORIGIN = "https://hub.example.test"
+const HOSTED_PREVIEW_URL =
+  `${HUB_ORIGIN}/api/repositories/2001/prototypes/1/builds/7/access?` +
+  new URLSearchParams({ preview_origin: PREVIEW_ORIGIN, route: "/?tab=overview#top" }).toString()
+const TEMPLATE_PREVIEW_URL = HOSTED_PREVIEW_URL.replace(
+  "/prototypes/1/builds/7/",
+  "/template-builds/7/",
+)
+const NAVIGATION_READY = "replica:bridge:request-navigation-ready"
 const REQUEST_ID = "00000000-0000-4000-8000-000000000001"
+const PREVIEW_MOUNT = "/previews/github/2001/4001/"
 const EMPTY_ANCHORS: AnchorReference[] = []
-const ANCHOR_REFERENCE: AnchorReference = {
+const ANCHOR_REFERENCE = {
   commentId: 1,
   originBuild: true,
   anchor: {
@@ -25,15 +35,257 @@ const ANCHOR_REFERENCE: AnchorReference = {
     viewport: { width: 1_280, height: 720, scrollX: 0, scrollY: 0 },
     elementOffset: { x: 0.5, y: 0.5 },
   },
-}
-const READY_MESSAGE: PreviewBridgeMessage = {
+} satisfies AnchorReference
+const READY_MESSAGE = {
   protocolVersion: 1,
   requestId: "bridge-request",
   type: "replica:bridge:ready",
   payload: { route: { pathname: "/", search: "", hash: "" } },
+} satisfies PreviewBridgeMessage
+
+function renderHostedPreviewBridge({
+  previewUrl = HOSTED_PREVIEW_URL,
+  reviewEnabled = true,
+  previewTheme = "light",
+  anchors = EMPTY_ANCHORS,
+}: {
+  previewUrl?: string
+  reviewEnabled?: boolean
+  previewTheme?: "light" | "dark"
+  anchors?: AnchorReference[]
+} = {}) {
+  const iframe = document.createElement("iframe")
+  document.body.append(iframe)
+  onTestFinished(() => iframe.remove())
+  const frameWindow = iframe.contentWindow
+  if (!frameWindow) throw new Error("Expected iframe content window")
+  const iframeRef = { current: iframe }
+  const postMessage = vi.spyOn(frameWindow, "postMessage").mockImplementation(() => {})
+  const { result, rerender } = renderHook(
+    ({ previewUrl }) =>
+      usePreviewBridge({ iframeRef, previewUrl, previewTheme, anchors, reviewEnabled }),
+    { initialProps: { previewUrl } },
+  )
+
+  function commandId(type: PreviewBridgeCommand["type"]) {
+    const [command, targetOrigin] =
+      postMessage.mock.calls.findLast(
+        ([command]) => (command as PreviewBridgeCommand).type === type,
+      ) ?? []
+    if (!command) throw new Error(`Expected ${type} command`)
+    expect(targetOrigin).toBe(PREVIEW_ORIGIN)
+    return (command as PreviewBridgeCommand).requestId
+  }
+
+  function receive(
+    data: PreviewBridgeMessage & { navigationId?: string },
+    { origin = PREVIEW_ORIGIN, source }: { origin?: string; source?: Window } = {},
+  ) {
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", { origin, source: source ?? frameWindow, data }),
+      )
+    })
+  }
+
+  function load() {
+    act(() => result.current.handleFrameLoad())
+    const requestId = commandId(NAVIGATION_READY)
+    expect(postMessage).toHaveBeenLastCalledWith(
+      { protocolVersion: 1, requestId, type: NAVIGATION_READY, payload: {} },
+      PREVIEW_ORIGIN,
+    )
+    return requestId
+  }
+
+  return { result, receive, load, commandId, rerender, postMessage, iframeRef }
 }
 
 describe("usePreviewBridge()", () => {
+  it("requires a scoped reply from the current frame and Build origin for hosted readiness", () => {
+    const { result, receive, load, iframeRef } = renderHostedPreviewBridge()
+    const previousId = load()
+    receive({ ...READY_MESSAGE, requestId: previousId, navigationId: previousId })
+    expect(result.current.ready).toBe(true)
+
+    const navigationId = load()
+    expect(navigationId).not.toBe(previousId)
+    const ready = { ...READY_MESSAGE, requestId: navigationId, navigationId }
+    receive(ready, { origin: HUB_ORIGIN })
+    receive(ready, { source: window })
+    receive({ ...READY_MESSAGE, requestId: previousId })
+    receive({ ...READY_MESSAGE, requestId: navigationId })
+    receive({ ...ready, navigationId: previousId })
+    receive({ ...ready, requestId: previousId })
+    receive({ ...ready, requestId: previousId, navigationId: previousId })
+    expect(result.current.ready).toBe(false)
+    expect(result.current.route).toBeNull()
+
+    const originalFrame = iframeRef.current
+    const replacementFrame = document.createElement("iframe")
+    document.body.append(replacementFrame)
+    onTestFinished(() => replacementFrame.remove())
+    const replacementWindow = replacementFrame.contentWindow
+    if (!replacementWindow) throw new Error("Expected replacement iframe content window")
+    iframeRef.current = replacementFrame
+    receive(ready, { source: replacementWindow })
+    expect(result.current.ready).toBe(false)
+
+    iframeRef.current = originalFrame
+    receive(ready)
+    expect(result.current.ready).toBe(true)
+    expect(result.current.route).toEqual(ready.payload.route)
+  })
+
+  it("rejects a pending reply after the access URL changes on the same Build origin", () => {
+    const { result, receive, load, rerender } = renderHostedPreviewBridge()
+    const previousId = load()
+    rerender({ previewUrl: HOSTED_PREVIEW_URL.replace("overview", "details") })
+    receive({ ...READY_MESSAGE, requestId: previousId, navigationId: previousId })
+    expect(result.current.ready).toBe(false)
+    expect(result.current.route).toBeNull()
+
+    const navigationId = load()
+    receive({ ...READY_MESSAGE, requestId: navigationId, navigationId })
+    expect(result.current.ready).toBe(true)
+  })
+
+  it("ignores unscoped and previous-navigation anchor results but displays current anchors", () => {
+    const { result, receive, load, commandId } = renderHostedPreviewBridge({
+      anchors: [ANCHOR_REFERENCE],
+    })
+    const previousId = load()
+    receive({ ...READY_MESSAGE, requestId: previousId, navigationId: previousId })
+    const navigationId = load()
+    receive({ ...READY_MESSAGE, requestId: navigationId, navigationId })
+    const resolution = {
+      commentId: ANCHOR_REFERENCE.commentId,
+      status: "resolved",
+      rect: { x: 20, y: 30, width: 100, height: 32 },
+      point: { x: 70, y: 46 },
+    } as const
+    const reply = {
+      protocolVersion: 1,
+      requestId: commandId("replica:bridge:resolve-anchors"),
+      type: "replica:bridge:anchors-resolved",
+      payload: { results: [resolution] },
+    } satisfies PreviewBridgeMessage
+    receive(reply)
+    receive({ ...reply, navigationId: previousId })
+    expect(result.current.resolutions.size).toBe(0)
+
+    receive({ ...reply, navigationId })
+    expect(result.current.resolutions.get(resolution.commentId)).toEqual(resolution)
+  })
+
+  it("sends the theme but no review commands when an isolated template is ready", () => {
+    const { result, receive, load, postMessage } = renderHostedPreviewBridge({
+      previewUrl: TEMPLATE_PREVIEW_URL,
+      reviewEnabled: false,
+      previewTheme: "dark",
+      anchors: [ANCHOR_REFERENCE],
+    })
+    const navigationId = load()
+    receive({ ...READY_MESSAGE, requestId: navigationId })
+    expect(result.current.ready).toBe(false)
+    expect(postMessage).toHaveBeenCalledOnce()
+
+    receive({ ...READY_MESSAGE, requestId: navigationId, navigationId })
+    expect(result.current.ready).toBe(true)
+    act(() => {
+      result.current.startElementSelection()
+      result.current.startAreaSelection()
+      result.current.focusAnchor(1)
+    })
+    expect(result.current.selecting).toBe(false)
+    expect(postMessage.mock.calls).toEqual([
+      [expect.objectContaining({ type: NAVIGATION_READY }), PREVIEW_ORIGIN],
+      [
+        expect.objectContaining({ type: "replica:bridge:set-theme", payload: { theme: "dark" } }),
+        PREVIEW_ORIGIN,
+      ],
+    ])
+  })
+
+  it("clears hosted selection on a changed SPA route and accepts only the new selection reply", () => {
+    const { result, receive, load, commandId } = renderHostedPreviewBridge()
+    const initialRoute = READY_MESSAGE.payload.route
+    let navigationId = load()
+    function reportReady(route: typeof initialRoute) {
+      navigationId = commandId(NAVIGATION_READY)
+      receive({ ...READY_MESSAGE, requestId: navigationId, navigationId, payload: { route } })
+    }
+    function reportRoute(route: typeof initialRoute) {
+      receive({
+        ...READY_MESSAGE,
+        type: "replica:bridge:route-changed",
+        requestId: "spa-route-change",
+        navigationId,
+        payload: { route },
+      })
+    }
+    const element = {
+      protocolVersion: 1,
+      type: "replica:bridge:element-selected",
+    } as const
+    reportReady(initialRoute)
+
+    act(() => result.current.startElementSelection())
+    const firstSelection = {
+      ...element,
+      requestId: commandId("replica:bridge:select-element"),
+      payload: { anchor: ANCHOR_REFERENCE.anchor },
+    }
+    receive(firstSelection)
+    receive({ ...firstSelection, navigationId: "different-navigation" })
+    expect(result.current.selectedAnchor).toBeNull()
+    expect(result.current.selecting).toBe(true)
+
+    receive({ ...firstSelection, navigationId })
+    expect(result.current.selectedAnchor).toEqual(firstSelection.payload.anchor)
+    reportRoute(initialRoute)
+    expect(result.current.selectedAnchor).toEqual(firstSelection.payload.anchor)
+
+    const secondRoute = { ...initialRoute, search: "?tab=details" }
+    reportRoute(secondRoute)
+    expect(result.current.route).toEqual(secondRoute)
+    expect(result.current.selectedAnchor).toBeNull()
+    reportReady(secondRoute)
+
+    act(() => result.current.startElementSelection())
+    const pendingSelection = {
+      ...firstSelection,
+      navigationId,
+      requestId: commandId("replica:bridge:select-element"),
+      payload: { anchor: { ...ANCHOR_REFERENCE.anchor, route: secondRoute } },
+    }
+    expect(result.current.selecting).toBe(true)
+
+    const finalRoute = { ...secondRoute, hash: "#summary" }
+    reportRoute(finalRoute)
+    expect(result.current.route).toEqual(finalRoute)
+    expect(result.current.selecting).toBe(false)
+    reportReady(finalRoute)
+    receive(pendingSelection)
+    expect(result.current.selectedAnchor).toBeNull()
+
+    act(() => result.current.startElementSelection())
+    const currentRequestId = commandId("replica:bridge:select-element")
+    receive(pendingSelection)
+    expect(result.current.selectedAnchor).toBeNull()
+    expect(result.current.selecting).toBe(true)
+
+    const currentAnchor = { ...ANCHOR_REFERENCE.anchor, route: finalRoute }
+    receive({
+      ...pendingSelection,
+      navigationId,
+      requestId: currentRequestId,
+      payload: { anchor: currentAnchor },
+    })
+    expect(result.current.selectedAnchor).toEqual(currentAnchor)
+    expect(result.current.selecting).toBe(false)
+  })
+
   it("accepts conversation dismissal only from the trusted review-enabled frame", () => {
     const iframe = document.createElement("iframe")
     document.body.append(iframe)
@@ -179,6 +431,112 @@ describe("usePreviewBridge()", () => {
     },
   )
 
+  it.each([undefined, PREVIEW_MOUNT])(
+    "restores a section on an isolated nested route with preview mount %s",
+    (previewMount) => {
+      const previewUrl = new URL(TEMPLATE_PREVIEW_URL)
+      previewUrl.searchParams.set("route", "/gallery/details?filter=active#stations")
+      const { result, receive, load, commandId, postMessage } = renderHostedPreviewBridge({
+        previewUrl: previewUrl.href,
+        reviewEnabled: false,
+      })
+      const navigationId = load()
+      const route = {
+        pathname: `${previewMount ?? "/"}gallery/details`,
+        search: "?filter=active",
+        hash: "",
+      }
+      const ready = {
+        ...READY_MESSAGE,
+        requestId: navigationId,
+        navigationId,
+        payload: { route },
+      }
+      receive({ ...ready, requestId: REQUEST_ID })
+      expect(result.current.ready).toBe(false)
+      expect(postMessage).toHaveBeenCalledOnce()
+
+      if (previewMount) {
+        receive({
+          protocolVersion: 1,
+          type: "replica:bridge:preview-mount",
+          navigationId,
+          requestId: navigationId,
+          payload: { mount: previewMount },
+        })
+      }
+      receive(ready)
+      const requestId = commandId("replica:bridge:restore-fragment")
+      const restoredRoute = { ...route, hash: "#stations" }
+      expect(postMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ requestId, payload: { route: restoredRoute } }),
+        PREVIEW_ORIGIN,
+      )
+      expect(result.current.ready).toBe(false)
+      expect(result.current.route).toBeNull()
+
+      const restored = { ...ready, payload: { route: restoredRoute } }
+      receive(restored)
+      receive({ ...restored, requestId, navigationId: REQUEST_ID })
+      expect(result.current.ready).toBe(false)
+      expect(result.current.route).toBeNull()
+
+      receive({ ...restored, requestId })
+      expect(result.current.ready).toBe(true)
+      expect(result.current.route).toEqual(restoredRoute)
+      expect(result.current.previewMount).toBe(previewMount)
+    },
+  )
+
+  it("ignores a preview mount not correlated to the isolated navigation", () => {
+    const previewUrl = new URL(TEMPLATE_PREVIEW_URL)
+    previewUrl.searchParams.set("route", "/gallery/details#stations")
+    const { result, receive, load, postMessage } = renderHostedPreviewBridge({
+      previewUrl: previewUrl.href,
+      reviewEnabled: false,
+    })
+    const navigationId = load()
+    const mount = {
+      protocolVersion: 1,
+      type: "replica:bridge:preview-mount",
+      navigationId,
+      requestId: navigationId,
+      payload: { mount: PREVIEW_MOUNT },
+    } as const
+    const route = { pathname: `${PREVIEW_MOUNT}gallery/details`, search: "", hash: "" }
+    receive({ ...mount, requestId: REQUEST_ID })
+    receive({ ...mount, navigationId: REQUEST_ID })
+    receive({ ...READY_MESSAGE, requestId: navigationId, navigationId, payload: { route } })
+
+    expect(result.current.ready).toBe(true)
+    expect(result.current.route).toEqual(route)
+    expect(result.current.previewMount).toBeUndefined()
+    expect(postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "replica:bridge:restore-fragment" }),
+      PREVIEW_ORIGIN,
+    )
+  })
+
+  it("accepts an isolated hash-router deep link without replaying the fragment", () => {
+    const previewUrl = new URL(TEMPLATE_PREVIEW_URL)
+    previewUrl.searchParams.set("route", "/gallery#/settings")
+    const { result, receive, load, postMessage } = renderHostedPreviewBridge({
+      previewUrl: previewUrl.href,
+      reviewEnabled: false,
+    })
+    const navigationId = load()
+    const route = { pathname: "/gallery", search: "", hash: "#/settings" }
+
+    receive({ ...READY_MESSAGE, requestId: navigationId, navigationId, payload: { route } })
+
+    expect(result.current.ready).toBe(true)
+    expect(result.current.route).toEqual(route)
+    expect(postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "replica:bridge:restore-fragment" }),
+      PREVIEW_ORIGIN,
+    )
+  })
+
   it.each(["#/about", "#!/settings"])("loads the hash route %s without fragment replay", (hash) => {
     const iframe = document.createElement("iframe")
     document.body.append(iframe)
@@ -306,7 +664,7 @@ describe("usePreviewBridge()", () => {
     const onToggleSidebar = vi.fn()
     const iframeRef = { current: iframe }
     const { rerender } = renderHook(
-      ({ selectionBlocked }) =>
+      ({ selectionBlocked, sidebarToggleBlocked }) =>
         usePreviewBridge({
           iframeRef,
           previewUrl: PREVIEW_URL,
@@ -314,8 +672,9 @@ describe("usePreviewBridge()", () => {
           anchors: EMPTY_ANCHORS,
           onToggleSidebar,
           selectionBlocked,
+          sidebarToggleBlocked,
         }),
-      { initialProps: { selectionBlocked: false } },
+      { initialProps: { selectionBlocked: false, sidebarToggleBlocked: false } },
     )
     function previewShortcut(origin = PREVIEW_ORIGIN) {
       window.dispatchEvent(
@@ -351,7 +710,7 @@ describe("usePreviewBridge()", () => {
       PREVIEW_ORIGIN,
     )
 
-    rerender({ selectionBlocked: true })
+    rerender({ selectionBlocked: true, sidebarToggleBlocked: false })
     act(() => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "c" }))
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "C", shiftKey: true }))
@@ -369,11 +728,18 @@ describe("usePreviewBridge()", () => {
         }),
       )
     })
-    expect(onToggleSidebar).toHaveBeenCalledTimes(2)
+    expect(onToggleSidebar).toHaveBeenCalledTimes(4)
     expect(postMessage).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: "replica:bridge:select-element" }),
       PREVIEW_ORIGIN,
     )
+
+    rerender({ selectionBlocked: true, sidebarToggleBlocked: true })
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "C", shiftKey: true }))
+      previewShortcut()
+    })
+    expect(onToggleSidebar).toHaveBeenCalledTimes(4)
   })
 
   it("sends the selected theme on readiness and whenever it changes", () => {

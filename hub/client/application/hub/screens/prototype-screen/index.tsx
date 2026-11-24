@@ -16,6 +16,10 @@ import { authorizeCopilotHandoff } from "@application/hub/requests/authorize-cop
 import { requestJson } from "@application/hub/requests/request-json"
 import { acknowledgeInboxActivity } from "@application/hub/requests/acknowledge-inbox-activity"
 import { MENTION_CANDIDATES_SCHEMA } from "@utils/mention-candidate/schemas"
+import { getUrlOrigin } from "@utils/get-url-origin"
+import { privateReviewLink } from "@utils/private-review-link"
+import { previewLogicalPathname } from "@utils/preview-logical-pathname"
+import { readPreviewReturnPath } from "@utils/read-preview-return-path"
 
 export function PrototypeScreen({
   workspace,
@@ -60,6 +64,17 @@ export function PrototypeScreen({
     }
   }
   const routeUrl = `${window.location.origin}${location.pathname}`
+  const preview = pageData.selectedBuild && new URL(pageData.selectedBuild.previewUrl)
+  const isolated = Boolean(preview && getUrlOrigin(preview.href) !== preview.origin)
+  const requestedRoutes = params.getAll("return_path")
+  const requestedRoute =
+    requestedRoutes.length === 1 ? readPreviewReturnPath(requestedRoutes[0]) : null
+  const logicalRequest = params.get("return_path_kind") === "logical"
+  if (!mock && isolated && requestedRoute && preview && pageData.selectedBuild) {
+    preview.searchParams.set("route", requestedRoute)
+    if (logicalRequest) preview.searchParams.set("route_kind", "logical")
+    pageData.selectedBuild.previewUrl = preview.href
+  }
   const transport = useMemo(() => createReviewTransport(routeUrl), [routeUrl])
   const mentionSource = useMemo(
     () => ({
@@ -104,6 +119,7 @@ export function PrototypeScreen({
     reviewCommentsPath: pageData.reviewCommentsPath,
     viewerLogin: workspace.viewer.login,
     selectedBuild: pageData.selectedBuild,
+    reviewReadOnly: pageData.reviewReadOnly,
     transport,
     filters: query.filters,
     selectedThreadId: query.commentId,
@@ -128,6 +144,26 @@ export function PrototypeScreen({
     },
   })
   const { notificationId, messageId, commentId } = query
+  const thread = review.selectedThread
+  const route = thread?.root.anchor.route ?? review.bridge.route
+  // A thread from a different Build keeps its original address.
+  const mount =
+    !thread || thread.root.buildNumber === data.selectedBuild?.number
+      ? review.bridge.previewMount
+      : undefined
+  const reviewLink = pageData.privatePreviewUrl
+    ? privateReviewLink({
+        baseUrl: routeUrl,
+        buildNumber:
+          thread?.root.buildNumber ??
+          (pageData.buildPinned ? data.selectedBuild?.number : undefined),
+        route: route
+          ? `${previewLogicalPathname(route.pathname, mount)}${route.search}${route.hash}`
+          : (requestedRoute ?? pageData.startPage ?? undefined),
+        logicalRoute: route ? mount !== undefined : Boolean(requestedRoute && logicalRequest),
+        threadId: thread?.root.id,
+      })
+    : undefined
   const channel =
     !mock &&
     !pageData.reviewReadOnly &&
@@ -191,12 +227,14 @@ export function PrototypeScreen({
       key={`${data.repository.id}:${data.prototype.id}`}
       data={{
         ...pageData,
+        privateReviewLink: reviewLink,
         initialNotificationId: notificationId ?? undefined,
         initialCommentId: messageId ?? undefined,
         notificationErrorLabel: notificationError,
       }}
       iframeRef={iframeRef}
       previewTheme={resolvedColorMode}
+      monitorPreview={!mock && isolated}
       review={review}
       onNotificationMessageOpened={messageOpened}
       initialMinimized={pageData.minimizedPreview}

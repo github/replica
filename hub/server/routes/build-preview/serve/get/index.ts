@@ -1,9 +1,14 @@
 import type { RequestHandler } from "express"
 
+import {
+  LEGACY_PREVIEW_BRIDGE_PATHS,
+  PREVIEW_BRIDGE_PATH,
+} from "../../../../domains/build-preview/inject-preview-bridge/constants.ts"
 import { readBuildPreviewFile } from "../../../../domains/build-preview/read-build-preview-file/index.ts"
 import { readPreviewBuildId } from "../../../../domains/build-preview/read-preview-build-id/index.ts"
 import { readPreviewSession } from "../../../../domains/build-preview/read-preview-session/index.ts"
 import { readTemplateScreenshotPath } from "../../../../domains/build-preview/template-screenshot-path/index.ts"
+import { reserveBuildPreviewBytes } from "../../../../domains/build-preview/reserve-build-preview-bytes/index.ts"
 import { readSharePreviewSession } from "../../../../domains/public-sharing/read-share-preview-session/index.ts"
 import { readCookie } from "../../../../integrations/express/read-cookie/index.ts"
 import type { BuildPreviewRouteDependencies } from "../../types.ts"
@@ -58,6 +63,21 @@ export function get(
   }
 
   return async (request, response, next) => {
+    const reservations = new Set<() => void>()
+    let handlingRequest = true
+    let responseEnded = response.destroyed || response.writableFinished
+    function releaseReservations() {
+      if (handlingRequest || !responseEnded) return
+      response.off("finish", onResponseEnd)
+      response.off("close", onResponseEnd)
+      for (const release of reservations) release()
+    }
+    function onResponseEnd() {
+      responseEnded = true
+      releaseReservations()
+    }
+    response.once("finish", onResponseEnd)
+    response.once("close", onResponseEnd)
     try {
       const buildId = readPreviewBuildId(request.get("host"), dependencies.previewBaseOrigin)
       if (!buildId) {
@@ -98,7 +118,10 @@ export function get(
         Boolean(privateAuthorized && screenshot),
       )
 
-      if (request.path === "/__replica/bridge/v1.js") {
+      if (
+        request.path === PREVIEW_BRIDGE_PATH ||
+        LEGACY_PREVIEW_BRIDGE_PATHS.includes(request.path)
+      ) {
         const reviewSource = (dependencies.reviewBridgeSource ?? "")
           .replace('"__REPLICA_HUB_ORIGIN__"', JSON.stringify(dependencies.applicationOrigin))
           .replace(
@@ -119,10 +142,26 @@ export function get(
           acceptsHtml: Boolean(request.accepts("html")),
           buildId,
           distOnly: publicLink?.hosted,
+          reportMount: Boolean(privateAuthorized),
           requestPath: request.path,
         },
-        dependencies,
+        {
+          ...dependencies,
+          reserveBytes(byteLength) {
+            if (responseEnded) return null
+            const reservation = reserveBuildPreviewBytes(byteLength)
+            if (!reservation) return null
+            const release = reservation
+            function trackedRelease() {
+              reservations.delete(trackedRelease)
+              release()
+            }
+            reservations.add(trackedRelease)
+            return trackedRelease
+          },
+        },
       )
+      if (response.destroyed) return
       if (file.status !== "ok") {
         response.status(file.status === "not-found" ? 404 : 503).end()
         return
@@ -156,6 +195,9 @@ export function get(
       response.end(file.bytes)
     } catch (error) {
       next(error)
+    } finally {
+      handlingRequest = false
+      releaseReservations()
     }
   }
 }

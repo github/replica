@@ -193,6 +193,24 @@ export const RepositoryEmpty: Story = {
     data: { ...Repository.args!.data!, events: [] },
   },
 }
+
+export const LongRepositoryName: Story = {
+  args: {
+    data: {
+      ...Repository.args!.data!,
+      scopes: Repository.args!.data!.scopes.map((scope) =>
+        scope.id === "2001"
+          ? {
+              ...scope,
+              label:
+                "github/prototype-review-for-the-shared-design-system-components-and-interaction-library",
+            }
+          : scope,
+      ),
+    },
+  },
+}
+
 export const RepositoryAndHubAdmin: Story = {
   args: {
     data: {

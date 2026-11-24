@@ -63,6 +63,7 @@ export const buildSchema = z.object({
   startedAt: timestamp.nullable(),
   finishedAt: timestamp.nullable(),
   previewUrl: httpUrl.nullable(),
+  privatePreviewUrl: httpUrl.optional(),
   desktopScreenshotUrl: httpUrl.nullable(),
   narrowScreenshotUrl: httpUrl.nullable(),
   failureSummary: z.string().nullable(),
@@ -119,6 +120,9 @@ export const repositoryResponseSchema = z.object({
     prototypeSchema.extend({
       authorId: z.string().nullable().optional(),
       authorLogin: z.string().min(1).nullable(),
+      reviewBuild: z
+        .object({ number: identifier, desktopScreenshotUrl: httpUrl.nullable() })
+        .nullish(),
     }),
   ),
   pagination: paginationSchema,

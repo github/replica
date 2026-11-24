@@ -9,6 +9,7 @@ import { closeServer } from "../close-server/index.mjs"
 import { MAX_SCREENSHOT_HEIGHT, START_ROUTE, VIEWPORTS } from "../constants.mjs"
 import { createStaticServer } from "../create-static-server/index.mjs"
 import { listenOnLoopback } from "../listen-on-loopback/index.mjs"
+import { normalizeBasePath } from "../normalize-base-path/index.mjs"
 import { readTemplates } from "../read-templates/index.mjs"
 import { requiredPathArgument } from "../required-path-argument/index.mjs"
 import { validateBuildOutput } from "../validate-build-output/index.mjs"
@@ -49,7 +50,9 @@ export async function captureScreenshots(
   screenshots,
   configRoot = root,
   configFile = ".github/replica.json",
+  basePath = "/",
 ) {
+  const base = normalizeBasePath(basePath)
   await validateBuildOutput(root)
   const manifest = await readTemplates(configRoot, configFile)
   const controlsAdapter = await readFile(
@@ -62,6 +65,7 @@ export async function captureScreenshots(
   const server = createStaticServer(
     path.join(root, "dist"),
     manifest?.templates.map((template) => template.path),
+    base,
   )
   const port = await listenOnLoopback(server)
   const allowedOrigin = `http://127.0.0.1:${port}`
@@ -74,7 +78,7 @@ export async function captureScreenshots(
       proxy: { server: captureProxy.address },
       args: ["--proxy-bypass-list=<-loopback>"],
     })
-    const adapterUrl = `${allowedOrigin}/__replica/capture-controls.js`
+    const adapterUrl = `${allowedOrigin}${base}__replica/capture-controls.js`
 
     const destinations = [
       { path: START_ROUTE, directory: "" },
@@ -113,7 +117,7 @@ export async function captureScreenshots(
             }
           })
 
-          let address = `${allowedOrigin}${destination.path}`
+          let address = `${allowedOrigin}${base}${destination.path.slice(1)}`
           for (let attempt = 0; ; attempt++) {
             if (attempt === 4)
               throw new Error("Controls URL defaults did not settle after navigation.")
@@ -132,7 +136,10 @@ export async function captureScreenshots(
               return bindings?.takeNavigation()
             })
             if (!navigation) break
-            if (new URL(navigation).origin !== allowedOrigin)
+            if (
+              new URL(navigation).origin !== allowedOrigin ||
+              !new URL(navigation).pathname.startsWith(base)
+            )
               throw new Error("Controls URL defaults cannot leave the retained Build.")
             address = navigation
           }
@@ -175,6 +182,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.argv.includes("--config-root") ? requiredPathArgument("config-root") : undefined,
     process.argv.includes("--config-file")
       ? requiredPathArgument("config-file", { resolve: false })
+      : undefined,
+    process.argv.includes("--base-path")
+      ? requiredPathArgument("base-path", { resolve: false })
       : undefined,
   )
   console.log(

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, within } from "@testing-library/react"
 import type { ComponentProps } from "react"
 import { describe, it, vi } from "vitest"
 
@@ -145,12 +145,13 @@ describe("RepositoriesShowPage()", () => {
     expect(delegatedClick).toHaveBeenCalledTimes(1)
   })
 
-  it("retains known cards during loading and request failure and exposes retry", () => {
+  it("retains cards without an inline loading message and exposes retry on failure", () => {
     const controls = listingControls({ pending: true })
     const { rerender } = render(<RepositoriesShowPage data={PAGE_DATA} controls={controls} />)
-    expect(screen.getByRole("region", { name: "Prototypes" })).toHaveAttribute("aria-busy", "true")
-    expect(screen.getByRole("status")).toHaveTextContent(prototypeListing.copy.updating)
-    expect(screen.getByRole("link", { name: "Welcome" })).toBeInTheDocument()
+    const results = screen.getByRole("region", { name: "Prototypes" })
+    expect(results).toHaveAttribute("aria-busy", "true")
+    expect(within(results).queryByText("Updating prototypes")).not.toBeInTheDocument()
+    expect(within(results).getByRole("link", { name: "Welcome" })).toBeInTheDocument()
     rerender(
       <RepositoriesShowPage
         data={PAGE_DATA}
@@ -480,7 +481,10 @@ describe("RepositoriesShowPage()", () => {
       />,
     )
 
-    expect(screen.getAllByText("by @octocat")).toHaveLength(3)
+    for (const link of screen.getAllByRole("link", { name: "@octocat" })) {
+      expect(link).toHaveAttribute("href", "https://github.com/octocat")
+    }
+    expect(screen.getAllByRole("link", { name: "@octocat" })).toHaveLength(3)
     expect(screen.queryByText("Explore a new welcome flow.")).not.toBeInTheDocument()
     expect(screen.queryByText("prototype/welcome")).not.toBeInTheDocument()
     expect(screen.queryByText("2 builds")).not.toBeInTheDocument()

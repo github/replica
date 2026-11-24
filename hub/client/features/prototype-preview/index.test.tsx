@@ -85,4 +85,36 @@ describe("PrototypePreview()", () => {
     expect(screen.getByTitle(props.frameTitle)).toBe(frame)
     expect(frame).toHaveAttribute("src", props.previewUrl)
   })
+
+  it("allows a fresh handshake at the same URL after recovering from a timeout", async () => {
+    vi.useFakeTimers()
+    try {
+      const fallback = <div role="status">Screenshot fallback</div>
+      function preview(ready: boolean) {
+        return <PrototypePreview {...props} ready={ready} fallback={fallback} />
+      }
+      const { rerender } = render(preview(false))
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(8000)
+      })
+      expect(screen.getByRole("status")).toHaveTextContent("Screenshot fallback")
+
+      rerender(preview(true))
+      expect(screen.queryByRole("status")).not.toBeInTheDocument()
+
+      rerender(preview(false))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(7999)
+      })
+      expect(screen.queryByRole("status")).not.toBeInTheDocument()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1)
+      })
+      expect(screen.getByRole("status")).toHaveTextContent("Screenshot fallback")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

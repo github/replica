@@ -1,5 +1,6 @@
 .security-audit-page {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1.5rem;
   max-width: 75rem;
   margin-inline: auto;
@@ -17,6 +18,31 @@
   align-items: center;
   flex-wrap: wrap;
   gap: var(--base-size-8);
+}
+
+.security-audit-page__scope > div {
+  min-width: 0;
+  max-width: min(32rem, 100%);
+}
+
+.security-audit-page__scope button {
+  max-width: 100%;
+}
+
+.security-audit-page__scope button > span:first-child {
+  max-width: none;
+}
+
+.security-audit-page__scope button > span:first-child,
+.security-audit-page__scope button > span:first-child > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.security-audit-page__scope button > [data-testid="Button-trailing-visual"] {
+  flex: none;
 }
 
 .security-audit-page__records {

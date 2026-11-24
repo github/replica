@@ -71,10 +71,10 @@ describe("Hub retained prototype interactions", () => {
     expect(screen.queryByRole("dialog", { name: "Welcome" })).not.toBeInTheDocument()
   })
 
-  it("branches from the source branch and viewed page while preserving the pinned Build", async () => {
+  it("uses only the viewed pathname in the branch prompt while preserving the pinned Build and route", async () => {
     const store = createMockStore({ origin: window.location.origin })
     const server = setupServer(...createMockHandlers(store))
-    const viewedRoute = "/welcome?step=2#heading"
+    const route = { pathname: "/welcome", search: "?step=2", hash: "#heading" }
     const router = await renderHubFlow(server, "/repositories/2001/prototypes/1?build=1")
     fireEvent.click(screen.getByRole("button", { name: "View prototype" }))
     fireEvent.click(screen.getByRole("button", { name: "Branch from here" }))
@@ -93,11 +93,14 @@ describe("Hub retained prototype interactions", () => {
             protocolVersion: 1,
             requestId: "viewed-page",
             type: "replica:bridge:ready",
-            payload: { route: { pathname: "/welcome", search: "?step=2", hash: "#heading" } },
+            payload: { route },
           },
         }),
       )
     })
+    expect(screen.getByRole("textbox", { name: "Preview URL" })).toHaveValue(
+      new URL(`${route.pathname}${route.search}${route.hash}`, frame.src).href,
+    )
     fireEvent.click(screen.getByRole("button", { name: "Start from this prototype" }))
 
     const dialog = screen.getByRole("dialog", { name: "Continue in Copilot app" })
@@ -111,7 +114,9 @@ describe("Hub retained prototype interactions", () => {
     expect(session.searchParams.get("repo")).toBe("github/prototype")
     expect(session.searchParams.get("base_branch")).toBe("prototype/welcome")
     expect(prompt).toContain("Make the first step easier.")
-    expect(prompt).toContain(viewedRoute)
+    expect(prompt).toContain('route "/welcome"')
+    expect(prompt).not.toContain(route.search)
+    expect(prompt).not.toContain(route.hash)
     expect(prompt).toContain("Create a new branch")
     expect(prompt).toContain("`prototype/welcome`")
     expect(screen.getByTitle("Welcome, Build 1 preview")).toBeInTheDocument()

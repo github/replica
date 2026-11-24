@@ -8,6 +8,7 @@ import type { LearningsRouteDependencies } from "./api/learnings/types.ts"
 import type { WorkspaceProductRouteDependencies } from "./api/product/types.ts"
 import type { PublicSharingRouteDependencies } from "./api/public-sharing/types.ts"
 import type { BuildPreviewRouteDependencies } from "./build-preview/types.ts"
+import type { PrivatePreviewRouteDependencies } from "./private-preview/types.ts"
 import type { GitHubSetupRouteDependencies } from "./api/settings/github/types.ts"
 import type { DecisionModelRouteDependencies } from "./api/decision-model/types.ts"
 import type { AgentVisualCriticRouteDependencies } from "./api/canvas/decision-model/types.ts"
@@ -21,6 +22,7 @@ export interface RouteDependencies {
   product?: WorkspaceProductRouteDependencies
   publicSharing?: PublicSharingRouteDependencies
   preview?: BuildPreviewRouteDependencies
+  privatePreview?: PrivatePreviewRouteDependencies
   githubSetup?: GitHubSetupRouteDependencies
   githubWebhooks?: GitHubWebhookRouteDependencies
   broadcast?: Broadcast

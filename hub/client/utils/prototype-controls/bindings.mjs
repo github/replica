@@ -642,8 +642,8 @@ export function installBindings(input) {
 }
 
 /** Reads only this page's static definitions; ordinary apps can omit the document. */
-export async function loadBindings() {
-  const response = await fetch("/controls.replica.json", {
+export async function loadBindings(basePath = "/") {
+  const response = await fetch(`${basePath}controls.replica.json`, {
     credentials: "same-origin",
     redirect: "error",
   })

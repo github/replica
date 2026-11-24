@@ -4,11 +4,13 @@ export interface ReadBuildPreviewFileInput {
   acceptsHtml: boolean
   buildId: string
   distOnly?: boolean
+  reportMount?: boolean
   requestPath: string
 }
 
 export interface ReadBuildPreviewFileDependencies {
   storage: ArtifactStorage
+  reserveBytes?(byteLength: number): (() => void) | null
   findArtifact(
     buildId: string,
     path: string,

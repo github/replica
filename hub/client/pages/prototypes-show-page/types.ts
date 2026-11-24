@@ -9,6 +9,14 @@ import type { ReviewCommentsCopy } from "@utils/review-comment/types"
 
 export interface PrototypesShowPageData extends PrototypeWorkspaceData {
   buildPinned: boolean
+  privatePreviewUrl?: string
+  privatePreviewLinkLabel: string
+  copyPrivatePreviewLinkLabel: string
+  copiedPrivatePreviewLinkLabel: string
+  openPrivatePreviewInNewTabLabel: string
+  privateReviewLink?: string | null
+  desktopScreenshotUrl?: string
+  narrowScreenshotUrl?: string
   mentionCandidatesPath?: string
   mentionCopy?: MentionSource["copy"]
   initialCommentId?: number
@@ -98,6 +106,7 @@ export interface PrototypesShowPageProps extends PrototypeDetailsControls {
   onOpenApp?: (url: string) => void
   authorizeHandoff?: () => Promise<boolean | "copy">
   viewerUrl?: string
+  monitorPreview?: boolean
   minimized?: boolean
   initialMinimized?: boolean
   onMinimizedChange?: (minimized: boolean) => void

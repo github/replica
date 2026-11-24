@@ -1,4 +1,3 @@
-import { GlobeIcon } from "@primer/octicons-react"
 import { Stack } from "@primer/react-brand"
 import { useEffect, useRef, useState } from "react"
 import type { SubmitEvent } from "react"
@@ -6,15 +5,17 @@ import type { SubmitEvent } from "react"
 import type { CopilotAppSubmission } from "@components/copilot-app-continuation/types"
 import { CopilotAppContinuationDialog } from "@components/copilot-app-continuation-dialog"
 import { HubAlert } from "@components/hub-alert"
-import { HubEmptyState } from "@components/hub-empty-state"
 import { HubToast } from "@components/hub-toast"
 import { PrototypeBriefComposer } from "@components/prototype-brief-composer"
 import { MinimizedReviewToolbar } from "@features/minimized-review-toolbar"
 import { PrototypePreview } from "@features/prototype-preview"
+import { PreviewUnavailable } from "@features/preview-unavailable"
 import { PrototypeWorkspace } from "@features/prototype-workspace"
 import { useCopilotHandoff } from "@hooks/use-copilot-handoff"
 import { createPrototypeSubmission } from "@utils/create-prototype-submission"
 import { createPreviewPrototypePrompt } from "@utils/create-preview-prototype-prompt"
+import { previewLogicalPathname } from "@utils/preview-logical-pathname"
+import { readPreviewReturnPath } from "@utils/read-preview-return-path"
 
 import type { ReplicaBrowsePageProps } from "./types"
 
@@ -23,6 +24,8 @@ export function ReplicaBrowsePage({
   iframeRef,
   previewTheme,
   route,
+  previewMount,
+  previewReady,
   viewerUrl,
   minimized: controlledMinimized,
   initialMinimized = false,
@@ -54,8 +57,11 @@ export function ReplicaBrowsePage({
     templateLandingPageInstructions:
       data.templateId === "default" ? undefined : data.templateLandingPageInstructions,
     previewUrl: data.selectedBuild?.previewUrl,
+    previewReady,
     initialRoute: data.initialRoute,
+    templateRoute: data.templateRoute,
     route,
+    previewMount,
   })
   const copyStatus = copyResult?.prompt === prompt ? copyResult.status : null
   const copyPrompt = data.branchSubmissionMode === "copy" || handoffUnavailable
@@ -80,13 +86,39 @@ export function ReplicaBrowsePage({
   }, [expanded, submission, iframeRef])
 
   let address = data.selectedBuild?.previewUrl ?? ""
+  const openUrl = address ? new URL(address) : null
   if (address && route) {
     const url = new URL(address)
     url.pathname = route.pathname
     url.search = route.search
     url.hash = route.hash
     address = url.toString()
+    if (openUrl?.searchParams.has("route")) {
+      const destination = readPreviewReturnPath(
+        `${previewLogicalPathname(route.pathname, previewMount)}${route.search}${route.hash}`,
+      )
+      if (destination) {
+        openUrl.searchParams.set("route", destination)
+        if (previewMount !== undefined) openUrl.searchParams.set("route_kind", "logical")
+        else openUrl.searchParams.delete("route_kind")
+      }
+    }
   }
+  const fallback = (
+    <PreviewUnavailable
+      heading={data.selectedBuild ? "Interactive preview unavailable" : data.emptyHeading}
+      description={
+        data.selectedBuild
+          ? "Your browser may block this preview when embedded. You can still start a prototype."
+          : data.emptyLabel
+      }
+      screenshot={
+        previewTheme === "dark" ? (data.darkScreenshot ?? data.screenshot) : data.screenshot
+      }
+      screenshotAlt={`${data.prototypeName} template screenshot`}
+      openUrl={openUrl?.href}
+    />
+  )
 
   async function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -140,17 +172,13 @@ export function ReplicaBrowsePage({
                   controlsToolbar={workspaceControlsToolbar}
                   minimizedControlsToolbar={controlsToolbar}
                   onLoad={onFrameLoad}
+                  ready={previewReady}
+                  fallback={fallback}
                   minimized={minimized}
                   minimize={{ label: data.minimizeHubLabel, onClick: () => changeMinimized(true) }}
                 />
               ) : (
-                <div className="review-shell__empty">
-                  <HubEmptyState
-                    visual={<GlobeIcon size={24} />}
-                    heading={data.emptyHeading}
-                    description={data.emptyLabel}
-                  />
-                </div>
+                <div className="review-shell__empty">{fallback}</div>
               )}
             </Stack>
 

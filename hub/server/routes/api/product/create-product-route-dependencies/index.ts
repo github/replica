@@ -60,6 +60,7 @@ import { readWithPersistedRepositoryScope } from "../read-with-persisted-reposit
 import { resolvePersistedRepositoryScope } from "../resolve-persisted-repository-scope/index.ts"
 import type { resolveRepositoryScope } from "../resolve-repository-scope/index.ts"
 import type { ProductViewer, WorkspaceProductRouteDependencies } from "../types.ts"
+import { canViewPrivatePreview } from "../../../../domains/private-preview/can-view-private-preview/index.ts"
 
 interface CreateProductRouteDependenciesOptions {
   analyticsSettings?: AnalyticsSettings
@@ -81,6 +82,8 @@ interface CreateProductRouteDependenciesOptions {
     actorLogin: string
   }) => Promise<void>
   previewBaseOrigin?: string
+  privatePreviewHubOrigin?: string
+  privatePreviewLocalSignIn?: boolean
   getRepositoryPermission?: WorkspaceProductRouteDependencies["getRepositoryPermission"]
   withReviewCommentDeleteLock?: <T>(operation: () => Promise<T>) => Promise<T>
 }
@@ -96,6 +99,8 @@ export function createProductRouteDependencies({
   authorizeReviewMutation,
   onReviewCommentDeleted,
   previewBaseOrigin,
+  privatePreviewHubOrigin,
+  privatePreviewLocalSignIn = false,
   getRepositoryPermission: permissionOverride,
   withReviewCommentDeleteLock,
 }: CreateProductRouteDependenciesOptions = {}): WorkspaceProductRouteDependencies {
@@ -423,7 +428,7 @@ export function createProductRouteDependencies({
     },
     findRepositoryIndex: (viewer, repositoryId, filters) =>
       readScoped(viewer, (repositoryScope) =>
-        findRepositoryIndex(prisma, repositoryId, filters, repositoryScope),
+        findRepositoryIndex(prisma, repositoryId, filters, repositoryScope, buildArtifactUrl),
       ),
     findPrototypeDetail: (viewer, repositoryId, prototypeId, buildNumber, buildPage) =>
       readScoped(viewer, (repositoryScope) =>
@@ -435,6 +440,9 @@ export function createProductRouteDependencies({
           buildPage,
           repositoryScope,
           buildArtifactUrl,
+          canViewPrivatePreview(viewer, privatePreviewLocalSignIn)
+            ? privatePreviewHubOrigin
+            : undefined,
         ),
       ),
     readPrototypeWithIntroduction: (input, prepare) =>
@@ -460,6 +468,9 @@ export function createProductRouteDependencies({
                     undefined,
                     await scope(viewer, transaction),
                     buildArtifactUrl,
+                    canViewPrivatePreview(viewer, privatePreviewLocalSignIn)
+                      ? privatePreviewHubOrigin
+                      : undefined,
                   ),
                 recordIntroduction: (userId, prototypeId) =>
                   recordPrototypeIntroduction(transaction, userId, prototypeId),
@@ -567,6 +578,9 @@ export function createProductRouteDependencies({
                     undefined,
                     await scope(viewer, transaction),
                     buildArtifactUrl,
+                    canViewPrivatePreview(viewer, privatePreviewLocalSignIn)
+                      ? privatePreviewHubOrigin
+                      : undefined,
                   ),
               })
             },

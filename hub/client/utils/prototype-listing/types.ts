@@ -51,7 +51,6 @@ export interface PrototypeListing {
     previous: string
     next: string
     pagination: string
-    updating: string
     shown: string
   }
 }

@@ -2,6 +2,10 @@ name: Replica publish
 description: Package static prototype output built by earlier steps and upload it as replica-build-v1, without npm or a browser
 
 inputs:
+  base-path:
+    description: Canonical private preview mount the application was compiled for
+    required: false
+    default: /
   output-directory:
     description: Workspace-relative directory containing the static website and index.html
     required: false
@@ -22,11 +26,13 @@ runs:
     - name: Prepare static output in runner temporary storage
       env:
         REPLICA_OUTPUT_DIRECTORY: ${{ inputs.output-directory }}
+        REPLICA_BASE_PATH: ${{ inputs.base-path }}
       run: |
         node "$GITHUB_ACTION_PATH/../scripts/prepare-build-output/index.mjs" \
           --root "$GITHUB_WORKSPACE" \
           --output-directory "$REPLICA_OUTPUT_DIRECTORY" \
-          --output "$RUNNER_TEMP/replica-build-root"
+          --output "$RUNNER_TEMP/replica-build-root" \
+          --base-path "$REPLICA_BASE_PATH"
       shell: bash
 
     - name: Create Replica dist package

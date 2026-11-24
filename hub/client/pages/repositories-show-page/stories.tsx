@@ -228,10 +228,8 @@ const realIndexData: RepositoriesShowPageData = {
       id: "00000000-0000-4000-8000-000000000201",
       branchName: "prototype/welcome",
       description: "Explore a new welcome page.",
-      path: null,
-      reviewBuild: undefined,
-      latestBuild: { state: "successful", stateLabel: "Successful" },
-      previewFallbackLabel: "No preview available",
+      path: "/repositories/00000000-0000-4000-8000-000000000101/prototypes/00000000-0000-4000-8000-000000000201",
+      latestBuild: { state: "failed", stateLabel: "Failed" },
       author: realPrototypeAuthor,
     },
     {
@@ -360,14 +358,6 @@ export const NoMatches: Story = {
       listing: { ...prototypeListing, author: "me", authorLabel: "Me", matchingCount: 0 },
       workflowInstallation: undefined,
     },
-  },
-}
-
-export const Updating: Story = {
-  ...Single,
-  args: {
-    ...Single.args,
-    controls: { ...meta.args.controls, pending: true },
   },
 }
 

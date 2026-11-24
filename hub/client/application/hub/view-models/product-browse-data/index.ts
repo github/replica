@@ -21,6 +21,8 @@ export function productBrowseData(
     selectedSection: "new",
     browseReplica: true,
     controlsIdentity: response.controlsIdentity,
+    screenshot: template.screenshotUrl ?? undefined,
+    darkScreenshot: template.darkScreenshotUrl ?? undefined,
     templateId: template.id,
     pageTitle: `${template.name} template`,
     repositoryName: repository.nameWithOwner,
@@ -60,6 +62,7 @@ export function productBrowseData(
       ? `There is no saved preview for the ${repository.defaultBranch} branch yet.`
       : "Return to the template catalog and choose another template.",
     initialRoute: response.initialRoute,
+    templateRoute: template.route ?? undefined,
     selectedBuild: template.previewUrl
       ? {
           number: template.buildNumber ?? 1,

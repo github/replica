@@ -18,6 +18,24 @@ async function keptDestination(root) {
 }
 
 describe("prepareBuildOutput()", () => {
+  it("records the private mount without rewriting the compiled site", async () => {
+    const root = await temporaryDirectory()
+    const output = path.join(root, "normalized")
+    const basePath = "/previews/github/10/20/"
+    const index = `<title>Preview</title><link rel="stylesheet" href="${basePath}style.css">`
+    await mkdir(path.join(root, "site"))
+    await writeFile(path.join(root, "site", "index.html"), index)
+
+    await prepareBuildOutput(root, "site", output, basePath)
+
+    assert.equal(await readFile(path.join(output, "dist", "index.html"), "utf8"), index)
+    assert.deepEqual(
+      JSON.parse(await readFile(path.join(output, "dist", "replica-preview-base.json"), "utf8")),
+      { basePath },
+    )
+    assert.deepEqual(await readdir(path.join(root, "site")), ["index.html"])
+  })
+
   for (const outputDirectory of ["dist", "website/public", "./build", "build/"]) {
     it(`normalizes ${outputDirectory} to dist without moving the source`, async () => {
       const root = await temporaryDirectory()

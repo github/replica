@@ -16,12 +16,27 @@ import {
 
 const MESSAGE_FIELDS = {
   protocolVersion: z.literal(PREVIEW_BRIDGE_PROTOCOL_VERSION),
+  navigationId: z.uuid().optional(),
   requestId: createByteLimitedStringSchema(PREVIEW_BRIDGE_REQUEST_ID_MAXIMUM_BYTES, {
     required: true,
   }),
 }
 
 export const PREVIEW_BRIDGE_MESSAGE_SCHEMA = z.discriminatedUnion("type", [
+  z
+    .object({
+      ...MESSAGE_FIELDS,
+      type: z.literal("replica:bridge:preview-mount"),
+      payload: z
+        .object({
+          mount: z
+            .string()
+            .regex(/^\/previews\/github\/[1-9]\d{0,18}\/[1-9]\d{0,18}\/$/)
+            .nullable(),
+        })
+        .strict(),
+    })
+    .strict(),
   z
     .object({
       ...MESSAGE_FIELDS,

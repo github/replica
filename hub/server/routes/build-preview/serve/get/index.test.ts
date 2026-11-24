@@ -1,12 +1,23 @@
-import { randomBytes, randomUUID } from "node:crypto"
+import { createHash, randomBytes, randomUUID } from "node:crypto"
 import { once } from "node:events"
-import { createServer, request as httpRequest, type IncomingHttpHeaders } from "node:http"
+import { createReadStream } from "node:fs"
+import { mkdir, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises"
+import {
+  createServer,
+  request as httpRequest,
+  type IncomingHttpHeaders,
+  type ServerResponse,
+} from "node:http"
 import type { AddressInfo } from "node:net"
-import express from "express"
-import { describe, expect, it, vi, type Mock } from "vitest"
+import path from "node:path"
+import { Readable } from "node:stream"
+import express, { type ErrorRequestHandler } from "express"
+import { describe, expect, it, onTestFinished, vi, type Mock } from "vitest"
 
+import { extractDistPackage } from "../../../../domains/build-artifacts/extract-dist-package"
 import { createPreviewSession } from "../../../../domains/build-preview/create-preview-session"
 import { createSharePreviewSession } from "../../../../domains/public-sharing/create-share-preview-session"
+import { createZipArchive } from "../../../../test/create-zip-archive"
 import type { BuildPreviewRouteDependencies } from "../../types"
 import { get } from "."
 
@@ -16,10 +27,26 @@ interface RouteResponse {
   body: Buffer
 }
 
+const BRIDGE_PATHS = [
+  "/__replica/bridge/v1.js",
+  "/__replica/bridge/v2.js",
+  "/__replica/bridge/v3.js",
+]
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((settle) => {
+    resolve = settle
+  })
+  return { promise, resolve }
+}
+
 async function request(
   origin: string,
   path: string,
   headers: Record<string, string>,
+  consume?: (chunk: Buffer) => void,
+  signal?: AbortSignal,
 ): Promise<RouteResponse> {
   return new Promise((resolve, reject) => {
     const url = new URL(origin)
@@ -30,10 +57,14 @@ async function request(
         path,
         method: "GET",
         headers,
+        signal,
       },
       (response) => {
         const chunks: Buffer[] = []
-        response.on("data", (chunk: Buffer) => chunks.push(chunk))
+        response.on("data", (chunk: Buffer) => {
+          if (consume) consume(chunk)
+          else chunks.push(chunk)
+        })
         response.on("end", () =>
           resolve({
             status: response.statusCode ?? 0,
@@ -61,7 +92,9 @@ async function withServeRoute(
     >
     restoreSession: Mock<NonNullable<BuildPreviewRouteDependencies["restoreSession"]>>
     shareCookie: string
+    templateCookie: string
   }) => Promise<void>,
+  observeResponse?: (response: ServerResponse, requestPath: string) => void,
 ) {
   const key = randomBytes(32)
   const buildId = randomUUID()
@@ -99,12 +132,33 @@ async function withServeRoute(
       buildId,
       startPage: "/",
       artifactPath: "dist/index.html",
+      templateRepository: { id: randomUUID(), local: true },
     }),
     findArtifact,
     readAvailableShareLink,
     restoreSession,
   }
-  app.get("/{*path}", get(dependencies))
+  app.use((request, response, next) => {
+    observeResponse?.(response, request.path)
+    next()
+  })
+  app.get(
+    "/{*path}",
+    get(dependencies, () => Promise.resolve(true)),
+  )
+  function handleError(
+    error: unknown,
+    _request: Parameters<ErrorRequestHandler>[1],
+    response: Parameters<ErrorRequestHandler>[2],
+    next: Parameters<ErrorRequestHandler>[3],
+  ) {
+    if (response.headersSent) {
+      next(error)
+      return
+    }
+    response.status(500).end()
+  }
+  app.use(handleError)
   const session = createPreviewSession(
     buildId,
     "a".repeat(64),
@@ -119,6 +173,13 @@ async function withServeRoute(
     },
     key,
   )
+  const templateSession = createPreviewSession(
+    buildId,
+    "b".repeat(64),
+    new Date(Date.now() + 15 * 60_000),
+    key,
+    true,
+  )
   try {
     await operation({
       origin: `http://127.0.0.1:${port}`,
@@ -130,6 +191,7 @@ async function withServeRoute(
       readAvailableShareLink,
       restoreSession,
       shareCookie: `replica_share_preview=${encodeURIComponent(shareSession)}`,
+      templateCookie: `replica_preview=${encodeURIComponent(templateSession)}`,
     })
   } finally {
     await new Promise<void>((resolve, reject) => {
@@ -196,8 +258,9 @@ describe("get()", () => {
       expect(findArtifact).toHaveBeenNthCalledWith(1, buildId, "dist/checkout/cart")
       expect(findArtifact).toHaveBeenNthCalledWith(2, buildId, "dist/index.html")
       expect(response.body.toString()).toContain(
-        '<script src="/__replica/bridge/v1.js"></script></head>',
+        '<script src="/__replica/bridge/v3.js" data-replica-preview-mount=""></script></head>',
       )
+      expect(response.body.toString()).not.toContain("/__replica/bridge/v1.js")
       expect(response.headers["content-type"]).toBe("text/html; charset=utf-8")
       expect(response.headers["cache-control"]).toBe("private, no-cache")
       expect(response.headers["content-length"]).toBe(String(response.body.byteLength))
@@ -248,13 +311,329 @@ describe("get()", () => {
     })
   })
 
-  it("serves the generated hosted bridge only to an authorized preview session", async () => {
-    await withServeRoute(async ({ origin, buildId, cookie, dependencies, findArtifact, read }) => {
+  it("serves a packaged 100 MiB asset through ZIP import and immutable Azure artifact storage", async () => {
+    const root = await mkdtemp(path.resolve(".preview-static-file-test-"))
+    onTestFinished(() => rm(root, { recursive: true, force: true }))
+    const maximumBytes = 100 * 1024 * 1024
+    await mkdir(path.join(root, "dist/assets"), { recursive: true })
+    await writeFile(path.join(root, "dist/index.html"), "")
+    const assetPath = path.join(root, "dist/assets/data.bin")
+    const asset = await open(assetPath, "w")
+    try {
+      await asset.truncate(maximumBytes)
+      await asset.write(Buffer.from("first"), 0, 5, 0)
+      await asset.write(Buffer.from("last"), 0, 4, maximumBytes - 4)
+    } finally {
+      await asset.close()
+    }
+    const sourceDigest = createHash("sha256")
+    const source = createReadStream(assetPath) as AsyncIterable<Buffer>
+    for await (const chunk of source) sourceDigest.update(chunk)
+    const expectedDigest = sourceDigest.digest("hex")
+    const packageModule = new URL(
+      "../../../../../../actions/build/scripts/create-dist-package/index.mjs",
+      import.meta.url,
+    ).href
+    const { createDistPackage } = (await import(packageModule)) as {
+      createDistPackage: (root: string, configRoot: string, output: string) => Promise<number>
+    }
+    const output = path.join(root, "package")
+    await createDistPackage(root, root, output)
+    const archive = createZipArchive(
+      await Promise.all(
+        ["dist/index.html", "dist/assets/data.bin"].map(async (name) => ({
+          name,
+          bytes: await readFile(path.join(output, name)),
+        })),
+      ),
+    )
+    const imported = extractDistPackage(archive)
+    const importedAsset = imported.files.find((file) => file.path === "dist/assets/data.bin")!
+    const blobs = new Map<string, Uint8Array>()
+    vi.doMock("@azure/identity", () => ({ ManagedIdentityCredential: class {} }))
+    vi.doMock("@azure/storage-blob", () => ({
+      BlobServiceClient: class {
+        getContainerClient() {
+          return {
+            getBlockBlobClient(key: string) {
+              return {
+                uploadData(bytes: Uint8Array, options: { conditions: { ifNoneMatch: string } }) {
+                  if (options.conditions.ifNoneMatch === "*" && blobs.has(key)) {
+                    return Promise.reject(
+                      Object.assign(new Error("The immutable blob already exists."), {
+                        details: { errorCode: "ConditionNotMet" },
+                      }),
+                    )
+                  }
+                  blobs.set(key, bytes)
+                  return Promise.resolve()
+                },
+                download() {
+                  const bytes = blobs.get(key)!
+                  return Promise.resolve({
+                    contentLength: bytes.byteLength,
+                    readableStreamBody: Readable.from(
+                      (function* () {
+                        for (let offset = 0; offset < bytes.byteLength; offset += 1024 * 1024) {
+                          yield bytes.subarray(offset, offset + 1024 * 1024)
+                        }
+                      })(),
+                    ),
+                  })
+                },
+              }
+            },
+          }
+        }
+      },
+    }))
+    onTestFinished(() => {
+      vi.doUnmock("@azure/identity")
+      vi.doUnmock("@azure/storage-blob")
+    })
+    const { createArtifactStorage } =
+      await import("../../../../domains/artifacts/create-artifact-storage")
+    const storage = await createArtifactStorage({
+      provider: "azure-blob",
+      accountUrl: "https://example.blob.core.windows.net",
+      container: "artifacts",
+    })
+    expect(await storage.write("asset-key", importedAsset.bytes)).toEqual({ status: "ok" })
+    expect(await storage.write("asset-key", Uint8Array.of(9))).toEqual({
+      status: "already-exists",
+    })
+
+    await withServeRoute(async ({ origin, buildId, cookie, dependencies, findArtifact }) => {
+      dependencies.storage = storage
+      findArtifact.mockImplementation((_buildId, artifactPath) =>
+        Promise.resolve(
+          artifactPath === "dist/assets/data.bin"
+            ? { storageKey: "asset-key", byteLength: importedAsset.bytes.byteLength }
+            : null,
+        ),
+      )
+      let receivedBytes = 0
+      const digest = createHash("sha256")
+
       const response = await request(
         origin,
-        "/__replica/bridge/v1.js",
+        "/assets/data.bin",
         requestHeaders(buildId, origin, cookie),
+        (chunk) => {
+          receivedBytes += chunk.byteLength
+          digest.update(chunk)
+        },
       )
+
+      expect(response.status).toBe(200)
+      expect(response.headers["content-length"]).toBe(String(maximumBytes))
+      expect(response.headers["content-type"]).toBe("application/octet-stream")
+      expect(response.headers["cache-control"]).toBe("private, max-age=31536000, immutable")
+      expect(receivedBytes).toBe(maximumBytes)
+      expect(digest.digest("hex")).toBe(expectedDigest)
+    })
+  }, 15_000)
+
+  it("shares the source-byte limit across private, public, and template requests on different Build servers", async () => {
+    await withServeRoute(async (privateRoute) => {
+      await withServeRoute(async (publicRoute) => {
+        const readStarted = deferred<void>()
+        const stored =
+          deferred<Awaited<ReturnType<BuildPreviewRouteDependencies["storage"]["read"]>>>()
+        privateRoute.findArtifact.mockResolvedValue({
+          storageKey: "private-asset",
+          byteLength: 100 * 1024 * 1024,
+        })
+        privateRoute.read.mockImplementation(() => {
+          readStarted.resolve()
+          return stored.promise
+        })
+        publicRoute.findArtifact.mockImplementation((_buildId, artifactPath) =>
+          Promise.resolve(
+            artifactPath === "dist/asset.bin" || artifactPath === "templates.json"
+              ? { storageKey: "public-asset", byteLength: 1 }
+              : null,
+          ),
+        )
+        publicRoute.read.mockResolvedValue({ status: "ok", bytes: Uint8Array.of(7) })
+        const first = request(
+          privateRoute.origin,
+          "/asset.bin",
+          requestHeaders(privateRoute.buildId, privateRoute.origin, privateRoute.cookie),
+        )
+
+        try {
+          await readStarted.promise
+          const blocked = await request(
+            publicRoute.origin,
+            "/asset.bin",
+            requestHeaders(publicRoute.buildId, publicRoute.origin, publicRoute.shareCookie),
+          )
+          const blockedTemplate = await request(publicRoute.origin, "/release/v2.0", {
+            ...requestHeaders(publicRoute.buildId, publicRoute.origin, publicRoute.templateCookie),
+            accept: "text/html",
+          })
+
+          expect(blocked.status).toBe(503)
+          expect(blockedTemplate.status).toBe(503)
+          expect(publicRoute.read).not.toHaveBeenCalled()
+        } finally {
+          stored.resolve({ status: "ok", bytes: Uint8Array.of(1) })
+          expect((await first).status).toBe(200)
+        }
+
+        const recovered = await request(
+          publicRoute.origin,
+          "/asset.bin",
+          requestHeaders(publicRoute.buildId, publicRoute.origin, publicRoute.shareCookie),
+        )
+        expect(recovered.status).toBe(200)
+        expect(publicRoute.read).toHaveBeenCalledOnce()
+      })
+    })
+  })
+
+  it.each(["finish", "close"] as const)(
+    "holds source bytes after reading until the response emits %s",
+    async (completion) => {
+      const responsePending = deferred<{
+        response: ServerResponse
+        finish: () => void
+      }>()
+      await withServeRoute(
+        async ({ origin, buildId, cookie, findArtifact, read }) => {
+          findArtifact.mockResolvedValue({
+            storageKey: "asset-key",
+            byteLength: 100 * 1024 * 1024,
+          })
+          read.mockResolvedValue({ status: "ok", bytes: Uint8Array.of(7) })
+          const headers = requestHeaders(buildId, origin, cookie)
+          const first = request(origin, "/slow.bin", headers).catch((error: unknown) => error)
+          const pending = await responsePending.promise
+
+          try {
+            const blocked = await request(origin, "/asset.bin", headers)
+
+            expect(blocked.status).toBe(503)
+            expect(read).toHaveBeenCalledOnce()
+          } finally {
+            const completed = once(pending.response, completion)
+            if (completion === "finish") pending.finish()
+            else pending.response.destroy()
+            await completed
+            await first
+          }
+
+          expect((await request(origin, "/asset.bin", headers)).status).toBe(200)
+          expect(read).toHaveBeenCalledTimes(2)
+        },
+        (response, requestPath) => {
+          if (requestPath !== "/slow.bin") return
+          const end = response.end.bind(response)
+          vi.spyOn(response, "end").mockImplementation(() => {
+            responsePending.resolve({ response, finish: () => end(Uint8Array.of(7)) })
+            return response
+          })
+        },
+      )
+    },
+  )
+
+  it.each(["storage read", "authorization recheck"] as const)(
+    "keeps a disconnected request reserved until its pending %s settles",
+    async (pendingOperation) => {
+      const pendingStarted = deferred<void>()
+      const proceed = deferred<void>()
+      const disconnected = deferred<void>()
+      await withServeRoute(
+        async ({ origin, buildId, cookie, findArtifact, read, restoreSession }) => {
+          findArtifact.mockResolvedValue({
+            storageKey: "asset-key",
+            byteLength: 100 * 1024 * 1024,
+          })
+          read.mockResolvedValue({ status: "ok", bytes: Uint8Array.of(7) })
+          if (pendingOperation === "storage read") {
+            read.mockImplementationOnce(async () => {
+              pendingStarted.resolve()
+              await proceed.promise
+              return { status: "ok", bytes: Uint8Array.of(7) }
+            })
+          }
+          if (pendingOperation === "authorization recheck") {
+            restoreSession
+              .mockResolvedValueOnce({ userId: randomUUID() })
+              .mockImplementationOnce(async () => {
+                pendingStarted.resolve()
+                await proceed.promise
+                return { userId: randomUUID() }
+              })
+          }
+          const headers = requestHeaders(buildId, origin, cookie)
+          const abort = new AbortController()
+          const first = request(origin, "/pending.bin", headers, undefined, abort.signal).catch(
+            (error: unknown) => error,
+          )
+
+          try {
+            await pendingStarted.promise
+            abort.abort()
+            await disconnected.promise
+            const blocked = await request(origin, "/asset.bin", headers)
+
+            expect(blocked.status).toBe(503)
+            expect(read).toHaveBeenCalledOnce()
+          } finally {
+            proceed.resolve()
+            abort.abort()
+            await first
+          }
+
+          expect((await request(origin, "/asset.bin", headers)).status).toBe(200)
+          expect(read).toHaveBeenCalledTimes(2)
+        },
+        (response, requestPath) => {
+          if (requestPath === "/pending.bin") {
+            response.once("close", () => disconnected.resolve())
+          }
+        },
+      )
+    },
+  )
+
+  it("releases the template manifest reservation before reading the SPA entry point", async () => {
+    await withServeRoute(async ({ origin, buildId, cookie, findArtifact, read }) => {
+      const manifest = new TextEncoder().encode(
+        JSON.stringify({ templates: [{ path: "/release/v2.0" }] }),
+      )
+      const html = new TextEncoder().encode("<html><head></head><body>Release notes</body></html>")
+      findArtifact.mockImplementation((_buildId, artifactPath) =>
+        Promise.resolve(
+          artifactPath === "templates.json"
+            ? { storageKey: "manifest-key", byteLength: 100 * 1024 * 1024 }
+            : artifactPath === "dist/index.html"
+              ? { storageKey: "index-key", byteLength: html.byteLength }
+              : null,
+        ),
+      )
+      read.mockImplementation((key) =>
+        Promise.resolve({ status: "ok", bytes: key === "manifest-key" ? manifest : html }),
+      )
+
+      const response = await request(origin, "/release/v2.0", {
+        ...requestHeaders(buildId, origin, cookie),
+        accept: "text/html",
+      })
+
+      expect(response.status).toBe(200)
+      expect(response.body.toString()).toContain("Release notes")
+      expect(read).toHaveBeenNthCalledWith(1, "manifest-key")
+      expect(read).toHaveBeenNthCalledWith(2, "index-key")
+    })
+  })
+
+  it.each(BRIDGE_PATHS)("serves %s to a private preview with review and Controls", async (path) => {
+    await withServeRoute(async ({ origin, buildId, cookie, dependencies, findArtifact, read }) => {
+      const response = await request(origin, path, requestHeaders(buildId, origin, cookie))
 
       expect(response.status).toBe(200)
       expect(response.headers["content-type"]).toMatch(/^text\/javascript/)
@@ -267,20 +646,43 @@ describe("get()", () => {
     })
   })
 
-  it("disables review behavior in the public preview bridge", async () => {
-    await withServeRoute(async ({ origin, buildId, shareCookie, dependencies }) => {
-      const response = await request(
-        origin,
-        "/__replica/bridge/v1.js",
-        requestHeaders(buildId, origin, shareCookie),
+  it.each(BRIDGE_PATHS)(
+    "serves %s without review and with the original cache policy for public shares and templates",
+    async (path) => {
+      await withServeRoute(
+        async ({ origin, buildId, shareCookie, templateCookie, dependencies }) => {
+          const browseSource = `globalThis.reviewBridge={origin:"https://hub.example.com",enabled:"false" !== "false"};\n${dependencies.bridgeSource};ReplicaHostedPreviewBridge.installHostedBridge("https://hub.example.com");`
+          for (const [cookie, cacheControl] of [
+            [shareCookie, "private, no-store"],
+            [templateCookie, "private, max-age=300"],
+          ] as const) {
+            const response = await request(origin, path, requestHeaders(buildId, origin, cookie))
+            expect(response.status).toBe(200)
+            expect(response.headers["cache-control"]).toBe(cacheControl)
+            expect(response.body.toString()).toBe(browseSource)
+          }
+        },
       )
+    },
+  )
 
-      expect(response.status).toBe(200)
-      expect(response.headers["cache-control"]).toBe("private, no-store")
-      expect(response.body.toString()).toBe(
-        `globalThis.reviewBridge={origin:"https://hub.example.com",enabled:"false" !== "false"};\n${dependencies.bridgeSource};ReplicaHostedPreviewBridge.installHostedBridge("https://hub.example.com");`,
-      )
-    })
+  it.each(BRIDGE_PATHS)("denies %s without live preview authority", async (path) => {
+    await withServeRoute(
+      async ({ origin, buildId, cookie, shareCookie, restoreSession, readAvailableShareLink }) => {
+        restoreSession.mockResolvedValue(null)
+        readAvailableShareLink.mockResolvedValue(null)
+
+        for (const sessionCookie of ["", cookie, shareCookie]) {
+          const response = await request(
+            origin,
+            path,
+            requestHeaders(buildId, origin, sessionCookie),
+          )
+          expect(response.status).toBe(404)
+          expect(response.body.byteLength).toBe(0)
+        }
+      },
+    )
   })
 
   it("keeps a valid public share separate from an invalid authenticated preview cookie", async () => {
@@ -400,19 +802,26 @@ describe("get()", () => {
     )
   })
 
-  it("distinguishes missing artifact bytes from unavailable storage", async () => {
-    await withServeRoute(async ({ origin, buildId, cookie, findArtifact, read }) => {
-      findArtifact.mockResolvedValue({
-        storageKey: "asset-key",
-        byteLength: 1,
-      })
-      read
-        .mockResolvedValueOnce({ status: "not-found" })
-        .mockResolvedValueOnce({ status: "unavailable" })
-      const headers = requestHeaders(buildId, origin, cookie)
+  it.each(["not-found", "unavailable", "error"] as const)(
+    "releases the source-byte reservation after storage returns %s",
+    async (failure) => {
+      await withServeRoute(async ({ origin, buildId, cookie, findArtifact, read }) => {
+        findArtifact.mockResolvedValue({
+          storageKey: "asset-key",
+          byteLength: 100 * 1024 * 1024,
+        })
+        read.mockResolvedValue({ status: "ok", bytes: Uint8Array.of(7) })
+        if (failure === "error") read.mockRejectedValueOnce(new Error("Storage read failed"))
+        else read.mockResolvedValueOnce({ status: failure })
+        const headers = requestHeaders(buildId, origin, cookie)
 
-      expect((await request(origin, "/asset.bin", headers)).status).toBe(404)
-      expect((await request(origin, "/asset.bin", headers)).status).toBe(503)
-    })
-  })
+        const failed = await request(origin, "/asset.bin", headers)
+        const recovered = await request(origin, "/asset.bin", headers)
+
+        expect(failed.status).toBe(failure === "not-found" ? 404 : failure === "error" ? 500 : 503)
+        expect(recovered.status).toBe(200)
+        expect(read).toHaveBeenCalledTimes(2)
+      })
+    },
+  )
 })

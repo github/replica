@@ -11,6 +11,7 @@ import type { ProductRouteDependencies } from "../routes/api/product/types.ts"
 import type { PublicSharingRouteDependencies } from "../routes/api/public-sharing/types.ts"
 import type { GitHubSetupRouteDependencies } from "../routes/api/settings/github/types.ts"
 import type { BuildPreviewRouteDependencies } from "../routes/build-preview/types.ts"
+import type { PrivatePreviewRouteDependencies } from "../routes/private-preview/types.ts"
 import { runApi } from "../run-api/index.ts"
 import { jobProcessors } from "../workers/configuration.ts"
 import { runJobWorker } from "../workers/run-job-worker/index.ts"
@@ -33,6 +34,7 @@ export async function startServerProcesses(options: {
   product?: ProductRouteDependencies
   publicSharing?: PublicSharingRouteDependencies
   preview?: BuildPreviewRouteDependencies
+  privatePreview?: PrivatePreviewRouteDependencies
   githubSetup?: GitHubSetupRouteDependencies
   githubWebhooks?: GitHubWebhookRouteDependencies
   trustedProxyHops?: number

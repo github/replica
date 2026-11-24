@@ -121,11 +121,11 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                 return
             if path == "/ready":
                 try:
-                    self.server.runtime.ready()
+                    readiness = self.server.runtime.ready()
                 except RuntimeFailure as error:
                     self._send(503, {"status": "not_ready", "reason": error.code})
                 else:
-                    self._send(200, {"status": "ready"})
+                    self._send(200, readiness)
                 return
             self._authorize()
             if path == "/v1/promotion":
@@ -360,12 +360,15 @@ def main() -> None:
     os.environ.pop(TOKEN_VARIABLE, None)
     backends: dict[str, Any] = {"fixture": FixtureBackend()}
     if args.d1_model is not None:
-        taskset = load_taskset(args.taskset)
-        backends["d1-omni"] = D1OmniBackend(
-            args.d1_model,
-            expected_taskset_digest=str(taskset_digest(taskset)),
-            expected_learning_texts=taskset_learning_texts(taskset),
-        )
+        if args.taskset is None:
+            backends["d1-omni"] = D1OmniBackend(args.d1_model)
+        else:
+            taskset = load_taskset(args.taskset)
+            backends["d1-omni"] = D1OmniBackend(
+                args.d1_model,
+                expected_taskset_digest=str(taskset_digest(taskset)),
+                expected_learning_texts=taskset_learning_texts(taskset),
+            )
     runtime = LocalRuntime(
         args.state,
         args.taskset,

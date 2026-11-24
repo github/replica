@@ -5,6 +5,129 @@ import { prisma } from "../../../integrations/prisma"
 import { findPrototypeDetail } from "."
 
 describe("findPrototypeDetail()", () => {
+  it("projects only eligible retained private Builds without exposing internal repository fields", async () => {
+    const repository = await prisma.repository.create({
+      data: { nameWithOwner: "team/design", defaultBranch: "main", githubRepositoryId: 2001n },
+    })
+    const prototype = await prisma.prototype.create({
+      data: {
+        repositoryId: repository.id,
+        branchName: "prototype/checkout",
+        branchDeletedAt: new Date(),
+      },
+    })
+    const index = {
+      path: "dist/index.html",
+      kind: "dist" as const,
+      storageKey: "html",
+      byteLength: 10,
+    }
+    const marker = {
+      path: "dist/replica-preview-base.json",
+      kind: "dist" as const,
+      storageKey: "base",
+      byteLength: 20,
+    }
+    for (const [number, runId, state, files] of [
+      [1, 4001n, "successful", [index, marker]],
+      [2, 4002n, "successful", [index]],
+      [3, 4003n, "failed", [index, marker]],
+      [4, 0n, "successful", [index, marker]],
+    ] as const) {
+      await prisma.build.create({
+        data: {
+          prototypeId: prototype.id,
+          number,
+          githubWorkflowRunId: runId,
+          state,
+          artifacts: {
+            create: files.map((file) => ({ ...file, storageKey: `${file.storageKey}-${number}` })),
+          },
+        },
+      })
+    }
+    const hub = "https://hub.example.com"
+    function find(origin?: string) {
+      return findPrototypeDetail(
+        prisma,
+        repository.id,
+        prototype.id,
+        1,
+        undefined,
+        null,
+        undefined,
+        origin,
+      )
+    }
+
+    const detail = await find(hub)
+    expect(detail?.selectedBuild?.privatePreviewUrl).toBe(
+      `${hub}/api/private-preview/launch/2001/4001`,
+    )
+    expect(
+      detail?.prototype.builds
+        .filter(({ privatePreviewUrl }) => privatePreviewUrl)
+        .map(({ number }) => number),
+    ).toEqual([1])
+    expect(detail?.repository).toEqual({
+      id: repository.id,
+      nameWithOwner: "team/design",
+      defaultBranch: "main",
+    })
+    expect((await find())?.selectedBuild?.privatePreviewUrl).toBeUndefined()
+    await prisma.repository.update({
+      where: { id: repository.id },
+      data: { localPath: "/local/design" },
+    })
+    expect((await find(hub))?.selectedBuild?.privatePreviewUrl).toBeUndefined()
+  })
+
+  it("omits a private preview link when another prototype in the same repository owns the run", async () => {
+    const repository = await prisma.repository.create({
+      data: { nameWithOwner: "team/design", defaultBranch: "main", githubRepositoryId: 2001n },
+    })
+    const { id: prototypeId } = await prisma.prototype.create({
+      data: { repositoryId: repository.id, branchName: "prototype/checkout" },
+    })
+    const githubWorkflowRunId = 4001n
+    await prisma.build.create({
+      data: {
+        prototypeId,
+        number: 1,
+        state: "successful",
+        githubWorkflowRunId,
+        artifacts: {
+          create: ["dist/index.html", "dist/replica-preview-base.json"].map((path) => ({
+            path,
+            kind: "dist",
+            storageKey: randomUUID(),
+            byteLength: 10,
+          })),
+        },
+      },
+    })
+    const otherPrototype = await prisma.prototype.create({
+      data: { repositoryId: repository.id, branchName: "prototype/replaced" },
+    })
+    await prisma.build.create({
+      data: { prototypeId: otherPrototype.id, number: 1, state: "failed", githubWorkflowRunId },
+    })
+
+    const detail = await findPrototypeDetail(
+      prisma,
+      repository.id,
+      prototypeId,
+      1,
+      { page: 1, pageSize: 1 },
+      null,
+      undefined,
+      "https://hub.example.com",
+    )
+    expect(detail?.selectedBuild?.number).toBe(1)
+    expect(detail?.selectedBuild?.privatePreviewUrl).toBeUndefined()
+    expect(detail?.prototype.builds[0]?.privatePreviewUrl).toBeUndefined()
+  })
+
   it("uses the current Build's author on every history page without creating an owner", async () => {
     const repository = await prisma.repository.create({
       data: { nameWithOwner: "octo/demo", defaultBranch: "main" },

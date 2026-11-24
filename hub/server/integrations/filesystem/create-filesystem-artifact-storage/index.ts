@@ -45,7 +45,7 @@ export async function createFilesystemArtifactStorage(
               length += bytesRead
             }
             if (length > stat.size) return { status: "unavailable" } as const
-            return { status: "ok", bytes: bytes.slice(0, length) } as const
+            return { status: "ok", bytes: bytes.subarray(0, length) } as const
           } finally {
             await handle.close()
           }

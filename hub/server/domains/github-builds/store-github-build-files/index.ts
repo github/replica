@@ -24,7 +24,7 @@ export async function storeGitHubBuildFiles(
     const write = await storage.write(storageKey, file.bytes)
     if (write.status === "already-exists") {
       const existing = await storage.read(storageKey)
-      if (existing.status !== "ok" || !Buffer.from(existing.bytes).equals(file.bytes)) {
+      if (existing.status !== "ok" || !file.bytes.equals(existing.bytes)) {
         throw new Error(`Artifact storage contains different bytes for ${file.path}.`)
       }
     } else if (write.status !== "ok") {

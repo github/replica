@@ -1,11 +1,12 @@
 import type { RequestHandler } from "express"
+import { z } from "zod"
 
 import { createPreviewSession } from "../../../../domains/build-preview/create-preview-session/index.ts"
 import { readPreviewBuildId } from "../../../../domains/build-preview/read-preview-build-id/index.ts"
 import { readPreviewGrant } from "../../../../domains/build-preview/read-preview-grant/index.ts"
-import { normalizeStartPage } from "../../../../utils/normalize-start-page/index.ts"
-import { z } from "zod"
+import { resolveBuildPreviewLaunch } from "../../../../domains/build-preview/resolve-build-preview-launch/index.ts"
 import { createPreviewCookie } from "../../../../integrations/express/create-preview-cookie/index.ts"
+import { normalizeStartPage } from "../../../../utils/normalize-start-page/index.ts"
 import type { BuildPreviewRouteDependencies } from "../../types.ts"
 
 export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler {
@@ -26,6 +27,12 @@ export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler
         response.status(404).end()
         return
       }
+      const documentLaunch =
+        !grant.screenshotPath && (grant.target === "preview" || grant.target === "template")
+      if (documentLaunch && !(await dependencies.restoreSession?.(grant.sessionDigest))) {
+        response.status(404).end()
+        return
+      }
       const target = await dependencies.findTargetById(buildId, grant.target)
       if (
         !target ||
@@ -34,6 +41,36 @@ export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler
         response.status(404).end()
         return
       }
+      response.setHeader("Cache-Control", "no-store")
+      response.setHeader("Referrer-Policy", "no-referrer")
+      let destination: string
+      if (grant.screenshotPath) {
+        destination = `/__replica/${grant.screenshotPath}`
+      } else if (documentLaunch) {
+        const page = normalizedRoute ?? normalizeStartPage(target.startPage) ?? "/"
+        const launch = await resolveBuildPreviewLaunch(
+          buildId,
+          page,
+          dependencies,
+          normalizedRoute && request.query.route_kind === "logical" ? "logical" : undefined,
+        )
+        if (
+          !(await dependencies.findTargetById(buildId, grant.target)) ||
+          !(await dependencies.restoreSession?.(grant.sessionDigest)) ||
+          grant.expiresAt.getTime() <= Date.now()
+        ) {
+          response.status(404).end()
+          return
+        }
+        if (launch.status === "unavailable") {
+          response.status(503).end()
+          return
+        }
+        destination = launch.destination
+      } else {
+        destination = `/__replica/screenshots/${grant.target}.png`
+      }
+
       const expiresAt = new Date(Date.now() + 15 * 60_000)
       response.setHeader(
         "Set-Cookie",
@@ -51,13 +88,6 @@ export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler
             new URL(dependencies.previewBaseOrigin).hostname.endsWith(".localhost"),
         }),
       )
-      response.setHeader("Cache-Control", "no-store")
-      response.setHeader("Referrer-Policy", "no-referrer")
-      const destination = grant.screenshotPath
-        ? `/__replica/${grant.screenshotPath}`
-        : grant.target === "preview" || grant.target === "template"
-          ? (normalizedRoute ?? normalizeStartPage(target.startPage) ?? "/")
-          : `/__replica/screenshots/${grant.target}.png`
       response.redirect(303, destination)
     } catch (error) {
       next(error)

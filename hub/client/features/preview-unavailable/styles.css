@@ -1,0 +1,18 @@
+.review-shell__unavailable {
+  display: grid;
+  justify-items: center;
+  gap: var(--hub-space-12);
+  max-height: 100%;
+  overflow: auto;
+  padding: var(--hub-space-16);
+}
+
+.review-shell__unavailable img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.review-shell__unavailable .hub-empty-state {
+  padding-block: var(--hub-space-16);
+}
