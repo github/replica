@@ -93,6 +93,7 @@ export async function findPrototypeDetail(
           number: true,
           state: true,
           githubWorkflowRunId: true,
+          privatePreviewState: true,
           commitSha: true,
           authorProvider: true,
           authorIssuer: true,
@@ -156,8 +157,10 @@ export async function findPrototypeDetail(
         : (successfulBuilds[0] ?? null)
       const previewRunIds =
         privatePreviewHubOrigin && repository.githubRepositoryId && !repository.localPath
-          ? successfulBuilds.flatMap(({ githubWorkflowRunId }) =>
-              githubWorkflowRunId && githubWorkflowRunId > 0n ? [githubWorkflowRunId] : [],
+          ? successfulBuilds.flatMap(({ githubWorkflowRunId, privatePreviewState }) =>
+              privatePreviewState === "ready" && githubWorkflowRunId && githubWorkflowRunId > 0n
+                ? [githubWorkflowRunId]
+                : [],
             )
           : []
       const uniquePreviewRunIds = new Set(
@@ -179,6 +182,7 @@ export async function findPrototypeDetail(
       )
       const buildRecords = builds.map((build) => {
         const privateAddress =
+          build.privatePreviewState === "ready" &&
           uniquePreviewRunIds.has(build.githubWorkflowRunId) &&
           build.state === "successful" &&
           build.artifacts.some(({ kind, path }) => kind === "dist" && path === "dist/index.html") &&

@@ -13,8 +13,10 @@ const mocks = vi.hoisted(() => ({
   provision: vi.fn<typeof provisionDatabaseAccess>(),
   repairImported: vi.fn(),
   checkImported: vi.fn(),
+  replayImported: vi.fn(),
   repair: vi.fn<() => Promise<void>>(),
   check: vi.fn<() => Promise<void>>(),
+  replay: vi.fn<(args: string[]) => Promise<void>>(),
   info: vi.fn(),
 }))
 vi.mock("../load-secret-environment", () => ({
@@ -52,18 +54,27 @@ describe("runAzureEntrypoint()", () => {
       mocks.checkImported(process.env.DATABASE_URL)
       return { runGitHubWebhookCheck: mocks.check }
     })
+    vi.doMock("../../replay-private-preview/run", () => {
+      mocks.replayImported(process.env.DATABASE_URL)
+      return { runPrivatePreviewReplay: mocks.replay }
+    })
   })
 
   it.each([
     ["repair-github-build-author", "repair"],
     ["check-github-webhooks", "check"],
+    ["replay-private-preview", "replay"],
   ] as const)(
     "loads runtime secrets before importing the %s maintenance command and forwards its arguments",
     async (target, command) => {
       const originalEnvironment = process.env
       const originalArguments = process.argv
+      const args = ["--repository-id", "56"]
+      if (command === "replay") {
+        args.push("--run-id", "123", "--build-id", "00000000-0000-0000-0000-000000000001")
+      }
       process.env = { RUNTIME_MODE: "combined" }
-      process.argv = ["node", "azure-entrypoint", target, "--repository-id", "56"]
+      process.argv = ["node", "azure-entrypoint", target, ...args]
       onTestFinished(() => {
         process.env = originalEnvironment
         process.argv = originalArguments
@@ -71,6 +82,7 @@ describe("runAzureEntrypoint()", () => {
       mocks.loadSecrets.mockImplementation((environment) => {
         expect(mocks.repairImported).not.toHaveBeenCalled()
         expect(mocks.checkImported).not.toHaveBeenCalled()
+        expect(mocks.replayImported).not.toHaveBeenCalled()
         environment.DATABASE_URL = "synthetic-database-secret"
         return Promise.resolve()
       })
@@ -81,7 +93,7 @@ describe("runAzureEntrypoint()", () => {
       expect(mocks[`${command}Imported`]).toHaveBeenCalledExactlyOnceWith(
         "synthetic-database-secret",
       )
-      expect(mocks[command]).toHaveBeenCalledExactlyOnceWith(["--repository-id", "56"])
+      expect(mocks[command]).toHaveBeenCalledExactlyOnceWith(args)
       expect(mocks.runtimeImported).not.toHaveBeenCalled()
     },
   )

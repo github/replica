@@ -57,6 +57,8 @@ Start the PostgreSQL service as described in [Development](development.md) and s
 
 The database command uses `--passWithNoTests` so an empty selection exits successfully. It still fails when tests fail. The job integration cases exercise real PostgreSQL queues, schedules, and database resets.
 
+To check private preview publication and playback, run `npm run test:database -- server/domains/github-builds/import-github-workflow-run/index.db.test.ts`. The tests use synthetic GitHub Builds and separate in-memory stores for ordinary and preview artifacts. The playback case exercises the Hub handoff and standalone reader over loopback HTTP. It does not check browser cookie, form, or content security policy enforcement, deployed HTTPS ingress, or Azure managed identity and Blob permissions.
+
 Database-enabled jsdom tests use the browser setup and database hooks together. They can arrange records through server code, but frontend code must not import server modules. The setup does not start an API or connect frontend requests to one.
 
 The database setup follows this lifecycle:

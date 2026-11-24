@@ -7,4 +7,8 @@ export interface GitHubBuildImportDependencies {
   database: PrismaClient
   storage: ArtifactStorage
   logger: Pick<Logger, "info" | "warn">
+  privatePreviewWriter?: {
+    repositoryId: string
+    storage: Pick<ArtifactStorage, "read" | "write">
+  }
 }

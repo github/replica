@@ -6,6 +6,7 @@ import {
   PrivatePreviewConfigurationError,
   readPrivatePreviewSettings,
 } from "./domains/private-preview/read-settings/index.ts"
+import { PrivatePreviewWriterConfigurationError } from "./domains/private-preview/read-writer-settings/index.ts"
 import { LocalSignInConfigurationError } from "./domains/authentication/errors.ts"
 import { readLearningConfiguration } from "./domains/learning/read-learning-configuration/index.ts"
 import { readDecisionRuntimeConfiguration } from "./domains/decision-model/read-decision-runtime-configuration/index.ts"
@@ -31,7 +32,7 @@ import { runApi } from "./run-api/index.ts"
 import { setup } from "./scripts/setup/index.ts"
 import { startServerProcesses } from "./start-server-processes/index.ts"
 import { parseRuntimeConfig } from "./utils/parse-runtime-config/index.ts"
-import { jobProcessors } from "./workers/configuration.ts"
+import { getJobProcessors } from "./workers/configuration.ts"
 import { runJobWorker } from "./workers/run-job-worker/index.ts"
 import type { AuthenticationRouteDependencies } from "./routes/api/auth/types.ts"
 import type { AgentVisualCriticRouteDependencies } from "./routes/api/canvas/decision-model/types.ts"
@@ -414,7 +415,7 @@ try {
               : configuration.scheduledConcurrency,
           shutdownTimeoutMs: configuration.shutdownTimeoutMs,
           logger,
-          processors: jobProcessors[name],
+          processors: getJobProcessors(name),
         })
       }
     }
@@ -425,6 +426,7 @@ try {
   logger.fatal(
     error instanceof AuthenticationConfigurationError ||
       error instanceof PrivatePreviewConfigurationError ||
+      error instanceof PrivatePreviewWriterConfigurationError ||
       error instanceof PublicSharingConfigurationError ||
       error instanceof LocalSignInConfigurationError ||
       error instanceof LocalDevelopmentConfigurationError ||

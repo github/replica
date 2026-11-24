@@ -35,6 +35,7 @@ model Build {
   workflowUrl              String?    @map("workflow_url") @db.VarChar(2048)
   workflowCompletedAt      DateTime?  @map("workflow_completed_at") @db.Timestamptz(3)
   distDigest               String?    @map("dist_digest") @db.VarChar(71)
+  privatePreviewState      PrivatePreviewState? @map("private_preview_state")
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

@@ -2,25 +2,37 @@ import { UnrecoverableError } from "bullmq"
 import { describe, expect, it, vi } from "vitest"
 
 import { reconcileGitHubInstallation } from "./reconcile-github-installation"
-import { jobProcessors, jobSchedules } from "./configuration"
+import { getJobProcessors, jobSchedules } from "./configuration"
 
 vi.mock("./reconcile-github-installation", () => ({
   reconcileGitHubInstallation: vi.fn(),
 }))
 
+it("loads setup schedules and scheduled processors without validating the preview writer", async () => {
+  vi.stubEnv("HUB_PRIVATE_PREVIEW_WRITE_ENABLED", "true")
+  vi.stubEnv("HUB_PRIVATE_PREVIEW_WRITE_REPOSITORY_ID", "not-a-repository-id")
+
+  const configuration = await import("./configuration")
+  expect(configuration.jobSchedules).toContainEqual(
+    expect.objectContaining({ id: "github-build-import-retry" }),
+  )
+  expect(configuration.getJobProcessors("scheduled").map(({ name }) => name)).toContain(
+    "retry-github-builds-awaiting-import",
+  )
+})
+
 describe("learning worker configuration", () => {
   it("keeps learning and local Build work on their intended queues", () => {
-    expect(jobProcessors["on-demand"].map(({ name }) => name)).toEqual([
+    expect(getJobProcessors("on-demand").map(({ name }) => name)).toEqual([
       "deliver-analytics-event",
       "learning.run",
       "learning.redact-review-comment",
       "synchronize-local-builds",
       "import-github-workflow-run",
     ])
-    expect(jobProcessors.scheduled.map(({ name }) => name)).toContain("learning.recover-runs")
-    expect(jobProcessors.scheduled.map(({ name }) => name)).toEqual(
-      expect.arrayContaining(["learning.run", "learning.schedule-runs"]),
-    )
+    const scheduled = getJobProcessors("scheduled").map(({ name }) => name)
+    expect(scheduled).toContain("learning.recover-runs")
+    expect(scheduled).toEqual(expect.arrayContaining(["learning.run", "learning.schedule-runs"]))
     expect(jobSchedules).toContainEqual(
       expect.objectContaining({
         id: "learning-run-recovery",
@@ -38,10 +50,8 @@ describe("learning worker configuration", () => {
     })
     expect(daily?.payload).toEqual({})
     expect(daily?.repeat).toEqual({ pattern: "0 2 * * *", tz: "UTC" })
-    expect(jobProcessors.scheduled.map(({ name }) => name)).toContain("decision.recover-training")
-    expect(jobProcessors.scheduled.map(({ name }) => name)).toContain(
-      "decision.reconcile-runtime-deletions",
-    )
+    expect(scheduled).toContain("decision.recover-training")
+    expect(scheduled).toContain("decision.reconcile-runtime-deletions")
     expect(jobSchedules).toContainEqual(
       expect.objectContaining({
         id: "decision-training-recovery",
@@ -59,10 +69,11 @@ describe("learning worker configuration", () => {
 
 describe("analytics worker configuration", () => {
   it("uses scheduled recovery and retention without running external sends there", () => {
-    expect(jobProcessors.scheduled.map(({ name }) => name)).not.toContain("deliver-analytics-event")
+    const scheduled = getJobProcessors("scheduled").map(({ name }) => name)
+    expect(scheduled).not.toContain("deliver-analytics-event")
     for (const id of ["analytics-delivery-recovery", "analytics-event-retention"]) {
       const schedule = jobSchedules.find((entry) => entry.id === id)
-      expect(jobProcessors.scheduled.map(({ name }) => name)).toContain(schedule?.definition.name)
+      expect(scheduled).toContain(schedule?.definition.name)
     }
   })
 })
@@ -83,7 +94,7 @@ describe("GitHub installation reconciliation schedule", () => {
   })
 
   it("runs valid jobs and propagates reconciliation failures", async () => {
-    const processor = jobProcessors.scheduled.find(
+    const processor = getJobProcessors("scheduled").find(
       (candidate) => candidate.name === "reconcile-github-installation",
     )!
     vi.mocked(reconcileGitHubInstallation).mockResolvedValueOnce()
@@ -103,7 +114,9 @@ describe("GitHub Build recovery schedules", () => {
     (id) => {
       const schedule = jobSchedules.find((candidate) => candidate.id === id)
       expect(schedule?.repeat).toEqual({ every: 5 * 60 * 1_000 })
-      expect(jobProcessors.scheduled.map(({ name }) => name)).toContain(schedule?.definition.name)
+      expect(getJobProcessors("scheduled").map(({ name }) => name)).toContain(
+        schedule?.definition.name,
+      )
     },
   )
 })
@@ -113,6 +126,8 @@ describe("GitHub webhook recovery schedule", () => {
     const schedule = jobSchedules.find((candidate) => candidate.id === "github-webhook-recovery")
     expect(schedule?.repeat).toEqual({ every: 60_000 })
     expect(schedule?.definition.options).toEqual({ attempts: 1 })
-    expect(jobProcessors.scheduled.map(({ name }) => name)).toContain(schedule?.definition.name)
+    expect(getJobProcessors("scheduled").map(({ name }) => name)).toContain(
+      schedule?.definition.name,
+    )
   })
 })

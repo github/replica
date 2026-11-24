@@ -129,6 +129,8 @@ GitHub lists named artifacts across rerun attempts. Hub prefers packages created
 
 Hub records each contributing run's completed attempt only after author resolution, registration, and screenshot processing finish. A provider, transport, or storage error leaves that run pending for recovery even if the dist preview is already available. The awaiting-import retry and workflow discovery both retry failed Builds without an author or completed watermark, without reopening the Build or replacing its failure details. A deselected completed run settles that attempt, so it leaves both scans; reselection needs a new run or attempt, or the repair command. The existing deselected-workflow failure summary distinguishes a stopped unfinished Build, so keep its stored text stable. A newer attempt still needs its own pass; delayed completion from an older attempt cannot undo a newer receipt. Owning-run completion and immutable dist ownership remain unchanged.
 
+The optional [private preview writer](artifact-storage.md#private-preview-output) runs after ordinary import work. Its failure uses the import job's retries without undoing the ordinary Build or its completion record. Scheduled import recovery does not revisit completed imports solely for preview publication. After the retries stop, an operator can [replay one pending preview](artifact-storage.md#replay-a-pending-private-preview) without changing the import record.
+
 Storage keys derive from the Build, file path, and content. Retries reuse identical objects, a key with different bytes stops the import, and keys are never deleted. Unreferenced keys left by an interrupted import are harmless.
 
 ### Commit authors

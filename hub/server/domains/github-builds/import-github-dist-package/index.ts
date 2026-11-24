@@ -1,8 +1,14 @@
 import { completeGitHubBuildFailure } from "../../../repositories/github-builds/complete-github-build-failure/index.ts"
 import { completeGitHubBuildSuccess } from "../../../repositories/github-builds/complete-github-build-success/index.ts"
+import type { PrivatePreviewAddress } from "../../../utils/private-preview-address/index.ts"
 import { recordSuccessfulBuildAnalytics } from "../../analytics/record-event/index.ts"
 import { BuildPackageError } from "../../build-artifacts/errors.ts"
 import { extractDistPackage } from "../../build-artifacts/extract-dist-package/index.ts"
+import { declaresPreviewMount } from "../../build-preview/declares-preview-mount/index.ts"
+import {
+  maximumPrivatePreviewManifestBytes,
+  privatePreviewManifestPath,
+} from "../../private-preview/types.ts"
 import { storeGitHubBuildFiles } from "../store-github-build-files/index.ts"
 import type { GitHubBuildRun } from "../../../repositories/github-builds/types.ts"
 import type { GitHubBuildImportDependencies } from "../types.ts"
@@ -19,6 +25,7 @@ export async function importGitHubDistPackage(
     completedAt: Date | null
     /** Rejects the package before storage unless its dist has this digest. */
     expectedDistDigest?: string
+    privatePreviewAddress?: PrivatePreviewAddress
   },
   bytes: Buffer,
 ) {
@@ -44,10 +51,25 @@ export async function importGitHubDistPackage(
   if (target.expectedDistDigest && extracted.distDigest !== target.expectedDistDigest) {
     return { status: "digest-mismatch" as const }
   }
+  const address = target.privatePreviewAddress
+  const marker =
+    address &&
+    extracted.files.find(({ kind, path }) => kind === "dist" && path === privatePreviewManifestPath)
   const artifacts = await storeGitHubBuildFiles(storage, buildId, extracted.files)
   const imported = await completeGitHubBuildSuccess(
     database,
-    { buildId, run, distDigest: extracted.distDigest, artifacts },
+    {
+      buildId,
+      run,
+      distDigest: extracted.distDigest,
+      artifacts,
+      privatePreviewPending: Boolean(
+        address &&
+        marker &&
+        marker.bytes.byteLength <= maximumPrivatePreviewManifestBytes &&
+        declaresPreviewMount(marker.bytes, address.mount),
+      ),
+    },
     recordSuccessfulBuildAnalytics,
   )
   if (imported) logger.info({ buildId, runId: run.runId }, "GitHub Build imported")

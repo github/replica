@@ -4,6 +4,7 @@ import type { PrivatePreviewAddress } from "../../../utils/private-preview-addre
 export async function findPrivatePreviewTarget(
   database: PrismaClient,
   address: PrivatePreviewAddress,
+  publication: "ready" | "pending" = "ready",
 ) {
   const matches = await database.build.findMany({
     where: {
@@ -16,6 +17,7 @@ export async function findPrivatePreviewTarget(
     select: {
       id: true,
       state: true,
+      privatePreviewState: true,
       artifacts: {
         where: { kind: "dist", path: "dist/index.html" },
         select: { id: true },
@@ -33,7 +35,13 @@ export async function findPrivatePreviewTarget(
     },
   })
   const build = matches.length === 1 ? matches[0] : undefined
-  if (!build || build.state !== "successful" || build.artifacts.length !== 1) return null
+  if (
+    !build ||
+    build.state !== "successful" ||
+    build.privatePreviewState !== publication ||
+    build.artifacts.length !== 1
+  )
+    return null
   const { prototype } = build
   if (
     prototype.replica ||

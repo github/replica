@@ -17,6 +17,7 @@ import { scheduledMaintenancePriority } from "../domains/learning/jobs/prioritie
 import { recoverLearningRunsJob } from "../domains/learning/jobs/recover-learning-runs.ts"
 import { scheduleLearningRunsJob } from "../domains/learning/jobs/schedule-learning-runs.ts"
 import { getLocalBuildJobDefinition } from "../domains/local-builds/get-local-build-job-definition/index.ts"
+import { readPrivatePreviewWriterSettings } from "../domains/private-preview/read-writer-settings/index.ts"
 import { createJobProcessor } from "../integrations/bullmq/create-job-processor/index.ts"
 import type {
   JobDefinition,
@@ -68,7 +69,7 @@ const githubWebhookRecovery: JobDefinition<Record<string, never>> = {
   options: { attempts: 1 },
 }
 
-export const jobProcessors: Record<JobQueueName, JobProcessor[]> = {
+const jobProcessors: Record<JobQueueName, JobProcessor[]> = {
   "on-demand": [
     analytics.deliver,
     ...(decisionConfigured ? [decision.run] : []),
@@ -78,7 +79,6 @@ export const jobProcessors: Record<JobQueueName, JobProcessor[]> = {
       const { runLocalBuilds } = await import("../scripts/run-local-builds/index.ts")
       return await runLocalBuilds()
     }),
-    createJobProcessor(getGitHubWorkflowRunJobDefinition(), importGitHubWorkflowRunJob),
   ],
   scheduled: [
     analytics.recover,
@@ -93,6 +93,17 @@ export const jobProcessors: Record<JobQueueName, JobProcessor[]> = {
     createJobProcessor(githubWorkflowRunDiscovery, discoverGitHubWorkflowRunsJob),
     createJobProcessor(githubWebhookRecovery, recoverGitHubWebhookDeliveriesJob),
   ],
+}
+
+export function getJobProcessors(name: JobQueueName): JobProcessor[] {
+  if (name === "scheduled") return jobProcessors.scheduled
+  const preview = readPrivatePreviewWriterSettings(process.env)
+  return [
+    ...jobProcessors["on-demand"],
+    createJobProcessor(getGitHubWorkflowRunJobDefinition(), (job) =>
+      importGitHubWorkflowRunJob(job, preview),
+    ),
+  ]
 }
 
 export const jobSchedules: {

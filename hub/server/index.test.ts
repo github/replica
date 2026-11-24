@@ -6,6 +6,7 @@ import { logger } from "./integrations/pino"
 import { runApi } from "./run-api"
 import { startServerProcesses } from "./start-server-processes"
 import { parseRuntimeConfig } from "./utils/parse-runtime-config"
+import { runJobWorker } from "./workers/run-job-worker"
 
 vi.mock("./domains/artifacts/create-configured-artifact-storage", () => ({
   createConfiguredArtifactStorage: vi.fn(),
@@ -26,7 +27,6 @@ vi.mock("./routes/api/public-sharing/create-public-sharing-route-dependencies/in
 vi.mock("./scripts/setup", () => ({ setup: vi.fn() }))
 vi.mock("./start-server-processes", () => ({ startServerProcesses: vi.fn() }))
 vi.mock("./utils/parse-runtime-config", () => ({ parseRuntimeConfig: vi.fn() }))
-vi.mock("./workers/configuration", () => ({ jobProcessors: {} }))
 vi.mock("./workers/run-job-worker", () => ({ runJobWorker: vi.fn() }))
 
 const apiConfiguration = {
@@ -82,6 +82,23 @@ describe("server runtime", () => {
 
     expect(runApi).toHaveBeenCalledWith(
       expect.objectContaining({ authentication: undefined, product: undefined }),
+    )
+  })
+
+  it("refuses the on-demand runtime before starting a worker with an invalid preview writer", async () => {
+    vi.stubEnv("HUB_PRIVATE_PREVIEW_WRITE_ENABLED", "true")
+    vi.stubEnv("HUB_PRIVATE_PREVIEW_WRITE_REPOSITORY_ID", "not-a-repository-id")
+    vi.mocked(parseRuntimeConfig).mockReturnValue({
+      ...apiConfiguration,
+      mode: "on-demand",
+      databaseUrl: "postgresql://hub.example.test/replica",
+    })
+
+    await expect(import(".")).rejects.toThrow("Unexpected process exit: 1")
+
+    expect(runJobWorker).not.toHaveBeenCalled()
+    expect(logger.fatal).toHaveBeenCalledWith(
+      expect.stringContaining("HUB_PRIVATE_PREVIEW_WRITE_REPOSITORY_ID"),
     )
   })
 
