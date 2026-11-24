@@ -317,6 +317,62 @@ describe("real workspace navigation", () => {
     ])
   }, 15_000)
 
+  it("loads older Inbox activity and restarts paging when Unread is selected", async () => {
+    const repository = {
+      id: "11111111-1111-4111-8111-111111111111",
+      nameWithOwner: "team/alpha",
+      defaultBranch: "main",
+    }
+    const newest = unreadMention(repository, "33333333-3333-4333-8333-333333333333")
+    const read = {
+      ...newest,
+      id: 6,
+      excerpt: "Previously read feedback.",
+      read: true,
+      updatePath: "/api/notifications/6",
+    }
+    const older = {
+      ...newest,
+      id: 5,
+      excerpt: "Older unread feedback.",
+      updatePath: "/api/notifications/5",
+    }
+    const reads: [before: string | null, unread: string | null][] = []
+    await renderApplication(`/notifications?repositoryId=${repository.id}`, [
+      ...workspaceApi([repository], { reviewInboxAvailable: true, role: "MEMBER" }),
+      http.get("/api/notifications/inbox", ({ request }) => {
+        const query = new URL(request.url).searchParams
+        const before = query.get("before")
+        const unread = query.get("unread")
+        reads.push([before, unread])
+        return Response.json({
+          notifications: before ? [older] : unread ? [newest, older] : [newest, read],
+          nextBefore: before || unread ? null : read.id,
+          unreadCount: 2,
+        })
+      }),
+    ])
+
+    const inbox = within(await screen.findByRole("region", { name: "Inbox" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Load more" }))
+    expect(await inbox.findByText(older.excerpt)).toBeVisible()
+    expect(inbox.getAllByRole("listitem")).toHaveLength(3)
+    expect(inbox.getByText(newest.excerpt)).toBeVisible()
+    expect(inbox.getByText(read.excerpt)).toBeVisible()
+    expect(reads[0]).toEqual([null, null])
+    expect(reads.at(-1)).toEqual([String(read.id), null])
+
+    fireEvent.click(inbox.getByRole("button", { name: "Unread" }))
+    await waitFor(() => {
+      expect(reads.at(-1)).toEqual([null, "true"])
+      expect(inbox.getAllByRole("listitem")).toHaveLength(2)
+    })
+    expect(new URLSearchParams(location.search).get("unread")).toBe("true")
+    expect(inbox.getByText(newest.excerpt)).toBeVisible()
+    expect(inbox.getByText(older.excerpt)).toBeVisible()
+    expect(inbox.queryByText(read.excerpt)).not.toBeInTheDocument()
+  })
+
   it("opens Create, Inbox, and Hub settings while repository permissions are pending", async () => {
     const repository = {
       id: "11111111-1111-4111-8111-111111111111",
