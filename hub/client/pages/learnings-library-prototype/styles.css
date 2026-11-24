@@ -602,7 +602,9 @@
   padding: 1rem;
   border: 1px solid color-mix(in srgb, var(--hub-fg-danger) 40%, transparent);
   border-radius: var(--hub-radius-medium);
-  background: var(--hub-danger-subtle);
+  /* Brand's danger-subtle is close to the heading red in dark mode, so this tints
+     the canvas instead. */
+  background: color-mix(in srgb, var(--hub-fg-danger) 8%, var(--hub-canvas-default));
 }
 
 .learning-library__rejection strong {
