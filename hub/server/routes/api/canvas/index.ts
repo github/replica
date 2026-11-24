@@ -167,10 +167,11 @@ export function canvasRoutes(
     "/connections",
     handler(async (request, response, services) => {
       const session = await browser(request, services)
-      const connections = session && (await services.connections.list(session))
-      if (!connections) return browserSessionRequired(response)
+      const result = session && (await services.connections.list(session))
+      if (!result) return browserSessionRequired(response)
       response.json({
-        connections: connections.map(({ id, repository, expiresAt, inactiveAt }) => ({
+        viewerId: result.viewerId,
+        connections: result.connections.map(({ id, repository, expiresAt, inactiveAt }) => ({
           id,
           repository: repository.nameWithOwner,
           expiresAt,

@@ -19,6 +19,7 @@ export const canvasApprovalSchema = z
 
 export const canvasConnectionsSchema = z
   .object({
+    viewerId: z.uuid(),
     connections: z.array(
       z
         .object({
