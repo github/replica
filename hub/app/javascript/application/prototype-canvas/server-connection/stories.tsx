@@ -54,6 +54,8 @@ export const ScriptMenuOpen: Story = {
 }
 export const ScanFailed: Story = { args: { scenario: "scan-failed" } }
 export const DiscoveryWarnings: Story = { args: { scenario: "warnings" } }
+export const SavedPreviewServer: Story = { args: { scenario: "saved-preview-server" } }
+export const SavedPreviewStart: Story = { args: { scenario: "saved-preview-start" } }
 export const StartupUnavailable: Story = { args: { scenario: "startup-unavailable" } }
 export const Connecting: Story = {
   args: { scenario: "connecting" },
