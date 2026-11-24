@@ -202,6 +202,7 @@ function WorkspaceNavigationFrame({
     initialUnreadOnly: true,
     autoLoad: false,
     autoCount: Boolean(configuration) && section !== "notifications",
+    countRefreshKey: pathname,
     synchronize: Boolean(configuration),
     limit: 10,
   })

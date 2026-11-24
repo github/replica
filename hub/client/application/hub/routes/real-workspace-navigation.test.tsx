@@ -149,9 +149,9 @@ function galleryApi(repository: RepositoryRecord, onRead?: (request: Request) =>
   })
 }
 
-function unreadMention(repository: RepositoryRecord, prototypeId: string) {
+function unreadMention(repository: RepositoryRecord, prototypeId: string, id = 7) {
   return {
-    id: 7,
+    id,
     version: 1,
     actor: { login: "mona", name: "Mona", avatarUrl: null },
     kind: "mention",
@@ -160,9 +160,9 @@ function unreadMention(repository: RepositoryRecord, prototypeId: string) {
     read: false,
     repository: repository.nameWithOwner,
     prototype: "Landing page",
-    path: `/repositories/${repository.id}/prototypes/${prototypeId}?comment=7`,
-    updatePath: "/api/notifications/7",
-    target: { prototypeId, threadId: 7, commentId: 7 },
+    path: `/repositories/${repository.id}/prototypes/${prototypeId}?comment=${id}`,
+    updatePath: `/api/notifications/${id}`,
+    target: { prototypeId, threadId: id, commentId: id },
   }
 }
 
@@ -194,7 +194,7 @@ function sidebarDestinations() {
 }
 
 describe("real workspace navigation", () => {
-  it("keeps the collapsed navigation and Inbox count across main pages", async () => {
+  it("keeps the collapsed navigation and refreshes the Inbox count across main pages", async () => {
     const repository = {
       id: "11111111-1111-4111-8111-111111111111",
       nameWithOwner: "team/alpha",
@@ -209,12 +209,16 @@ describe("real workspace navigation", () => {
     const galleryPath = `/repositories/${repository.id}`
     const createPath = `${galleryPath}/new`
     const inboxPath = `/notifications?repositoryId=${repository.id}`
-    const galleryCount = 3
-    const inboxCount = 1
-    const notification = unreadMention(repository, "33333333-3333-4333-8333-333333333333")
-    const inboxReads: [limit: string | null, unread: string | null][] = []
+    const prototypeId = "33333333-3333-4333-8333-333333333333"
+    const newestMention = unreadMention(repository, prototypeId)
+    const mentions = [
+      newestMention,
+      ...[6, 5].map((id) => unreadMention(repository, prototypeId, id)),
+    ]
+    let unreadCount = mentions.length
+    const inboxReads: [pathname: string, limit: string | null, unread: string | null][] = []
     const galleryReads: (string | null)[] = []
-    await renderApplication(galleryPath, [
+    const router = await renderApplication(galleryPath, [
       ...workspaceApi([otherRepository, repository], {
         role: "MEMBER",
         reviewInboxAvailable: true,
@@ -230,11 +234,12 @@ describe("real workspace navigation", () => {
       http.get(`${window.location.origin}/api/notifications/inbox`, ({ request }) => {
         const query = new URL(request.url).searchParams
         const limit = query.get("limit")
-        inboxReads.push([limit, query.get("unread")])
+        inboxReads.push([window.location.pathname, limit, query.get("unread")])
+        const notifications = mentions.slice(0, Math.min(Number(limit), unreadCount))
         return HttpResponse.json({
-          notifications: [notification],
-          nextBefore: limit === "1" ? notification.id : null,
-          unreadCount: limit === "1" ? galleryCount : inboxCount,
+          notifications,
+          nextBefore: notifications.length < unreadCount ? notifications.at(-1)?.id : null,
+          unreadCount,
         })
       }),
     ])
@@ -247,12 +252,12 @@ describe("real workspace navigation", () => {
       return within(mainNavigation()).getByRole("link", { name })
     }
 
-    function navInboxBadge(count: number) {
-      return within(navLink(/^Inbox\b/)).queryByText(String(count))
+    function findInboxBadge(count: number) {
+      return within(mainNavigation()).findByRole("link", { name: `Inbox, ${count} unread` })
     }
 
-    await waitFor(() => expect(navInboxBadge(galleryCount)).toBeVisible())
-    expect(inboxReads).toEqual([["1", "true"]])
+    expect(await findInboxBadge(3)).toBeVisible()
+    expect(inboxReads).toEqual([[galleryPath, "1", "true"]])
     expect(navLink("Prototypes")).toHaveAttribute("aria-current", "page")
     fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }))
     const originalNavigation = mainNavigation()
@@ -275,20 +280,24 @@ describe("real workspace navigation", () => {
       expect(window.location.pathname + window.location.search).toBe(path)
     }
 
+    unreadCount = 2
     fireEvent.click(navLink("Create"))
     expect(await screen.findByRole("heading", { name: "What should we create?" })).toBeVisible()
     expectNavigation("Create", createPath)
+    expect(await findInboxBadge(2)).toBeVisible()
 
+    unreadCount = 1
     fireEvent.click(navLink(/^Inbox\b/))
     const inbox = await screen.findByRole("region", { name: "Inbox" })
-    expect(await within(inbox).findByText(notification.excerpt)).toBeVisible()
-    await waitFor(() => expect(navInboxBadge(inboxCount)).toBeVisible())
+    expect(await within(inbox).findByText(newestMention.excerpt)).toBeVisible()
+    expect(await findInboxBadge(1)).toBeVisible()
     expectNavigation("Inbox", inboxPath)
 
+    unreadCount = 2
     fireEvent.click(navLink("Prototypes"))
     expect(await screen.findByRole("heading", { name: "Prototypes" })).toBeVisible()
     expectNavigation("Prototypes", galleryPath)
-    expect.soft(navInboxBadge(inboxCount), "Inbox count after leaving the list").toBeVisible()
+    expect(await findInboxBadge(2)).toBeVisible()
 
     const searchBox = screen.getByRole("searchbox", { name: "Search prototypes" })
     fireEvent.change(searchBox, { target: { value: "landing" } })
@@ -302,11 +311,81 @@ describe("real workspace navigation", () => {
       expect(screen.getByRole("searchbox", { name: "Search prototypes" })).toHaveValue(""),
     )
     expect(window.location.pathname + window.location.search).toBe(galleryPath)
+    await act(() => router.navigate(`${galleryPath}#prototypes`))
+    expect(window.location.hash).toBe("#prototypes")
     expect(inboxReads).toEqual([
-      ["1", "true"],
-      ["50", null],
+      [galleryPath, "1", "true"],
+      [createPath, "1", "true"],
+      ["/notifications", "50", null],
+      [galleryPath, "1", "true"],
     ])
   }, 15_000)
+
+  it("keeps the Inbox badge during request failures and refreshes it after leaving Inbox", async () => {
+    const repository = {
+      id: "11111111-1111-4111-8111-111111111111",
+      nameWithOwner: "team/alpha",
+      defaultBranch: "main",
+      capabilities: { reviewPrototypes: true, manageSharing: false, browseTemplates: true },
+    }
+    const galleryPath = `/repositories/${repository.id}`
+    const notification = unreadMention(repository, "33333333-3333-4333-8333-333333333333")
+    const listFailure = deferResponse()
+    const countFailure = deferResponse()
+    const inboxReads: (string | null)[] = []
+    let failCount = false
+    let unreadCount = 1
+    await renderApplication(galleryPath, [
+      ...workspaceApi([repository], { role: "MEMBER", reviewInboxAvailable: true }),
+      galleryApi(repository),
+      json(`/api${galleryPath}/templates`, { repository, templates: [], canCreate: true }),
+      http.get(`${window.location.origin}/api/notifications/inbox`, async ({ request }) => {
+        const limit = new URL(request.url).searchParams.get("limit")
+        inboxReads.push(limit)
+        if (limit === "50") {
+          await listFailure.pending
+          return new HttpResponse(null, { status: 503 })
+        }
+        if (failCount) {
+          await countFailure.pending
+          return new HttpResponse(null, { status: 503 })
+        }
+        return HttpResponse.json({
+          notifications: unreadCount ? [notification] : [],
+          nextBefore: null,
+          unreadCount,
+        })
+      }),
+    ])
+    const badge = { name: "Inbox, 1 unread" }
+    fireEvent.click(await screen.findByRole("link", badge))
+    const inbox = await screen.findByRole("region", { name: "Inbox" })
+    await waitFor(() => expect(inboxReads).toEqual(["1", "50"]))
+    expect(screen.getByRole("link", badge)).toBeVisible()
+
+    listFailure.release()
+    expect(await within(inbox).findByRole("button", { name: "Retry" })).toBeVisible()
+    expect(screen.getByRole("link", badge)).toBeVisible()
+
+    failCount = true
+    fireEvent.click(screen.getByRole("link", { name: "Prototypes" }))
+    expect(await screen.findByRole("heading", { name: "Prototypes" })).toBeVisible()
+    await waitFor(() => expect(inboxReads).toEqual(["1", "50", "1"]))
+    expect(screen.getByRole("link", badge)).toBeVisible()
+
+    await act(() => {
+      countFailure.release()
+      return countFailure.pending
+    })
+    expect(screen.getByRole("link", badge)).toBeVisible()
+
+    failCount = false
+    unreadCount = 0
+    fireEvent.click(screen.getByRole("link", { name: "Create" }))
+    expect(await screen.findByRole("heading", { name: "What should we create?" })).toBeVisible()
+    expect(await screen.findByRole("link", { name: "Inbox" })).toBeVisible()
+    expect(inboxReads).toEqual(["1", "50", "1", "1"])
+  })
 
   it("opens Create, Inbox, and Hub settings while repository permissions are pending", async () => {
     const repository = {
@@ -839,13 +918,10 @@ describe("real workspace navigation", () => {
       http.get(`${window.location.origin}/api${galleryPath}/security-audit`, () =>
         audit("repository"),
       ),
-      http.get(`${window.location.origin}/api/notifications/inbox`, ({ request }) => {
-        const countOnly = new URL(request.url).searchParams.get("limit") === "1"
-        return HttpResponse.json({
-          notifications: [notification],
-          nextBefore: countOnly ? notification.id : null,
-          unreadCount: countOnly ? 3 : 1,
-        })
+      json("/api/notifications/inbox", {
+        notifications: [notification],
+        nextBefore: null,
+        unreadCount: 1,
       }),
       json("/api/canvas/connections", { connections: [] }),
       http.get(`${window.location.origin}/api${galleryPath}/analytics`, () =>

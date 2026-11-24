@@ -5,6 +5,15 @@ import { notifyInboxRead, onInboxReadChanged } from "@utils/notification/read-up
 import type { InboxReadUpdate } from "@utils/notification/read-updates"
 import type { InboxNotification, NotificationReadUpdate } from "@utils/notification/types"
 
+class InboxAccessDeniedError extends Error {}
+
+function requireInboxResponse(response: Response) {
+  if (response.status === 401 || response.status === 403) {
+    throw new InboxAccessDeniedError("Inbox access denied")
+  }
+  if (!response.ok) throw new Error("Inbox request failed")
+}
+
 export function useNotificationInbox({
   path,
   authenticityToken,
@@ -13,6 +22,7 @@ export function useNotificationInbox({
   unreadOnly: controlledUnreadOnly,
   autoLoad = true,
   autoCount = false,
+  countRefreshKey,
   synchronize = false,
   limit = 50,
   onReadChange,
@@ -25,10 +35,11 @@ export function useNotificationInbox({
   unreadOnly?: boolean
   autoLoad?: boolean
   autoCount?: boolean
+  countRefreshKey?: string
   synchronize?: boolean
   limit?: number
   onReadChange?: (id: number, saved: NotificationReadUpdate) => void
-  onUnreadCountChange?: (count: number) => void
+  onUnreadCountChange?: (count: number | null) => void
 }) {
   const [localUnreadOnly, setUnreadOnly] = useState(initialUnreadOnly)
   const unreadOnly = controlledUnreadOnly ?? localUnreadOnly
@@ -66,6 +77,45 @@ export function useNotificationInbox({
     countReceivedAt.current = null
   }, [path])
 
+  const clearFailedList = useCallback(() => {
+    setNotifications([])
+    loaded.current = false
+    setNextBefore(null)
+    setFailed(true)
+    setLoading(false)
+  }, [])
+
+  const receiveUnreadCount = useCallback(
+    (count: number | null) => {
+      suppliedCountRevision.current += 1
+      pendingCount.current?.abort()
+      pendingCount.current = null
+      countReceivedAt.current = count === null ? null : performance.now()
+      setUnreadCount(count ?? 0)
+      if (count === null) {
+        generation.current += 1
+        oldest.current = { all: null, unread: null }
+        clearFailedList()
+      }
+    },
+    [clearFailedList],
+  )
+
+  const failInboxRequest = useCallback(
+    (error: unknown, countRevision: number) => {
+      if (countRevision === suppliedCountRevision.current) {
+        countReceivedAt.current = null
+        if (error instanceof InboxAccessDeniedError) {
+          receiveUnreadCount(null)
+          callbacks.current.onUnreadCountChange?.(null)
+          return
+        }
+      }
+      clearFailedList()
+    },
+    [clearFailedList, receiveUnreadCount],
+  )
+
   const load = useCallback(
     async (before: number | null = null) => {
       if (!path) return
@@ -84,7 +134,7 @@ export function useNotificationInbox({
             credentials: "same-origin",
             ...(synchronize ? { cache: "no-store" } : {}),
           })
-          if (!response.ok) throw new Error("Inbox is unavailable")
+          requireInboxResponse(response)
           return NOTIFICATION_PAGE_SCHEMA.parse(await response.json())
         }
         const reloadPrefix = synchronize && autoLoad
@@ -127,24 +177,16 @@ export function useNotificationInbox({
           setUnreadCount(page.unreadCount)
           callbacks.current.onUnreadCountChange?.(page.unreadCount)
         }
-      } catch {
+      } catch (error) {
         if (requestGeneration !== generation.current) return
 
-        setNotifications([])
-        loaded.current = false
         oldest.current = { all: null, unread: null }
-        if (countRevision === suppliedCountRevision.current) {
-          countReceivedAt.current = null
-          setUnreadCount(0)
-          callbacks.current.onUnreadCountChange?.(0)
-        }
-        setNextBefore(null)
-        setFailed(true)
+        failInboxRequest(error, countRevision)
       } finally {
         if (requestGeneration === generation.current) setLoading(false)
       }
     },
-    [path, limit, unreadOnly, synchronize, autoLoad],
+    [path, limit, unreadOnly, synchronize, autoLoad, failInboxRequest],
   )
 
   useEffect(() => {
@@ -166,39 +208,36 @@ export function useNotificationInbox({
     url.searchParams.set("unread", "true")
     void fetch(url, { credentials: "same-origin", cache: "no-store", signal: controller.signal })
       .then(async (response) => {
-        if (!response.ok) throw new Error("Inbox is unavailable")
+        requireInboxResponse(response)
         const page = NOTIFICATION_PAGE_SCHEMA.parse(await response.json())
-        if (!controller.signal.aborted && requestGeneration === generation.current) {
-          countReceivedAt.current = performance.now()
-          setUnreadCount(page.unreadCount)
-        }
+        if (controller.signal.aborted || requestGeneration !== generation.current) return
+
+        // An older preview can still supply rows, but it no longer owns the count.
+        suppliedCountRevision.current += 1
+        countReceivedAt.current = performance.now()
+        setUnreadCount(page.unreadCount)
       })
-      .catch(() => {
-        if (!controller.signal.aborted && requestGeneration === generation.current) {
+      .catch((error: unknown) => {
+        if (controller.signal.aborted || requestGeneration !== generation.current) return
+        if (error instanceof InboxAccessDeniedError) {
+          receiveUnreadCount(null)
+        } else {
           countReceivedAt.current = null
-          setUnreadCount(0)
+          console.warn("Hub could not refresh the Inbox badge.")
         }
       })
       .finally(() => {
         if (pendingCount.current === controller) pendingCount.current = null
       })
-  }, [path])
+  }, [path, receiveUnreadCount])
 
   useEffect(() => {
-    if (autoCount && countReceivedAt.current === null) loadCount()
+    if (autoCount) loadCount()
     return () => {
       pendingCount.current?.abort()
       pendingCount.current = null
     }
-  }, [autoCount, loadCount])
-
-  const receiveUnreadCount = useCallback((count: number) => {
-    suppliedCountRevision.current += 1
-    pendingCount.current?.abort()
-    pendingCount.current = null
-    countReceivedAt.current = performance.now()
-    setUnreadCount(count)
-  }, [])
+  }, [autoCount, countRefreshKey, loadCount])
 
   function needsCountRefresh(saved: NotificationReadUpdate, startedAt?: number) {
     const lastCount = countReceivedAt.current
@@ -228,8 +267,9 @@ export function useNotificationInbox({
       ),
     )
     if (updateCount) {
-      if (saved.unreadCount !== undefined) countReceivedAt.current = performance.now()
-      setUnreadCount((previous) => saved.unreadCount ?? Math.max(0, previous + delta))
+      if (saved.unreadCount === undefined)
+        setUnreadCount((previous) => Math.max(0, previous + delta))
+      else receiveUnreadCount(saved.unreadCount)
     } else {
       // The visible count omits this save's change. Later saves still need a fresh count.
       countReceivedAt.current = null
@@ -266,6 +306,7 @@ export function useNotificationInbox({
 
   async function toggleRead(notification: InboxNotification) {
     const requestGeneration = ++generation.current
+    const countRevision = suppliedCountRevision.current
     const startedAt = performance.now()
     setLoading(true)
     setFailed(false)
@@ -279,23 +320,17 @@ export function useNotificationInbox({
           notification: { read: !notification.read, version: notification.version },
         }),
       })
-      if (!response.ok) throw new Error("Notification could not be updated")
+      requireInboxResponse(response)
       if (requestGeneration !== generation.current) return
 
       saved = NOTIFICATION_READ_SCHEMA.parse(await response.json())
       if (requestGeneration !== generation.current) return
       if (saved.read !== !notification.read)
         throw new Error("Notification read state did not change")
-    } catch {
+    } catch (error) {
       if (requestGeneration !== generation.current) return
 
-      setNotifications([])
-      loaded.current = false
-      countReceivedAt.current = null
-      setUnreadCount(0)
-      setNextBefore(null)
-      setFailed(true)
-      setLoading(false)
+      failInboxRequest(error, countRevision)
       return
     }
 

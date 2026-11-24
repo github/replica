@@ -23,17 +23,20 @@ const notification: InboxNotification = {
 const page = { notifications: [notification], nextBefore: null, unreadCount: 12 }
 
 function renderClosedBadge() {
-  return renderHook(() =>
-    useNotificationInbox({
-      path: "/api/notifications/inbox",
-      authenticityToken: "",
-      initialUnreadCount: 4,
-      initialUnreadOnly: true,
-      autoLoad: false,
-      autoCount: true,
-      synchronize: true,
-      limit: 10,
-    }),
+  return renderHook(
+    ({ pathname }) =>
+      useNotificationInbox({
+        path: "/api/notifications/inbox",
+        authenticityToken: "",
+        initialUnreadCount: 4,
+        initialUnreadOnly: true,
+        autoLoad: false,
+        autoCount: true,
+        countRefreshKey: pathname,
+        synchronize: true,
+        limit: 10,
+      }),
+    { initialProps: { pathname: "/repositories/2001" } },
   )
 }
 
@@ -192,32 +195,58 @@ describe("useNotificationInbox()", () => {
     expect(result.current.unreadCount).toBe(0)
   })
 
-  it("loads the latest ten only when the preview opens and keeps the complete unread count", async () => {
-    const fetch = vi.fn().mockResolvedValue(Response.json(page))
+  it("loads the latest ten when the preview opens and ignores an older count that arrives last", async () => {
+    let finishCount!: (response: Response) => void
+    const pendingCount = new Promise<Response>((resolve) => (finishCount = resolve))
+    const fetch = vi
+      .fn()
+      .mockReturnValueOnce(pendingCount)
+      .mockResolvedValueOnce(Response.json(page))
     vi.stubGlobal("fetch", fetch)
-    const { result } = renderHook(() =>
-      useNotificationInbox({
-        path: "/notifications/inbox",
-        authenticityToken: "token",
-        initialUnreadCount: 12,
-        autoLoad: false,
-        limit: 10,
-      }),
-    )
-    expect(fetch).not.toHaveBeenCalled()
-    expect(result.current.unreadCount).toBe(12)
+    const { result } = renderClosedBadge()
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(badgeUrl, expect.anything())
+
     act(() => result.current.onOpen())
     await waitFor(() => expect(result.current.notifications).toHaveLength(1))
-    expect(fetch).toHaveBeenCalledWith(
-      new URL("http://localhost:3000/notifications/inbox?limit=10"),
-      {
-        credentials: "same-origin",
-      },
+    expect(fetch).toHaveBeenLastCalledWith(
+      new URL("/api/notifications/inbox?limit=10&unread=true", window.location.origin),
+      expect.anything(),
     )
+    expect(result.current.unreadCount).toBe(12)
+
+    await act(async () => {
+      finishCount(badgeResponse(2))
+      await pendingCount
+    })
     expect(result.current.unreadCount).toBe(12)
   })
 
-  it("exposes failures, clears inaccessible data, and retries explicitly", async () => {
+  it("keeps the newer navigation count when an older preview finishes last", async () => {
+    let finishPreview!: (response: Response) => void
+    const preview = new Promise<Response>((resolve) => (finishPreview = resolve))
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(badgeResponse(2))
+      .mockReturnValueOnce(preview)
+      .mockResolvedValueOnce(badgeResponse(3))
+    vi.stubGlobal("fetch", fetch)
+    const { result, rerender } = renderClosedBadge()
+    await waitFor(() => expect(result.current.unreadCount).toBe(2))
+
+    act(() => result.current.onOpen())
+    rerender({ pathname: "/welcome" })
+    await waitFor(() => expect(result.current.unreadCount).toBe(3))
+
+    await act(async () => {
+      finishPreview(Response.json({ ...page, unreadCount: 2 }))
+      await preview
+    })
+    expect(result.current.notifications).toEqual([notification])
+    expect(result.current.unreadCount).toBe(3)
+  })
+
+  it("keeps the last unread count when the preview fails and retries explicitly", async () => {
+    const onUnreadCountChange = vi.fn()
     const fetch = vi
       .fn()
       .mockResolvedValueOnce(new Response(null, { status: 503 }))
@@ -228,11 +257,15 @@ describe("useNotificationInbox()", () => {
         path: "/notifications/inbox",
         authenticityToken: "token",
         initialUnreadCount: 12,
+        autoLoad: false,
+        limit: 10,
+        onUnreadCountChange,
       }),
     )
+    act(() => result.current.onOpen())
     await waitFor(() => expect(result.current.failed).toBe(true))
-    expect(result.current.notifications).toHaveLength(0)
-    expect(result.current.unreadCount).toBe(0)
+    expect(result.current.unreadCount).toBe(12)
+    expect(onUnreadCountChange).not.toHaveBeenCalled()
     act(() => result.current.onRetry())
     await waitFor(() => expect(result.current.notifications).toHaveLength(1))
     expect(result.current.failed).toBe(false)
@@ -572,7 +605,34 @@ describe("useNotificationInbox()", () => {
     expect(result.current.unreadCount).toBe(1)
   })
 
-  it("refreshes the closed badge after a separate read when a failed update cleared its count", async () => {
+  it.each([
+    ["clears", 401, 0],
+    ["keeps", 503, 1],
+  ] as const)(
+    "%s the closed badge count when the background request fails with status %s",
+    async (_outcome, status, count) => {
+      const failure = Promise.resolve(new Response(null, { status }))
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(Response.json({ ...page, unreadCount: 1 }))
+        .mockReturnValueOnce(failure)
+      vi.stubGlobal("fetch", fetch)
+      const clock = vi.spyOn(performance, "now").mockReturnValue(10)
+      const { result } = renderClosedBadge()
+      await waitFor(() => expect(result.current.unreadCount).toBe(1))
+
+      clock.mockReturnValue(20)
+      await act(() => {
+        acknowledgeRead(performance.now())
+        return failure
+      })
+      expect(fetch).toHaveBeenCalledTimes(2)
+      expect(fetch).toHaveBeenLastCalledWith(badgeUrl, expect.anything())
+      expect(result.current.unreadCount).toBe(count)
+    },
+  )
+
+  it("recounts on a separate read after a failed update leaves the badge stale", async () => {
     const fetch = vi
       .fn()
       .mockResolvedValueOnce(badgeResponse(3))
@@ -593,8 +653,7 @@ describe("useNotificationInbox()", () => {
     await waitFor(() => expect(result.current.notifications).toHaveLength(2))
     act(() => result.current.onToggleRead(2))
     await waitFor(() => expect(result.current.failed).toBe(true))
-    expect(result.current.unreadCount).toBe(0)
-    expect(result.current.notifications).toHaveLength(0)
+    expect(result.current.unreadCount).toBe(3)
 
     clock.mockReturnValue(20)
     act(() => acknowledgeRead(performance.now()))
@@ -634,32 +693,52 @@ describe("useNotificationInbox()", () => {
   })
 
   it.each([403, 409, 503])(
-    "exposes failed read updates with status %s and retries a fresh page",
+    "reports a failed read with status %s without treating it as saved",
     async (status) => {
+      const onReadChange = vi.fn()
+      const onUnreadCountChange = vi.fn()
+      const refreshedItem =
+        status === 409 ? { ...notification, version: 1, read: true } : notification
+      const refreshedPage = {
+        ...page,
+        notifications:
+          status === 409 ? [refreshedItem] : [{ ...notification, id: 2 }, refreshedItem],
+        unreadCount: status === 409 ? 0 : 2,
+      }
       const fetch = vi
         .fn()
-        .mockResolvedValueOnce(Response.json(page))
+        .mockResolvedValueOnce(Response.json({ ...page, unreadCount: 1 }))
         .mockResolvedValueOnce(new Response(null, { status }))
-        .mockResolvedValueOnce(
-          Response.json({
-            ...page,
-            notifications: [{ ...notification, version: 1, read: true }],
-            unreadCount: 0,
-          }),
-        )
+        .mockResolvedValueOnce(Response.json(refreshedPage))
       vi.stubGlobal("fetch", fetch)
       const { result } = renderHook(() =>
-        useNotificationInbox({ path: "/notifications/inbox", authenticityToken: "token" }),
+        useNotificationInbox({
+          path: "/notifications/inbox",
+          authenticityToken: "token",
+          onReadChange,
+          onUnreadCountChange,
+        }),
       )
       await waitFor(() => expect(result.current.notifications).toHaveLength(1))
       act(() => result.current.onToggleRead(1))
       await waitFor(() => expect(result.current.failed).toBe(true))
-      expect(result.current.notifications).toHaveLength(0)
       expect(result.current.loading).toBe(false)
+      if (status === 403) {
+        expect(result.current.notifications).toHaveLength(0)
+        expect(result.current.unreadCount).toBe(0)
+      } else {
+        expect(result.current.unreadCount).toBe(1)
+        expect(onUnreadCountChange).not.toHaveBeenCalledWith(0)
+      }
+      expect(onReadChange).not.toHaveBeenCalled()
+
       act(() => result.current.onRetry())
-      await waitFor(() => expect(result.current.notifications[0]?.version).toBe(1))
+      await waitFor(() => expect(result.current.unreadCount).toBe(refreshedPage.unreadCount))
       expect(result.current.failed).toBe(false)
-      expect(result.current.unreadCount).toBe(0)
+      expect(result.current.notifications.find((item) => item.id === 1)).toMatchObject({
+        version: refreshedItem.version,
+        read: refreshedItem.read,
+      })
     },
   )
 })
