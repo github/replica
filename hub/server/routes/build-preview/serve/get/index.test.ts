@@ -27,6 +27,12 @@ interface RouteResponse {
   body: Buffer
 }
 
+const BRIDGE_PATHS = [
+  "/__replica/bridge/v1.js",
+  "/__replica/bridge/v2.js",
+  "/__replica/bridge/v3.js",
+]
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((settle) => {
@@ -252,8 +258,9 @@ describe("get()", () => {
       expect(findArtifact).toHaveBeenNthCalledWith(1, buildId, "dist/checkout/cart")
       expect(findArtifact).toHaveBeenNthCalledWith(2, buildId, "dist/index.html")
       expect(response.body.toString()).toContain(
-        '<script src="/__replica/bridge/v1.js"></script></head>',
+        '<script src="/__replica/bridge/v3.js" data-replica-preview-mount=""></script></head>',
       )
+      expect(response.body.toString()).not.toContain("/__replica/bridge/v1.js")
       expect(response.headers["content-type"]).toBe("text/html; charset=utf-8")
       expect(response.headers["cache-control"]).toBe("private, no-cache")
       expect(response.headers["content-length"]).toBe(String(response.body.byteLength))
@@ -624,13 +631,9 @@ describe("get()", () => {
     })
   })
 
-  it("serves the generated hosted bridge only to an authorized preview session", async () => {
+  it.each(BRIDGE_PATHS)("serves %s to a private preview with review and Controls", async (path) => {
     await withServeRoute(async ({ origin, buildId, cookie, dependencies, findArtifact, read }) => {
-      const response = await request(
-        origin,
-        "/__replica/bridge/v1.js",
-        requestHeaders(buildId, origin, cookie),
-      )
+      const response = await request(origin, path, requestHeaders(buildId, origin, cookie))
 
       expect(response.status).toBe(200)
       expect(response.headers["content-type"]).toMatch(/^text\/javascript/)
@@ -643,20 +646,43 @@ describe("get()", () => {
     })
   })
 
-  it("disables review behavior in the public preview bridge", async () => {
-    await withServeRoute(async ({ origin, buildId, shareCookie, dependencies }) => {
-      const response = await request(
-        origin,
-        "/__replica/bridge/v1.js",
-        requestHeaders(buildId, origin, shareCookie),
+  it.each(BRIDGE_PATHS)(
+    "serves %s without review and with the original cache policy for public shares and templates",
+    async (path) => {
+      await withServeRoute(
+        async ({ origin, buildId, shareCookie, templateCookie, dependencies }) => {
+          const browseSource = `globalThis.reviewBridge={origin:"https://hub.example.com",enabled:"false" !== "false"};\n${dependencies.bridgeSource};ReplicaHostedPreviewBridge.installHostedBridge("https://hub.example.com");`
+          for (const [cookie, cacheControl] of [
+            [shareCookie, "private, no-store"],
+            [templateCookie, "private, max-age=300"],
+          ] as const) {
+            const response = await request(origin, path, requestHeaders(buildId, origin, cookie))
+            expect(response.status).toBe(200)
+            expect(response.headers["cache-control"]).toBe(cacheControl)
+            expect(response.body.toString()).toBe(browseSource)
+          }
+        },
       )
+    },
+  )
 
-      expect(response.status).toBe(200)
-      expect(response.headers["cache-control"]).toBe("private, no-store")
-      expect(response.body.toString()).toBe(
-        `globalThis.reviewBridge={origin:"https://hub.example.com",enabled:"false" !== "false"};\n${dependencies.bridgeSource};ReplicaHostedPreviewBridge.installHostedBridge("https://hub.example.com");`,
-      )
-    })
+  it.each(BRIDGE_PATHS)("denies %s without live preview authority", async (path) => {
+    await withServeRoute(
+      async ({ origin, buildId, cookie, shareCookie, restoreSession, readAvailableShareLink }) => {
+        restoreSession.mockResolvedValue(null)
+        readAvailableShareLink.mockResolvedValue(null)
+
+        for (const sessionCookie of ["", cookie, shareCookie]) {
+          const response = await request(
+            origin,
+            path,
+            requestHeaders(buildId, origin, sessionCookie),
+          )
+          expect(response.status).toBe(404)
+          expect(response.body.byteLength).toBe(0)
+        }
+      },
+    )
   })
 
   it("keeps a valid public share separate from an invalid authenticated preview cookie", async () => {

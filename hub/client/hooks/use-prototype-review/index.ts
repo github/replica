@@ -18,6 +18,7 @@ export function usePrototypeReview({
   viewerLogin,
   selectedBuild,
   transport,
+  reviewReadOnly = false,
   filters: controlledFilters,
   onFiltersChange,
   selectedThreadId: controlledThreadId,
@@ -95,7 +96,8 @@ export function usePrototypeReview({
     anchors: anchorReferences,
     onSelectionStart: handleSelectionStart,
     onToggleSidebar: toggleSidebar,
-    selectionBlocked: conversationDraftActive,
+    selectionBlocked: conversationDraftActive || reviewReadOnly,
+    sidebarToggleBlocked: conversationDraftActive,
   })
   const visibleThreads = useMemo(
     () =>
@@ -116,6 +118,20 @@ export function usePrototypeReview({
   const selectedResolution = selectedThread
     ? bridge.resolutions.get(selectedThread.root.id)
     : undefined
+  const focusedThread = useRef<string | null>(null)
+  const focusAnchor = bridge.focusAnchor
+  useEffect(() => {
+    if (!selectedThread || !bridge.ready) {
+      focusedThread.current = null
+      return
+    }
+    if (selectedResolution?.status !== "resolved" && selectedResolution?.status !== "moved") return
+
+    const key = `${selectedBuild?.previewUrl}:${selectedThread.root.id}`
+    if (focusedThread.current === key) return
+    focusedThread.current = key
+    focusAnchor(selectedThread.root.id)
+  }, [bridge.ready, focusAnchor, selectedBuild?.previewUrl, selectedResolution, selectedThread])
   const selectedThreadPoint =
     selectedThread &&
     selectedResolution &&
@@ -155,15 +171,20 @@ export function usePrototypeReview({
   function selectThread(thread: ReviewThread) {
     if (conversationDraftActive && selectedThreadId !== thread.root.id) return
 
-    setSelectedThreadId(thread.root.id)
-    const status = bridge.resolutions.get(thread.root.id)?.status
-    if (status === "resolved" || status === "moved") {
-      bridge.focusAnchor(thread.root.id)
+    if (
+      selectedThreadId === thread.root.id &&
+      !conversationDraftActive &&
+      bridge.ready &&
+      (selectedResolution?.status === "resolved" || selectedResolution?.status === "moved")
+    ) {
+      focusAnchor(thread.root.id)
+      return
     }
+    setSelectedThreadId(thread.root.id)
   }
 
   async function createComment(body: string) {
-    if (!selectedBuild || !bridge.selectedAnchor) return false
+    if (reviewReadOnly || !selectedBuild || !bridge.selectedAnchor) return false
 
     const saved = await comments.createComment(selectedBuild.number, body, bridge.selectedAnchor)
     if (!saved || saved.kind !== "root") return false

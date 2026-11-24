@@ -4,9 +4,11 @@
   // Preview hosts serve this script directly, so it cannot import Vite modules.
   const HUB_ORIGIN = "__REPLICA_HUB_ORIGIN__"
   const REVIEW_ENABLED = "__REPLICA_REVIEW_ENABLED__" !== "false"
+  const previewMount = document.currentScript?.getAttribute("data-replica-preview-mount")
   const PROTOCOL_VERSION = 1
   const ANCHOR_SCHEMA_VERSION = 1
   const REQUEST_ID_MAXIMUM_BYTES = 128
+  const NAVIGATION_ID = /^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/i
   const ANCHORS_PER_MESSAGE = 200
   const ANCHOR_MAXIMUM_BYTES = 16_384
   const PATHNAME_MAXIMUM_BYTES = 2_048
@@ -47,6 +49,7 @@
   let geometryFrame = null
   let pendingFragmentRoute = null
   let fragmentRestoreToken = null
+  let navigationId = null
   const anchors = new Map()
   const geometry = new Map()
 
@@ -238,6 +241,10 @@
       return false
     }
 
+    if (message.type === "replica:bridge:request-navigation-ready") {
+      return NAVIGATION_ID.test(message.requestId) && hasExactKeys(message.payload, [])
+    }
+
     if (
       message.type === "replica:bridge:request-ready" ||
       message.type === "replica:bridge:select-element" ||
@@ -322,9 +329,15 @@
     return search ? `?${search}` : ""
   }
 
-  function post(type, requestId, payload) {
+  function post(type, requestId, payload, scope = navigationId) {
     window.parent.postMessage(
-      { protocolVersion: PROTOCOL_VERSION, requestId, type, payload },
+      {
+        protocolVersion: PROTOCOL_VERSION,
+        requestId,
+        type,
+        payload,
+        ...(scope ? { navigationId: scope } : {}),
+      },
       HUB_ORIGIN,
     )
   }
@@ -1529,8 +1542,18 @@
       return
 
     const message = event.data
-    if (message.type === "replica:bridge:request-ready") {
+    if (message.type === "replica:bridge:request-navigation-ready") {
+      navigationId = message.requestId
+      if (typeof previewMount === "string") {
+        // Older parents ignore this message and still accept the unchanged ready envelope.
+        post("replica:bridge:preview-mount", message.requestId, { mount: previewMount || null })
+      }
       post("replica:bridge:ready", message.requestId, { route: currentRoute() })
+      return
+    }
+    if (message.type === "replica:bridge:request-ready") {
+      // Older parents reject fields outside the original v1 message shape.
+      post("replica:bridge:ready", message.requestId, { route: currentRoute() }, null)
       return
     }
     if (message.type === "replica:bridge:set-theme") {

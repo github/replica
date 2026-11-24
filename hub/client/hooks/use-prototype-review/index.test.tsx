@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react"
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 
-import { resolvedAnchor } from "@/storybook/fixtures/review/anchors"
+import { movedAnchor, resolvedAnchor } from "@/storybook/fixtures/review/anchors"
 import { octocatRootComment } from "@/storybook/fixtures/review/comments"
 import type { PreviewBridgeCommand, PreviewBridgeMessage } from "@utils/preview-bridge/types"
 
@@ -22,7 +22,15 @@ const createdComment = {
   anchor: elementAnchor,
 }
 
-async function openReview() {
+async function openReview({
+  reviewReadOnly,
+  selectedThreadId,
+  deferResolution = false,
+}: {
+  reviewReadOnly?: boolean
+  selectedThreadId?: number
+  deferResolution?: boolean
+} = {}) {
   const fetchMock = vi
     .fn<typeof fetch>()
     .mockImplementation((_input, options) =>
@@ -37,6 +45,7 @@ async function openReview() {
   vi.stubGlobal("fetch", fetchMock)
   const frame = document.createElement("iframe")
   document.body.append(frame)
+  onTestFinished(() => frame.remove())
   const iframeRef = { current: frame }
   const commands: PreviewBridgeCommand[] = []
   vi.spyOn(frame.contentWindow!, "postMessage").mockImplementation(
@@ -50,6 +59,8 @@ async function openReview() {
       prototypeId: "1",
       repositoryId: "2001",
       reviewCommentsPath: commentsPath,
+      reviewReadOnly,
+      selectedThreadId,
       viewerLogin: "octocat",
       selectedBuild: { number: 1, previewUrl },
     }),
@@ -72,16 +83,86 @@ async function openReview() {
     requestId: "ready",
     payload: { route: { pathname: "/", search: "", hash: "" } },
   })
-  receive({
-    type: "replica:bridge:anchors-resolved",
-    protocolVersion: 1,
-    requestId: "resolved",
-    payload: { results: [resolvedAnchor] },
-  })
+  if (!deferResolution) {
+    receive({
+      type: "replica:bridge:anchors-resolved",
+      protocolVersion: 1,
+      requestId: "resolved",
+      payload: { results: [resolvedAnchor] },
+    })
+  }
   return { result, commands, receive, fetchMock }
 }
 
 describe("usePrototypeReview()", () => {
+  it("opens existing comments by shortcut in read-only review and protects an active draft", async () => {
+    const { result, commands, receive } = await openReview({ reviewReadOnly: true })
+    function hostShortcut() {
+      act(() => {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "C", shiftKey: true }))
+      })
+    }
+    function frameShortcut() {
+      receive({
+        type: "replica:bridge:sidebar-toggle-requested",
+        protocolVersion: 1,
+        requestId: "shortcut",
+        payload: {},
+      })
+    }
+
+    hostShortcut()
+    expect(result.current.sidebarOpen).toBe(true)
+    hostShortcut()
+    expect(result.current.sidebarOpen).toBe(false)
+    frameShortcut()
+    expect(result.current.sidebarOpen).toBe(true)
+
+    act(() => {
+      result.current.startElementSelection()
+      result.current.startAreaSelection()
+      result.current.setConversationDraftActive(true)
+    })
+    expect(result.current.bridge.selecting).toBe(false)
+    expect(commands.map(({ type }) => type)).not.toContain("replica:bridge:select-element")
+    expect(commands.map(({ type }) => type)).not.toContain("replica:bridge:select-area")
+    hostShortcut()
+    expect(result.current.sidebarOpen).toBe(true)
+    frameShortcut()
+    expect(result.current.sidebarOpen).toBe(true)
+  })
+
+  it.each([resolvedAnchor, movedAnchor])(
+    "defers deep-link focus until the anchor is $status and refocuses when selected again",
+    async (resolution) => {
+      const { result, commands, receive } = await openReview({
+        selectedThreadId: octocatRootComment.id,
+        deferResolution: true,
+      })
+      function focusCommands() {
+        return commands.filter(({ type }) => type === "replica:bridge:focus-anchor")
+      }
+      expect(result.current.selectedThreadId).toBe(octocatRootComment.id)
+      expect(focusCommands()).toHaveLength(0)
+
+      receive({
+        type: "replica:bridge:anchors-resolved",
+        protocolVersion: 1,
+        requestId: "resolved",
+        payload: { results: [resolution] },
+      })
+      expect(focusCommands().map(({ payload }) => payload)).toEqual([
+        { commentId: octocatRootComment.id },
+      ])
+
+      act(() => result.current.selectThread(result.current.selectedThread!))
+      expect(focusCommands().map(({ payload }) => payload)).toEqual([
+        { commentId: octocatRootComment.id },
+        { commentId: octocatRootComment.id },
+      ])
+    },
+  )
+
   it.each([false, true])(
     "opens a targeted thread without changing sidebar open state %s",
     async (sidebarOpen) => {

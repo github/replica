@@ -36,6 +36,45 @@ function mountedAssetFixture(basePath?: string) {
 }
 
 describe("readBuildPreviewFile()", () => {
+  it.each([true, false])(
+    "reports a mount only when the saved manifest matches: %s",
+    async (matches) => {
+      const mount = "/previews/github/901/1201/"
+      const marker = Buffer.from(
+        JSON.stringify({ basePath: matches ? mount : "/previews/github/901/1202/" }),
+      )
+      const html = Buffer.from("<h1>Checkout</h1>")
+      const result = await readBuildPreviewFile(
+        {
+          buildId: "fixture",
+          acceptsHtml: true,
+          requestPath: `${mount}checkout`,
+          reportMount: true,
+        },
+        {
+          findArtifact: (_id, path) => {
+            if (path === "dist/replica-preview-base.json")
+              return Promise.resolve({ storageKey: "marker", byteLength: marker.length })
+            if (path === "dist/index.html")
+              return Promise.resolve({ storageKey: "entry", byteLength: html.length })
+            return Promise.resolve(null)
+          },
+          storage: {
+            isReady: vi.fn(),
+            read: (key) =>
+              Promise.resolve({ status: "ok", bytes: key === "marker" ? marker : html }),
+            write: vi.fn(),
+            delete: vi.fn(),
+          },
+        },
+      )
+      if (result.status !== "ok") throw new Error("Expected the fixture document")
+      expect(new TextDecoder().decode(result.bytes)).toContain(
+        `data-replica-preview-mount="${matches ? mount : ""}"`,
+      )
+    },
+  )
+
   it.each([
     { preview: "legacy", distOnly: false },
     { preview: "hosted public", distOnly: true },

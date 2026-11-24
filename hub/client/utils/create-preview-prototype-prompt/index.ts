@@ -1,7 +1,8 @@
+import { normalizeStartPage } from "@utils/normalize-start-page"
+import { previewLogicalPathname } from "@utils/preview-logical-pathname"
 import type { ReviewRoute } from "@utils/review-anchor/types"
 
 const URI_PATH = /^(?:[a-z0-9._~!$&'()*+,;=:@/-]|%[0-9a-f]{2})*$/i
-const URI_FRAGMENT = /^(?:[a-z0-9._~!$&'()*+,;=:@/?-]|%[0-9a-f]{2})*$/i
 
 export function createPreviewPrototypePrompt({
   brief,
@@ -9,50 +10,63 @@ export function createPreviewPrototypePrompt({
   branchPageInstructions,
   templateLandingPageInstructions,
   previewUrl,
+  previewReady,
   initialRoute,
+  templateRoute = initialRoute,
   route,
+  previewMount,
 }: {
   brief: string
   branchInstructions: string
   branchPageInstructions: string
   templateLandingPageInstructions?: string
   previewUrl?: string
+  previewReady?: boolean
   initialRoute?: string
+  templateRoute?: string
   route?: ReviewRoute | null
+  previewMount?: string | null
 }) {
-  let pageContext = ""
-  let landingPageInstructions = ""
-  if (previewUrl) {
-    try {
-      const url = new URL(previewUrl)
-      const startingRoute = initialRoute ?? `${url.pathname}${url.search}${url.hash}`
-      const reportedRoute = route ? `${route.pathname}${route.search}${route.hash}` : startingRoute
-      const viewedRoute =
-        initialRoute !== undefined || templateLandingPageInstructions
-          ? [reportedRoute, startingRoute].map(templateRoute).find((value) => value !== undefined)
-          : reportedRoute
-      const decodedPathname = decodeURIComponent(viewedRoute?.split(/[?#]/, 1)[0] ?? "")
-      if (
-        viewedRoute &&
-        ["http:", "https:"].includes(url.protocol) &&
-        !url.username &&
-        !url.password &&
-        decodedPathname.startsWith("/") &&
-        !decodedPathname.startsWith("//") &&
-        !decodedPathname.includes("\\") &&
-        !/^\/__replica(?:\/|$)/i.test(decodedPathname)
-      ) {
-        pageContext = branchPageInstructions.replace("%{route}", () => JSON.stringify(viewedRoute))
-        if (templateLandingPageInstructions) {
-          landingPageInstructions = templateLandingPageInstructions.replace("%{route}", () =>
-            JSON.stringify(viewedRoute),
-          )
-        }
-      }
-    } catch {
-      // An unavailable preview destination must not prevent submitting the brief.
-    }
-  }
+  const url = previewUrl ? URL.parse(previewUrl) : null
+  const previewAvailable =
+    previewReady !== false &&
+    url &&
+    ["http:", "https:"].includes(url.protocol) &&
+    !url.username &&
+    !url.password
+  const declared = initialRoute ? URL.parse(initialRoute, "https://preview.invalid") : null
+  const startingPathname =
+    initialRoute === undefined
+      ? url?.pathname
+      : normalizeStartPage(initialRoute)
+        ? declared?.pathname
+        : undefined
+  const startingHash = declared?.hash ?? url?.hash ?? ""
+  const starting = promptPathname(startingPathname)
+  const viewed = route ? promptPathname(previewLogicalPathname(route.pathname, previewMount)) : null
+  const viewedHash = viewed ? (route?.hash ?? "") : startingHash
+  const pathname =
+    previewAvailable &&
+    (!route || viewed || initialRoute !== undefined || templateLandingPageInstructions)
+      ? (viewed ?? starting)
+      : null
+  const pageContext = pathname
+    ? branchPageInstructions.replace("%{route}", () => JSON.stringify(pathname))
+    : ""
+  const template =
+    templateRoute && normalizeStartPage(templateRoute)
+      ? URL.parse(templateRoute, "https://preview.invalid")
+      : null
+  const landingPathname = pathname ?? promptPathname(template?.pathname)
+  const landingHash = pathname ? viewedHash : (template?.hash ?? "")
+  const landingPageInstructions =
+    landingPathname &&
+    templateLandingPageInstructions &&
+    !landingHash.startsWith("#/") &&
+    !landingHash.startsWith("#!") &&
+    !(landingPathname === template?.pathname && /^#(?:\/|!)/.test(template.hash))
+      ? templateLandingPageInstructions.replace("%{route}", () => JSON.stringify(landingPathname))
+      : ""
 
   return [
     brief.trim(),
@@ -64,33 +78,15 @@ export function createPreviewPrototypePrompt({
     .join("\n\n")
 }
 
-function templateRoute(value: string) {
-  if (
-    !value.startsWith("/") ||
-    value.startsWith("//") ||
-    new TextEncoder().encode(value).length > 2048 ||
-    /[\s\\]|\p{Cc}/u.test(value)
-  )
-    return undefined
+function promptPathname(value: string | undefined) {
+  if (!value?.startsWith("/") || /[?#]/.test(value) || !normalizeStartPage(value)) return
 
   try {
-    const pathname = decodeURIComponent(value.split(/[?#]/, 1)[0]!)
-    if (
-      pathname.startsWith("//") ||
-      /[\s\\%]|\p{Cc}/u.test(pathname) ||
-      pathname.split("/").some((segment) => [".", "..", ".replica-internal"].includes(segment)) ||
-      /^\/__replica(?:\/|$)/i.test(pathname)
-    )
-      return undefined
-
-    const url = new URL(value, "http://preview.invalid")
-    const serialized = `${url.pathname}${url.search}${url.hash}`
-    return new TextEncoder().encode(serialized).length <= 2048 &&
-      URI_PATH.test(url.pathname) &&
-      URI_FRAGMENT.test(url.hash.slice(1))
-      ? serialized
-      : undefined
+    if (/[?#]/u.test(decodeURIComponent(value))) return
   } catch {
-    return undefined
+    return
   }
+
+  const pathname = URL.parse(value, "https://preview.invalid")?.pathname
+  return pathname && URI_PATH.test(pathname) && normalizeStartPage(pathname) ? pathname : undefined
 }

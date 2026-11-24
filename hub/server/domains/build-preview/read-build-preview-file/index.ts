@@ -51,6 +51,7 @@ export async function readBuildPreviewFile(
   }
   const mounted = readPrivatePreviewAddress(requestPath)
   let distPath = requestPath
+  let mount: string | undefined
   if (mounted) {
     const marker = await dependencies.findArtifact(input.buildId, privatePreviewManifestPath)
     if (marker && marker.byteLength > 0 && marker.byteLength <= 256) {
@@ -64,6 +65,7 @@ export async function readBuildPreviewFile(
           stored.bytes.byteLength === marker.byteLength &&
           declaresPreviewMount(stored.bytes, mounted.address.mount)
         ) {
+          mount = mounted.address.mount
           distPath = `/${mounted.relativePath}`
         }
       } finally {
@@ -128,7 +130,9 @@ export async function readBuildPreviewFile(
   const html = contentType.startsWith("text/html")
   return {
     status: "ok",
-    bytes: html ? injectPreviewBridge(stored.bytes) : stored.bytes,
+    bytes: html
+      ? injectPreviewBridge(stored.bytes, input.reportMount ? (mount ?? null) : undefined)
+      : stored.bytes,
     contentType,
     html,
   }

@@ -35,6 +35,7 @@ export async function resolveBuildPreviewLaunch(
   buildId: string,
   page: string,
   dependencies: LaunchDependencies,
+  routeKind?: "logical",
 ): Promise<{ status: "ok"; destination: string } | { status: "unavailable" }> {
   const marker = await dependencies.findArtifact(buildId, privatePreviewManifestPath)
   if (
@@ -55,11 +56,16 @@ export async function resolveBuildPreviewLaunch(
       return { status: "ok", destination: page }
     }
     const mount = readCanonicalMount(stored.bytes)
-    if (!mount || page.startsWith(mount)) return { status: "ok", destination: page }
+    if (!mount || (routeKind !== "logical" && page.startsWith(mount))) {
+      return { status: "ok", destination: page }
+    }
 
     // The file reader needs the slash at the mount root.
     const pathname = page.split(/[?#]/, 1)[0]!
-    const tail = pathname === mount.slice(0, -1) ? page.slice(pathname.length) : page.slice(1)
+    const tail =
+      routeKind !== "logical" && pathname === mount.slice(0, -1)
+        ? page.slice(pathname.length)
+        : page.slice(1)
     return { status: "ok", destination: `${mount}${tail}` }
   } finally {
     release()

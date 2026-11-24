@@ -262,6 +262,7 @@ export const StandalonePrivatePreview: Story = {
       emptyHeading: "Private preview",
       emptyLabel: "This Build opens in a separate tab.",
       privatePreviewUrl: "https://hub.example.com/api/private-preview/launch/2001/4001",
+      privateReviewLink: "https://hub.example.com/repositories/2001/prototypes/1?build=3",
     },
   },
 }
@@ -271,6 +272,31 @@ export const PrivateLinkWithEmbeddedReview: Story = {
     data: {
       ...data,
       privatePreviewUrl: "https://hub.example.com/api/private-preview/launch/2001/4001",
+      privateReviewLink: "https://hub.example.com/repositories/2001/prototypes/1?build=3",
+    },
+  },
+}
+
+export const PrivateReviewLocationUnavailable: Story = {
+  args: {
+    data: {
+      ...data,
+      privatePreviewUrl: "https://hub.example.com/api/private-preview/launch/2001/4001",
+      privateReviewLink: null,
+    },
+  },
+}
+
+export const ReviewScreenshotFallback: Story = {
+  args: {
+    monitorPreview: true,
+    review: reviewState({ bridge: { ...reviewState().bridge, ready: false } }),
+    data: {
+      ...data,
+      desktopScreenshotUrl: new URL(
+        "/prototype-preview/templates/welcome.png",
+        window.location.href,
+      ).href,
     },
   },
 }

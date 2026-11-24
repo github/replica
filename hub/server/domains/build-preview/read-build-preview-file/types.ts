@@ -4,6 +4,7 @@ export interface ReadBuildPreviewFileInput {
   acceptsHtml: boolean
   buildId: string
   distOnly?: boolean
+  reportMount?: boolean
   requestPath: string
 }
 

@@ -1,5 +1,9 @@
 import type { RequestHandler } from "express"
 
+import {
+  LEGACY_PREVIEW_BRIDGE_PATHS,
+  PREVIEW_BRIDGE_PATH,
+} from "../../../../domains/build-preview/inject-preview-bridge/constants.ts"
 import { readBuildPreviewFile } from "../../../../domains/build-preview/read-build-preview-file/index.ts"
 import { readPreviewBuildId } from "../../../../domains/build-preview/read-preview-build-id/index.ts"
 import { readPreviewSession } from "../../../../domains/build-preview/read-preview-session/index.ts"
@@ -114,7 +118,10 @@ export function get(
         Boolean(privateAuthorized && screenshot),
       )
 
-      if (request.path === "/__replica/bridge/v1.js") {
+      if (
+        request.path === PREVIEW_BRIDGE_PATH ||
+        LEGACY_PREVIEW_BRIDGE_PATHS.includes(request.path)
+      ) {
         const reviewSource = (dependencies.reviewBridgeSource ?? "")
           .replace('"__REPLICA_HUB_ORIGIN__"', JSON.stringify(dependencies.applicationOrigin))
           .replace(
@@ -135,6 +142,7 @@ export function get(
           acceptsHtml: Boolean(request.accepts("html")),
           buildId,
           distOnly: publicLink?.hosted,
+          reportMount: Boolean(privateAuthorized),
           requestPath: request.path,
         },
         {

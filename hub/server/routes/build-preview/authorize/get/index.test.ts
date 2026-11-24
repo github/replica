@@ -188,52 +188,68 @@ describe("get()", () => {
   })
 
   it.each([
-    [undefined, "/previews/github/901/1201/"],
+    [undefined, "/previews/github/901/1201/", undefined],
     [
       "/checkout?view=%2B&view=summary#order%20details",
       "/previews/github/901/1201/checkout?view=%2B&view=summary#order%20details",
+      "logical",
     ],
     [
       "/previews/github/901/1201/checkout?step=shipping#address",
       "/previews/github/901/1201/checkout?step=shipping#address",
+      undefined,
     ],
     [
       "/previews/github/901/1201?step=shipping#address",
       "/previews/github/901/1201/?step=shipping#address",
+      undefined,
     ],
-  ])("launches a marked Build at %s within its declared mount", async (route, destination) => {
-    await withAuthorizeRoute(async (origin, { findArtifact, read }, key, findTargetById) => {
-      const buildId = randomUUID()
-      findTargetById.mockResolvedValue({ buildId, startPage: "/", artifactPath: "dist/index.html" })
-      const bytes = Buffer.from(JSON.stringify({ basePath: "/previews/github/901/1201/" }))
-      findArtifact.mockResolvedValue({
-        storageKey: "base-marker",
-        byteLength: bytes.length,
-      })
-      read.mockResolvedValue({ status: "ok", bytes })
-      const grant = createPreviewGrant(
-        {
+    [
+      "/previews/github/901/1201/example",
+      "/previews/github/901/1201/previews/github/901/1201/example",
+      "logical",
+    ],
+  ])(
+    "launches a marked Build at %s within its declared mount",
+    async (route, destination, kind) => {
+      await withAuthorizeRoute(async (origin, { findArtifact, read }, key, findTargetById) => {
+        const buildId = randomUUID()
+        findTargetById.mockResolvedValue({
           buildId,
-          target: "preview",
-          expiresAt: new Date(Date.now() + 30_000),
-          sessionDigest: "a".repeat(64),
-        },
-        key,
-      )
-      const query = new URLSearchParams({ grant })
-      if (route !== undefined) query.set("route", route)
-      const response = await request(
-        origin,
-        `/__replica/authorize?${query}`,
-        `${buildId}.preview.localhost:${new URL(origin).port}`,
-      )
+          startPage: "/",
+          artifactPath: "dist/index.html",
+        })
+        const bytes = Buffer.from(JSON.stringify({ basePath: "/previews/github/901/1201/" }))
+        findArtifact.mockResolvedValue({
+          storageKey: "base-marker",
+          byteLength: bytes.length,
+        })
+        read.mockResolvedValue({ status: "ok", bytes })
+        const grant = createPreviewGrant(
+          {
+            buildId,
+            target: "preview",
+            expiresAt: new Date(Date.now() + 30_000),
+            sessionDigest: "a".repeat(64),
+          },
+          key,
+        )
+        const query = new URLSearchParams({ grant })
+        if (route !== undefined) query.set("route", route)
+        if (kind) query.set("route_kind", kind)
+        const response = await request(
+          origin,
+          `/__replica/authorize?${query}`,
+          `${buildId}.preview.localhost:${new URL(origin).port}`,
+        )
 
-      expect(response.status).toBe(303)
-      expect(response.headers.location).toBe(destination)
-      expect(findArtifact).toHaveBeenCalledWith(buildId, privatePreviewManifestPath)
-      expect(read).toHaveBeenCalledWith("base-marker")
-    })
-  })
+        expect(response.status).toBe(303)
+        expect(response.headers.location).toBe(destination)
+        expect(findArtifact).toHaveBeenCalledWith(buildId, privatePreviewManifestPath)
+        expect(read).toHaveBeenCalledWith("base-marker")
+      })
+    },
+  )
 
   it.each([
     ["oversized metadata", 257, "/previews/github/901/1201/", false],

@@ -48,7 +48,12 @@ export function get(dependencies: BuildPreviewRouteDependencies): RequestHandler
         destination = `/__replica/${grant.screenshotPath}`
       } else if (documentLaunch) {
         const page = normalizedRoute ?? normalizeStartPage(target.startPage) ?? "/"
-        const launch = await resolveBuildPreviewLaunch(buildId, page, dependencies)
+        const launch = await resolveBuildPreviewLaunch(
+          buildId,
+          page,
+          dependencies,
+          normalizedRoute && request.query.route_kind === "logical" ? "logical" : undefined,
+        )
         if (
           !(await dependencies.findTargetById(buildId, grant.target)) ||
           !(await dependencies.restoreSession?.(grant.sessionDigest)) ||

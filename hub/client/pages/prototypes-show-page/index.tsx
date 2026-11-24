@@ -11,6 +11,7 @@ import { HubIconButton } from "@components/hub-icon-button"
 import { CopyableTextInput } from "@components/copyable-text-input"
 import { PrototypeBriefComposer } from "@components/prototype-brief-composer"
 import { PrototypePreview } from "@features/prototype-preview"
+import { PreviewUnavailable } from "@features/preview-unavailable"
 import { MinimizedReviewToolbar } from "@features/minimized-review-toolbar"
 import { PrototypeWorkspace } from "@features/prototype-workspace"
 import type { PrototypeWorkspaceHeaderProps } from "@features/prototype-workspace-header/types"
@@ -21,6 +22,8 @@ import { ReviewThreadConversation } from "@features/review-thread-conversation"
 import { useCopilotHandoff } from "@hooks/use-copilot-handoff"
 import { createPrototypeSubmission } from "@utils/create-prototype-submission"
 import { createPreviewPrototypePrompt } from "@utils/create-preview-prototype-prompt"
+import { previewLogicalPathname } from "@utils/preview-logical-pathname"
+import { readPreviewReturnPath } from "@utils/read-preview-return-path"
 
 import { PrototypeDescriptionDialog } from "./prototype-description-dialog"
 import type { PrototypePreviewOnlyPageProps, PrototypesShowPageProps } from "./types"
@@ -41,6 +44,7 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
     onOpenApp,
     authorizeHandoff,
     viewerUrl,
+    monitorPreview,
     minimized: controlledMinimized,
     initialMinimized = false,
     onMinimizedChange,
@@ -116,10 +120,15 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
       viewerUrl.search = bridge.route.search
       viewerUrl.hash = bridge.route.hash
       address = viewerUrl.toString()
-      authorizationUrl.searchParams.set(
-        "route",
-        `${bridge.route.pathname}${bridge.route.search}${bridge.route.hash}`,
+      const returnPath = readPreviewReturnPath(
+        `${previewLogicalPathname(bridge.route.pathname, bridge.previewMount)}${bridge.route.search}${bridge.route.hash}`,
       )
+      if (returnPath) {
+        authorizationUrl.searchParams.set("route", returnPath)
+        if (bridge.previewMount !== undefined)
+          authorizationUrl.searchParams.set("route_kind", "logical")
+        else authorizationUrl.searchParams.delete("route_kind")
+      }
       externalAddress = authorizationUrl.toString()
     } else {
       authorizationUrl.pathname = bridge.route.pathname
@@ -135,14 +144,18 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
   }
   const privatePreviewActions = data.privatePreviewUrl ? (
     <div className="review-shell__address-bar">
-      <CopyableTextInput
-        compact
-        value={data.privatePreviewUrl}
-        label={data.privatePreviewLinkLabel}
-        copyLabel={data.copyPrivatePreviewLinkLabel}
-        copiedLabel={data.copiedPrivatePreviewLinkLabel}
-        copyErrorLabel={data.copyPreviewUrlErrorLabel}
-      />
+      {data.privateReviewLink === null ? (
+        <span role="status">This exact review location cannot be copied.</span>
+      ) : (
+        <CopyableTextInput
+          compact
+          value={data.privateReviewLink ?? data.privatePreviewUrl}
+          label={data.privatePreviewLinkLabel}
+          copyLabel={data.copyPrivatePreviewLinkLabel}
+          copiedLabel={data.copiedPrivatePreviewLinkLabel}
+          copyErrorLabel={data.copyPreviewUrlErrorLabel}
+        />
+      )}
       <HubIconButton
         as="a"
         href={data.privatePreviewUrl}
@@ -172,8 +185,10 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
       branchInstructions: data.branchInstructions,
       branchPageInstructions: data.branchPageInstructions,
       previewUrl: data.selectedBuild?.previewUrl,
+      previewReady: monitorPreview ? bridge.ready : undefined,
       initialRoute: data.branchInitialRoute,
       route: bridge.route,
+      previewMount: bridge.previewMount,
     })
     await handoff.prepare(() =>
       setSubmission(
@@ -300,6 +315,16 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
                   controlsToolbar={workspaceControlsToolbar}
                   minimizedControlsToolbar={controlsToolbar}
                   onLoad={bridge.handleFrameLoad}
+                  ready={monitorPreview ? bridge.ready : undefined}
+                  fallback={
+                    <PreviewUnavailable
+                      heading="Interactive preview unavailable"
+                      description="Your browser may block this preview when embedded."
+                      openUrl={externalAddress}
+                      screenshot={data.desktopScreenshotUrl ?? data.narrowScreenshotUrl}
+                      narrowScreenshot={data.narrowScreenshotUrl}
+                    />
+                  }
                   minimized={minimized}
                   minimize={{ label: data.minimizeHubLabel, onClick: () => changeMinimized(true) }}
                 >
@@ -347,11 +372,20 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
                 </PrototypePreview>
               ) : (
                 <div className="review-shell__empty">
-                  <HubEmptyState
-                    visual={<HistoryIcon size={24} />}
-                    heading={data.emptyHeading}
-                    description={data.emptyLabel}
-                  />
+                  {data.desktopScreenshotUrl || data.narrowScreenshotUrl ? (
+                    <PreviewUnavailable
+                      heading={data.emptyHeading}
+                      description={data.emptyLabel}
+                      screenshot={data.desktopScreenshotUrl ?? data.narrowScreenshotUrl}
+                      narrowScreenshot={data.narrowScreenshotUrl}
+                    />
+                  ) : (
+                    <HubEmptyState
+                      visual={<HistoryIcon size={24} />}
+                      heading={data.emptyHeading}
+                      description={data.emptyLabel}
+                    />
+                  )}
                   {privatePreviewActions}
                   {conversation}
                 </div>
