@@ -10,7 +10,7 @@
   box-shadow: var(--hub-shadow-floating);
 }
 
-.review-page.review-page--comments-open {
+.review-page--comments-open:not(.review-page--minimized) {
   grid-template-columns: minmax(0, 1fr) minmax(0, 20rem);
   column-gap: 1rem;
 }
@@ -58,7 +58,7 @@
 }
 
 @container (max-width: 48rem) {
-  .review-page.review-page--comments-open {
+  .review-page--comments-open:not(.review-page--minimized) {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) minmax(0, 1fr) auto;
   }
