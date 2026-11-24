@@ -19,8 +19,11 @@ import { authorizeCopilotHandoff } from "@application/hub/requests/authorize-cop
 import { productBrowseData } from "@application/hub/view-models/product-browse-data"
 
 import { requestProductJson } from "../request-product-json"
+import type { WorkspaceRouteHandle } from "../workspace/types"
 
 const EMPTY_ANCHORS: AnchorReference[] = []
+
+export const handle = { workspaceSection: "new" } satisfies WorkspaceRouteHandle
 
 export function clientLoader({ request, params }: Pick<LoaderFunctionArgs, "request" | "params">) {
   const repositoryId = readRecordIdentifier(params.repositoryId, "repository")

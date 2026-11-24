@@ -7,6 +7,12 @@ import type { WorkspaceResponse } from "@application/hub/contracts/types"
 import { settingsController } from "../settings-controller"
 import type { SettingsRouteData } from "../settings-controller/types"
 import { settingsMeta } from "../settings-meta"
+import type { WorkspaceRouteHandle } from "../workspace/types"
+
+export const handle = {
+  workspaceSection: "notifications",
+  independentOfRepositoryNavigation: true,
+} satisfies WorkspaceRouteHandle
 
 const settings = settingsController("notifications", "workspace")
 function isMockMode() {

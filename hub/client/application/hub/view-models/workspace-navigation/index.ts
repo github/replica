@@ -111,10 +111,10 @@ export function workspaceNavigation(
       : [],
     securityAuditLabel: "Security audit",
     securityAuditPath: real
-      ? repositoryAdmin && repositoryId
-        ? resourcePath("/settings/audit?scope=repository", search, context)
-        : admin
-          ? resourcePath("/settings/audit?scope=hub", search, context)
+      ? admin
+        ? resourcePath("/settings/audit?scope=hub", search, context)
+        : repositoryAdmin && repositoryId
+          ? resourcePath("/settings/audit?scope=repository", search, context)
           : null
       : admin || repositoryId !== null
         ? resourcePath("/settings/audit", search, {

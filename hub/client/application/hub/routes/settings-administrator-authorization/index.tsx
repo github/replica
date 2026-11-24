@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useContext, useState } from "react"
 import { useNavigate } from "react-router"
 import { z } from "zod"
 
@@ -9,13 +9,20 @@ import { cancelAdministratorAuthorization } from "@application/hub/requests/canc
 import { continueAdministratorAuthorization } from "@application/hub/requests/continue-administrator-authorization"
 import { getAdministratorAuthorization } from "@application/hub/requests/get-administrator-authorization"
 import { getCurrentHubSession } from "@application/hub/requests/get-current-hub-session"
-import { loadAdministratorWorkspace } from "@application/hub/load-administrator-workspace"
+import { useAdministrationNavigation } from "@application/hub/use-administration-navigation"
 import { administratorProviderLabel } from "@application/hub/view-models/administrator-provider-label"
 import { resourcePath } from "@application/hub/view-models/resource-path"
 import { ApiContractError } from "@application/hub/requests/api-contract-error"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
+import { WorkspaceCompletionContext } from "@application/hub/workspace-completion-context"
 
 import type { Route } from "./+types/index"
+import type { WorkspaceRouteHandle } from "../workspace/types"
+
+export const handle = {
+  workspaceSection: "admins",
+  independentOfRepositoryNavigation: true,
+} satisfies WorkspaceRouteHandle
 
 const authorizationIdSchema = z.uuid()
 
@@ -30,15 +37,11 @@ export async function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "re
   if (session.role !== "ADMINISTRATOR") {
     throw new Response("Administrator access is required.", { status: 403 })
   }
-  const [{ authorization }, workspace] = await Promise.all([
-    getAdministratorAuthorization(request, authorizationId.data),
-    loadAdministratorWorkspace(request, session, "admins"),
-  ])
+  const { authorization } = await getAdministratorAuthorization(request, authorizationId.data)
   return {
     authorizationId: authorizationId.data,
     authorization,
     page: {
-      administrationWorkspace: workspace,
       productName: "Replica Hub",
       pageTitle: "Complete administrator role change",
       heading: "Complete administrator role change",
@@ -63,7 +66,7 @@ export async function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "re
         })),
       },
     },
-    session,
+    viewerId: session.userId,
   }
 }
 
@@ -74,19 +77,19 @@ export function meta() {
 export default function SettingsAdministratorAuthorization({
   loaderData,
 }: Pick<Route.ComponentProps, "loaderData">) {
+  const workspace = useAdministrationNavigation("admins", loaderData.viewerId)
+  const complete = useContext(WorkspaceCompletionContext)
   const navigate = useNavigate()
   const [result, setResult] = useState<
-    | { state: "idle" }
-    | { state: "busy" }
-    | { state: "error"; message: string }
-    | { state: "access-removed"; notice: string; sessionEnded: boolean }
+    { state: "idle" } | { state: "busy" } | { state: "error"; message: string }
   >({ state: "idle" })
+
+  if (!complete) throw new Error("Administrator authorization requires the signed-in layout.")
 
   function administratorsPath(result: "cancelled" | "changed") {
     return resourcePath("/settings/administrators", new URLSearchParams(), {
       result,
-      repositoryId:
-        loaderData.page.administrationWorkspace.repository?.selectedRepositoryId ?? null,
+      repositoryId: workspace.repository?.selectedRepositoryId ?? null,
     })
   }
 
@@ -114,22 +117,13 @@ export default function SettingsAdministratorAuthorization({
           (error instanceof ApiRequestError || error instanceof ApiContractError) &&
           error.status === 401
         ) {
-          setResult({
-            state: "access-removed",
-            notice: "Your Hub administrator access was removed and this session ended.",
-            sessionEnded: true,
-          })
+          complete?.(<AdministratorAccessRemoved sessionEnded />)
           return
         }
         throw error
       }
       if (session.role !== "ADMINISTRATOR") {
-        setResult({
-          state: "access-removed",
-          notice:
-            "Your Hub administrator access was removed. Your account is no longer a Hub administrator.",
-          sessionEnded: false,
-        })
+        complete?.(<AdministratorAccessRemoved sessionEnded={false} />)
         return
       }
       void navigate(administratorsPath("changed"))
@@ -149,39 +143,6 @@ export default function SettingsAdministratorAuthorization({
     }
   }
 
-  if (result.state === "access-removed") {
-    return (
-      <HubAdminsPage
-        data={{
-          administrationWorkspace: null,
-          authenticatedWorkspace: null,
-          signedOut: result.sessionEnded,
-          heading: "Hub administrator role changed",
-          description: result.sessionEnded
-            ? "Your account no longer has Hub administrator controls. Hub ended this browser session when the role changed."
-            : "Your account no longer has Hub administrator controls. Your other Hub access is unchanged.",
-          auditLabel: "Security audit",
-          auditPath: null,
-          repositoriesLabel: "Home",
-          repositoriesPath: "/",
-          signOutLabel: "Sign out",
-          signOutPath: "/api/auth/session/sign-out",
-          authenticityToken: "",
-          notice: result.notice,
-          alert: null,
-          pageTitle: "Hub administrator role changed",
-          emptyLabel: "Administrator navigation has been removed from this session.",
-          nextLabel: "Next page",
-          nextPath: null,
-          addLabel: "Add administrator",
-          administratorsLabel: null,
-          addAdministrator: null,
-          users: [],
-        }}
-        onSearch={() => Promise.resolve({ users: [], more: false })}
-      />
-    )
-  }
   return (
     <div
       onSubmit={(event) => {
@@ -192,9 +153,45 @@ export default function SettingsAdministratorAuthorization({
       }}
     >
       <FreshAuthorizationPage
-        data={loaderData.page}
+        data={{ ...loaderData.page, administrationWorkspace: workspace }}
         error={result.state === "error" ? result.message : null}
       />
     </div>
+  )
+}
+
+function AdministratorAccessRemoved({ sessionEnded }: { sessionEnded: boolean }) {
+  return (
+    <HubAdminsPage
+      data={{
+        administrationWorkspace: null,
+        authenticatedWorkspace: null,
+        signedOut: sessionEnded,
+        heading: "Hub administrator role changed",
+        description: sessionEnded
+          ? "Your account no longer has Hub administrator controls. Hub ended this browser session when the role changed."
+          : "Your account no longer has Hub administrator controls. Your other Hub access is unchanged.",
+        auditLabel: "Security audit",
+        auditPath: null,
+        repositoriesLabel: "Home",
+        repositoriesPath: "/",
+        signOutLabel: "Sign out",
+        signOutPath: "/api/auth/session/sign-out",
+        authenticityToken: "",
+        notice: sessionEnded
+          ? "Your Hub administrator access was removed and this session ended."
+          : "Your Hub administrator access was removed. Your account is no longer a Hub administrator.",
+        alert: null,
+        pageTitle: "Hub administrator role changed",
+        emptyLabel: "Administrator navigation has been removed from this session.",
+        nextLabel: "Next page",
+        nextPath: null,
+        addLabel: "Add administrator",
+        administratorsLabel: null,
+        addAdministrator: null,
+        users: [],
+      }}
+      onSearch={() => Promise.resolve({ users: [], more: false })}
+    />
   )
 }

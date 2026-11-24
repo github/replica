@@ -11,6 +11,10 @@ import { productNewData } from "@application/hub/view-models/product-new-data"
 
 import { requestProductJson } from "../request-product-json"
 
+import type { WorkspaceRouteHandle } from "../workspace/types"
+
+export const handle = { workspaceSection: "new" } satisfies WorkspaceRouteHandle
+
 export function clientLoader({ request, params }: Pick<LoaderFunctionArgs, "request" | "params">) {
   const repositoryId = readRecordIdentifier(params.repositoryId, "repository")
   return requestProductJson(

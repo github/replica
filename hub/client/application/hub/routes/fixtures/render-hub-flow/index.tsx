@@ -7,7 +7,7 @@ import { HubThemeProvider } from "@hooks/use-hub-theme"
 import * as hubApi from "@application/hub/bootstrap-hub-api"
 import { clientLoader as loadSession, ErrorBoundary, HydrateFallback } from "@application/hub/root"
 import { clientLoader as loadBuildHistory } from "@application/hub/routes/build-history"
-import { clientLoader as loadHome } from "@application/hub/routes/home"
+import Home from "@application/hub/routes/home"
 import {
   clientAction as savePrototype,
   clientLoader as loadPrototype,
@@ -20,7 +20,6 @@ import { clientLoader as loadWorkspace } from "@application/hub/routes/workspace
 import { RootComponent } from "./root-component"
 import { ErrorWithTools } from "./error-with-tools"
 import { WorkspaceComponent } from "./workspace-component"
-import { HomeComponent } from "./home-component"
 import { RepositoryComponent } from "./repository-component"
 import { PrototypeComponent } from "./prototype-component"
 import { BuildHistoryComponent } from "./build-history-component"
@@ -79,8 +78,6 @@ export async function renderHubFlow(
         ErrorBoundary: withTools ? ErrorWithTools : ErrorBoundary,
         HydrateFallback,
         children: [
-          { index: true, loader: loadHome, Component: HomeComponent },
-          { path: "repositories", loader: loadHome, Component: HomeComponent },
           { path: "sign-in", loader: loadSignIn, Component: SignInRoute },
           { path: "session", action: changeSession },
           ...publicRoutes,
@@ -89,6 +86,8 @@ export async function renderHubFlow(
             loader: loadWorkspace,
             Component: WorkspaceComponent,
             children: [
+              { index: true, Component: Home },
+              { path: "repositories", Component: Home },
               {
                 path: "/repositories/:repositoryId",
                 loader: ({ request, params }) =>

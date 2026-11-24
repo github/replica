@@ -102,6 +102,7 @@ export const workspaceCapabilitiesSchema = z.object({
 export const workspaceResponseSchema = z.object({
   viewer: userSchema,
   repositories: z.array(repositorySchema),
+  repositoryPermissionsAvailable: z.literal(true).optional(),
   reviewInboxAvailable: z.boolean().optional(),
   publicSharingSettingsAvailable: z.boolean().optional(),
   capabilities: workspaceCapabilitiesSchema.optional(),

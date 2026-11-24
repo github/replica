@@ -14,6 +14,9 @@ import { welcomeData } from "@application/hub/view-models/settings-welcome"
 import { settingsController } from "../settings-controller"
 import type { SettingsRouteData } from "../settings-controller/types"
 import { settingsMeta } from "../settings-meta"
+import type { WorkspaceRouteHandle } from "../workspace/types"
+
+export const handle = { workspaceSection: "welcome" } satisfies WorkspaceRouteHandle
 
 const mock = settingsController("welcome", "workspace")
 

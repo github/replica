@@ -292,7 +292,11 @@ describe("real session revocation frontend integration", () => {
       await screen.findByRole("heading", { name: "All existing Hub sessions ended" }),
     ).toBeVisible()
     expect(continued).toBe(true)
-    expect(requests.filter((request) => request === "GET /api/auth/session")).toHaveLength(2)
+    expect(
+      screen.queryByRole("button", { name: "Account menu for @octocat" }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "Prototypes" })).not.toBeInTheDocument()
+    expect(requests.filter((request) => request === "GET /api/auth/session")).toHaveLength(1)
   })
 
   it("cancels verified authorization without continuing revocation", async () => {

@@ -22,6 +22,10 @@ import { productShareLinksData } from "@application/hub/view-models/product-shar
 import { productActionError } from "../product-action-error"
 import { requestProductJson } from "../request-product-json"
 
+import type { WorkspaceRouteHandle } from "../workspace/types"
+
+export const handle = { workspaceSection: "prototypes" } satisfies WorkspaceRouteHandle
+
 export function clientLoader({ request, params }: Pick<LoaderFunctionArgs, "request" | "params">) {
   const repositoryId = readRecordIdentifier(params.repositoryId, "repository")
   const prototypeId = readRecordIdentifier(params.prototypeId, "prototype")

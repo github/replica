@@ -7,6 +7,9 @@ import { getRepository } from "@application/hub/requests/get-repository"
 import { RepositoryScreen } from "@application/hub/screens/repository-screen"
 
 import type { Route } from "./+types/index"
+import type { WorkspaceRouteHandle } from "../workspace/types"
+
+export const handle = { workspaceSection: "prototypes" } satisfies WorkspaceRouteHandle
 
 export async function clientLoader({
   request,

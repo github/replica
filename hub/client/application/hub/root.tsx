@@ -1,14 +1,10 @@
-import { useEffect } from "react"
 import type { ReactNode } from "react"
 import {
-  isRouteErrorResponse,
   Links,
   Meta,
   Outlet,
   Scripts,
   ScrollRestoration,
-  redirect,
-  useRevalidator,
   useFetcher,
   useFetchers,
   useRouteError,
@@ -19,62 +15,18 @@ import { HubThemeProvider } from "@hooks/use-hub-theme"
 import type { Route } from "./+types/root"
 import type { SessionResponse } from "./session-contracts/types"
 import { DevelopmentTools } from "./development-tools"
-import { isPublicRoute } from "./is-public-route"
-import { noRepositoryAccessLocation } from "./no-repository-access-location"
 import { HubNavigation } from "./hub-navigation"
-import { ApiContractError } from "./requests/api-contract-error"
-import { ApiRequestError } from "./requests/api-request-error"
 import { getSession } from "./requests/get-session"
-import { getCurrentHubSession } from "./requests/get-current-hub-session"
 import { RouteFeedback } from "./route-feedback"
+import { RouteErrorFeedback } from "./route-error-feedback"
 
 import "@/tokens/base.css"
 import "./styles.css"
 
 export async function clientLoader({
   request,
-}: Pick<Route.ClientLoaderArgs, "request">): Promise<SessionResponse | Response> {
-  if (isPublicRoute(request)) {
-    // The public auth shell restores its own session without claiming product permissions.
-    return {
-      viewer: null,
-      capabilities: {
-        createPrototypes: false,
-        reviewPrototypes: false,
-        manageSharing: false,
-        administerHub: false,
-      },
-    }
-  }
-  if (!(import.meta.env.DEV && import.meta.env.MODE === "mock")) {
-    let session
-    try {
-      session = await getCurrentHubSession(request)
-    } catch (error) {
-      const noAccess = noRepositoryAccessLocation(error)
-      if (noAccess) return redirect(noAccess)
-      if (error instanceof ApiRequestError && (error.status === 401 || error.status === 404)) {
-        return redirect("/")
-      }
-      throw error
-    }
-    return {
-      viewer: {
-        id: session.userId,
-        login: session.login,
-        name: session.name,
-        provider: session.provider,
-        avatarUrl: null,
-      },
-      capabilities: {
-        createPrototypes: false,
-        reviewPrototypes: false,
-        manageSharing: false,
-        administerHub: session.role === "ADMINISTRATOR",
-      },
-    }
-  }
-  return getSession(request)
+}: Pick<Route.ClientLoaderArgs, "request">): Promise<SessionResponse | null> {
+  return import.meta.env.DEV && import.meta.env.MODE === "mock" ? getSession(request) : null
 }
 
 export function meta() {
@@ -113,44 +65,9 @@ export function HydrateFallback() {
 
 export function ErrorBoundary() {
   const error: unknown = useRouteError()
-  const revalidator = useRevalidator()
-  let heading = "Unable to load Hub"
-  let description = "An unexpected error occurred. Try again or return to repositories."
-  let status: number | undefined
-
-  if (isRouteErrorResponse(error)) {
-    status = error.status
-    if (typeof error.data === "string") description = error.data
-  } else if (error instanceof ApiRequestError) {
-    status = error.status || undefined
-    description = error.message
-    if (error.status === 0) heading = "Hub API unavailable"
-  } else if (error instanceof ApiContractError) {
-    heading = "Unexpected API response"
-    description = error.message
-    if (error.status >= 400) status = error.status
-  }
-  if (status === 404) heading = "Page or record not found"
-  else if (status === 403) heading = "Access denied"
-  else if (status === 401) heading = "Sign-in needed"
-  else if (status === 400) heading = "Invalid address"
-
-  useEffect(() => {
-    console.error("The Hub route could not be loaded.")
-    document.title = `${heading} - Replica Hub`
-    document.querySelector("main")?.focus()
-  }, [error, heading])
-
   return (
     <HubNavigation>
-      <RouteFeedback
-        kind="error"
-        heading={heading}
-        description={description}
-        status={status}
-        onRetry={status === 404 ? undefined : () => void revalidator.revalidate()}
-        retrying={revalidator.state !== "idle"}
-      />
+      <RouteErrorFeedback error={error} />
     </HubNavigation>
   )
 }
@@ -169,7 +86,7 @@ export default function HubRoot({ loaderData }: Pick<Route.ComponentProps, "load
     >
       {changingSession ? <HydrateFallback /> : null}
       <div className="hub-route-outlet" hidden={changingSession} inert={changingSession}>
-        <Outlet key={loaderData.viewer?.id ?? "signed-out"} context={loaderData} />
+        <Outlet key={loaderData?.viewer?.id} context={loaderData} />
       </div>
     </HubNavigation>
   )

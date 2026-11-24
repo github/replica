@@ -2,7 +2,6 @@ import { useState } from "react"
 
 import { CopilotConnectionPage } from "@pages/copilot-connection-page"
 import type { CopilotConnectionPageData } from "@pages/copilot-connection-page/types"
-import { loadAdministratorWorkspace } from "@application/hub/load-administrator-workspace"
 import { ApiContractError } from "@application/hub/requests/api-contract-error"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
 import { getCopilotConnection } from "@application/hub/requests/get-copilot-connection"
@@ -10,17 +9,25 @@ import { getCurrentHubSession } from "@application/hub/requests/get-current-hub-
 import { startCopilotAuthorization } from "@application/hub/requests/start-copilot-authorization"
 import { navigateToExternalUrl } from "@application/hub/navigate-to-external-url"
 import { SettingsRouteScreen } from "@application/hub/screens/settings-route-screen"
+import { useAdministrationNavigation } from "@application/hub/use-administration-navigation"
 import { copilotConnectionPageData } from "@application/hub/view-models/copilot-connection-page-data"
 
 import { settingsController } from "../settings-controller"
 import type { SettingsRouteData } from "../settings-controller/types"
 import { settingsMeta } from "../settings-meta"
+import type { WorkspaceRouteHandle } from "../workspace/types"
+
+export const handle = {
+  workspaceSection: "copilot",
+  independentOfRepositoryNavigation: true,
+} satisfies WorkspaceRouteHandle
 
 const controller = settingsController("copilot", "workspace")
 
 type RealCopilotRouteData = {
   surface: "copilot-connection"
-  page: CopilotConnectionPageData
+  viewerId: string
+  status: Awaited<ReturnType<typeof getCopilotConnection>>
 }
 
 function isMockMode() {
@@ -35,11 +42,11 @@ export async function clientLoader(
   if (session.role !== "ADMINISTRATOR") {
     throw new Response("Administrator access is required.", { status: 403 })
   }
-  const [status, workspace] = await Promise.all([
-    getCopilotConnection(args.request),
-    loadAdministratorWorkspace(args.request, session, "copilot"),
-  ])
-  return { surface: "copilot-connection", page: copilotConnectionPageData(workspace, status) }
+  return {
+    surface: "copilot-connection",
+    viewerId: session.userId,
+    status: await getCopilotConnection(args.request),
+  }
 }
 
 export async function clientAction(args: Parameters<typeof controller.clientAction>[0]) {
@@ -63,12 +70,14 @@ export default function SettingsCopilot({
   loaderData: SettingsRouteData | RealCopilotRouteData
 }) {
   if (loaderData.surface === "copilot-connection") {
-    return <RealCopilotConnection page={loaderData.page} />
+    return <RealCopilotConnection data={loaderData} />
   }
   return <SettingsRouteScreen section="copilot" data={loaderData} />
 }
 
-function RealCopilotConnection({ page }: { page: CopilotConnectionPageData }) {
+function RealCopilotConnection({ data }: { data: RealCopilotRouteData }) {
+  const navigation = useAdministrationNavigation("copilot", data.viewerId)
+  const page: CopilotConnectionPageData = copilotConnectionPageData(navigation, data.status)
   const [submission, setSubmission] = useState<{ pending: boolean; error: string | null }>({
     pending: false,
     error: null,

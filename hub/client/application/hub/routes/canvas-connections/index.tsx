@@ -1,4 +1,4 @@
-import { redirect } from "react-router"
+import { redirect, useLocation, useOutletContext } from "react-router"
 import { z } from "zod"
 
 import { CanvasConnectionScreen } from "@application/hub/canvas-connections"
@@ -8,18 +8,28 @@ import {
   canvasConnectionsSchema,
   canvasFormDestination,
 } from "@application/hub/canvas-connections/contract"
+import type { WorkspaceResponse } from "@application/hub/contracts/types"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
 import { requestJson } from "@application/hub/requests/request-json"
-import { resourcePath } from "@application/hub/view-models/resource-path"
+import { selectWorkspaceRepository } from "@application/hub/view-models/select-workspace-repository"
 import type { CanvasPairingsPageData } from "@pages/canvas-pairings-page/types"
 
 import type { Route } from "./+types/index"
+import type { WorkspaceRouteHandle } from "../workspace/types"
+
+export const handle = {
+  workspaceSection: "canvas",
+  independentOfRepositoryNavigation: true,
+  signedOutEntry: "canvas",
+} satisfies WorkspaceRouteHandle
 
 export async function clientLoader({
   request,
-}: Route.ClientLoaderArgs): Promise<CanvasPairingsPageData | null> {
+}: Route.ClientLoaderArgs): Promise<Extract<
+  CanvasPairingsPageData,
+  { kind: "connections" }
+> | null> {
   const url = new URL(request.url)
-  const repository = z.uuid().safeParse(url.searchParams.get("repositoryId"))
   try {
     const { connections } = await requestJson(
       new URL("/api/canvas/connections", url),
@@ -34,9 +44,7 @@ export async function clientLoader({
       description: "Review and revoke your Copilot canvas connections.",
       emptyLabel: "No active connections. Open the Replica canvas in Copilot to start one.",
       backLabel: "Back to repositories",
-      backPath: resourcePath("/repositories", url.searchParams, {
-        repositoryId: repository.success ? repository.data : null,
-      }),
+      backPath: "/repositories",
       revokeLabel: "Revoke",
       notice:
         url.searchParams.get("approved") === "1"
@@ -84,5 +92,17 @@ export function meta() {
 }
 
 export default function CanvasConnections({ loaderData }: Route.ComponentProps) {
-  return <CanvasConnectionScreen page={loaderData} returnTo={canvasConnectionsPath} />
+  const workspace = useOutletContext<WorkspaceResponse | null>()
+  const { search } = useLocation()
+  const repository = workspace && selectWorkspaceRepository(workspace, new URLSearchParams(search))
+  const page =
+    loaderData && workspace
+      ? {
+          ...loaderData,
+          backPath: repository ? `/repositories/${repository.id}` : loaderData.backPath,
+        }
+      : null
+  return (
+    <CanvasConnectionScreen page={page} returnTo={canvasConnectionsPath} embedded={!!workspace} />
+  )
 }

@@ -17,7 +17,8 @@ export async function clientLoader({
   if (parsed && !parsed.success) {
     throw new Response("Invalid repository context.", { status: 400 })
   }
-  const workspace = await getWorkspace(request)
+  const mock = import.meta.env.DEV && import.meta.env.MODE === "mock"
+  const workspace = await getWorkspace(request, mock ? undefined : "navigation")
   const repository = parsed?.success
     ? workspace.repositories.find(({ id }) => id === parsed.data)
     : workspace.repositories[0]

@@ -1,12 +1,8 @@
 import { redirect } from "react-router"
 
 import { HubApplication } from "@application/hub-application"
-import { isPublicRoute } from "@application/hub/is-public-route"
-
-import type { Route } from "./+types/index"
-
-export function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "request">) {
-  if (!isPublicRoute(request)) throw redirect("/settings/enroll")
+export function clientLoader() {
+  if (import.meta.env.DEV && import.meta.env.MODE === "mock") throw redirect("/settings/enroll")
   return null
 }
 

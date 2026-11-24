@@ -6,10 +6,10 @@ import { authenticatedHeaderData } from "@/storybook/fixtures/authenticated-head
 import { githubEmpty, githubPrototype } from "@/storybook/fixtures/repositories"
 import { mona } from "@/storybook/fixtures/users"
 
-import { WorkspaceSidebar } from "."
-import type { WorkspaceSidebarData } from "./types"
+import { WorkspaceNav } from "."
+import type { WorkspaceNavData } from "./types"
 
-const administrationLinks: NonNullable<WorkspaceSidebarData["administrationLinks"]> = [
+const administrationLinks: NonNullable<WorkspaceNavData["administrationLinks"]> = [
   { section: "admins", label: "Hub administrators", path: "/settings/admins" },
   { section: "sharing", label: "Public sharing", path: "/settings/sharing" },
   { section: "sessions", label: "End all Hub sessions", path: "/settings/sessions" },
@@ -30,7 +30,7 @@ const repository = {
   repositorySelectorLabel: "Choose repository. github/prototype selected",
   selectedRepositoryId: "2001",
 }
-const administrator: WorkspaceSidebarData = {
+const administrator: WorkspaceNavData = {
   ...authenticatedHeaderData,
   collapseNavigationLabel: "Collapse sidebar",
   expandNavigationLabel: "Expand sidebar",
@@ -56,19 +56,19 @@ const administrator: WorkspaceSidebarData = {
 }
 
 const meta = {
-  title: "Hub/Features/Workspace Sidebar",
-  component: WorkspaceSidebar,
+  title: "Hub/Features/Workspace Navigation",
+  component: WorkspaceNav,
   args: {
     collapsed: false,
     data: administrator,
     onCollapsedChange: () => undefined,
   },
-  render: function WorkspaceSidebarStory(args) {
+  render: function WorkspaceNavStory(args) {
     const [collapsed, setCollapsed] = useState(args.collapsed)
-    return <WorkspaceSidebar {...args} collapsed={collapsed} onCollapsedChange={setCollapsed} />
+    return <WorkspaceNav {...args} collapsed={collapsed} onCollapsedChange={setCollapsed} />
   },
   parameters: { layout: "fullscreen" },
-} satisfies Meta<typeof WorkspaceSidebar>
+} satisfies Meta<typeof WorkspaceNav>
 
 export default meta
 type Story = StoryObj<typeof meta>

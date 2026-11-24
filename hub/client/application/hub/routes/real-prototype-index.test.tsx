@@ -10,6 +10,7 @@ import {
   type ActionFunction,
   type LoaderFunction,
   type RouteObject,
+  type ShouldRevalidateFunction,
 } from "react-router"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
@@ -19,6 +20,8 @@ type RouteModule = {
   clientAction?: ActionFunction
   ErrorBoundary?: ComponentType
   HydrateFallback?: ComponentType
+  handle?: unknown
+  shouldRevalidate?: ShouldRevalidateFunction
 }
 
 const routeModules = import.meta.glob<RouteModule>([
@@ -43,6 +46,8 @@ function applicationRoute(entry: RouteConfigEntry): RouteObject {
         action: module.clientAction,
         ErrorBoundary: module.ErrorBoundary,
         HydrateFallback: module.HydrateFallback,
+        handle: module.handle,
+        shouldRevalidate: module.shouldRevalidate,
         Component: Page ? () => <Page loaderData={useLoaderData()} /> : undefined,
       }
     },
@@ -524,10 +529,14 @@ describe("real prototype index", () => {
       expect(router.state.navigation.state).toBe("idle")
     })
 
+    expect(screen.getByRole("button", { name: "Collapse sidebar", expanded: true })).toBeVisible()
     fireEvent.click(screen.getByRole("link", { name: "Welcome flow" }))
     expect(
-      await screen.findByText("Preview hosting is not available for this Build."),
+      await screen.findByText("Preview hosting is not available for this Build.", undefined, {
+        timeout: 5_000,
+      }),
     ).toBeVisible()
+    expect(screen.getByRole("button", { name: "Expand sidebar", expanded: false })).toBeVisible()
     expect(router.state.location.pathname).toBe(
       `/repositories/${repositoryId}/prototypes/${prototypeId}`,
     )
@@ -570,9 +579,11 @@ describe("real prototype index", () => {
     )
     expect(router.state.location.search).toBe("")
 
+    fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }))
     fireEvent.click(within(buildOption(/v3.*Successful/i)).getByRole("link"))
     await waitFor(() => expect(router.state.location.search).toBe("?build=3"))
     expect(await screen.findByText("Build 3 has no preview")).toBeVisible()
+    expect(screen.getByRole("button", { name: "Collapse sidebar", expanded: true })).toBeVisible()
     await act(async () =>
       router.navigate(
         `/repositories/${repositoryId}/prototypes/${entraPrototypeId}?view=minimized`,
@@ -595,6 +606,11 @@ describe("real prototype index", () => {
       router.navigate(`/repositories/${repositoryId}/prototypes/${unknownPrototypeId}`),
     )
     expect((await screen.findByLabelText("Unknown author")).closest("a")).toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }))
+    await act(() => router.navigate(`/repositories/${repositoryId}`))
+    expect(await screen.findByRole("region", { name: "Prototypes" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Expand sidebar", expanded: false })).toBeVisible()
   }, 15_000)
 
   it("sends a member's draft edit in real mode and shows its registration without extra permissions", async () => {
@@ -840,15 +856,16 @@ describe("real prototype index", () => {
     const buildPath = "/repositories/2001/prototypes/1/builds/3"
     const buildRead = vi.fn(() => HttpResponse.json({ error: "Build not found." }, { status: 404 }))
     const server = setupServer(
-      http.get(`${window.location.origin}/api/auth/session`, () =>
+      http.get(`${window.location.origin}/api/workspace`, () =>
         HttpResponse.json({
-          authenticated: true,
-          membershipId: "33333333-3333-4333-8333-333333333333",
-          userId: "22222222-2222-4222-8222-222222222222",
-          provider: "github",
-          login: "octocat",
-          name: "Octocat",
-          role: "MEMBER",
+          viewer: {
+            id: "22222222-2222-4222-8222-222222222222",
+            provider: "github",
+            login: "octocat",
+            name: "Octocat",
+            avatarUrl: null,
+          },
+          repositories: [],
         }),
       ),
       http.get(`${window.location.origin}/api${buildPath}`, buildRead),

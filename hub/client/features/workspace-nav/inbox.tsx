@@ -8,7 +8,7 @@ import { ConversationInbox } from "@features/conversation-inbox"
 import { useHoverPreview } from "@hooks/use-hover-preview"
 import { useNotificationInbox } from "@hooks/use-notification-inbox"
 
-import type { WorkspaceSidebarData } from "./types"
+import type { WorkspaceNavData } from "./types"
 import "./inbox.css"
 
 export function WorkspaceInbox({
@@ -18,7 +18,7 @@ export function WorkspaceInbox({
   onInboxClick,
 }: {
   collapsed: boolean
-  data: WorkspaceSidebarData
+  data: WorkspaceNavData
   inboxPreview?: (close: () => void) => ReactNode
   onInboxClick?: MouseEventHandler<HTMLAnchorElement>
 }) {
@@ -89,7 +89,7 @@ export function WorkspaceInbox({
         icon={InboxIcon}
         label={data.notificationsLabel}
         ariaLabel={
-          configuration
+          liveInbox
             ? count
               ? `${data.notificationsLabel}, ${count} unread`
               : undefined

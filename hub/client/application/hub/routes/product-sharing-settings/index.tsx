@@ -18,6 +18,13 @@ import { productSharingSettingsData } from "@application/hub/view-models/product
 import { productActionError } from "../product-action-error"
 import { requestProductJson } from "../request-product-json"
 
+import type { WorkspaceRouteHandle } from "../workspace/types"
+
+export const handle = {
+  workspaceSection: "sharing",
+  independentOfRepositoryNavigation: true,
+} satisfies WorkspaceRouteHandle
+
 export function clientLoader({ request }: Pick<LoaderFunctionArgs, "request">) {
   return requestProductJson(request, "/api/product/sharing-settings", productSharingSettingsSchema)
 }

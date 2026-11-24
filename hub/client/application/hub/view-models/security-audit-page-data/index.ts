@@ -1,7 +1,6 @@
 import type { SecurityAuditPageData } from "@pages/security-audit-page/types"
 import type { CurrentHubSession } from "@application/hub/administrator-contracts/types"
 import type { SecurityAuditResponse } from "@application/hub/security-audit-contracts/types"
-import type { RepositoryRecord } from "@application/hub/contracts/types"
 import type { HubAdministrationWorkspaceData } from "@features/hub-administration-workspace/types"
 
 import { resourcePath } from "../resource-path"
@@ -37,11 +36,19 @@ function contextValue(value: string | number | string[]) {
   return Array.isArray(value) ? value.join(", ") : String(value)
 }
 
+type RepositoryScope = { id: string; nameWithOwner?: string }
+
 export function securityAuditPageData(
   session: CurrentHubSession,
   response: SecurityAuditResponse,
   navigation: HubAdministrationWorkspaceData,
-  repository?: RepositoryRecord,
+  {
+    repository,
+    availableRepository = repository,
+  }: {
+    repository?: RepositoryScope
+    availableRepository?: RepositoryScope
+  } = {},
 ): SecurityAuditPageData {
   const search = new URLSearchParams()
   const hub = {
@@ -51,26 +58,27 @@ export function securityAuditPageData(
       repositoryId: navigation.repository?.selectedRepositoryId ?? null,
     }),
   }
-  const scope = repository
+  const repositoryScope = availableRepository
     ? {
-        id: repository.id,
-        label: repository.nameWithOwner,
+        id: availableRepository.id,
+        label: availableRepository.nameWithOwner ?? "Repository",
         path: resourcePath("/settings/audit?scope=repository", search, {
-          repositoryId: repository.id,
+          repositoryId: availableRepository.id,
         }),
       }
-    : hub
+    : undefined
+  const scope = repository && repositoryScope ? repositoryScope : hub
   return {
     administrationWorkspace: navigation,
     pageTitle: "Security audit",
     heading: "Security audit",
     description: repository
-      ? `Security actions for ${repository.nameWithOwner}.`
+      ? `Security actions for ${repository.nameWithOwner ?? "this repository"}.`
       : "Hub-wide identity, sign-in, session, and administrator security actions.",
     notice: null,
     scopeLabel: "Audit scope",
     selectedScopeId: scope.id,
-    scopes: repository && session.role === "ADMINISTRATOR" ? [scope, hub] : [scope],
+    scopes: repositoryScope && session.role === "ADMINISTRATOR" ? [repositoryScope, hub] : [scope],
     retention: "Records are shown newest first. Export and retention controls are not available.",
     emptyLabel: repository
       ? "No repository security actions are available."

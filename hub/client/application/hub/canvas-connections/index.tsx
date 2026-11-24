@@ -8,9 +8,11 @@ import type { CanvasPairingsPageData } from "@pages/canvas-pairings-page/types"
 export function CanvasConnectionScreen({
   page,
   returnTo,
+  embedded,
 }: {
   page: CanvasPairingsPageData | null
   returnTo: string
+  embedded?: boolean
 }) {
   const fetcher = useFetcher<{ error?: string; notice?: string }>()
   const { pathname, search } = useLocation()
@@ -26,6 +28,7 @@ export function CanvasConnectionScreen({
     >
       <CanvasPairingsPage
         busy={busy}
+        embedded={embedded}
         data={
           page.kind === "connections"
             ? { ...page, notice: busy ? page.notice : (fetcher.data?.notice ?? page.notice) }

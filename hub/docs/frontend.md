@@ -44,7 +44,7 @@ Start the mock development server before opening these examples. The links use t
 
 | Route | Connected presentation | URL state | Open an example |
 | --- | --- | --- | --- |
-| `/` | Redirects to a repository or mock sign-in, or shows an empty workspace | Selection comes from session and workspace responses | [Home](http://127.0.0.1:5173/) |
+| `/` | Shows sign-in for signed-out visitors, or opens the repository landing for signed-in members | Selection comes from session and workspace responses | [Home](http://127.0.0.1:5173/) |
 | `/repositories` | Selects the first accessible repository, or shows an empty workspace | Uses the same selection behavior as Home; no separate repository-list screen | [Repositories](http://127.0.0.1:5173/repositories) |
 | `/sign-in` | Mock sign-in using the retained home page | Already signed-in viewers return to their workspace | [Sign-in](http://127.0.0.1:5173/sign-in) |
 | `/signed-in/no-access` | Explains missing GitHub repository access and offers retry or account switching | A short-lived server-verified notice may identify the GitHub login | Reached after a denied sign-in or a revoked GitHub session |
@@ -53,7 +53,9 @@ Start the mock development server before opening these examples. The links use t
 | `/settings/administrators` | Real administrator roster, candidate search, and bounded opaque-cursor pagination | `before` is the server cursor; `result` carries completion feedback | Requires a configured real-mode administrator session |
 | `/settings/administrators/:membershipId/revoke` | Explicit confirmation before provider authorization | Membership IDs are UUIDs; `before` retains the authoritative list page | Requires a configured real-mode administrator session |
 | `/settings/administrators/confirm` | Continue or cancel the provider-verified role change | `authorizationId` is the server authorization UUID | Provider callback destination |
-| `/settings/audit?scope=hub` | Real Hub-wide administrator security records; mock mode retains Hub and repository fixtures | `before` is the opaque server cursor; real mode accepts only Hub scope | Requires a configured real-mode administrator session |
+| `/settings/audit?scope=hub` | Hub-wide administrator security records | `before` is the opaque server cursor; `repositoryId` changes only navigation | Requires a current Hub administrator session |
+| `/settings/audit?scope=repository&repositoryId=:repo` | Security records for one repository | `before` is the opaque server cursor | Requires current repository administrator access |
+| `/canvas/connections` | Review and revoke your Canvas connections | A signed-out visit returns here after sign-in | Requires a current session to see connections |
 | `/repositories/:repositoryId` | Repository prototypes | `q`, `author`, `page`, `view` | [github/prototype](http://127.0.0.1:5173/repositories/2001) |
 | `/repositories/:repositoryId/prototypes/:prototypeId` | Preview, metadata, and review conversations | `build` pins the preview; `comment` opens a conversation | [Welcome review](http://127.0.0.1:5173/repositories/2001/prototypes/1?build=3&comment=1) |
 | `/repositories/:repositoryId/prototypes/:prototypeId/builds` | Build history; successful Builds open in the prototype view | `page`, `build` keeps a successful Build selected | [Welcome build history](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds) |
@@ -92,9 +94,9 @@ In mock mode, every workspace page shows administrators these links in order:
 
 Other users do not see administrator links. Security audit links select Hub scope for administrators and repository scope for other users with repository context. A user without either context has no audit link.
 
-In real mode, the workspace sidebar carries `repositoryId` into Hub-wide pages. The ID selects navigation only from repositories the session can already read. A direct visit with no readable selection uses the first available repository. Without a readable repository, real workspaces show **No repository selected** in the picker and keep the **Prototypes** link and available Hub-wide controls. The `/repositories` entry point opens the selected gallery when one exists. Public and signed-out layouts remain separate.
+In real mode, workspace navigation carries `repositoryId` into Hub-wide pages. The ID selects navigation only from repositories the session can already read. A direct visit with no readable selection uses the first available repository. Without a readable repository, the picker shows **No repository selected** and the **Prototypes** link and available Hub-wide controls stay visible. The `/repositories` entry point opens the selected gallery when one exists.
 
-Analytics and Learnings belong to `/repositories/:repositoryId/analytics` and `/repositories/:repositoryId/learnings`. Their path identifier selects the repository for reads and form submissions, even if a query parameter names another repository. Malformed path identifiers return 400; unavailable repositories return 404. Hub-wide Public sharing uses `/settings/sharing`. Security audit keeps its existing `/settings/audit?scope=hub` and `/settings/audit?scope=repository&repositoryId=...` URLs. On the Hub-wide audit page, an optional `repositoryId` changes only the sidebar; the audit records stay Hub-scoped.
+Analytics and Learnings belong to `/repositories/:repositoryId/analytics` and `/repositories/:repositoryId/learnings`. Their path identifier selects the repository for reads and form submissions, even if a query parameter names another repository. Malformed path identifiers return 400; unavailable repositories return 404. Hub-wide Public sharing uses `/settings/sharing`. Security audit keeps its existing `/settings/audit?scope=hub` and `/settings/audit?scope=repository&repositoryId=...` URLs.
 
 The Learnings page also presents the configured [decision-model control plane](decision-model-control-plane.md) to current Hub administrators with repository access. Repository learning decisions remain separate from Hub administration, consequential model actions require explicit confirmation, stale state requires a refresh, and missing or unavailable runtime setup does not hide accepted learnings. The deterministic `fixture` backend is identified as local contract evidence, not proof of model quality.
 
@@ -106,13 +108,21 @@ Application code adapts internal links and same-origin GET forms to SPA navigati
 
 Pending page navigation shows a thin green pulse moving to the right, with a screen-reader loading announcement and a static bar for reduced-motion preferences. Loading feedback does not move page content. The Prototypes gallery keeps its current results visible without adding a separate loading message.
 
+Signed-in page and filter changes refresh the lightweight workspace alongside page data. This keeps the current account and readable repositories in sync when access changes in another tab. GitHub management controls wait for a separate, live lookup for the selected repository. The layout retains that result while the viewer, Hub role, and repository selection stay the same. A failed lookup offers a retry without blocking browsing. An expired session or changed access refreshes the workspace before private navigation returns. These results only control what Hub shows; protected APIs still verify access.
+
+In real mode, one layout keeps the signed-in navigation mounted while the route content changes. It owns the picker, collapse choice, and Inbox badge across Welcome, repository pages, Inbox, Canvas connections, and settings. Route metadata selects the active link. Entering prototype review collapses the sidebar. You can reopen it, and changing Builds or leaving review keeps its current state. A page error stays in the content area, and Inbox rows update the same badge instead of starting another count request. A minimized prototype preview hides navigation without resetting it.
+
+Hub settings and audit loaders request their own authorized data. They do not request full workspace data to build navigation. An administrator can still use Hub-wide settings if no repository is readable or if repository navigation fails. For Hub administrators, **Security audit** opens the Hub-wide records. The scope menu also offers the selected repository when Hub verifies repository administrator permission. Repository audit and Analytics still check current repository permissions in their APIs.
+
+Sign-in, enrollment, no-access recovery, GitHub App setup, Copilot-initiated Canvas pairing, and public shared previews stay outside the signed-in navigation. The retained mock setup and enrollment examples are also standalone. Signed-in authorization confirmations keep the navigation until they end or downgrade the current session, then show completion without private navigation.
+
 Routine notices and successful form results appear as dismissible toasts stacked in the bottom-right corner. They do not take focus, expire on a timer, or occupy space in the page layout. Dismissing a toast hides that message until it changes or its owning page or result remounts. Validation failures, access restrictions, action choices and consequential warnings remain inline beside the affected content.
 
 ### Rails conversion route map
 
 Use this map to find the frontend destination when converting a Rails page. The Rails reference is [the route file at commit `0e8bdbd9`](https://github.com/github/replica/blob/0e8bdbd952ce0d93c8976876fa59e9f119614ae8/hub/config/routes.rb). Current routes are registered in the [root route configuration](../client/application/hub/routes.ts), [product routes](../client/application/hub/routes/product-routes.ts), and [settings routes](../client/application/hub/routes/settings-routes.ts). Update this map when a canonical page URL changes.
 
-`:repo` stands for the repository ID; actual parameter names differ between frameworks. Optional `repositoryId` query parameters that only preserve sidebar context are omitted. This is a page-URL map, not an API or mutation-endpoint inventory, a promise of identifier compatibility, or evidence of backend feature parity.
+`:repo` stands for the repository ID; actual parameter names differ between frameworks. Optional `repositoryId` query parameters that only preserve navigation context are omitted. This is a page-URL map, not an API or mutation-endpoint inventory, a promise of identifier compatibility, or evidence of backend feature parity.
 
 | Page | Rails | React Router |
 | --- | --- | --- |
@@ -138,8 +148,8 @@ Use this map to find the frontend destination when converting a Rails page. The 
 | Copilot connection | `/copilot` | `/settings/copilot` |
 | Repository security audit | `/repositories/:repo/security_audit` | `/settings/audit?scope=repository&repositoryId=:repo` |
 | Hub security audit | `/security_audit` | `/settings/audit?scope=hub` |
-| Canvas connections | `/canvas/connections` | `/settings/canvas` |
-| Canvas pairing approval | `/canvas/pair/:user_code` | `/settings/canvas/approve` |
+| Canvas connections | `/canvas/connections` | `/canvas/connections` |
+| Canvas pairing approval | `/canvas/pair/:user_code` | `/canvas/pair/:userCode` |
 | Administrator enrollment | `/operator/enrollment` | `/settings/enroll` |
 | Fresh authorization | `/authorization/:id` | `/settings/authorize` |
 | GitHub App | `/github_app` | `/settings/github` |

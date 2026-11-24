@@ -28,7 +28,9 @@ export function HubNavigation({
   }
 
   useEffect(() => {
-    const main = content.current?.querySelector("main")
+    const main =
+      content.current?.querySelector<HTMLElement>(".hub-route-feedback") ??
+      content.current?.querySelector("main")
     if (main instanceof HTMLElement) {
       main.tabIndex = -1
       main.focus({ preventScroll: true })
@@ -76,6 +78,13 @@ export function HubNavigation({
     )
       return
     event.preventDefault()
+    if (
+      navigation.state === "idle" &&
+      anchor.getAttribute("aria-current") === "page" &&
+      destination.href === current.href
+    ) {
+      return
+    }
     void navigate(`${destination.pathname}${destination.search}${destination.hash}`)
   }
 

@@ -3,6 +3,9 @@ import { SettingsRouteScreen } from "@application/hub/screens/settings-route-scr
 import { settingsController } from "../settings-controller"
 import type { SettingsRouteData } from "../settings-controller/types"
 import { settingsMeta } from "../settings-meta"
+import type { WorkspaceRouteHandle } from "../workspace/types"
+
+export const handle = { workspaceSection: "github" } satisfies WorkspaceRouteHandle
 
 export const { clientLoader, clientAction } = settingsController("github", "workspace")
 

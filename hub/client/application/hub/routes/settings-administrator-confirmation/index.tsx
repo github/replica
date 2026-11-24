@@ -4,14 +4,20 @@ import { z } from "zod"
 import { HubAdminConfirmationPage } from "@pages/hub-admin-confirmation-page"
 import { administratorErrorMessage } from "@application/hub/administrator-error-message"
 import { beginAdministratorAuthorization } from "@application/hub/begin-administrator-authorization"
-import { loadAdministratorWorkspace } from "@application/hub/load-administrator-workspace"
 import { ApiContractError } from "@application/hub/requests/api-contract-error"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
 import { getAdministrators } from "@application/hub/requests/get-administrators"
 import { getCurrentHubSession } from "@application/hub/requests/get-current-hub-session"
+import { useAdministrationNavigation } from "@application/hub/use-administration-navigation"
 import { administratorConfirmationPageData } from "@application/hub/view-models/administrator-confirmation-page-data"
 
 import type { Route } from "./+types/index"
+import type { WorkspaceRouteHandle } from "../workspace/types"
+
+export const handle = {
+  workspaceSection: "admins",
+  independentOfRepositoryNavigation: true,
+} satisfies WorkspaceRouteHandle
 
 const parametersSchema = z.object({
   membershipId: z.uuid(),
@@ -35,10 +41,7 @@ export async function clientLoader({
   if (session.role !== "ADMINISTRATOR") {
     throw new Response("Administrator access is required.", { status: 403 })
   }
-  const [page, workspace] = await Promise.all([
-    getAdministrators(request, before),
-    loadAdministratorWorkspace(request, session, "admins"),
-  ])
+  const page = await getAdministrators(request, before)
   const target = page.administrators.find(
     (administrator) => administrator.membershipId === parameters.data.membershipId,
   )
@@ -51,24 +54,23 @@ export async function clientLoader({
     page.administrators.length === 1 &&
     page.administrators[0]?.membershipId === parameters.data.membershipId
   return {
-    page: administratorConfirmationPageData(
-      workspace,
-      target,
-      parameters.data.operation,
-      finalAdministrator
-        ? "The final Hub administrator cannot be removed. Designate another existing Hub user first."
-        : null,
-    ),
+    viewerId: session.userId,
+    target,
+    operation: parameters.data.operation,
+    blockedLabel: finalAdministrator
+      ? "The final Hub administrator cannot be removed. Designate another existing Hub user first."
+      : null,
   }
 }
 
-export function meta({ loaderData }: Pick<Route.MetaArgs, "loaderData">) {
-  return [{ title: `${loaderData?.page.pageTitle ?? "Administrator role change"} - Replica Hub` }]
+export function meta() {
+  return [{ title: "Remove Hub administrator? - Replica Hub" }]
 }
 
 export default function SettingsAdministratorConfirmation({
   loaderData,
 }: Pick<Route.ComponentProps, "loaderData">) {
+  const navigation = useAdministrationNavigation("admins", loaderData.viewerId)
   const [submission, setSubmission] = useState<{ pending: boolean; error: string | null }>({
     pending: false,
     error: null,
@@ -104,7 +106,15 @@ export default function SettingsAdministratorConfirmation({
       }}
     >
       <HubAdminConfirmationPage
-        data={{ ...loaderData.page, alert: submission.error }}
+        data={{
+          ...administratorConfirmationPageData(
+            navigation,
+            loaderData.target,
+            loaderData.operation,
+            loaderData.blockedLabel,
+          ),
+          alert: submission.error,
+        }}
         pending={submission.pending}
       />
     </div>

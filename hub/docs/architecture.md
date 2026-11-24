@@ -75,7 +75,7 @@ Imports follow the arrows above. Shared components, hooks, and utilities must no
 
 The theme provider wraps routes and their loading and error feedback.
 
-- In real mode, signed-out visitors use the authentication shell. Signed-in members can browse the repository index and Build history and edit visible prototype details. Administrators can use `/settings/administrators`, `/settings/sessions`, `/settings/copilot`, and `/settings/audit?scope=hub` through their production APIs without loading provisional product data.
+- In real mode, signed-in routes share a navigation layout. Pages load their own authorized data without rebuilding navigation. Signed-out visitors use the authentication shell. The [frontend guide](frontend.md#loading-and-notifications) describes the layout and its standalone routes.
 - In mock mode, the root reads the simulated session. A nested layout loads the private workspace for signed-in pages.
 - Route loaders and actions request product data and refresh it after changes. Shareable filters and selections live in the URL.
 - Product screens keep product-facing copy. API failures remain visible errors.
