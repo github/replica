@@ -68,7 +68,41 @@ const learnings = [
     status: "active",
     topic: "Visual hierarchy",
     updatedAt: "2026-11-12T09:30:00Z",
+    version: 1,
     acceptedBy: "mona",
+    updateSuggestion: {
+      title: "Keep one clear primary action",
+      guidance:
+        "Use one primary button for the main action. On narrow screens, keep it clear of fields and other controls.",
+      reason:
+        "Build evaluations support the desktop layout, while a mobile review found the sticky action covered a field.",
+    },
+    outcomeAssessment: {
+      version: 1,
+      status: "observed",
+      outcomes: [
+        {
+          id: "outcome-desktop",
+          prototypeName: "Profile settings",
+          buildNumber: 8,
+          buildPath: "/repositories/2001/prototypes/22?build=8",
+          result: "supports",
+          source: "automated",
+          summary: "The primary action remains visible without competing buttons.",
+          evaluatedAt: "2026-11-18T09:30:00Z",
+        },
+        {
+          id: "outcome-mobile",
+          prototypeName: "Profile settings",
+          buildNumber: 9,
+          buildPath: "/repositories/2001/prototypes/22?build=9",
+          result: "concern",
+          source: "reviewer-confirmed",
+          summary: "The sticky action covers a field on narrow screens.",
+          evaluatedAt: "2026-11-19T13:15:00Z",
+        },
+      ],
+    },
     evidence: [
       {
         id: "evidence-4",
@@ -308,6 +342,27 @@ export const RejectedLearning: Story = {
 export const LearningDetails: Story = {
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: "Label every form field" }))
+  },
+}
+
+export const RejectingLearning: Story = {
+  args: {
+    data: { ...data, learnings: [activeLearning] },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /^Active/ }))
+    await userEvent.click(canvas.getByRole("button", { name: activeLearning.title }))
+    await userEvent.click(canvas.getByRole("button", { name: "Reject learning" }))
+  },
+}
+
+export const SuggestedUpdate: Story = {
+  args: {
+    data: { ...data, learnings: [activeLearning] },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /^Active/ }))
+    await userEvent.click(canvas.getByRole("button", { name: activeLearning.title }))
   },
 }
 

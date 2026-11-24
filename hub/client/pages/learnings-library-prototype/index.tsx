@@ -8,8 +8,10 @@ import {
   type SyntheticEvent,
 } from "react"
 import {
+  AlertIcon,
   ArrowLeftIcon,
   CheckCircleIcon,
+  CircleIcon,
   LightBulbIcon,
   PlugIcon,
   XCircleIcon,
@@ -28,11 +30,16 @@ import {
 
 import { HubCounter } from "@components/hub-counter"
 import { HubIconButton } from "@components/hub-icon-button"
+import { HubVisuallyHidden } from "@components/hub-visually-hidden"
+import { CanvasDialog } from "@components/prototype-canvas-dialog"
+import { diffWords } from "@utils/diff-words"
 
 import type {
   LearningActivityDay,
   LearningEvidence,
   LearningLifecycle,
+  LearningOutcome,
+  LearningRecord,
   LearningsLibraryPrototypeData,
 } from "./types"
 import "./styles.css"
@@ -66,6 +73,23 @@ const lifecycleLabelColors = {
   active: "green",
   rejected: "red",
 } as const satisfies Record<LearningLifecycle, string>
+
+const outcomeResultLabels: Record<LearningOutcome["result"], string> = {
+  supports: "Supports the guidance",
+  concern: "Possible concern",
+  inconclusive: "Inconclusive",
+}
+
+// A result icon sets outcomes apart from review comments, which lead with an avatar.
+const outcomeResultIcons: Record<LearningOutcome["result"], Icon> = {
+  supports: CheckCircleIcon,
+  concern: AlertIcon,
+  inconclusive: CircleIcon,
+}
+
+function outcomeSourceLabel(source: LearningOutcome["source"]) {
+  return source === "automated" ? "Automated assessment" : "Reviewer-confirmed"
+}
 
 const activityMetrics: Array<{ key: ActivityMetric; label: string }> = [
   { key: "commentsAnalyzed", label: "Comments analyzed" },
@@ -153,6 +177,64 @@ function monthLabelsByWeek(weeks: Array<Array<CalendarCell | null>>) {
     return dayLabel(firstDate, { month: "short" })
   })
   return labels.map((label, index) => (label && labels[index + 1] ? "" : label))
+}
+
+/**
+ * Shows a suggested edit inline so admins can see what changes without comparing two
+ * blocks of text. Screen readers hear "Removed" and "Added" because color and
+ * strikethrough alone are not announced. Spaces at the edges of a change stay outside
+ * the highlight so it hugs the words.
+ */
+function diffText(before: string, after: string) {
+  return diffWords(before, after).map((part, index) => {
+    const [, leading = "", text = "", trailing = ""] = /^(\s*)(.*?)(\s*)$/su.exec(part.text) ?? []
+    if (part.kind === "unchanged" || !text) return <span key={index}>{part.text}</span>
+
+    const label = part.kind === "removed" ? "Removed: " : "Added: "
+    const Mark = part.kind === "removed" ? "del" : "ins"
+    return (
+      <span key={index}>
+        {leading}
+        <Mark>
+          <HubVisuallyHidden>{label}</HubVisuallyHidden>
+          {text}
+        </Mark>
+        {trailing}
+      </span>
+    )
+  })
+}
+
+/**
+ * Replaces a learning's wording and keeps the old wording, with its outcomes, under
+ * Earlier guidance. Outcomes describe the wording that builds actually used, so they
+ * must not carry over to new text.
+ */
+function reviseGuidance(
+  learning: LearningRecord,
+  title: string,
+  guidance: string,
+  updatedAt: string,
+): LearningRecord {
+  const version = learning.version ?? 1
+  return {
+    ...learning,
+    versionHistory: [
+      ...(learning.versionHistory ?? []),
+      {
+        version,
+        title: learning.title,
+        guidance: learning.guidance,
+        updatedAt: learning.updatedAt,
+        ...(learning.outcomeAssessment ? { outcomeAssessment: learning.outcomeAssessment } : {}),
+      },
+    ],
+    version: version + 1,
+    title,
+    guidance,
+    updatedAt,
+    outcomeAssessment: undefined,
+  }
 }
 
 function evidenceList(evidence: LearningEvidence[]) {
@@ -397,6 +479,7 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
   const [page, setPage] = useState(1)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
+  const [editingSuggestion, setEditingSuggestion] = useState(false)
   const [rejecting, setRejecting] = useState(false)
   const [announcement, setAnnouncement] = useState("")
   const [formError, setFormError] = useState("")
@@ -458,6 +541,25 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
               status,
               updatedAt,
               ...(status === "rejected" && rejectionReason ? { rejectionReason } : {}),
+              decisions: [
+                ...(learning.decisions ??
+                  (learning.status === "suggested"
+                    ? []
+                    : [
+                        {
+                          status: learning.status,
+                          decidedAt: learning.updatedAt,
+                          ...(learning.status === "rejected" && learning.rejectionReason
+                            ? { reason: learning.rejectionReason }
+                            : {}),
+                        },
+                      ])),
+                {
+                  status,
+                  decidedAt: updatedAt,
+                  ...(status === "rejected" && rejectionReason ? { reason: rejectionReason } : {}),
+                },
+              ],
             }
           : learning,
       ),
@@ -470,7 +572,7 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
     setAnnouncement(
       status === "active"
         ? "Learning accepted and moved to Active."
-        : "Suggestion rejected and moved to Rejected.",
+        : "Learning rejected and moved to Rejected.",
     )
   }
 
@@ -492,24 +594,67 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
     }
     const updatedAt = `${data.today}T12:00:00.000Z`
     setLearnings((current) =>
-      current.map((learning) =>
-        learning.id === selected.id ? { ...learning, title, guidance, updatedAt } : learning,
-      ),
+      current.map((learning) => {
+        if (learning.id !== selected.id) return learning
+        const revised =
+          title !== learning.title || guidance !== learning.guidance
+            ? reviseGuidance(learning, title, guidance, updatedAt)
+            : { ...learning, updatedAt }
+        return editingSuggestion ? { ...revised, updateSuggestion: undefined } : revised
+      }),
     )
     setEditing(false)
+    setEditingSuggestion(false)
     setFormError("")
-    setAnnouncement("Learning title and guidance updated.")
+    setAnnouncement(editingSuggestion ? "Suggested learning update applied." : "Learning updated.")
   }
 
   function rejectLearning(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     const reason = new FormData(event.currentTarget).get("reason")
     if (typeof reason !== "string" || !reason.trim()) {
-      setFormError("Enter a reason to reject this suggestion.")
+      setFormError("Enter a reason to reject this learning.")
       return
     }
     setFormError("")
     decide("rejected", reason.trim())
+  }
+
+  function applySuggestedUpdate() {
+    if (!selected?.updateSuggestion || !data.canDecide) return
+    const updatedAt = `${data.today}T12:00:00.000Z`
+    setLearnings((current) =>
+      current.map((learning) =>
+        learning.id === selected.id && learning.updateSuggestion
+          ? {
+              ...reviseGuidance(
+                learning,
+                learning.updateSuggestion.title,
+                learning.updateSuggestion.guidance,
+                updatedAt,
+              ),
+              updateSuggestion: undefined,
+            }
+          : learning,
+      ),
+    )
+    setAnnouncement("Suggested learning update applied.")
+  }
+
+  function dismissSuggestedUpdate() {
+    if (!selected || !data.canDecide) return
+    setLearnings((current) =>
+      current.map((learning) =>
+        learning.id === selected.id ? { ...learning, updateSuggestion: undefined } : learning,
+      ),
+    )
+    setAnnouncement("Suggested learning update dismissed. The active learning is unchanged.")
+  }
+
+  function closeEditor() {
+    setFormError("")
+    setEditing(false)
+    setEditingSuggestion(false)
   }
 
   function backToLearnings() {
@@ -517,6 +662,7 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
     focusAfterDetailRef.current = { type: "learning", id: selected.id }
     setSelectedId(null)
     setEditing(false)
+    setEditingSuggestion(false)
     setRejecting(false)
     setFormError("")
   }
@@ -545,7 +691,7 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
             >
               {selected.title}
             </Heading>
-            {data.canDecide && !editing && !rejecting && selected.status !== "rejected" ? (
+            {data.canDecide ? (
               <div className="learning-library__page-actions">
                 {selected.status === "suggested" ? (
                   <>
@@ -563,16 +709,33 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
                       Reject suggestion
                     </Button>
                   </>
+                ) : selected.status === "active" ? (
+                  <>
+                    <Button
+                      onClick={() => {
+                        setFormError("")
+                        setEditingSuggestion(false)
+                        setEditing(true)
+                      }}
+                      type="button"
+                      variant="secondary"
+                    >
+                      Edit learning
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setFormError("")
+                        setRejecting(true)
+                      }}
+                      type="button"
+                      variant="secondary"
+                    >
+                      Reject learning
+                    </Button>
+                  </>
                 ) : (
-                  <Button
-                    onClick={() => {
-                      setFormError("")
-                      setEditing(true)
-                    }}
-                    type="button"
-                    variant="secondary"
-                  >
-                    Edit learning
+                  <Button onClick={() => decide("active")} type="button" variant="primary">
+                    Accept learning
                   </Button>
                 )}
               </div>
@@ -624,68 +787,7 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
               </div>
             </header>
 
-            {rejecting ? (
-              <form className="learning-library__decision" onSubmit={rejectLearning}>
-                {formError ? <p role="alert">{formError}</p> : null}
-                <FormControl id="learning-rejection-reason" required fullWidth>
-                  <FormControl.Label>Why reject this suggestion?</FormControl.Label>
-                  <Textarea name="reason" required rows={3} fullWidth resize="vertical" />
-                </FormControl>
-                <div className="learning-library__actions">
-                  <Button type="submit" variant="secondary">
-                    Confirm rejection
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      setFormError("")
-                      setRejecting(false)
-                    }}
-                    type="button"
-                    variant="subtle"
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </form>
-            ) : null}
-
-            {editing ? (
-              <form className="learning-library__edit-form" onSubmit={saveLearning}>
-                {formError ? <p role="alert">{formError}</p> : null}
-                <FormControl id="learning-title" required fullWidth>
-                  <FormControl.Label>Title</FormControl.Label>
-                  <TextInput name="title" defaultValue={selected.title} required fullWidth />
-                </FormControl>
-                <FormControl id="learning-guidance" required fullWidth>
-                  <FormControl.Label>Guidance</FormControl.Label>
-                  <Textarea
-                    name="guidance"
-                    defaultValue={selected.guidance}
-                    rows={4}
-                    required
-                    fullWidth
-                    resize="vertical"
-                  />
-                </FormControl>
-                <div className="learning-library__actions">
-                  <Button type="submit" variant="primary">
-                    Save changes
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      setFormError("")
-                      setEditing(false)
-                    }}
-                    type="button"
-                    variant="subtle"
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </form>
-            ) : null}
-
-            {selected.rejectionReason ? (
+            {selected.status === "rejected" && selected.rejectionReason ? (
               <div className="learning-library__rejection">
                 <strong>
                   <XCircleIcon size={16} />
@@ -695,8 +797,150 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
               </div>
             ) : null}
 
+            {selected.status === "active" && selected.updateSuggestion ? (
+              <section
+                className="learning-library__update-suggestion"
+                aria-label="Suggested update"
+              >
+                <Heading as="h2" className="learning-library__section-heading" size="6">
+                  Update suggested
+                </Heading>
+                <div className="learning-library__update-diff">
+                  <strong>{diffText(selected.title, selected.updateSuggestion.title)}</strong>
+                  <Text as="p">
+                    {diffText(selected.guidance, selected.updateSuggestion.guidance)}
+                  </Text>
+                </div>
+                <p className="learning-library__update-reason">
+                  Why: {selected.updateSuggestion.reason}
+                </p>
+                {data.canDecide ? (
+                  <div className="learning-library__actions">
+                    <Button onClick={applySuggestedUpdate} type="button" variant="primary">
+                      Apply update
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setFormError("")
+                        setEditingSuggestion(true)
+                        setEditing(true)
+                      }}
+                      type="button"
+                      variant="secondary"
+                    >
+                      Edit proposed update
+                    </Button>
+                    <Button onClick={dismissSuggestedUpdate} type="button" variant="subtle">
+                      Dismiss update
+                    </Button>
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+
+            <section className="learning-library__outcomes" aria-label="Observed outcomes">
+              <div className="learning-library__section-header">
+                <Heading as="h2" className="learning-library__section-heading" size="6">
+                  Observed outcomes
+                </Heading>
+                <p>How later builds did with this guidance.</p>
+              </div>
+              {/* Outcomes of older wording do not apply to the current guidance. */}
+              {selected.outcomeAssessment?.version !== (selected.version ?? 1) ||
+              selected.outcomeAssessment.status === "not-evaluated" ? (
+                <p className="learning-library__outcome-empty">Not evaluated yet.</p>
+              ) : selected.outcomeAssessment.status === "insufficient-evidence" ? (
+                <p className="learning-library__outcome-empty">
+                  Not enough evidence yet. This is not a negative result.
+                </p>
+              ) : (
+                <ul className="learning-library__outcome-list">
+                  {selected.outcomeAssessment.outcomes.map((outcome) => {
+                    const ResultIcon = outcomeResultIcons[outcome.result]
+                    return (
+                      <li key={outcome.id}>
+                        <span
+                          className={`learning-library__outcome-result learning-library__outcome-result--${outcome.result}`}
+                        >
+                          <ResultIcon size={16} />
+                          {outcomeResultLabels[outcome.result]}
+                          {" · "}
+                          {outcomeSourceLabel(outcome.source)}
+                        </span>
+                        <Text as="p">{outcome.summary}</Text>
+                        <p className="learning-library__outcome-meta">
+                          <a href={outcome.buildPath}>
+                            {outcome.prototypeName}, Build {outcome.buildNumber}
+                          </a>
+                          {" · "}
+                          <time dateTime={outcome.evaluatedAt}>
+                            Evaluated {dayLabel(outcome.evaluatedAt.slice(0, 10))}
+                          </time>
+                        </p>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+              {selected.versionHistory?.length ? (
+                <details className="learning-library__previous-versions">
+                  <summary>Earlier guidance</summary>
+                  {selected.versionHistory.map((version) => (
+                    <article key={version.version}>
+                      <Heading as="h3" className="learning-library__section-heading" size="6">
+                        {version.title}
+                      </Heading>
+                      <Text as="p">{version.guidance}</Text>
+                      {version.outcomeAssessment?.outcomes.length ? (
+                        <ul>
+                          {version.outcomeAssessment.outcomes.map((outcome) => (
+                            <li key={outcome.id}>
+                              <a href={outcome.buildPath}>
+                                {outcome.prototypeName}, Build {outcome.buildNumber}
+                              </a>
+                              {" · "}
+                              {outcomeSourceLabel(outcome.source)}
+                              {`: ${outcome.summary}`}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </article>
+                  ))}
+                </details>
+              ) : null}
+            </section>
+
+            {selected.status === "active" && selected.decisions?.length ? (
+              <section className="learning-library__decision-history" aria-label="Decision history">
+                <Heading as="h2" className="learning-library__section-heading" size="6">
+                  Decision history
+                </Heading>
+                <ul>
+                  {selected.decisions.map((decision, index) => (
+                    <li key={`${decision.decidedAt}-${index}`}>
+                      <strong>{lifecycleLabels[decision.status]}</strong>
+                      {" · "}
+                      <time dateTime={decision.decidedAt}>
+                        {dayLabel(decision.decidedAt.slice(0, 10))}
+                      </time>
+                      {decision.reason ? <p>{decision.reason}</p> : null}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+
             {selected.evidence.length ? (
-              <section aria-label="Review comments">{evidenceList(selected.evidence)}</section>
+              <section className="learning-library__review-comments" aria-label="Review comments">
+                <div className="learning-library__section-header">
+                  <Heading as="h2" className="learning-library__section-heading" size="6">
+                    Review comments
+                  </Heading>
+                  <p>The feedback this learning came from.</p>
+                </div>
+                {evidenceList(selected.evidence)}
+              </section>
             ) : null}
           </div>
         ) : (
@@ -805,6 +1049,11 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
                               >
                                 {learning.title}
                               </button>
+                              {learning.status === "active" && learning.updateSuggestion ? (
+                                <span className="learning-library__update-indicator">
+                                  Update suggested
+                                </span>
+                              ) : null}
                               <p>{learning.guidance}</p>
                             </div>
                           </div>
@@ -852,6 +1101,102 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
           </>
         )}
       </div>
+      {editing && selected ? (
+        <CanvasDialog
+          title={editingSuggestion ? "Edit proposed update" : "Edit learning"}
+          closeLabel="Cancel editing"
+          descriptionId="learning-edit-description"
+          // Applying a suggestion removes the button that opened this dialog.
+          returnFocusRef={editingSuggestion ? detailHeadingRef : undefined}
+          onClose={closeEditor}
+        >
+          <p id="learning-edit-description">
+            {editingSuggestion
+              ? "Applying this update replaces the current guidance. The current guidance and its outcomes stay under Earlier guidance."
+              : "Saving replaces the current guidance. Its outcomes stay under Earlier guidance."}
+          </p>
+          <form className="learning-library__edit-form" onSubmit={saveLearning}>
+            {formError ? <p role="alert">{formError}</p> : null}
+            <FormControl id="learning-title" required fullWidth>
+              <FormControl.Label>
+                {editingSuggestion ? "Proposed title" : "Title"}
+              </FormControl.Label>
+              <TextInput
+                name="title"
+                defaultValue={
+                  editingSuggestion
+                    ? (selected.updateSuggestion?.title ?? selected.title)
+                    : selected.title
+                }
+                required
+                fullWidth
+              />
+            </FormControl>
+            <FormControl id="learning-guidance" required fullWidth>
+              <FormControl.Label>
+                {editingSuggestion ? "Proposed guidance" : "Guidance"}
+              </FormControl.Label>
+              <Textarea
+                name="guidance"
+                defaultValue={
+                  editingSuggestion
+                    ? (selected.updateSuggestion?.guidance ?? selected.guidance)
+                    : selected.guidance
+                }
+                rows={4}
+                required
+                fullWidth
+                resize="vertical"
+              />
+            </FormControl>
+            <div className="learning-library__actions">
+              <Button type="submit" variant="primary">
+                {editingSuggestion ? "Apply edited update" : "Save changes"}
+              </Button>
+              <Button onClick={closeEditor} type="button" variant="subtle">
+                Cancel
+              </Button>
+            </div>
+          </form>
+        </CanvasDialog>
+      ) : null}
+      {rejecting && selected ? (
+        <CanvasDialog
+          title="Reject learning"
+          closeLabel="Cancel rejection"
+          descriptionId="learning-rejection-description"
+          onClose={() => {
+            setFormError("")
+            setRejecting(false)
+          }}
+        >
+          <p id="learning-rejection-description">
+            Rejected learnings are not supplied to agents. You can accept this learning later.
+          </p>
+          <form className="learning-library__reject-form" onSubmit={rejectLearning}>
+            {formError ? <p role="alert">{formError}</p> : null}
+            <FormControl id="learning-rejection-reason" required fullWidth>
+              <FormControl.Label>Why reject this learning?</FormControl.Label>
+              <Textarea name="reason" required rows={3} fullWidth resize="vertical" />
+            </FormControl>
+            <div className="learning-library__actions">
+              <Button type="submit" variant="secondary">
+                Reject learning
+              </Button>
+              <Button
+                onClick={() => {
+                  setFormError("")
+                  setRejecting(false)
+                }}
+                type="button"
+                variant="subtle"
+              >
+                Cancel
+              </Button>
+            </div>
+          </form>
+        </CanvasDialog>
+      ) : null}
     </div>
   )
 }

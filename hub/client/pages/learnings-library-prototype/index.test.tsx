@@ -185,7 +185,7 @@ describe("LearningsLibraryPrototype()", () => {
     expect(reopenedTitle).toHaveClass("learning-library__page-title--focus-visible")
   })
 
-  it("accepts a suggestion and requires a reason before moving another to Rejected", () => {
+  it("accepts suggestions, requires a rejection reason, and lets an admin accept a rejected learning", () => {
     const fetch = vi.fn()
     vi.stubGlobal("fetch", fetch)
     renderPrototype(createPrototypeData(true))
@@ -224,29 +224,31 @@ describe("LearningsLibraryPrototype()", () => {
     fireEvent.click(within(suggestionToReject).getByRole("button", { name: rejectionTitle }))
     fireEvent.click(screen.getByRole("button", { name: /reject suggestion/i }))
 
-    const reason = screen.getByRole("textbox", { name: "Why reject this suggestion?" })
+    const dialog = screen.getByRole("dialog", { name: "Reject learning" })
+    const reason = within(dialog).getByRole("textbox", { name: "Why reject this learning?" })
     expect(reason).toBeRequired()
     const rejectionForm = reason.closest("form")
     if (!rejectionForm) throw new Error("Expected the rejection reason form")
-    const submit = within(rejectionForm).getByRole("button", { name: /reject|confirm/i })
-    fireEvent.click(submit)
-    expect(screen.getByRole("heading", { name: rejectionTitle })).toBeVisible()
-    expect(reason).toBeInTheDocument()
+    fireEvent.submit(rejectionForm)
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(
+      "Enter a reason to reject this learning.",
+    )
 
-    fireEvent.click(within(rejectionForm).getByRole("button", { name: "Cancel" }))
-    expect(
-      screen.queryByRole("textbox", { name: "Why reject this suggestion?" }),
-    ).not.toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }))
+    expect(screen.queryByRole("dialog", { name: "Reject learning" })).not.toBeInTheDocument()
     expect(screen.getByRole("heading", { name: rejectionTitle })).toBeVisible()
 
     fireEvent.click(screen.getByRole("button", { name: /reject suggestion/i }))
-    const completedReason = screen.getByRole("textbox", { name: "Why reject this suggestion?" })
+    const reopenedDialog = screen.getByRole("dialog", { name: "Reject learning" })
+    const completedReason = within(reopenedDialog).getByRole("textbox", {
+      name: "Why reject this learning?",
+    })
     fireEvent.change(completedReason, {
       target: { value: "The placeholder disappears while typing." },
     })
     const completedForm = completedReason.closest("form")
     if (!completedForm) throw new Error("Expected the rejection reason form")
-    fireEvent.click(within(completedForm).getByRole("button", { name: /reject|confirm/i }))
+    fireEvent.submit(completedForm)
 
     const backToLearnings = screen.queryByRole("button", { name: /learnings/i })
     if (backToLearnings) fireEvent.click(backToLearnings)
@@ -266,24 +268,172 @@ describe("LearningsLibraryPrototype()", () => {
     expect(document.activeElement).toBe(
       within(getLearning(rejectionTitle)).getByRole("button", { name: rejectionTitle }),
     )
+    fireEvent.click(
+      within(getLearning(rejectionTitle)).getByRole("button", { name: rejectionTitle }),
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Accept learning" }))
+    selectSection("Active")
+    fireEvent.click(
+      within(getLearning(rejectionTitle)).getByRole("button", { name: rejectionTitle }),
+    )
+    expect(screen.getByRole("region", { name: "Decision history" })).toHaveTextContent(
+      "The placeholder disappears while typing.",
+    )
+    expect(screen.getByText("Not evaluated yet.")).toBeVisible()
     expect(fetch).not.toHaveBeenCalled()
   })
 
-  it("lets an admin edit a learning title and its guidance", () => {
+  it("applies a suggested update without carrying its outcomes onto the new guidance", () => {
+    const data = createPrototypeData(true)
+    const activeLearning = data.learnings.find((learning) => learning.status === "active")
+    if (!activeLearning) throw new Error("Expected an active learning")
+    activeLearning.outcomeAssessment = {
+      version: 1,
+      status: "observed",
+      outcomes: [
+        {
+          id: "outcome-automated",
+          prototypeName: "Settings",
+          buildNumber: 7,
+          buildPath: "/repositories/2001/prototypes/22?build=7",
+          result: "supports",
+          source: "automated",
+          summary: "The primary action stands out beside secondary controls.",
+          evaluatedAt: "2026-11-17T16:30:00.000Z",
+        },
+        {
+          id: "outcome-desktop",
+          prototypeName: "Settings",
+          buildNumber: 8,
+          buildPath: "/repositories/2001/prototypes/22?build=8",
+          result: "supports",
+          source: "reviewer-confirmed",
+          summary: "The primary action is easy to identify.",
+          evaluatedAt: "2026-11-18T16:30:00.000Z",
+        },
+      ],
+    }
+    activeLearning.updateSuggestion = {
+      title: "Keep one primary action visible",
+      guidance: "Keep the primary action clear on narrow screens too.",
+      reason: "A mobile review found the sticky action covered a field.",
+    }
+    renderPrototype(data)
+    selectSection("Active")
+
+    expect(getLearning("Make actions clear")).toHaveTextContent("Update suggested")
+    fireEvent.click(screen.getByRole("button", { name: "Make actions clear" }))
+    const suggestedUpdate = screen.getByRole("region", { name: "Suggested update" })
+    expect(suggestedUpdate).toHaveTextContent(
+      "A mobile review found the sticky action covered a field.",
+    )
+    expect(within(suggestedUpdate).getAllByRole("deletion")[0]).toHaveTextContent(
+      "Removed: Make actions clear",
+    )
+    expect(within(suggestedUpdate).getAllByRole("insertion")[0]).toHaveTextContent(
+      "Added: Keep one primary action visible",
+    )
+    const observedOutcomes = screen.getByRole("region", { name: "Observed outcomes" })
+    expect(within(observedOutcomes).getAllByRole("listitem")).toHaveLength(2)
+    expect(observedOutcomes).toHaveTextContent("Automated assessment")
+    expect(observedOutcomes).toHaveTextContent("Reviewer-confirmed")
+    expect(screen.getByRole("link", { name: "Settings, Build 8" })).toHaveAttribute(
+      "href",
+      "/repositories/2001/prototypes/22?build=8",
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Apply update" }))
+
+    expect(screen.getByRole("heading", { name: "Keep one primary action visible" })).toBeVisible()
+    expect(screen.getByText("Keep the primary action clear on narrow screens too.")).toBeVisible()
+    expect(screen.getByText("Not evaluated yet.")).toBeVisible()
+    fireEvent.click(screen.getByText("Earlier guidance"))
+    expect(screen.getByRole("link", { name: "Settings, Build 8" })).toHaveAttribute(
+      "href",
+      "/repositories/2001/prototypes/22?build=8",
+    )
+    expect(screen.queryByRole("region", { name: "Suggested update" })).not.toBeInTheDocument()
+    expect(screen.getByRole("region", { name: "Observed outcomes" })).toBeVisible()
+  })
+
+  it("lets an admin edit and apply a proposed update", () => {
+    const data = createPrototypeData(true)
+    const activeLearning = data.learnings.find((learning) => learning.status === "active")
+    if (!activeLearning) throw new Error("Expected an active learning")
+    activeLearning.updateSuggestion = {
+      title: "Use direct action labels",
+      guidance: "Describe the result on each primary action.",
+      reason: "Recent evaluations suggest clearer action labels.",
+    }
+    renderPrototype(data)
+    selectSection("Active")
+    fireEvent.click(screen.getByRole("button", { name: "Make actions clear" }))
+    fireEvent.click(screen.getByRole("button", { name: "Edit proposed update" }))
+    const dialog = screen.getByRole("dialog", { name: "Edit proposed update" })
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Proposed title" }), {
+      target: { value: "Make primary actions clear" },
+    })
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Proposed guidance" }), {
+      target: { value: "Use short labels that describe the result of each action." },
+    })
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply edited update" }))
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "Make primary actions clear" })).toBeVisible()
+    expect(
+      screen.getByText("Use short labels that describe the result of each action."),
+    ).toBeVisible()
+    expect(screen.queryByRole("region", { name: "Suggested update" })).not.toBeInTheDocument()
+  })
+
+  it("dismisses a proposed update without changing the active learning", () => {
+    const data = createPrototypeData(true)
+    const activeLearning = data.learnings.find((learning) => learning.status === "active")
+    if (!activeLearning) throw new Error("Expected an active learning")
+    activeLearning.updateSuggestion = {
+      title: "Use direct action labels",
+      guidance: "Describe the result on each primary action.",
+      reason: "Recent evaluations suggest clearer action labels.",
+    }
+    renderPrototype(data)
+    selectSection("Active")
+    fireEvent.click(screen.getByRole("button", { name: "Make actions clear" }))
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss update" }))
+
+    expect(screen.getByRole("heading", { name: "Make actions clear" })).toBeVisible()
+    expect(screen.getByText("Use clear labels for primary actions.")).toBeVisible()
+    expect(screen.queryByRole("region", { name: "Suggested update" })).not.toBeInTheDocument()
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Suggested learning update dismissed. The active learning is unchanged.",
+    )
+    expect(screen.getByRole("button", { name: "Reject learning" })).toBeVisible()
+  })
+
+  it("edits a learning in a modal and discards changes when cancelled", () => {
     renderPrototype(createPrototypeData(true))
     selectSection("Active")
     const learning = getLearning("Make actions clear")
     fireEvent.click(within(learning).getByRole("button", { name: "Make actions clear" }))
     fireEvent.click(screen.getByRole("button", { name: /edit learning/i }))
 
-    fireEvent.change(screen.getByRole("textbox", { name: "Title" }), {
+    const cancelledDialog = screen.getByRole("dialog", { name: "Edit learning" })
+    fireEvent.change(within(cancelledDialog).getByRole("textbox", { name: "Title" }), {
+      target: { value: "Discarded title" },
+    })
+    fireEvent.click(within(cancelledDialog).getByRole("button", { name: "Cancel" }))
+    expect(screen.queryByRole("dialog", { name: "Edit learning" })).not.toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "Make actions clear" })).toBeVisible()
+
+    fireEvent.click(screen.getByRole("button", { name: /edit learning/i }))
+    const dialog = screen.getByRole("dialog", { name: "Edit learning" })
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Title" }), {
       target: { value: "Make primary actions clear" },
     })
-    fireEvent.change(screen.getByRole("textbox", { name: "Guidance" }), {
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Guidance" }), {
       target: { value: "Use short, specific labels for primary actions." },
     })
-    fireEvent.click(screen.getByRole("button", { name: /save changes/i }))
+    fireEvent.click(within(dialog).getByRole("button", { name: /save changes/i }))
 
+    expect(screen.queryByRole("dialog", { name: "Edit learning" })).not.toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "Make primary actions clear" })).toBeVisible()
     expect(screen.getByText("Use short, specific labels for primary actions.")).toBeVisible()
     expect(screen.getByText("November 20, 2026", { selector: "time" })).toHaveAttribute(
@@ -432,6 +582,7 @@ describe("LearningsLibraryPrototype()", () => {
     expect(screen.getByText("The visible label made the form easier to scan.")).toBeVisible()
     expect(screen.getByText("The Save button does not stand out beside Cancel.")).toBeVisible()
     expect(screen.getByRole("region", { name: "Review comments" })).toBeVisible()
+    expect(screen.getByRole("heading", { name: "Review comments" })).toBeVisible()
     expect(
       screen.queryByRole("heading", {
         name: /Review evidence|Supporting comments|Different views/,

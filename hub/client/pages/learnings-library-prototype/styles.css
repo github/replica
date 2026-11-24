@@ -526,6 +526,14 @@
   color: var(--hub-fg-link);
 }
 
+.learning-library__update-indicator {
+  display: table;
+  margin-top: 0.25rem;
+  color: var(--hub-fg-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
 .learning-library__learning-link:hover,
 .learning-library__evidence-meta a:hover {
   text-decoration: underline;
@@ -588,23 +596,12 @@
   color: var(--hub-fg-muted);
 }
 
-.learning-library__rejection,
-.learning-library__decision,
-.learning-library__edit-form {
+.learning-library__rejection {
   display: grid;
   gap: 0.75rem;
   padding: 1rem;
-  border: 1px solid var(--hub-border-default);
+  border: 1px solid color-mix(in srgb, var(--hub-fg-danger) 40%, transparent);
   border-radius: var(--hub-radius-medium);
-  background: var(--hub-canvas-subtle);
-}
-
-.learning-library__rejection p {
-  color: var(--hub-fg-muted);
-}
-
-.learning-library__rejection {
-  border-color: color-mix(in srgb, var(--hub-fg-danger) 40%, transparent);
   background: var(--hub-danger-subtle);
 }
 
@@ -619,36 +616,193 @@
   color: var(--hub-fg-default);
 }
 
+.learning-library__update-suggestion,
+.learning-library__outcomes,
+.learning-library__decision-history {
+  display: grid;
+  gap: 0.75rem;
+  padding-block: 1.25rem;
+  border-bottom: 1px solid var(--hub-border-muted);
+}
+
+.learning-library__review-comments {
+  display: grid;
+  gap: 0.75rem;
+}
+
+/* Section labels stay smaller than the guidance so the learning itself reads first. */
+.learning-library .learning-library__section-heading {
+  color: var(--hub-fg-default);
+  font-family: var(--brand-body-fontFamily);
+  font-size: var(--brand-text-size-100);
+  font-weight: var(--brand-text-weight-semibold);
+  letter-spacing: 0;
+  line-height: 1.5;
+}
+
+.learning-library__section-header {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.learning-library__section-header p {
+  color: var(--hub-fg-muted);
+  font-size: var(--brand-text-size-100);
+}
+
+.learning-library__update-suggestion > p,
+.learning-library__outcomes > p {
+  color: var(--hub-fg-muted);
+}
+
+.learning-library__update-diff {
+  display: grid;
+  gap: 0.375rem;
+  padding: 1rem;
+  border: 1px solid var(--hub-border-default);
+  border-radius: var(--hub-radius-medium);
+  background: var(--hub-canvas-subtle);
+}
+
+.learning-library__update-diff p {
+  color: var(--hub-fg-muted);
+}
+
+/*
+ * Both changes use the same tint strength so neither looks louder. The text blends in
+ * the default text color because plain red or green is too faint on a tinted box.
+ */
+.learning-library__update-diff del,
+.learning-library__update-diff ins {
+  padding: 0 0.125rem;
+  border-radius: var(--hub-radius-small);
+  box-decoration-break: clone;
+}
+
+.learning-library__update-diff del {
+  color: color-mix(in srgb, var(--hub-fg-danger) 70%, var(--hub-fg-default));
+  background: color-mix(in srgb, var(--hub-fg-danger) 10%, transparent);
+  text-decoration: line-through;
+}
+
+.learning-library__update-diff ins {
+  color: color-mix(in srgb, var(--hub-fg-success) 70%, var(--hub-fg-default));
+  background: color-mix(in srgb, var(--hub-fg-success) 10%, transparent);
+  text-decoration: none;
+}
+
+.learning-library__update-reason {
+  font-size: var(--brand-text-size-100);
+}
+
+.learning-library__outcome-list,
+.learning-library__decision-history ul {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.learning-library__decision-history li {
+  display: grid;
+  gap: 0.375rem;
+  padding-block: 0.75rem;
+  border-bottom: 1px solid var(--hub-border-muted);
+}
+
+/* The section already ends with a divider, so the last item skips its own. */
+.learning-library__decision-history li:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+/* Each outcome and comment gets its own box, matching the suggested update above. */
+.learning-library__outcome-list li,
+.learning-library__outcome-empty,
+.learning-library__evidence-item {
+  display: grid;
+  gap: 0.375rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--hub-border-default);
+  border-radius: var(--hub-radius-medium);
+  background: var(--hub-canvas-subtle);
+}
+
+.learning-library__outcome-result,
+.learning-library__outcome-meta {
+  color: var(--hub-fg-muted);
+  font-size: 0.8125rem;
+}
+
+.learning-library__outcome-result {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.learning-library__outcome-result--supports svg {
+  color: var(--hub-fg-success);
+}
+
+.learning-library__outcome-result--concern svg {
+  color: var(--hub-attention);
+}
+
+.learning-library__outcome-meta a {
+  color: var(--hub-fg-link);
+}
+
+.learning-library__previous-versions {
+  display: grid;
+  gap: 0.75rem;
+  color: var(--hub-fg-muted);
+}
+
+.learning-library__previous-versions summary {
+  width: fit-content;
+  color: var(--hub-fg-link);
+  cursor: pointer;
+}
+
+.learning-library__previous-versions article {
+  display: grid;
+  gap: 0.5rem;
+  padding: 1rem;
+  border-inline-start: 2px solid var(--hub-border-default);
+}
+
+.learning-library__previous-versions ul {
+  display: grid;
+  gap: 0.375rem;
+  margin: 0;
+  padding-inline-start: 1.25rem;
+}
+
+.learning-library__decision-history li > p {
+  color: var(--hub-fg-muted);
+}
+
+.learning-library__reject-form,
+.learning-library__edit-form {
+  display: grid;
+  gap: 1rem;
+}
+
 .learning-library__actions {
   justify-content: flex-start;
 }
 
-.learning-library__edit-form {
-  padding: 1.25rem;
-}
-
 .learning-library__evidence-list {
   display: grid;
-  gap: 0;
+  gap: 0.75rem;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .learning-library__evidence-item {
-  display: grid;
-  gap: 0.5rem;
-  padding-block: 1rem;
-  border-bottom: 1px solid var(--hub-border-muted);
   overflow-wrap: anywhere;
-}
-
-.learning-library__evidence-item:first-child {
-  padding-top: 0;
-}
-
-.learning-library__evidence-item:last-child {
-  border-bottom: 0;
 }
 
 .learning-library__evidence-meta {

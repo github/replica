@@ -10,6 +10,43 @@ export interface LearningEvidence {
   reviewPath: string
 }
 
+export interface LearningOutcome {
+  id: string
+  prototypeName: string
+  buildNumber: number
+  buildPath: string
+  result: "supports" | "concern" | "inconclusive"
+  source: "automated" | "reviewer-confirmed"
+  summary: string
+  evaluatedAt: string
+}
+
+export interface LearningOutcomeAssessment {
+  version: number
+  status: "not-evaluated" | "insufficient-evidence" | "observed"
+  outcomes: LearningOutcome[]
+}
+
+export interface LearningUpdateSuggestion {
+  title: string
+  guidance: string
+  reason: string
+}
+
+export interface LearningDecision {
+  status: "active" | "rejected"
+  decidedAt: string
+  reason?: string
+}
+
+export interface LearningVersion {
+  version: number
+  title: string
+  guidance: string
+  updatedAt: string
+  outcomeAssessment?: LearningOutcomeAssessment
+}
+
 export interface LearningRecord {
   id: string
   title: string
@@ -17,8 +54,13 @@ export interface LearningRecord {
   status: LearningLifecycle
   topic: string
   updatedAt: string
+  version?: number
   acceptedBy?: string
   rejectionReason?: string
+  decisions?: LearningDecision[]
+  updateSuggestion?: LearningUpdateSuggestion
+  outcomeAssessment?: LearningOutcomeAssessment
+  versionHistory?: LearningVersion[]
   evidence: LearningEvidence[]
 }
 
