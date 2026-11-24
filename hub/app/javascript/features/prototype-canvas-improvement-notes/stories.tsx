@@ -3,7 +3,10 @@ import { Button } from "@primer/react-brand/esm"
 import type { Meta, StoryObj } from "@storybook/react-vite"
 
 import { ShortcutTooltip } from "@components/shortcut-tooltip"
+import { HubCounter } from "@components/hub-counter"
 import { reviewCommentsCopy } from "@utils/review-comment/en"
+
+import "@components/prototype-canvas-toolbar/styles.css"
 
 import { copy } from "./en"
 
@@ -40,4 +43,23 @@ export const CanvasShortcuts: Story = {
     await userEvent.hover(canvas.getByRole("button", { name: copy.annotate }))
     await canvas.findByRole("tooltip")
   },
+}
+
+export const SelectionCounters: Story = {
+  render: () => (
+    <div className="canvas-toolbar">
+      <Button variant="secondary" size="small" aria-label="Comments, 7">
+        <HubCounter>7</HubCounter>
+      </Button>
+      <Button variant="secondary" size="small" aria-label="Comments, 7" disabled>
+        <HubCounter>7</HubCounter>
+      </Button>
+      <Button variant="secondary" size="small" aria-label={copy.openNotes(2)}>
+        <HubCounter>2</HubCounter>
+      </Button>
+      <Button variant="secondary" size="small" aria-label={copy.openNotes(2)} disabled>
+        <HubCounter>2</HubCounter>
+      </Button>
+    </div>
+  ),
 }

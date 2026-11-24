@@ -87,6 +87,10 @@
   flex-shrink: 0;
 }
 
+.canvas-toolbar .hub-counter {
+  color: var(--hub-fg-default);
+}
+
 .canvas-toolbar
   button:is([aria-pressed="true"], [aria-expanded="true"]):not(
     .canvas-title,
