@@ -23,13 +23,13 @@ When a reference app is supplied, retain it for the guidance and component work 
 
 Use Bash and Git for creation. On native Windows, use Git Bash from the full [Git for Windows](https://gitforwindows.org/) installation. In the GitHub Copilot app, choose **This computer** for a native Windows session, not a WSL environment. Git on `PATH` does not mean Git Bash is available. If Git Bash is missing, report that prerequisite instead of switching environments or installing it without approval.
 
-From a local Replica checkout, run this from its root in Bash (Git Bash on Windows). If you clone Replica or select a base branch in Copilot to try an unreleased V2 change, choose the branch that contains that change rather than `main`.
+To use the starter from a local Replica checkout, run this from the checkout root in Bash (Git Bash on Windows):
 
 ```bash
 bash scripts/create-prototype-repo.sh "../my prototype"
 ```
 
-For the released starter, download the installer from `main`. Use this download only once `main` contains this version of the starter; while developing V2 before that release, use the checkout command. The download needs `curl`, `tar`, and a writable current directory. Use the `curl` and `tar` that come with Git Bash on Windows.
+To use the published starter without cloning Replica, download the installer. To try changes that are not published yet, use the checkout command above. The download needs `curl`, `tar`, and a writable current directory. Use the `curl` and `tar` that come with Git Bash on Windows.
 
 ```bash
 curl -fLSs https://raw.githubusercontent.com/github/replica/main/scripts/install-starter.sh -o install-starter.sh
@@ -40,8 +40,6 @@ Read the downloaded script before running it:
 ```bash
 bash ./install-starter.sh "./my prototype"
 ```
-
-When releasing V2 to `main`, run these download and install commands with a fresh destination on native Windows. Verify that the archive provides the V2 starter and that the new repository has no commit or remote.
 
 If the agent is in PowerShell or another shell that cannot run the Bash script, locate `bin\bash.exe` under the actual Git for Windows installation and invoke that executable directly. Do not use a bare `bash` or `bash.exe` from `PATH`; it may point to a different shell or WSL. For example, in PowerShell:
 
