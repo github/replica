@@ -372,6 +372,7 @@ const monaPrototypes: RepositoriesShowPageData["prototypes"] = [
 
 const atlasPrototype = {
   ...realIndexData.prototypes[1]!,
+  id: "00000000-0000-4000-8000-000000000203",
   name: "Notification settings",
   branchName: "prototype/notification-settings",
   author: {
@@ -450,6 +451,22 @@ export const UserFilterSecondPage: Story = {
   decorators: [keepFormsLocal],
   render: (args, { id }) => <UserFilterStory key={id} {...args} />,
   play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: "User: @mona" }))
+    await userEvent.click(canvas.getByRole("menuitemradio", { name: "All users" }))
+    await canvas.findByRole("heading", { name: "Notification settings", exact: true })
+    await userEvent.click(canvas.getByRole("button", { name: "User: All users" }))
+    await canvas.findByRole("menuitemradio", { name: /@atlas/ })
+    await userEvent.click(canvas.getByRole("button", { name: /^More$/ }))
+    await userEvent.click(await canvas.findByRole("menuitemradio", { name: /@mona/ }))
+    await canvas.findByRole("heading", { name: "Onboarding layout 1", exact: true })
+    await expect(
+      canvas.queryByRole("heading", { name: "Navigation", exact: true }),
+    ).not.toBeInTheDocument()
+    await expect(
+      canvas.queryByRole("heading", { name: "Notification settings", exact: true }),
+    ).not.toBeInTheDocument()
+    await userEvent.click(canvas.getByRole("button", { name: "Next", exact: true }))
+    await canvas.findByRole("heading", { name: "Keyboard shortcuts", exact: true })
     await userEvent.click(canvas.getByRole("button", { name: "User: @mona" }))
     await canvas.findByRole("menuitemradio", { name: /@atlas/ })
     await userEvent.click(canvas.getByRole("button", { name: /^More$/ }))
