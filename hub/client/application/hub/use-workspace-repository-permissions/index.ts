@@ -108,7 +108,9 @@ export function useWorkspaceRepositoryPermissions(
   const active = result?.scope === scope && result.attempt === attempt ? result : undefined
   const outcome = active?.outcome
   const checkingWorkspace = outcome?.kind === "workspace-changed" && active?.workspace === workspace
-  const retry = () => setAttempt((current) => current + 1)
+  function retry() {
+    setAttempt((current) => current + 1)
+  }
   if (outcome?.kind !== "verified") {
     return {
       workspace,
