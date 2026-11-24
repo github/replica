@@ -238,7 +238,7 @@ class GalleryTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     assert_operator response.body.index("build 1"), :<, response.body.index("build 2")
-    assert_includes response.body, "Workflow created"
+    assert_includes response.body, "Workflow created September 17, 2026 18:00 UTC"
     assert_not_includes response.body, "Added to Hub"
   end
 

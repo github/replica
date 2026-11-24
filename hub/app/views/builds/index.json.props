@@ -37,7 +37,7 @@ json.builds do
     json.stateLabel t("build_states.#{build.state}")
     json.createdAt build.chronological_at.iso8601
     timestamp_label = build.workflow_created_at ? "workflow_created" : "created"
-    json.createdLabel t("builds.index.#{timestamp_label}", time: l(build.chronological_at, format: :long))
+    json.createdLabel t("builds.index.#{timestamp_label}", time: l(build.chronological_at, format: :long_with_zone))
     json.path repository_prototype_build_path(@repository.route_id, @prototype, build.number)
 
     json.author do

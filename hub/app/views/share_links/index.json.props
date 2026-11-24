@@ -69,14 +69,14 @@ json.shareLinks do
     json.createdLabel t \
       "share_links.index.created",
       author: "@#{share_link.created_by.login}",
-      time: l(share_link.created_at, format: :long)
+      time: l(share_link.created_at, format: :long_with_zone)
     expiration = share_link.effective_expires_at
     json.expiresAt expiration&.iso8601
 
     if expiration
       json.expiresLabel t \
         "share_links.index.expires",
-        time: l(expiration, format: :long)
+        time: l(expiration, format: :long_with_zone)
     else
       json.expiresLabel t("share_links.index.never_expires")
     end
