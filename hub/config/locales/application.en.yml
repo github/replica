@@ -1,4 +1,7 @@
 en:
+  time:
+    formats:
+      long_with_zone: "%B %d, %Y %H:%M %Z"
   application:
     name: Replica Hub
     description: A self-hosted workspace for prototype builds and reviews.
