@@ -42,6 +42,8 @@ The tests need only Python 3.10 or later. The end-to-end test runs when OpenEnv 
 .venv/bin/python -m unittest discover -s tests -t .
 ```
 
+To rerun Brand Check unit tests after package-import errors, use a supported Python and a `PYTHONPATH` parent with `replica_brand_check` symlinked to the environment directory, then run `<python> -m unittest discover -s tests -t .` from that directory.
+
 ## Run it in a container
 
 Docker and Podman accept the same commands. Build the image from this directory, then mount the taskset read-only:
