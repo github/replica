@@ -5,8 +5,8 @@ import type {
 } from "@application/hub/contracts/types"
 
 export function previewRecords({
-  repositoryId = "2001",
-  prototypeId = "1",
+  repositoryId = "11111111-1111-4111-8111-111111111111",
+  prototypeId = "22222222-2222-4222-8222-222222222222",
   name = "Welcome",
   canEdit = true,
   canReview = false,

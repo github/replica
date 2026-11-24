@@ -35,5 +35,12 @@ export function previewHandlers(data: ReturnType<typeof previewRecords>) {
         pagination: { page: 1, pageSize: 25, pageCount: 1, totalCount: prototype.builds.length },
       }),
     ),
+    ...(repository.capabilities?.reviewPrototypes
+      ? []
+      : [
+          http.get(`/api${path}/review-comments`, () =>
+            Response.json({ error: "Review access is not available." }, { status: 404 }),
+          ),
+        ]),
   ]
 }

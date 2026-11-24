@@ -1,12 +1,12 @@
 import type { ReviewReply, ReviewRootComment } from "@utils/review-comment/types"
 
-export function reviewRecords(path: string) {
+export function reviewRecords(path: string, buildNumber = 3) {
   const root: ReviewRootComment = {
     id: 1,
     kind: "root",
     body: "Could we make the welcome heading clearer?",
-    buildNumber: 3,
-    buildPath: `${path}?build=3`,
+    buildNumber,
+    buildPath: `${path}?build=${buildNumber}`,
     anchor: {
       schemaVersion: 1,
       kind: "element",

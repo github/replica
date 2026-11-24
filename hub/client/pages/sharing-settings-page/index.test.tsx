@@ -17,7 +17,7 @@ describe("SharingSettingsPage()", () => {
     expect(screen.getByRole("checkbox", { name: data.confirmLabel })).toBeRequired()
     expect(screen.getByRole("checkbox")).not.toBeChecked()
     const form = screen.getByRole("button", { name: data.submitLabel }).closest("form")
-    expect(form).toHaveAttribute("action", "/sharing_settings")
+    expect(form).toHaveAttribute("action", "/settings/sharing")
     expect(form?.querySelector('[name="_method"]')).toHaveValue("patch")
     expect(form?.querySelector('[name="operation"]')).toHaveValue("enable")
     expect(form?.querySelector('[name="authenticity_token"]')).toHaveValue("storybook-token")
@@ -36,7 +36,7 @@ describe("SharingSettingsPage()", () => {
     expect(screen.getByRole("navigation", { name: "Hub navigation" })).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Prototypes" })).toHaveAttribute(
       "href",
-      "/repositories/2001",
+      "/repositories/00000000-0000-4000-8000-000000000101",
     )
     expect(screen.getByRole("button", { name: "Account menu for @octocat" })).toBeInTheDocument()
     expect(screen.queryByRole("region", { name: "Hub administration" })).not.toBeInTheDocument()
@@ -48,11 +48,11 @@ describe("SharingSettingsPage()", () => {
     ).not.toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Security audit" })).toHaveAttribute(
       "href",
-      "/repositories/2001/security_audit",
+      "/settings/audit?scope=repository&repositoryId=00000000-0000-4000-8000-000000000101",
     )
     expect(screen.getByRole("link", { name: "Analytics" })).toHaveAttribute(
       "href",
-      "/repositories/2001/analytics",
+      "/repositories/00000000-0000-4000-8000-000000000101/analytics",
     )
   })
 })

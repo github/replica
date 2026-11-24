@@ -13,28 +13,26 @@ function servePreview(data: ReturnType<typeof previewRecords>) {
     ...authenticatedWorkspace([data.repository]),
     ...previewHandlers(data),
     http.get(`/api${data.galleryPath}/create/permission`, () => Response.json({ canCreate: true })),
-    http.get(`/api${data.path}/review-comments`, () =>
-      Response.json({ comments: [], nextCursor: null, hasMore: false }),
-    ),
   )
 }
 
 describe("Hub retained prototype interactions", () => {
   it("loads and restores a minimized preview with its pinned Build and saved URL state", async () => {
-    const api = servePreview(previewRecords())
+    const data = previewRecords()
+    const api = servePreview(data)
     const search = new URLSearchParams({
       build: "1",
       view: "minimized",
       return_path: "/welcome?step=2#heading",
       "rc.workspace.showDescription": "false",
     })
-    const router = await renderHubFlow(api, `/repositories/2001/prototypes/1?${search}`)
+    const router = await renderHubFlow(api, `${data.path}?${search}`)
 
     expect(screen.getByTitle("Welcome, Build 1 preview")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Maximize Hub UI" })).toBeInTheDocument()
     expect(screen.queryByRole("dialog", { name: "Welcome" })).not.toBeInTheDocument()
 
-    await router.settle(() => router.navigate("/repositories/2001/prototypes/1/builds"))
+    await router.settle(() => router.navigate(`${data.path}/builds`))
     await router.go(-1)
 
     expect(screen.getByTitle("Welcome, Build 1 preview")).toBeInTheDocument()
@@ -56,7 +54,7 @@ describe("Hub retained prototype interactions", () => {
     fireEvent.click(controls)
     expect(screen.queryByRole("button", { name: "Expand controls" })).not.toBeInTheDocument()
 
-    await router.settle(() => router.navigate("/repositories/2001/prototypes/1?build=1"))
+    await router.settle(() => router.navigate(`${reader.path}?build=1`))
 
     expect(screen.getByTitle("Welcome, Build 1 preview")).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Controls" }))
@@ -73,17 +71,18 @@ describe("Hub retained prototype interactions", () => {
     expect(screen.getByRole("dialog", { name: "Welcome" })).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "View prototype" }))
 
-    await router.settle(() => router.navigate("/repositories/2001/prototypes/1/builds"))
-    await router.settle(() => router.navigate("/repositories/2001/prototypes/1?build=1"))
+    await router.settle(() => router.navigate(`${data.path}/builds`))
+    await router.settle(() => router.navigate(`${data.path}?build=1`))
 
     expect(screen.getByTitle("Welcome, Build 1 preview")).toBeInTheDocument()
     expect(screen.queryByRole("dialog", { name: "Welcome" })).not.toBeInTheDocument()
   })
 
   it("uses only the viewed pathname in the branch prompt while preserving the pinned Build and route", async () => {
-    const api = servePreview(previewRecords())
+    const data = previewRecords()
+    const api = servePreview(data)
     const route = { pathname: "/welcome", search: "?step=2", hash: "#heading" }
-    const router = await renderHubFlow(api, "/repositories/2001/prototypes/1?build=1")
+    const router = await renderHubFlow(api, `${data.path}?build=1`)
     fireEvent.click(screen.getByRole("button", { name: "View prototype" }))
     fireEvent.click(screen.getByRole("button", { name: "Branch from here" }))
     const brief = screen.getByRole("textbox", { name: "What changes would you like to make?" })
@@ -129,11 +128,11 @@ describe("Hub retained prototype interactions", () => {
     expect(prompt).toContain("`prototype/welcome`")
     expect(screen.getByTitle("Welcome, Build 1 preview")).toBeInTheDocument()
     expect(new URLSearchParams(router.state.location.search).get("build")).toBe("1")
-    expect(router.state.location.pathname).toBe("/repositories/2001/prototypes/1")
+    expect(router.state.location.pathname).toBe(data.path)
   })
 
   it("allows a creator to branch without any Build while omitting unavailable preview Controls", async () => {
-    const data = previewRecords({ prototypeId: "3", name: "Settings" })
+    const data = previewRecords({ name: "Settings" })
     data.prototype.builds = []
     data.prototype.latestBuild = null
     data.selectedBuild = null

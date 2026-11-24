@@ -9,7 +9,7 @@ import { renderHubFlow } from "./fixtures/render-hub-flow"
 
 describe("Hub route feedback", () => {
   it("announces a pending route until its content loads and then focuses the new main content", async () => {
-    const { path, repository, prototype } = previewRecords()
+    const { path, galleryPath, repository, prototype } = previewRecords()
     let finishLoad: (() => void) | undefined
     const loading = new Promise<void>((resolve) => {
       finishLoad = resolve
@@ -18,7 +18,7 @@ describe("Hub route feedback", () => {
     const historyRequested = vi.fn()
     const server = stubHubFetch(
       ...authenticatedWorkspace([repository]),
-      http.get("/api/repositories/2001", () =>
+      http.get(`/api${galleryPath}`, () =>
         Response.json({
           repository,
           prototypes: [prototype],
@@ -37,11 +37,11 @@ describe("Hub route feedback", () => {
         })
       }),
     )
-    const router = await renderHubFlow(server, "/repositories/2001")
+    const router = await renderHubFlow(server, galleryPath)
     expect(screen.queryByRole("status", { name: "Page loading" })).not.toBeInTheDocument()
 
     act(() => {
-      void router.navigate("/repositories/2001/prototypes/1/builds")
+      void router.navigate(`${path}/builds`)
     })
     await waitFor(() => expect(historyRequested).toHaveBeenCalledOnce())
 

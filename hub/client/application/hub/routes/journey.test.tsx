@@ -12,9 +12,6 @@ function editorApi(data = previewRecords()) {
   return stubHubFetch(
     ...authenticatedWorkspace([data.repository]),
     ...previewHandlers(data),
-    http.get(`/api${data.path}/review-comments`, () =>
-      Response.json({ comments: [], nextCursor: null, hasMore: false }),
-    ),
     http.get(`/api${data.galleryPath}`, () =>
       Response.json({
         repository: data.repository,
@@ -49,7 +46,15 @@ describe("Hub repository journey", () => {
         const selection =
           name === "Welcome"
             ? prototype
-            : { ...prototype, id: name === "Settings" ? "3" : "2", name, builds: [] }
+            : {
+                ...prototype,
+                id:
+                  name === "Settings"
+                    ? "44444444-4444-4444-8444-444444444444"
+                    : "55555555-5555-4555-8555-555555555555",
+                name,
+                builds: [],
+              }
         return Response.json({
           repository,
           prototypes: [selection],
@@ -58,7 +63,7 @@ describe("Hub repository journey", () => {
         })
       }),
     )
-    const router = await renderHubFlow(api, "/repositories/2001?q=journey&page=2&view=list")
+    const router = await renderHubFlow(api, `${galleryPath}?q=journey&page=2&view=list`)
     const results = await screen.findByRole("region", { name: "Prototypes" })
     expect(within(results).getByRole("link", { name: "Settings" })).toBeInTheDocument()
     expect(screen.getByRole("searchbox", { name: "Search prototypes" })).toHaveValue("journey")
@@ -151,7 +156,7 @@ describe("Hub repository journey", () => {
         }),
       ),
     )
-    await renderHubFlow(server, "/repositories/2001/prototypes/1/builds")
+    await renderHubFlow(server, `${path}/builds`)
 
     expect(screen.getByText("By Sam Rivera").closest("a")).toBeNull()
     expect(screen.getByText("By lee@example.test").closest("a")).toBeNull()
@@ -173,13 +178,13 @@ describe("Hub repository journey", () => {
     onTestFinished(() => finishSave?.())
     const patchRequests = vi.fn()
     server.use(
-      http.patch(`${window.location.origin}/api/repositories/2001/prototypes/1`, async () => {
+      http.patch(`/api${data.path}`, async () => {
         patchRequests()
         await saving
         return Response.json({ error: "That prototype name is unavailable." }, { status: 422 })
       }),
     )
-    const router = await renderHubFlow(server, "/repositories/2001/prototypes/1?build=1")
+    const router = await renderHubFlow(server, `${data.path}?build=1`)
     fireEvent.click(screen.getByRole("button", { name: "View prototype" }))
     fireEvent.click(await screen.findByRole("button", { name: "Edit details" }))
     const dialog = screen.getByRole("dialog")
@@ -244,7 +249,7 @@ describe("Hub repository journey", () => {
   it("keeps an invalid edit visible with its draft and sends no mutation request", async () => {
     const data = previewRecords()
     const server = editorApi(data)
-    const router = await renderHubFlow(server, "/repositories/2001/prototypes/1")
+    const router = await renderHubFlow(server, data.path)
     fireEvent.click(screen.getByRole("button", { name: "View prototype" }))
     fireEvent.click(await screen.findByRole("button", { name: "Edit details" }))
     const dialog = screen.getByRole("dialog", { name: "Edit prototype details" })
@@ -266,7 +271,7 @@ describe("Hub repository journey", () => {
   it("keeps the same draft and retry available when saving and matched loaders are unavailable", async () => {
     const data = previewRecords()
     const server = editorApi(data)
-    const router = await renderHubFlow(server, "/repositories/2001/prototypes/1")
+    const router = await renderHubFlow(server, data.path)
     fireEvent.click(screen.getByRole("button", { name: "View prototype" }))
     fireEvent.click(await screen.findByRole("button", { name: "Edit details" }))
     const dialog = screen.getByRole("dialog")
@@ -280,7 +285,7 @@ describe("Hub repository journey", () => {
     const failedSave = vi.fn(() =>
       Response.json({ error: "Saving is temporarily unavailable." }, { status: 503 }),
     )
-    const prototypeUrl = `${window.location.origin}/api/repositories/2001/prototypes/1`
+    const prototypeUrl = `/api${data.path}`
     server.use(
       http.patch(prototypeUrl, failedSave),
       http.get(prototypeUrl, failedReads),

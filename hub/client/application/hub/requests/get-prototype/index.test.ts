@@ -8,10 +8,10 @@ import { getPrototype } from "."
 describe("getPrototype()", () => {
   it("loads a minimized preview with its pinned Build and sends only preview parameters", async () => {
     const origin = "https://hub.example.test"
-    const { historical, repository, prototype } = previewRecords()
+    const { historical, path, repository, prototype } = previewRecords()
     let receivedUrl: URL | undefined
     stubHubFetch(
-      http.get(`${origin}/api/repositories/2001/prototypes/1`, ({ request }) => {
+      http.get(`${origin}/api${path}`, ({ request }) => {
         receivedUrl = new URL(request.url)
         return Response.json({ repository, prototype, selectedBuild: historical })
       }),
@@ -22,9 +22,9 @@ describe("getPrototype()", () => {
       return_path: "/welcome?step=2#heading",
       "rc.workspace.showDescription": "false",
     })
-    const request = new Request(`${origin}/repositories/2001/prototypes/1?${search}`)
+    const request = new Request(`${origin}${path}?${search}`)
 
-    const preview = await getPrototype(request, "2001", "1")
+    const preview = await getPrototype(request, repository.id, prototype.id)
 
     expect(preview.selectedBuild?.number).toBe(1)
     expect(receivedUrl?.search).toBe("?build=1&view=minimized")
@@ -32,19 +32,19 @@ describe("getPrototype()", () => {
 
   it.each(["gallery", "list"])("still loads a prototype with view=%s", async (view) => {
     const origin = "https://hub.example.test"
-    const { historical, repository, prototype } = previewRecords()
+    const { historical, path, repository, prototype } = previewRecords()
     let receivedUrl: URL | undefined
     stubHubFetch(
-      http.get(`${origin}/api/repositories/2001/prototypes/1`, ({ request }) => {
+      http.get(`${origin}/api${path}`, ({ request }) => {
         receivedUrl = new URL(request.url)
         return Response.json({ repository, prototype, selectedBuild: historical })
       }),
     )
 
     const preview = await getPrototype(
-      new Request(`${origin}/repositories/2001/prototypes/1?build=1&view=${view}`),
-      "2001",
-      "1",
+      new Request(`${origin}${path}?build=1&view=${view}`),
+      repository.id,
+      prototype.id,
     )
 
     expect(preview.selectedBuild?.number).toBe(1)

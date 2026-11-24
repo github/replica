@@ -34,9 +34,6 @@ describe("HubAdministrationWorkspace()", () => {
         screen.getByRole("link", { name: "Hub administrators" }),
       )
       expect(container.querySelector(".octicon-gear")).toBeNull()
-      expect(
-        screen.getByRole("link", { name: "GitHub App" }).querySelector(".octicon-mark-github"),
-      ).not.toBeNull()
       expect(screen.getByRole("link", { name: "Hub administrators" })).toHaveAttribute(
         "aria-current",
         "page",
@@ -62,15 +59,18 @@ describe("HubAdministrationWorkspace()", () => {
         data={{
           ...hubAdministrationWorkspaceData,
           repository: null,
-          securityAuditPath: "/security_audit",
+          securityAuditPath: "/settings/audit?scope=hub",
         }}
       >
         Deployment content
       </HubAdministrationWorkspace>,
     )
     expect(screen.queryByRole("button", { name: /Choose repository/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole("link", { name: "Prototypes" })).not.toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Repositories" })).toBeInTheDocument()
+    expect(screen.getByText("No repository selected")).toBeVisible()
+    expect(screen.getByRole("link", { name: "Prototypes" })).toHaveAttribute(
+      "href",
+      "/repositories",
+    )
     expect(screen.getByRole("link", { name: "Hub administrators" })).toBeInTheDocument()
   })
 })

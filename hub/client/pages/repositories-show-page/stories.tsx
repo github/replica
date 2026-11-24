@@ -1,3 +1,5 @@
+import { useState } from "react"
+import type { ComponentProps } from "react"
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, waitFor } from "storybook/test"
 
@@ -5,7 +7,8 @@ import { authenticatedHeaderData } from "@/storybook/fixtures/authenticated-head
 import { prototypeListing } from "@/storybook/fixtures/prototype-listing"
 import { welcomePrototype } from "@/storybook/fixtures/prototypes"
 import { githubEmpty, githubPrototype } from "@/storybook/fixtures/repositories"
-import { mona, octocat } from "@/storybook/fixtures/users"
+import { mona } from "@/storybook/fixtures/users"
+import { keepFormsLocal } from "@/storybook/keep-forms-local"
 
 import { RepositoriesShowPage } from "."
 import type { RepositoriesShowPageData } from "./types"
@@ -335,72 +338,124 @@ export const MeSelected: Story = {
 }
 
 const monaAuthor = { ...mona, id: "77777777-7777-4777-8777-777777777777" }
-const octocatAuthor = { ...octocat, id: "88888888-8888-4888-8888-888888888888" }
-const filteredPagePath = `${realIndexData.prototypesPath}?author=${monaAuthor.id}`
-const filteredPrototypeAuthor = {
-  avatarUrl: monaAuthor.avatarUrl,
-  ownerLabel: `@${monaAuthor.login}`,
-  label: `By @${monaAuthor.login}`,
-  url: `https://github.com/${monaAuthor.login}`,
+const atlasAuthor = {
+  id: "88888888-8888-4888-8888-888888888888",
+  avatarUrl: null,
+  name: "Atlas Bloom",
+  login: "atlas",
+}
+const users = [atlasAuthor, monaAuthor]
+const monaPrototypes: RepositoriesShowPageData["prototypes"] = [
+  ...Array.from({ length: 24 }, (_, index) => `Onboarding layout ${index + 1}`),
+  "Keyboard shortcuts",
+  "Activity digest",
+].map((name, index) => {
+  const id = `00000000-0000-4000-8000-${String(301 + index).padStart(12, "0")}`
+  return {
+    ...realIndexData.prototypes[0]!,
+    id,
+    name,
+    branchName: `prototype/${name.toLowerCase().replaceAll(" ", "-")}`,
+    description: "Help contributors get started in this repository.",
+    path: `${realIndexData.prototypesPath}/prototypes/${id}`,
+    latestBuild: { state: "successful", stateLabel: "Successful" },
+    reviewBuild: undefined,
+    previewFallbackLabel: "Preview available. No screenshot was captured.",
+    author: {
+      avatarUrl: monaAuthor.avatarUrl,
+      ownerLabel: `@${monaAuthor.login}`,
+      label: `By @${monaAuthor.login}`,
+      url: `https://github.com/${monaAuthor.login}`,
+    },
+  }
+})
+
+const atlasPrototype = {
+  ...realIndexData.prototypes[1]!,
+  name: "Notification settings",
+  branchName: "prototype/notification-settings",
+  author: {
+    avatarUrl: atlasAuthor.avatarUrl,
+    ownerLabel: `@${atlasAuthor.login}`,
+    label: `By @${atlasAuthor.login}`,
+    url: `https://github.com/${atlasAuthor.login}`,
+  },
+}
+
+function UserFilterStory({ data, controls }: ComponentProps<typeof RepositoriesShowPage>) {
+  const [author, setAuthor] = useState(monaAuthor.id)
+  const [page, setPage] = useState(2)
+  const selectedUser = users.find(({ id }) => id === author)
+  const allPrototypes = [...data.prototypes, atlasPrototype, ...monaPrototypes]
+  const matches =
+    author === "me"
+      ? data.prototypes
+      : selectedUser
+        ? allPrototypes.filter((item) => item.author?.ownerLabel === `@${selectedUser.login}`)
+        : allPrototypes
+  const pageSize = 24
+  const prototypes = matches.slice((page - 1) * pageSize, page * pageSize)
+  const pagePath = author ? `${data.prototypesPath}?author=${author}` : data.prototypesPath
+  const path = new URL(pagePath, window.location.origin)
+  if (page > 1) path.searchParams.set("page", String(page))
+
+  return (
+    <RepositoriesShowPage
+      data={{
+        ...data,
+        listing: {
+          ...data.listing,
+          author,
+          authorLabel:
+            author === "me"
+              ? "Me"
+              : selectedUser
+                ? `@${selectedUser.login}`
+                : data.listing.authorLabel,
+          matchingCount: matches.length,
+          page,
+          pageCount: Math.ceil(matches.length / pageSize),
+          pagePath,
+          path: `${path.pathname}${path.search}`,
+          authorsPath: `/api${data.prototypesPath}/authors`,
+          copy: { ...data.listing.copy, shown: `${prototypes.length} shown` },
+        },
+        prototypesCountLabel: `${matches.length} ${matches.length === 1 ? "prototype" : "prototypes"}`,
+        prototypes,
+      }}
+      controls={{
+        ...controls,
+        onAuthorChange: (value) => {
+          setAuthor(value)
+          setPage(1)
+        },
+        onNavigate: (href) =>
+          setPage(Number(new URL(href, window.location.origin).searchParams.get("page") ?? 1)),
+        loadAuthors: (query, cursor) => {
+          const matches = users.filter(({ name, login }) =>
+            `${name} ${login}`.toLowerCase().includes(query.toLowerCase()),
+          )
+          return Promise.resolve({
+            authors: cursor ? matches.slice(1) : matches.slice(0, 1),
+            nextCursor: !cursor && matches.length > 1 ? matches[0]!.id : null,
+          })
+        },
+      }}
+    />
+  )
 }
 
 export const UserFilterSecondPage: Story = {
-  args: {
-    data: {
-      ...realIndexData,
-      listing: {
-        ...realIndexData.listing,
-        author: monaAuthor.id,
-        authorLabel: `@${monaAuthor.login}`,
-        matchingCount: 26,
-        page: 2,
-        pageCount: 2,
-        pagePath: filteredPagePath,
-        path: `${filteredPagePath}&page=2`,
-        authorsPath: `/api${realIndexData.prototypesPath}/authors`,
-        copy: { ...realIndexData.listing.copy, shown: "2 shown" },
-      },
-      prototypesCountLabel: "26 prototypes",
-      prototypes: [
-        {
-          ...realIndexData.prototypes[0]!,
-          name: "Keyboard shortcuts",
-          branchName: "prototype/keyboard-shortcuts",
-          description: "Help contributors discover shortcuts without leaving their work.",
-          latestBuild: { state: "successful", stateLabel: "Successful" },
-          reviewBuild: undefined,
-          previewFallbackLabel: "Preview available. No screenshot was captured.",
-          author: filteredPrototypeAuthor,
-        },
-        {
-          ...realIndexData.prototypes[1]!,
-          name: "Activity digest",
-          branchName: "prototype/activity-digest",
-          description: "Group recent repository changes into a short summary.",
-          author: filteredPrototypeAuthor,
-        },
-      ],
-    },
-    controls: {
-      ...meta.args.controls,
-      loadAuthors: (query, cursor) => {
-        const users = [octocatAuthor, monaAuthor].filter(({ name, login }) =>
-          `${name} ${login}`.toLowerCase().includes(query.toLowerCase()),
-        )
-        return Promise.resolve({
-          authors: cursor ? users.slice(1) : users.slice(0, 1),
-          nextCursor: !cursor && users.length > 1 ? users[0]!.id : null,
-        })
-      },
-    },
-  },
+  args: { data: realIndexData },
+  decorators: [keepFormsLocal],
+  render: (args, { id }) => <UserFilterStory key={id} {...args} />,
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: "User: @mona" }))
-    await canvas.findByRole("menuitemradio", { name: /@octocat/ })
+    await canvas.findByRole("menuitemradio", { name: /@atlas/ })
     await userEvent.click(canvas.getByRole("button", { name: /^More$/ }))
     await canvas.findByRole("menuitemradio", { name: /@mona/ })
     await waitFor(() =>
-      expect(canvas.queryByRole("menuitemradio", { name: /@octocat/ })).not.toBeInTheDocument(),
+      expect(canvas.queryByRole("menuitemradio", { name: /@atlas/ })).not.toBeInTheDocument(),
     )
   },
 }

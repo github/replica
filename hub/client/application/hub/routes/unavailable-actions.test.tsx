@@ -7,7 +7,7 @@ import { authenticatedWorkspace } from "./fixtures/authenticated-workspace"
 import { previewRecords } from "./fixtures/preview-records"
 import { renderHubFlow } from "./fixtures/render-hub-flow"
 
-function UnconnectedPreferences() {
+function UnconnectedPreferences({ galleryPath }: { galleryPath: string }) {
   return (
     <main>
       <h1>Account preferences</h1>
@@ -18,17 +18,17 @@ function UnconnectedPreferences() {
         </label>
         <button type="submit">Save preferences</button>
       </form>
-      <a href="/repositories/2001">Return to repository</a>
+      <a href={galleryPath}>Return to repository</a>
     </main>
   )
 }
 
 describe("Hub unavailable actions", () => {
   it("shows a dismissible failure for an unconnected native form without development tools or a mutation request", async () => {
-    const { repository } = previewRecords()
+    const { repository, galleryPath } = previewRecords()
     const server = stubHubFetch(
       ...authenticatedWorkspace([repository]),
-      http.get("/api/repositories/2001", () =>
+      http.get(`/api${galleryPath}`, () =>
         Response.json({
           repository,
           prototypes: [],
@@ -38,7 +38,12 @@ describe("Hub unavailable actions", () => {
       ),
     )
     const router = await renderHubFlow(server, "/unconnected-preferences", {
-      workspaceRoutes: [{ path: "/unconnected-preferences", Component: UnconnectedPreferences }],
+      workspaceRoutes: [
+        {
+          path: "/unconnected-preferences",
+          element: <UnconnectedPreferences galleryPath={galleryPath} />,
+        },
+      ],
     })
     const name = screen.getByRole("textbox", { name: "Display name" })
     fireEvent.change(name, { target: { value: "Keep my preferences draft" } })

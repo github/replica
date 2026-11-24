@@ -3,6 +3,7 @@ import { createMemoryRouter, RouterProvider } from "react-router"
 import { expect, it, onTestFinished, vi } from "vitest"
 
 import { http, stubHubFetch } from "@/test/stub-hub-fetch"
+import { stubHubSocket } from "@/test/stub-hub-socket"
 import type { WorkspaceResponse } from "@application/hub/contracts/types"
 import { HubThemeProvider } from "@hooks/use-hub-theme"
 
@@ -18,6 +19,9 @@ it("sends the typed mention login to the review candidates API", async () => {
     viewer: { id: "octocat", login: "octocat", name: null, avatarUrl: null, provider: "github" },
     repositories: [repository],
   }
+  const realtime = new URL("/api/realtime", window.location.href)
+  realtime.protocol = realtime.protocol === "https:" ? "wss:" : "ws:"
+  stubHubSocket(realtime)
   stubHubFetch(
     http.get(`/api${path}/review-comments/mention-candidates`, ({ request }) =>
       Response.json({

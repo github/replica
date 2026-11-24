@@ -14,6 +14,7 @@ import { reviewCommentsCopy } from "@utils/review-comment/en"
 import type { ReviewReply } from "@utils/review-comment/types"
 import { githubEmpty, githubPrototype } from "@/storybook/fixtures/repositories"
 import { mona, octocat } from "@/storybook/fixtures/users"
+import { keepFormsLocal } from "@/storybook/keep-forms-local"
 
 import { PrototypesShowPage } from "."
 import type {
@@ -587,8 +588,9 @@ export const BranchHandoff: Story = {
   },
 }
 
-export const ReadOnly: Story = {
-  name: "Member can edit details; review is read-only",
+export const ReviewUnavailable: Story = {
+  name: "Member can edit details; review is unavailable",
+  decorators: [keepFormsLocal],
   render: (args, { id }) => <DetailsStory key={id} {...args} />,
   args: {
     data: {
@@ -613,11 +615,8 @@ export const ReadOnly: Story = {
     },
     review: reviewState({
       bridge: HubToolbarControls.args!.review!.bridge,
-      selectedThread: repliedReviewThread,
-      selectedThreadId: repliedReviewThread.root.id,
-      selectedThreadPoint: { x: 520, y: 220 },
-      threads: [repliedReviewThread],
-      visibleThreads: [repliedReviewThread],
+      sidebarOpen: true,
+      comments: { ...reviewState().comments, loadFailed: true },
     }),
   },
 }

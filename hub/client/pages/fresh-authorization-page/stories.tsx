@@ -1,13 +1,17 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 
 import { hubAdministrationWorkspaceData } from "@/storybook/fixtures/hub-administration"
-import { signedInWorkspace } from "@/storybook/fixtures/signed-in-workspace"
+import { keepFormsLocal } from "@/storybook/keep-forms-local"
 
 import { FreshAuthorizationPage } from "."
+
+const administratorAuthorizationId = "33333333-3333-4333-8333-333333333333"
+const administratorConfirmationPath = `/settings/administrators/confirm?authorizationId=${administratorAuthorizationId}`
 
 const meta = {
   title: "Hub/Pages/Security/Fresh authorization",
   component: FreshAuthorizationPage,
+  decorators: [keepFormsLocal],
   parameters: { layout: "fullscreen" },
   args: {
     data: {
@@ -17,9 +21,9 @@ const meta = {
       description:
         "Verify the same provider account to continue your confirmed action. The provider may reuse your signed-in browser; this is not a guaranteed password or MFA challenge.",
       submitLabel: "Verify account",
-      submitPath: "/authorization/example",
+      submitPath: administratorConfirmationPath,
       cancelLabel: "Cancel",
-      cancelPath: "/authorization/example",
+      cancelPath: administratorConfirmationPath,
       authenticityToken: "storybook-token",
     },
   },
@@ -61,11 +65,7 @@ export const Continuing: Story = {
       description:
         "Your provider verified this session. Continue the exact administrator role change you confirmed, or cancel it without changing any roles.",
       submitLabel: "Continue",
-      submitPath:
-        "/settings/administrators/confirm?authorizationId=33333333-3333-4333-8333-333333333333",
-      cancelPath:
-        "/settings/administrators/confirm?authorizationId=33333333-3333-4333-8333-333333333333",
-      continuation: { id: "33333333-3333-4333-8333-333333333333", method: "post" },
+      continuation: { id: administratorAuthorizationId, method: "post" },
       roleChange: {
         operationLabel: "Remove Hub administrator",
         targets: [
@@ -90,11 +90,7 @@ export const Conflict: Story = {
       description:
         "Your provider verified this session. Continue the exact administrator role change you confirmed, or cancel it without changing any roles.",
       submitLabel: "Continue",
-      submitPath:
-        "/settings/administrators/confirm?authorizationId=33333333-3333-4333-8333-333333333333",
-      cancelPath:
-        "/settings/administrators/confirm?authorizationId=33333333-3333-4333-8333-333333333333",
-      continuation: { id: "33333333-3333-4333-8333-333333333333", method: "post" },
+      continuation: { id: administratorAuthorizationId, method: "post" },
       roleChange: {
         operationLabel: "Remove Hub administrator",
         targets: [
@@ -119,17 +115,7 @@ export const CopilotConnectionConfirmation: Story = {
   args: {
     data: {
       ...meta.args.data,
-      administrationWorkspace: {
-        ...signedInWorkspace,
-        selectedSection: "copilot",
-        administrationLinks: [
-          { section: "admins", label: "Hub administrators", path: "/settings/administrators" },
-          { section: "sessions", label: "End all Hub sessions", path: "/settings/sessions" },
-          { section: "copilot", label: "Copilot connection", path: "/settings/copilot" },
-        ],
-        securityAuditLabel: "Security audit",
-        securityAuditPath: "/settings/audit?scope=hub",
-      },
+      administrationWorkspace: { ...hubAdministrationWorkspaceData, selectedSection: "copilot" },
       pageTitle: "Complete Copilot connection",
       heading: "Complete Copilot connection",
       description:
@@ -141,11 +127,4 @@ export const CopilotConnectionConfirmation: Story = {
       continuation: { id: copilotAuthorizationId, method: "post" },
     },
   },
-  decorators: [
-    (Story) => (
-      <div onSubmit={(event) => event.preventDefault()}>
-        <Story />
-      </div>
-    ),
-  ],
 }

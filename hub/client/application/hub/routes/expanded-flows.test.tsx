@@ -1,7 +1,7 @@
 import { fireEvent, screen, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
-import type { PrototypeEdit } from "@application/hub/contracts/types"
+import type { PrototypeEdit, PrototypeRecord } from "@application/hub/contracts/types"
 import type { ProductShareLink } from "@application/hub/product-contracts/types"
 import { http, stubHubFetch } from "@/test/stub-hub-fetch"
 
@@ -38,13 +38,6 @@ describe("Hub listing management", () => {
         Object.assign(prototype, updates)
         return Response.json({ repository, prototype, selectedBuild: latest })
       }),
-      http.get(`/api${path}/review-comments`, () =>
-        Response.json({
-          comments: [],
-          nextCursor: null,
-          hasMore: false,
-        }),
-      ),
     )
     const router = await renderHubFlow(api, galleryPath)
     const manage = screen.getByRole("link", { name: "Edit prototype listings" })
@@ -94,12 +87,16 @@ describe("Hub listing management", () => {
 })
 
 describe("Hub Build share links", () => {
-  function linkRecord(buildNumber: number, label: string): ProductShareLink {
+  function linkRecord(
+    prototype: Pick<PrototypeRecord, "id" | "repositoryId">,
+    buildNumber: number,
+    label: string,
+  ): ProductShareLink {
     return {
       id: 1,
       shareId: "test-stakeholder-share",
-      repositoryId: "2001",
-      prototypeId: "1",
+      repositoryId: prototype.repositoryId,
+      prototypeId: prototype.id,
       buildNumber,
       label,
       createdBy: "octocat",
@@ -138,7 +135,7 @@ describe("Hub Build share links", () => {
       http.post(`/api${sharePath}`, async ({ request }) => {
         const input = (await request.json()) as { label: string; buildNumber: number }
         create(input)
-        link = linkRecord(input.buildNumber, input.label)
+        link = linkRecord(prototype, input.buildNumber, input.label)
         return Response.json({ notice: "Share link created.", link }, { status: 201 })
       }),
       http.get("/api/shared/test-stakeholder-share", () =>
@@ -196,7 +193,7 @@ describe("Hub Build share links", () => {
       http.get(`/api${path}/share-links`, () =>
         Response.json({
           resource: { repository, prototype, selectedBuild: latest },
-          links: [linkRecord(3, "Partner review")],
+          links: [linkRecord(prototype, 3, "Partner review")],
           enabled: false,
           canManage: true,
           expirationOptions: ["seven_days"],

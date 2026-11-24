@@ -4,30 +4,94 @@ import { describe, expect, it, onTestFinished, vi } from "vitest"
 import { deferred } from "@/test/deferred"
 import { http, stubHubFetch } from "@/test/stub-hub-fetch"
 import { privateReviewLink } from "@utils/private-review-link"
-import type { ReviewComment } from "@utils/review-comment/types"
+import type { PreviewBridgeCommand } from "@utils/preview-bridge/types"
+import type { ReviewRoute } from "@utils/review-anchor/types"
+import type { ReviewComment, ReviewRootComment } from "@utils/review-comment/types"
 
 import { authenticatedWorkspace } from "./fixtures/authenticated-workspace"
 import { previewHandlers } from "./fixtures/preview-handlers"
 import { previewRecords } from "./fixtures/preview-records"
 import { renderHubFlow } from "./fixtures/render-hub-flow"
 import { reviewRecords } from "./fixtures/review-records"
+import { reviewSockets } from "./fixtures/review-sockets"
 
-function reviewFixture(canReview = true) {
-  const preview = previewRecords({ canReview, canEdit: canReview })
-  const { root, reply } = reviewRecords(preview.path)
-  if (!canReview) {
-    reply.viewerCanEdit = false
-    reply.viewerCanDelete = false
-  }
+function reviewFixture(
+  preview = previewRecords({ canReview: true }),
+  buildNumber = preview.latest.number,
+  repositories = [preview.repository],
+) {
+  const { root, reply } = reviewRecords(preview.path, buildNumber)
   const comments: ReviewComment[] = [root, reply]
   const commentsPath = `/api${preview.path}/review-comments`
   const read = vi.fn(() => Response.json({ comments, nextCursor: null, hasMore: false }))
+  const sockets = reviewSockets()
   const api = stubHubFetch(
-    ...authenticatedWorkspace([preview.repository]),
+    ...authenticatedWorkspace(repositories, { scopeRepositoryPermissions: true }),
     ...previewHandlers(preview),
     http.get(commentsPath, read),
   )
-  return { ...preview, root, reply, comments, commentsPath, api, read }
+  return { ...preview, root, reply, comments, commentsPath, api, read, sockets }
+}
+
+function pinnedReviewPreview(options: Parameters<typeof previewRecords>[0]) {
+  const preview = previewRecords(options)
+  const { historical, path } = preview
+  const access = new URL(`/api${path}/builds/${historical.number}/access`, window.location.origin)
+  access.searchParams.set("target", "preview")
+  access.searchParams.set("preview_origin", new URL(historical.previewUrl!).origin)
+  historical.previewUrl = access.href
+  preview.showPrototypeInfo = false
+  return preview
+}
+
+function pinnedThreadLink(path: string, root: ReviewRootComment) {
+  if (root.buildNumber === null) throw new Error("Expected a thread on a successful Build.")
+  const { pathname, search, hash } = root.anchor.route
+  const link = privateReviewLink({
+    baseUrl: new URL(path, window.location.origin).href,
+    buildNumber: root.buildNumber,
+    route: `${pathname}${search}${hash}`,
+    threadId: root.id,
+  })
+  if (!link) throw new Error("Expected a restorable review link.")
+  return link
+}
+
+function loadPinnedPreview(frame: HTMLIFrameElement) {
+  const previewWindow = frame.contentWindow
+  const { searchParams } = new URL(frame.src)
+  const origin = searchParams.get("preview_origin")
+  if (!previewWindow || !origin) throw new Error("Expected an isolated Build preview.")
+  const messageSource = { source: previewWindow, origin }
+  const loaded = new URL(searchParams.get("route") ?? "/", origin)
+  const post = vi.spyOn(previewWindow, "postMessage").mockImplementation(() => undefined)
+
+  function commands() {
+    return post.mock.calls.map(([command]) => command as PreviewBridgeCommand)
+  }
+
+  fireEvent.load(frame)
+  const ready = commands().find(({ type }) => type === "replica:bridge:request-navigation-ready")
+  if (!ready) throw new Error("Expected Hub to request Build preview readiness.")
+  const navigationId = ready.requestId
+  function reportReady(requestId: string, route: ReviewRoute) {
+    fireEvent(
+      window,
+      new MessageEvent("message", {
+        ...messageSource,
+        data: {
+          type: "replica:bridge:ready",
+          protocolVersion: 1,
+          requestId,
+          navigationId,
+          payload: { route },
+        },
+      }),
+    )
+  }
+  reportReady(navigationId, { pathname: loaded.pathname, search: loaded.search, hash: loaded.hash })
+  const restore = commands().find((command) => command.type === "replica:bridge:restore-fragment")
+  if (restore) reportReady(restore.requestId, restore.payload.route)
 }
 
 describe("Hub prototype review flow", () => {
@@ -162,28 +226,103 @@ describe("Hub prototype review flow", () => {
     expect(within(sidebar).queryByRole("alert")).not.toBeInTheDocument()
   })
 
-  it("reopens the exact pinned thread for a reader without granting review writes", async () => {
-    const { api, root, reply, path } = reviewFixture(false)
-    const { pathname, search, hash } = root.anchor.route
-    const link = privateReviewLink({
-      baseUrl: new URL(path, window.location.origin).href,
-      buildNumber: 3,
-      route: `${pathname}${search}${hash}`,
-      threadId: root.id,
+  it("keeps details editable but shows no review conversation when a pinned link is denied", async () => {
+    const preview = pinnedReviewPreview({ canBranch: false })
+    const { historical, path, prototype, repository } = preview
+    const { root, reply } = reviewRecords(path, historical.number)
+    const sockets = reviewSockets()
+    const api = stubHubFetch(
+      ...authenticatedWorkspace([repository], {
+        provider: "local",
+        administerHub: true,
+        scopeRepositoryPermissions: true,
+      }),
+      ...previewHandlers(preview),
+    )
+    await renderHubFlow(api, pinnedThreadLink(path, root))
+    loadPinnedPreview(screen.getByTitle<HTMLIFrameElement>("Welcome, Build 1 preview"))
+
+    expect(api.requests.map(({ url }) => new URL(url).pathname)).toContain(
+      `/api${path}/review-comments`,
+    )
+    expect(screen.queryByRole("dialog", { name: "Conversation" })).not.toBeInTheDocument()
+    const addComment = screen.getByRole("button", { name: "Add a comment" })
+    expect(addComment).toBeDisabled()
+    expect(addComment).toHaveAccessibleDescription(/do not have permission to add review comments/i)
+    fireEvent.click(screen.getByRole("button", { name: "Comments, 0" }))
+    const sidebar = screen.getByRole("complementary", { name: "Comments" })
+    const reviewError = within(sidebar).getByRole("alert")
+    expect(reviewError).toBeVisible()
+    expect(reviewError).toHaveTextContent(/comments could not be loaded/i)
+    expect(within(sidebar).queryByText("No comments have been added.")).not.toBeInTheDocument()
+    expect(screen.queryByText(root.body!)).not.toBeInTheDocument()
+    expect(screen.queryByText(reply.body!)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /^(Reply|Resolve|Add reaction)$/ }),
+    ).not.toBeInTheDocument()
+    expect(sockets).toHaveLength(0)
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit details" }))
+    const editor = screen.getByRole("dialog", { name: "Edit prototype details" })
+    expect(within(editor).getByRole("textbox", { name: "Name" })).toHaveValue(prototype.name)
+    expect(within(editor).getByRole("button", { name: "Save details" })).toBeEnabled()
+    expect(api.requests.filter(({ method }) => method !== "GET")).toEqual([])
+  })
+
+  it("restores the older Build and exact thread from a private Hub link and refreshes it live", async () => {
+    const preview = pinnedReviewPreview({ canReview: true })
+    const { historical, latest, path, repository, prototype, galleryPath } = preview
+    const otherRepository = {
+      id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      nameWithOwner: "team/another-repository",
+      defaultBranch: "main",
+    }
+    repository.capabilities!.manageAnalytics = true
+    const { api, comments, root, reply, sockets } = reviewFixture(preview, historical.number, [
+      otherRepository,
+      repository,
+    ])
+    const otherThread = "A newer conversation about the latest Build."
+    comments.unshift({
+      ...root,
+      id: 21,
+      body: otherThread,
+      createdAt: "2026-11-20T20:00:00.000Z",
+      updatedAt: "2026-11-20T20:00:00.000Z",
+      buildNumber: latest.number,
+      buildPath: `${path}?build=${latest.number}`,
     })
-    if (!link) throw new Error("Expected a restorable review link.")
-    await renderHubFlow(api, link)
+    const router = await renderHubFlow(api, pinnedThreadLink(path, root))
     const conversation = await screen.findByRole("dialog", { name: "Conversation" })
 
-    expect(screen.getByTitle("Welcome, Build 3 preview")).toBeInTheDocument()
+    const frame = screen.getByTitle<HTMLIFrameElement>("Welcome, Build 1 preview")
+    expect(new URL(frame.src).pathname).toBe(`/api${path}/builds/1/access`)
+    loadPinnedPreview(frame)
+    expect(screen.getByRole("textbox", { name: "Preview URL" })).toHaveValue(
+      "https://build-1.example.test/welcome?step=2#heading",
+    )
     expect(within(conversation).getByText(root.body!)).toBeVisible()
     expect(within(conversation).getByText(reply.body!)).toBeVisible()
-    expect(within(conversation).getByRole("button", { name: "Resolve" })).toBeDisabled()
-    expect(within(conversation).queryByRole("textbox", { name: "Reply" })).not.toBeInTheDocument()
-    for (const reaction of within(conversation).getAllByRole("button", { name: "Add reaction" })) {
-      expect(reaction).toBeDisabled()
-    }
-    expect(api.requests.some(({ method }) => method !== "GET")).toBe(false)
+    expect(within(conversation).queryByText(otherThread)).not.toBeInTheDocument()
+    expect(within(conversation).getByRole("textbox", { name: "Reply" })).toBeEnabled()
+    expect(await screen.findByRole("link", { name: "Analytics" })).toHaveAttribute(
+      "href",
+      `${galleryPath}/analytics`,
+    )
+
+    const channel = `review:${repository.id}:${prototype.id}`
+    expect(sockets).toHaveLength(1)
+    const socket = sockets[0]!
+    expect(socket.send).toHaveBeenCalledExactlyOnceWith(
+      JSON.stringify({ type: "subscribe", channel }),
+    )
+    await router.settle(() => socket.receive({ type: "subscribed", channel }))
+    reply.body = "The heading has been shortened in the draft."
+    await router.settle(() =>
+      socket.receive({ type: "event", channel, event: { type: "changed", payload: null } }),
+    )
+
+    expect(within(conversation).getByText(reply.body)).toBeVisible()
   })
 
   it("opens the pinned Inbox conversation and keeps it read on return", async () => {
@@ -204,7 +343,10 @@ describe("Hub prototype review flow", () => {
     }
     const markRead = vi.fn()
     api.use(
-      ...authenticatedWorkspace([repository], { reviewInboxAvailable: true }),
+      ...authenticatedWorkspace([repository], {
+        reviewInboxAvailable: true,
+        scopeRepositoryPermissions: true,
+      }),
       http.get("/api/notifications/inbox", () =>
         Response.json({
           notifications: [activity],

@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest"
 import { http, stubHubFetch } from "@/test/stub-hub-fetch"
 
 import routeConfig from "../routes"
-import { authenticatedWorkspace } from "./fixtures/authenticated-workspace"
+import { authenticatedWorkspace, workspaceViewerId } from "./fixtures/authenticated-workspace"
 import { emptyLearnings } from "./fixtures/empty-learnings"
 import { renderHubFlow } from "./fixtures/render-hub-flow"
 
@@ -169,6 +169,26 @@ describe("Hub primary route names", () => {
     expect(await screen.findByRole("button", { name: "Retire" })).toBeEnabled()
     expect(router.state.location.pathname).toBe(path)
   })
+
+  it.each(["/settings/canvas", "/settings/canvas/approve"])(
+    "opens Canvas connections from %s in the readable repository workspace",
+    async (source) => {
+      const api = stubHubFetch(
+        ...authenticatedWorkspace([second, first]),
+        http.get("/api/canvas/connections", () =>
+          Response.json({ viewerId: workspaceViewerId, connections: [] }),
+        ),
+      )
+      const router = await renderHubFlow(api, source)
+
+      expect(router.state.location.pathname).toBe("/canvas/connections")
+      expect(screen.getByRole("heading", { name: "Canvas connections" })).toBeVisible()
+      expect(screen.getByRole("link", { name: "Back to repositories" })).toHaveAttribute(
+        "href",
+        `/repositories/${second.id}`,
+      )
+    },
+  )
 
   it.each([
     {

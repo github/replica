@@ -4,6 +4,7 @@ import {
   authenticatedHubWorkspaceData,
   hubAdministrationData,
 } from "@/storybook/fixtures/hub-administration"
+import { keepFormsLocal } from "@/storybook/keep-forms-local"
 
 import { SharingSettingsPage } from "."
 import type { SharingSettingsPageData } from "./types"
@@ -21,7 +22,7 @@ const data: SharingSettingsPageData = {
   statusLabel: "Public sharing is disabled",
   emptyLabel: "No public access is permitted until a Hub administrator explicitly enables sharing.",
   operation: "enable",
-  submitPath: "/sharing_settings",
+  submitPath: "/settings/sharing",
   submitLabel: "Enable public sharing",
   consequence:
     "Anyone with a new share link can view its fixed Build without signing in. Previously revoked links stay revoked.",
@@ -33,6 +34,7 @@ const data: SharingSettingsPageData = {
 const meta = {
   title: "Hub/Pages/Security/Public sharing",
   component: SharingSettingsPage,
+  decorators: [keepFormsLocal],
   parameters: { layout: "fullscreen" },
   args: { data },
 } satisfies Meta<typeof SharingSettingsPage>

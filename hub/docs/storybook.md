@@ -12,7 +12,7 @@ Preserve the catalogue groups: `Components/Name`, `Prototype canvas/Name`, `Hub/
 
 Keep `stories.tsx` beside its implementation. Catalogue-only inventories live under `client/storybook/`. Use local state and isolated TypeScript fixtures from that directory; production code must not depend on story fixtures. The canonical synthetic personas remain `octocat`, `mona`, `github/prototype`, and `github/empty`.
 
-For Hub pages, use a story's own state and callbacks to exercise actions such as paging, editing, and retrying. Do not start a second API, replace global `fetch`, or share saved state across stories. Request and integration tests verify routing, authorization, and persistence.
+For Hub pages, use a story's own state and callbacks to exercise actions such as paging, editing, and retrying. When a story uses a native form only to show a confirmation or other form state, prevent it from submitting to the Storybook host. Do not start a second API, replace global `fetch`, or share saved state across stories. Request and integration tests verify routing, authorization, and persistence.
 
 Collection surfaces normally need Empty, Single, and Multiple stories. Add cases only for distinct product states such as loading, failure, permissions, draft protection, or recovery. Use the existing theme and viewport controls instead of duplicating light, dark, or narrow stories.
 

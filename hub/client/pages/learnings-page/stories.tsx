@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 
 import { authenticatedHeaderData } from "@/storybook/fixtures/authenticated-header"
 import { githubEmpty, githubPrototype } from "@/storybook/fixtures/repositories"
+import { keepFormsLocal } from "@/storybook/keep-forms-local"
 import type { DecisionModelPanelData } from "@features/decision-model-panel/types"
 
 import { LearningsPage } from "."
@@ -271,6 +272,7 @@ const data: LearningsPageData = {
 const meta = {
   title: "Hub/Pages/Learnings",
   component: LearningsPage,
+  decorators: [keepFormsLocal],
   parameters: { layout: "fullscreen" },
   args: { data },
 } satisfies Meta<typeof LearningsPage>

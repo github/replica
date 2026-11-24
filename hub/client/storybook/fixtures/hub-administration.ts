@@ -1,36 +1,44 @@
 import type { HubAdministrationWorkspaceData } from "@features/hub-administration-workspace/types"
 import type { HubWorkspaceData } from "@features/hub-workspace/types"
 
-import { authenticatedHeaderData } from "./authenticated-header"
-import { prototypeWorkspaceData } from "./prototype-workspace"
+import { signedInRepository, signedInWorkspace } from "./signed-in-workspace"
+
+const repositoryId = signedInRepository.selectedRepositoryId
+const repositoryQuery = `repositoryId=${repositoryId}`
+const adminsPath = "/settings/administrators"
+const sharingPath = "/settings/sharing"
+const sessionsPath = "/settings/sessions"
+const copilotPath = "/settings/copilot"
+const hubAuditPath = "/settings/audit?scope=hub"
 
 export const authenticatedHubWorkspaceData: HubWorkspaceData = {
-  ...authenticatedHeaderData,
+  ...signedInWorkspace,
   navigationLabel: "Hub navigation",
-  collapseNavigationLabel: "Collapse sidebar",
-  expandNavigationLabel: "Expand sidebar",
-  repositoriesLabel: "Repositories",
-  repositoriesPath: "/repositories",
-  settingsNavigationLabel: "Security and settings",
+  emptyRepositoryLabel: "No repository selected",
   repository: {
-    ...prototypeWorkspaceData,
+    ...signedInRepository,
+    newPrototypePath: `${signedInRepository.prototypesPath}/new`,
     analyticsLabel: "Analytics",
-    analyticsPath: "/repositories/2001/analytics",
+    analyticsPath: `${signedInRepository.prototypesPath}/analytics`,
   },
   securityAuditLabel: "Security audit",
-  securityAuditPath: "/repositories/2001/security_audit",
+  securityAuditPath: `/settings/audit?scope=repository&${repositoryQuery}`,
 }
 
 export const hubAdministrationWorkspaceData: HubAdministrationWorkspaceData = {
   ...authenticatedHubWorkspaceData,
   navigationLabel: "Repository navigation",
   selectedSection: "admins",
+  securityAuditPath: `${hubAuditPath}&${repositoryQuery}`,
   administrationLinks: [
-    { section: "github", label: "GitHub App", path: "/github_app" },
-    { section: "copilot", label: "Copilot", path: "/copilot" },
-    { section: "admins", label: "Hub administrators", path: "/hub_admins" },
-    { section: "sharing", label: "Public sharing", path: "/sharing_settings" },
-    { section: "sessions", label: "End all Hub sessions", path: "/session_revocation" },
+    { section: "admins", label: "Hub administrators", path: `${adminsPath}?${repositoryQuery}` },
+    { section: "sharing", label: "Public sharing", path: `${sharingPath}?${repositoryQuery}` },
+    {
+      section: "sessions",
+      label: "End all Hub sessions",
+      path: `${sessionsPath}?${repositoryQuery}`,
+    },
+    { section: "copilot", label: "Copilot connection", path: `${copilotPath}?${repositoryQuery}` },
   ],
 }
 
@@ -40,21 +48,19 @@ export const hubAdministrationData = {
   description:
     "Hub administrators can manage this deployment and read its security records. This role never grants access to GitHub repositories.",
   auditLabel: "Security audit",
-  auditPath: "/security_audit",
+  auditPath: hubAuditPath,
   hubAdminsLabel: "Hub administrators",
-  hubAdminsPath: "/hub_admins",
+  hubAdminsPath: adminsPath,
   sharingSettingsLabel: "Public sharing",
-  sharingSettingsPath: "/sharing_settings",
+  sharingSettingsPath: sharingPath,
   sessionRevocationLabel: "End all Hub sessions",
-  sessionRevocationPath: "/session_revocation",
-  githubAppLabel: "GitHub App",
-  githubAppPath: "/github_app",
-  copilotConnectionLabel: "Copilot",
-  copilotConnectionPath: "/copilot",
-  repositoriesLabel: "Repositories",
+  sessionRevocationPath: sessionsPath,
+  copilotConnectionLabel: "Copilot connection",
+  copilotConnectionPath: copilotPath,
+  repositoriesLabel: "Prototypes",
   repositoriesPath: "/repositories",
-  signOutLabel: "Sign out",
-  signOutPath: "/session",
+  signOutLabel: signedInWorkspace.signOutLabel,
+  signOutPath: signedInWorkspace.signOutPath,
   authenticityToken: "storybook-token",
   notice: null,
   alert: null,
