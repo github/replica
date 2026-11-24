@@ -286,23 +286,24 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
-export const Multiple: Story = {}
+export const Multiple: Story = {
+  args: {
+    data: { ...data, learnings: createManyLearnings() },
+  },
+}
 
 export const RepositoryMember: Story = {
   args: {
     data: { ...data, canDecide: false },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: "Label every form field" }))
   },
 }
 
 export const Single: Story = {
   args: {
     data: { ...data, learnings: [learnings[0]] },
-  },
-}
-
-export const ManyLearnings: Story = {
-  args: {
-    data: { ...data, learnings: createManyLearnings() },
   },
 }
 
