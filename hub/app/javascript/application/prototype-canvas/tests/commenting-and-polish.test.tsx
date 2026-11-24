@@ -199,6 +199,7 @@ describe("App()", () => {
     bridge.post.mockClear()
     fireEvent.keyDown(window, { key: "C" })
     expect(await screen.findByRole("button", { name: commentsCopy.commentMenuLabel })).toBeEnabled()
+    expect(document.activeElement).not.toBe(screen.getByRole("button", { name: "Edit details" }))
     expect(select()).toEqual([])
     expect(bridge.messages().some((data) => data.type === "replica:canvas:cancel-selection")).toBe(
       true,

@@ -75,9 +75,10 @@ export function App({ config }: Props) {
     message: string
   } | null>(null)
   const closeHub = useCallback(() => {
+    if (!hubOpen) return
     setHubOpen(false)
     hubButtonRef.current?.focus()
-  }, [])
+  }, [hubOpen])
   const {
     frameRef,
     frameKey,
