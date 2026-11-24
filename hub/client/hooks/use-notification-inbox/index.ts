@@ -232,7 +232,9 @@ export function useNotificationInbox({
   }, [path, receiveUnreadCount])
 
   useEffect(() => {
-    if (autoCount) loadCount()
+    if (autoCount && (countRefreshKey !== undefined || countReceivedAt.current === null)) {
+      loadCount()
+    }
     return () => {
       pendingCount.current?.abort()
       pendingCount.current = null

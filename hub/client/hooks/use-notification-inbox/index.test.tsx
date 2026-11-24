@@ -245,6 +245,92 @@ describe("useNotificationInbox()", () => {
     expect(result.current.unreadCount).toBe(3)
   })
 
+  it.each([200, 401])(
+    "keeps the supplied count when an earlier background request returns %s",
+    async (status) => {
+      let finishCount!: (response: Response) => void
+      const pendingCount = new Promise<Response>((resolve) => (finishCount = resolve))
+      const fetch = vi.fn().mockReturnValueOnce(pendingCount)
+      vi.stubGlobal("fetch", fetch)
+      const { result } = renderClosedBadge()
+      expect(fetch).toHaveBeenCalledExactlyOnceWith(badgeUrl, expect.anything())
+
+      act(() => result.current.onUnreadCountChange(7))
+      await act(async () => {
+        finishCount(status === 200 ? badgeResponse(2) : new Response(null, { status }))
+        await pendingCount
+      })
+
+      expect(result.current.unreadCount).toBe(7)
+    },
+  )
+
+  it.each([200, 403])(
+    "clears cached rows on fresh open and keeps the supplied count when the preview returns %s",
+    async (status) => {
+      let finishPreview!: (response: Response) => void
+      const pendingPreview = new Promise<Response>((resolve) => (finishPreview = resolve))
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(Response.json(page))
+        .mockReturnValueOnce(pendingPreview)
+      vi.stubGlobal("fetch", fetch)
+      const { result } = renderHook(() =>
+        useNotificationInbox({
+          path: "/api/notifications/inbox",
+          authenticityToken: "",
+          autoLoad: false,
+          synchronize: true,
+        }),
+      )
+      act(() => result.current.onOpen())
+      await waitFor(() => expect(result.current.notifications).toEqual([notification]))
+
+      act(() => result.current.onOpen(true))
+      expect(result.current.notifications).toEqual([])
+      expect(result.current.loading).toBe(true)
+      expect(result.current.unreadCount).toBe(12)
+      act(() => result.current.onUnreadCountChange(7))
+
+      const fresh = { ...notification, id: 2 }
+      await act(async () => {
+        finishPreview(
+          status === 200
+            ? Response.json({ ...page, notifications: [fresh] })
+            : new Response(null, { status }),
+        )
+        await pendingPreview
+      })
+
+      expect(result.current.notifications).toEqual(status === 200 ? [fresh] : [])
+      expect(result.current.failed).toBe(status === 403)
+      expect(result.current.unreadCount).toBe(7)
+    },
+  )
+
+  it("uses the supplied count when automatic counting resumes without navigation", async () => {
+    const fetch = vi.fn(() => Promise.resolve(badgeResponse(2)))
+    vi.stubGlobal("fetch", fetch)
+    const { result, rerender } = renderHook(
+      ({ autoCount }) =>
+        useNotificationInbox({
+          path: "/api/notifications/inbox",
+          authenticityToken: "",
+          autoLoad: false,
+          autoCount,
+        }),
+      { initialProps: { autoCount: true } },
+    )
+    await waitFor(() => expect(result.current.unreadCount).toBe(2))
+
+    rerender({ autoCount: false })
+    act(() => result.current.onUnreadCountChange(7))
+    rerender({ autoCount: true })
+
+    expect(result.current.unreadCount).toBe(7)
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
   it("keeps the last unread count when the preview fails and retries explicitly", async () => {
     const onUnreadCountChange = vi.fn()
     const fetch = vi
