@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         version: ["1.13.4", "1.17.1"]
-        module: [".", "foundation", "provision"]
+        module: [".", "foundation", "provision", "private-preview"]
         command: ["fmt -check -recursive", "validate", "test"]
     defaults:
       run:

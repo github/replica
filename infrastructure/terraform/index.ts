@@ -118,6 +118,9 @@ export function terraformModule({
       }
     },
     state: listState,
+    async stateSnapshot<T>(): Promise<T> {
+      return JSON.parse(await command(["show", "-json"])) as T
+    },
     async output<T>(name: string): Promise<T> {
       return JSON.parse(await command(["output", "-json", name])) as T
     },

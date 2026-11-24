@@ -15,6 +15,7 @@ export async function acquireLease(
   container: string,
   blob: string,
   create = false,
+  { operation }: { operation?: "private-preview" } = {},
 ) {
   const { azure, directory, ui } = context
   const args = [
@@ -67,7 +68,11 @@ export async function acquireLease(
       )
     }
   }
-  const ownership = await leaseOwnership(context, account, container, blob)
+  const ownership = await leaseOwnership(context, account, container, blob, operation)
+  const recover = operation !== "private-preview"
+  const unavailable =
+    `The lock at ${account}/${container}/${blob} is held or unverifiable. ` +
+    "Wait for its owner or recover it separately. This step will not clear the lock or stop Hub."
   let result: string | undefined
   if (ownership.lease) {
     const metadata = await readBlobLease(context, account, container, blob)
@@ -100,9 +105,17 @@ export async function acquireLease(
       if (result !== undefined) await confirmLeaseResume(context, account, container, blob)
     }
   }
+  const resumed = result !== undefined
   const proposed = ownership.lease ?? randomUUID()
   while (result === undefined) {
-    await recoverLease(context, account, container, blob)
+    if (recover) await recoverLease(context, account, container, blob)
+    else {
+      const metadata = await readBlobLease(context, account, container, blob)
+      if (!metadata || typeof metadata !== "object" ||
+          !("status" in metadata) || metadata.status !== "unlocked" ||
+          !("state" in metadata) || !["available", "broken", "expired"].includes(String(metadata.state)))
+        throw new Error(unavailable)
+    }
     await ownership.save(proposed)
     try {
       result = await azure(
@@ -124,6 +137,11 @@ export async function acquireLease(
         (error instanceof DOMException && error.name === "AbortError")
       )
         throw error
+      if (!recover)
+        throw new Error(
+          `${unavailable}\n${error instanceof Error ? error.message : "Lease acquisition failed."}`,
+          { cause: error },
+        )
       const notice = `Could not acquire the lease at ${account}/${container}/${blob}. No lease was broken by this acquisition attempt. Check access and whether another deployment or retained lease owns it; follow the installation recovery guide before retrying.\n${error instanceof Error ? error.message : "Lease acquisition failed."}`
       if (ui.recoveryNotice) ui.recoveryNotice(notice)
       else ui.notice?.("error", notice)
@@ -143,6 +161,7 @@ export async function acquireLease(
     throw new Error("Azure returned a different lease identity. Ownership was not verified.")
   let released = false
   return {
+    resumed,
     get held() {
       return !released
     },

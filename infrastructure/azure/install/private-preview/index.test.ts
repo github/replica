@@ -1,0 +1,685 @@
+import { randomUUID } from "node:crypto"
+import { mkdir, readFile, rm } from "node:fs/promises"
+import { resolve } from "node:path"
+import { afterEach, expect, it, vi } from "vitest"
+
+import { CommandExecutionError } from "../../../installer/command/index.ts"
+import type { DeploymentConfig, InstallerUI, RunCommand } from "../../../installer/types.ts"
+import { installationWorkspace } from "../../../installer/workspace/index.ts"
+import { leaseOwnership } from "../lease/ownership/index.ts"
+import { installationNames } from "../settings.ts"
+import { installAzurePrivatePreview } from "./index.ts"
+
+const directories: string[] = []
+const group = "azurerm_resource_group.reader"
+const environment = "azurerm_container_app_environment.reader"
+const identity = "azurerm_user_assigned_identity.reader"
+const app = "azurerm_container_app.reader"
+const storage = "azurerm_storage_container.reader"
+const imagePull = "azurerm_role_assignment.image_pull"
+const artifactsRead = "azurerm_role_assignment.reader_artifacts"
+const addresses = [group, environment, identity, app, storage, imagePull, artifactsRead]
+const acrPullFailure = new CommandExecutionError(
+  "Terraform apply failed.",
+  false,
+  1,
+  "Error: creating Container App: InvalidParameterValueInContainerTemplate: " +
+    "unable to pull image using Managed identity: UNAUTHORIZED: authentication required\n" +
+    "  with azurerm_container_app.reader,",
+)
+
+function azureCommand(args: string[]) {
+  const firstFlag = args.findIndex((arg) => arg.startsWith("--"))
+  return args.slice(0, firstFlag < 0 ? args.length : firstFlag).join(" ")
+}
+
+afterEach(async () => {
+  await Promise.all(
+    directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
+  )
+})
+
+async function fixture({
+  existing,
+  tracked,
+  hasIngress = false,
+  foreignReleaseLease = false,
+  hubChangesDuring,
+  readerImageDrift,
+  olderReaderImage = false,
+  recreatedPullGrant = false,
+  finalReadiness,
+  postApplyDrift,
+  planAction,
+  blobPage = "empty",
+  publicAccess = null,
+  attachedEnvironment = false,
+  roleFinding,
+  failFirstApply = false,
+}: {
+  existing: string[]
+  tracked?: string[]
+  hasIngress?: boolean
+  foreignReleaseLease?: boolean
+  hubChangesDuring?: "approval" | "plan"
+  readerImageDrift?: "template" | "active revision"
+  olderReaderImage?: boolean
+  recreatedPullGrant?: boolean
+  finalReadiness?: "pending" | "missing" | "failed"
+  postApplyDrift?: "state ID" | "active digest" | "ingress"
+  planAction?: { address: string; action: "create" | "no-op" }
+  blobPage?: "empty" | "historical" | "next page" | "missing marker" | "malformed marker"
+  publicAccess?: "Blob" | null
+  attachedEnvironment?: boolean
+  roleFinding?: "overlap" | "inherited" | "duplicate" | "malformed"
+  failFirstApply?: boolean
+}) {
+  const directory = resolve(`.installer-preview-test-${randomUUID()}`)
+  directories.push(directory)
+  await mkdir(directory, { mode: 0o700 })
+  const config: DeploymentConfig = {
+    version: 1,
+    cloud: "azure",
+    name: "test-hub",
+    owner: "test-team",
+    azure: {
+      subscriptionId: "00000000-0000-0000-0000-000000000001",
+      tenantId: "00000000-0000-0000-0000-000000000002",
+      location: "eastus2",
+      resourceGroup: "test-hub-rg",
+    },
+  }
+  const names = installationNames(config)
+  const subscription = `/subscriptions/${config.azure.subscriptionId}`
+  const hubProvider = `${subscription}/resourceGroups/${config.azure.resourceGroup}/providers`
+  const previewGroup = `${config.name}-preview`
+  const previewGroupId = `${subscription}/resourceGroups/${previewGroup}`
+  const previewProvider = `${previewGroupId}/providers`
+  const registryServer = `${names.registry}.azurecr.io`
+  const registryId = `${subscription}/resourceGroups/${names.foundationGroup}/providers/Microsoft.ContainerRegistry/registries/${names.registry}`
+  const storageId = `${hubProvider}/Microsoft.Storage/storageAccounts/testhubhub`
+  const containerId = `${storageId}/blobServices/default/containers/private-preview-artifacts`
+  const environmentId = `${previewProvider}/Microsoft.App/managedEnvironments/test-hub-preview-environment`
+  const identityId = `${previewProvider}/Microsoft.ManagedIdentity/userAssignedIdentities/test-hub-preview`
+  const appId = `${previewProvider}/Microsoft.App/containerApps/test-hub-preview`
+  const principalId = "00000000-0000-0000-0000-000000000003"
+  const pullGrantId = `${registryId}/providers/Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000004`
+  const readGrantId = `${containerId}/providers/Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000005`
+  const newPullGrantId = `${registryId}/providers/Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000006`
+  const ids = new Map([
+    [group, previewGroupId], [environment, environmentId], [identity, identityId], [app, appId],
+    [storage, containerId], [imagePull, pullGrantId], [artifactsRead, readGrantId],
+  ])
+  const installerLockBlob = `${config.name}/installer.lock`
+  const installerLease = `${names.stateAccount}/terraform/${installerLockBlob}`
+  const releaseLease = "testhubhub/releases/deployment.lock"
+  const held = new Map<string, string>()
+  const image = (digestCharacter: string) =>
+    `${registryServer}/replica-hub@sha256:${digestCharacter.repeat(64)}`
+  const hubImage = image("a")
+  let hubRevision = { name: "test-hub-hub--original", active: true, health: "Healthy", image: hubImage }
+  const moveHub = () => {
+    hubRevision = {
+      ...hubRevision,
+      name: "test-hub-hub--rollout",
+      image: hubChangesDuring === "plan" ? image("b") : hubImage,
+    }
+  }
+  const originalReaderImage = olderReaderImage ? image("c") : hubImage
+  let savedReaderImage = originalReaderImage
+  const readerRevision = "test-hub-preview--disabled"
+  const tags = {
+    application: "replica-hub",
+    installation: config.name,
+    owner: config.owner,
+    managed_by: "terraform",
+  }
+  const live = new Set(existing)
+  let state = tracked
+  const applied: string[] = []
+  let planFile: string | undefined
+  let plannedImage: string | undefined
+  const ui = {
+    status: vi.fn(),
+    recoveryNotice: vi.fn(),
+    phase: vi.fn<NonNullable<InstallerUI["phase"]>>(),
+    confirm: vi.fn<InstallerUI["confirm"]>(async () => {
+      if (hubChangesDuring === "approval") moveHub()
+      return true
+    }),
+    select: vi.fn<NonNullable<InstallerUI["select"]>>(async () => {
+      throw new Error("Preview staging attempted lock recovery")
+    }),
+    wait: async (message) => { throw new Error(message) },
+  } satisfies InstallerUI
+
+  const run = vi.fn<RunCommand>(async (executable, args) => {
+    const flag = (name: string) => {
+      const index = args.indexOf(name)
+      return index < 0 ? undefined : args[index + 1]
+    }
+    if (executable === "terraform") {
+      switch (args[1]) {
+        case "init": return ""
+        case "state":
+          if (args[2] === "list" && state) return state.join("\n")
+          break
+        case "plan": {
+          planFile = args.find((arg) => arg.startsWith("-out="))?.slice(5)
+          const inputs = args.find((arg) => arg.startsWith("-var-file="))!.slice(10)
+          plannedImage = JSON.parse(await readFile(inputs, "utf8")).image
+          return ""
+        }
+        case "show":
+          if (args[2] === "-json" && args.length === 3 && state) {
+            return JSON.stringify({
+              format_version: "1.0",
+              ...(state.length > 0 && { values: { root_module: { resources: state.map((address) => ({
+                address,
+                values: {
+                  id: ids.get(address),
+                  ...(address === app && { template: [{ container: [{ image: savedReaderImage }] }] }),
+                },
+              })) } } }),
+            })
+          }
+          expect(planFile).toBeDefined()
+          expect(args.at(-1)).toBe(planFile)
+          if (hubChangesDuring === "plan") moveHub()
+          return JSON.stringify({
+            resource_changes: addresses.map((address) => ({
+              address,
+              change: {
+                actions: [planAction?.address === address
+                  ? planAction.action : state?.includes(address) ? "no-op" : "create"],
+              },
+            })),
+          })
+        case "apply":
+          expect(planFile).toBeDefined()
+          expect(args.at(-1)).toBe(planFile)
+          applied.push(args.at(-1)!)
+          expect([...held.keys()].sort()).toEqual([installerLease, releaseLease].sort())
+          expect(plannedImage).toBe(state?.includes(app) ? originalReaderImage : hubImage)
+          if (failFirstApply && applied.length === 1) {
+            // A failed app creation can leave earlier creates recorded in both Azure and state.
+            state = addresses.filter((address) => address !== app)
+            for (const address of state) live.add(address)
+            throw acrPullFailure
+          }
+          for (const address of addresses) live.add(address)
+          state = [...addresses]
+          savedReaderImage = plannedImage!
+          return ""
+      }
+    }
+    if (executable === "az") {
+      const privateStorage = { allowSharedKeyAccess: false, allowBlobPublicAccess: false }
+      switch (azureCommand(args)) {
+        case "account show":
+          return JSON.stringify({ id: config.azure.subscriptionId, tenantId: config.azure.tenantId })
+        case "group exists":
+          return JSON.stringify(flag("--name") !== previewGroup || live.has(group))
+        case "group show":
+          return JSON.stringify({ id: `${subscription}/resourceGroups/${flag("--name")}`, tags })
+        case "storage account show":
+          return JSON.stringify(flag("--ids") === storageId ? { id: storageId, ...privateStorage } : {
+            id: `${subscription}/resourceGroups/${names.stateGroup}/providers/Microsoft.Storage/storageAccounts/${names.stateAccount}`,
+            tags: { ...tags, managed_by: "replica-installer" },
+            ...privateStorage,
+          })
+        case "acr show": return JSON.stringify({ id: registryId, loginServer: registryServer })
+        case "storage blob show":
+        case "storage blob lease acquire":
+        case "storage blob lease renew":
+        case "storage blob lease release": {
+          const operation = args[3]
+          const key = `${flag("--account-name")}/${flag("--container-name")}/${flag("--blob-name") ?? flag("--name")}`
+          expect([installerLease, releaseLease]).toContain(key)
+          const foreign = key === releaseLease && foreignReleaseLease
+          if (args[2] === "show") {
+            return JSON.stringify(foreign || held.has(key)
+              ? { status: "locked", state: "leased", duration: "infinite" }
+              : { status: "unlocked", state: "available", duration: null })
+          }
+          if (operation === "acquire") {
+            expect(ui.phase).toHaveBeenCalledWith("provision")
+            if (foreign || held.has(key)) throw new Error("Fixture lease is already locked")
+            const proposed = flag("--proposed-lease-id")!
+            held.set(key, proposed)
+            return JSON.stringify(proposed)
+          }
+          expect(held.get(key)).toBe(flag("--lease-id"))
+          if (operation === "release") held.delete(key)
+          return JSON.stringify(flag("--lease-id"))
+        }
+        case "storage blob exists":
+          expect(flag("--name")).toBe("test-hub/private-preview.tfstate")
+          return JSON.stringify({ exists: state !== undefined })
+        case "resource list":
+          expect(flag("--resource-group")).toBe(previewGroup)
+          return JSON.stringify([
+            ...(live.has(environment) ? [{ id: environmentId }] : []),
+            ...(live.has(identity) ? [{ id: identityId }] : []),
+            ...(live.has(app) ? [{ id: appId }] : []),
+          ])
+        case "storage container-rm list":
+          return JSON.stringify(live.has(storage) ? [{ id: containerId, publicAccess }] : [])
+        case "storage blob list": {
+          if (flag("--account-name") === names.stateAccount) {
+            return JSON.stringify(state ? [{
+              name: "test-hub/private-preview.tfstate",
+              lease: { status: "unlocked", state: "available", duration: null },
+            }] : [])
+          }
+          const blobs =
+            blobPage === "historical" && flag("--include") === "dsv"
+              ? [{ name: "deleted-preview.json", deleted: true, versionId: "retained-version" }]
+              : []
+          if (flag("--query") === "[].name") return JSON.stringify(blobs.map(({ name }) => name))
+          if (!args.includes("--show-next-marker") || blobPage === "missing marker")
+            return JSON.stringify(blobs)
+          return JSON.stringify([...blobs, {
+            nextMarker: blobPage === "next page" ? "more-blob-entries"
+              : blobPage === "malformed marker" ? false : null,
+          }])
+        }
+        case "containerapp job list": return "[]"
+        case "containerapp list": return JSON.stringify(["test-hub-hub"])
+        case "containerapp replica list": return JSON.stringify(["test-hub-replica"])
+        case "containerapp env show": return JSON.stringify({
+          tags,
+          subnetId: attachedEnvironment
+            ? `${hubProvider}/Microsoft.Network/virtualNetworks/hub/subnets/apps` : null,
+        })
+        case "identity show":
+          return JSON.stringify({ tags, principalId })
+        case "role assignment list": {
+          const pull = {
+            id: recreatedPullGrant || (applied.length > 0 && postApplyDrift === "state ID")
+              ? newPullGrantId : pullGrantId,
+            scope: registryId,
+            roleDefinitionName: "AcrPull",
+            principalId,
+          }
+          if (args.includes("--include-inherited") && flag("--scope") === subscription) {
+            return JSON.stringify(roleFinding === "inherited" ? [{
+              id: "/providers/Microsoft.Management/managementGroups/parent/providers/Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000007",
+              scope: "/providers/Microsoft.Management/managementGroups/parent",
+              roleDefinitionName: "Storage Blob Data Reader",
+              principalId,
+            }] : roleFinding === "overlap" && live.has(imagePull) ? [pull] : [])
+          }
+          return JSON.stringify([
+            ...(live.has(imagePull) ? [pull] : []),
+            ...(live.has(artifactsRead)
+              ? [{ id: readGrantId, scope: containerId, roleDefinitionName: "Storage Blob Data Reader", principalId }]
+              : []),
+            ...(roleFinding === "duplicate" ? [{ ...pull, id: newPullGrantId }] : []),
+            ...(roleFinding === "malformed" ? [{ ...pull, id: null }] : []),
+          ])
+        }
+        case "containerapp show":
+          return JSON.stringify(flag("--name") === "test-hub-hub" ? {
+            id: `${hubProvider}/Microsoft.App/containerApps/test-hub-hub`,
+            name: "test-hub-hub",
+            tags,
+            provisioningState: "Succeeded",
+            latestReadyRevisionName: hubRevision.name,
+            traffic: [{ weight: 100, latestRevision: true }],
+            image: image("c"),
+          } : {
+            id: appId,
+            tags, environmentId, identityType: "UserAssigned", identityIds: [identityId],
+            ingress: hasIngress || (applied.length > 0 && postApplyDrift === "ingress")
+              ? { external: true } : null,
+            secretNames: [],
+            containers: [{
+              command: ["node", "-e", "require('node:net').createServer(socket => socket.destroy()).listen(3002, '0.0.0.0')"],
+              image: readerImageDrift === "template" ? image("b") : savedReaderImage,
+              args: [],
+              envNames: [],
+            }],
+            status: applied.length > 0 && finalReadiness === "failed" ? "Failed" : "Succeeded",
+            running: "Running", latest: readerRevision,
+            ready: applied.length > 0 && finalReadiness
+              ? finalReadiness === "missing" ? undefined : null
+              : readerRevision,
+          })
+        case "containerapp revision list": {
+          if (flag("--name") === "test-hub-hub") return JSON.stringify([hubRevision])
+          expect(flag("--name")).toBe("test-hub-preview")
+          return JSON.stringify([{
+            name: readerRevision,
+            active: true,
+            health: "Healthy",
+            image: readerImageDrift === "active revision" ||
+              (applied.length > 0 && postApplyDrift === "active digest") ? image("b") : savedReaderImage,
+          }])
+        }
+      }
+    }
+    throw new Error(`Unexpected command ${executable} ${args.join(" ")}`)
+  })
+
+  return {
+    stage: () => installAzurePrivatePreview(config, { directory, run, ui }),
+    async seedInstallerLease(operation?: "private-preview") {
+      const workspace = installationWorkspace(config, directory)
+      await mkdir(workspace, { mode: 0o700 })
+      const proof = await leaseOwnership(
+        { config, directory: workspace }, names.stateAccount, "terraform", installerLockBlob, operation,
+      )
+      const leaseId = randomUUID()
+      await proof.save(leaseId)
+      held.set(installerLease, leaseId)
+      return leaseId
+    },
+    run,
+    applied,
+    ui,
+    heldLeases: () => [...held.keys()],
+    installerLease,
+    subscription,
+    principalId,
+  }
+}
+
+function expectNoBlobOrGrantWrites(run: Awaited<ReturnType<typeof fixture>>["run"]) {
+  const writes = run.mock.calls.filter(([executable, [service, resource, action]]) => {
+    if (executable !== "az") return false
+    if (service === "role" && resource === "assignment") return action !== "list"
+    return service === "storage" && ["blob", "container", "container-rm"].includes(resource) &&
+      !["list", "show", "exists", "lease"].includes(action)
+  })
+  expect(writes).toEqual([])
+}
+
+it.each([
+  { approval: false, outcome: "returns declined" },
+  { approval: undefined, outcome: "rejects a missing approval response" },
+])("$outcome before the provision checkpoint or any cloud write", async ({ approval }) => {
+  const test = await fixture({ existing: [] })
+  test.ui.confirm.mockResolvedValueOnce(approval as boolean)
+
+  if (approval === false) await expect(test.stage()).resolves.toBe("declined")
+  else await expect(test.stage()).rejects.toThrow()
+
+  expect(test.ui.confirm).toHaveBeenCalledOnce()
+  expect(test.ui.phase).not.toHaveBeenCalledWith("provision")
+  const readOnlyCommands = [
+    "az account show", "az group exists", "az group show", "az storage account show",
+    "az acr show", "az containerapp show", "az containerapp revision list",
+  ]
+  const commands = test.run.mock.calls.map(([executable, args]) =>
+    executable === "az" ? `az ${azureCommand(args)}` : `${executable} ${args.join(" ")}`,
+  )
+  expect(commands.filter((command) => !readOnlyCommands.includes(command))).toEqual([])
+})
+
+it.each([undefined, []])("stages the disabled reader with no tracked resources (state: %j)", async (tracked) => {
+  const test = await fixture({ existing: [], tracked })
+
+  await expect(test.stage()).resolves.toBe("staged")
+
+  expect(test.applied).toHaveLength(1)
+})
+
+it("keeps the original disabled reader image after Hub publishes a new image", async () => {
+  const tracked = [group, environment, identity, app, storage, imagePull, artifactsRead]
+  const test = await fixture({ existing: tracked, tracked, olderReaderImage: true })
+
+  await expect(test.stage()).resolves.toBe("staged")
+})
+
+it("proves empty storage and checks both grant scopes without counting a repeated assignment twice", async () => {
+  const test = await fixture({ existing: addresses, tracked: addresses, roleFinding: "overlap" })
+
+  await expect(test.stage()).resolves.toBe("staged")
+
+  expect(test.run).toHaveBeenCalledWith("az", expect.arrayContaining([
+    "storage", "blob", "list", "--container-name", "private-preview-artifacts",
+    "--auth-mode", "login", "--include", "dsv", "--num-results", "1", "--show-next-marker",
+  ]), expect.anything())
+  const blobReads = test.run.mock.calls.filter(([executable, args]) =>
+    executable === "az" && azureCommand(args) === "storage blob list" &&
+    args.includes("private-preview-artifacts"),
+  )
+  expect(blobReads.every(([, args]) => !args.includes("--query"))).toBe(true)
+  expect(test.run).toHaveBeenCalledWith("az", expect.arrayContaining([
+    "role", "assignment", "list", "--assignee-object-id", test.principalId, "--all", "--include-groups",
+  ]), expect.anything())
+  expect(test.run).toHaveBeenCalledWith("az", expect.arrayContaining([
+    "role", "assignment", "list", "--assignee-object-id", test.principalId,
+    "--scope", test.subscription, "--include-inherited", "--include-groups",
+  ]), expect.anything())
+})
+
+it.each(["historical", "next page", "missing marker", "malformed marker"] as const)(
+  "blocks staging when the dedicated container returns a %s listing",
+  async (blobPage) => {
+    const test = await fixture({ existing: addresses, tracked: addresses, blobPage })
+
+    await expect(test.stage()).rejects.toThrow(/container.*empty/i)
+
+    expect(test.applied).toEqual([])
+    expectNoBlobOrGrantWrites(test.run)
+    expect(test.heldLeases()).toEqual([])
+  },
+)
+
+it("retains the installer lease when post-apply checks discover historical blobs", async () => {
+  const test = await fixture({ existing: [], blobPage: "historical" })
+
+  await expect(test.stage()).rejects.toThrow(/container.*empty/i)
+
+  expect(test.applied).toHaveLength(1)
+  expectNoBlobOrGrantWrites(test.run)
+  expect(test.heldLeases()).toEqual([test.installerLease])
+})
+
+it.each([
+  { options: { publicAccess: "Blob" }, error: /container.*private/i, finding: "public container" },
+  { options: { attachedEnvironment: true }, error: /environment.*network/i, finding: "attached environment" },
+  { options: { roleFinding: "inherited" }, error: /identity.*grant/i, finding: "parent-scope grant" },
+  { options: { roleFinding: "duplicate" }, error: /duplicate grant/i, finding: "distinct duplicate grant" },
+  { options: { roleFinding: "malformed" }, error: /grant|role assignment|access/i, finding: "malformed grant" },
+] as const)("blocks staging with a $finding even when the expected resource IDs match", async ({
+  options, error,
+}) => {
+  const test = await fixture({ existing: addresses, tracked: addresses, ...options })
+
+  await expect(test.stage()).rejects.toThrow(error)
+
+  expect(test.applied).toEqual([])
+  expectNoBlobOrGrantWrites(test.run)
+  expect(test.heldLeases()).toEqual([])
+})
+
+it("does not adopt or recreate an existing preview group when the saved state is absent", async () => {
+  const test = await fixture({ existing: [group] })
+
+  await expect(test.stage()).rejects.toThrow(/state disagree/i)
+
+  expect(test.applied).toEqual([])
+  expect(test.run.mock.calls.some(([command, args]) =>
+    command === "terraform" && args[1] === "import",
+  )).toBe(false)
+})
+
+it("does not overwrite a tracked reader that has gained ingress", async () => {
+  const tracked = [group, environment, identity, app, imagePull]
+  const test = await fixture({ existing: tracked, tracked, hasIngress: true })
+
+  await expect(test.stage()).rejects.toThrow(/no longer matches the disabled configuration/i)
+
+  expect(test.applied).toEqual([])
+})
+
+it("applies the staging plan when partial reader resources match saved state", async () => {
+  const tracked = [group, environment]
+  const test = await fixture({ existing: tracked, tracked })
+
+  await expect(test.stage()).resolves.toBe("staged")
+
+  expect(test.applied).toHaveLength(1)
+})
+
+it("refuses a foreign release lease without trying recovery or applying", async () => {
+  const test = await fixture({ existing: [], foreignReleaseLease: true })
+
+  await expect(test.stage()).rejects.toThrow(/lock|lease/i)
+
+  expect(test.ui.select).not.toHaveBeenCalled()
+  expect(test.applied).toEqual([])
+  expect(test.run.mock.calls.some(([, args]) =>
+    args.includes("break") || args.includes("stop") || args.includes("deactivate"),
+  )).toBe(false)
+})
+
+it("leaves a normal installer's proved lease untouched when the release lease is foreign", async () => {
+  const test = await fixture({ existing: [], foreignReleaseLease: true })
+  await test.seedInstallerLease()
+
+  await expect(test.stage()).rejects.toThrow(/installer\.lock.*(held|unverifiable)/i)
+
+  expect(test.ui.select).not.toHaveBeenCalled()
+  expect(test.applied).toEqual([])
+  expect(test.run.mock.calls.some(([, args]) =>
+    args.some((arg) => ["renew", "release", "break", "stop", "deactivate"].includes(arg)),
+  )).toBe(false)
+})
+
+it("resumes staging with its own saved installer lease proof", async () => {
+  const tracked = [group, environment]
+  const test = await fixture({ existing: tracked, tracked })
+  const leaseId = await test.seedInstallerLease("private-preview")
+
+  await expect(test.stage()).resolves.toBe("staged")
+
+  expect(test.applied).toHaveLength(1)
+  expect(test.heldLeases()).toEqual([])
+  expect(test.run).toHaveBeenCalledWith("az", expect.arrayContaining([
+    "lease", "renew", "--blob-name", "test-hub/installer.lock", "--lease-id", leaseId,
+  ]), expect.anything())
+})
+
+it("keeps a renewed preview installer lease when Resume finds state drift before apply", async () => {
+  const tracked = [group, identity, imagePull]
+  const test = await fixture({ existing: tracked, tracked, recreatedPullGrant: true })
+  const leaseId = await test.seedInstallerLease("private-preview")
+
+  await expect(test.stage()).rejects.toThrow(/state.*disagree/i)
+
+  expect(test.applied).toEqual([])
+  expect(test.run).toHaveBeenCalledWith("az", expect.arrayContaining([
+    "lease", "renew", "--blob-name", "test-hub/installer.lock", "--lease-id", leaseId,
+  ]), expect.anything())
+  expect(test.heldLeases()).toEqual([test.installerLease])
+})
+
+it("releases both leases after a successful apply when only the disabled revision is pending", async () => {
+  const test = await fixture({ existing: [], finalReadiness: "pending" })
+
+  await expect(test.stage()).rejects.toThrow(/Resume to recheck/i)
+
+  expect(test.applied).toHaveLength(1)
+  expect(test.ui.phase).toHaveBeenLastCalledWith("verify")
+  expect(test.heldLeases()).toEqual([])
+})
+
+it.each([
+  { postApplyDrift: "state ID", error: /state.*disagree/i },
+  { postApplyDrift: "active digest", error: /active reader revision.*saved image/i },
+  { postApplyDrift: "ingress", error: /no longer matches the disabled configuration/i },
+] as const)("retains the installer lease when the revision is pending with $postApplyDrift drift", async ({
+  postApplyDrift, error,
+}) => {
+  const test = await fixture({ existing: [], finalReadiness: "pending", postApplyDrift })
+
+  const failure = test.stage()
+  await expect(failure).rejects.toThrow(error)
+  if (postApplyDrift === "state ID")
+    await expect(failure).rejects.not.toThrow(/(?:plan|changes) (?:was|were) not applied/i)
+
+  expect(test.applied).toHaveLength(1)
+  expect(test.heldLeases()).toEqual([test.installerLease])
+})
+
+it("retains partial changes after an ACR pull denial and stages only on explicit Resume", async () => {
+  const test = await fixture({ existing: [], failFirstApply: true })
+  test.ui.select.mockResolvedValueOnce("exit")
+
+  const failure = await test.stage().catch((error: unknown) => error)
+
+  expect(failure).toBeInstanceOf(Error)
+  const messages = [
+    (failure as Error).message,
+    ...test.ui.status.mock.calls.flat(),
+    ...test.ui.recoveryNotice.mock.calls.flat(),
+  ].join("\n")
+  expect(messages).toMatch(/Resume/i)
+  expect(test.applied).toHaveLength(1)
+  expect(test.heldLeases()).toEqual([test.installerLease])
+  const preparationPrompts = () => test.ui.confirm.mock.calls
+    .filter(([message]) => /prepare a disabled private preview reader/i.test(message))
+  expect(preparationPrompts()).toHaveLength(1)
+
+  await expect(test.stage()).resolves.toBe("staged")
+
+  expect(preparationPrompts()).toHaveLength(2)
+  expect(test.applied).toHaveLength(2)
+  expect(test.heldLeases()).toEqual([])
+})
+
+it.each(["missing", "failed"] as const)(
+  "retains the installer lease when post-apply ACA readiness is %s",
+  async (finalReadiness) => {
+    const test = await fixture({ existing: [], finalReadiness })
+
+    await expect(test.stage()).rejects.toThrow()
+
+    expect(test.applied).toHaveLength(1)
+    expect(test.heldLeases()).toEqual([test.installerLease])
+  },
+)
+
+it.each(["approval", "plan"] as const)("blocks staging if Hub rolls forward during %s", async (hubChangesDuring) => {
+  const test = await fixture({ existing: [], hubChangesDuring })
+
+  await expect(test.stage()).rejects.toThrow(/Hub.*(changed|revision|image)/i)
+
+  expect(test.applied).toEqual([])
+})
+
+it.each(["template", "active revision"] as const)(
+  "rejects a wrong image digest in the reader %s despite the expected placeholder command",
+  async (readerImageDrift) => {
+    const test = await fixture({ existing: addresses, tracked: addresses, readerImageDrift })
+
+    await expect(test.stage()).rejects.toThrow(/reader.*(image|state)|state.*disagree/i)
+
+    expect(test.applied).toEqual([])
+  },
+)
+
+it("rejects a recreated role assignment even when its principal, role and scope match", async () => {
+  const tracked = [group, identity, imagePull]
+  const test = await fixture({ existing: tracked, tracked, recreatedPullGrant: true })
+
+  await expect(test.stage()).rejects.toThrow(/state.*disagree|role assignment.*(differ|match)/i)
+
+  expect(test.applied).toEqual([])
+})
+
+it.each([
+  { action: "create", address: group },
+  { action: "no-op", address: environment },
+] as const)("rejects an otherwise allowed $action that contradicts reconciled state", async (planAction) => {
+  const tracked = [group]
+  const test = await fixture({ existing: tracked, tracked, planAction })
+
+  await expect(test.stage()).rejects.toThrow(/plan.*(blocked|state|reconcil)/i)
+
+  expect(test.applied).toEqual([])
+})
