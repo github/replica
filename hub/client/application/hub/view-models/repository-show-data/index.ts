@@ -3,13 +3,11 @@ import type { RepositoryResponse, WorkspaceResponse } from "@application/hub/con
 
 import { buildStateLabel } from "../build-state-label"
 import { repositoryWorkspace } from "../repository-workspace"
-import { resourcePath } from "../resource-path"
 
 export function repositoryShowData(
   workspace: WorkspaceResponse,
   data: RepositoryResponse,
   search: URLSearchParams,
-  options: { real?: boolean } = {},
 ): RepositoriesShowPageData {
   const path = `/repositories/${data.repository.id}`
   const pageQuery = new URLSearchParams(search)
@@ -26,13 +24,11 @@ export function repositoryShowData(
           ? "Selected user"
           : "All users"
   const count = data.pagination.totalCount
-  const canManageListings = options.real
-    ? workspace.repositories.find(({ id }) => id === data.repository.id)?.capabilities
-        ?.managePrototypeListings
-    : workspace.capabilities?.createPrototypes
+  const canManageListings = workspace.repositories.find(({ id }) => id === data.repository.id)
+    ?.capabilities?.managePrototypeListings
 
   return {
-    ...repositoryWorkspace(workspace, data.repository, search, options.real),
+    ...repositoryWorkspace(workspace, data.repository),
     alert: null,
     clearSearchLabel: "Clear search",
     emptyHeading: "No prototypes yet",
@@ -41,9 +37,7 @@ export function repositoryShowData(
     galleryViewLabel: "Gallery view",
     listViewLabel: "List view",
     managePrototypesLabel: "Edit prototype listings",
-    managePrototypesPath: canManageListings
-      ? resourcePath(`${path}/prototypes/manage`, search)
-      : undefined,
+    managePrototypesPath: canManageListings ? `${path}/prototypes/manage` : undefined,
     prototypeColumnLabel: "Prototype",
     ownerColumnLabel: "Author",
     buildColumnLabel: "Build",
@@ -63,9 +57,7 @@ export function repositoryShowData(
         Boolean(prototype.reviewBuild) || builds.some((build) => build.previewUrl)
       const prototypeAuthor = prototype.authorId
         ? data.authors.find((item) => item.id === prototype.authorId)
-        : options.real
-          ? undefined
-          : data.authors.find((item) => item.login === prototype.authorLogin)
+        : undefined
       const authorName =
         prototypeAuthor?.provider && prototypeAuthor.provider !== "github"
           ? (prototypeAuthor.name ?? prototypeAuthor.login)
@@ -78,7 +70,7 @@ export function repositoryShowData(
         name: prototype.name,
         branchName: prototype.branchName,
         description: prototype.description,
-        path: resourcePath(`${path}/prototypes/${prototype.id}`, search),
+        path: `${path}/prototypes/${prototype.id}`,
         author: {
           avatarUrl: prototypeAuthor?.avatarUrl ?? null,
           label: prototype.authorLogin ? `By ${authorName}` : authorName,

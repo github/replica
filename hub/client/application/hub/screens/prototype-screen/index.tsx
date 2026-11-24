@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useLocation, useRouteLoaderData, useSearchParams } from "react-router"
+import { useLocation, useSearchParams } from "react-router"
 
 import { useHubTheme } from "@hooks/use-hub-theme"
 import { usePrototypeReview } from "@hooks/use-prototype-review"
@@ -10,7 +10,6 @@ import type { PrototypeDetailsInput } from "@pages/prototypes-show-page/types"
 import type { PrototypeResponse, WorkspaceResponse } from "@application/hub/contracts/types"
 import { prototypeShowData } from "@application/hub/view-models/prototype-show-data"
 import { createReviewTransport } from "@application/hub/create-review-transport"
-import type { SessionResponse } from "@application/hub/session-contracts/types"
 import { readReviewQuery } from "@application/hub/read-review-query"
 import { authorizeCopilotHandoff } from "@application/hub/requests/authorize-copilot-handoff"
 import { requestJson } from "@application/hub/requests/request-json"
@@ -41,19 +40,11 @@ export function PrototypeScreen({
   const query = useMemo(() => readReviewQuery(params), [params])
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const { resolvedColorMode } = useHubTheme()
-  const session = useRouteLoaderData<SessionResponse>("root")
-  const mock = import.meta.env.DEV && import.meta.env.MODE === "mock"
-  // Mock canEdit still protects its separate management and sharing workflows.
-  const canEditDetails = mock ? Boolean(session?.viewer) : data.prototype.canEdit
   const repositoryCapabilities = workspace.repositories.find(
     ({ id }) => id === data.repository.id,
   )?.capabilities
-  const pageData = prototypeShowData(workspace, data, new URLSearchParams(location.search), {
-    real: !mock,
-  })
-  pageData.reviewReadOnly = mock
-    ? !session?.capabilities.reviewPrototypes
-    : !repositoryCapabilities?.reviewPrototypes
+  const pageData = prototypeShowData(workspace, data, new URLSearchParams(location.search))
+  pageData.reviewReadOnly = !repositoryCapabilities?.reviewPrototypes
   if (pageData.reviewReadOnly) {
     pageData.reviewComments = {
       ...pageData.reviewComments,
@@ -70,7 +61,7 @@ export function PrototypeScreen({
   const requestedRoute =
     requestedRoutes.length === 1 ? readPreviewReturnPath(requestedRoutes[0]) : null
   const logicalRequest = params.get("return_path_kind") === "logical"
-  if (!mock && isolated && requestedRoute && preview && pageData.selectedBuild) {
+  if (isolated && requestedRoute && preview && pageData.selectedBuild) {
     preview.searchParams.set("route", requestedRoute)
     if (logicalRequest) preview.searchParams.set("route_kind", "logical")
     pageData.selectedBuild.previewUrl = preview.href
@@ -165,7 +156,6 @@ export function PrototypeScreen({
       })
     : undefined
   const channel =
-    !mock &&
     !pageData.reviewReadOnly &&
     /^[\da-f-]{36}$/i.test(data.repository.id) &&
     /^[\da-f-]{36}$/i.test(data.prototype.id)
@@ -190,7 +180,6 @@ export function PrototypeScreen({
   )
   useEffect(() => {
     if (
-      mock ||
       !notificationId ||
       !commentId ||
       !messageId ||
@@ -212,7 +201,7 @@ export function PrototypeScreen({
       if (!controller.signal.aborted) setFailedNotification(notificationId)
     })
     return () => controller.abort()
-  }, [mock, notificationId, commentId, messageId, targetExists, opened, data.prototype.id])
+  }, [notificationId, commentId, messageId, targetExists, opened, data.prototype.id])
   let notificationError: string | undefined
   if (notificationId !== null) {
     if (!review.comments.loading && !targetExists) {
@@ -222,28 +211,29 @@ export function PrototypeScreen({
     }
   }
 
-  const page = (
-    <PrototypesShowPage
-      key={`${data.repository.id}:${data.prototype.id}`}
-      data={{
-        ...pageData,
-        privateReviewLink: reviewLink,
-        initialNotificationId: notificationId ?? undefined,
-        initialCommentId: messageId ?? undefined,
-        notificationErrorLabel: notificationError,
-      }}
-      iframeRef={iframeRef}
-      previewTheme={resolvedColorMode}
-      monitorPreview={!mock && isolated}
-      review={review}
-      onNotificationMessageOpened={messageOpened}
-      initialMinimized={pageData.minimizedPreview}
-      onSaveDetails={canEditDetails ? onSaveDetails : undefined}
-      savingDetails={savingDetails}
-      detailsError={detailsError}
-      detailsSaved={detailsSaved}
-      authorizeHandoff={mock ? undefined : () => authorizeCopilotHandoff(data.repository.id)}
-    />
+  return (
+    <MentionProvider source={mentionSource}>
+      <PrototypesShowPage
+        key={`${data.repository.id}:${data.prototype.id}`}
+        data={{
+          ...pageData,
+          privateReviewLink: reviewLink,
+          initialNotificationId: notificationId ?? undefined,
+          initialCommentId: messageId ?? undefined,
+          notificationErrorLabel: notificationError,
+        }}
+        iframeRef={iframeRef}
+        previewTheme={resolvedColorMode}
+        monitorPreview={isolated}
+        review={review}
+        onNotificationMessageOpened={messageOpened}
+        initialMinimized={pageData.minimizedPreview}
+        onSaveDetails={data.prototype.canEdit ? onSaveDetails : undefined}
+        savingDetails={savingDetails}
+        detailsError={detailsError}
+        detailsSaved={detailsSaved}
+        authorizeHandoff={() => authorizeCopilotHandoff(data.repository.id)}
+      />
+    </MentionProvider>
   )
-  return mock ? page : <MentionProvider source={mentionSource}>{page}</MentionProvider>
 }

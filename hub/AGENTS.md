@@ -18,10 +18,10 @@ Run the following commands from `hub/`, using a Node.js version supported by `en
 
 ```sh
 npm ci --engine-strict
-npm run dev:mock
+npm run storybook
 ```
 
-Open <http://127.0.0.1:5173/repositories/2001> for the mock frontend; it needs no API, database, or credentials. Installation generates Prisma Client without connecting to PostgreSQL.
+Open <http://127.0.0.1:6006> for [Storybook](docs/storybook.md); it needs no API, database, or credentials. Installation generates Prisma Client without connecting to PostgreSQL.
 
 After installing Hub dependencies, use the [devcontainer](docs/development.md#devcontainer) for the real API or prepare local PostgreSQL and configuration. Copy `.env.example` only for first-time setup; preserve an existing `.env` and never commit credentials.
 
@@ -69,6 +69,6 @@ For documentation-only changes, review prose and links rather than running appli
 - Keep HTTP parsing and responses outside domains. Agree on the design before adding product models, permissions, deployment choices, or product API routes.
 - Follow [database conventions](docs/database.md) for Prisma models, migrations, and the shared client, and [authentication](docs/authentication.md) for identity and access boundaries.
 - Keep `HubThemeProvider` around application and Storybook content so portals inherit Brand and `--hub-*` tokens. Do not fix overlays to the light theme.
-- Keep product copy independent of mock data. Mock-only controls and diagnostics belong in the bottom-right test toolbar; [the frontend guide](docs/frontend.md) owns fixtures and resets.
+- Keep sample data and UI callbacks in Storybook. Use tests against the application and API contracts for routing, permissions, and persistence.
 - Follow [Storybook requirements](docs/storybook.md#ui-changes-and-pull-request-evidence) for visual changes and PR screenshots, and [telemetry](docs/telemetry.md) for explicit spans and safe attributes.
 - Use the [root browser workflow](../AGENTS.md#browser-validation-and-playwright-fallback) and [browser validation workflow](../starter/.agents/skills/browser-canvas-validation/WORKFLOW.md) for rendered checks.

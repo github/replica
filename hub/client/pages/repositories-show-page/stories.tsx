@@ -1,10 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { fn } from "storybook/test"
+import { expect, fn, waitFor } from "storybook/test"
 
 import { authenticatedHeaderData } from "@/storybook/fixtures/authenticated-header"
 import { prototypeListing } from "@/storybook/fixtures/prototype-listing"
 import { welcomePrototype } from "@/storybook/fixtures/prototypes"
 import { githubEmpty, githubPrototype } from "@/storybook/fixtures/repositories"
+import { mona, octocat } from "@/storybook/fixtures/users"
 
 import { RepositoriesShowPage } from "."
 import type { RepositoriesShowPageData } from "./types"
@@ -330,6 +331,77 @@ export const MeSelected: Story = {
       prototypes: [welcomePrototype],
       prototypesCountLabel: "1 prototype",
     },
+  },
+}
+
+const monaAuthor = { ...mona, id: "77777777-7777-4777-8777-777777777777" }
+const octocatAuthor = { ...octocat, id: "88888888-8888-4888-8888-888888888888" }
+const filteredPagePath = `${realIndexData.prototypesPath}?author=${monaAuthor.id}`
+const filteredPrototypeAuthor = {
+  avatarUrl: monaAuthor.avatarUrl,
+  ownerLabel: `@${monaAuthor.login}`,
+  label: `By @${monaAuthor.login}`,
+  url: `https://github.com/${monaAuthor.login}`,
+}
+
+export const UserFilterSecondPage: Story = {
+  args: {
+    data: {
+      ...realIndexData,
+      listing: {
+        ...realIndexData.listing,
+        author: monaAuthor.id,
+        authorLabel: `@${monaAuthor.login}`,
+        matchingCount: 26,
+        page: 2,
+        pageCount: 2,
+        pagePath: filteredPagePath,
+        path: `${filteredPagePath}&page=2`,
+        authorsPath: `/api${realIndexData.prototypesPath}/authors`,
+        copy: { ...realIndexData.listing.copy, shown: "2 shown" },
+      },
+      prototypesCountLabel: "26 prototypes",
+      prototypes: [
+        {
+          ...realIndexData.prototypes[0]!,
+          name: "Keyboard shortcuts",
+          branchName: "prototype/keyboard-shortcuts",
+          description: "Help contributors discover shortcuts without leaving their work.",
+          latestBuild: { state: "successful", stateLabel: "Successful" },
+          reviewBuild: undefined,
+          previewFallbackLabel: "Preview available. No screenshot was captured.",
+          author: filteredPrototypeAuthor,
+        },
+        {
+          ...realIndexData.prototypes[1]!,
+          name: "Activity digest",
+          branchName: "prototype/activity-digest",
+          description: "Group recent repository changes into a short summary.",
+          author: filteredPrototypeAuthor,
+        },
+      ],
+    },
+    controls: {
+      ...meta.args.controls,
+      loadAuthors: (query, cursor) => {
+        const users = [octocatAuthor, monaAuthor].filter(({ name, login }) =>
+          `${name} ${login}`.toLowerCase().includes(query.toLowerCase()),
+        )
+        return Promise.resolve({
+          authors: cursor ? users.slice(1) : users.slice(0, 1),
+          nextCursor: !cursor && users.length > 1 ? users[0]!.id : null,
+        })
+      },
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: "User: @mona" }))
+    await canvas.findByRole("menuitemradio", { name: /@octocat/ })
+    await userEvent.click(canvas.getByRole("button", { name: /^More$/ }))
+    await canvas.findByRole("menuitemradio", { name: /@mona/ })
+    await waitFor(() =>
+      expect(canvas.queryByRole("menuitemradio", { name: /@octocat/ })).not.toBeInTheDocument(),
+    )
   },
 }
 

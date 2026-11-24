@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 
 import { hubAdministrationWorkspaceData } from "@/storybook/fixtures/hub-administration"
+import { signedInWorkspace } from "@/storybook/fixtures/signed-in-workspace"
 
 import { FreshAuthorizationPage } from "."
 
@@ -109,4 +110,42 @@ export const Conflict: Story = {
     error:
       "The administrator role changed before this authorization continued. Review the current roster and try again.",
   },
+}
+
+const copilotAuthorizationId = "55555555-5555-4555-8555-555555555555"
+const copilotConfirmationPath = `/settings/copilot/confirm?authorizationId=${copilotAuthorizationId}`
+
+export const CopilotConnectionConfirmation: Story = {
+  args: {
+    data: {
+      ...meta.args.data,
+      administrationWorkspace: {
+        ...signedInWorkspace,
+        selectedSection: "copilot",
+        administrationLinks: [
+          { section: "admins", label: "Hub administrators", path: "/settings/administrators" },
+          { section: "sessions", label: "End all Hub sessions", path: "/settings/sessions" },
+          { section: "copilot", label: "Copilot connection", path: "/settings/copilot" },
+        ],
+        securityAuditLabel: "Security audit",
+        securityAuditPath: "/settings/audit?scope=hub",
+      },
+      pageTitle: "Complete Copilot connection",
+      heading: "Complete Copilot connection",
+      description:
+        "Your provider verified this session. Continue to check the configured token and connect Copilot, or cancel without changing the connection.",
+      submitLabel: "Connect Copilot",
+      submitPath: copilotConfirmationPath,
+      cancelPath: copilotConfirmationPath,
+      authenticityToken: "",
+      continuation: { id: copilotAuthorizationId, method: "post" },
+    },
+  },
+  decorators: [
+    (Story) => (
+      <div onSubmit={(event) => event.preventDefault()}>
+        <Story />
+      </div>
+    ),
+  ],
 }

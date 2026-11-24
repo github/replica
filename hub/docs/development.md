@@ -2,9 +2,9 @@
 
 Use the Hub devcontainer for API, frontend, database, and worker development, or run Node.js locally with PostgreSQL 17 or newer. Local Build execution requires a Linux host with Docker because the runner starts a nested, constrained Build container; the devcontainer does not expose a Docker daemon. Hub can expose GitHub, Microsoft Entra, or both sign-in choices and reusable administrator enrollment when the shared settings and at least one provider profile are configured. See [Deployment](deployment.md) for the production runtime.
 
-## Frontend without a backend
+## UI work without a backend
 
-Follow [Routed frontend](frontend.md) for local startup, data modes, and route examples. The local frontend can run without PostgreSQL or the API server.
+Run `npm run storybook` from `hub/` after installing dependencies. Use the [route-to-story map](storybook.md#route-to-story-map) to open a page without PostgreSQL, an API server, or sign-in.
 
 ## Devcontainer
 
@@ -36,10 +36,10 @@ For a true process-only health check without database or authentication composit
 
 Run these commands from `hub/`, inside the devcontainer or with local Node.js. First choose how you will sign in:
 
-| Command | Sign-in | Use it when |
-| --- | --- | --- |
-| `npm run dev:api` | One fixed local developer who is a Hub administrator | You want local repositories and no sign-in provider. This is the default. |
-| `npm run dev:api:live` | GitHub or Entra, as configured in `.env` | You are testing provider sign-in, administrator enrollment through a provider, or real user identities. |
+| Command                | Sign-in                                              | Use it when                                                                                             |
+| ---------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `npm run dev:api`      | One fixed local developer who is a Hub administrator | You want local repositories and no sign-in provider. This is the default.                               |
+| `npm run dev:api:live` | GitHub or Entra, as configured in `.env`             | You are testing provider sign-in, administrator enrollment through a provider, or real user identities. |
 
 For example, to start with local sign-in:
 

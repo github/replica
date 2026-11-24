@@ -253,7 +253,6 @@ export function settingsLearnings(
   workspace: WorkspaceResponse,
   state: LearningsResponse,
   decisionModel: DecisionModelAvailability | null,
-  search: URLSearchParams,
 ): LearningsPageData {
   const repository = state.repository
   const repositoryId = state.repository.id
@@ -267,7 +266,7 @@ export function settingsLearnings(
     },
   }
   const shared = {
-    ...repositoryWorkspace(currentWorkspace, repository, search),
+    ...repositoryWorkspace(currentWorkspace, repository),
     selectedSection: "learnings" as const,
     pageTitle: "Learnings",
     alert: null,

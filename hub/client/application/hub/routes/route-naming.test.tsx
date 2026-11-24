@@ -1,74 +1,30 @@
 import type { RouteConfigEntry } from "@react-router/dev/routes"
 import { fireEvent, screen, within } from "@testing-library/react"
-import { http, HttpResponse } from "msw"
-import { setupServer } from "msw/node"
-import { useLoaderData, type RouteObject } from "react-router"
 import { describe, expect, it, vi } from "vitest"
 
+import { http, stubHubFetch } from "@/test/stub-hub-fetch"
+
 import routeConfig from "../routes"
-import { createMockHandlers } from "../mocks/create-mock-handlers"
-import { createMockStore } from "../mocks/create-mock-store"
-import { settingsQuerySchema } from "../settings-contracts"
-import { clientLoader as redirectRepositorySettings } from "./legacy-repository-settings"
-import { clientLoader as redirectSharing } from "./legacy-sharing"
-import ProductSharingSettingsRoute, {
-  clientAction as saveSharing,
-  clientLoader as loadSharing,
-} from "./product-sharing-settings"
-import SettingsAnalyticsRoute, {
-  clientAction as saveAnalytics,
-  clientLoader as loadAnalytics,
-} from "./settings-analytics"
-import SettingsLearningsRoute, {
-  clientAction as saveLearnings,
-  clientLoader as loadLearnings,
-} from "./settings-learnings"
+import { authenticatedWorkspace } from "./fixtures/authenticated-workspace"
+import { emptyLearnings } from "./fixtures/empty-learnings"
 import { renderHubFlow } from "./fixtures/render-hub-flow"
 
-function AnalyticsComponent() {
-  return <SettingsAnalyticsRoute loaderData={useLoaderData<typeof loadAnalytics>()} />
+const first = {
+  id: "11111111-1111-4111-8111-111111111111",
+  nameWithOwner: "team/alpha",
+  defaultBranch: "main",
 }
-
-function LearningsComponent() {
-  return <SettingsLearningsRoute loaderData={useLoaderData<typeof loadLearnings>()} />
+const second = {
+  id: "22222222-2222-4222-8222-222222222222",
+  nameWithOwner: "team/beta",
+  defaultBranch: "main",
 }
-
-function SharingComponent() {
-  return <ProductSharingSettingsRoute loaderData={useLoaderData<typeof loadSharing>()} />
+const analytics = {
+  destinations: [],
+  canExportHistory: false,
+  outboundEnabled: true,
+  canMutate: true,
 }
-
-function unavailableServerRoute(): Promise<never> {
-  return Promise.reject(new Error("The mock frontend must not call a server route."))
-}
-
-const workspaceRoutes: RouteObject[] = [
-  {
-    path: "/repositories/:repositoryId/analytics",
-    loader: (args) => loadAnalytics({ ...args, serverLoader: unavailableServerRoute }),
-    action: (args) => saveAnalytics({ ...args, serverAction: unavailableServerRoute }),
-    Component: AnalyticsComponent,
-  },
-  {
-    path: "/repositories/:repositoryId/learnings",
-    loader: loadLearnings,
-    action: saveLearnings,
-    Component: LearningsComponent,
-  },
-  {
-    path: "/settings/sharing",
-    loader: loadSharing,
-    action: saveSharing,
-    Component: SharingComponent,
-  },
-  {
-    path: "/settings/:section",
-    loader: redirectRepositorySettings,
-  },
-  {
-    path: "/admin/sharing",
-    loader: redirectSharing,
-  },
-]
 
 function registeredPaths(entries: RouteConfigEntry[]): string[] {
   return entries.flatMap((entry) => [
@@ -78,8 +34,9 @@ function registeredPaths(entries: RouteConfigEntry[]): string[] {
 }
 
 describe("Hub primary route names", () => {
-  it("registers the canonical page URLs in the application, not just the test router", () => {
-    expect(registeredPaths(routeConfig)).toEqual(
+  it("registers the canonical URLs and sign-in compatibility redirect but no mock session route", () => {
+    const paths = registeredPaths(routeConfig)
+    expect(paths).toEqual(
       expect.arrayContaining([
         "repositories",
         "repositories/:repositoryId",
@@ -88,265 +45,228 @@ describe("Hub primary route names", () => {
         "repositories/:repositoryId/learnings",
         "settings/sharing",
         "settings/audit",
-        "settings/admins",
+        "settings/administrators",
         "settings/sessions",
-        "settings/github",
+        "settings/github/setup",
         "settings/copilot",
+        "sign-in",
         "welcome",
         "notifications",
       ]),
     )
-  })
-
-  it("opens the first accessible repository from the repositories entry point", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
-    server.use(
-      http.get(`${store.origin}/api/workspace`, () =>
-        HttpResponse.json({
-          ...store.getWorkspace(),
-          repositories: store.getWorkspace().repositories.slice(1),
-        }),
-      ),
-    )
-
-    const router = await renderHubFlow(server, "/repositories", { workspaceRoutes })
-
-    expect(router.state.location.pathname).toBe("/repositories/2002")
-    expect(
-      screen.getByRole("button", { name: "Choose repository. github/empty selected" }),
-    ).toBeVisible()
-  })
-
-  it("keeps the empty workspace outcome at the repositories entry point", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
-    server.use(
-      http.get(`${store.origin}/api/workspace`, () =>
-        HttpResponse.json({ ...store.getWorkspace(), repositories: [] }),
-      ),
-    )
-
-    const router = await renderHubFlow(server, "/repositories", { workspaceRoutes })
-
-    expect(router.state.location.pathname).toBe("/repositories")
-    expect(screen.getByRole("heading", { name: "No repositories available" })).toBeVisible()
-    expect(screen.queryByRole("button", { name: /^Choose repository\./ })).not.toBeInTheDocument()
-  })
-
-  it("sends a signed-out repositories visit to sign-in without reading a private workspace", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    store.session.select("signed-out")
-    const privateReads = vi.fn(() =>
-      HttpResponse.json({ error: "Private workspace must not be loaded." }, { status: 503 }),
-    )
-    const server = setupServer(...createMockHandlers(store))
-    server.use(http.get(`${store.origin}/api/workspace`, privateReads))
-
-    const router = await renderHubFlow(server, "/repositories", { workspaceRoutes })
-
-    expect(router.state.location.pathname).toBe("/sign-in")
-    expect(screen.getByRole("button", { name: "Sign in with GitHub" })).toBeInTheDocument()
-    expect(privateReads).not.toHaveBeenCalled()
+    expect(paths).not.toContain("session")
   })
 
   it("reads and pauses the path repository's destination despite a conflicting query", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    store.settings.mutate({
-      operation: "analytics-save",
-      repositoryId: "2002",
-      configuration: {
-        provider: "segment",
-        region: "eu",
-        name: "",
-        eventTypes: ["build_published"],
-        history: "new",
-      },
-    })
-    const firstQuery = settingsQuerySchema.parse({ repositoryId: "2001" })
-    const secondQuery = settingsQuerySchema.parse({ repositoryId: "2002" })
-    const firstDestinations = store.settings.getWorkspace(firstQuery).analytics
-    const secondDestination = store.settings.getWorkspace(secondQuery).analytics[0]!
-    const server = setupServer(...createMockHandlers(store))
-    const router = await renderHubFlow(server, "/repositories/2002/analytics?repositoryId=2001", {
-      workspaceRoutes,
-    })
-
+    const path = `/repositories/${second.id}/analytics`
+    const destinationId = "33333333-3333-4333-8333-333333333333"
+    const pause = vi.fn()
+    let enabled = true
+    const api = stubHubFetch(
+      ...authenticatedWorkspace([first, second]),
+      http.get(`/api${path}`, () =>
+        Response.json({
+          ...analytics,
+          destinations: [
+            {
+              id: destinationId,
+              enabled,
+              provider: "segment",
+              region: "eu",
+              eventTypes: ["build_published"],
+              deliveryFailed: false,
+            },
+          ],
+        }),
+      ),
+      http.post(`/api${path}/destinations/${destinationId}/pause`, () => {
+        pause()
+        enabled = false
+        return Response.json({ id: destinationId })
+      }),
+    )
+    const router = await renderHubFlow(api, `${path}?repositoryId=${first.id}`)
     expect(
-      screen.getByRole("button", { name: "Choose repository. github/empty selected" }),
+      screen.getByRole("button", { name: "Choose repository. team/beta selected" }),
     ).toBeVisible()
     const destination = screen.getByRole("region", { name: "Segment" })
     expect(within(destination).getByRole("combobox", { name: "Region" })).toHaveValue("eu")
-    const pause = within(destination).getByRole("button", { name: "Pause" })
-    const form = pause.closest("form")!
-    expect(new URL(form.action).pathname).toBe("/repositories/2002/analytics")
-    form.action = `/repositories/2002/analytics?repositoryId=2001&destinationId=${secondDestination.id}`
+    const control = within(destination).getByRole("button", { name: "Pause" })
+    const form = control.closest("form")!
+    expect(new URL(form.action).pathname).toBe(path)
+    const target = new URL(form.action)
+    target.searchParams.set("repositoryId", first.id)
+    form.action = target.href
+    await router.settle(() => fireEvent.click(control))
 
-    await router.settle(() => fireEvent.click(pause))
-
-    expect(
-      within(screen.getByRole("region", { name: "Segment" })).getByRole("button", {
-        name: "Resume",
-      }),
-    ).toBeEnabled()
-    expect(store.settings.getWorkspace(secondQuery).analytics[0]).toMatchObject({
-      id: secondDestination.id,
-      enabled: false,
-    })
-    expect(store.settings.getWorkspace(firstQuery).analytics).toEqual(firstDestinations)
-    expect(router.state.location.pathname).toBe("/repositories/2002/analytics")
+    expect(pause).toHaveBeenCalledOnce()
+    expect(await screen.findByRole("button", { name: "Resume" })).toBeEnabled()
+    expect(router.state.location.pathname).toBe(path)
   })
 
-  it("runs and accepts learnings for a non-first path repository without changing the query repository", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const firstState = store.learnings.get("2001")
-    if (firstState.accessDenied) throw new Error("The owner must administer repository learnings.")
-    const firstLearnings = firstState.learnings
-    const server = setupServer(...createMockHandlers(store))
-    const router = await renderHubFlow(server, "/repositories/2002/learnings?repositoryId=2001", {
-      workspaceRoutes,
-    })
+  it("runs and accepts learnings for the path repository, not the repository hint", async () => {
+    const path = `/repositories/${second.id}/learnings`
+    const base = { ...emptyLearnings(), repository: second }
+    const suggestion = {
+      id: "mem_second",
+      reviewDigest: `sha256:${"a".repeat(64)}`,
+      content: "Use a visible form label.",
+      support: { reviewers: 2, prototypes: 2 },
+      replaces: [],
+      evidence: [],
+      otherEvidenceCount: 0,
+      contradictions: [],
+      otherContradictionsCount: 0,
+    }
+    let ran = false
+    let accepted = false
+    const decision = vi.fn()
+    const api = stubHubFetch(
+      ...authenticatedWorkspace([first, second]),
+      http.get(`/api${path}`, () =>
+        Response.json({
+          ...base,
+          suggestions: ran && !accepted ? [suggestion] : [],
+          learnings: accepted
+            ? [
+                {
+                  id: suggestion.id,
+                  content: suggestion.content,
+                  acceptedBy: "octocat",
+                  acceptedAt: "2026-11-20T12:00:00Z",
+                  edited: false,
+                  status: "recalled",
+                },
+              ]
+            : [],
+        }),
+      ),
+      http.post(`/api${path}/runs`, () => {
+        ran = true
+        return Response.json({ notice: "Learning run requested." })
+      }),
+      http.post(`/api${path}/${suggestion.id}/decision`, async ({ request }) => {
+        decision(await request.json())
+        accepted = true
+        return Response.json({ notice: "Learning accepted." })
+      }),
+    )
+    const router = await renderHubFlow(api, `${path}?repositoryId=${first.id}`)
     const run = screen.getByRole("button", { name: "Find learnings now" })
-    expect(new URL(run.closest("form")!.action).pathname).toBe("/repositories/2002/learnings/runs")
-    expect(screen.queryAllByRole("article")).toHaveLength(0)
-
+    expect(new URL(run.closest("form")!.action).pathname).toBe(`${path}/runs`)
     await router.settle(() => fireEvent.click(run))
-
-    const secondState = store.learnings.get("2002")
-    if (secondState.accessDenied) throw new Error("The owner must administer repository learnings.")
-    const learning = secondState.suggestions[0]!
-    const suggestion = screen.getByRole("article", { name: learning.content })
-    const accept = within(suggestion).getByRole("button", { name: "Accept" })
+    const article = await screen.findByRole("article", { name: suggestion.content })
+    const accept = within(article).getByRole("button", { name: "Accept" })
     expect(new URL(accept.closest("form")!.action).pathname).toBe(
-      `/repositories/2002/learnings/${learning.id}/decision`,
+      `${path}/${suggestion.id}/decision`,
     )
     await router.settle(() => fireEvent.click(accept))
 
-    const acceptedState = store.learnings.get("2002")
-    if (acceptedState.accessDenied)
-      throw new Error("The owner must administer repository learnings.")
-    expect(acceptedState.learnings[0]).toMatchObject({
-      id: learning.id,
-      status: "recalled",
+    expect(decision).toHaveBeenCalledExactlyOnceWith({
+      decision: "accept",
+      digest: suggestion.reviewDigest,
     })
-    const unchangedFirstState = store.learnings.get("2001")
-    if (unchangedFirstState.accessDenied) {
-      throw new Error("The owner must administer repository learnings.")
-    }
-    expect(unchangedFirstState.learnings).toEqual(firstLearnings)
-    expect(
-      within(screen.getByRole("article", { name: learning.content })).getByRole("button", {
-        name: "Retire",
-      }),
-    ).toBeEnabled()
-    expect(router.state.location.pathname).toBe("/repositories/2002/learnings")
-  })
-
-  it("submits Public sharing changes on its canonical URL and retains the repository context", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    store.session.select("admin")
-    const enabled = store.product.getSharingSettings().enabled
-    const server = setupServer(...createMockHandlers(store))
-    const router = await renderHubFlow(server, "/settings/sharing?repositoryId=2002", {
-      workspaceRoutes,
-    })
-    const submit = screen.getByRole("button", {
-      name: enabled ? "Disable public sharing" : "Enable public sharing",
-    })
-    const target = new URL(submit.closest("form")!.action)
-    expect(target.pathname).toBe("/settings/sharing")
-    expect(target.searchParams.get("repositoryId")).toBe("2002")
-    fireEvent.click(screen.getByRole("checkbox"))
-
-    await router.settle(() => fireEvent.click(submit))
-
-    expect(store.product.getSharingSettings().enabled).toBe(!enabled)
-    expect(router.state.location.pathname).toBe("/settings/sharing")
-    expect(new URLSearchParams(router.state.location.search).get("repositoryId")).toBe("2002")
+    expect(await screen.findByRole("button", { name: "Retire" })).toBeEnabled()
+    expect(router.state.location.pathname).toBe(path)
   })
 
   it.each([
-    { legacy: "/settings/analytics", canonical: "/repositories/2002/analytics" },
-    { legacy: "/settings/learnings", canonical: "/repositories/2002/learnings" },
-    { legacy: "/admin/sharing", canonical: "/settings/sharing" },
+    {
+      source: `/settings/analytics?repositoryId=${second.id}`,
+      target: `/repositories/${second.id}/analytics`,
+      hint: null,
+      repositories: [first, second],
+    },
+    {
+      source: `/settings/learnings?repositoryId=${second.id}`,
+      target: `/repositories/${second.id}/learnings`,
+      hint: null,
+      repositories: [first, second],
+    },
+    {
+      source: `/admin/sharing?repositoryId=${second.id}`,
+      target: "/settings/sharing",
+      hint: second.id,
+      repositories: [first, second],
+    },
+    {
+      source: "/settings/analytics",
+      target: `/repositories/${second.id}/analytics`,
+      hint: null,
+      repositories: [second],
+    },
+    {
+      source: "/settings/learnings",
+      target: `/repositories/${second.id}/learnings`,
+      hint: null,
+      repositories: [second],
+    },
   ])(
-    "redirects $legacy to $canonical without losing relevant query state",
-    async ({ legacy, canonical }) => {
-      const store = createMockStore({ origin: window.location.origin })
-      store.session.select("admin")
-      const server = setupServer(...createMockHandlers(store))
-
-      const router = await renderHubFlow(
-        server,
-        `${legacy}?repositoryId=2002&mockScenario=normal&q=retained`,
-        { workspaceRoutes },
+    "redirects $source to $target with the right repository context",
+    async ({ source, target, hint, repositories }) => {
+      const api = stubHubFetch(
+        ...authenticatedWorkspace(repositories, {
+          administerHub: true,
+          publicSharingSettingsAvailable: true,
+        }),
+        target.endsWith("/analytics")
+          ? http.get(`/api${target}`, () => Response.json(analytics))
+          : target.endsWith("/learnings")
+            ? http.get(`/api${target}`, () =>
+                Response.json({ ...emptyLearnings(), repository: second }),
+              )
+            : http.get("/api/product/sharing-settings", () =>
+                Response.json({ enabled: true, canAdminister: true, activeLinkCount: 0 }),
+              ),
       )
+      const entry = new URL(source, window.location.origin)
+      entry.searchParams.set("q", "retained")
+      const router = await renderHubFlow(api, `${entry.pathname}${entry.search}`)
 
-      expect(router.state.location.pathname).toBe(canonical)
+      expect(router.state.location.pathname).toBe(target)
       const search = new URLSearchParams(router.state.location.search)
-      expect(search.get("mockScenario")).toBe("normal")
       expect(search.get("q")).toBe("retained")
-      expect(search.get("repositoryId")).toBe(canonical === "/settings/sharing" ? "2002" : null)
+      expect(search.get("repositoryId")).toBe(hint)
       expect(
-        screen.getByRole("button", { name: "Choose repository. github/empty selected" }),
-      ).toBeVisible()
-    },
-  )
-
-  it.each(["analytics", "learnings"])(
-    "keeps first-accessible-repository selection for legacy %s links without a repository",
-    async (section) => {
-      const store = createMockStore({ origin: window.location.origin })
-      const server = setupServer(...createMockHandlers(store))
-      server.use(
-        http.get(`${store.origin}/api/workspace`, () =>
-          HttpResponse.json({
-            ...store.getWorkspace(),
-            repositories: store.getWorkspace().repositories.slice(1),
-          }),
-        ),
-      )
-
-      const router = await renderHubFlow(server, `/settings/${section}`, { workspaceRoutes })
-
-      expect(router.state.location.pathname).toBe(`/repositories/2002/${section}`)
-      expect(
-        screen.getByRole("button", { name: "Choose repository. github/empty selected" }),
+        screen.getByRole("button", { name: "Choose repository. team/beta selected" }),
       ).toBeVisible()
     },
   )
 
   it.each([
-    { entry: "/repositories/not-a-repository/analytics?repositoryId=2001", status: 400 },
-    { entry: "/repositories/9999/learnings?repositoryId=2001", status: 404 },
-    { entry: "/settings/analytics?repositoryId=not-a-repository", status: 400 },
-    { entry: "/settings/learnings?repositoryId=9999", status: 404 },
-    { entry: "/settings/not-connected", status: 404 },
+    {
+      entry: `/repositories/not-a-repository/analytics?repositoryId=${first.id}`,
+      status: 404,
+      repositories: [first],
+    },
+    {
+      entry: `/repositories/${second.id}/learnings?repositoryId=${first.id}`,
+      status: 404,
+      repositories: [first],
+    },
+    {
+      entry: "/settings/analytics?repositoryId=not-a-repository",
+      status: 400,
+      repositories: [first],
+    },
+    { entry: `/settings/learnings?repositoryId=${second.id}`, status: 404, repositories: [first] },
+    { entry: "/settings/not-connected", status: 404, repositories: [first] },
+    { entry: "/settings/analytics", status: 404, repositories: [] },
   ])(
     "rejects $entry with $status instead of selecting another repository",
-    async ({ entry, status }) => {
-      const store = createMockStore({ origin: window.location.origin })
-      const server = setupServer(...createMockHandlers(store))
-
-      await renderHubFlow(server, entry, { workspaceRoutes })
-
-      expect(within(screen.getByRole("alert")).getByText(String(status))).toBeVisible()
-      expect(screen.queryByRole("button", { name: /^Choose repository\./ })).not.toBeInTheDocument()
+    async ({ entry, repositories, status }) => {
+      const api = stubHubFetch(
+        ...authenticatedWorkspace(repositories),
+        ...(entry.startsWith(`/repositories/${second.id}/learnings`)
+          ? [
+              http.get(`/api/repositories/${second.id}/learnings`, () =>
+                Response.json({ error: "Repository not found." }, { status: 404 }),
+              ),
+            ]
+          : []),
+      )
+      await renderHubFlow(api, entry)
+      expect(screen.getByText(String(status), { exact: true })).toBeVisible()
     },
   )
-
-  it("fails visibly when a legacy repository page has no accessible repository", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
-    server.use(
-      http.get(`${store.origin}/api/workspace`, () =>
-        HttpResponse.json({ ...store.getWorkspace(), repositories: [] }),
-      ),
-    )
-
-    await renderHubFlow(server, "/settings/analytics", { workspaceRoutes })
-
-    expect(within(screen.getByRole("alert")).getByText("404")).toBeVisible()
-    expect(screen.queryByRole("button", { name: "Add destination" })).not.toBeInTheDocument()
-  })
 })

@@ -1,4 +1,4 @@
-import { useLocation, useOutletContext } from "react-router"
+import { useOutletContext } from "react-router"
 import type { LoaderFunctionArgs } from "react-router"
 
 import { NewPrototypePage } from "@pages/new-prototype-page"
@@ -36,17 +36,13 @@ export function meta({ loaderData }: { loaderData?: ProductCatalogResponse }) {
 
 export default function ProductNew({ loaderData }: { loaderData: ProductCatalogResponse }) {
   const workspace = useOutletContext<WorkspaceResponse>()
-  const location = useLocation()
-  const real = !(import.meta.env.DEV && import.meta.env.MODE === "mock")
   return (
     <NewPrototypePage
       key={loaderData.repository.id}
-      data={productNewData(workspace, loaderData, new URLSearchParams(location.search), real)}
+      data={productNewData(workspace, loaderData)}
       submissionDisabled={!loaderData.canCreate}
-      authorizeHandoff={
-        real
-          ? () => authorizeCopilotHandoff(loaderData.repository.id, { allowCopyFallback: true })
-          : undefined
+      authorizeHandoff={() =>
+        authorizeCopilotHandoff(loaderData.repository.id, { allowCopyFallback: true })
       }
     />
   )

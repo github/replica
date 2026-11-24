@@ -15,16 +15,15 @@ import { RouteErrorFeedback } from "@application/hub/route-error-feedback"
 export function ErrorBoundary() {
   const error: unknown = useRouteError()
   const workspace = useOutletContext<WorkspaceResponse | null>()
-  const mock = import.meta.env.DEV && import.meta.env.MODE === "mock"
   if (
     (isRouteErrorResponse(error) ||
       error instanceof ApiRequestError ||
       error instanceof ApiContractError) &&
     error.status === 401
   ) {
-    return <Navigate to={noRepositoryAccessLocation(error) ?? (mock ? "/sign-in" : "/")} replace />
+    return <Navigate to={noRepositoryAccessLocation(error) ?? "/"} replace />
   }
-  return <RouteErrorFeedback error={error} embedded={!mock && Boolean(workspace)} />
+  return <RouteErrorFeedback error={error} embedded={Boolean(workspace)} />
 }
 
 export default function WorkspaceContent() {

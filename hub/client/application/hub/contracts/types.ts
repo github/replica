@@ -5,7 +5,6 @@ import type {
   buildHistoryResponseSchema,
   buildSchema,
   paginationSchema,
-  prototypeDetailsSchema,
   prototypeEditSchema,
   prototypeQuerySchema,
   prototypeResponseSchema,
@@ -27,7 +26,6 @@ export type RepositoryResponse = z.infer<typeof repositoryResponseSchema>
 export type PrototypeResponse = z.infer<typeof prototypeResponseSchema>
 export type BuildHistoryResponse = z.infer<typeof buildHistoryResponseSchema>
 export type AuthorResults = z.infer<typeof authorResultsSchema>
-export type PrototypeDetails = z.infer<typeof prototypeDetailsSchema>
 export type PrototypeEdit = z.infer<typeof prototypeEditSchema>
 export type RouteQuery = z.infer<typeof routeQuerySchema>
 export type PrototypeQuery = z.infer<typeof prototypeQuerySchema>

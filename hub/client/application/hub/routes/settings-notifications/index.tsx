@@ -1,12 +1,8 @@
 import { useOutletContext } from "react-router"
 
-import { SettingsRouteScreen } from "@application/hub/screens/settings-route-screen"
 import { RealInboxScreen } from "@application/hub/screens/real-inbox-screen"
 import type { WorkspaceResponse } from "@application/hub/contracts/types"
 
-import { settingsController } from "../settings-controller"
-import type { SettingsRouteData } from "../settings-controller/types"
-import { settingsMeta } from "../settings-meta"
 import type { WorkspaceRouteHandle } from "../workspace/types"
 
 export const handle = {
@@ -14,33 +10,15 @@ export const handle = {
   independentOfRepositoryNavigation: true,
 } satisfies WorkspaceRouteHandle
 
-const settings = settingsController("notifications", "workspace")
-function isMockMode() {
-  return import.meta.env.DEV && import.meta.env.MODE === "mock"
+export function clientAction(): never {
+  throw new Response("Method not allowed.", { status: 405 })
 }
 
-export function clientLoader(args: Parameters<typeof settings.clientLoader>[0]) {
-  return isMockMode() ? settings.clientLoader(args) : null
+export function meta() {
+  return [{ title: "Inbox - Replica Hub" }]
 }
 
-export function clientAction(args: Parameters<typeof settings.clientAction>[0]) {
-  if (!isMockMode()) throw new Response("Method not allowed.", { status: 405 })
-  return settings.clientAction(args)
-}
-
-export function meta({ loaderData }: { loaderData?: SettingsRouteData | null }) {
-  return settingsMeta("notifications", loaderData ?? undefined)
-}
-
-export default function SettingsNotifications({
-  loaderData,
-}: {
-  loaderData?: SettingsRouteData | null
-}) {
+export default function SettingsNotifications() {
   const workspace = useOutletContext<WorkspaceResponse>()
-  return isMockMode() && loaderData ? (
-    <SettingsRouteScreen section="notifications" data={loaderData} />
-  ) : (
-    <RealInboxScreen workspace={workspace} />
-  )
+  return <RealInboxScreen workspace={workspace} />
 }

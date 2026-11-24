@@ -12,13 +12,10 @@ export function BuildHistoryScreen({
   data: BuildHistoryResponse
 }) {
   const location = useLocation()
-  const mock = import.meta.env.DEV && import.meta.env.MODE === "mock"
 
   return (
     <BuildsIndexPage
-      data={buildHistoryData(workspace, data, new URLSearchParams(location.search), {
-        real: !mock,
-      })}
+      data={buildHistoryData(workspace, data, new URLSearchParams(location.search))}
     />
   )
 }

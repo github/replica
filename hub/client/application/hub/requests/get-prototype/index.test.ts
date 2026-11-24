@@ -1,25 +1,21 @@
-import { http, HttpResponse } from "msw"
-import { setupServer } from "msw/node"
-import { describe, expect, it, onTestFinished, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
-import { createMockStore } from "@application/hub/mocks/create-mock-store"
+import { http, stubHubFetch } from "@/test/stub-hub-fetch"
 
+import { previewRecords } from "../../routes/fixtures/preview-records"
 import { getPrototype } from "."
 
 describe("getPrototype()", () => {
   it("loads a minimized preview with its pinned Build and sends only preview parameters", async () => {
-    vi.stubEnv("MODE", "development")
     const origin = "https://hub.example.test"
-    const store = createMockStore({ origin })
+    const { historical, repository, prototype } = previewRecords()
     let receivedUrl: URL | undefined
-    const server = setupServer(
+    stubHubFetch(
       http.get(`${origin}/api/repositories/2001/prototypes/1`, ({ request }) => {
         receivedUrl = new URL(request.url)
-        return HttpResponse.json(store.getPrototype("2001", "1", 1, true))
+        return Response.json({ repository, prototype, selectedBuild: historical })
       }),
     )
-    server.listen({ onUnhandledRequest: "error" })
-    onTestFinished(() => server.close())
     const search = new URLSearchParams({
       build: "1",
       view: "minimized",
@@ -35,18 +31,15 @@ describe("getPrototype()", () => {
   })
 
   it.each(["gallery", "list"])("still loads a prototype with view=%s", async (view) => {
-    vi.stubEnv("MODE", "development")
     const origin = "https://hub.example.test"
-    const store = createMockStore({ origin })
+    const { historical, repository, prototype } = previewRecords()
     let receivedUrl: URL | undefined
-    const server = setupServer(
+    stubHubFetch(
       http.get(`${origin}/api/repositories/2001/prototypes/1`, ({ request }) => {
         receivedUrl = new URL(request.url)
-        return HttpResponse.json(store.getPrototype("2001", "1", 1))
+        return Response.json({ repository, prototype, selectedBuild: historical })
       }),
     )
-    server.listen({ onUnhandledRequest: "error" })
-    onTestFinished(() => server.close())
 
     const preview = await getPrototype(
       new Request(`${origin}/repositories/2001/prototypes/1?build=1&view=${view}`),
@@ -61,6 +54,8 @@ describe("getPrototype()", () => {
   it.each(["0", "not-a-build"])(
     "rejects build=%s with the existing route error before sending a request",
     async (build) => {
+      const send = vi.fn()
+      vi.stubGlobal("fetch", send)
       const request = new Request(
         `https://hub.example.test/repositories/2001/prototypes/1?view=minimized&build=${build}`,
       )
@@ -69,24 +64,21 @@ describe("getPrototype()", () => {
 
       await expect(result).rejects.toBeInstanceOf(Response)
       await expect(result).rejects.toMatchObject({ status: 404 })
+      expect(send).not.toHaveBeenCalled()
     },
   )
 
   it("forwards cancellation while loading a minimized preview", async () => {
-    vi.stubEnv("MODE", "development")
     const origin = "https://hub.example.test"
-    const store = createMockStore({ origin })
     const controller = new AbortController()
     let receivedSignal: AbortSignal | undefined
-    const server = setupServer(
+    stubHubFetch(
       http.get(`${origin}/api/repositories/2001/prototypes/1`, ({ request }) => {
         receivedSignal = request.signal
         controller.abort()
-        return HttpResponse.json(store.getPrototype("2001", "1", 1, true))
+        return Response.error()
       }),
     )
-    server.listen({ onUnhandledRequest: "error" })
-    onTestFinished(() => server.close())
     const request = new Request(`${origin}/repositories/2001/prototypes/1?build=1&view=minimized`, {
       signal: controller.signal,
     })

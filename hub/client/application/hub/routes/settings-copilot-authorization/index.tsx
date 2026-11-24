@@ -91,7 +91,7 @@ export default function SettingsCopilotAuthorization({
         void action
           .then((outcome) =>
             navigate(
-              resourcePath("/settings/copilot", new URLSearchParams(), {
+              resourcePath("/settings/copilot", {
                 result: outcome,
                 repositoryId: workspace.repository?.selectedRepositoryId ?? null,
               }),

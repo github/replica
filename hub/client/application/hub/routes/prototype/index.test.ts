@@ -1,7 +1,6 @@
-import { http, HttpResponse } from "msw"
-import { setupServer } from "msw/node"
-import { describe, expect, it, onTestFinished, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
+import { http, stubHubFetch } from "@/test/stub-hub-fetch"
 import { clientAction, clientLoader } from "."
 
 describe("prototype route", () => {
@@ -19,12 +18,9 @@ describe("prototype route", () => {
   })
 
   it("does not confirm a save when the API returns an invalid success response", async () => {
-    vi.stubEnv("MODE", "development")
     const url = new URL("/api/repositories/2001/prototypes/1", window.location.origin)
-    const respond = vi.fn(() => HttpResponse.json({ unexpected: "Not a prototype response." }))
-    const server = setupServer(http.patch(url.href, respond))
-    server.listen({ onUnhandledRequest: "error" })
-    onTestFinished(() => server.close())
+    const respond = vi.fn(() => Response.json({ unexpected: "Not a prototype response." }))
+    stubHubFetch(http.patch(url.href, respond))
     const request = new Request(
       new URL("/repositories/2001/prototypes/1", window.location.origin),
       {

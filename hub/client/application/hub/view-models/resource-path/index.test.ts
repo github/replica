@@ -4,23 +4,19 @@ import { resourcePath } from "."
 
 describe("resourcePath()", () => {
   it("preserves redirect filters and fragments when adding route parameters", () => {
-    const result = resourcePath(
-      "/settings/github?change=credentials#configuration",
-      new URLSearchParams(),
-      { repositoryId: 2001 },
-    )
+    const result = resourcePath("/notifications?unread=true#notifications", { repositoryId: 2001 })
     const url = new URL(result, "https://hub.example")
 
-    expect(url.pathname).toBe("/settings/github")
+    expect(url.pathname).toBe("/notifications")
     expect(Object.fromEntries(url.searchParams)).toEqual({
-      change: "credentials",
+      unread: "true",
       repositoryId: "2001",
     })
-    expect(url.hash).toBe("#configuration")
+    expect(url.hash).toBe("#notifications")
   })
 
   it("overrides destination parameters without duplicating them or moving the fragment", () => {
-    const result = resourcePath("/settings/audit?scope=hub#events", new URLSearchParams(), {
+    const result = resourcePath("/settings/audit?scope=hub#events", {
       scope: "repository",
       repositoryId: 2001,
       page: null,
@@ -34,8 +30,8 @@ describe("resourcePath()", () => {
   })
 
   it("leaves a destination unchanged when there are no additional values", () => {
-    expect(
-      resourcePath("/settings/audit?scope=hub#events", new URLSearchParams(), { page: null }),
-    ).toBe("/settings/audit?scope=hub#events")
+    expect(resourcePath("/settings/audit?scope=hub#events", { page: null })).toBe(
+      "/settings/audit?scope=hub#events",
+    )
   })
 })

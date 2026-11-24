@@ -1,4 +1,5 @@
 import { data, useFetcher, useLocation, useOutletContext } from "react-router"
+import type { ClientActionFunctionArgs, ClientLoaderFunctionArgs } from "react-router"
 import { z } from "zod"
 
 import type { WorkspaceResponse } from "@application/hub/contracts/types"
@@ -10,39 +11,28 @@ import {
   getRepositoryAnalytics,
 } from "@application/hub/requests/repository-analytics"
 import { SettingsFormBoundary } from "@application/hub/screens/settings-form-boundary"
-import { SettingsRouteScreen } from "@application/hub/screens/settings-route-screen"
-import type { SettingsActionResult } from "@application/hub/settings-contracts/types"
 import { repositoryWorkspace } from "@application/hub/view-models/repository-workspace"
 import { resourcePath } from "@application/hub/view-models/resource-path"
-import { analyticsPageData } from "@application/hub/view-models/settings-analytics"
+import { analyticsPageData } from "@application/hub/view-models/analytics-page-data"
 import { AnalyticsPage } from "@pages/analytics-page"
 import type { AnalyticsPageData } from "@pages/analytics-page/types"
 
-import { settingsController } from "../settings-controller"
-import type { SettingsRouteData } from "../settings-controller/types"
-import { settingsMeta } from "../settings-meta"
 import { readDestinationForm } from "./read-destination-form"
 import type { WorkspaceRouteHandle } from "../workspace/types"
 
 export const handle = { workspaceSection: "analytics" } satisfies WorkspaceRouteHandle
 
-const mock = settingsController("analytics", "workspace")
 type RepositoryAnalyticsRouteData = {
-  surface: "repository-analytics"
   id: string
   analytics: Awaited<ReturnType<typeof getRepositoryAnalytics>>
 }
-type AnalyticsRouteData = SettingsRouteData | RepositoryAnalyticsRouteData
 type AnalyticsActionResult =
-  | SettingsActionResult
+  | { saved: true; notice: string; revision: number }
+  | { saved: false; error: string }
   | {
       saved: "pending"
       authorization: NonNullable<AnalyticsPageData["authorization"]>
     }
-
-function isMockMode() {
-  return import.meta.env.DEV && import.meta.env.MODE === "mock"
-}
 
 function readRepositoryId(value?: string) {
   const parsed = z.uuid().safeParse(value)
@@ -50,27 +40,26 @@ function readRepositoryId(value?: string) {
   return parsed.data.toLowerCase()
 }
 
-export async function clientLoader(
-  args: Parameters<typeof mock.clientLoader>[0],
-): Promise<AnalyticsRouteData> {
-  if (isMockMode()) return mock.clientLoader(args)
-  const { request } = args
-  const id = readRepositoryId(args.params.repositoryId)
+export async function clientLoader({
+  request,
+  params,
+}: Pick<ClientLoaderFunctionArgs, "request" | "params">): Promise<RepositoryAnalyticsRouteData> {
+  const id = readRepositoryId(params.repositoryId)
   return {
-    surface: "repository-analytics",
     id,
     analytics: await getRepositoryAnalytics(request, id),
   }
 }
 
-export async function clientAction(args: Parameters<typeof mock.clientAction>[0]) {
-  if (isMockMode()) return mock.clientAction(args)
-  const { request } = args
+export async function clientAction({
+  request,
+  params,
+}: Pick<ClientActionFunctionArgs, "request" | "params">) {
   if (request.method.toUpperCase() !== "POST") {
     throw new Response("Method not allowed.", { status: 405, headers: { Allow: "POST" } })
   }
   try {
-    const repositoryId = readRepositoryId(args.params.repositoryId)
+    const repositoryId = readRepositoryId(params.repositoryId)
     const form = await request.formData()
     const operation = form.get("analyticsAuthorization")
     if (operation === "continue" || operation === "cancel") {
@@ -95,17 +84,17 @@ export async function clientAction(args: Parameters<typeof mock.clientAction>[0]
           : change.path.endsWith("/resume")
             ? "Delivery resumed."
             : "Configuration saved."
-    return data<SettingsActionResult>({ saved: true, notice, revision: Date.now() })
+    return data<AnalyticsActionResult>({ saved: true, notice, revision: Date.now() })
   } catch (error) {
     if (error instanceof Response && error.status >= 400) {
-      return data<SettingsActionResult>(
+      return data<AnalyticsActionResult>(
         { saved: false, error: await error.text() },
         { status: error.status },
       )
     }
     if (error instanceof ApiRequestError || error instanceof ApiContractError) {
       const status = error instanceof ApiRequestError && error.status ? error.status : 502
-      return data<SettingsActionResult>(
+      return data<AnalyticsActionResult>(
         {
           saved: false,
           error:
@@ -118,19 +107,15 @@ export async function clientAction(args: Parameters<typeof mock.clientAction>[0]
   }
 }
 
-export function meta({ loaderData }: { loaderData?: AnalyticsRouteData }) {
-  if (loaderData?.surface === "repository-analytics") return [{ title: "Analytics - Replica Hub" }]
-  return settingsMeta("analytics", loaderData)
+export function meta() {
+  return [{ title: "Analytics - Replica Hub" }]
 }
 
-export default function SettingsAnalytics({ loaderData }: { loaderData: AnalyticsRouteData }) {
-  if (loaderData.surface === "repository-analytics") {
-    return <ConnectedAnalytics route={loaderData} />
-  }
-  return <SettingsRouteScreen section="analytics" data={loaderData} />
-}
-
-function ConnectedAnalytics({ route: { id, analytics } }: { route: RepositoryAnalyticsRouteData }) {
+export default function SettingsAnalytics({
+  loaderData: { id, analytics },
+}: {
+  loaderData: RepositoryAnalyticsRouteData
+}) {
   const workspace = useOutletContext<WorkspaceResponse>()
   const location = useLocation()
   const fetcher = useFetcher<AnalyticsActionResult>()
@@ -140,11 +125,11 @@ function ConnectedAnalytics({ route: { id, analytics } }: { route: RepositoryAna
   const path = `/repositories/${id}/analytics`
   const page = {
     ...analyticsPageData(
-      { ...repositoryWorkspace(workspace, repository, search, true), selectedSection: "analytics" },
-      resourcePath(path, search),
+      { ...repositoryWorkspace(workspace, repository), selectedSection: "analytics" },
+      path,
       analytics.destinations.map((destination) => ({
         ...destination,
-        path: resourcePath(path, search, { destinationId: destination.id }),
+        path: resourcePath(path, { destinationId: destination.id }),
       })),
       {
         readOnly: !analytics.canMutate,
@@ -175,18 +160,10 @@ function ConnectedAnalytics({ route: { id, analytics } }: { route: RepositoryAna
       notice={!busy && result?.saved === true ? result.notice : null}
       onSubmit={(input) => {
         if (busy) return
-        const action = input.get("_action")
-        if (
-          typeof action === "string" &&
-          new URL(action, window.location.href).pathname === "/session"
-        ) {
-          void fetcher.submit({ intent: "sign-out" }, { method: "post", action: "/session" })
-        } else {
-          void fetcher.submit(input, {
-            method: "post",
-            action: `${location.pathname}${location.search}`,
-          })
-        }
+        void fetcher.submit(input, {
+          method: "post",
+          action: `${location.pathname}${location.search}`,
+        })
       }}
     >
       <AnalyticsPage

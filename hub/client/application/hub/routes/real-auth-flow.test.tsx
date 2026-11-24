@@ -1,7 +1,5 @@
 import type { RouteConfigEntry } from "@react-router/dev/routes"
 import { act, fireEvent, render, screen } from "@testing-library/react"
-import { http, HttpResponse } from "msw"
-import { setupServer } from "msw/node"
 import type { ComponentType } from "react"
 import {
   createBrowserRouter,
@@ -12,6 +10,8 @@ import {
   type RouteObject,
 } from "react-router"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
+
+import { http, stubHubFetch } from "@/test/stub-hub-fetch"
 
 type RouteModule = {
   default?: ComponentType<{ loaderData: unknown }>
@@ -88,6 +88,28 @@ describe("Real authentication route integration", () => {
       action: "/api/auth/local/start",
     },
     {
+      label: "the legacy sign-in URL in development with the former mock mode selected",
+      path: "/sign-in",
+      destination: "/",
+      mode: "mock",
+      dev: true,
+      authenticated: false,
+      providers: ["local"],
+      button: "Sign in as local developer",
+      action: "/api/auth/local/start",
+    },
+    {
+      label: "a signed-out repositories visit",
+      path: "/repositories",
+      destination: "/",
+      mode: "development",
+      dev: true,
+      authenticated: false,
+      providers: ["github"],
+      button: "Sign in with GitHub",
+      action: "/api/auth/github/start",
+    },
+    {
       label: "restored empty workspace in a production build, even with mock mode selected",
       path: "/",
       mode: "mock",
@@ -119,17 +141,16 @@ describe("Real authentication route integration", () => {
     },
   ])(
     "connects $label to real authentication and leaves its POST native",
-    async ({ path, mode, dev, authenticated, providers, button, action }) => {
+    async ({ path, destination = path, mode, dev, authenticated, providers, button, action }) => {
       vi.stubEnv("MODE", mode)
       vi.stubEnv("DEV", dev)
-      const requests: string[] = []
-      const server = setupServer(
+      const api = stubHubFetch(
         http.get(`${window.location.origin}/api/auth/providers`, () =>
-          HttpResponse.json({ providers }),
+          Response.json({ providers }),
         ),
         http.get(`${window.location.origin}/api/auth/session`, () =>
           authenticated
-            ? HttpResponse.json({
+            ? Response.json({
                 authenticated: true,
                 membershipId: "11111111-1111-4111-8111-111111111111",
                 userId: "22222222-2222-4222-8222-222222222222",
@@ -138,10 +159,12 @@ describe("Real authentication route integration", () => {
                 name: "The Octocat",
                 role: "ADMINISTRATOR",
               })
-            : new HttpResponse(null, { status: 401 }),
+            : new Response(null, { status: 401 }),
         ),
-        http.get(`${window.location.origin}/api/workspace`, () =>
-          HttpResponse.json({
+        http.get(`${window.location.origin}/api/workspace`, () => {
+          if (!authenticated)
+            return Response.json({ error: "Sign in to continue." }, { status: 401 })
+          return Response.json({
             viewer: {
               id: "22222222-2222-4222-8222-222222222222",
               provider: "github",
@@ -156,14 +179,12 @@ describe("Real authentication route integration", () => {
               manageSharing: false,
               administerHub: true,
             },
-          }),
-        ),
+          })
+        }),
       )
-      server.events.on("request:start", ({ request }) => {
-        requests.push(`${request.method} ${new URL(request.url).pathname}`)
-      })
-      server.listen({ onUnhandledRequest: "error" })
-      onTestFinished(() => server.close())
+      function requests() {
+        return api.requests.map((request) => `${request.method} ${new URL(request.url).pathname}`)
+      }
       const [{ default: routes }, { HubThemeProvider }] = await Promise.all([
         import("../routes"),
         import("@hooks/use-hub-theme"),
@@ -195,13 +216,17 @@ describe("Real authentication route integration", () => {
       const allowedRequests = authenticated
         ? ["GET /api/auth/session", "GET /api/workspace"]
         : ["GET /api/auth/providers", "GET /api/auth/session"]
+      if (!authenticated && path === "/repositories") {
+        allowedRequests.push("GET /api/workspace")
+        expect(screen.queryByRole("navigation", { name: "Hub navigation" })).not.toBeInTheDocument()
+      }
       await vi.waitFor(() => {
-        expect(requests).toEqual(expect.arrayContaining(allowedRequests))
+        expect(requests()).toEqual(expect.arrayContaining(allowedRequests))
         expect(router.state.initialized).toBe(true)
         expect(router.state.navigation.state).toBe("idle")
       })
-      expect(requests.every((request) => allowedRequests.includes(request))).toBe(true)
-      expect(router.state.location.pathname).toBe(path)
+      expect(requests().every((request) => allowedRequests.includes(request))).toBe(true)
+      expect(router.state.location.pathname).toBe(destination)
       const form = authenticated
         ? document.querySelector<HTMLFormElement>(`form[action="${action}"]`)
         : submit instanceof HTMLButtonElement
@@ -227,11 +252,11 @@ describe("Real authentication route integration", () => {
       })
       expect(form.dispatchEvent(submitEvent)).toBe(true)
 
-      expect(router.state.location.pathname).toBe(path)
+      expect(router.state.location.pathname).toBe(destination)
       expect(
         screen.getByRole(authenticated ? "menuitem" : "button", { name: button }),
       ).toBeInTheDocument()
-      expect(requests.every((request) => allowedRequests.includes(request))).toBe(true)
+      expect(requests().every((request) => allowedRequests.includes(request))).toBe(true)
       if (authenticated) {
         await act(async () => {
           await router.navigate("/repositories")
@@ -240,7 +265,7 @@ describe("Real authentication route integration", () => {
         expect(
           screen.getByRole("heading", { name: "No repositories available" }),
         ).toBeInTheDocument()
-        expect(requests.every((request) => allowedRequests.includes(request))).toBe(true)
+        expect(requests().every((request) => allowedRequests.includes(request))).toBe(true)
       }
     },
     15_000,

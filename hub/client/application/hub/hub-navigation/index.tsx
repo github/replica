@@ -6,14 +6,9 @@ import { Button } from "@primer/react-brand"
 import { HubAlert } from "@components/hub-alert"
 import { HubLoadingBar } from "@components/hub-loading-bar"
 
-import { reportClientIssue } from "../report-client-issue"
-
 import "./styles.css"
 
-export function HubNavigation({
-  children,
-  onSignOut,
-}: PropsWithChildren<{ onSignOut?: () => void }>) {
+export function HubNavigation({ children }: PropsWithChildren) {
   const location = useLocation()
   const navigate = useNavigate()
   const navigation = useNavigation()
@@ -74,7 +69,7 @@ export function HubNavigation({
     if (
       destination.origin !== current.origin ||
       !["http:", "https:"].includes(destination.protocol) ||
-      /^\/(?:api(?:\/|$)|assets\/|previews\/)/.test(destination.pathname)
+      /^\/(?:api(?:\/|$)|assets\/)/.test(destination.pathname)
     )
       return
     event.preventDefault()
@@ -128,16 +123,7 @@ export function HubNavigation({
       return
     }
     event.preventDefault()
-    if (
-      destination.origin === window.location.origin &&
-      destination.pathname === "/session" &&
-      onSignOut
-    ) {
-      onSignOut()
-      return
-    }
     setBlockedAction("This action is unavailable. No changes were saved.")
-    reportClientIssue("This action is not connected yet. No request was sent.")
   }
 
   return (

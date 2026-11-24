@@ -1,7 +1,6 @@
-import { http, HttpResponse } from "msw"
-import { setupServer } from "msw/node"
-import { describe, expect, it, onTestFinished, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 
+import { http, stubHubFetch } from "@/test/stub-hub-fetch"
 import { workspaceResponseSchema } from "@application/hub/contracts"
 
 import { ApiContractError } from "../api-contract-error"
@@ -10,15 +9,12 @@ import { requestJson } from "."
 
 describe("requestJson()", () => {
   it("reports an HTTP failure instead of substituting mock data", async () => {
-    vi.stubEnv("MODE", "development")
     const url = new URL("https://hub.example.test/api/workspace")
-    const server = setupServer(
+    stubHubFetch(
       http.get(url.href, () =>
-        HttpResponse.json({ error: "Workspace is temporarily unavailable." }, { status: 503 }),
+        Response.json({ error: "Workspace is temporarily unavailable." }, { status: 503 }),
       ),
     )
-    server.listen({ onUnhandledRequest: "error" })
-    onTestFinished(() => server.close())
 
     const request = requestJson(url, workspaceResponseSchema)
 
@@ -32,19 +28,16 @@ describe("requestJson()", () => {
   it.each(["invalid JSON", "invalid schema"])(
     "reports %s rather than a successful empty workspace",
     async (failure) => {
-      vi.stubEnv("MODE", "development")
       const url = new URL("https://hub.example.test/api/workspace")
-      const server = setupServer(
+      stubHubFetch(
         http.get(url.href, () =>
           failure === "invalid JSON"
-            ? new HttpResponse("{not-json", {
+            ? new Response("{not-json", {
                 headers: { "Content-Type": "application/json" },
               })
-            : HttpResponse.json({ viewer: null, repositories: [] }),
+            : Response.json({ viewer: null, repositories: [] }),
         ),
       )
-      server.listen({ onUnhandledRequest: "error" })
-      onTestFinished(() => server.close())
 
       await expect(requestJson(url, workspaceResponseSchema)).rejects.toBeInstanceOf(
         ApiContractError,
@@ -52,23 +45,20 @@ describe("requestJson()", () => {
     },
   )
 
-  it("forwards cancellation to an in-flight native request", async () => {
-    vi.stubEnv("MODE", "development")
+  it("forwards cancellation to an in-flight fetch", async () => {
     const url = new URL("https://hub.example.test/api/workspace")
     const controller = new AbortController()
     let receivedSignal: AbortSignal | undefined
-    const server = setupServer(
+    stubHubFetch(
       http.get(url.href, ({ request }) => {
         receivedSignal = request.signal
         controller.abort()
-        return HttpResponse.json({
+        return Response.json({
           viewer: { id: "octocat", login: "octocat", name: null, avatarUrl: null },
           repositories: [],
         })
       }),
     )
-    server.listen({ onUnhandledRequest: "error" })
-    onTestFinished(() => server.close())
 
     await expect(
       requestJson(url, workspaceResponseSchema, { signal: controller.signal }),

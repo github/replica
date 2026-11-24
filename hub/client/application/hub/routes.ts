@@ -7,7 +7,6 @@ export default [
   route("admin-enrollment", "routes/admin-enrollment/index.tsx"),
   route("signed-in/no-access", "routes/no-repository-access/index.tsx"),
   route("sign-in", "routes/sign-in/index.tsx"),
-  route("session", "routes/session/index.tsx"),
   route("canvas/pair/:userCode", "routes/canvas-pairing/index.tsx"),
   route("shared/:shareId", "routes/product-public/index.tsx"),
   ...standaloneSetupRoutes,

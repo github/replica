@@ -1,7 +1,5 @@
 import type { RouteConfigEntry } from "@react-router/dev/routes"
 import { act, fireEvent, render, screen, within } from "@testing-library/react"
-import { http, HttpResponse } from "msw"
-import { setupServer } from "msw/node"
 import type { ComponentType } from "react"
 import {
   createBrowserRouter,
@@ -13,6 +11,7 @@ import {
 } from "react-router"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
+import { http, stubHubFetch } from "@/test/stub-hub-fetch"
 const navigateToExternalUrl = vi.fn()
 vi.mock("@application/hub/navigate-to-external-url", () => ({ navigateToExternalUrl }))
 
@@ -59,12 +58,8 @@ function applicationRoute(entry: RouteConfigEntry): RouteObject {
     : { ...common, children: entry.children?.map(applicationRoute) }
 }
 
-async function renderApplication(path: string, handlers: Parameters<typeof setupServer>) {
-  vi.stubEnv("MODE", "development")
-  vi.stubEnv("DEV", true)
-  const server = setupServer(...handlers, workspace())
-  server.listen({ onUnhandledRequest: "error" })
-  onTestFinished(() => server.close())
+async function renderApplication(path: string, handlers: Parameters<typeof stubHubFetch>) {
+  stubHubFetch(...handlers, workspace())
   const [{ default: routes }, { HubThemeProvider }] = await Promise.all([
     import("../routes"),
     import("@hooks/use-hub-theme"),
@@ -88,7 +83,7 @@ async function renderApplication(path: string, handlers: Parameters<typeof setup
 
 function authenticatedSession(role = "ADMINISTRATOR") {
   return http.get(`${window.location.origin}/api/auth/session`, () =>
-    HttpResponse.json({
+    Response.json({
       authenticated: true,
       membershipId: actorMembershipId,
       userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -113,7 +108,7 @@ function administrator(login = "octocat", membershipId = actorMembershipId) {
 
 function workspace() {
   return http.get(`${window.location.origin}/api/workspace`, () =>
-    HttpResponse.json({
+    Response.json({
       viewer: {
         id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         provider: "github",
@@ -138,7 +133,7 @@ describe("administrator frontend integration", () => {
     await renderApplication("/settings/copilot", [
       authenticatedSession(),
       http.get(`${window.location.origin}/api/copilot-connection`, () =>
-        HttpResponse.json({
+        Response.json({
           configured: true,
           connected: false,
           savedConnection: false,
@@ -171,7 +166,7 @@ describe("administrator frontend integration", () => {
       ({ request }) => {
         const url = new URL(request.url)
         requests.push(`${url.pathname}?${url.searchParams.toString()}`)
-        return HttpResponse.json({
+        return Response.json({
           administrators: [administrator()],
           nextCursor,
         })
@@ -193,12 +188,12 @@ describe("administrator frontend integration", () => {
     await renderApplication("/settings/administrators", [
       authenticatedSession(),
       http.get(`${window.location.origin}/api/administrators`, () =>
-        HttpResponse.json({ administrators: [administrator()], nextCursor: null }),
+        Response.json({ administrators: [administrator()], nextCursor: null }),
       ),
       http.get(`${window.location.origin}/api/administrators/candidates`, ({ request }) => {
         const url = new URL(request.url)
         candidateRequests.push(`${url.pathname}?${url.searchParams.toString()}`)
-        return HttpResponse.json({
+        return Response.json({
           candidates: [
             {
               membershipId: targetMembershipId,
@@ -236,10 +231,10 @@ describe("administrator frontend integration", () => {
     await renderApplication("/settings/administrators", [
       authenticatedSession(),
       http.get(`${window.location.origin}/api/administrators`, () =>
-        HttpResponse.json({ administrators: [administrator()], nextCursor: null }),
+        Response.json({ administrators: [administrator()], nextCursor: null }),
       ),
       http.get(`${window.location.origin}/api/administrators/candidates`, () =>
-        HttpResponse.json({
+        Response.json({
           candidates: [
             {
               membershipId: targetMembershipId,
@@ -254,7 +249,7 @@ describe("administrator frontend integration", () => {
         `${window.location.origin}/api/administrators/authorizations/start`,
         async ({ request }) => {
           bodies.push(await request.json())
-          return HttpResponse.json({
+          return Response.json({
             authorizationId,
             authorizationUrl: "https://github.com/login/oauth/authorize",
             expiresAt: "2026-11-09T20:06:00.000Z",
@@ -291,10 +286,10 @@ describe("administrator frontend integration", () => {
     await renderApplication("/settings/administrators", [
       authenticatedSession(),
       http.get(`${window.location.origin}/api/administrators`, () =>
-        HttpResponse.json({ administrators: [administrator()], nextCursor: null }),
+        Response.json({ administrators: [administrator()], nextCursor: null }),
       ),
       http.get(`${window.location.origin}/api/administrators/candidates`, () =>
-        HttpResponse.json({
+        Response.json({
           candidates: [
             {
               membershipId: targetMembershipId,
@@ -306,7 +301,7 @@ describe("administrator frontend integration", () => {
         }),
       ),
       http.post(`${window.location.origin}/api/administrators/authorizations/start`, () =>
-        HttpResponse.json({ error: "invalid_selection" }, { status: 409 }),
+        Response.json({ error: "invalid_selection" }, { status: 409 }),
       ),
     ])
 
@@ -340,7 +335,7 @@ describe("administrator frontend integration", () => {
     await renderApplication(`/settings/administrators/${targetMembershipId}/revoke`, [
       authenticatedSession(),
       http.get(`${window.location.origin}/api/administrators`, () =>
-        HttpResponse.json({
+        Response.json({
           administrators: [administrator(), administrator("mona", targetMembershipId)],
           nextCursor: null,
         }),
@@ -367,8 +362,8 @@ describe("administrator frontend integration", () => {
       [
         http.get(`${window.location.origin}/api/auth/session`, () => {
           sessionReads += 1
-          if (continued) return HttpResponse.json({ authenticated: false }, { status: 401 })
-          return HttpResponse.json({
+          if (continued) return Response.json({ authenticated: false }, { status: 401 })
+          return Response.json({
             authenticated: true,
             membershipId: actorMembershipId,
             userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -381,7 +376,7 @@ describe("administrator frontend integration", () => {
         http.get(
           `${window.location.origin}/api/administrators/authorizations/${authorizationId}`,
           () =>
-            HttpResponse.json({
+            Response.json({
               authorization: {
                 operation: "REVOKE_ADMINISTRATOR",
                 targets: [
@@ -403,7 +398,7 @@ describe("administrator frontend integration", () => {
             continuationBodies.push(await request.json())
             readsBeforeContinuation = sessionReads
             continued = true
-            return HttpResponse.json({
+            return Response.json({
               result: {
                 assignmentId: "44444444-4444-4444-8444-444444444444",
                 membershipId: actorMembershipId,
@@ -438,7 +433,7 @@ describe("administrator frontend integration", () => {
       http.get(
         `${window.location.origin}/api/administrators/authorizations/${authorizationId}`,
         () =>
-          HttpResponse.json({
+          Response.json({
             authorization: {
               operation: "REVOKE_ADMINISTRATOR",
               targets: [
@@ -475,7 +470,7 @@ describe("administrator frontend integration", () => {
       http.get(
         `${window.location.origin}/api/administrators/authorizations/${authorizationId}`,
         () =>
-          HttpResponse.json({
+          Response.json({
             authorization: {
               operation: "REVOKE_ADMINISTRATOR",
               targets: [
@@ -511,7 +506,7 @@ describe("administrator frontend integration", () => {
         http.get(
           `${window.location.origin}/api/administrators/authorizations/${authorizationId}`,
           () =>
-            HttpResponse.json({
+            Response.json({
               authorization: {
                 operation: "REVOKE_ADMINISTRATOR",
                 targets: [
@@ -531,11 +526,11 @@ describe("administrator frontend integration", () => {
           `${window.location.origin}/api/administrators/authorizations/cancel`,
           async ({ request }) => {
             cancellationBodies.push(await request.json())
-            return new HttpResponse(null, { status: 204 })
+            return new Response(null, { status: 204 })
           },
         ),
         http.get(`${window.location.origin}/api/administrators`, () =>
-          HttpResponse.json({ administrators: [administrator()], nextCursor: null }),
+          Response.json({ administrators: [administrator()], nextCursor: null }),
         ),
       ],
     )
@@ -552,7 +547,7 @@ describe("administrator frontend integration", () => {
       http.get(
         `${window.location.origin}/api/administrators/authorizations/${authorizationId}`,
         () =>
-          HttpResponse.json({
+          Response.json({
             authorization: {
               operation: "REVOKE_ADMINISTRATOR",
               targets: [
@@ -569,10 +564,7 @@ describe("administrator frontend integration", () => {
           }),
       ),
       http.post(`${window.location.origin}/api/administrators/authorizations/continue`, () =>
-        HttpResponse.json(
-          { error: "The authorization is stale or already used." },
-          { status: 409 },
-        ),
+        Response.json({ error: "The authorization is stale or already used." }, { status: 409 }),
       ),
     ])
 
@@ -595,7 +587,7 @@ describe("administrator frontend integration", () => {
       http.get(
         `${window.location.origin}/api/administrators/authorizations/${authorizationId}`,
         () =>
-          HttpResponse.json({
+          Response.json({
             authorization: {
               operation: "REVOKE_ADMINISTRATOR",
               targets: [
@@ -612,7 +604,7 @@ describe("administrator frontend integration", () => {
           }),
       ),
       http.post(`${window.location.origin}/api/administrators/authorizations/continue`, () =>
-        HttpResponse.json({ error: reason }, { status: 409 }),
+        Response.json({ error: reason }, { status: 409 }),
       ),
     ])
 
@@ -631,7 +623,7 @@ describe("administrator frontend integration", () => {
     const router = await renderApplication(legacyPath, [
       authenticatedSession(),
       http.get(`${window.location.origin}/api/administrators`, () =>
-        HttpResponse.json({ administrators: [administrator()], nextCursor: null }),
+        Response.json({ administrators: [administrator()], nextCursor: null }),
       ),
     ])
 
@@ -647,7 +639,7 @@ describe("administrator frontend integration", () => {
         authenticatedSession(),
         workspace(),
         http.get(`${window.location.origin}/api/copilot-connection`, () =>
-          HttpResponse.json({
+          Response.json({
             configured: true,
             connected: false,
             savedConnection: false,
@@ -660,7 +652,7 @@ describe("administrator frontend integration", () => {
           `${window.location.origin}/api/copilot-connection/authorizations/start`,
           async ({ request }) => {
             bodies.push(await request.json())
-            return HttpResponse.json({
+            return Response.json({
               authorizationId,
               authorizationUrl: "https://github.com/login/oauth/authorize",
               expiresAt: "2026-11-09T20:06:00.000Z",
@@ -692,7 +684,7 @@ describe("administrator frontend integration", () => {
           http.get(
             `${window.location.origin}/api/copilot-connection/authorizations/${authorizationId}`,
             () =>
-              HttpResponse.json({
+              Response.json({
                 authorization: {
                   operation: "DISCONNECT_COPILOT",
                   verifiedAt: "2026-11-09T20:01:00.000Z",
@@ -704,11 +696,11 @@ describe("administrator frontend integration", () => {
             `${window.location.origin}/api/copilot-connection/authorizations/continue`,
             async ({ request }) => {
               continuationBodies.push(await request.json())
-              return HttpResponse.json({ disconnected: true })
+              return Response.json({ disconnected: true })
             },
           ),
           http.get(`${window.location.origin}/api/copilot-connection`, () =>
-            HttpResponse.json({
+            Response.json({
               configured: true,
               connected: false,
               savedConnection: false,
@@ -741,7 +733,7 @@ describe("administrator frontend integration", () => {
         http.get(
           `${window.location.origin}/api/copilot-connection/authorizations/${authorizationId}`,
           () =>
-            HttpResponse.json({
+            Response.json({
               authorization: {
                 operation: "CONNECT_COPILOT",
                 verifiedAt: "2026-11-09T20:01:00.000Z",

@@ -1,22 +1,34 @@
 import { fireEvent, screen, within } from "@testing-library/react"
-import { setupServer } from "msw/node"
 import { describe, expect, it } from "vitest"
 
-import { createMockHandlers } from "../mocks/create-mock-handlers"
-import { createMockStore } from "../mocks/create-mock-store"
+import { http, stubHubFetch } from "@/test/stub-hub-fetch"
+
+import { authenticatedWorkspace } from "./fixtures/authenticated-workspace"
+import { previewHandlers } from "./fixtures/preview-handlers"
+import { previewRecords } from "./fixtures/preview-records"
 import { renderHubFlow } from "./fixtures/render-hub-flow"
+
+function servePreview(data: ReturnType<typeof previewRecords>) {
+  return stubHubFetch(
+    ...authenticatedWorkspace([data.repository]),
+    ...previewHandlers(data),
+    http.get(`/api${data.galleryPath}/create/permission`, () => Response.json({ canCreate: true })),
+    http.get(`/api${data.path}/review-comments`, () =>
+      Response.json({ comments: [], nextCursor: null, hasMore: false }),
+    ),
+  )
+}
 
 describe("Hub retained prototype interactions", () => {
   it("loads and restores a minimized preview with its pinned Build and saved URL state", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
+    const api = servePreview(previewRecords())
     const search = new URLSearchParams({
       build: "1",
       view: "minimized",
       return_path: "/welcome?step=2#heading",
       "rc.workspace.showDescription": "false",
     })
-    const router = await renderHubFlow(server, `/repositories/2001/prototypes/1?${search}`)
+    const router = await renderHubFlow(api, `/repositories/2001/prototypes/1?${search}`)
 
     expect(screen.getByTitle("Welcome, Build 1 preview")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Maximize Hub UI" })).toBeInTheDocument()
@@ -32,10 +44,8 @@ describe("Hub retained prototype interactions", () => {
   })
 
   it("lets a reader use the real Controls overlay and retains its state across Builds", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    store.session.select("reader")
-    const server = setupServer(...createMockHandlers(store))
-    const router = await renderHubFlow(server, "/repositories/2001/prototypes/1?build=3")
+    const reader = previewRecords({ canEdit: false, canBranch: false })
+    const router = await renderHubFlow(servePreview(reader), `${reader.path}?build=3`)
     fireEvent.click(screen.getByRole("button", { name: "View prototype" }))
 
     const controls = screen.getByRole("button", { name: "Controls" })
@@ -58,9 +68,8 @@ describe("Hub retained prototype interactions", () => {
   })
 
   it("does not reopen a dismissed introduction when returning to another Build of the prototype", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
-    const router = await renderHubFlow(server, "/repositories/2001/prototypes/1?build=3")
+    const data = previewRecords()
+    const router = await renderHubFlow(servePreview(data), `${data.path}?build=3`)
     expect(screen.getByRole("dialog", { name: "Welcome" })).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "View prototype" }))
 
@@ -72,10 +81,9 @@ describe("Hub retained prototype interactions", () => {
   })
 
   it("uses only the viewed pathname in the branch prompt while preserving the pinned Build and route", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
+    const api = servePreview(previewRecords())
     const route = { pathname: "/welcome", search: "?step=2", hash: "#heading" }
-    const router = await renderHubFlow(server, "/repositories/2001/prototypes/1?build=1")
+    const router = await renderHubFlow(api, "/repositories/2001/prototypes/1?build=1")
     fireEvent.click(screen.getByRole("button", { name: "View prototype" }))
     fireEvent.click(screen.getByRole("button", { name: "Branch from here" }))
     const brief = screen.getByRole("textbox", { name: "What changes would you like to make?" })
@@ -103,7 +111,7 @@ describe("Hub retained prototype interactions", () => {
     )
     fireEvent.click(screen.getByRole("button", { name: "Start from this prototype" }))
 
-    const dialog = screen.getByRole("dialog", { name: "Continue in Copilot app" })
+    const dialog = await screen.findByRole("dialog", { name: "Continue in Copilot app" })
     const open = within(dialog).getByRole<HTMLAnchorElement>("link", {
       name: /open copilot app/i,
     })
@@ -125,9 +133,11 @@ describe("Hub retained prototype interactions", () => {
   })
 
   it("allows a creator to branch without any Build while omitting unavailable preview Controls", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
-    await renderHubFlow(server, "/repositories/2001/prototypes/3")
+    const data = previewRecords({ prototypeId: "3", name: "Settings" })
+    data.prototype.builds = []
+    data.prototype.latestBuild = null
+    data.selectedBuild = null
+    await renderHubFlow(servePreview(data), data.path)
     fireEvent.click(screen.getByRole("button", { name: "View prototype" }))
 
     expect(document.querySelector("iframe")).not.toBeInTheDocument()

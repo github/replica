@@ -1,5 +1,7 @@
-import { createRef } from "react"
+import { createRef, useEffect, useRef, useState } from "react"
+import type { ComponentProps } from "react"
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { within } from "storybook/test"
 
 import { authenticatedHeaderData } from "@/storybook/fixtures/authenticated-header"
 import { resolvedAnchor } from "@/storybook/fixtures/review/anchors"
@@ -9,11 +11,16 @@ import {
   singleReviewThread,
 } from "@/storybook/fixtures/review/comments"
 import { reviewCommentsCopy } from "@utils/review-comment/en"
+import type { ReviewReply } from "@utils/review-comment/types"
 import { githubEmpty, githubPrototype } from "@/storybook/fixtures/repositories"
 import { mona, octocat } from "@/storybook/fixtures/users"
 
 import { PrototypesShowPage } from "."
-import type { PrototypesShowPageData, PrototypesShowPageProps } from "./types"
+import type {
+  PrototypeDetailsInput,
+  PrototypesShowPageData,
+  PrototypesShowPageProps,
+} from "./types"
 import { ReviewStory } from "./fixtures/review-story"
 import { PreviewOnlyStory } from "./fixtures/preview-only-story"
 
@@ -223,6 +230,105 @@ function reviewState(
   }
 }
 
+function DetailsStory({
+  failFirstSave = false,
+  ...args
+}: ComponentProps<typeof PrototypesShowPage> & { failFirstSave?: boolean }) {
+  const [savedDetails, setSavedDetails] = useState<PrototypeDetailsInput | null>(null)
+  const [detailsError, setDetailsError] = useState<string | null>(null)
+  const [pendingDetails, setPendingDetails] = useState<PrototypeDetailsInput | null>(null)
+  const [failSave, setFailSave] = useState(failFirstSave)
+  useEffect(() => {
+    if (!pendingDetails) return
+
+    const timer = window.setTimeout(() => {
+      if (failSave) {
+        setFailSave(false)
+        setDetailsError("Hub could not save the prototype details. Your changes are still here.")
+      } else {
+        setSavedDetails(pendingDetails)
+      }
+      setPendingDetails(null)
+    }, 200)
+
+    return () => window.clearTimeout(timer)
+  }, [failSave, pendingDetails])
+
+  return (
+    <ReviewStory
+      {...args}
+      data={
+        savedDetails
+          ? {
+              ...args.data,
+              prototypeName: savedDetails.name,
+              prototypeDescription: savedDetails.description,
+              startPage: savedDetails.startPage,
+              pageTitle: `${savedDetails.name} · ${args.data.repositoryName}`,
+              branchFromLabel: `Branch from: ${savedDetails.name}`,
+            }
+          : args.data
+      }
+      onSaveDetails={(details) => {
+        setDetailsError(null)
+        setPendingDetails(details)
+      }}
+      savingDetails={pendingDetails !== null}
+      detailsError={detailsError}
+      detailsSaved={savedDetails !== null && pendingDetails === null && detailsError === null}
+    />
+  )
+}
+
+function ReplyRetryStory(args: PrototypesShowPageProps) {
+  const [thread, setThread] = useState(repliedReviewThread)
+  const [draftActive, setDraftActive] = useState(false)
+  const failedOnce = useRef(false)
+
+  return (
+    <ReviewStory
+      {...args}
+      review={{
+        ...args.review,
+        threads: [thread],
+        visibleThreads: [thread],
+        conversationDraftActive: draftActive,
+        setConversationDraftActive: setDraftActive,
+        comments: {
+          ...args.review.comments,
+          createReply: (rootId, body) => {
+            if (!failedOnce.current) {
+              failedOnce.current = true
+              return Promise.resolve(null)
+            }
+            const now = new Date().toISOString()
+            const savedReply: ReviewReply = {
+              id: (thread.replies.at(-1)?.id ?? rootId) + 1,
+              kind: "reply",
+              rootId,
+              body,
+              createdAt: now,
+              updatedAt: now,
+              editedAt: null,
+              deletedAt: null,
+              author: octocat,
+              viewerCanEdit: true,
+              viewerCanDelete: true,
+              reactions: [],
+            }
+            setThread({
+              ...thread,
+              replies: [...thread.replies, savedReply],
+              lastActivityAt: now,
+            })
+            return Promise.resolve(savedReply)
+          },
+        },
+      }}
+    />
+  )
+}
+
 const meta = {
   title: "Hub/Pages/Prototype Review",
   component: PrototypesShowPage,
@@ -355,12 +461,6 @@ export const PreviewOnly: Story = {
   },
 }
 
-export const ReturningVisitor: Story = {
-  args: {
-    data: { ...data, detailsEditPath: undefined },
-  },
-}
-
 export const Minimized: Story = {
   args: { initialMinimized: true },
 }
@@ -412,7 +512,7 @@ export const MinimizedWithComments: Story = {
 }
 
 export const EditingDetails: Story = {
-  args: { initialInfoOpen: false, onSaveDetails: noop },
+  render: (args, { id }) => <DetailsStory key={id} {...args} />,
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: "Edit details" }))
   },
@@ -443,6 +543,35 @@ export const EditingDraft: Story = {
   },
 }
 
+export const DetailsSaveRetry: Story = {
+  render: (args, { id }) => <DetailsStory key={id} {...args} failFirstSave />,
+  args: {
+    data: {
+      ...data,
+      authenticityToken: "",
+      detailsEditPath: undefined,
+      signOutPath: "/api/auth/session/sign-out",
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: "Edit details" }))
+    const editor = within(await canvas.findByRole("dialog", { name: "Edit prototype details" }))
+    const name = editor.getByRole("textbox", { name: "Name" })
+    const description = editor.getByRole("textbox", { name: "Description" })
+    const startPage = editor.getByRole("textbox", { name: "Start page (optional)" })
+    await userEvent.clear(name)
+    await userEvent.type(name, "Contributor welcome")
+    await userEvent.clear(description)
+    await userEvent.type(description, "A shorter welcome flow for new contributors.")
+    await userEvent.clear(startPage)
+    await userEvent.type(startPage, "/welcome?step=2#basics")
+    await userEvent.click(editor.getByRole("button", { name: "Save details" }))
+    await editor.findByText(
+      "Hub could not save the prototype details. Your changes are still here.",
+    )
+  },
+}
+
 export const ExpandedBranchInput: Story = {
   args: { initialInfoOpen: false, initialComposerExpanded: true },
 }
@@ -459,16 +588,37 @@ export const BranchHandoff: Story = {
 }
 
 export const ReadOnly: Story = {
+  name: "Member can edit details; review is read-only",
+  render: (args, { id }) => <DetailsStory key={id} {...args} />,
   args: {
-    ...HubToolbarControls.args,
     data: {
       ...HubToolbarControls.args!.data!,
+      accountMenuLabel: `Account menu for @${mona.login}`,
+      authenticityToken: "",
       branchSubmissionMode: "disabled",
+      currentUser: mona,
       detailsEditPath: undefined,
       newPrototypePath: null,
+      securityAuditPath: null,
       shareLinksPath: undefined,
+      signOutPath: "/api/auth/session/sign-out",
       reviewReadOnly: true,
+      reviewComments: {
+        ...data.reviewComments,
+        copy: {
+          ...reviewCommentsCopy,
+          selectionBlockedLabel: "You do not have permission to add review comments.",
+        },
+      },
     },
+    review: reviewState({
+      bridge: HubToolbarControls.args!.review!.bridge,
+      selectedThread: repliedReviewThread,
+      selectedThreadId: repliedReviewThread.root.id,
+      selectedThreadPoint: { x: 520, y: 220 },
+      threads: [repliedReviewThread],
+      visibleThreads: [repliedReviewThread],
+    }),
   },
 }
 
@@ -551,6 +701,25 @@ export const Conversation: Story = {
       threads: [repliedReviewThread],
       visibleThreads: [repliedReviewThread],
     }),
+  },
+}
+
+export const ReplyRetry: Story = {
+  args: Conversation.args,
+  render: (args, { id }) =>
+    args.review ? <ReplyRetryStory key={id} {...args} /> : <ReviewStory key={id} {...args} />,
+  play: async ({ canvas, userEvent }) => {
+    const conversation = within(
+      await canvas.findByRole("dialog", { name: reviewCommentsCopy.threadHeading }),
+    )
+    await userEvent.type(
+      conversation.getByRole("textbox", { name: reviewCommentsCopy.replyLabel }),
+      "I checked the new spacing on a narrow screen.",
+    )
+    await userEvent.click(
+      conversation.getByRole("button", { name: reviewCommentsCopy.replySubmitLabel }),
+    )
+    await conversation.findByText(reviewCommentsCopy.replyErrorLabel)
   },
 }
 

@@ -1,67 +1,123 @@
+import { useEffect, useState } from "react"
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { Button } from "@primer/react-brand"
 
-import { mona } from "@/storybook/fixtures/users"
-import { authenticatedHubWorkspaceData } from "@/storybook/fixtures/hub-administration"
-import { inboxCopy } from "@/storybook/fixtures/inbox-activity"
-import { githubPrototype } from "@/storybook/fixtures/repositories"
+import { inboxActivities } from "@/storybook/fixtures/inbox-activity"
+import { signedInRepository, signedInWorkspace } from "@/storybook/fixtures/signed-in-workspace"
+import { notificationInboxConfiguration } from "@utils/notification/inbox-configuration"
 import type { InboxNotification } from "@utils/notification/types"
-import { useNotificationInbox } from "@hooks/use-notification-inbox"
-import { useRepositoryInbox } from "@hooks/use-repository-inbox"
 
 import { NotificationsPage } from "."
+import type { NotificationsPageProps } from "./types"
 
-const notification: InboxNotification = {
-  id: 1,
-  version: 0,
-  actor: mona,
-  kind: "mention",
-  excerpt: "Can you check the spacing, @octocat?",
-  createdAt: "2026-10-09T09:00:00Z",
-  read: false,
-  repository: "github/prototype",
-  prototype: "Welcome",
-  path: "/repositories/2001/prototypes/1?comment=1&notification=1",
-  updatePath: "/notifications/1",
-  target: { prototypeId: "1", threadId: 1, commentId: 1 },
+const pageSize = 4
+const activity: InboxNotification[] = inboxActivities.slice(0, 8).map((item, index, items) => {
+  const id = items.length - index
+  const { threadId, commentId } = item.target
+  const prototypeId = `00000000-0000-4000-8000-00000000020${item.target.prototypeId}`
+  return {
+    ...item,
+    id,
+    version: 0,
+    read: index === 2 || index === 5,
+    target: { prototypeId, threadId, commentId },
+    path: `${signedInRepository.prototypesPath}/prototypes/${prototypeId}?comment=${threadId}&message=${commentId}&notification=${id}`,
+    updatePath: `/api/notifications/${id}`,
+  }
+})
+
+function InboxStory({
+  allowRefresh = false,
+  ...args
+}: NotificationsPageProps & { allowRefresh?: boolean }) {
+  const [items, setItems] = useState(args.notifications)
+  const [unreadOnly, setUnreadOnly] = useState(args.unreadOnly)
+  const [visibleLimit, setVisibleLimit] = useState(pageSize)
+  const [failed, setFailed] = useState(args.failed)
+  const [refreshing, setRefreshing] = useState(false)
+  const unread = items.filter((item) => !item.read)
+  const matchingItems = unreadOnly ? unread : items
+
+  useEffect(() => {
+    if (!refreshing) return
+
+    const timer = window.setTimeout(() => {
+      setItems(([latest, ...older]) => {
+        if (!latest) return []
+
+        const id = latest.id + 1
+        const { prototypeId, threadId, commentId } = latest.target
+        return [
+          {
+            ...latest,
+            id,
+            version: 0,
+            read: false,
+            kind: "mention",
+            excerpt: "@octocat, the revised welcome flow is ready to review.",
+            createdAt: new Date().toISOString(),
+            path: `${signedInRepository.prototypesPath}/prototypes/${prototypeId}?comment=${threadId}&message=${commentId}&notification=${id}`,
+            updatePath: `/api/notifications/${id}`,
+          },
+          latest,
+          ...older,
+        ]
+      })
+      setRefreshing(false)
+    }, 1800)
+
+    return () => window.clearTimeout(timer)
+  }, [refreshing])
+
+  return (
+    <>
+      <NotificationsPage
+        {...args}
+        notifications={failed ? [] : matchingItems.slice(0, visibleLimit)}
+        unreadOnly={unreadOnly}
+        unreadCount={failed ? 0 : unread.length}
+        failed={failed}
+        hasMore={matchingItems.length > visibleLimit}
+        onFilter={(next) => {
+          if (next === unreadOnly) return
+          setUnreadOnly(next)
+          setVisibleLimit(pageSize)
+        }}
+        onToggleRead={(id) =>
+          setItems((current) =>
+            current.map((item) =>
+              item.id === id ? { ...item, read: !item.read, version: item.version + 1 } : item,
+            ),
+          )
+        }
+        onLoadMore={() => setVisibleLimit((current) => current + pageSize)}
+        onRetry={() => setFailed(false)}
+      />
+      {allowRefresh ? (
+        <div style={{ position: "fixed", right: "1rem", bottom: "1rem" }}>
+          <Button size="small" disabled={refreshing} onClick={() => setRefreshing(true)}>
+            {refreshing ? "Refreshing sample activity…" : "Add sample activity and refresh"}
+          </Button>
+        </div>
+      ) : null}
+    </>
+  )
 }
+
 const meta = {
-  title: "Hub/Pages/Notifications",
+  title: "Hub/Pages/Inbox",
   component: NotificationsPage,
+  parameters: { layout: "fullscreen" },
+  render: (args, { id }) => <InboxStory key={id} {...args} />,
   args: {
     data: {
-      ...authenticatedHubWorkspaceData,
-      collapseNavigationLabel: "Collapse sidebar",
-      expandNavigationLabel: "Expand sidebar",
-      navigationLabel: "Repository navigation",
-      notificationsPath: "/notifications",
-      notificationsLabel: "Notifications",
-      notificationsUnread: true,
-      notificationsUnreadCount: 1,
-      notificationsUnreadLabel: "Notifications, 1 unread items",
-      repository: {
-        ...authenticatedHubWorkspaceData.repository,
-        newPrototypeLabel: "Create",
-        newPrototypePath: "/repositories/2001/new",
-        prototypesLabel: "Prototypes",
-        prototypesPath: "/repositories/2001",
-        repositories: [githubPrototype],
-        repositoryMenuLabel: "Repositories",
-        selectedRepositoryId: "2001",
-        repositorySelectorLabel: "Choose repository. github/prototype selected",
-      },
-      notificationInbox: {
-        path: "/notifications/inbox",
-        copy: {
-          ...inboxCopy,
-          error: "Notifications could not be updated. Try again.",
-          loading: "Loading notifications...",
-          loadMore: "Load more",
-          retry: "Retry",
-        },
-      },
+      ...signedInWorkspace,
+      notificationsLabel: "Inbox",
+      notificationsPath: `/notifications?repositoryId=${signedInRepository.selectedRepositoryId}`,
+      // The page gets its data from this story, not the sidebar's connected requests.
+      notificationInbox: notificationInboxConfiguration,
     },
-    notifications: [notification],
+    notifications: activity.slice(0, 1),
     unreadCount: 1,
     unreadOnly: false,
     loading: false,
@@ -76,146 +132,27 @@ const meta = {
 
 export default meta
 type Story = StoryObj<typeof meta>
+
 export const Single: Story = {}
+export const Empty: Story = { args: { notifications: [], unreadCount: 0 } }
 export const NoRepositories: Story = {
   args: {
-    data: { ...meta.args.data, repository: null, securityAuditPath: null },
-  },
-}
-export const Empty: Story = {
-  args: {
-    notifications: [],
-    unreadCount: 0,
-    data: { ...meta.args.data, notificationsUnread: false, notificationsUnreadCount: 0 },
-  },
-}
-export const Multiple: Story = {
-  args: {
-    notifications: (
-      ["comment", "mention", "reply", "reaction", "resolved", "reopened", "reaction"] as const
-    ).map((kind, index) => {
-      const id = index + 1
-      const commentId = kind === "reply" ? 2 : 1
-      return {
-        ...notification,
-        id,
-        kind,
-        reactionContent: kind === "reaction" ? (index === 6 ? "heart" : "+1") : null,
-        read: index === 3 || kind === "resolved",
-        excerpt:
-          kind === "comment"
-            ? "Could we make the next step clearer?"
-            : kind === "reply"
-              ? "I have updated the spacing."
-              : notification.excerpt,
-        path: `/repositories/2001/prototypes/1?comment=${commentId}&notification=${id}`,
-        updatePath: `/notifications/${id}`,
-        target: { ...notification.target, commentId },
-      }
-    }),
-    unreadCount: 5,
+    ...Empty.args,
     data: {
       ...meta.args.data,
-      notificationsUnreadCount: 5,
-      notificationsUnreadLabel: "Notifications, 5 unread items",
+      repository: null,
+      navigationLabel: "Hub navigation",
+      emptyRepositoryLabel: "No repository selected",
+      canvasConnectionsPath: "/canvas/connections",
+      notificationsPath: "/notifications",
     },
   },
 }
-export const Failure: Story = { args: { notifications: [], failed: true } }
-export const Loading: Story = { args: { notifications: [], loading: true } }
+export const Multiple: Story = { args: { notifications: activity, unreadCount: 6 } }
+export const Failure: Story = { args: { notifications: activity, unreadCount: 0, failed: true } }
+export const Loading: Story = { args: { notifications: [], unreadCount: 0, loading: true } }
 
 export const CachedRefresh: Story = {
-  beforeEach: () => {
-    const originalFetch = globalThis.fetch
-    let samples: InboxNotification[] = [
-      { ...notification, id: 3, excerpt: "The next step could be clearer." },
-      { ...notification, id: 2, excerpt: "Could we try a shorter label?" },
-      { ...notification, id: 1, read: true, excerpt: "Previously read feedback." },
-    ].map((item) => ({
-      ...item,
-      updatePath: `/notifications/${item.id}`,
-      path: `/repositories/2001/prototypes/1?comment=1&notification=${item.id}`,
-    }))
-    let nextId = 4
-    globalThis.fetch = async (input, init) => {
-      const source =
-        input instanceof Request ? input.url : input instanceof URL ? input.href : input
-      const url = new URL(source, window.location.origin)
-      if (url.pathname === "/__storybook__/notifications/new") {
-        const id = nextId++
-        samples.unshift({
-          ...notification,
-          id,
-          kind: "comment",
-          createdAt: new Date().toISOString(),
-          excerpt: `New sample notification ${id}.`,
-          updatePath: `/notifications/${id}`,
-          path: `/repositories/2001/prototypes/1?comment=1&notification=${id}`,
-        })
-        return Response.json({ queued: true })
-      }
-      if (url.pathname === "/notifications/inbox") {
-        await new Promise((resolve) => window.setTimeout(resolve, 900))
-        const unread = url.searchParams.get("unread") === "true"
-        return Response.json({
-          notifications: samples
-            .filter((item) => !unread || !item.read)
-            .slice(0, Number(url.searchParams.get("limit")) || 50),
-          nextBefore: null,
-          unreadCount: samples.filter((item) => !item.read).length,
-        })
-      }
-      if (/^\/notifications\/\d+$/.test(url.pathname) && init?.method === "PATCH") {
-        const id = Number(url.pathname.split("/").at(-1))
-        const item = samples.find((sample) => sample.id === id)
-        if (!item) return new Response(null, { status: 404 })
-
-        if (typeof init.body !== "string") throw new Error("Expected a JSON notification update")
-
-        const { notification: update } = JSON.parse(init.body) as {
-          notification: { read: boolean; version: number }
-        }
-        if (update.version !== item.version) return new Response(null, { status: 409 })
-
-        samples = samples.map((sample) =>
-          sample.id === id ? { ...sample, read: update.read, version: sample.version + 1 } : sample,
-        )
-        return Response.json({
-          read: update.read,
-          version: item.version + 1,
-        })
-      }
-      return originalFetch(input, init)
-    }
-    return () => {
-      globalThis.fetch = originalFetch
-    }
-  },
-  render: function CachedNotificationsPreview(args) {
-    const inbox = useNotificationInbox({
-      path: args.data.notificationInbox.path,
-      authenticityToken: args.data.authenticityToken,
-      initialUnreadCount: 2,
-      onReadChange: (id, saved) => data.liveInbox?.onReadUpdate(id, saved),
-    })
-    const data = useRepositoryInbox(
-      { ...args.data, notificationsUnreadCount: inbox.unreadCount },
-      { onReadChange: inbox.onReadUpdate, onUnreadCountChange: inbox.onUnreadCountChange },
-    )
-
-    return (
-      <>
-        <div style={{ padding: "1rem", display: "flex", gap: "1rem", alignItems: "center" }}>
-          <span>Sample notifications. Refreshes take 900ms; cached items stay visible.</span>
-          <Button
-            size="small"
-            onClick={() => void fetch("/__storybook__/notifications/new", { method: "POST" })}
-          >
-            Add sample notification
-          </Button>
-        </div>
-        <NotificationsPage {...args} data={data} {...inbox} />
-      </>
-    )
-  },
+  args: { notifications: activity.slice(0, 3), unreadCount: 2 },
+  render: (args, { id }) => <InboxStory key={id} {...args} allowRefresh />,
 }

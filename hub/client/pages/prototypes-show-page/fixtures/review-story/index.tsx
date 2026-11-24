@@ -11,7 +11,9 @@ export function ReviewStory(props: PrototypesShowPageProps | PrototypePreviewOnl
   const { resolvedColorMode } = useHubTheme()
   const review = props.review
   const [sidebarOpen, setSidebarOpen] = useState(review?.sidebarOpen ?? false)
-  const [selectedThread, setSelectedThread] = useState(review?.selectedThread ?? null)
+  const [selection, setSelectedThread] = useState(review?.selectedThread ?? null)
+  const selectedThread =
+    review?.threads.find((thread) => thread.root.id === selection?.root.id) ?? selection
 
   function toggleSidebar() {
     if (review?.conversationDraftActive) return

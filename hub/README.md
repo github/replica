@@ -2,7 +2,7 @@
 
 Hub is being rebuilt on `build/hub/new` using TypeScript, Express, React, Vite, and Vitest. This branch lets contributors start the new app locally. It is not ready to replace the existing Hub.
 
-Signed-in members can browse repositories, preview Builds and templates, create a prototype brief, and review a saved Build. React Router uses the Express API and PostgreSQL in real mode, and local fixtures only in mock mode.
+Signed-in members can browse repositories, preview Builds and templates, create a prototype brief, and review a saved Build. Hub uses the Express API and PostgreSQL. [Storybook](docs/storybook.md) renders pages with sample data without the API.
 
 Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The backend provides:
 
@@ -15,6 +15,6 @@ Hub builds local branches from committed checkouts or [imports Builds from GitHu
 
 The [production runtime](docs/deployment.md) packages the frontend, API, and workers in one image, with a separate release setup script.
 
-Use [Development](docs/development.md) to start the API and frontend, and [Routed frontend](docs/frontend.md) for connected routes, local modes, and the division between UI and backend work. Review [Architecture](docs/architecture.md), [code architecture conventions](docs/backend-architecture.md), and [coding conventions](docs/coding-conventions.md) before adding behavior.
+Use [Development](docs/development.md) to start the API and frontend, and [Routed frontend](docs/frontend.md) for connected routes and the division between UI and backend work. Review [Architecture](docs/architecture.md), [code architecture conventions](docs/backend-architecture.md), and [coding conventions](docs/coding-conventions.md) before adding behavior.
 
 The prototype extension and build action consume shared canvas and Controls source under [client/](client/). They remain separate projects.

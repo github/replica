@@ -1,83 +1,12 @@
-import type { RouteConfigEntry } from "@react-router/dev/routes"
-import { act, fireEvent, render, screen, within } from "@testing-library/react"
-import { http, HttpResponse } from "msw"
-import { setupServer } from "msw/node"
-import type { ComponentType } from "react"
-import {
-  createBrowserRouter,
-  RouterProvider,
-  useLoaderData,
-  type ActionFunction,
-  type LoaderFunction,
-  type RouteObject,
-} from "react-router"
-import { describe, expect, it, onTestFinished, vi } from "vitest"
+import { fireEvent, screen, within } from "@testing-library/react"
+import { describe, expect, it } from "vitest"
 
-type RouteModule = {
-  default?: ComponentType<{ loaderData: unknown }>
-  clientLoader?: LoaderFunction
-  clientAction?: ActionFunction
-  ErrorBoundary?: ComponentType
-  HydrateFallback?: ComponentType
-}
+import { http, stubHubFetch } from "@/test/stub-hub-fetch"
 
-const routeModules = import.meta.glob<RouteModule>([
-  "../root.tsx",
-  "./**/index.tsx",
-  "!./fixtures/**",
-])
-
-function applicationRoute(entry: RouteConfigEntry): RouteObject {
-  const modulePath =
-    entry.file === "root.tsx" ? "../root.tsx" : `./${entry.file.replace(/^routes\//, "")}`
-  const loadModule = routeModules[modulePath]
-  if (!loadModule) throw new Error(`Missing application route module: ${entry.file}`)
-  const common = {
-    id: entry.id ?? entry.file.replace(/\.tsx$/, ""),
-    path: entry.path,
-    lazy: async () => {
-      const module = await loadModule()
-      const Page = module.default
-      return {
-        loader: module.clientLoader,
-        action: module.clientAction,
-        ErrorBoundary: module.ErrorBoundary,
-        HydrateFallback: module.HydrateFallback,
-        Component: Page ? () => <Page loaderData={useLoaderData()} /> : undefined,
-      }
-    },
-  }
-  return entry.index
-    ? { ...common, index: true }
-    : { ...common, children: entry.children?.map(applicationRoute) }
-}
-
-async function renderApplication(path: string) {
-  const [{ default: routes }, { HubThemeProvider }] = await Promise.all([
-    import("../routes"),
-    import("@hooks/use-hub-theme"),
-  ])
-  window.history.replaceState(null, "", path)
-  const router = createBrowserRouter(
-    [applicationRoute({ id: "root", file: "root.tsx", children: routes })],
-    { window },
-  )
-  onTestFinished(() => router.dispose())
-  await act(async () => {
-    await vi.waitFor(() => expect(router.state.initialized).toBe(true), { timeout: 10_000 })
-  })
-  render(
-    <HubThemeProvider>
-      <RouterProvider router={router} />
-    </HubThemeProvider>,
-  )
-  return router
-}
+import { renderHubFlow } from "./fixtures/render-hub-flow"
 
 describe("real Build history", () => {
   it("opens History from a pinned real Build and keeps that Build selected", async () => {
-    vi.stubEnv("MODE", "development")
-    vi.stubEnv("DEV", true)
     const repositoryId = "11111111-1111-4111-8111-111111111111"
     const prototypeId = "22222222-2222-4222-8222-222222222222"
     const userId = "44444444-4444-4444-8444-444444444444"
@@ -121,9 +50,9 @@ describe("real Build history", () => {
       builds: [...builds, build(1, "successful")],
     }
     const historyRequests: string[] = []
-    const server = setupServer(
+    const api = stubHubFetch(
       http.get(`${window.location.origin}/api/auth/session`, () =>
-        HttpResponse.json({
+        Response.json({
           authenticated: true,
           membershipId: "55555555-5555-4555-8555-555555555555",
           userId,
@@ -133,11 +62,8 @@ describe("real Build history", () => {
           role: "MEMBER",
         }),
       ),
-      http.get(`${window.location.origin}/api/session`, () =>
-        HttpResponse.json({ error: "This endpoint is unavailable in real mode." }, { status: 404 }),
-      ),
       http.get(`${window.location.origin}/api/workspace`, () =>
-        HttpResponse.json({
+        Response.json({
           viewer: {
             id: userId,
             provider: "github",
@@ -155,16 +81,16 @@ describe("real Build history", () => {
         }),
       ),
       http.get(`${window.location.origin}/api${prototypePath}`, ({ request }) => {
-        const selected = new URL(request.url).searchParams.get("build") === "3"
-        return HttpResponse.json({
+        const selected = Number(new URL(request.url).searchParams.get("build"))
+        return Response.json({
           repository,
           prototype,
-          selectedBuild: selected ? build(3, "successful") : null,
+          selectedBuild: selected === 1 || selected === 3 ? build(selected, "successful") : null,
           showPrototypeInfo: false,
         })
       }),
       http.get(`${window.location.origin}/api${prototypePath}/review-comments`, () =>
-        HttpResponse.json({ error: "Not found." }, { status: 404 }),
+        Response.json({ error: "Not found." }, { status: 404 }),
       ),
       http.get(`${window.location.origin}/api${prototypePath}/builds`, ({ request }) => {
         const url = new URL(request.url)
@@ -172,7 +98,7 @@ describe("real Build history", () => {
         const pageBuilds = page === "1" ? builds : [build(1, "successful")]
         const pinned = page === "2" && url.searchParams.get("build") === "3"
         historyRequests.push(url.search)
-        return HttpResponse.json({
+        return Response.json({
           repository,
           prototype: {
             ...prototype,
@@ -183,9 +109,7 @@ describe("real Build history", () => {
         })
       }),
     )
-    server.listen({ onUnhandledRequest: "error" })
-    onTestFinished(() => server.close())
-    const router = await renderApplication(`${prototypePath}?build=3`)
+    const router = await renderHubFlow(api, `${prototypePath}?build=3`)
     expect(await screen.findByText("Build 3 has no preview")).toBeVisible()
 
     fireEvent.click(screen.getByRole("button", { name: "More actions" }))
@@ -193,7 +117,7 @@ describe("real Build history", () => {
     const historyUrl = new URL(historyLink.getAttribute("href") ?? "", window.location.origin)
     expect(historyUrl.pathname).toBe(`${prototypePath}/builds`)
     expect(historyUrl.searchParams.get("build")).toBe("3")
-    fireEvent.click(historyLink)
+    await router.settle(() => fireEvent.click(historyLink))
 
     expect(await screen.findByRole("heading", { name: "History", level: 2 })).toBeVisible()
     expect(router.state.location.pathname).toBe(`${prototypePath}/builds`)
@@ -236,7 +160,7 @@ describe("real Build history", () => {
     )
     fireEvent.keyDown(firstPicker, { key: "Escape" })
 
-    fireEvent.click(screen.getByRole("link", { name: "Older Builds" }))
+    await router.settle(() => fireEvent.click(screen.getByRole("link", { name: "Older Builds" })))
     expect(await screen.findByRole("link", { name: "Build 1" })).toBeVisible()
     expect(historyRequests.map((query) => Object.fromEntries(new URLSearchParams(query)))).toEqual([
       { build: "3" },
@@ -260,12 +184,18 @@ describe("real Build history", () => {
     expect(within(picker).queryByRole("menuitem", { name: /v2/ })).not.toBeInTheDocument()
     expect(within(picker).queryByRole("menuitem", { name: /v4/ })).not.toBeInTheDocument()
     fireEvent.keyDown(picker, { key: "Escape" })
-    fireEvent.click(screen.getByRole("link", { name: "Newest Builds" }))
+    await router.settle(() => fireEvent.click(screen.getByRole("link", { name: "Newest Builds" })))
     expect(await screen.findByRole("link", { name: "Build 3" })).toBeVisible()
     expect(historyRequests.map((query) => Object.fromEntries(new URLSearchParams(query)))).toEqual([
       { build: "3" },
       { page: "2", build: "3" },
       { build: "3" },
     ])
+    await router.settle(() =>
+      fireEvent.click(screen.getByRole("link", { name: "Return to prototype" })),
+    )
+    expect(await screen.findByText("Build 3 has no preview")).toBeVisible()
+    expect(router.state.location.pathname).toBe(prototypePath)
+    expect(router.state.location.search).toBe("?build=3")
   }, 15_000)
 })

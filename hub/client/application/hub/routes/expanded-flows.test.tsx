@@ -1,449 +1,209 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react"
-import { http, HttpResponse } from "msw"
-import { setupServer } from "msw/node"
-import { useLoaderData, type RouteObject } from "react-router"
+import { fireEvent, screen, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
-import type { FixtureBuild } from "../mocks/create-fixture-build/types"
-import { createMockHandlers } from "../mocks/create-mock-handlers"
-import { createMockStore } from "../mocks/create-mock-store"
-import { mockDiagnostics } from "../mocks/diagnostics"
-import seedData from "../mocks/seed.json"
-import { settingsQuerySchema, settingsWorkspaceResponseSchema } from "../settings-contracts"
-import ProductManagementRoute, {
-  clientAction as saveManagement,
-  clientLoader as loadManagement,
-} from "./product-management"
-import ProductNewRoute, { clientLoader as loadCatalog } from "./product-new"
-import ProductPublicRoute, { clientLoader as loadPublicShare } from "./product-public"
-import ProductShareLinksRoute, {
-  clientAction as saveShareLinks,
-  clientLoader as loadShareLinks,
-} from "./product-share-links"
-import SettingsAuditRoute, { clientLoader as loadAudit } from "./settings-audit"
-import SettingsCopilotRoute, { clientLoader as loadCopilot } from "./settings-copilot"
-import SettingsLearningsRoute, {
-  clientAction as saveLearnings,
-  clientLoader as loadLearnings,
-} from "./settings-learnings"
-import SettingsNotificationsRoute, {
-  clientAction as saveNotifications,
-  clientLoader as loadNotifications,
-} from "./settings-notifications"
-import SettingsSessionsRoute, {
-  clientAction as endSession,
-  clientLoader as loadSessions,
-} from "./settings-sessions"
-import SettingsWelcomeRoute, {
-  clientAction as hideWelcome,
-  clientLoader as loadWelcome,
-} from "./settings-welcome"
+import type { PrototypeEdit } from "@application/hub/contracts/types"
+import type { ProductShareLink } from "@application/hub/product-contracts/types"
+import { http, stubHubFetch } from "@/test/stub-hub-fetch"
+
+import { authenticatedWorkspace } from "./fixtures/authenticated-workspace"
+import { previewHandlers } from "./fixtures/preview-handlers"
+import { previewRecords } from "./fixtures/preview-records"
 import { renderHubFlow } from "./fixtures/render-hub-flow"
 
-function ProductNewComponent() {
-  return <ProductNewRoute loaderData={useLoaderData<typeof loadCatalog>()} />
-}
-
-function ManagementComponent() {
-  return <ProductManagementRoute loaderData={useLoaderData<typeof loadManagement>()} />
-}
-
-function ShareLinksComponent() {
-  return <ProductShareLinksRoute loaderData={useLoaderData<typeof loadShareLinks>()} />
-}
-
-function PublicShareComponent() {
-  return <ProductPublicRoute loaderData={useLoaderData<typeof loadPublicShare>()} />
-}
-
-function AuditComponent() {
-  return <SettingsAuditRoute loaderData={useLoaderData<typeof loadAudit>()} />
-}
-
-function CopilotComponent() {
-  return <SettingsCopilotRoute loaderData={useLoaderData<typeof loadCopilot>()} />
-}
-
-function LearningsComponent() {
-  return <SettingsLearningsRoute loaderData={useLoaderData<typeof loadLearnings>()} />
-}
-
-function NotificationsComponent() {
-  return <SettingsNotificationsRoute loaderData={useLoaderData<typeof loadNotifications>()} />
-}
-
-function SessionsComponent() {
-  return <SettingsSessionsRoute loaderData={useLoaderData<typeof loadSessions>()} />
-}
-
-function WelcomeComponent() {
-  return <SettingsWelcomeRoute loaderData={useLoaderData<typeof loadWelcome>()} />
-}
-
-function unavailableServerRoute(): Promise<never> {
-  return Promise.reject(new Error("The mock frontend must not call a server route."))
-}
-
-const workspaceRoutes: RouteObject[] = [
-  {
-    path: "/repositories/:repositoryId/new",
-    loader: loadCatalog,
-    Component: ProductNewComponent,
-  },
-  {
-    path: "/repositories/:repositoryId/prototypes/manage",
-    loader: loadManagement,
-    action: saveManagement,
-    Component: ManagementComponent,
-  },
-  {
-    path: "/repositories/:repositoryId/prototypes/:prototypeId/share-links",
-    loader: loadShareLinks,
-    action: saveShareLinks,
-    Component: ShareLinksComponent,
-  },
-  {
-    path: "/settings/audit",
-    loader: (args) => loadAudit({ ...args, serverLoader: unavailableServerRoute }),
-    Component: AuditComponent,
-  },
-  {
-    path: "/settings/copilot",
-    loader: (args) => loadCopilot({ ...args, serverLoader: unavailableServerRoute }),
-    Component: CopilotComponent,
-  },
-  {
-    path: "/repositories/:repositoryId/learnings",
-    loader: loadLearnings,
-    action: saveLearnings,
-    Component: LearningsComponent,
-  },
-  {
-    path: "/notifications",
-    loader: (args) => loadNotifications({ ...args, serverLoader: unavailableServerRoute }),
-    action: (args) => saveNotifications({ ...args, serverAction: unavailableServerRoute }),
-    Component: NotificationsComponent,
-  },
-  {
-    path: "/welcome",
-    loader: (args) => loadWelcome({ ...args, serverLoader: unavailableServerRoute }),
-    action: (args) => hideWelcome({ ...args, serverAction: unavailableServerRoute }),
-    Component: WelcomeComponent,
-  },
-]
-
-const publicRoutes: RouteObject[] = [
-  {
-    path: "/shared/:shareId",
-    loader: loadPublicShare,
-    Component: PublicShareComponent,
-  },
-  {
-    path: "/settings/sessions",
-    loader: (args) => loadSessions({ ...args, serverLoader: unavailableServerRoute }),
-    action: (args) => endSession({ ...args, serverAction: unavailableServerRoute }),
-    Component: SessionsComponent,
-  },
-]
-
-describe("Hub expanded frontend flows", () => {
-  it("keeps the Notifications navigation label when moving between repository and settings pages", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
-    const router = await renderHubFlow(server, "/repositories/2001", { workspaceRoutes })
-
-    function notificationsLink() {
-      const link = screen
-        .getAllByRole<HTMLAnchorElement>("link")
-        .find((item) => new URL(item.href).pathname === "/notifications")
-      if (!link) throw new Error("The workspace must offer notifications navigation.")
-      expect(link).toHaveTextContent("Notifications")
-      expect(link).toHaveAccessibleName(/notifications/i)
-      return link
-    }
-
-    await router.settle(() => fireEvent.click(notificationsLink()))
-    expect(router.state.location.pathname).toBe("/notifications")
-    expect(notificationsLink()).toHaveAttribute("aria-current", "page")
-    await router.settle(() => router.navigate("/settings/copilot"))
-    notificationsLink()
-    await router.settle(() => router.navigate("/repositories/2001"))
-    notificationsLink()
-  })
-
-  it("shows connected Copilot with its owner and required disconnect consent as normal product UI", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    store.session.select("admin")
-    const server = setupServer(...createMockHandlers(store))
-    await renderHubFlow(server, "/settings/copilot", { workspaceRoutes })
-
-    expect(await screen.findByRole("heading", { name: "Copilot is connected" })).toBeInTheDocument()
-    expect(screen.getByText(/connected Copilot\./)).toBeVisible()
-    expect(
-      screen.getByRole("checkbox", {
-        name: "I understand and confirm disconnecting Copilot for this Hub.",
+describe("Hub listing management", () => {
+  it("keeps an invalid listing draft and updates the existing preview and gallery on retry", async () => {
+    const data = previewRecords()
+    const { prototype, repository, galleryPath, path, latest } = data
+    repository.capabilities!.managePrototypeListings = true
+    const managementPath = `${galleryPath}/prototypes/manage`
+    const readManagement = vi.fn(() =>
+      Response.json({ repository, registered: [prototype], candidates: [], canManage: true }),
+    )
+    const save = vi.fn()
+    const api = stubHubFetch(
+      ...authenticatedWorkspace([repository]),
+      ...previewHandlers(data),
+      http.get(`/api${galleryPath}`, () =>
+        Response.json({
+          repository,
+          prototypes: [prototype],
+          authors: [],
+          pagination: { page: 1, pageSize: 24, pageCount: 1, totalCount: 1 },
+        }),
+      ),
+      http.get(`/api${galleryPath}/prototype-management`, readManagement),
+      http.patch(`/api${galleryPath}/prototype-management/${prototype.id}`, async ({ request }) => {
+        const updates = (await request.json()) as PrototypeEdit
+        save(updates)
+        Object.assign(prototype, updates)
+        return Response.json({ repository, prototype, selectedBuild: latest })
       }),
-    ).toBeRequired()
-    expect(screen.getByRole("button", { name: "Disconnect Copilot" })).toBeVisible()
-    expect(screen.getByRole("main")).not.toHaveTextContent(/\b(mock|synthetic|simulated)\b/i)
-  })
-
-  it("continues a prototype brief in Copilot without creating a local prototype or Build", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const templateRoute = "/welcome?step=2#intro"
-    store.product.updateMetadata("2001", "1", {
-      name: "Welcome",
-      description: null,
-      startPage: templateRoute,
-    })
-    const prototypeCount = store.flowContext.resources.prototypes.length
-    const buildCount = store.flowContext.resources.builds.length
-    const server = setupServer(...createMockHandlers(store))
-    const creates = vi.fn()
-    server.events.on("request:start", ({ request }) => {
-      if (
-        request.method === "POST" &&
-        new URL(request.url).pathname === "/api/repositories/2001/prototypes"
-      )
-        creates()
-    })
-    const router = await renderHubFlow(server, "/repositories/2001/new", { workspaceRoutes })
-    fireEvent.change(screen.getByRole("textbox", { name: "What should we create?" }), {
-      target: { value: "A simpler onboarding flow" },
-    })
-    fireEvent.click(screen.getByRole("button", { name: "Template: Default" }))
-    fireEvent.click(screen.getByRole("option", { name: `Welcome ${templateRoute}` }))
-    await router.settle(() =>
-      fireEvent.click(screen.getByRole("button", { name: "Create prototype" })),
+      http.get(`/api${path}/review-comments`, () =>
+        Response.json({
+          comments: [],
+          nextCursor: null,
+          hasMore: false,
+        }),
+      ),
     )
-
-    const dialog = screen.getByRole("dialog", { name: "Continue in Copilot app" })
-    const openApp = within(dialog).getByRole<HTMLAnchorElement>("link", {
-      name: /open copilot app/i,
-    })
-    const launcher = new URL(openApp.href)
-    const open = launcher.searchParams.get("open")
-    if (!open) throw new Error("The Copilot link must contain its app destination.")
-    const session = new URL(open)
-    expect(launcher.origin + launcher.pathname).toBe("https://github.com/copilot/app/launch")
-    expect(session.searchParams.get("repo")).toBe("github/prototype")
-    expect(session.searchParams.get("prompt")).toContain("A simpler onboarding flow")
-    expect(session.searchParams.get("prompt")).toContain(encodeURIComponent(templateRoute))
-    expect(session.searchParams.get("prompt")).toContain("startPage")
-    expect(creates).not.toHaveBeenCalled()
-    expect(store.flowContext.resources.prototypes).toHaveLength(prototypeCount)
-    expect(store.flowContext.resources.builds).toHaveLength(buildCount)
-    expect(screen.queryByRole("link", { name: "Open prototype" })).not.toBeInTheDocument()
-    expect(router.state.location.pathname).toBe("/repositories/2001/new")
-  })
-
-  it("allows a reader to start a prompt handoff while denying listing writes", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    store.session.select("reader")
-    const server = setupServer(...createMockHandlers(store))
-    const router = await renderHubFlow(server, "/repositories/2001", { workspaceRoutes })
-    expect(screen.queryByRole("link", { name: "Edit prototype listings" })).not.toBeInTheDocument()
-
-    await router.settle(() => fireEvent.click(screen.getByRole("link", { name: "Create" })))
-    expect(router.state.location.pathname).toBe("/repositories/2001/new")
-
-    fireEvent.change(screen.getByRole("textbox", { name: "What should we create?" }), {
-      target: { value: "Simplify the settings flow" },
-    })
-    await router.settle(() =>
-      fireEvent.click(screen.getByRole("button", { name: "Create prototype" })),
-    )
-    expect(screen.getByRole("dialog", { name: "Continue in Copilot app" })).toBeVisible()
-    const previousName = store.getPrototype("2001", "1").prototype.name
-    const write = await fetch(
-      `${window.location.origin}/api/repositories/2001/prototype-management/1`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: "Unauthorized edit", description: null, startPage: "/" }),
-      },
-    )
-    expect(write.status).toBe(403)
-    expect(store.getPrototype("2001", "1").prototype.name).toBe(previousName)
-  })
-
-  it("shares management edits with the existing preview and repository", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const selectedBuild = store.getPrototype("2001", "1").selectedBuild?.number
-    const server = setupServer(...createMockHandlers(store))
-    const router = await renderHubFlow(server, "/repositories/2001", { workspaceRoutes })
+    const router = await renderHubFlow(api, galleryPath)
     const manage = screen.getByRole("link", { name: "Edit prototype listings" })
-    expect(manage).toHaveAttribute("href", "/repositories/2001/prototypes/manage")
+    expect(manage).toHaveAttribute("href", managementPath)
     await router.settle(() => fireEvent.click(manage))
-    expect(router.state.location.pathname).toBe("/repositories/2001/prototypes/manage")
-    const branch = store.getPrototype("2001", "1").prototype.branchName
-    fireEvent.click(screen.getByRole("button", { name: `Edit details: ${branch}` }))
+    expect(router.state.location.pathname).toBe(managementPath)
+
+    fireEvent.click(screen.getByRole("button", { name: `Edit details: ${prototype.branchName}` }))
     const editor = screen.getByRole("dialog", { name: "Edit prototype details" })
-    fireEvent.change(within(editor).getByRole("textbox", { name: "Name" }), {
-      target: { value: "Refined onboarding" },
-    })
-    fireEvent.change(within(editor).getByRole("textbox", { name: "Description (optional)" }), {
-      target: { value: "Guide a new visitor through one useful task." },
-    })
-    fireEvent.change(within(editor).getByRole("textbox", { name: "Start page (optional)" }), {
-      target: { value: "/welcome?step=1#intro" },
-    })
-    await router.settle(() =>
-      fireEvent.click(within(editor).getByRole("button", { name: "Save details" })),
-    )
+    const name = within(editor).getByRole("textbox", { name: "Name" })
+    const description = within(editor).getByRole("textbox", { name: "Description (optional)" })
+    const startPage = within(editor).getByRole("textbox", { name: "Start page (optional)" })
+    const submit = within(editor).getByRole("button", { name: "Save details" })
+    const draft = {
+      name: "Refined onboarding",
+      description: "Guide the visitor through one useful task.",
+    }
+    fireEvent.change(name, { target: { value: draft.name } })
+    fireEvent.change(description, { target: { value: draft.description } })
+    fireEvent.change(startPage, { target: { value: "//external.example.test/welcome" } })
+    const readsBeforeSave = readManagement.mock.calls.length
+    await router.settle(() => fireEvent.click(submit))
+
+    expect(await within(editor).findByRole("alert")).toHaveTextContent(/local route/i)
+    expect(name).toHaveValue(draft.name)
+    expect(description).toHaveValue(draft.description)
+    expect(startPage).toHaveValue("//external.example.test/welcome")
+    expect(save).not.toHaveBeenCalled()
+    expect(readManagement).toHaveBeenCalledTimes(readsBeforeSave)
+
+    const corrected = "/welcome?step=2#heading"
+    fireEvent.change(startPage, { target: { value: corrected } })
+    await router.settle(() => fireEvent.click(submit))
+    expect(save).toHaveBeenCalledExactlyOnceWith({ ...draft, startPage: corrected })
     expect(editor).not.toBeVisible()
 
-    const prototypePath = "/repositories/2001/prototypes/1"
-    await router.settle(() => router.navigate(prototypePath))
-    expect(
-      screen.getByTitle(`Refined onboarding, Build ${selectedBuild} preview`),
-    ).toBeInTheDocument()
+    await router.settle(() => router.navigate(path))
+    expect(screen.getByTitle(`${draft.name}, Build ${latest.number} preview`)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "View prototype" }))
     fireEvent.click(screen.getByRole("button", { name: "Edit details" }))
     expect(
       within(screen.getByRole("dialog")).getByRole("textbox", { name: "Description" }),
-    ).toHaveValue("Guide a new visitor through one useful task.")
-    await router.settle(() => router.navigate("/repositories/2001?q=Refined"))
-    const repositoryLink = screen.getByRole("link", { name: "Refined onboarding" })
-    expect(new URL((repositoryLink as HTMLAnchorElement).href).pathname).toBe(prototypePath)
+    ).toHaveValue(draft.description)
+    await router.settle(() => router.navigate(`${galleryPath}?q=Refined`))
+    expect(screen.getByRole("link", { name: draft.name })).toHaveAttribute("href", path)
   }, 15_000)
+})
 
-  it("keeps an invalid management draft without reloading and saves its corrected local route", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
-    const router = await renderHubFlow(server, "/repositories/2001/prototypes/manage", {
-      workspaceRoutes,
-    })
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: `Edit details: ${store.getPrototype("2001", "1").prototype.branchName}`,
+describe("Hub Build share links", () => {
+  function linkRecord(buildNumber: number, label: string): ProductShareLink {
+    return {
+      id: 1,
+      shareId: "test-stakeholder-share",
+      repositoryId: "2001",
+      prototypeId: "1",
+      buildNumber,
+      label,
+      createdBy: "octocat",
+      createdAt: "2026-11-20T12:00:00Z",
+      expiresAt: "2036-11-21T12:00:00Z",
+      revokedAt: null,
+    }
+  }
+
+  it("creates a link only to a successful Build with a preview and opens that exact Build without a workspace", async () => {
+    const data = previewRecords({ canManageSharing: true })
+    const { path, repository, prototype, historical, latest } = data
+    const sharePath = `${path}/share-links`
+    const create = vi.fn()
+    let link: ProductShareLink | undefined
+    prototype.builds.push(
+      { ...latest, number: 4, state: "running" },
+      { ...latest, number: 5, previewUrl: null },
+    )
+    const api = stubHubFetch(
+      ...authenticatedWorkspace([repository]),
+      http.get(`/api${sharePath}`, ({ request }) =>
+        Response.json({
+          resource: {
+            repository,
+            prototype,
+            selectedBuild:
+              new URL(request.url).searchParams.get("build") === "1" ? historical : latest,
+          },
+          links: link ? [link] : [],
+          enabled: true,
+          canManage: true,
+          expirationOptions: ["seven_days"],
+        }),
+      ),
+      http.post(`/api${sharePath}`, async ({ request }) => {
+        const input = (await request.json()) as { label: string; buildNumber: number }
+        create(input)
+        link = linkRecord(input.buildNumber, input.label)
+        return Response.json({ notice: "Share link created.", link }, { status: 201 })
       }),
+      http.get("/api/shared/test-stakeholder-share", () =>
+        Response.json({
+          state: "active",
+          label: link?.label,
+          prototypeName: prototype.name,
+          buildNumber: link?.buildNumber,
+          previewUrl: historical.previewUrl,
+          expiresAt: link?.expiresAt,
+          controlsIdentity: "shared-build-1",
+          controlsOrigin: "https://build-1.example.test",
+        }),
+      ),
     )
-    const editor = screen.getByRole("dialog", { name: "Edit prototype details" })
-    const name = within(editor).getByRole("textbox", { name: "Name" })
-    const startPage = within(editor).getByRole("textbox", { name: "Start page (optional)" })
-    fireEvent.change(name, { target: { value: "Preserved management draft" } })
-    fireEvent.change(startPage, { target: { value: "//external.example.test/welcome" } })
-    const failedReads = vi.fn(() =>
-      HttpResponse.json({ error: "Loaded resources are unavailable." }, { status: 503 }),
-    )
-    const mutations = vi.fn()
-    server.events.on("request:start", ({ request }) => {
-      if (request.method === "PATCH") mutations()
-    })
-    server.use(http.get(`${store.origin}/api/*`, failedReads))
-
-    await router.settle(() =>
-      fireEvent.click(within(editor).getByRole("button", { name: "Save details" })),
-    )
-
-    expect(await within(editor).findByRole("alert")).toHaveTextContent(/local route/i)
-    expect(name).toHaveValue("Preserved management draft")
-    expect(startPage).toHaveValue("//external.example.test/welcome")
-    expect(mutations).not.toHaveBeenCalled()
-    expect(failedReads).not.toHaveBeenCalled()
-    expect(store.getPrototype("2001", "1").prototype.name).toBe("Welcome")
-    server.resetHandlers()
-    fireEvent.change(startPage, { target: { value: "/welcome?step=2#heading" } })
-    await router.settle(() =>
-      fireEvent.click(within(editor).getByRole("button", { name: "Save details" })),
-    )
-    await waitFor(() => expect(editor).not.toBeVisible())
-    expect(
-      store.product.getManagement("2001").registered.find((item) => item.id === "1"),
-    ).toMatchObject({
-      name: "Preserved management draft",
-      startPage: "/welcome?step=2#heading",
-    })
-  })
-
-  it("opens a newly created fixed-Build share after sign-out without loading a private workspace", async () => {
-    const seed: Omit<typeof seedData, "builds"> & { builds: FixtureBuild[] } =
-      structuredClone(seedData)
-    const successful = seed.builds.find((build) => build.prototypeId === "1" && build.number === 3)
-    const running = seed.builds.find((build) => build.prototypeId === "2")
-    if (!successful || !running) throw new Error("The share-link flow needs Build fixtures.")
-    seed.builds.push(
-      { ...running, prototypeId: "1", number: 4 },
-      {
-        ...successful,
-        number: 5,
-        previewUrl: null,
-        desktopScreenshotUrl: null,
-        narrowScreenshotUrl: null,
-      },
-    )
-    const store = createMockStore({ origin: window.location.origin, seed })
-    const server = setupServer(...createMockHandlers(store))
-    const router = await renderHubFlow(
-      server,
-      "/repositories/2001/prototypes/1/share-links?build=3",
-      {
-        workspaceRoutes,
-        publicRoutes,
-      },
-    )
+    const router = await renderHubFlow(api, `${sharePath}?build=3`)
     fireEvent.click(screen.getByRole("button", { name: "Choose build, v3" }))
     const menu = screen.getByRole("menu", { name: "Choose build" })
     expect(within(menu).getAllByRole("menuitem")).toHaveLength(2)
-    const first = within(menu).getByRole("menuitem", { name: /v1/i })
-    expect(within(menu).getByRole("menuitem", { name: /v3/i })).toBeVisible()
-    const firstLink = within(first).getByRole("link")
-    expect(firstLink).toHaveAttribute("href", "/repositories/2001/prototypes/1/share-links?build=1")
-    await router.settle(() => fireEvent.click(firstLink))
-    expect(router.state.location.pathname).toBe("/repositories/2001/prototypes/1/share-links")
-    expect(new URLSearchParams(router.state.location.search).get("build")).toBe("1")
+    const first = within(within(menu).getByRole("menuitem", { name: /v1/i })).getByRole("link")
+    expect(first).toHaveAttribute("href", `${sharePath}?build=1`)
+    await router.settle(() => fireEvent.click(first))
     expect(screen.getByRole("heading", { name: "Build 1" })).toBeVisible()
-    fireEvent.change(await screen.findByRole("textbox", { name: "Label" }), {
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Label" }), {
       target: { value: "Stakeholder review" },
     })
     await router.settle(() =>
       fireEvent.click(screen.getByRole("button", { name: "Create share link" })),
     )
-    const heading = await screen.findByRole("heading", { name: "Stakeholder review" })
-    const row = heading.closest("li")
-    if (!row) throw new Error("The created link must be listed with its controls.")
-    const open = within(row).getByRole("link", { name: "Open" })
+    expect(create).toHaveBeenCalledExactlyOnceWith({
+      label: "Stakeholder review",
+      expiration: "seven_days",
+      buildNumber: 1,
+    })
+    const row = (await screen.findByRole("heading", { name: "Stakeholder review" })).closest("li")!
+    const open = within(row).getByRole<HTMLAnchorElement>("link", { name: "Open" })
     expect(open).not.toHaveAttribute("target", "_blank")
-    const sharedPath = new URL((open as HTMLAnchorElement).href).pathname
     const privateReads = vi.fn(() =>
-      HttpResponse.json({ error: "Private workspace must not be loaded." }, { status: 503 }),
+      Response.json({ error: "Sign in to continue." }, { status: 401 }),
     )
-    server.use(http.get(`${store.origin}/api/workspace`, privateReads))
-    fireEvent.click(screen.getByRole("button", { name: "Account menu for @octocat" }))
-    await router.settle(() => fireEvent.click(screen.getByRole("menuitem", { name: "Sign out" })))
-    await screen.findByRole("button", { name: "Sign in with GitHub" })
+    api.use(http.get("/api/workspace", privateReads), http.get("/api/auth/session", privateReads))
 
-    await router.settle(() => router.navigate(sharedPath))
+    await router.settle(() => router.navigate(new URL(open.href).pathname))
 
     expect(await screen.findByTitle("Welcome · Build 1")).toBeInTheDocument()
-    expect(store.session.read().viewer).toBeNull()
     expect(privateReads).not.toHaveBeenCalled()
     expect(screen.queryByRole("button", { name: /Account menu/ })).not.toBeInTheDocument()
   })
 
-  it("removes creation controls and retained URLs when deployment sharing is disabled", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    store.product.createShareLink("2001", "1", {
-      buildNumber: 3,
-      expiration: "seven_days",
-      label: "Partner review",
-    })
-    const response = store.product.getShareLinks("2001", "1", 3)
-    expect(response.links.length).toBeGreaterThan(0)
-    const server = setupServer(...createMockHandlers(store))
-    server.use(
-      http.get(`${store.origin}/api/repositories/2001/prototypes/1/share-links`, () =>
-        HttpResponse.json({
-          ...response,
+  it("hides creation controls and previously created URLs when deployment sharing is disabled", async () => {
+    const { path, repository, prototype, latest } = previewRecords({ canManageSharing: true })
+    const api = stubHubFetch(
+      ...authenticatedWorkspace([repository]),
+      http.get(`/api${path}/share-links`, () =>
+        Response.json({
+          resource: { repository, prototype, selectedBuild: latest },
+          links: [linkRecord(3, "Partner review")],
           enabled: false,
-          links: response.links.map((link) => ({ ...link, revokedAt: null })),
+          canManage: true,
+          expirationOptions: ["seven_days"],
         }),
       ),
     )
-
-    await renderHubFlow(server, "/repositories/2001/prototypes/1/share-links?build=3", {
-      workspaceRoutes,
-    })
+    await renderHubFlow(api, `${path}/share-links?build=3`)
 
     expect(screen.getByText(/public sharing is disabled for this Hub/i)).toBeVisible()
     expect(screen.queryByRole("textbox", { name: "Label" })).not.toBeInTheDocument()
@@ -452,284 +212,18 @@ describe("Hub expanded frontend flows", () => {
   })
 
   it.each([
-    { shareId: "demo-expired", heading: /link has expired/i, state: null },
-    { shareId: "demo-revoked", heading: /link was revoked/i, state: null },
-    { shareId: "demo-disabled", heading: /sharing is disabled/i, state: "disabled" as const },
-  ])(
-    "shows an unavailable public preview for $shareId while signed out",
-    async ({ shareId, heading, state }) => {
-      const store = createMockStore({ origin: window.location.origin })
-      store.session.select("signed-out")
-      const server = setupServer(...createMockHandlers(store))
-      const privateReads = vi.fn(() =>
-        HttpResponse.json({ error: "Private workspace must not be loaded." }, { status: 503 }),
-      )
-      server.use(http.get(`${store.origin}/api/workspace`, privateReads))
-      if (state) {
-        server.use(
-          http.get(`${store.origin}/api/shared/${shareId}`, () =>
-            HttpResponse.json({ state, label: "Shared preview" }),
-          ),
-        )
-      }
-
-      await renderHubFlow(server, `/shared/${shareId}`, { publicRoutes })
-
-      expect(await screen.findByRole("heading", { name: heading })).toBeVisible()
-      expect(document.querySelector("iframe")).not.toBeInTheDocument()
-      expect(privateReads).not.toHaveBeenCalled()
-    },
-  )
-
-  it("keeps inbox read state when opening its real seeded conversation and returning", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
-    const router = await renderHubFlow(server, "/notifications", { workspaceRoutes })
-    const notification = store.settings
-      .getWorkspace(settingsQuerySchema.parse({}))
-      .notifications.items.find((item) => !item.read)
-    if (!notification) throw new Error("The inbox needs an unread activity.")
-    const message = (
-      await within(screen.getByRole("region", { name: "Inbox" })).findAllByRole("link")
-    ).find(
-      (link) =>
-        new URL((link as HTMLAnchorElement).href).searchParams.get("notification") ===
-        String(notification.id),
-    )
-    if (!message) throw new Error("The unread activity must have its conversation link.")
-    const row = message.closest("li")
-    if (!row) throw new Error("An inbox item must have its own read-state control.")
-    await router.settle(() =>
-      fireEvent.click(
-        within(row).getByRole("button", { name: `Mark as read: ${notification.actor.login}` }),
+    { state: "expired", heading: /link has expired/i },
+    { state: "revoked", heading: /link was revoked/i },
+    { state: "disabled", heading: /sharing is disabled/i },
+  ])("shows an unavailable public preview for a $state share", async ({ heading, state }) => {
+    const api = stubHubFetch(
+      http.get(`/api/shared/test-${state}`, () =>
+        Response.json({ state, label: "Shared preview" }),
       ),
     )
-    expect(
-      within(row).getByRole("button", { name: `Mark as unread: ${notification.actor.login}` }),
-    ).toBeEnabled()
+    await renderHubFlow(api, `/shared/test-${state}`)
 
-    await router.settle(() => fireEvent.click(within(row).getByRole("link")))
-
-    const conversation = screen.getByRole("dialog", { name: "Conversation" })
-    expect(conversation).toBeVisible()
-    const target = new URL(notification.path, store.origin)
-    expect(router.state.location.pathname).toBe(target.pathname)
-    expect(new URLSearchParams(router.state.location.search).get("build")).toBe(
-      target.searchParams.get("build"),
-    )
-    expect(new URLSearchParams(router.state.location.search).get("comment")).toBe(
-      String(notification.target.threadId),
-    )
-    await router.go(-1)
-    const returned = (
-      await within(screen.getByRole("region", { name: "Inbox" })).findAllByRole("link")
-    ).find(
-      (link) =>
-        new URL((link as HTMLAnchorElement).href).searchParams.get("notification") ===
-        String(notification.id),
-    )
-    if (!returned) throw new Error("The returned inbox must contain the same activity.")
-    const returnedRow = returned.closest("li")
-    if (!returnedRow) throw new Error("The returned inbox item must retain its controls.")
-    expect(
-      within(returnedRow).getByRole("button", {
-        name: `Mark as unread: ${notification.actor.login}`,
-      }),
-    ).toBeEnabled()
-  })
-
-  it("loads the remaining inbox page without duplicate activity and resets pagination for unread filtering", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
-    const first = store.settings.getWorkspace(settingsQuerySchema.parse({}))
-    const second = store.settings.getWorkspace(settingsQuerySchema.parse({ page: 2 }))
-    const unread = store.settings.getWorkspace(settingsQuerySchema.parse({ unread: "true" }))
-    const router = await renderHubFlow(server, "/notifications", { workspaceRoutes })
-    const inbox = screen.getByRole("region", { name: "Inbox" })
-    expect(await within(inbox).findAllByRole("link")).toHaveLength(50)
-
-    await router.settle(() => fireEvent.click(screen.getByRole("button", { name: "Load more" })))
-
-    const links = within(inbox).getAllByRole<HTMLAnchorElement>("link")
-    const ids = links.map((link) => new URL(link.href).searchParams.get("notification"))
-    const expected = [...first.notifications.items, ...second.notifications.items]
-    expect(ids).toEqual(expected.map(({ id }) => String(id)))
-    expect(new Set(ids).size).toBe(ids.length)
-    expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument()
-
-    await router.settle(() =>
-      fireEvent.click(within(inbox).getByRole("button", { name: "Unread" })),
-    )
-
-    expect(
-      (
-        await within(
-          screen.getByRole("region", { name: "Inbox" }),
-        ).findAllByRole<HTMLAnchorElement>("link")
-      ).map((link) => new URL(link.href).searchParams.get("notification")),
-    ).toEqual(unread.notifications.items.map(({ id }) => String(id)))
-    expect(
-      within(screen.getByRole("region", { name: "Inbox" })).getByRole("button", { name: "Unread" }),
-    ).toHaveAttribute("aria-pressed", "true")
-  })
-
-  it("replaces inbox rows after successful route revalidation and restores them when data returns", async () => {
-    mockDiagnostics.initialize()
-    mockDiagnostics.clear()
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
-    const loadedCounts: Promise<number>[] = []
-    server.events.on("response:mocked", ({ request, response }) => {
-      if (new URL(request.url).pathname === "/api/settings/workspace") {
-        loadedCounts.push(
-          response
-            .clone()
-            .json()
-            .then(
-              (payload: unknown) =>
-                settingsWorkspaceResponseSchema.parse(payload).notifications.items.length,
-            ),
-        )
-      }
-    })
-    const router = await renderHubFlow(server, "/notifications", {
-      workspaceRoutes,
-      withTools: true,
-    })
-    try {
-      const inbox = screen.getByRole("region", { name: "Inbox" })
-      const first = await within(inbox).findAllByRole<HTMLAnchorElement>("link")
-      expect(first).toHaveLength(50)
-      const expectedIds = first.map((link) => new URL(link.href).searchParams.get("notification"))
-      expect((await Promise.all(loadedCounts)).at(-1)).toBe(50)
-
-      await router.settle(() =>
-        fireEvent.change(screen.getByRole("combobox", { name: "API scenario" }), {
-          target: { value: "empty" },
-        }),
-      )
-
-      expect((await Promise.all(loadedCounts)).at(-1)).toBe(0)
-      await waitFor(() =>
-        expect(
-          within(screen.getByRole("region", { name: "Inbox" })).queryAllByRole("link"),
-        ).toHaveLength(0),
-      )
-      expect(
-        await within(screen.getByRole("region", { name: "Inbox" })).findByText("No activity yet"),
-      ).toBeVisible()
-
-      await router.settle(() =>
-        fireEvent.change(screen.getByRole("combobox", { name: "API scenario" }), {
-          target: { value: "normal" },
-        }),
-      )
-
-      expect((await Promise.all(loadedCounts)).at(-1)).toBe(50)
-      await waitFor(() =>
-        expect(
-          within(screen.getByRole("region", { name: "Inbox" }))
-            .getAllByRole<HTMLAnchorElement>("link")
-            .map((link) => new URL(link.href).searchParams.get("notification")),
-        ).toEqual(expectedIds),
-      )
-    } finally {
-      router.close()
-      mockDiagnostics.selectScenario("normal")
-      mockDiagnostics.clear()
-    }
-  })
-
-  it("abandons a delayed Welcome dismissal on sign-out without saving hidden navigation", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
-    const mutationStarted = vi.fn()
-    server.events.on("request:start", ({ request }) => {
-      if (request.method === "POST" && new URL(request.url).pathname === "/api/settings/actions") {
-        mutationStarted()
-      }
-    })
-    const router = await renderHubFlow(server, "/welcome", { workspaceRoutes })
-    const hide = await screen.findByRole("button", { name: "Hide welcome" })
-    const nativeFetch = globalThis.fetch
-    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
-      const url = input instanceof Request ? input.url : input.toString()
-      if (
-        init?.method === "POST" &&
-        new URL(url, window.location.origin).pathname === "/api/settings/actions"
-      ) {
-        const headers = new Headers(init.headers)
-        headers.set("X-Replica-Mock-Scenario", "loading")
-        return nativeFetch(input, { ...init, headers })
-      }
-      return nativeFetch(input, init)
-    })
-    fireEvent.click(hide)
-    await waitFor(() => expect(mutationStarted).toHaveBeenCalledOnce())
-    expect(store.settings.getNavigationState().welcomeHidden).toBe(false)
-    const signOut = new FormData()
-    signOut.set("intent", "sign-out")
-    await router.settle(() =>
-      router.navigate("/session", {
-        formMethod: "post",
-        formData: signOut,
-      }),
-    )
-    await screen.findByRole("button", { name: "Sign in with GitHub" })
-    await new Promise((resolve) => window.setTimeout(resolve, 1600))
-    await router.settle(() =>
-      fireEvent.click(screen.getByRole("button", { name: "Sign in with GitHub" })),
-    )
-    await screen.findByRole("button", { name: "Account menu for @octocat" })
-
-    expect(store.settings.getNavigationState().welcomeHidden).toBe(false)
-  }, 15_000)
-
-  it.each(["/repositories/2001/learnings", "/settings/sessions"])(
-    "signs out through the retained settings control at %s",
-    async (path) => {
-      const store = createMockStore({ origin: window.location.origin })
-      const server = setupServer(...createMockHandlers(store))
-      const router = await renderHubFlow(server, path, { workspaceRoutes, publicRoutes })
-      if (path === "/settings/sessions") {
-        fireEvent.click(await screen.findByRole("button", { name: "Sign out" }))
-      } else {
-        fireEvent.click(await screen.findByRole("button", { name: "Account menu for @octocat" }))
-        fireEvent.click(screen.getByRole("menuitem", { name: "Sign out" }))
-      }
-      await router.settle()
-
-      expect(await screen.findByRole("button", { name: "Sign in with GitHub" })).toBeInTheDocument()
-      expect(router.state.location.pathname).toBe("/sign-in")
-      expect(store.session.read().viewer).toBeNull()
-    },
-  )
-
-  it("retains the public session-ended result without a private workspace or changes to share links", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    store.session.select("admin")
-    const server = setupServer(...createMockHandlers(store))
-    const privateReads = vi.fn(() =>
-      HttpResponse.json({ error: "Private workspace must not be loaded." }, { status: 503 }),
-    )
-    server.use(http.get(`${store.origin}/api/workspace`, privateReads))
-    const router = await renderHubFlow(server, "/settings/sessions", { publicRoutes })
-    fireEvent.click(
-      await screen.findByRole("checkbox", {
-        name: "I understand this will end everyone's sessions, including my own.",
-      }),
-    )
-    await router.settle(() =>
-      fireEvent.click(screen.getByRole("button", { name: "End all sessions" })),
-    )
-
-    expect(
-      await screen.findByRole("heading", { name: "All existing Hub sessions ended" }),
-    ).toBeInTheDocument()
-    expect(router.state.location.pathname).toBe("/settings/sessions")
-    expect(store.session.read().viewer).toBeNull()
-    expect(privateReads).not.toHaveBeenCalled()
-    expect(store.product.getPublicShare("demo-active").state).toBe("active")
-    expect(screen.queryByRole("button", { name: "End all sessions" })).not.toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: heading })).toBeVisible()
+    expect(document.querySelector("iframe")).not.toBeInTheDocument()
   })
 })

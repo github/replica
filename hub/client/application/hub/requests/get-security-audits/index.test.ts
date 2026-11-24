@@ -1,23 +1,19 @@
-import { http, HttpResponse } from "msw"
-import { setupServer } from "msw/node"
-import { describe, expect, it, onTestFinished, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 
+import { http, stubHubFetch } from "@/test/stub-hub-fetch"
 import { getSecurityAudits } from "."
 
 describe("getSecurityAudits()", () => {
   it("requests exactly 50 records and preserves an opaque cursor as one encoded parameter", async () => {
-    vi.stubEnv("MODE", "development")
     const origin = "https://hub.example.test"
     const cursor = "opaque+/cursor==&unchanged"
     let receivedUrl: URL | undefined
-    const server = setupServer(
+    stubHubFetch(
       http.get(`${origin}/api/security-audits`, ({ request }) => {
         receivedUrl = new URL(request.url)
-        return HttpResponse.json({ records: [], nextCursor: null })
+        return Response.json({ records: [], nextCursor: null })
       }),
     )
-    server.listen({ onUnhandledRequest: "error" })
-    onTestFinished(() => server.close())
 
     await getSecurityAudits(new Request(`${origin}/settings/audit?scope=hub`), cursor)
 
@@ -27,17 +23,14 @@ describe("getSecurityAudits()", () => {
   })
 
   it("omits before on the first page", async () => {
-    vi.stubEnv("MODE", "development")
     const origin = "https://hub.example.test"
     let receivedUrl: URL | undefined
-    const server = setupServer(
+    stubHubFetch(
       http.get(`${origin}/api/security-audits`, ({ request }) => {
         receivedUrl = new URL(request.url)
-        return HttpResponse.json({ records: [], nextCursor: null })
+        return Response.json({ records: [], nextCursor: null })
       }),
     )
-    server.listen({ onUnhandledRequest: "error" })
-    onTestFinished(() => server.close())
 
     await getSecurityAudits(new Request(`${origin}/settings/audit?scope=hub`))
 

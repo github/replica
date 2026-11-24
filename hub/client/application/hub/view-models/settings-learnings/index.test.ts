@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import type { WorkspaceResponse } from "@application/hub/contracts/types"
 import type { DecisionModelAvailability } from "@application/hub/decision-model-contracts/types"
 import type { LearningsResponse } from "@application/hub/learnings-contracts/types"
-import { createMockStore } from "@application/hub/mocks/create-mock-store"
+import { emptyLearnings } from "@application/hub/routes/fixtures/empty-learnings"
 
 import { settingsLearnings } from "."
 
@@ -199,15 +199,9 @@ function available(): DecisionModelAvailability {
 }
 
 function mockState(administerHub: boolean) {
-  const store = createMockStore({ origin: "http://localhost" })
-  const learnings = store.learnings.get("2001")
-  if (learnings.accessDenied) throw new Error("The owner must receive repository learnings.")
   return {
-    workspace: store.getWorkspace(),
-    learnings: {
-      ...learnings,
-      capabilities: { administerHub, administerRepository: true as const },
-    },
+    workspace,
+    learnings: emptyLearnings(administerHub),
   }
 }
 
@@ -230,7 +224,7 @@ describe("settingsLearnings()", () => {
       runs: [],
     }
 
-    const result = settingsLearnings(workspace, state, null, new URLSearchParams())
+    const result = settingsLearnings(workspace, state, null)
 
     expect(result.accessDenied).toBe(false)
     if (result.accessDenied) throw new Error("Expected repository learning access.")
@@ -247,7 +241,7 @@ describe("settingsLearnings()", () => {
       capabilities: { administerHub: true, administerRepository: false },
     }
 
-    const result = settingsLearnings(workspace, state, null, new URLSearchParams())
+    const result = settingsLearnings(workspace, state, null)
 
     expect(result.accessDenied).toBe(true)
     expect(result.administrationLinks).not.toEqual([])
@@ -261,7 +255,6 @@ describe("settingsLearnings()", () => {
       repositoryAdministrator.workspace,
       repositoryAdministrator.learnings,
       available(),
-      new URLSearchParams(),
     )
 
     expect(repositoryData.accessDenied).toBe(false)
@@ -269,12 +262,9 @@ describe("settingsLearnings()", () => {
     expect(repositoryData.decisionModel.state).toBe("repository-learning-only")
 
     const hubAdministrator = mockState(true)
-    const hubData = settingsLearnings(
-      hubAdministrator.workspace,
-      hubAdministrator.learnings,
-      { state: "not-configured" },
-      new URLSearchParams(),
-    )
+    const hubData = settingsLearnings(hubAdministrator.workspace, hubAdministrator.learnings, {
+      state: "not-configured",
+    })
     expect(hubData.accessDenied).toBe(false)
     if (hubData.accessDenied) throw new Error("The Hub administrator must receive Learnings.")
     expect(hubData.decisionModel.state).toBe("not-configured")
@@ -282,12 +272,7 @@ describe("settingsLearnings()", () => {
 
   it("maps authoritative evidence, privacy, and deletion state", () => {
     const administrator = mockState(true)
-    const data = settingsLearnings(
-      administrator.workspace,
-      administrator.learnings,
-      available(),
-      new URLSearchParams(),
-    )
+    const data = settingsLearnings(administrator.workspace, administrator.learnings, available())
 
     expect(data.accessDenied).toBe(false)
     if (data.accessDenied || data.decisionModel.state !== "available") {

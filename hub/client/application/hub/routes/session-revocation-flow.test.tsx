@@ -1,7 +1,5 @@
 import type { RouteConfigEntry } from "@react-router/dev/routes"
 import { act, fireEvent, render, screen } from "@testing-library/react"
-import { http, HttpResponse } from "msw"
-import { setupServer } from "msw/node"
 import type { ComponentType } from "react"
 import {
   createBrowserRouter,
@@ -13,6 +11,7 @@ import {
 } from "react-router"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
+import { http, stubHubFetch } from "@/test/stub-hub-fetch"
 import { navigateToExternalUrl } from "@application/hub/navigate-to-external-url"
 
 vi.mock("@application/hub/navigate-to-external-url", () => ({
@@ -83,14 +82,11 @@ function status() {
   }
 }
 
-async function renderApplication(path: string, handlers: Parameters<typeof setupServer>) {
-  vi.stubEnv("MODE", "development")
-  vi.stubEnv("DEV", true)
-  const requests: string[] = []
-  const server = setupServer(
+async function renderApplication(path: string, handlers: Parameters<typeof stubHubFetch>) {
+  const api = stubHubFetch(
     ...handlers,
     http.get(`${window.location.origin}/api/workspace`, () =>
-      HttpResponse.json({
+      Response.json({
         viewer: {
           id: session().userId,
           login: session().login,
@@ -108,12 +104,12 @@ async function renderApplication(path: string, handlers: Parameters<typeof setup
       }),
     ),
   )
-  server.events.on("request:start", ({ request }) => {
-    const url = new URL(request.url)
-    requests.push(`${request.method} ${url.pathname}${url.search}`)
-  })
-  server.listen({ onUnhandledRequest: "error" })
-  onTestFinished(() => server.close())
+  function requests() {
+    return api.requests.map((request) => {
+      const url = new URL(request.url)
+      return `${request.method} ${url.pathname}${url.search}`
+    })
+  }
   const [{ default: routes }, { HubThemeProvider }] = await Promise.all([
     import("../routes"),
     import("@hooks/use-hub-theme"),
@@ -136,7 +132,7 @@ async function renderApplication(path: string, handlers: Parameters<typeof setup
 }
 
 function authenticatedSession() {
-  return http.get(`${window.location.origin}/api/auth/session`, () => HttpResponse.json(session()))
+  return http.get(`${window.location.origin}/api/auth/session`, () => Response.json(session()))
 }
 
 function submitWith(button: HTMLButtonElement) {
@@ -155,29 +151,25 @@ describe("real session revocation frontend integration", () => {
   it("shows current authentication counts before provider verification", async () => {
     const { requests } = await renderApplication("/settings/sessions", [
       authenticatedSession(),
-      http.get(`${window.location.origin}/api/session-revocation`, () =>
-        HttpResponse.json(status()),
-      ),
+      http.get(`${window.location.origin}/api/session-revocation`, () => Response.json(status())),
     ])
 
     expect(await screen.findByText(/3 active browser sessions/)).toBeVisible()
     expect(screen.getByText(/2 in-flight sign-ins/)).toBeVisible()
     expect(screen.getByText(/1 pending sensitive authorization/)).toBeVisible()
-    expect(requests.some((request) => request.includes("/api/settings"))).toBe(false)
+    expect(requests().some((request) => request.includes("/api/settings"))).toBe(false)
   })
 
   it("starts provider-neutral authorization only after explicit confirmation", async () => {
     let submittedBody: unknown
     await renderApplication("/settings/sessions", [
       authenticatedSession(),
-      http.get(`${window.location.origin}/api/session-revocation`, () =>
-        HttpResponse.json(status()),
-      ),
+      http.get(`${window.location.origin}/api/session-revocation`, () => Response.json(status())),
       http.post(
         `${window.location.origin}/api/session-revocation/authorizations/start`,
         async ({ request }) => {
           submittedBody = await request.json()
-          return HttpResponse.json({
+          return Response.json({
             authorizationId,
             authorizationUrl: "https://github.com/login/oauth/authorize?state=opaque",
             expiresAt: "2026-11-12T17:00:00.000Z",
@@ -200,11 +192,9 @@ describe("real session revocation frontend integration", () => {
   it("explains how to recover when authorization start is denied", async () => {
     await renderApplication("/settings/sessions", [
       authenticatedSession(),
-      http.get(`${window.location.origin}/api/session-revocation`, () =>
-        HttpResponse.json(status()),
-      ),
+      http.get(`${window.location.origin}/api/session-revocation`, () => Response.json(status())),
       http.post(`${window.location.origin}/api/session-revocation/authorizations/start`, () =>
-        HttpResponse.json({ error: "not_authorized" }, { status: 403 }),
+        Response.json({ error: "not_authorized" }, { status: 403 }),
       ),
     ])
 
@@ -218,9 +208,7 @@ describe("real session revocation frontend integration", () => {
     const starts = vi.fn()
     await renderApplication("/settings/sessions", [
       authenticatedSession(),
-      http.get(`${window.location.origin}/api/session-revocation`, () =>
-        HttpResponse.json(status()),
-      ),
+      http.get(`${window.location.origin}/api/session-revocation`, () => Response.json(status())),
       http.post(`${window.location.origin}/api/session-revocation/authorizations/start`, starts),
     ])
 
@@ -236,9 +224,7 @@ describe("real session revocation frontend integration", () => {
     const starts = vi.fn()
     await renderApplication("/settings/sessions", [
       authenticatedSession(),
-      http.get(`${window.location.origin}/api/session-revocation`, () =>
-        HttpResponse.json(status()),
-      ),
+      http.get(`${window.location.origin}/api/session-revocation`, () => Response.json(status())),
       http.post(`${window.location.origin}/api/session-revocation/authorizations/start`, starts),
     ])
     const signOutForm = document.querySelector<HTMLFormElement>(
@@ -256,13 +242,11 @@ describe("real session revocation frontend integration", () => {
       `/settings/sessions/confirm?authorizationId=${authorizationId}`,
       [
         authenticatedSession(),
-        http.get(`${window.location.origin}/api/session-revocation`, () =>
-          HttpResponse.json(status()),
-        ),
+        http.get(`${window.location.origin}/api/session-revocation`, () => Response.json(status())),
         http.get(
           `${window.location.origin}/api/session-revocation/authorizations/${authorizationId}`,
           () =>
-            HttpResponse.json({
+            Response.json({
               authorization: {
                 expiresAt: "2026-11-12T17:00:00.000Z",
                 operation: "END_ALL_HUB_SESSIONS",
@@ -274,7 +258,7 @@ describe("real session revocation frontend integration", () => {
           `${window.location.origin}/api/session-revocation/authorizations/continue`,
           () => {
             continued = true
-            return HttpResponse.json({
+            return Response.json({
               result: {
                 cancelledAuthorizationCount: 1,
                 endedSessionCount: 3,
@@ -296,7 +280,7 @@ describe("real session revocation frontend integration", () => {
       screen.queryByRole("button", { name: "Account menu for @octocat" }),
     ).not.toBeInTheDocument()
     expect(screen.queryByRole("link", { name: "Prototypes" })).not.toBeInTheDocument()
-    expect(requests.filter((request) => request === "GET /api/auth/session")).toHaveLength(1)
+    expect(requests().filter((request) => request === "GET /api/auth/session")).toHaveLength(1)
   })
 
   it("cancels verified authorization without continuing revocation", async () => {
@@ -304,13 +288,11 @@ describe("real session revocation frontend integration", () => {
     const continuations = vi.fn()
     await renderApplication(`/settings/sessions/confirm?authorizationId=${authorizationId}`, [
       authenticatedSession(),
-      http.get(`${window.location.origin}/api/session-revocation`, () =>
-        HttpResponse.json(status()),
-      ),
+      http.get(`${window.location.origin}/api/session-revocation`, () => Response.json(status())),
       http.get(
         `${window.location.origin}/api/session-revocation/authorizations/${authorizationId}`,
         () =>
-          HttpResponse.json({
+          Response.json({
             authorization: {
               expiresAt: "2026-11-12T17:00:00.000Z",
               operation: "END_ALL_HUB_SESSIONS",
@@ -322,7 +304,7 @@ describe("real session revocation frontend integration", () => {
         `${window.location.origin}/api/session-revocation/authorizations/cancel`,
         async ({ request }) => {
           cancellations.push(await request.json())
-          return new HttpResponse(null, { status: 204 })
+          return new Response(null, { status: 204 })
         },
       ),
       http.post(
@@ -343,13 +325,11 @@ describe("real session revocation frontend integration", () => {
   it("explains how to recover when verified authorization expires", async () => {
     await renderApplication(`/settings/sessions/confirm?authorizationId=${authorizationId}`, [
       authenticatedSession(),
-      http.get(`${window.location.origin}/api/session-revocation`, () =>
-        HttpResponse.json(status()),
-      ),
+      http.get(`${window.location.origin}/api/session-revocation`, () => Response.json(status())),
       http.get(
         `${window.location.origin}/api/session-revocation/authorizations/${authorizationId}`,
         () =>
-          HttpResponse.json({
+          Response.json({
             authorization: {
               expiresAt: "2026-11-12T17:00:00.000Z",
               operation: "END_ALL_HUB_SESSIONS",
@@ -358,7 +338,7 @@ describe("real session revocation frontend integration", () => {
           }),
       ),
       http.post(`${window.location.origin}/api/session-revocation/authorizations/continue`, () =>
-        HttpResponse.json({ error: "expired" }, { status: 409 }),
+        Response.json({ error: "expired" }, { status: 409 }),
       ),
     ])
 
@@ -373,13 +353,11 @@ describe("real session revocation frontend integration", () => {
     const continuations = vi.fn()
     await renderApplication(`/settings/sessions/confirm?authorizationId=${authorizationId}`, [
       authenticatedSession(),
-      http.get(`${window.location.origin}/api/session-revocation`, () =>
-        HttpResponse.json(status()),
-      ),
+      http.get(`${window.location.origin}/api/session-revocation`, () => Response.json(status())),
       http.get(
         `${window.location.origin}/api/session-revocation/authorizations/${authorizationId}`,
         () =>
-          HttpResponse.json({
+          Response.json({
             authorization: {
               expiresAt: "2026-11-12T17:00:00.000Z",
               operation: "END_ALL_HUB_SESSIONS",

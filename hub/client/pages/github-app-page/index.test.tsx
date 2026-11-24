@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest"
 import { hubAdministrationData } from "@/storybook/fixtures/hub-administration"
 
 import { GithubAppPage } from "."
-import { ResetWithoutBootstrap, WebhookStart } from "./stories"
+import stories from "./stories"
 import type { GithubAppPageData } from "./types"
 
 const data = {
@@ -34,28 +34,18 @@ const data = {
 } satisfies GithubAppPageData
 
 describe("GithubAppPage()", () => {
-  it("shows the idle webhook confirmation without starting a rotation", () => {
+  it("keeps the legacy design reference free of credential and configuration forms", () => {
     render(
       <ThemeProvider>
-        <GithubAppPage data={WebhookStart.args!.data!} />
+        <GithubAppPage data={stories.args.data} />
       </ThemeProvider>,
     )
-    const button = screen.getByRole("button", { name: "Start webhook rotation" })
-    expect(button).not.toBeDisabled()
-    expect(button.closest("form")?.querySelector('[name="operation"]')).toHaveValue("start")
-    expect(screen.getByRole("checkbox")).not.toBeChecked()
+    expect(screen.getByText(/Design reference only/)).toBeVisible()
+    expect(screen.queryByRole("button", { name: "Start webhook rotation" })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Delete local App configuration" }),
+    ).not.toBeInTheDocument()
     expect(screen.queryByLabelText(/New client secret/)).not.toBeInTheDocument()
-  })
-
-  it("shows why resetting is blocked without a deployment bootstrap secret", () => {
-    render(
-      <ThemeProvider>
-        <GithubAppPage data={ResetWithoutBootstrap.args!.data!} />
-      </ThemeProvider>,
-    )
-    expect(screen.getByText(/bootstrap secret is not configured/)).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Delete local App configuration" })).toBeDisabled()
-    expect(screen.getByRole("checkbox")).toBeDisabled()
   })
 
   it("submits empty write-only credentials with deliberate confirmation and a version", () => {
