@@ -4,6 +4,7 @@
   // Preview hosts serve this script directly, so it cannot import Vite modules.
   const HUB_ORIGIN = "__REPLICA_HUB_ORIGIN__"
   const REVIEW_ENABLED = "__REPLICA_REVIEW_ENABLED__" !== "false"
+  const previewMount = document.currentScript?.getAttribute("data-replica-preview-mount")
   const PROTOCOL_VERSION = 1
   const ANCHOR_SCHEMA_VERSION = 1
   const REQUEST_ID_MAXIMUM_BYTES = 128
@@ -1543,6 +1544,10 @@
     const message = event.data
     if (message.type === "replica:bridge:request-navigation-ready") {
       navigationId = message.requestId
+      if (typeof previewMount === "string") {
+        // Older parents ignore this message and still accept the unchanged ready envelope.
+        post("replica:bridge:preview-mount", message.requestId, { mount: previewMount || null })
+      }
       post("replica:bridge:ready", message.requestId, { route: currentRoute() })
       return
     }

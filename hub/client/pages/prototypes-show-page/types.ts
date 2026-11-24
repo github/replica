@@ -14,7 +14,7 @@ export interface PrototypesShowPageData extends PrototypeWorkspaceData {
   copyPrivatePreviewLinkLabel: string
   copiedPrivatePreviewLinkLabel: string
   openPrivatePreviewInNewTabLabel: string
-  privateReviewLink?: string
+  privateReviewLink?: string | null
   desktopScreenshotUrl?: string
   narrowScreenshotUrl?: string
   mentionCandidatesPath?: string

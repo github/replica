@@ -26,6 +26,20 @@ export const PREVIEW_BRIDGE_MESSAGE_SCHEMA = z.discriminatedUnion("type", [
   z
     .object({
       ...MESSAGE_FIELDS,
+      type: z.literal("replica:bridge:preview-mount"),
+      payload: z
+        .object({
+          mount: z
+            .string()
+            .regex(/^\/previews\/github\/[1-9]\d{0,18}\/[1-9]\d{0,18}\/$/)
+            .nullable(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      ...MESSAGE_FIELDS,
       type: z.literal("replica:bridge:conversation-dismiss-requested"),
       payload: z.object({}).strict(),
     })

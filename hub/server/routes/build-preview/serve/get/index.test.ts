@@ -27,7 +27,11 @@ interface RouteResponse {
   body: Buffer
 }
 
-const BRIDGE_PATHS = ["/__replica/bridge/v1.js", "/__replica/bridge/v2.js"]
+const BRIDGE_PATHS = [
+  "/__replica/bridge/v1.js",
+  "/__replica/bridge/v2.js",
+  "/__replica/bridge/v3.js",
+]
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -254,7 +258,7 @@ describe("get()", () => {
       expect(findArtifact).toHaveBeenNthCalledWith(1, buildId, "dist/checkout/cart")
       expect(findArtifact).toHaveBeenNthCalledWith(2, buildId, "dist/index.html")
       expect(response.body.toString()).toContain(
-        '<script src="/__replica/bridge/v2.js"></script></head>',
+        '<script src="/__replica/bridge/v3.js" data-replica-preview-mount=""></script></head>',
       )
       expect(response.body.toString()).not.toContain("/__replica/bridge/v1.js")
       expect(response.headers["content-type"]).toBe("text/html; charset=utf-8")

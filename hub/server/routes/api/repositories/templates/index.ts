@@ -37,6 +37,7 @@ const accessQuery = z.discriminatedUnion("target", [
   z.strictObject({
     target: z.literal("preview"),
     route: z.string().max(2048),
+    route_kind: z.literal("logical").optional(),
     preview_origin: z.url(),
   }),
   z.strictObject({
@@ -66,6 +67,7 @@ function presentTemplate(
   build: Build | null,
   preview: BuildPreviewRouteDependencies | undefined,
   initialRoute: string,
+  logicalRoute = false,
 ) {
   const previewable = preview && build?.artifacts.some(({ path }) => path === "dist/index.html")
   function screenshot(theme: "light" | "dark") {
@@ -86,6 +88,7 @@ function presentTemplate(
         ? accessUrl(preview, repositoryId, build.id, {
             target: "preview",
             route: initialRoute,
+            ...(logicalRoute ? { route_kind: "logical" } : {}),
             preview_origin: createBuildPreviewOrigin(build.id, preview.previewBaseOrigin),
           })
         : null,
@@ -179,7 +182,14 @@ export function templateRoutes(
         const entry = templates.find(({ id: templateId }) => templateId === id.data)
         if (!entry) return null
         const route = initialRoute ?? entry.path
-        const template = presentTemplate(entry, repositoryId, build, preview, route)
+        const template = presentTemplate(
+          entry,
+          repositoryId,
+          build,
+          preview,
+          route,
+          initialRoute !== null && request.query.return_path_kind === "logical",
+        )
         return {
           ...context,
           template,
@@ -223,7 +233,7 @@ export function templateRoutes(
         if (query.data.target === "preview") {
           const route = templateReturnPath(query.data.route)
           return route && query.data.preview_origin === origin
-            ? { buildId: buildId.data, origin, route }
+            ? { buildId: buildId.data, origin, route, routeKind: query.data.route_kind }
             : null
         }
         const { template, theme } = query.data
@@ -250,6 +260,7 @@ export function templateRoutes(
           ),
         )
         if (result.route) destination.searchParams.set("route", result.route)
+        if (result.routeKind) destination.searchParams.set("route_kind", result.routeKind)
         response.setHeader("Referrer-Policy", "no-referrer")
         response.redirect(302, destination.toString())
       },

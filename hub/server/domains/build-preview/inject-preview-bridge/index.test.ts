@@ -8,6 +8,6 @@ describe("injectPreviewBridge()", () => {
 
     const output = new TextDecoder().decode(injectPreviewBridge(new TextEncoder().encode(source)))
 
-    expect(output).toBe(`${source}<script src="/__replica/bridge/v2.js"></script>`)
+    expect(output).toBe(`${source}<script src="/__replica/bridge/v3.js"></script>`)
   })
 })

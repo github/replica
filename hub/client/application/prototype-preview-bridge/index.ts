@@ -730,7 +730,7 @@ function receiveCanvasMessage(event: MessageEvent<unknown>) {
   const data = event.data
   if (
     document.querySelector(
-      'script[src="/__replica/bridge/v1.js"], script[src="/__replica/bridge/v2.js"]',
+      'script[src="/__replica/bridge/v1.js"], script[src="/__replica/bridge/v2.js"], script[src="/__replica/bridge/v3.js"]',
     ) ||
     event.source !== window.parent ||
     event.origin !== parentOrigin ||

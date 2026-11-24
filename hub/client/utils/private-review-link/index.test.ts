@@ -20,7 +20,7 @@ describe("privateReviewLink()", () => {
     base.hash = "hub-ui"
 
     const link = new URL(
-      privateReviewLink({ baseUrl: base.href, buildNumber: 7, route, threadId: 42 }),
+      privateReviewLink({ baseUrl: base.href, buildNumber: 7, route, threadId: 42 })!,
     )
 
     expect(link.origin + link.pathname).toBe(BASE_URL)
@@ -35,22 +35,26 @@ describe("privateReviewLink()", () => {
 
   it("keeps an unpinned link on the default Build", () => {
     const link = new URL(
-      privateReviewLink({ baseUrl: `${BASE_URL}?build=3`, route: "/#/settings" }),
+      privateReviewLink({ baseUrl: `${BASE_URL}?build=3`, route: "/#/settings" })!,
     )
 
     expect(Object.fromEntries(link.searchParams)).toEqual({ return_path: "/#/settings" })
   })
 
-  it.each([
-    "https://elsewhere.example.test/review",
-    "//elsewhere.example.test/review",
-    "/\\elsewhere.example.test/review",
-    "review",
-  ])("omits non-local return path %s without losing the pinned thread", (route) => {
-    const link = new URL(
-      privateReviewLink({ baseUrl: BASE_URL, buildNumber: 7, route, threadId: 42 }),
-    )
-
+  it("keeps the pinned thread when no return path was supplied", () => {
+    const link = new URL(privateReviewLink({ baseUrl: BASE_URL, buildNumber: 7, threadId: 42 })!)
     expect(Object.fromEntries(link.searchParams)).toEqual({ build: "7", comment: "42" })
+  })
+
+  it.each([
+    ["absolute URL", "https://elsewhere.example.test/review"],
+    ["network-path URL", "//elsewhere.example.test/review"],
+    ["backslash in path", "/\\elsewhere.example.test/review"],
+    ["missing leading slash", "review"],
+    ["empty string", ""],
+    ["over the byte limit", `/review?q=${"a".repeat(2_048)}`],
+    ["malformed percent encoding", "/review/50%"],
+  ])("returns no link for an explicit invalid location: %s", (_reason, route) => {
+    expect(privateReviewLink({ baseUrl: BASE_URL, buildNumber: 7, route, threadId: 42 })).toBeNull()
   })
 })

@@ -62,6 +62,7 @@ export function productBrowseData(
       ? `There is no saved preview for the ${repository.defaultBranch} branch yet.`
       : "Return to the template catalog and choose another template.",
     initialRoute: response.initialRoute,
+    templateRoute: template.route ?? undefined,
     selectedBuild: template.previewUrl
       ? {
           number: template.buildNumber ?? 1,

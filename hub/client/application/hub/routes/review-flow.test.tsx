@@ -181,6 +181,7 @@ describe("Hub prototype review flow", () => {
       route: `${pathname}${search}${hash}`,
       threadId: thread.id,
     })
+    if (!link) throw new Error("Expected a restorable review link")
 
     const { viewer } = store.session.select("reader")
     expect(viewer?.id).not.toBe(owner.id)

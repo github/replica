@@ -1,14 +1,16 @@
-import { REVIEW_ROUTE_SCHEMA } from "@utils/review-anchor/schemas"
+import { readPreviewReturnPath } from "@utils/read-preview-return-path"
 
 export function privateReviewLink({
   baseUrl,
   buildNumber,
   route,
+  logicalRoute,
   threadId,
 }: {
   baseUrl: string
   buildNumber?: number
   route?: string
+  logicalRoute?: boolean
   threadId?: number
 }) {
   const url = new URL(baseUrl)
@@ -16,22 +18,11 @@ export function privateReviewLink({
   url.hash = ""
   if (buildNumber !== undefined) url.searchParams.set("build", String(buildNumber))
   if (threadId !== undefined) url.searchParams.set("comment", String(threadId))
-  if (route && new TextEncoder().encode(route).length <= 2048) {
-    const destination = URL.parse(route, url)
-    if (
-      route.startsWith("/") &&
-      !route.startsWith("//") &&
-      !/[\p{Cc}\p{Cs}\p{Z}\\]/u.test(route) &&
-      destination?.origin === url.origin &&
-      `${destination.pathname}${destination.search}${destination.hash}` === route &&
-      REVIEW_ROUTE_SCHEMA.safeParse({
-        pathname: destination.pathname,
-        search: destination.search,
-        hash: destination.hash,
-      }).success
-    ) {
-      url.searchParams.set("return_path", route)
-    }
+  if (route !== undefined) {
+    const destination = readPreviewReturnPath(route)
+    if (!destination) return null
+    url.searchParams.set("return_path", destination)
+    if (logicalRoute) url.searchParams.set("return_path_kind", "logical")
   }
   return url.href
 }

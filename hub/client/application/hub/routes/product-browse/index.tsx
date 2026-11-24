@@ -7,6 +7,7 @@ import { usePreviewBridge } from "@hooks/use-preview-bridge"
 import { usePrototypeViewerUrl } from "@hooks/use-prototype-viewer-url"
 import { ReplicaBrowsePage } from "@pages/replica-browse-page"
 import type { AnchorReference } from "@utils/review-anchor/types"
+import { readPreviewReturnPath } from "@utils/read-preview-return-path"
 import type { WorkspaceResponse } from "@application/hub/contracts/types"
 import {
   productTemplateIdSchema,
@@ -27,9 +28,16 @@ export function clientLoader({ request, params }: Pick<LoaderFunctionArgs, "requ
   if (!templateId.success) throw new Response("Template not found.", { status: 404 })
   const url = new URL(`/api/repositories/${repositoryId}/templates/${templateId.data}`, request.url)
   if (!(import.meta.env.DEV && import.meta.env.MODE === "mock")) {
-    const routes = new URL(request.url).searchParams.getAll("return_path")
-    if (routes.length > 1) throw new Response("Template route not found.", { status: 404 })
-    if (routes[0] !== undefined) url.searchParams.set("return_path", routes[0])
+    const search = new URL(request.url).searchParams
+    const routes = search.getAll("return_path")
+    const route = routes.length === 1 ? readPreviewReturnPath(routes[0]) : null
+    if (routes.length && !route) throw new Response("Template route not found.", { status: 404 })
+    if (route) {
+      url.searchParams.set("return_path", route)
+      if (search.get("return_path_kind") === "logical") {
+        url.searchParams.set("return_path_kind", "logical")
+      }
+    }
   }
   return requestProductJson(request, url.toString(), productTemplateResponseSchema)
 }
@@ -75,6 +83,7 @@ function TemplateScreen({ loaderData }: { loaderData: ProductTemplateResponse })
   const viewer = usePrototypeViewerUrl({
     selectedBuild: pageData.selectedBuild,
     route: bridge.route,
+    previewMount: bridge.previewMount,
     initiallyMinimized: pageData.minimizedPreview,
     buildSelection: "ignore",
     initialRoute: pageData.initialRoute,
@@ -86,6 +95,7 @@ function TemplateScreen({ loaderData }: { loaderData: ProductTemplateResponse })
       iframeRef={iframeRef}
       previewTheme={resolvedColorMode}
       route={bridge.route}
+      previewMount={bridge.previewMount}
       previewReady={real ? bridge.ready : undefined}
       onFrameLoad={bridge.handleFrameLoad}
       initialMinimized={pageData.minimizedPreview}

@@ -19,11 +19,13 @@ export interface PreviewBridgeOptions {
   onSelectionStart?: () => void
   onToggleSidebar?: () => void
   selectionBlocked?: boolean
+  sidebarToggleBlocked?: boolean
 }
 
 export interface PreviewBridgeState {
   ready: boolean
   route: ReviewRoute | null
+  previewMount?: string | null
   selecting: boolean
   selectionMode: ReviewSelectionMode | null
   selectedAnchor: ReviewAnchor | null

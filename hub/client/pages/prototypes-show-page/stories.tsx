@@ -277,6 +277,16 @@ export const PrivateLinkWithEmbeddedReview: Story = {
   },
 }
 
+export const PrivateReviewLocationUnavailable: Story = {
+  args: {
+    data: {
+      ...data,
+      privatePreviewUrl: "https://hub.example.com/api/private-preview/launch/2001/4001",
+      privateReviewLink: null,
+    },
+  },
+}
+
 export const ReviewScreenshotFallback: Story = {
   args: {
     monitorPreview: true,

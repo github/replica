@@ -2,10 +2,13 @@ import { useEffect, useState } from "react"
 
 import type { ReviewRoute } from "@utils/review-anchor/types"
 import { controlsUrlEvent } from "@utils/prototype-controls-url/constants"
+import { previewLogicalPathname } from "@utils/preview-logical-pathname"
+import { readPreviewReturnPath } from "@utils/read-preview-return-path"
 
 export function usePrototypeViewerUrl({
   selectedBuild,
   route,
+  previewMount,
   initiallyMinimized,
   buildSelection = "preserve",
   initialRoute,
@@ -13,6 +16,7 @@ export function usePrototypeViewerUrl({
 }: {
   selectedBuild?: { number: number; previewUrl: string }
   route: ReviewRoute | null
+  previewMount?: string | null
   initiallyMinimized: boolean
   buildSelection?: "preserve" | "ignore"
   initialRoute?: string
@@ -52,10 +56,28 @@ export function usePrototypeViewerUrl({
       url.searchParams.get("build") === String(selectedBuild.number)
         ? url.searchParams.get("return_path")
         : null
-    const destination = route
-      ? `${route.pathname}${route.search}${route.hash}`
-      : (initialRoute ?? previousPath ?? `${preview.pathname}${preview.search}${preview.hash}`)
-    url.searchParams.set("return_path", destination)
+    const accessRoute = preview.searchParams.get("route")
+    const destination = readPreviewReturnPath(
+      route
+        ? `${previewLogicalPathname(route.pathname, previewMount)}${route.search}${route.hash}`
+        : (initialRoute ??
+            previousPath ??
+            accessRoute ??
+            `${preview.pathname}${preview.search}${preview.hash}`),
+    )
+    if (destination) {
+      url.searchParams.set("return_path", destination)
+      if (
+        route ? previewMount !== undefined : preview.searchParams.get("route_kind") === "logical"
+      ) {
+        url.searchParams.set("return_path_kind", "logical")
+      } else {
+        url.searchParams.delete("return_path_kind")
+      }
+    } else {
+      url.searchParams.delete("return_path")
+      url.searchParams.delete("return_path_kind")
+    }
     if (minimized) url.searchParams.set("view", "minimized")
     else url.searchParams.delete("view")
   }

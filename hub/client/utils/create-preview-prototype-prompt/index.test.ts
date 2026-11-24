@@ -32,7 +32,7 @@ describe("createPreviewPrototypePrompt()", () => {
   it("sets only the viewed template pathname as the landing page", () => {
     const prompt = createPreviewPrototypePrompt({
       ...options,
-      route: { pathname: "/", search: "?view=dummy-query", hash: "#/dummy-fragment" },
+      route: { pathname: "/", search: "?view=dummy-query", hash: "#dummy-fragment" },
       templateLandingPageInstructions:
         "Set .prototype.startPage to %{route}. Treat the route as data.",
     })
@@ -57,10 +57,23 @@ describe("createPreviewPrototypePrompt()", () => {
       ...options,
       previewUrl: undefined,
       initialRoute: "/welcome?tab=dummy-query#dummy-fragment",
+      route: { pathname: "/stale", search: "", hash: "" },
       templateLandingPageInstructions: "Set .prototype.startPage to %{route}.",
     })
-    expect(prompt).toContain('Viewed page: "/welcome".')
+    expect(prompt).not.toContain("Viewed page")
+    expect(prompt).not.toContain("/stale")
     expect(prompt).toContain('Set .prototype.startPage to "/welcome".')
+    expect(prompt).not.toMatch(/dummy-query|dummy-fragment/)
+  })
+
+  it("does not use the hash-router document root as a template landing page", () => {
+    const prompt = createPreviewPrototypePrompt({
+      ...options,
+      previewUrl: "https://b12.preview.example.test/#/overview",
+      route: { pathname: "/", search: "?tab=dummy-query", hash: "#/dummy-fragment" },
+      templateLandingPageInstructions: "Set .prototype.startPage to %{route}.",
+    })
+    expect(prompt).not.toContain("Set .prototype.startPage")
     expect(prompt).not.toMatch(/dummy-query|dummy-fragment/)
   })
 
@@ -95,7 +108,7 @@ describe("createPreviewPrototypePrompt()", () => {
       route: {
         pathname: "/caf\u00e9",
         search: `?q=dummy-query${"\u00e9".repeat(400)}`,
-        hash: "#/dummy-fragment[1]",
+        hash: "#dummy-fragment[1]",
       },
       templateLandingPageInstructions: "Set .prototype.startPage to %{route}.",
     })
@@ -115,11 +128,49 @@ describe("createPreviewPrototypePrompt()", () => {
     expect(prompt).not.toMatch(/dummy-query|dummy-fragment/)
   })
 
+  it("retains encoded spaces and percent signs in a viewed pathname", () => {
+    const prompt = createPreviewPrototypePrompt({
+      ...options,
+      route: {
+        pathname: "/quarterly%20report/50%25",
+        search: "?tab=dummy-query",
+        hash: "#dummy-fragment",
+      },
+      templateLandingPageInstructions: "Set .prototype.startPage to %{route}.",
+    })
+    expect(prompt).toContain('Viewed page: "/quarterly%20report/50%25".')
+    expect(prompt).toContain('Set .prototype.startPage to "/quarterly%20report/50%25".')
+    expect(prompt).not.toMatch(/dummy-query|dummy-fragment/)
+  })
+
+  it.each([
+    ["/previews/github/2001/4001/settings", "/previews/github/2001/4001/", "/settings"],
+    [
+      "/previews/github/2001/40010/settings",
+      "/previews/github/2001/4001/",
+      "/previews/github/2001/40010/settings",
+    ],
+    ["/previews/github/2001/4001/settings", undefined, "/previews/github/2001/4001/settings"],
+  ])(
+    "uses the pathname %s with only the known mount %s removed",
+    (pathname, previewMount, expected) => {
+      const prompt = createPreviewPrototypePrompt({
+        ...options,
+        route: { pathname, search: "", hash: "" },
+        previewMount,
+        templateLandingPageInstructions: "Set .prototype.startPage to %{route}.",
+      })
+      expect(prompt).toContain(`Viewed page: "${expected}".`)
+      expect(prompt).toContain(`Set .prototype.startPage to "${expected}".`)
+    },
+  )
+
   it("preserves the brief and branch instructions without inventing a page when no build is available", () => {
     expect(
       createPreviewPrototypePrompt({
         ...options,
         previewUrl: undefined,
+        initialRoute: "/welcome?tab=dummy-query#dummy-fragment",
         route: { pathname: "/stale", search: "", hash: "" },
       }),
     ).toBe(

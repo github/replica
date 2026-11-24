@@ -346,7 +346,7 @@ describe("ReplicaBrowsePage()", () => {
   it.each([
     { source: "the preview URL", hasBuild: true },
     { source: "the declared route without a build", hasBuild: false },
-  ])("uses the initial pathname from $source before navigation is reported", ({ hasBuild }) => {
+  ])("uses the initial pathname appropriately from $source", ({ hasBuild }) => {
     const initialRoute = "/welcome?tab=dummy-query#dummy-fragment"
     const data = hasBuild
       ? {
@@ -372,8 +372,12 @@ describe("ReplicaBrowsePage()", () => {
     const launcher = screen.getByRole("link", { name: "Open Copilot App" }).getAttribute("href")!
     const params = new URL(new URL(launcher).searchParams.get("open")!).searchParams
     const prompt = params.get("prompt")
-    expect(prompt).toContain('route "/welcome"')
-    if (!hasBuild) expect(prompt).toContain('Set .prototype.startPage to "/welcome".')
+    if (hasBuild) {
+      expect(prompt).toContain('route "/welcome"')
+    } else {
+      expect(prompt).not.toContain("The user is viewing")
+      expect(prompt).toContain('Set .prototype.startPage to "/welcome".')
+    }
     expect(prompt).not.toMatch(/dummy-query|dummy-fragment|preview\.replica\.localhost/)
   })
 
@@ -397,7 +401,7 @@ describe("ReplicaBrowsePage()", () => {
             previewUrl: "http://b1.preview.replica.localhost:19500/welcome",
           },
         },
-        route: { pathname: "/issues", search: "?view=dummy-query", hash: "#/dummy-fragment" },
+        route: { pathname: "/issues", search: "?view=dummy-query", hash: "#dummy-fragment" },
       })
       fireEvent.click(screen.getByRole("button", { name: data.forkLabel }))
       fireEvent.change(screen.getByRole("textbox", { name: data.branchPlaceholder }), {

@@ -18,6 +18,7 @@ const querySchema = z
     target: z.enum(["preview", "desktop", "narrow"]),
     preview_origin: z.url().optional(),
     route: z.string().max(4096).optional(),
+    route_kind: z.literal("logical").optional(),
   })
   .strict()
 
@@ -91,6 +92,7 @@ export function get(
       destination.searchParams.set("grant", grant)
       if (query.data.target === "preview" && requestedRoute) {
         destination.searchParams.set("route", requestedRoute)
+        if (query.data.route_kind) destination.searchParams.set("route_kind", query.data.route_kind)
       }
       response.setHeader("Cache-Control", "no-store")
       response.setHeader("Referrer-Policy", "no-referrer")

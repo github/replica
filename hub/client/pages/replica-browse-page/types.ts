@@ -10,6 +10,7 @@ export interface ReplicaBrowsePageData
   browseReplica: true
   templateId: string
   initialRoute?: string
+  templateRoute?: string
   canBranch?: boolean
   pageTitle: string
   repositoryName: string
@@ -38,6 +39,7 @@ export interface ReplicaBrowsePageData
 }
 
 export interface ReplicaBrowsePageProps {
+  previewMount?: string | null
   data: ReplicaBrowsePageData
   iframeRef: RefObject<HTMLIFrameElement | null>
   previewTheme: "light" | "dark"

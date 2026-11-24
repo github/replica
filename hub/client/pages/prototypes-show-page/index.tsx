@@ -22,6 +22,8 @@ import { ReviewThreadConversation } from "@features/review-thread-conversation"
 import { useCopilotHandoff } from "@hooks/use-copilot-handoff"
 import { createPrototypeSubmission } from "@utils/create-prototype-submission"
 import { createPreviewPrototypePrompt } from "@utils/create-preview-prototype-prompt"
+import { previewLogicalPathname } from "@utils/preview-logical-pathname"
+import { readPreviewReturnPath } from "@utils/read-preview-return-path"
 
 import { PrototypeDescriptionDialog } from "./prototype-description-dialog"
 import type { PrototypePreviewOnlyPageProps, PrototypesShowPageProps } from "./types"
@@ -118,10 +120,15 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
       viewerUrl.search = bridge.route.search
       viewerUrl.hash = bridge.route.hash
       address = viewerUrl.toString()
-      authorizationUrl.searchParams.set(
-        "route",
-        `${bridge.route.pathname}${bridge.route.search}${bridge.route.hash}`,
+      const returnPath = readPreviewReturnPath(
+        `${previewLogicalPathname(bridge.route.pathname, bridge.previewMount)}${bridge.route.search}${bridge.route.hash}`,
       )
+      if (returnPath) {
+        authorizationUrl.searchParams.set("route", returnPath)
+        if (bridge.previewMount !== undefined)
+          authorizationUrl.searchParams.set("route_kind", "logical")
+        else authorizationUrl.searchParams.delete("route_kind")
+      }
       externalAddress = authorizationUrl.toString()
     } else {
       authorizationUrl.pathname = bridge.route.pathname
@@ -137,14 +144,18 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
   }
   const privatePreviewActions = data.privatePreviewUrl ? (
     <div className="review-shell__address-bar">
-      <CopyableTextInput
-        compact
-        value={data.privateReviewLink ?? data.privatePreviewUrl}
-        label={data.privatePreviewLinkLabel}
-        copyLabel={data.copyPrivatePreviewLinkLabel}
-        copiedLabel={data.copiedPrivatePreviewLinkLabel}
-        copyErrorLabel={data.copyPreviewUrlErrorLabel}
-      />
+      {data.privateReviewLink === null ? (
+        <span role="status">This exact review location cannot be copied.</span>
+      ) : (
+        <CopyableTextInput
+          compact
+          value={data.privateReviewLink ?? data.privatePreviewUrl}
+          label={data.privatePreviewLinkLabel}
+          copyLabel={data.copyPrivatePreviewLinkLabel}
+          copiedLabel={data.copiedPrivatePreviewLinkLabel}
+          copyErrorLabel={data.copyPreviewUrlErrorLabel}
+        />
+      )}
       <HubIconButton
         as="a"
         href={data.privatePreviewUrl}
@@ -174,8 +185,10 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
       branchInstructions: data.branchInstructions,
       branchPageInstructions: data.branchPageInstructions,
       previewUrl: data.selectedBuild?.previewUrl,
+      previewReady: monitorPreview ? bridge.ready : undefined,
       initialRoute: data.branchInitialRoute,
       route: bridge.route,
+      previewMount: bridge.previewMount,
     })
     await handoff.prepare(() =>
       setSubmission(

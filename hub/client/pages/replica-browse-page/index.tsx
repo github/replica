@@ -14,6 +14,8 @@ import { PrototypeWorkspace } from "@features/prototype-workspace"
 import { useCopilotHandoff } from "@hooks/use-copilot-handoff"
 import { createPrototypeSubmission } from "@utils/create-prototype-submission"
 import { createPreviewPrototypePrompt } from "@utils/create-preview-prototype-prompt"
+import { previewLogicalPathname } from "@utils/preview-logical-pathname"
+import { readPreviewReturnPath } from "@utils/read-preview-return-path"
 
 import type { ReplicaBrowsePageProps } from "./types"
 
@@ -22,6 +24,7 @@ export function ReplicaBrowsePage({
   iframeRef,
   previewTheme,
   route,
+  previewMount,
   previewReady,
   viewerUrl,
   minimized: controlledMinimized,
@@ -54,8 +57,11 @@ export function ReplicaBrowsePage({
     templateLandingPageInstructions:
       data.templateId === "default" ? undefined : data.templateLandingPageInstructions,
     previewUrl: data.selectedBuild?.previewUrl,
+    previewReady,
     initialRoute: data.initialRoute,
+    templateRoute: data.templateRoute,
     route,
+    previewMount,
   })
   const copyStatus = copyResult?.prompt === prompt ? copyResult.status : null
   const copyPrompt = data.branchSubmissionMode === "copy" || handoffUnavailable
@@ -88,7 +94,14 @@ export function ReplicaBrowsePage({
     url.hash = route.hash
     address = url.toString()
     if (openUrl?.searchParams.has("route")) {
-      openUrl.searchParams.set("route", `${route.pathname}${route.search}${route.hash}`)
+      const destination = readPreviewReturnPath(
+        `${previewLogicalPathname(route.pathname, previewMount)}${route.search}${route.hash}`,
+      )
+      if (destination) {
+        openUrl.searchParams.set("route", destination)
+        if (previewMount !== undefined) openUrl.searchParams.set("route_kind", "logical")
+        else openUrl.searchParams.delete("route_kind")
+      }
     }
   }
   const fallback = (

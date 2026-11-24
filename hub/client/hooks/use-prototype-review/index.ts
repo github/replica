@@ -97,6 +97,7 @@ export function usePrototypeReview({
     onSelectionStart: handleSelectionStart,
     onToggleSidebar: toggleSidebar,
     selectionBlocked: conversationDraftActive || reviewReadOnly,
+    sidebarToggleBlocked: conversationDraftActive,
   })
   const visibleThreads = useMemo(
     () =>
@@ -170,6 +171,15 @@ export function usePrototypeReview({
   function selectThread(thread: ReviewThread) {
     if (conversationDraftActive && selectedThreadId !== thread.root.id) return
 
+    if (
+      selectedThreadId === thread.root.id &&
+      !conversationDraftActive &&
+      bridge.ready &&
+      (selectedResolution?.status === "resolved" || selectedResolution?.status === "moved")
+    ) {
+      focusAnchor(thread.root.id)
+      return
+    }
     setSelectedThreadId(thread.root.id)
   }
 
