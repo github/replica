@@ -77,9 +77,14 @@ export interface LearningActivityDay {
 export interface LearningsLibraryPrototypeData {
   canDecide: boolean
   learnings: LearningRecord[]
-  /** Daily summaries for days with a learning run; other past days show as "no run". */
+  /**
+   * Daily summaries for days with a learning run. Other past days show as "no run".
+   */
   activity: LearningActivityDay[]
-  /** UTC date treated as today; it picks the calendar year and which days are still ahead. */
+  /**
+   * UTC date treated as today. It picks the calendar year and which days are still
+   * ahead.
+   */
   today: string
   /** Hub's agent setup page, when MCP connection guidance is available to members. */
   agentConnectionPath?: string

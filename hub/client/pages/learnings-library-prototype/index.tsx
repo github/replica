@@ -300,7 +300,8 @@ function ActivityGrid({ activity, today }: { activity: LearningActivityDay[]; to
     nextButton.focus()
   }
 
-  // On a narrow screen recent weeks matter most, so open with the selected day in view.
+  // On a narrow screen recent weeks matter most, so open with the selected day in
+  // view.
   useLayoutEffect(() => {
     const scroller = scrollerRef.current
     const selectedCell = scroller?.querySelector('[aria-pressed="true"]')
@@ -471,7 +472,10 @@ function ActivityGrid({ activity, today }: { activity: LearningActivityDay[]; to
   )
 }
 
-/** Lets a repository team browse guidance and gives administrators a local decision prototype. */
+/**
+ * Lets a repository team browse guidance and gives administrators a local decision
+ * prototype.
+ */
 export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryPrototypeData }) {
   const [learnings, setLearnings] = useState(data.learnings)
   const [lifecycle, setLifecycle] = useState<LearningLifecycle>("suggested")

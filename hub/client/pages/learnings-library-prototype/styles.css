@@ -139,7 +139,8 @@
   gap: 0.375rem;
 }
 
-/* Shrinks to the graph's width so the legend sits under its right edge, as on GitHub. */
+/* Shrinks to the graph's width so the legend sits under its right edge, as on
+   GitHub. */
 .learning-library__graph {
   display: grid;
   grid-area: graph;
