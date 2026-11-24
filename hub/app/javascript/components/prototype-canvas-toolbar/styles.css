@@ -88,6 +88,7 @@
 }
 
 .canvas-toolbar .hub-counter {
+  background: color-mix(in srgb, var(--hub-fg-default) 14%, transparent);
   color: var(--hub-fg-default);
 }
 
