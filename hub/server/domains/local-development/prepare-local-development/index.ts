@@ -1,5 +1,7 @@
+import { execFileSync } from "node:child_process"
+import { statSync } from "node:fs"
 import { lstat, mkdir, mkdtemp, readdir, rename, rm, stat } from "node:fs/promises"
-import { basename, dirname, join } from "node:path"
+import { basename, dirname, isAbsolute, join, resolve } from "node:path"
 
 import { runCommand as runProcessCommand } from "../../../integrations/process/run-command/index.ts"
 import { LocalDevelopmentPreparationError } from "../errors.ts"
@@ -12,7 +14,11 @@ import type {
 const exampleDirectoryName = "minimal"
 const exampleBranchName = "prototype/example"
 const gitEnvironment = {
+  GIT_AUTHOR_NAME: "Replica Example",
+  GIT_AUTHOR_EMAIL: "local@example.invalid",
   GIT_AUTHOR_DATE: "2026-01-01T00:00:00Z",
+  GIT_COMMITTER_NAME: "Replica Example",
+  GIT_COMMITTER_EMAIL: "local@example.invalid",
   GIT_COMMITTER_DATE: "2026-01-01T00:00:00Z",
 }
 
@@ -24,6 +30,39 @@ async function exists(path: string) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return false
     throw error
   }
+}
+
+function starterBash(sourceRoot: string) {
+  if (process.platform !== "win32") return "bash"
+
+  const prerequisite =
+    "Install Git for Windows with Git Bash, and make its git.exe available on PATH to create the Starter repository."
+  const environment = { ...process.env }
+  for (const key of Object.keys(environment)) {
+    if (key.toLowerCase() === "git_exec_path") delete environment[key]
+  }
+  let gitCore: string
+  try {
+    gitCore = execFileSync("git", ["--exec-path"], {
+      cwd: sourceRoot,
+      encoding: "utf8",
+      env: environment,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim()
+  } catch {
+    throw new LocalDevelopmentPreparationError(prerequisite)
+  }
+  // Git reports <Git>/<architecture>/libexec/git-core, not the wrapper on PATH.
+  const bash = resolve(gitCore, "../../..", "bin", "bash.exe")
+  if (
+    !isAbsolute(gitCore) ||
+    basename(gitCore) !== "git-core" ||
+    basename(dirname(gitCore)) !== "libexec" ||
+    !statSync(bash, { throwIfNoEntry: false })?.isFile()
+  ) {
+    throw new LocalDevelopmentPreparationError(prerequisite)
+  }
+  return bash
 }
 
 export async function prepareLocalDevelopment(
@@ -88,48 +127,19 @@ export async function prepareLocalDevelopment(
   const checkout = join(stagingDirectory, exampleDirectoryName)
   try {
     await runCommand({
-      command: process.execPath,
+      command: starterBash(configuration.sourceRoot),
       arguments: [createPrototypeScript, checkout],
       cwd: configuration.sourceRoot,
       environment: {
         ...process.env,
+        ...gitEnvironment,
+        GIT_CONFIG_COUNT: "2",
+        GIT_CONFIG_KEY_0: "maintenance.auto",
+        GIT_CONFIG_VALUE_0: "false",
+        GIT_CONFIG_KEY_1: "commit.gpgsign",
+        GIT_CONFIG_VALUE_1: "false",
         REPLICA_INTERNAL_STARTER_ROOT: configuration.root,
       },
-    })
-    await runCommand({
-      command: "git",
-      arguments: [
-        "-c",
-        "maintenance.auto=false",
-        "-c",
-        "user.name=Replica Example",
-        "-c",
-        "user.email=local@example.invalid",
-        "-c",
-        "commit.gpgsign=false",
-        "add",
-        ".",
-      ],
-      cwd: checkout,
-      environment: { ...process.env, ...gitEnvironment },
-    })
-    await runCommand({
-      command: "git",
-      arguments: [
-        "-c",
-        "maintenance.auto=false",
-        "-c",
-        "user.name=Replica Example",
-        "-c",
-        "user.email=local@example.invalid",
-        "-c",
-        "commit.gpgsign=false",
-        "commit",
-        "-m",
-        "chore: start local prototype",
-      ],
-      cwd: checkout,
-      environment: { ...process.env, ...gitEnvironment },
     })
     await runCommand({
       command: npmCommand,
@@ -158,18 +168,7 @@ export async function prepareLocalDevelopment(
     })
     await runCommand({
       command: "git",
-      arguments: [
-        "-c",
-        "maintenance.auto=false",
-        "-c",
-        "user.name=Replica Example",
-        "-c",
-        "user.email=local@example.invalid",
-        "-c",
-        "commit.gpgsign=false",
-        "add",
-        ".",
-      ],
+      arguments: ["-c", "maintenance.auto=false", "-c", "commit.gpgsign=false", "add", "."],
       cwd: checkout,
       environment: { ...process.env, ...gitEnvironment },
     })
@@ -178,10 +177,6 @@ export async function prepareLocalDevelopment(
       arguments: [
         "-c",
         "maintenance.auto=false",
-        "-c",
-        "user.name=Replica Example",
-        "-c",
-        "user.email=local@example.invalid",
         "-c",
         "commit.gpgsign=false",
         "commit",

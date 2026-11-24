@@ -64,7 +64,7 @@ export function readLocalDevelopmentConfiguration(
     root,
     sourceRoot,
     buildActionDirectory: configuredBuildAction ?? resolve(sourceRoot, "actions/build"),
-    createPrototypeScript: resolve(sourceRoot, "scripts/create-prototype-repo.mjs"),
+    createPrototypeScript: resolve(sourceRoot, "scripts/create-prototype-repo.sh"),
     temporaryRoot: configuredTemporaryRoot ?? tmpdir(),
   }
 }

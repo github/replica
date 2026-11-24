@@ -167,4 +167,6 @@ Format authored code with `npm run format` (double quotes, no semicolons, and tr
 
 ## Setup and prototype work
 
+In a repository copied from this starter, continue setup without running the creator again. On native Windows, use Git Bash from Git for Windows for any Bash setup command, not WSL or a bare `bash` from PowerShell. Follow the [startup guidance](README.md#connect-the-replica-canvas) to check Copilot Startup separately from terminal commands.
+
 After copying, start a fresh agent session in the new repository so its skills are discovered. When asked to set up a team's design system, use the local `/setup-skills` skill. Plain/fresh setup uses one independent agent to offer installation of missing user-named token, component and other packages before context writers begin, reuse built-in browser capabilities, and record a short usage/status section here. Browser MCP/CLI setup is conditional on an evidenced gap for a concrete required check; a sufficient built-in browser needs no additional setup. Installations and draft activation require separate approval. Once context is approved, use `create-prototype` for the requested prototype. Follow the publishing workflow above.

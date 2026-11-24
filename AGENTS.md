@@ -36,7 +36,9 @@ Follow the [commit and PR conventions](CONTRIBUTING.md#commits-and-pull-requests
 
 The new Hub has one protected manual workflow for a named non-production Azure installation. It does not publish prototypes or provide a general release service. The starter follows `main` and has no separate release process. Start a new agent session after copying the starter so its local skills are discovered.
 
-For requests to create a prototype repository or set up an existing repository for prototyping, read [prototype repository setup](docs/prototype-repository-setup.md) before acting. It owns target selection, starter installation, the fresh-session handoff, and the path from local preview to optional guidance, a team baseline, or Hub.
+For requests to create a prototype repository or set up an existing repository for prototyping, read [prototype repository setup](docs/prototype-repository-setup.md) before acting. It owns target selection, starter installation, the fresh-session handoff, and the path from local preview to optional guidance, a team baseline, or Hub. On native Windows, follow its Git Bash instructions for starter creation.
+
+When creating a starter, default to a local folder the user controls. If the requested parent is known to let other accounts modify its contents, suggest a destination under the user's home folder instead. Do not ask the user to audit folder permissions.
 
 ## Browser validation and Playwright fallback
 

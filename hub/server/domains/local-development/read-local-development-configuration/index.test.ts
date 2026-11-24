@@ -48,7 +48,7 @@ describe("readLocalDevelopmentConfiguration()", () => {
       ),
     ).toEqual({
       buildActionDirectory: resolve(repositoryRoot, "actions/build"),
-      createPrototypeScript: resolve(repositoryRoot, "scripts/create-prototype-repo.mjs"),
+      createPrototypeScript: resolve(repositoryRoot, "scripts/create-prototype-repo.sh"),
       enabled: true,
       root: resolve(applicationRoot, ".local/prototypes"),
       sourceRoot: repositoryRoot,
@@ -80,7 +80,7 @@ describe("readLocalDevelopmentConfiguration()", () => {
       ),
     ).toEqual({
       buildActionDirectory: buildActionRoot,
-      createPrototypeScript: resolve(repositoryRoot, "scripts/create-prototype-repo.mjs"),
+      createPrototypeScript: resolve(repositoryRoot, "scripts/create-prototype-repo.sh"),
       enabled: true,
       root: prototypesRoot,
       sourceRoot: repositoryRoot,

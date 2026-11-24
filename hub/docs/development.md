@@ -59,7 +59,9 @@ With `npm run dev:api`, the home page shows **Sign in as local developer**. Sele
 
 Local-mode startup prepares the absolute `LOCAL_PROTOTYPE_ROOT`, defaulting to the ignored `hub/.local/prototypes/` directory. The root is separate from `hub/storage/`, which remains available for production-shaped database, artifact, and learning data. Production, combined, scheduled-worker, and setup runtimes reject local mode rather than changing their startup requirements. The development API, local commands, and local on-demand worker use this root, the optional `LOCAL_REPLICA_BUILD_ACTION_ROOT`, and the optional `LOCAL_BUILD_TEMPORARY_ROOT` through one configuration contract.
 
-When the prototype root is empty, the first start creates `minimal/` from the canonical [Replica Starter](../../starter/), installs its locked dependencies, commits `main`, and creates the committed `prototype/example` branch with a scaffolded example route. The commits use fixed example authorship and timestamps so the same starter revision produces the same repository history. Preparation also installs the shared [Build action](../../actions/build/) runtime dependencies from its lockfile and its pinned Chromium browser. It skips the npm install when the required dependencies are already present; Playwright's browser installation is idempotent.
+When the prototype root is empty, the first start creates `minimal/` from the canonical [Replica Starter](../../starter/) with an initial commit on `main`. Hub then installs its locked dependencies and creates the committed `prototype/example` branch with a scaffolded example route. The commits use fixed example authorship and timestamps so the same starter revision produces the same repository history. Preparation also installs the shared [Build action](../../actions/build/) runtime dependencies from its lockfile and its pinned Chromium browser. It skips the npm install when the required dependencies are already present; Playwright's browser installation is idempotent.
+
+Hub uses the same [Bash creator](../../scripts/create-prototype-repo.sh) as standalone starter setup. On native Windows, install Git for Windows with Git Bash and put its `git.exe` on `PATH`. Hub finds `bin\bash.exe` in that installation; it does not depend on the terminal's shell. Dependency installation still runs npm's JavaScript entrypoint through Node.js, using `npm_execpath` when supplied or the npm bundled beside Node.js.
 
 Later starts always prepare the shared Build action dependencies, but they do not add, replace, switch, or commit anything in a nonempty prototype root. This includes the seeded repository after a developer edits it. To prepare without keeping the API running, use:
 
@@ -113,8 +115,6 @@ The filesystem provider requires the Linux protections described in [Artifact st
 ```sh
 npm run local:builds
 ```
-
-Starter preparation invokes the [Node.js creator](../../scripts/create-prototype-repo.mjs), not Bash. On Windows, dependency installation runs npm's JavaScript entrypoint through Node.js, using `npm_execpath` when supplied or the npm bundled beside Node.js. These setup fixes do not remove the Linux filesystem requirement or Docker isolation for local Builds.
 
 Alternatively, after `npm run setup`, enqueue the same scan and run the local on-demand worker:
 
