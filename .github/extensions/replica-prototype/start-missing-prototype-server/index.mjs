@@ -12,6 +12,8 @@ const CONNECT_ERROR =
   "Could not connect to that server. Make sure it is running, then try again or choose another server."
 const DISCONNECTED_MESSAGE =
   "Prototype server unavailable. Start it again or choose another server."
+const UNVERIFIED_SAVED_MESSAGE =
+  "Could not verify that the saved preview belongs to this checkout. Choose a server or start one here."
 export async function startMissingPrototypeServer({
   discover,
   connect,
@@ -139,7 +141,10 @@ export async function startMissingPrototypeServer({
           200,
           JSON.stringify({
             servers: result.servers.map(({ url, command, pid }) => ({ url, command, pid })),
-            warnings: result.warnings.map(publicWarning),
+            warnings: [
+              ...(message && message !== DISCONNECTED_MESSAGE ? [message] : []),
+              ...result.warnings.map(publicWarning),
+            ],
             ...(devServer
               ? {
                   development: await devServer.describe().catch((error) => ({
@@ -202,6 +207,10 @@ export async function startMissingPrototypeServer({
     disconnect() {
       prototypeUrl = null
       message = DISCONNECTED_MESSAGE
+    },
+    rejectSavedConnection() {
+      prototypeUrl = null
+      message = UNVERIFIED_SAVED_MESSAGE
     },
     close: () => closeServer(server),
   }

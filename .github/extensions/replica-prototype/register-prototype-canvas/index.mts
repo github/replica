@@ -1088,6 +1088,8 @@ export async function registerPrototypeCanvas(
             contextOptions.repositoryPath,
           )
           let input = suppliedInput
+          const restoringConnection =
+            !suppliedInput.prototypeUrl && (!existing || existing.kind === "missing")
           if (!suppliedInput.prototypeUrl) {
             try {
               input = {
@@ -1154,6 +1156,20 @@ export async function registerPrototypeCanvas(
             }
           }
           try {
+            if (input.prototypeUrl && restoringConnection) {
+              const origin = new URL(input.prototypeUrl).origin
+              let matches = false
+              try {
+                const result = await discover(contextOptions.repositoryPath)
+                matches = result.servers.some((server) => new URL(server.url).origin === origin)
+              } catch (error) {
+                console.error("Could not verify the saved prototype server:", error)
+              }
+              if (!matches) {
+                entry.rejectSavedConnection()
+                return openResult(entry)
+              }
+            }
             if (input.prototypeUrl) await activatePrototype(entry, input, false)
             return openResult(entry)
           } catch (error) {
