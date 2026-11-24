@@ -6,6 +6,7 @@ import type { AddressInfo } from "node:net"
 import { join } from "node:path"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
+import { Prisma } from "../generated/prisma/client"
 import { createLogger } from "../integrations/pino/create-logger"
 import type { AuthenticationRouteDependencies } from "../routes/api/auth/types"
 import type { ProductRouteDependencies } from "../routes/api/product/types"
@@ -158,7 +159,7 @@ describe("createApp()", () => {
     }
   })
 
-  it("reads navigation without live permissions and verifies them on a full workspace read", async () => {
+  it("keeps navigation available on an unread lookup timeout without checking live permissions", async () => {
     const viewer = {
       membershipId: randomUUID(),
       userId: randomUUID(),
@@ -179,8 +180,16 @@ describe("createApp()", () => {
       signOut: { applicationOrigin: "https://hub.example.com", secureCookie: false, end: vi.fn() },
     }
     const getRepositoryPermission = vi.fn().mockResolvedValue("admin")
+    const hasUnread = vi.fn().mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError("Unread query timed out", {
+        code: "P2010",
+        clientVersion: "test",
+        meta: { code: "57014" },
+      }),
+    )
     const product: ProductRouteDependencies = {
       getRepositoryPermission,
+      reviewInbox: { hasUnread, list: vi.fn(), find: vi.fn(), setRead: vi.fn() },
       isRepositoryVisible: vi.fn().mockResolvedValue(true),
       listRepositories: vi.fn().mockResolvedValue([repository]),
       findRepositoryIndex: vi.fn(),
@@ -210,13 +219,16 @@ describe("createApp()", () => {
       expect(workspace).toMatchObject({
         viewer: { id: viewer.userId },
         repositoryPermissionsAvailable: true,
+        reviewInboxAvailable: true,
         repositories: [{ id: repository.id, capabilities: { reviewPrototypes: true } }],
       })
+      expect(workspace).not.toHaveProperty("inboxHasUnread")
       expect(workspace).not.toHaveProperty("repositories.0.capabilities.administerRepository")
       expect(workspace).not.toHaveProperty("repositories.0.capabilities.managePrototypeListings")
 
       const verified = await fetch(`${base}?repositoryId=${repository.id}`, { headers })
       expect(verified.status).toBe(200)
+      expect(hasUnread).toHaveBeenCalledTimes(1)
       expect(getRepositoryPermission).toHaveBeenCalledExactlyOnceWith(
         expect.objectContaining({ membershipId: viewer.membershipId, sessionProvider: "github" }),
         repository.id,

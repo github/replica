@@ -225,7 +225,7 @@ History loads only the requested page and any successful Build pinned by `build`
 
 ### Workspace projections
 
-`GET /api/workspace?view=navigation` returns the signed-in viewer, readable repositories, Hub preferences, and the [Inbox unread indicator](review-collaboration.md#inbox-and-live-review). It does not check live GitHub repository permissions. `GET /api/workspace` retains the full response and checks management permissions for the selected repository. Both views verify the session and scope repositories to the viewer's access.
+`GET /api/workspace?view=navigation` returns the signed-in viewer, readable repositories, Hub preferences, and the [Inbox unread indicator](review-collaboration.md#inbox-and-live-review). It does not check live GitHub repository permissions. If the unread lookup fails, Hub omits the indicator rather than blocking navigation. `GET /api/workspace` retains the full response and checks management permissions for the selected repository. Both views verify the session and scope repositories to the viewer's access.
 
 ### Prototype metadata edits
 

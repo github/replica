@@ -3,6 +3,7 @@ import { z } from "zod"
 
 import { hashAuthenticationValue } from "../../../../domains/authentication/hash-authentication-value/index.ts"
 import { authorizeRepositoryReview } from "../../../../domains/review-comments/authorize-repository-review/index.ts"
+import { Prisma } from "../../../../generated/prisma/client.ts"
 import { hubSessionCookieName } from "../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../../../integrations/express/read-cookie/index.ts"
 import { GitHubProviderRequestError } from "../../../../integrations/github/errors.ts"
@@ -37,12 +38,18 @@ export function get(
             product.listRepositories(viewer),
             product.welcome?.isHidden(viewer.userId),
           ])
-          const inboxHasUnread = navigationOnly
-            ? await product.reviewInbox?.hasUnread(
+          let inboxHasUnread: boolean | undefined
+          if (navigationOnly && product.reviewInbox) {
+            try {
+              inboxHasUnread = await product.reviewInbox.hasUnread(
                 { viewer, sessionDigest: hashAuthenticationValue(cookie) },
                 repositories,
               )
-            : undefined
+            } catch (error) {
+              if (!(error instanceof Prisma.PrismaClientKnownRequestError)) throw error
+              request.log.warn({ code: error.code }, "Inbox unread status unavailable")
+            }
+          }
           const requested = selectedRepository.success
             ? selectedRepository.data.toLowerCase()
             : null
