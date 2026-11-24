@@ -121,6 +121,10 @@ try {
       await page.goto(canvas.url)
       const picker = page.getByRole("button", { name: "Pick & polish", exact: true })
       assert.equal(await picker.getAttribute("title"), "Add note")
+      assert.equal(await picker.getAttribute("aria-pressed"), "false")
+      const emptyNotesToggle = page.getByRole("button", { name: "Open Notes (0)", exact: true })
+      assert.equal(await emptyNotesToggle.getAttribute("aria-expanded"), "false")
+      await emptyNotesToggle.click()
       assert.ok(await fix(0).isDisabled())
       await picker.click()
       const preview = page.frameLocator('iframe[title="Renderer smoke prototype"]')
@@ -299,6 +303,12 @@ try {
 
       phase = "reload retains local history"
       await page.reload()
+      const reloadedNotesToggle = page.getByRole("button", {
+        name: "Open Notes (0)",
+        exact: true,
+      })
+      assert.equal(await reloadedNotesToggle.getAttribute("aria-expanded"), "false")
+      await reloadedNotesToggle.click()
       await filter("Resolved")
       await cards.first().click()
       for (const body of [
