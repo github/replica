@@ -5,6 +5,7 @@ import { createServer, type RequestListener } from "node:http"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createApp } from "../../../create-app"
+import type { AzureBlobArtifactSettings } from "../../../integrations/azure-blob/create-azure-blob-artifact-storage/types"
 import { hubSessionCookieName } from "../../../integrations/express/hub-session-cookie-name"
 import type {
   GitHubWorkflowArtifact,
@@ -189,6 +190,86 @@ function createPrivatePreviewDestination(repositoryId: number) {
         write: vi.fn(storage.write.bind(storage)),
       },
     },
+  }
+}
+
+async function preparePrivatePreviewReplay(source: ArtifactStorage, destination: ArtifactStorage) {
+  const originalEnvironment = process.env
+  process.env = {
+    NODE_ENV: originalEnvironment.NODE_ENV,
+    DATABASE_URL: originalEnvironment.DATABASE_URL,
+    ARTIFACT_STORAGE_PROVIDER: "azure",
+    AZURE_STORAGE_ACCOUNT: "synthetic",
+    AZURE_STORAGE_CONTAINER: "ordinary-artifacts",
+    LOG_LEVEL: "silent",
+  }
+  function monitor(storage: ArtifactStorage) {
+    return {
+      isReady: vi.fn(() => storage.isReady()),
+      read: vi.fn((key: string) => storage.read(key)),
+      write: vi.fn((key: string, bytes: Uint8Array) => storage.write(key, bytes)),
+      delete: vi.fn((key: string) => storage.delete(key)),
+    }
+  }
+  const ordinary = monitor(source)
+  const preview = monitor(destination)
+  const blobOperations = [...Object.values(ordinary), ...Object.values(preview)]
+  function blobCalls() {
+    return blobOperations.reduce((count, operation) => count + operation.mock.calls.length, 0)
+  }
+  vi.doMock("../../../integrations/azure-blob/create-azure-blob-artifact-storage", () => ({
+    createAzureBlobArtifactStorage({ container }: AzureBlobArtifactSettings) {
+      if (container === "ordinary-artifacts") return ordinary
+      if (container === "private-preview-artifacts") return preview
+      throw new Error("Unexpected synthetic Blob container.")
+    },
+  }))
+  onTestFinished(() => {
+    vi.doUnmock("../../../integrations/azure-blob/create-azure-blob-artifact-storage")
+    process.env = originalEnvironment
+  })
+  vi.spyOn(prisma, "$disconnect").mockResolvedValue(undefined)
+  const { runPrivatePreviewReplay } =
+    await import("../../../scripts/replay-private-preview/run/index.ts")
+
+  return async function replay(
+    { repositoryId, runId, buildId }: { repositoryId: number; runId: number; buildId: string },
+    enabledFor?: number,
+  ) {
+    if (enabledFor === undefined) {
+      delete process.env.HUB_PRIVATE_PREVIEW_WRITE_ENABLED
+      delete process.env.HUB_PRIVATE_PREVIEW_WRITE_REPOSITORY_ID
+      delete process.env.HUB_PRIVATE_PREVIEW_WRITE_CONTAINER
+    } else {
+      process.env.HUB_PRIVATE_PREVIEW_WRITE_ENABLED = "true"
+      process.env.HUB_PRIVATE_PREVIEW_WRITE_REPOSITORY_ID = String(enabledFor)
+      process.env.HUB_PRIVATE_PREVIEW_WRITE_CONTAINER = "private-preview-artifacts"
+    }
+    const callsBefore = blobCalls()
+    const originalExitCode = process.exitCode
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true)
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+    process.exitCode = undefined
+    try {
+      await runPrivatePreviewReplay([
+        "--repository-id",
+        String(repositoryId),
+        "--run-id",
+        String(runId),
+        "--build-id",
+        buildId,
+      ])
+      return {
+        exitCode: process.exitCode,
+        stdout: stdout.mock.calls.map(([chunk]) => String(chunk)).join(""),
+        stderr: stderr.mock.calls.map(([chunk]) => String(chunk)).join(""),
+        blobCalls: blobCalls() - callsBefore,
+      }
+    } finally {
+      process.exitCode = originalExitCode
+      stdout.mockRestore()
+      stderr.mockRestore()
+    }
   }
 }
 
@@ -556,6 +637,129 @@ describe("importGitHubWorkflowRun", () => {
       await expectPrivatePreviewHidden(build, address)
     })
 
+    it("replays only the exact owning run after normal import recovery has stopped", async () => {
+      const fixture = await createFixture()
+      const { repositoryId, id: runId } = fixture.run
+      const address = privatePreviewAddress(String(repositoryId), String(runId))!
+      const { storage: destination, writer } = createPrivatePreviewDestination(repositoryId)
+      writer.storage.write.mockResolvedValue({ status: "unavailable" })
+      const dist = privatePreviewPackage(address.mount)
+      fixture.packages.set(distArtifactName, dist)
+      fixture.packages.set(
+        screenshotArtifactName,
+        screenshotPackage(extractDistPackage(dist).distDigest),
+      )
+      fixture.run.status = "completed"
+      fixture.run.conclusion = "success"
+
+      await expect(fixture.importRun(undefined, writer)).rejects.toThrow()
+
+      const before = await fixture.findBuild()
+      const buildId = before.id
+      const target = { repositoryId, runId, buildId }
+      expect(before).toMatchObject({
+        state: "successful",
+        privatePreviewState: "pending",
+        workflowCompletedAt: fixture.run.updatedAt,
+      })
+      expect(before.artifacts).toContainEqual(
+        expect.objectContaining({ path: "screenshots/desktop.png" }),
+      )
+      function readReceipts() {
+        return prisma.gitHubBuildRunCompletion.findMany({
+          where: { buildId },
+          orderBy: { githubWorkflowRunId: "asc" },
+        })
+      }
+      await expect(readReceipts()).resolves.toEqual([
+        expect.objectContaining({
+          githubWorkflowRunId: BigInt(runId),
+          runAttempt: fixture.run.runAttempt,
+          completedAt: fixture.run.updatedAt,
+        }),
+      ])
+      const contributorRunId = runId + 1
+      await prisma.gitHubBuildRunCompletion.create({
+        data: {
+          buildId,
+          githubWorkflowRunId: BigInt(contributorRunId),
+          runAttempt: 1,
+          completedAt: fixture.run.updatedAt,
+        },
+      })
+      const receipts = await readReceipts()
+      await expect(
+        listGitHubBuildsAwaitingImport(prisma, { createdAfter: new Date(0) }),
+      ).resolves.not.toContainEqual({ githubRepositoryId: repositoryId, runId })
+      const author = await prisma.user.create({ data: {} })
+      const thread = await prisma.reviewThread.create({
+        data: {
+          repositoryId: fixture.repository.id,
+          prototypeId: before.prototypeId,
+          buildId,
+          anchor: { schemaVersion: 1, kind: "element", selector: "#content" },
+          comments: {
+            create: { authorId: author.id, authorLogin: "octocat", body: "Retained review" },
+          },
+        },
+        include: { comments: true },
+      })
+      const originals = await Promise.all(
+        before.artifacts.map(async ({ path, storageKey }) => ({
+          path,
+          storageKey,
+          original: await fixture.storage.read(storageKey),
+        })),
+      )
+
+      fixture.packages.clear()
+      const sourceRead = vi.spyOn(fixture.storage, "read")
+      const replay = await preparePrivatePreviewReplay(fixture.storage, destination)
+      for (const [wrongTarget, enabledFor] of [
+        [target, undefined],
+        [{ ...target, repositoryId: repositoryId + 1 }, repositoryId],
+        [{ ...target, runId: contributorRunId }, repositoryId],
+        [{ ...target, buildId: randomUUID() }, repositoryId],
+      ] as const) {
+        const denied = await replay(wrongTarget, enabledFor)
+        expect(denied).toMatchObject({ exitCode: 1, stdout: "", blobCalls: 0 })
+        expect(denied.stderr).toMatch(/\S/)
+      }
+
+      sourceRead.mockResolvedValueOnce({ status: "unavailable" })
+      const failed = await replay(target, repositoryId)
+      expect(failed).toMatchObject({ exitCode: 1, stdout: "" })
+      expect(failed.stderr).toMatch(/\S/)
+      await expect(fixture.findBuild(buildId)).resolves.toEqual(before)
+      for (const { storageKey } of originals) {
+        await expect(destination.read(storageKey)).resolves.toEqual({ status: "not-found" })
+      }
+
+      const result = await replay(target, repositoryId)
+      expect(result).toMatchObject({ exitCode: undefined, stderr: "" })
+      expect(JSON.parse(result.stdout)).toEqual({ status: "ready", buildId, runId: String(runId) })
+      const after = await fixture.findBuild(buildId)
+      expect(after).toEqual({ ...before, updatedAt: after.updatedAt, privatePreviewState: "ready" })
+      await expect(readReceipts()).resolves.toEqual(receipts)
+      await expect(
+        prisma.reviewThread.findUniqueOrThrow({
+          where: { id: thread.id },
+          include: { comments: true },
+        }),
+      ).resolves.toEqual(thread)
+      for (const { path, storageKey, original } of originals) {
+        if (original.status !== "ok") throw new Error(`Missing retained fixture artifact: ${path}`)
+        await expect(fixture.storage.read(storageKey)).resolves.toEqual(original)
+        const served = path === "dist/assets/app.bin" || path === "dist/index.html"
+        await expect(destination.read(storageKey)).resolves.toEqual(
+          served
+            ? { status: "ok", bytes: Uint8Array.from(original.bytes) }
+            : { status: "not-found" },
+        )
+      }
+      await expect(replay(target, repositoryId)).resolves.toEqual({ ...result, blobCalls: 0 })
+    })
+
     it("writes nothing when retained source bytes no longer match the imported dist digest", async () => {
       const fixture = await createFixture()
       const { repositoryId, id } = fixture.run
@@ -590,7 +794,7 @@ describe("importGitHubWorkflowRun", () => {
       const build = await fixture.findBuild()
       expect(build).toMatchObject({ state: "successful", privatePreviewState: null })
 
-      const { writer } = createPrivatePreviewDestination(repositoryId)
+      const { storage: destination, writer } = createPrivatePreviewDestination(repositoryId)
       await expect(fixture.importRun(undefined, writer)).resolves.toMatchObject({
         dist: "unchanged",
       })
@@ -599,6 +803,12 @@ describe("importGitHubWorkflowRun", () => {
       expect(writer.storage.write).not.toHaveBeenCalled()
       expect(await fixture.findBuild()).toMatchObject({ id: build.id, privatePreviewState: null })
       await expectPrivatePreviewHidden(build, address)
+
+      const replay = await preparePrivatePreviewReplay(fixture.storage, destination)
+      const denied = await replay({ repositoryId, runId: id, buildId: build.id }, repositoryId)
+      expect(denied).toMatchObject({ exitCode: 1, stdout: "", blobCalls: 0 })
+      expect(denied.stderr).toMatch(/\S/)
+      await expect(fixture.findBuild(build.id)).resolves.toEqual(build)
     })
   })
 

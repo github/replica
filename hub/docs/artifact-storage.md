@@ -49,6 +49,19 @@ The GitHub import worker can publish newly imported, compatible Builds from one 
 
 After the ordinary import commits, the worker checks the exact owning run and mount marker, verifies the saved package against its immutable digest, and writes only served `dist/` files using their original artifact keys. The mount marker is Hub metadata, not a served file. Screenshot and template metadata stay in ordinary storage. A retry accepts an existing destination object only when its bytes match. A failed write logs a warning and fails the import job for retry, but leaves the ordinary Build and screenshots intact. A partial copy does not get a standalone link or pass reader authorization. Existing successful Builds are not queued for publication.
 
+### Replay a pending private preview
+
+After import job retries stop, use the `buildId` and owning `runId` from the publication failure log and confirm the numeric GitHub repository ID. Fix the underlying issue first. Run one replay from `hub/` in the approved runtime environment with the same writer settings, storage account, database, and managed identity as the importer. The writer must already be enabled for that repository; the reader may remain off.
+
+```sh
+node dist/server/scripts/replay-private-preview/index.js \
+  --repository-id GITHUB_NUMERIC_REPOSITORY_ID --run-id OWNING_RUN_ID --build-id BUILD_UUID
+```
+
+In an Azure workload that loads runtime secrets from Key Vault, replace `dist/server/scripts/replay-private-preview/index.js` with `dist/server/scripts/azure-entrypoint/index.js replay-private-preview`. Pass the same three IDs, not credentials. The command does not download anything from GitHub or rerun ordinary imports. It reads the saved package, resumes only that eligible pending publication, and reports `ready` only when Hub recognizes that exact ready target. Replaying a ready target makes no storage calls. Older Builds with no publication state are not eligible.
+
+A nonzero exit means the command could not confirm readiness. For a publication failure, check the `verify-source`, `copy-files`, or `mark-ready` stage in the warning. Restore access and retry the same IDs after resolving a transient failure. Missing or changed source bytes or conflicting destination bytes require investigation: leave the preview unavailable and do not overwrite objects or reset Build or import records. To stop the pilot, disable the writer through the normal release procedure, leave the reader off, and retain the additive migration and all artifact bytes.
+
 ## Bytes and results
 
 Keys are case-sensitive opaque strings of 1–128 ASCII letters, digits, underscores, or hyphens, beginning with a letter or digit. They are not paths or URLs. The domain rejects traversal, separators, percent encoding, and other characters before calling a provider.

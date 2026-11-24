@@ -1,19 +1,14 @@
 import { loadAzureSecretEnvironment } from "../load-secret-environment/index.ts"
 
 export async function runAzureEntrypoint(target: string | undefined): Promise<void> {
-  if (
-    ![
-      "runtime",
-      "setup",
-      "provision",
-      "repair-github-build-author",
-      "check-github-webhooks",
-    ].includes(target ?? "")
-  ) {
+  const maintenance =
+    target === "repair-github-build-author" ||
+    target === "check-github-webhooks" ||
+    target === "replay-private-preview"
+  if (!maintenance && target !== "runtime" && target !== "setup" && target !== "provision") {
     throw new Error("Azure entrypoint target is invalid.")
   }
   const environment = process.env
-  const maintenance = target === "repair-github-build-author" || target === "check-github-webhooks"
   if (
     ((target === "runtime" || maintenance) && environment.RUNTIME_MODE === "setup") ||
     (target === "setup" && environment.RUNTIME_MODE !== "setup")
@@ -29,9 +24,12 @@ export async function runAzureEntrypoint(target: string | undefined): Promise<vo
       const { runGitHubBuildAuthorRepair } =
         await import("../../repair-github-build-author/run/index.ts")
       await runGitHubBuildAuthorRepair(process.argv.slice(3))
-    } else {
+    } else if (target === "check-github-webhooks") {
       const { runGitHubWebhookCheck } = await import("../../check-github-webhooks/run/index.ts")
       await runGitHubWebhookCheck(process.argv.slice(3))
+    } else {
+      const { runPrivatePreviewReplay } = await import("../../replay-private-preview/run/index.ts")
+      await runPrivatePreviewReplay(process.argv.slice(3))
     }
   } else if (target === "setup") {
     await loadAzureSecretEnvironment(environment, "setup")

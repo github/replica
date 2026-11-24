@@ -4,7 +4,11 @@ import { runAzureEntrypoint } from "./run/index.ts"
 try {
   await runAzureEntrypoint(process.argv[2])
 } catch (error) {
-  if (["repair-github-build-author", "check-github-webhooks"].includes(process.argv[2] ?? "")) {
+  if (
+    ["repair-github-build-author", "check-github-webhooks", "replay-private-preview"].includes(
+      process.argv[2] ?? "",
+    )
+  ) {
     process.stderr.write(
       "Azure maintenance could not load its runtime environment; check secret references, managed identity, Key Vault access, and workload configuration.\n",
     )
