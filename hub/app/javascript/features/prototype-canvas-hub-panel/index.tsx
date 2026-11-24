@@ -29,7 +29,11 @@ import {
   REVIEW_COMMENT_MUTATION_SCHEMA,
   REVIEW_COMMENTS_SCHEMA,
 } from "@utils/review-comment/schemas"
-import type { ReviewComment, ReviewReactionContent } from "@utils/review-comment/types"
+import type {
+  ReviewComment,
+  ReviewReactionContent,
+  ReviewThread,
+} from "@utils/review-comment/types"
 import type { ReviewCommentMutation } from "@hooks/use-review-comments/types"
 import { reviewThreadMatchesFilters } from "@utils/review-thread-matches-filters"
 import { MENTION_CANDIDATES_SCHEMA } from "@utils/mention-candidate/schemas"
@@ -656,6 +660,11 @@ export function PrototypeCanvasHubPanel({
     sendBridge("replica:canvas:clear-selection")
     setSelectionMode(null)
   }, [selectionMode, sendBridge])
+
+  function openThread(thread: ReviewThread) {
+    cancelSelection()
+    setSelected(thread.root.id)
+  }
 
   const toggleCommentSelection = useEffectEvent(() => {
     if (
@@ -1308,7 +1317,7 @@ export function PrototypeCanvasHubPanel({
             reviewControlsTarget,
           )
         : null}
-      {reviewActive && showPins && visibleThreads.length && bridgeReady && !selectionMode ? (
+      {reviewActive && showPins && visibleThreads.length && bridgeReady ? (
         <div className="canvas-marker-layer">
           <ReviewCommentMarkers
             threads={visibleThreads}
@@ -1318,7 +1327,7 @@ export function PrototypeCanvasHubPanel({
             focusSelectedMarker={false}
             showAreaHighlightsOnlyWhenSelected
             copy={reviewCommentsCopy}
-            onSelect={(thread) => setSelected(thread.root.id)}
+            onSelect={openThread}
           />
         </div>
       ) : null}
@@ -1660,7 +1669,7 @@ export function PrototypeCanvasHubPanel({
           onFiltersChange={setFilters}
           onShowPinsChange={setShowPins}
           onRetry={() => void loadComments()}
-          onSelect={(thread) => setSelected(thread.root.id)}
+          onSelect={openThread}
         />
       ) : null}
       <CanvasReviewOverlays

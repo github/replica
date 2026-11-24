@@ -290,7 +290,16 @@ describe("PrototypeCanvasHubPanel()", () => {
       await screen.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel })
       expect(
         screen.queryByRole("button", { name: "Unread thread started by @octocat" }),
-      ).not.toBeInTheDocument()
+      ).toBeVisible()
+      fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel }))
+      expect(
+        screen.getByRole("button", { name: "Unread thread started by @octocat" }),
+      ).toBeVisible()
+      fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
+      fireEvent.click(
+        await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentMenuLabel }),
+      )
+      await screen.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel })
       expect(toggle).toHaveAttribute("aria-expanded", String(commentsOpen))
       receive({ type: "replica:canvas:selected", anchor: created.anchor })
       fireEvent.change(screen.getByRole("textbox", { name: reviewCommentsCopy.composerLabel }), {
@@ -333,4 +342,223 @@ describe("PrototypeCanvasHubPanel()", () => {
       view.unmount()
     },
   )
+
+  it("respects hidden comments and filters during and after selection", async () => {
+    const nonce = "00000000-0000-4000-8000-000000000011"
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
+    const frameRef = createRef<HTMLIFrameElement>()
+    const onFrameLoad = vi.fn()
+    const readComment = {
+      ...octocatRootComment,
+      id: 2,
+      viewerLastSeenActivityVersion: octocatRootComment.activityVersion,
+    }
+    const status = { ...publicationHub, state: "connected" as const, prototype: importedPrototype }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockImplementation((input) => {
+        if (input === "/api/hub/events") return Promise.reject(new Error("Offline"))
+        if (input === "/api/hub/status") return Promise.resolve(Response.json(status))
+        return Promise.resolve(
+          Response.json({
+            comments: [octocatRootComment, readComment],
+            hasMore: false,
+            nextCursor: null,
+          }),
+        )
+      }),
+    )
+    const view = renderPrototypeCanvasHubPanel(
+      { frameRef, status, open: false },
+      <iframe ref={frameRef} title="Prototype" src="about:blank" onLoad={onFrameLoad} />,
+    )
+    const comments = await screen.findByRole("button", { name: /^Comments, 2/ })
+    await waitFor(() => expect(onFrameLoad).toHaveBeenCalled())
+    Object.defineProperties(frameRef.current, {
+      clientWidth: { value: 800 },
+      clientHeight: { value: 600 },
+    })
+    const postMessage = vi.spyOn(frameRef.current!.contentWindow!, "postMessage")
+    fireEvent.load(frameRef.current!)
+    await waitFor(() =>
+      expect(postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "replica:canvas:resolve",
+          nonce,
+        }),
+        "http://localhost:4321",
+      ),
+    )
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: frameRef.current?.contentWindow,
+          origin: "http://localhost:4321",
+          data: {
+            type: "replica:canvas:resolved",
+            protocolVersion: 1,
+            nonce,
+            route: { pathname: "/", search: "", hash: "" },
+            results: [
+              { id: 1, x: 180, y: 180 },
+              { id: 2, x: 300, y: 240 },
+            ],
+          },
+        }),
+      )
+    })
+    function unreadPin() {
+      return screen.queryByRole("button", { name: "Unread thread started by @octocat" })
+    }
+    function readPin() {
+      return screen.queryByRole("button", { name: "Thread started by @octocat" })
+    }
+    expect(unreadPin()).toBeVisible()
+    expect(readPin()).toBeVisible()
+    fireEvent.click(comments)
+    fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.filterLabel }))
+    fireEvent.click(screen.getByRole("switch", { name: reviewCommentsCopy.unreadOnlyLabel }))
+    expect(unreadPin()).toBeVisible()
+    expect(readPin()).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Hide comments" }))
+    expect(unreadPin()).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentMenuLabel }),
+    )
+    const hiddenCancel = await screen.findByRole("button", {
+      name: reviewCommentsCopy.cancelSelectionLabel,
+    })
+    expect(unreadPin()).not.toBeInTheDocument()
+    expect(readPin()).not.toBeInTheDocument()
+    fireEvent.click(hiddenCancel)
+    expect(unreadPin()).not.toBeInTheDocument()
+    expect(readPin()).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Show comments" }))
+    expect(unreadPin()).toBeVisible()
+    expect(readPin()).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentMenuLabel }),
+    )
+    const cancel = await screen.findByRole("button", {
+      name: reviewCommentsCopy.cancelSelectionLabel,
+    })
+    expect(unreadPin()).toBeVisible()
+    expect(readPin()).not.toBeInTheDocument()
+    fireEvent.click(cancel)
+    expect(unreadPin()).toBeVisible()
+    expect(readPin()).not.toBeInTheDocument()
+    view.unmount()
+  })
+
+  it("opens an existing pin and cancels a pending source capture", async () => {
+    const nonce = "00000000-0000-4000-8000-000000000012"
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
+    const frameRef = createRef<HTMLIFrameElement>()
+    const onFrameLoad = vi.fn()
+    const status = { ...publicationHub, state: "connected" as const, prototype: importedPrototype }
+    let finishStatus: ((response: Response) => void) | undefined
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockImplementation((input) => {
+        if (input === "/api/hub/events") return Promise.reject(new Error("Offline"))
+        if (input === "/api/hub/status")
+          return new Promise<Response>((resolve) => {
+            finishStatus = resolve
+          })
+        return Promise.resolve(
+          Response.json({ comments: [octocatRootComment], hasMore: false, nextCursor: null }),
+        )
+      }),
+    )
+    const view = renderPrototypeCanvasHubPanel(
+      { frameRef, status, open: false },
+      <iframe ref={frameRef} title="Prototype" src="about:blank" onLoad={onFrameLoad} />,
+    )
+    await screen.findByRole("button", { name: /^Comments, 1/ })
+    await waitFor(() => expect(onFrameLoad).toHaveBeenCalled())
+    Object.defineProperties(frameRef.current, {
+      clientWidth: { value: 800 },
+      clientHeight: { value: 600 },
+    })
+    const postMessage = vi.spyOn(frameRef.current!.contentWindow!, "postMessage")
+    fireEvent.load(frameRef.current!)
+    await waitFor(() =>
+      expect(postMessage).toHaveBeenCalledWith(
+        {
+          type: "replica:canvas:resolve",
+          nonce,
+          anchors: [{ id: octocatRootComment.id, anchor: octocatRootComment.anchor }],
+        },
+        "http://localhost:4321",
+      ),
+    )
+    function receive(data: Record<string, unknown>) {
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: frameRef.current?.contentWindow,
+            origin: "http://localhost:4321",
+            data: { nonce, ...data },
+          }),
+        )
+      })
+    }
+    receive({
+      type: "replica:canvas:resolved",
+      protocolVersion: 1,
+      route: { pathname: "/", search: "", hash: "" },
+      results: [{ id: 1, x: 180, y: 180 }],
+    })
+    fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentMenuLabel }),
+    )
+    await screen.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel })
+    await waitFor(() => expect(finishStatus).toBeTypeOf("function"))
+    const otherAnchor = {
+      ...octocatRootComment.anchor,
+      selector: "#other",
+      accessibleName: "Other",
+    }
+    receive({ type: "replica:canvas:selected", anchor: otherAnchor })
+    expect(
+      screen.queryByRole("dialog", { name: reviewCommentsCopy.composerHeading }),
+    ).not.toBeInTheDocument()
+    const pin = screen.getByRole("button", { name: "Unread thread started by @octocat" })
+    expect(pin).toBeEnabled()
+    fireEvent.click(pin)
+    expect(
+      screen.queryByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel }),
+    ).not.toBeInTheDocument()
+    expect(postMessage).toHaveBeenCalledWith(
+      { type: "replica:canvas:cancel-selection", nonce },
+      "http://localhost:4321",
+    )
+    const conversation = screen.getByRole("dialog", { name: reviewCommentsCopy.threadHeading })
+    expect(within(conversation).getByText(octocatRootComment.body!)).toBeVisible()
+    const response = Response.json(status)
+    const responseBody = response.json()
+    vi.spyOn(response, "json").mockReturnValue(responseBody)
+    await act(async () => {
+      finishStatus!(response)
+      await responseBody
+      await Promise.resolve()
+    })
+    expect(conversation).toBeVisible()
+    expect(
+      screen.queryByRole("dialog", { name: reviewCommentsCopy.composerHeading }),
+    ).not.toBeInTheDocument()
+    receive({ type: "replica:canvas:selected", anchor: otherAnchor })
+    expect(conversation).toBeVisible()
+    expect(
+      screen.queryByRole("dialog", { name: reviewCommentsCopy.composerHeading }),
+    ).not.toBeInTheDocument()
+    view.unmount()
+  })
 })

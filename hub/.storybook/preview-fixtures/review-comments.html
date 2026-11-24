@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body {
+        margin: 0;
+        font: 16px system-ui;
+        background: #fff;
+        color: #1f2328;
+      }
+      main {
+        padding: 80px clamp(24px, 8vw, 120px);
+      }
+      button {
+        padding: 12px 24px;
+        border: 1px solid #d1d9e0;
+        border-radius: 6px;
+        background: #f6f8fa;
+        color: #1f2328;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Welcome prototype</h1>
+      <p>A place to try the new experience.</p>
+      <button id="save">Save</button>
+    </main>
+    <script>
+      let selection = null
+      const parentOrigin = parent.location.origin
+      const route = { pathname: "/", search: "", hash: "" }
+      window.addEventListener("message", ({ data }) => {
+        if (!data || !data.nonce) return
+        const send = (message) =>
+          parent.postMessage({ nonce: data.nonce, ...message }, parentOrigin)
+        if (data.type === "replica:canvas:request-ready")
+          send({ type: "replica:canvas:ready", protocolVersion: 1, route })
+        if (data.type === "replica:canvas:resolve") {
+          const bounds = document.getElementById("save").getBoundingClientRect()
+          const rect = { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }
+          send({
+            type: "replica:canvas:resolved",
+            protocolVersion: 1,
+            route,
+            results: data.anchors.map(({ id }) => ({
+              id,
+              x: rect.x + rect.width / 2,
+              y: rect.y + rect.height / 2,
+              rect,
+            })),
+          })
+        }
+        if (data.type === "replica:canvas:select") selection = data.nonce
+        if (data.type === "replica:canvas:cancel-selection") selection = null
+      })
+      document.getElementById("save").addEventListener("click", () => {
+        if (!selection) return
+        const bounds = document.getElementById("save").getBoundingClientRect()
+        parent.postMessage(
+          {
+            type: "replica:canvas:selected",
+            nonce: selection,
+            anchor: {
+              schemaVersion: 1,
+              kind: "element",
+              route,
+              selector: "#save",
+              accessibleName: "Save",
+              tagName: "button",
+              selectedText: "",
+              rect: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
+              viewport: { width: innerWidth, height: innerHeight, scrollX: 0, scrollY: 0 },
+              elementOffset: { x: 0.5, y: 0.5 },
+            },
+          },
+          parentOrigin,
+        )
+        selection = null
+      })
+    </script>
+  </body>
+</html>
