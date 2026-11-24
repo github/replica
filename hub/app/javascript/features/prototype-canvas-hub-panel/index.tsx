@@ -199,6 +199,7 @@ export function PrototypeCanvasHubPanel({
   const commentIdentityRef = useRef("")
   const bridgeNonceRef = useRef("")
   const selectionRevisionRef = useRef<HubStatus["reviewRevision"]>(undefined)
+  const pendingSelectionAnchorRef = useRef<ReviewAnchor | null>(null)
   const selectionRequestRef = useRef(0)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const commentsButtonRef = useRef<HTMLButtonElement>(null)
@@ -589,6 +590,7 @@ export function PrototypeCanvasHubPanel({
     const requestedIdentity = identity
     const selectionRequest = ++selectionRequestRef.current
     selectionRevisionRef.current = undefined
+    pendingSelectionAnchorRef.current = null
     setPreparingSelection(true)
     setCreateError("")
     setSelected(null)
@@ -612,12 +614,19 @@ export function PrototypeCanvasHubPanel({
       )
         throw new Error(next.reviewError || copy.commentPreparationFailed)
       selectionRevisionRef.current = next.reviewRevision
-      sendBridge("replica:canvas:select", { mode: "comment" })
+      if (pendingSelectionAnchorRef.current) {
+        setSelectedAnchor(pendingSelectionAnchorRef.current)
+        pendingSelectionAnchorRef.current = null
+        setSelectionMode(null)
+      }
     } catch (cause) {
       if (
         identityRef.current === requestedIdentity &&
         selectionRequestRef.current === selectionRequest
       ) {
+        pendingSelectionAnchorRef.current = null
+        sendBridge("replica:canvas:cancel-selection")
+        sendBridge("replica:canvas:clear-selection")
         setSelectionMode(null)
         setCreateError(cause instanceof Error ? cause.message : String(cause))
       }
@@ -641,8 +650,10 @@ export function PrototypeCanvasHubPanel({
     if (!selectionMode) return
     selectionRequestRef.current += 1
     selectionRevisionRef.current = undefined
+    pendingSelectionAnchorRef.current = null
     setPreparingSelection(false)
     sendBridge("replica:canvas:cancel-selection")
+    sendBridge("replica:canvas:clear-selection")
     setSelectionMode(null)
   }, [selectionMode, sendBridge])
 
@@ -731,6 +742,8 @@ export function PrototypeCanvasHubPanel({
   const clearSelection = useCallback(() => {
     selectionRequestRef.current += 1
     selectionRevisionRef.current = undefined
+    pendingSelectionAnchorRef.current = null
+    setPreparingSelection(false)
     sendBridge("replica:canvas:clear-selection")
     setSelectedAnchor(null)
     setSelectionFailure(null)
@@ -738,13 +751,11 @@ export function PrototypeCanvasHubPanel({
   }, [sendBridge])
 
   const receiveSelection = useEffectEvent((data: Record<string, unknown>) => {
-    if (!reviewActive || !selectionMode || preparingSelection) return
+    if (!reviewActive || !selectionMode) return
     if (data.type === "replica:canvas:selected") {
       const parsed = REVIEW_ANCHOR_SCHEMA.safeParse(data.anchor)
       if (!parsed.success) {
-        sendBridge("replica:canvas:cancel-selection")
-        sendBridge("replica:canvas:clear-selection")
-        setSelectionMode(null)
+        cancelSelection()
         setSelectionFailure(
           isRecord(data.anchor) && data.anchor.kind === "area"
             ? "area-unavailable"
@@ -752,8 +763,11 @@ export function PrototypeCanvasHubPanel({
         )
         return
       }
-      setSelectedAnchor(parsed.data)
-      setSelectionMode(null)
+      if (preparingSelection) pendingSelectionAnchorRef.current = parsed.data
+      else {
+        setSelectedAnchor(parsed.data)
+        setSelectionMode(null)
+      }
       setSelectionFailure(null)
     } else if (
       data.type === "replica:canvas:selection-failed" &&
@@ -761,10 +775,10 @@ export function PrototypeCanvasHubPanel({
         data.reason === "area-too-small" ||
         data.reason === "area-unavailable")
     ) {
-      setSelectionMode(null)
+      cancelSelection()
       setSelectionFailure(data.reason)
     } else if (data.type === "replica:canvas:selection-cancelled") {
-      setSelectionMode(null)
+      cancelSelection()
     }
   })
 
@@ -916,6 +930,7 @@ export function PrototypeCanvasHubPanel({
     }
     function onFrameLoad() {
       selectionRequestRef.current += 1
+      pendingSelectionAnchorRef.current = null
       setPreparingSelection(false)
       setSelectionMode(null)
       setSelectionFailure(null)
@@ -951,6 +966,11 @@ export function PrototypeCanvasHubPanel({
     onRouteChange,
     sendBridge,
   ])
+
+  useEffect(() => {
+    if (selectionMode && reviewActive && !pendingSelectionAnchorRef.current)
+      sendBridge("replica:canvas:select", { mode: "comment" })
+  }, [selectionMode, reviewActive, sendBridge])
 
   async function change(
     path: string,
