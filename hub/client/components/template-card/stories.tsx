@@ -26,6 +26,10 @@ type Story = StoryObj<typeof meta>
 
 export const Ready: Story = {}
 
+export const Default: Story = {
+  args: { template: templatesData.templates[0]! },
+}
+
 export const FullHeight: Story = {
   args: { template: templatesData.templates[2]! },
 }

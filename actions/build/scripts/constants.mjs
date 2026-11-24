@@ -1,3 +1,5 @@
+import viewports from "../../../hub/client/utils/screenshot-viewports/viewports.json" with { type: "json" }
+
 export const ARTIFACT_NAME = "replica-build-v1"
 export const SCREENSHOTS_ARTIFACT_NAME = "replica-screenshots-v1"
 export const CONTENT_TYPES = {
@@ -18,7 +20,7 @@ export const MAX_PACKAGE_BYTES = 150 * 1024 * 1024
 export const MAX_TEMPLATES = 12
 export const MAX_TEMPLATE_MANIFEST_BYTES = 16 * 1024
 export const START_ROUTE = "/"
-export const VIEWPORTS = [
-  { name: "desktop", width: 1440, height: 900 },
-  { name: "narrow", width: 390, height: 844 },
-]
+export const VIEWPORTS = Object.entries(viewports).map(([name, dimensions]) => ({
+  name,
+  ...dimensions,
+}))

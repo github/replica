@@ -20,7 +20,6 @@
   position: relative;
   background: var(--hub-canvas-muted);
   width: 100%;
-  aspect-ratio: 395 / 280.480255;
   flex: none;
   overflow: hidden;
   border: 1px solid var(--hub-border-muted);
@@ -148,7 +147,6 @@
 
 .prototype-card--list .prototype-card__preview {
   width: 5.25rem;
-  aspect-ratio: 16 / 10;
   border-radius: var(--hub-radius-small);
 }
 

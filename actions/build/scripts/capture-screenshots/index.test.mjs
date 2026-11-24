@@ -155,21 +155,45 @@ describe("captureScreenshots()", () => {
       assert.deepEqual([...image.data.subarray(bottom, bottom + 3)], [255, 0, 0])
     }
   })
-  it("captures an app without Controls under a same-origin script policy", async () => {
+  it("fills both viewports for short root and template pages without Controls under a same-origin script policy", async () => {
     const root = await temporaryDirectory()
     const screenshots = await temporaryDirectory()
     await mkdir(path.join(root, "dist"))
+    await mkdir(path.join(root, ".github"))
     await writeFile(
       path.join(root, "dist", "index.html"),
-      '<!doctype html><html lang="en"><head><meta http-equiv="Content-Security-Policy" content="script-src \'self\'"><title>Fixture</title></head><body><main><h1>Replica</h1></main></body></html>',
+      '<!doctype html><html lang="en"><head><meta http-equiv="Content-Security-Policy" content="script-src \'self\'"><title>Fixture</title><style>html,body{margin:0;height:100px}</style></head><body><main><h1>Replica</h1></main></body></html>',
+    )
+    await writeFile(
+      path.join(root, ".github/replica.json"),
+      JSON.stringify({
+        version: 1,
+        templates: [
+          {
+            id: "settings",
+            name: "Settings",
+            category: "Configuration",
+            description: "Edit settings.",
+            path: "/settings",
+          },
+        ],
+      }),
     )
 
     await captureScreenshots(root, screenshots)
 
-    const desktop = await readFile(path.join(screenshots, "desktop.png"))
-    const narrow = await readFile(path.join(screenshots, "narrow.png"))
-    assert.deepEqual([desktop.readUInt32BE(16), desktop.readUInt32BE(20)], [1440, 900])
-    assert.deepEqual([narrow.readUInt32BE(16), narrow.readUInt32BE(20)], [390, 844])
+    for (const directory of ["", "templates/settings"]) {
+      for (const [name, width, height] of [
+        ["desktop", 1440, 900],
+        ["narrow", 390, 844],
+      ]) {
+        for (const suffix of ["", "-dark"]) {
+          const filename = path.join(directory, `${name}${suffix}.png`)
+          const image = pngjs.PNG.sync.read(await readFile(path.join(screenshots, filename)))
+          assert.deepEqual([image.width, image.height], [width, height], filename)
+        }
+      }
+    }
   })
 
   it("navigates before capture when app boot reads a URL-bound default", async () => {
