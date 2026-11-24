@@ -176,6 +176,12 @@ describe("App()", () => {
     document.body.append(shortcutFocus)
     shortcutFocus.focus()
     fireEvent.keyDown(shortcutFocus, { key: "s" })
+    receive(frame, {
+      type: "replica:canvas:ready",
+      protocolVersion: 1,
+      improvementSelection: true,
+      route: anchor.route,
+    })
     expect(picker).toHaveAttribute("aria-pressed", "true")
     expect(post).toHaveBeenCalledWith(
       { type: "replica:canvas:select", nonce, mode: "improvement" },
@@ -280,6 +286,12 @@ describe("App()", () => {
     receive(frame, toggle)
     expect(picker).toHaveAttribute("aria-pressed", "true")
     expect(fetch.mock.calls.filter(([path]) => path.endsWith("/capture"))).toHaveLength(1)
+    receive(frame, {
+      type: "replica:canvas:ready",
+      protocolVersion: 1,
+      improvementSelection: true,
+      route: anchor.route,
+    })
 
     setUserActivation(false)
     receive(frame, toggle)
@@ -336,6 +348,13 @@ describe("App()", () => {
     })
     await waitFor(() => expect(picker).toBeEnabled())
     const post = vi.spyOn(frame.contentWindow!, "postMessage")
+    fireEvent.click(screen.getByRole("button", { name: copy.openNotes(0) }))
+    receive(frame, {
+      type: "replica:canvas:ready",
+      protocolVersion: 1,
+      improvementSelection: true,
+      route: anchor.route,
+    })
     expect(screen.getByRole("complementary", { name: copy.notes })).toBeVisible()
     fireEvent.click(picker)
 
@@ -434,6 +453,12 @@ describe("App()", () => {
     ]
     for (const [index, cancel] of cancellations.entries()) {
       fireEvent.click(picker)
+      receive(frame, {
+        type: "replica:canvas:ready",
+        protocolVersion: 1,
+        improvementSelection: true,
+        route: anchor.route,
+      })
       expect(picker).toHaveAttribute("aria-pressed", "true")
       expect(picker).toBeEnabled()
       expect(captures).toHaveLength(index + 1)
@@ -513,6 +538,7 @@ describe("App()", () => {
         }}
       />,
     )
+    fireEvent.click(await screen.findByRole("button", { name: copy.openNotes(1) }))
     const card = await screen.findByRole("button", {
       name: "Open note: Make the save action clearer.",
     })
@@ -637,6 +663,12 @@ describe("App()", () => {
     })
     await waitFor(() => expect(annotate).toBeEnabled())
     fireEvent.click(annotate)
+    receive(frame, {
+      type: "replica:canvas:ready",
+      protocolVersion: 1,
+      improvementSelection: true,
+      route: anchor.route,
+    })
     await waitFor(() => expect(annotate).toHaveAttribute("aria-pressed", "true"))
     receive(frame, { type: "replica:canvas:selected", anchor })
     const dialog = screen.getByRole("dialog", { name: copy.add })
@@ -697,6 +729,7 @@ describe("App()", () => {
     const frame = screen.getByTitle("Demo prototype")
     if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
     const picker = await screen.findByRole("button", { name: copy.annotate })
+    fireEvent.click(await screen.findByRole("button", { name: copy.openNotes(1) }))
     await screen.findByRole("button", {
       name: "Open note: Make the save action clearer.",
     })
@@ -767,6 +800,7 @@ describe("App()", () => {
     expect(within(notifications).getByRole("alert")).toHaveTextContent(
       "Note storage is unavailable.",
     )
+    fireEvent.click(screen.getByRole("button", { name: copy.openNotes(0) }))
     const sidebar = screen.getByRole("complementary", { name: copy.notes })
     expect(sidebar).not.toContainElement(notifications)
     expect(within(sidebar).queryByRole("alert")).not.toBeInTheDocument()
@@ -802,6 +836,7 @@ describe("App()", () => {
     render(
       <App config={{ name: "Demo", prototypeUrl: origin, token: "local", pickAndPolish: true }} />,
     )
+    fireEvent.click(await screen.findByRole("button", { name: copy.openNotes(1) }))
     fireEvent.click(await screen.findByRole("button", { name: "Open note: Original feedback." }))
     const dialog = screen.getByRole("dialog", { name: "Save" })
     const conversation = within(dialog)
@@ -856,6 +891,7 @@ describe("App()", () => {
         route: { pathname: "/", search: "", hash: "" },
       })
       await waitFor(() => expect(screen.getByRole("button", { name: copy.annotate })).toBeEnabled())
+      fireEvent.click(screen.getByRole("button", { name: copy.openNotes(0) }))
       const sidebar = screen.getByRole("complementary", { name: copy.notes })
       expect(within(sidebar).queryByRole("alert")).not.toBeInTheDocument()
       if (visible) {
@@ -928,6 +964,7 @@ describe("App()", () => {
       const controls = within(await screen.findByRole("group", { name: copy.title }))
       const annotate = controls.getByRole("button", { name: copy.annotate })
       expect(annotate).toBeDisabled()
+      fireEvent.click(controls.getByRole("button", { name: copy.openNotes(0) }))
       expect(screen.getByRole("complementary", { name: copy.notes })).toBeVisible()
       expect(screen.getByRole("button", { name: threadCopy.simulate(0) })).toBeDisabled()
       expect(view.container.querySelector(".canvas-review-controls")).toBeNull()
@@ -1095,12 +1132,14 @@ describe("App()", () => {
       sync: "local",
       revision: 1,
     })
+    const toolbarTarget = document.createElement("div")
+    document.body.append(toolbarTarget)
     const view = render(
       <ImprovementNotesPrototype
         canvas={{
           token: "local",
           frameRef: { current: null },
-          toolbarTarget: null,
+          toolbarTarget,
           prototypeUrl: origin,
           hubOpen: false,
           onOpenNotes: vi.fn(),
@@ -1110,6 +1149,7 @@ describe("App()", () => {
     )
     try {
       await act(() => vi.advanceTimersByTimeAsync(0))
+      fireEvent.click(screen.getByRole("button", { name: copy.openNotes(1) }))
       expect(screen.queryByRole("button", { name: "Note actions: 1" })).not.toBeInTheDocument()
       expect(screen.getByRole("button", { name: `${threadCopy.delete}: 1` })).toBeInTheDocument()
       fireEvent.click(screen.getByRole("button", { name: "Open note: Original feedback." }))
@@ -1150,6 +1190,7 @@ describe("App()", () => {
       expect(fetch.mock.calls.at(-1)?.[1]?.body).toContain('"expectedNoteRevision":3')
     } finally {
       view.unmount()
+      toolbarTarget.remove()
       vi.useRealTimers()
     }
   })
@@ -1172,12 +1213,14 @@ describe("App()", () => {
       sync: "local",
       revision: 1,
     })
+    const toolbarTarget = document.createElement("div")
+    document.body.append(toolbarTarget)
     const view = render(
       <ImprovementNotesPrototype
         canvas={{
           token: "local",
           frameRef: { current: null },
-          toolbarTarget: null,
+          toolbarTarget,
           prototypeUrl: origin,
           hubOpen: false,
           onOpenNotes: vi.fn(),
@@ -1187,6 +1230,7 @@ describe("App()", () => {
     )
     try {
       await act(() => vi.advanceTimersByTimeAsync(0))
+      fireEvent.click(screen.getByRole("button", { name: copy.openNotes(1) }))
       fireEvent.click(screen.getByRole("button", { name: "Open note: Original feedback." }))
       fireEvent.change(screen.getByRole("textbox", { name: threadCopy.comments.replyLabel }), {
         target: { value: "Unsaved request." },
@@ -1229,6 +1273,7 @@ describe("App()", () => {
       expect(screen.getByRole("complementary", { name: copy.notes })).toBeVisible()
     } finally {
       view.unmount()
+      toolbarTarget.remove()
       vi.useRealTimers()
     }
   })
@@ -1258,6 +1303,7 @@ describe("App()", () => {
     expect(controls.getByRole("button", { name: copy.annotate })).toBeDisabled()
     const notifications = await screen.findByRole("region", { name: "Comment notifications" })
     expect(within(notifications).getByRole("alert")).toHaveTextContent(copy.bridgeUnavailable)
+    fireEvent.click(screen.getByRole("button", { name: copy.openNotes(0) }))
     expect(
       within(screen.getByRole("complementary", { name: copy.notes })).queryByText(
         copy.bridgeUnavailable,

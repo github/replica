@@ -606,6 +606,17 @@ export const CommentsWithPickAndPolishSidebar: Story = {
     await canvas.findByRole("complementary", { name: "Comments" })
   },
 }
+
+export const PickAndPolishNotesSidebar: Story = {
+  ...CommentsAndPickAndPolish,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Open Notes (1)" }, { timeout: 5_000 }),
+    )
+    await canvas.findByRole("complementary", { name: "Notes" })
+  },
+}
+
 export const ShareManagement: Story = {
   args: {
     scenario: "Published",
