@@ -839,7 +839,8 @@ function receiveCanvasMessage(event: MessageEvent<unknown>) {
   if (data.type === "replica:canvas:select") {
     if (data.mode === "element") startElementSelection(event.origin, data.nonce)
     else if (data.mode === "area") startAreaSelection(event.origin, data.nonce)
-    else if (data.mode === "improvement") startAreaSelection(event.origin, data.nonce, true)
+    else if (data.mode === "improvement" || data.mode === "comment")
+      startAreaSelection(event.origin, data.nonce, true)
     return
   }
 

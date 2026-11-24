@@ -24,6 +24,50 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 describe("ReviewCommentControl()", () => {
+  it("offers one unified comment action and visibility without a region action", () => {
+    const onStartElementSelection = vi.fn()
+    const onStartAreaSelection = vi.fn()
+    const onToggle = vi.fn()
+    const onCancelSelection = vi.fn()
+    const props = {
+      bridgeReady: true,
+      copy: reviewCommentsCopy,
+      selectionBlocked: false,
+      unifiedSelection: true,
+      onStartElementSelection,
+      onStartAreaSelection,
+      onCancelSelection,
+      visibilityAction: { label: "Hide comments", onToggle },
+    }
+    const { rerender } = render(<ReviewCommentControl {...props} selecting={false} />)
+
+    fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
+    expect(screen.getAllByRole("menuitem")).toHaveLength(2)
+    expect(
+      screen.queryByRole("menuitem", { name: reviewCommentsCopy.highlightRegionLabel }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
+    ).not.toBeInTheDocument()
+    const comment = screen.getByRole("menuitem", { name: reviewCommentsCopy.commentMenuLabel })
+    expect(comment).toHaveAttribute("aria-keyshortcuts", "C")
+    fireEvent.click(comment)
+    expect(onStartElementSelection).toHaveBeenCalledOnce()
+    expect(onStartAreaSelection).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
+    const visibility = screen.getByRole("menuitem", { name: "Hide comments" })
+    expect(visibility).toHaveAttribute("aria-keyshortcuts", "Shift+C")
+    fireEvent.click(visibility)
+    expect(onToggle).toHaveBeenCalledOnce()
+
+    rerender(<ReviewCommentControl {...props} selecting />)
+    const cancel = screen.getByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel })
+    expect(cancel).toHaveAttribute("aria-keyshortcuts", "C")
+    fireEvent.click(cancel)
+    expect(onCancelSelection).toHaveBeenCalledOnce()
+  })
+
   it("aligns the comment icon as a Brand leading visual and describes the menu trigger", () => {
     render(
       <ReviewCommentControl

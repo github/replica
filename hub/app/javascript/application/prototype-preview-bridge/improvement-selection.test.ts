@@ -46,7 +46,7 @@ function isSelectionMessage(message: unknown): message is Record<string, unknown
   )
 }
 
-function setup() {
+function setup(mode: "improvement" | "comment" = "improvement") {
   document.body.innerHTML = '<button id="save" aria-label="Save changes">Save changes</button>'
   const target = document.querySelector("button")!
   vi.spyOn(target, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 30, 120, 40))
@@ -63,7 +63,7 @@ function setup() {
     new MessageEvent("message", {
       origin,
       source: window,
-      data: { type: "replica:canvas:select", nonce: "improvement", mode: "improvement" },
+      data: { type: "replica:canvas:select", nonce: mode, mode },
     }),
   )
   const surface = Array.from(
@@ -78,7 +78,7 @@ function setup() {
   function anchor() {
     const selected = post.mock.calls.map(([message]): unknown => message).find(isSelectionMessage)
     if (!selected) throw new Error("Expected a selection message")
-    expect(selected.nonce).toBe("improvement")
+    expect(selected.nonce).toBe(mode)
     expect(selected).not.toHaveProperty("capturePending")
     expect(selected).not.toHaveProperty("capture")
     return REVIEW_ANCHOR_SCHEMA.parse(selected.anchor)
@@ -86,10 +86,13 @@ function setup() {
   return { surface, target, pointer, anchor, post }
 }
 
-function withSelection(run: (selection: ReturnType<typeof setup>) => void) {
+function withSelection(
+  run: (selection: ReturnType<typeof setup>) => void,
+  mode: "improvement" | "comment" = "improvement",
+) {
   installBridge(origin)
   try {
-    run(setup())
+    run(setup(mode))
   } finally {
     const bridgeWindow = window as Window & { [installed]?: () => void }
     bridgeWindow[installed]?.()
@@ -500,69 +503,84 @@ describe("installBridge() improvement selection", () => {
     }
   })
 
-  it("picks an element without activating its underlying control", () => {
-    withSelection(({ target, pointer, anchor }) => {
-      const activated = vi.fn()
-      target.addEventListener("click", activated)
-      pointer("pointerdown", 40, 40)
-      pointer("pointerup", 42, 42)
-      expect(anchor()).toMatchObject({
-        kind: "element",
-        selector: "#save",
-        accessibleName: "Save changes",
-        rect: { x: 20, y: 30, width: 120, height: 40 },
-        route: { pathname: "/", search: "", hash: "" },
-      })
-      expect(activated).not.toHaveBeenCalled()
-    })
-  })
+  it.each(["improvement", "comment"] as const)(
+    "picks an element in %s mode without activating its underlying control",
+    (mode) => {
+      withSelection(({ target, pointer, anchor }) => {
+        const activated = vi.fn()
+        target.addEventListener("click", activated)
+        pointer("pointerdown", 40, 40)
+        pointer("pointerup", 47, 40)
+        expect(anchor()).toMatchObject({
+          kind: "element",
+          selector: "#save",
+          accessibleName: "Save changes",
+          rect: { x: 20, y: 30, width: 120, height: 40 },
+          route: { pathname: "/", search: "", hash: "" },
+        })
+        expect(activated).not.toHaveBeenCalled()
+      }, mode)
+    },
+  )
 
-  it("selects a reverse rectangle and preserves the real route and nearby element context", () => {
-    withSelection(({ pointer, anchor }) => {
-      pointer("pointerdown", 400, 300)
-      pointer("pointermove", 100, 100)
-      pointer("pointerup", 100, 100)
-      expect(anchor()).toMatchObject({
-        kind: "area",
-        rect: { x: 100, y: 100, width: 300, height: 200 },
-        elements: [{ selector: "#save", accessibleName: "Save changes" }],
-      })
-    })
-  })
+  it.each(["improvement", "comment"] as const)(
+    "selects a reverse rectangle in %s mode and preserves nearby element context",
+    (mode) => {
+      withSelection(({ pointer, anchor }) => {
+        pointer("pointerdown", 400, 300)
+        pointer("pointermove", 100, 100)
+        pointer("pointerup", 100, 100)
+        expect(anchor()).toMatchObject({
+          kind: "area",
+          rect: { x: 100, y: 100, width: 300, height: 200 },
+          elements: [{ selector: "#save", accessibleName: "Save changes" }],
+        })
+      }, mode)
+    },
+  )
 
   it.each([
-    [7, 8, false],
-    [8, 7, false],
-    [8, 8, true],
-  ])("requires eight pixels in both rectangle dimensions (%s by %s)", (width, height, accepted) => {
-    withSelection(({ pointer, post, anchor }) => {
-      pointer("pointerdown", 100, 100)
-      pointer("pointerup", 100 + width, 100 + height)
-      if (accepted) expect(anchor().kind).toBe("area")
-      else
-        expect(post).toHaveBeenLastCalledWith(
-          {
-            type: "replica:canvas:selection-failed",
-            nonce: "improvement",
-            reason: "area-too-small",
-          },
-          origin,
-        )
-    })
-  })
+    ["improvement", 7, 8, false],
+    ["improvement", 8, 7, false],
+    ["improvement", 8, 8, true],
+    ["comment", 7, 8, false],
+    ["comment", 8, 7, false],
+    ["comment", 8, 8, true],
+    ["comment", 6, 6, false],
+  ] as const)(
+    "requires eight pixels in both %s rectangle dimensions (%s by %s)",
+    (mode, width, height, accepted) => {
+      withSelection(({ pointer, post, anchor }) => {
+        pointer("pointerdown", 100, 100)
+        pointer("pointerup", 100 + width, 100 + height)
+        if (accepted) expect(anchor().kind).toBe("area")
+        else
+          expect(post).toHaveBeenLastCalledWith(
+            {
+              type: "replica:canvas:selection-failed",
+              nonce: mode,
+              reason: "area-too-small",
+            },
+            origin,
+          )
+      }, mode)
+    },
+  )
 
-  it.each(["pointercancel", "lostpointercapture"])(
+  it.each(["pointercancel", "lostpointercapture", "cancel-selection"])(
     "cleans up an interrupted %s gesture",
     (event) => {
       withSelection(({ surface, pointer, post }) => {
         pointer("pointerdown", 100, 100)
-        surface.dispatchEvent(new Event(event))
+        if (event === "cancel-selection")
+          request({ type: "replica:canvas:cancel-selection", nonce: "comment" })
+        else surface.dispatchEvent(new Event(event))
         pointer("pointerup", 300, 300)
         expect(post.mock.calls.some(([message]) => isSelectionMessage(message))).toBe(false)
         expect(
           document.querySelector('[data-replica-canvas-bridge][style*="crosshair"]'),
         ).toBeNull()
-      })
+      }, "comment")
     },
   )
 

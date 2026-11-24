@@ -182,7 +182,7 @@ export function PrototypeCanvasHubPanel({
   >(new Map())
   const [bridgeReady, setBridgeReady] = useState(false)
   const [bridgeProblem, setBridgeProblem] = useState("")
-  const [selectionMode, setSelectionMode] = useState<"element" | "area" | null>(null)
+  const [selectionMode, setSelectionMode] = useState<"comment" | null>(null)
   const [preparingSelection, setPreparingSelection] = useState(false)
   const [selectedAnchor, setSelectedAnchor] = useState<ReviewAnchor | null>(null)
   const [selectionFailure, setSelectionFailure] = useState<
@@ -583,62 +583,59 @@ export function PrototypeCanvasHubPanel({
     [config.prototypeUrl, config.previewUrl, frameRef],
   )
 
-  const startSelection = useCallback(
-    async (mode: "element" | "area") => {
-      if (!bridgeReady || !canCreateComment || selectionUnavailable) return
-      onActivate?.()
-      const requestedIdentity = identity
-      const selectionRequest = ++selectionRequestRef.current
-      selectionRevisionRef.current = undefined
-      setPreparingSelection(true)
-      setCreateError("")
-      setSelected(null)
-      setSelectionFailure(null)
-      setSelectionMode(mode)
-      onClose()
-      try {
-        const next = await prototypeCanvasRequest<HubStatus>("/api/hub/status", config.token)
-        if (
-          identityRef.current !== requestedIdentity ||
-          selectionRequestRef.current !== selectionRequest
-        )
-          return
-        if (
-          (!next.repositoryAuthorized && next.state !== "connected") ||
-          next.prototype?.id !== prototypeId ||
-          next.hubOrigin !== status?.hubOrigin ||
-          next.repository !== status?.repository ||
-          next.branch !== status?.branch ||
-          !next.reviewRevision
-        )
-          throw new Error(next.reviewError || copy.commentPreparationFailed)
-        selectionRevisionRef.current = next.reviewRevision
-        sendBridge("replica:canvas:select", { mode })
-      } catch (cause) {
-        if (
-          identityRef.current === requestedIdentity &&
-          selectionRequestRef.current === selectionRequest
-        ) {
-          setSelectionMode(null)
-          setCreateError(cause instanceof Error ? cause.message : String(cause))
-        }
-      } finally {
-        if (selectionRequestRef.current === selectionRequest) setPreparingSelection(false)
+  const startSelection = useCallback(async () => {
+    if (!bridgeReady || !canCreateComment || selectionUnavailable) return
+    onActivate?.()
+    const requestedIdentity = identity
+    const selectionRequest = ++selectionRequestRef.current
+    selectionRevisionRef.current = undefined
+    setPreparingSelection(true)
+    setCreateError("")
+    setSelected(null)
+    setSelectionFailure(null)
+    setSelectionMode("comment")
+    onClose()
+    try {
+      const next = await prototypeCanvasRequest<HubStatus>("/api/hub/status", config.token)
+      if (
+        identityRef.current !== requestedIdentity ||
+        selectionRequestRef.current !== selectionRequest
+      )
+        return
+      if (
+        (!next.repositoryAuthorized && next.state !== "connected") ||
+        next.prototype?.id !== prototypeId ||
+        next.hubOrigin !== status?.hubOrigin ||
+        next.repository !== status?.repository ||
+        next.branch !== status?.branch ||
+        !next.reviewRevision
+      )
+        throw new Error(next.reviewError || copy.commentPreparationFailed)
+      selectionRevisionRef.current = next.reviewRevision
+      sendBridge("replica:canvas:select", { mode: "comment" })
+    } catch (cause) {
+      if (
+        identityRef.current === requestedIdentity &&
+        selectionRequestRef.current === selectionRequest
+      ) {
+        setSelectionMode(null)
+        setCreateError(cause instanceof Error ? cause.message : String(cause))
       }
-    },
-    [
-      onActivate,
-      bridgeReady,
-      canCreateComment,
-      config.token,
-      identity,
-      onClose,
-      prototypeId,
-      selectionUnavailable,
-      sendBridge,
-      status,
-    ],
-  )
+    } finally {
+      if (selectionRequestRef.current === selectionRequest) setPreparingSelection(false)
+    }
+  }, [
+    onActivate,
+    bridgeReady,
+    canCreateComment,
+    config.token,
+    identity,
+    onClose,
+    prototypeId,
+    selectionUnavailable,
+    sendBridge,
+    status,
+  ])
 
   const cancelSelection = useCallback(() => {
     if (!selectionMode) return
@@ -649,7 +646,7 @@ export function PrototypeCanvasHubPanel({
     setSelectionMode(null)
   }, [selectionMode, sendBridge])
 
-  const cycleCommentSelection = useEffectEvent(() => {
+  const toggleCommentSelection = useEffectEvent(() => {
     if (
       !bridgeReady ||
       !canCreateComment ||
@@ -658,8 +655,8 @@ export function PrototypeCanvasHubPanel({
       document.querySelector('[role="dialog"], dialog[open], [role="menu"]')
     )
       return false
-    if (selectionMode === "area") cancelSelection()
-    else void startSelection(selectionMode === "element" ? "area" : "element")
+    if (selectionMode) cancelSelection()
+    else void startSelection()
     return true
   })
 
@@ -684,7 +681,7 @@ export function PrototypeCanvasHubPanel({
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
       if (
-        (isAnnotationShortcut(event, "c") && cycleCommentSelection()) ||
+        (isAnnotationShortcut(event, "c") && toggleCommentSelection()) ||
         (isAnnotationShortcut(event, "c", true) &&
           !document.querySelector('[role="menu"]') &&
           handleCommentVisibility())
@@ -840,7 +837,7 @@ export function PrototypeCanvasHubPanel({
       if (incompatible) return
       if (data.type === "replica:canvas:comment-cycle-requested") {
         if (document.activeElement === frame && navigator.userActivation?.isActive === true)
-          cycleCommentSelection()
+          toggleCommentSelection()
         return
       }
       if (data.type === "replica:canvas:comment-visibility-toggle-requested") {
@@ -1247,7 +1244,7 @@ export function PrototypeCanvasHubPanel({
                 copy={reviewCommentsCopy}
                 selectionBlocked={selectionBlocked}
                 selecting={selectionMode !== null}
-                cycleShortcut
+                unifiedSelection
                 visibilityAction={
                   canLoadComments
                     ? {
@@ -1257,8 +1254,8 @@ export function PrototypeCanvasHubPanel({
                     : undefined
                 }
                 onCancelSelection={cancelSelection}
-                onStartAreaSelection={() => void startSelection("area")}
-                onStartElementSelection={() => void startSelection("element")}
+                onStartAreaSelection={() => void startSelection()}
+                onStartElementSelection={() => void startSelection()}
               />
               <Tooltip
                 ref={commentsButtonRef}

@@ -32,6 +32,7 @@
 
 .review-comment-control__menu-label {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: var(--base-size-16);
   width: 100%;
@@ -39,11 +40,18 @@
 
 .review-comment-control__shortcut {
   display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
   gap: var(--base-size-4);
   white-space: nowrap;
 }
 
 .review-comment-control__key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  flex: 0 0 auto;
   padding: 0 0.35em;
   border-radius: 0.25em;
   background-color: color-mix(in srgb, currentColor 10%, transparent);
@@ -51,6 +59,7 @@
   font-family: var(--brand-fontStack-monospace);
   font-size: calc(1em - 1px);
   line-height: 1.4;
+  text-align: center;
 }
 
 div:has(> [data-testid="ActionMenu"] .review-comment-control__trigger[aria-expanded="true"])

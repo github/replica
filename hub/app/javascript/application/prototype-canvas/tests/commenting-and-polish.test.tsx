@@ -155,7 +155,7 @@ function previewBridge() {
 }
 
 describe("App()", () => {
-  it("cycles C from off to element to region to off without starting Pick & polish", async () => {
+  it("toggles unified comment selection with C without starting Pick & polish", async () => {
     const { fetch } = reviewFixture()
     const view = render(
       <App
@@ -178,25 +178,26 @@ describe("App()", () => {
     fireEvent.click(screen.getByRole("button", { name: commentsCopy.commentMenuLabel }))
     const menu = screen.getByRole("menu")
     expect(
-      within(menu).getByRole("menuitem", { name: commentsCopy.highlightRegionLabel }),
+      within(menu).getByRole("menuitem", { name: commentsCopy.commentMenuLabel }),
     ).toHaveAttribute("aria-keyshortcuts", "C")
+    expect(
+      within(menu).queryByRole("menuitem", { name: commentsCopy.highlightRegionLabel }),
+    ).not.toBeInTheDocument()
+    expect(
+      within(menu).queryByRole("menuitem", { name: commentsCopy.commentOnElementLabel }),
+    ).not.toBeInTheDocument()
     bridge.post.mockClear()
     fireEvent.keyDown(window, { key: "c" })
     expect(select()).toEqual([])
     fireEvent.keyDown(menu, { key: "Escape" })
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument())
-    for (const [key, mode] of [
-      ["c", "element"],
-      ["C", "area"],
-    ]) {
-      bridge.post.mockClear()
-      fireEvent.keyDown(window, { key })
-      bridge.ready()
-      await waitFor(() => expect(select().at(-1)?.mode).toBe(mode))
-      expect(picker).toHaveAttribute("aria-pressed", "false")
-    }
     bridge.post.mockClear()
     fireEvent.keyDown(window, { key: "c" })
+    bridge.ready()
+    await waitFor(() => expect(select().at(-1)?.mode).toBe("comment"))
+    expect(picker).toHaveAttribute("aria-pressed", "false")
+    bridge.post.mockClear()
+    fireEvent.keyDown(window, { key: "C" })
     expect(await screen.findByRole("button", { name: commentsCopy.commentMenuLabel })).toBeEnabled()
     expect(select()).toEqual([])
     expect(bridge.messages().some((data) => data.type === "replica:canvas:cancel-selection")).toBe(
@@ -206,7 +207,7 @@ describe("App()", () => {
     view.unmount()
   })
 
-  it("does not cycle comments when the preview is ready but repository review is unauthorized", async () => {
+  it("does not start comments when the preview is ready but repository review is unauthorized", async () => {
     reviewFixture({
       repositoryAuthorized: false,
       prototype: undefined,
@@ -425,22 +426,26 @@ describe("App()", () => {
     send({ ...message, nonce: "stale-comment" })
     send({ ...message, nonce: noteNonce! })
     expect(bridge.messages().filter((data) => data.type === "replica:canvas:select")).toEqual([])
-    for (const mode of ["element", "area"]) {
-      act(() => bridge.frame.focus())
-      send()
-      bridge.ready()
-      await waitFor(() =>
-        expect(
-          bridge
-            .messages()
-            .filter((data) => data.type === "replica:canvas:select")
-            .at(-1)?.mode,
-        ).toBe(mode),
-      )
-    }
+    act(() => bridge.frame.focus())
+    send()
+    bridge.ready()
+    await waitFor(() =>
+      expect(
+        bridge
+          .messages()
+          .filter((data) => data.type === "replica:canvas:select")
+          .at(-1)?.mode,
+      ).toBe("comment"),
+    )
+    bridge.post.mockClear()
     act(() => bridge.frame.focus())
     send()
     expect(await screen.findByRole("button", { name: commentsCopy.commentMenuLabel })).toBeEnabled()
+    expect(bridge.messages().filter((data) => data.type === "replica:canvas:select")).toEqual([])
+    expect(bridge.post).toHaveBeenCalledWith(
+      { type: "replica:canvas:cancel-selection", nonce: commentNonce },
+      "http://localhost:4321",
+    )
     view.unmount()
   })
 
@@ -639,17 +644,14 @@ describe("App()", () => {
       fireEvent.click(screen.getByRole("button", { name: commentsCopy.commentMenuLabel }))
       fireEvent.click(
         screen.getByRole("menuitem", {
-          name:
-            mode === "element"
-              ? commentsCopy.commentOnElementLabel
-              : commentsCopy.highlightRegionLabel,
+          name: commentsCopy.commentMenuLabel,
         }),
       )
       bridge.ready()
       const commentNonce = bridge.resolveNonce("#comment-target")
       await waitFor(() =>
         expect(bridge.post).toHaveBeenCalledWith(
-          { type: "replica:canvas:select", nonce: commentNonce, mode },
+          { type: "replica:canvas:select", nonce: commentNonce, mode: "comment" },
           "http://localhost:4321",
         ),
       )

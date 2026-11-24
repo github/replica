@@ -1,4 +1,5 @@
-.hub-shortcut-tooltip[popover] {
+.hub-shortcut-tooltip[popover][role="tooltip"] {
+  max-width: min(24rem, calc(100vw - 2rem));
   white-space: nowrap;
 }
 
@@ -14,4 +15,5 @@
   font-family: var(--brand-fontStack-monospace);
   font-size: calc(1em - 1px);
   line-height: 1.4;
+  text-align: center;
 }

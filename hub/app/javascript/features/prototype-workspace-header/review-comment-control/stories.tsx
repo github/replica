@@ -60,7 +60,7 @@ export const CanvasVisibilityMenu: Story = {
       return (
         <ReviewCommentControl
           {...args}
-          cycleShortcut
+          unifiedSelection
           visibilityAction={{
             label: visible ? canvasCopy.hideComments : canvasCopy.showComments,
             onToggle: () => setVisible((previous) => !previous),
@@ -84,5 +84,17 @@ export const CanvasCommentsHidden: Story = {
     await userEvent.click(await canvas.findByRole("menuitem", { name: canvasCopy.hideComments }))
     await userEvent.click(trigger)
     await canvas.findByRole("menuitem", { name: canvasCopy.showComments })
+  },
+}
+
+export const CanvasSelecting: Story = {
+  args: {
+    selecting: true,
+    unifiedSelection: true,
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.hover(
+      canvas.getByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel }),
+    )
   },
 }

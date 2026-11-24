@@ -5,7 +5,7 @@ export interface ReviewCommentControlProps {
   copy: ReviewCommentsCopy
   selectionBlocked: boolean
   selecting: boolean
-  cycleShortcut?: boolean
+  unifiedSelection?: boolean
   visibilityAction?: {
     label: string
     onToggle: () => void

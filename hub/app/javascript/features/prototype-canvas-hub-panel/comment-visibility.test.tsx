@@ -285,7 +285,7 @@ describe("PrototypeCanvasHubPanel()", () => {
       resolveMarkers([1])
       fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
       fireEvent.click(
-        await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
+        await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentMenuLabel }),
       )
       await screen.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel })
       expect(

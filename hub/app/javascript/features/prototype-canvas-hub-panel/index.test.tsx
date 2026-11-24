@@ -981,14 +981,14 @@ it("creates Hub conversations and supports existing-thread actions", async () =>
   postMessage.mockClear()
   fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
   fireEvent.click(
-    await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
+    await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentMenuLabel }),
   )
   await waitFor(() =>
     expect(postMessage).toHaveBeenCalledWith(
       {
         type: "replica:canvas:select",
         nonce,
-        mode: "element",
+        mode: "comment",
       },
       "http://localhost:4321",
     ),
@@ -1357,7 +1357,7 @@ describe("PrototypeCanvasHubPanel()", () => {
       })
       fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
       fireEvent.click(
-        await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
+        await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentMenuLabel }),
       )
       if (target === "draft revision") {
         await waitFor(() => expect(finishPreparation).toBeTypeOf("function"))
