@@ -246,6 +246,6 @@ Before submitting CSS edits, verify:
 
 - [ ] Read corresponding `.tsx` file(s) that use this CSS
 - [ ] All colors use Fluent semantic tokens
-- [ ] All spacing uses `--spacing*` variables
+- [ ] Pixel or rem spacing below 32px uses `--spacing*` variables; pixel spacing of 32px or more prefers variables and may be hardcoded when necessary
 - [ ] Component CSS file is named `*.module.css`; any app-level stylesheet edit stays within the foundational-style exception
 - [ ] Classes combined with `clsx` when multiple are needed
