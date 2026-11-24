@@ -194,7 +194,7 @@ describe("ShareLinksPage()", () => {
       .find((part) => part.type === "timeZoneName")!.value
     const time = document.querySelector(".canvas-share-build-details time")!
     expect(time).toHaveAttribute("dateTime", publishedAt)
-    expect(time.textContent.endsWith(zone)).toBe(true)
+    expect(time).toHaveTextContent(zone)
   })
 
   it("makes created-link Build labels bold without inventing details for real links", () => {
