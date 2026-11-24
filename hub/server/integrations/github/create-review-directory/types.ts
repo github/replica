@@ -17,5 +17,5 @@ export interface GitHubReviewDirectory {
     githubId?: number,
     signal?: AbortSignal,
   ): Promise<GitHubReviewPerson | null>
-  search(repositoryId: bigint, query: string): Promise<GitHubReviewPerson[]>
+  search(repositoryId: bigint, query: string, signal?: AbortSignal): Promise<GitHubReviewPerson[]>
 }

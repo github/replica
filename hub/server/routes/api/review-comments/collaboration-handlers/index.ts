@@ -1,4 +1,4 @@
-import type { Request, RequestHandler } from "express"
+import type { Request, RequestHandler, Response } from "express"
 import { z } from "zod"
 
 import { reviewReactionContents } from "../../../../domains/review-comments/types.ts"
@@ -35,7 +35,11 @@ export function createCollaborationHandlers(
 ) {
   function handle<Result>(
     permission: "view" | "change",
-    run: (input: ReviewMutationScope, request: Request) => Promise<Result | null>,
+    run: (
+      input: ReviewMutationScope,
+      request: Request,
+      response: Response,
+    ) => Promise<Result | null>,
   ): RequestHandler {
     return async (request, response, next) => {
       try {
@@ -62,7 +66,9 @@ export function createCollaborationHandlers(
         const result = await run(
           { ...identifiers, sessionDigest: actor.sessionDigest, actor },
           request,
+          response,
         )
+        if (response.destroyed) return
         if (result === null) {
           response.status(400).json({ error: "The review request is invalid." })
           return
@@ -86,6 +92,7 @@ export function createCollaborationHandlers(
         }
         response.json(result)
       } catch (error) {
+        if (response.destroyed) return
         if (!respondReviewError(error, response)) next(error)
       }
     }
@@ -135,22 +142,34 @@ export function createCollaborationHandlers(
     removeReaction: react(false),
     markRead: markRead(true),
     markUnread: markRead(false),
-    mentionCandidates: handle("view", async (input, request) => {
+    mentionCandidates: handle("view", async (input, request, response) => {
       const query = candidateQuery.safeParse(request.query)
-      if (!query.success || !review.searchReviewMentions) return null
-      const candidates = await review.searchReviewMentions(
-        input.repositoryId,
-        input.prototypeId,
-        query.data.q.toLowerCase(),
-        input.actor.userId,
-      )
-      // Recheck the branch itself after the provider request as well.
-      if (
-        review.isPrototypeReviewable &&
-        !(await review.isPrototypeReviewable(input.repositoryId, input.prototypeId))
-      )
-        return null
-      return { candidates }
+      if (!query.success || !review.searchReviewMentions || response.destroyed) return null
+      const cancellation = new AbortController()
+      function cancel() {
+        cancellation.abort()
+      }
+      // The incoming GET can finish before its client disconnects.
+      response.once("close", cancel)
+      try {
+        const candidates = await review.searchReviewMentions(
+          input.repositoryId,
+          input.prototypeId,
+          query.data.q.toLowerCase(),
+          input.actor.userId,
+          cancellation.signal,
+        )
+        if (cancellation.signal.aborted) return null
+        // Recheck the branch itself after the provider request as well.
+        if (
+          review.isPrototypeReviewable &&
+          !(await review.isPrototypeReviewable(input.repositoryId, input.prototypeId))
+        )
+          return null
+        return { candidates }
+      } finally {
+        response.off("close", cancel)
+      }
     }),
   }
 }

@@ -43,6 +43,7 @@ export function createReviewDirectory(
     body?: { repository_ids: number[] },
   ): Promise<z.output<S> | null> {
     try {
+      signal.throwIfAborted()
       const response = await request(new URL(path, "https://api.github.com"), {
         method: body ? "POST" : "GET",
         body: body ? JSON.stringify(body) : undefined,
@@ -181,8 +182,10 @@ export function createReviewDirectory(
         ? present(profile)
         : null
     },
-    async search(repositoryId, query) {
-      const signal = AbortSignal.timeout(6000)
+    async search(repositoryId, query, cancellation) {
+      cancellation?.throwIfAborted()
+      const timeout = AbortSignal.timeout(6000)
+      const signal = cancellation ? AbortSignal.any([timeout, cancellation]) : timeout
       const repository = await scope(repositoryId, signal)
       if (!repository) throw new GitHubProviderRequestError()
       const { bearer, path } = repository
@@ -195,6 +198,7 @@ export function createReviewDirectory(
           bearer,
           signal,
         )
+        signal.throwIfAborted()
         if (!rows) throw new GitHubProviderRequestError()
         for (const profile of rows) {
           if (profile.login.toLowerCase().includes(query))

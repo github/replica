@@ -42,8 +42,15 @@ export function createReviewMentionDirectory(database: Database, github?: GitHub
     return result
   }
   return {
-    async search(repositoryId: string, prototypeId: string, query: string, viewerId: string) {
+    async search(
+      repositoryId: string,
+      prototypeId: string,
+      query: string,
+      viewerId: string,
+      signal: AbortSignal,
+    ) {
       const source = await repository(repositoryId, prototypeId)
+      signal.throwIfAborted()
       if (source.localPath) {
         return (await findLocalReviewPeople(database, query, false))
           .filter(({ login, userId }) => userId !== viewerId && validLogin.test(login))
@@ -51,8 +58,9 @@ export function createReviewMentionDirectory(database: Database, github?: GitHub
       }
       if (!github || !source.githubRepositoryId) throw unavailable()
       try {
-        return await github.search(source.githubRepositoryId, query)
+        return await github.search(source.githubRepositoryId, query, signal)
       } catch {
+        signal.throwIfAborted()
         throw unavailable()
       }
     },
