@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto"
 import { execFileSync } from "node:child_process"
+import { statSync } from "node:fs"
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
-import { basename, isAbsolute, relative, resolve } from "node:path"
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path"
 import { describe, expect, it, onTestFinished } from "vitest"
 
 import { runCommand } from "../../../integrations/process/run-command"
@@ -10,6 +11,7 @@ import type { LocalDevelopmentConfiguration } from "../types"
 import { prepareLocalDevelopment } from "."
 
 const sourceRepositoryRoot = resolve("..")
+const seedTimeout = process.platform === "win32" ? 90_000 : 15_000
 
 function git(directory: string, ...arguments_: string[]): string {
   return execFileSync("git", ["-c", "maintenance.auto=false", "-C", directory, ...arguments_], {
@@ -39,13 +41,13 @@ function expectSeedDependencyInstall(directory: string, prototypesRoot: string) 
   expect(basename(directory)).toBe("minimal")
 }
 
-function testConfiguration(): {
+function testConfiguration(rootSuffix = ""): {
   configuration: LocalDevelopmentConfiguration & { enabled: true }
   browserDirectories: string[]
   npmDirectories: string[]
   runTestCommand: (options: RunCommandOptions) => Promise<void>
 } {
-  const root = resolve(`.prepare-test-${randomUUID()}`)
+  const root = resolve(`.prepare-test-${randomUUID()}${rootSuffix}`)
   const browserDirectories: string[] = []
   const npmDirectories: string[] = []
   onTestFinished(() => rm(root, { force: true, recursive: true }))
@@ -54,7 +56,7 @@ function testConfiguration(): {
     browserDirectories,
     configuration: {
       buildActionDirectory: resolve(root, ".build-action"),
-      createPrototypeScript: resolve(sourceRepositoryRoot, "scripts/create-prototype-repo.mjs"),
+      createPrototypeScript: resolve(sourceRepositoryRoot, "scripts/create-prototype-repo.sh"),
       enabled: true,
       root,
       sourceRoot: sourceRepositoryRoot,
@@ -83,9 +85,19 @@ function testConfiguration(): {
 
 describe("prepareLocalDevelopment()", () => {
   it.runIf(process.platform === "win32")(
-    "runs both npm installs through Node with a literal entrypoint containing spaces and shell characters",
+    "seeds through Git for Windows Bash and runs npm through a literal Node entrypoint",
     async () => {
-      const fixture = testConfiguration()
+      const fixture = testConfiguration(" spaced")
+      const { createPrototypeScript, root } = fixture.configuration
+      expect(execFileSync("git", ["--version"], { encoding: "utf8" })).toMatch(/\.windows\./)
+      const gitCore = execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim()
+      expect(isAbsolute(gitCore)).toBe(true)
+      expect([basename(dirname(gitCore)), basename(gitCore)]).toEqual(["libexec", "git-core"])
+      const installation = resolve(gitCore, "..", "..", "..")
+      const bash = resolve(installation, "bin", "bash.exe")
+      expect(statSync(bash).isFile()).toBe(true)
+      expect(statSync(resolve(installation, "usr", "bin", "cygpath.exe")).isFile()).toBe(true)
+      const scaffoldArguments: string[][] = []
       const tools = `${fixture.configuration.root}-npm tools & spaces`
       onTestFinished(() => rm(tools, { force: true, recursive: true }))
       const entrypoint = resolve(tools, "npm-cli.js")
@@ -101,12 +113,26 @@ appendFileSync(${JSON.stringify(log)}, JSON.stringify(process.argv.slice(2)) + "
       vi.stubEnv("npm_execpath", entrypoint)
 
       await prepareLocalDevelopment(fixture.configuration, {
-        runCommand: (options) =>
-          options.arguments[0] === entrypoint
+        runCommand: (options) => {
+          if (
+            options.arguments.includes(createPrototypeScript) ||
+            /^(bash|sh|wsl)(\.exe)?$/i.test(basename(options.command))
+          ) {
+            expect(isAbsolute(options.command)).toBe(true)
+            expect(resolve(options.command).toLowerCase()).toBe(bash.toLowerCase())
+            scaffoldArguments.push([...options.arguments])
+          }
+          return options.arguments[0] === entrypoint
             ? runCommand(options)
-            : fixture.runTestCommand(options),
+            : fixture.runTestCommand(options)
+        },
       })
 
+      expect(scaffoldArguments).toEqual([[createPrototypeScript, expect.any(String)]])
+      const checkout = scaffoldArguments[0]![1]!
+      expect(isAbsolute(checkout)).toBe(true)
+      expect(checkout).toContain(" spaced")
+      expectSeedDependencyInstall(checkout, root)
       expect(
         (await readFile(log, "utf8"))
           .trim()
@@ -120,10 +146,10 @@ appendFileSync(${JSON.stringify(log)}, JSON.stringify(process.argv.slice(2)) + "
         Object.keys(branchRefs(resolve(fixture.configuration.root, "minimal"))).sort(),
       ).toEqual(["main", "prototype/example"])
     },
-    15_000,
+    seedTimeout,
   )
 
-  it("reports the Starter creation stage safely when the Node scaffold fails", async () => {
+  it("reports the Starter creation stage without subprocess diagnostics", async () => {
     const fixture = testConfiguration()
 
     await expect(
@@ -140,29 +166,33 @@ appendFileSync(${JSON.stringify(log)}, JSON.stringify(process.argv.slice(2)) + "
     )
   })
 
-  it("deterministically seeds Minimal with committed main and example branches", async () => {
-    vi.stubEnv("npm_execpath", undefined)
-    const first = testConfiguration()
+  it(
+    "deterministically seeds Minimal with committed main and example branches",
+    async () => {
+      vi.stubEnv("npm_execpath", undefined)
+      const first = testConfiguration()
 
-    await prepareLocalDevelopment(first.configuration, { runCommand: first.runTestCommand })
+      await prepareLocalDevelopment(first.configuration, { runCommand: first.runTestCommand })
 
-    const minimal = resolve(first.configuration.root, "minimal")
-    expect(Object.keys(branchRefs(minimal)).sort()).toEqual(["main", "prototype/example"])
-    expect(git(minimal, "status", "--porcelain")).toBe("")
-    expect(git(minimal, "rev-list", "--count", "main")).toBe("1")
-    expect(git(minimal, "rev-list", "--count", "prototype/example")).toBe("2")
-    expect(await readFile(resolve(minimal, "package.json"), "utf8")).toBe(
-      await readFile(resolve(sourceRepositoryRoot, "starter/package.json"), "utf8"),
-    )
-    expect(first.npmDirectories[0]).toBe(first.configuration.buildActionDirectory)
-    expectSeedDependencyInstall(first.npmDirectories[1]!, first.configuration.root)
-    expect(first.npmDirectories).toHaveLength(2)
-    expect(first.browserDirectories).toEqual([first.configuration.buildActionDirectory])
+      const minimal = resolve(first.configuration.root, "minimal")
+      expect(Object.keys(branchRefs(minimal)).sort()).toEqual(["main", "prototype/example"])
+      expect(git(minimal, "status", "--porcelain")).toBe("")
+      expect(git(minimal, "rev-list", "--count", "main")).toBe("1")
+      expect(git(minimal, "rev-list", "--count", "prototype/example")).toBe("2")
+      expect(await readFile(resolve(minimal, "package.json"), "utf8")).toBe(
+        await readFile(resolve(sourceRepositoryRoot, "starter/package.json"), "utf8"),
+      )
+      expect(first.npmDirectories[0]).toBe(first.configuration.buildActionDirectory)
+      expectSeedDependencyInstall(first.npmDirectories[1]!, first.configuration.root)
+      expect(first.npmDirectories).toHaveLength(2)
+      expect(first.browserDirectories).toEqual([first.configuration.buildActionDirectory])
 
-    const second = testConfiguration()
-    await prepareLocalDevelopment(second.configuration, { runCommand: second.runTestCommand })
-    expect(branchRefs(resolve(second.configuration.root, "minimal"))).toEqual(branchRefs(minimal))
-  }, 15_000)
+      const second = testConfiguration()
+      await prepareLocalDevelopment(second.configuration, { runCommand: second.runTestCommand })
+      expect(branchRefs(resolve(second.configuration.root, "minimal"))).toEqual(branchRefs(minimal))
+    },
+    seedTimeout,
+  )
 
   it("does not seed or alter repositories when the configured root is non-empty", async () => {
     const fixture = testConfiguration()
@@ -192,39 +222,43 @@ appendFileSync(${JSON.stringify(log)}, JSON.stringify(process.argv.slice(2)) + "
     )
   })
 
-  it("preserves edited files, commits, and branches on later starts", async () => {
-    const fixture = testConfiguration()
-    await prepareLocalDevelopment(fixture.configuration, { runCommand: fixture.runTestCommand })
-    const minimal = resolve(fixture.configuration.root, "minimal")
-    git(minimal, "switch", "-c", "prototype/edited", "prototype/example")
-    await writeFile(resolve(minimal, "local-edit.txt"), "keep my edit\n")
-    git(minimal, "add", "local-edit.txt")
-    git(
-      minimal,
-      "-c",
-      "user.name=Local developer",
-      "-c",
-      "user.email=local@example.invalid",
-      "-c",
-      "commit.gpgsign=false",
-      "commit",
-      "-m",
-      "feat: keep local edit",
-    )
-    const refsBefore = branchRefs(minimal)
+  it(
+    "preserves edited files, commits, and branches on later starts",
+    async () => {
+      const fixture = testConfiguration()
+      await prepareLocalDevelopment(fixture.configuration, { runCommand: fixture.runTestCommand })
+      const minimal = resolve(fixture.configuration.root, "minimal")
+      git(minimal, "switch", "-c", "prototype/edited", "prototype/example")
+      await writeFile(resolve(minimal, "local-edit.txt"), "keep my edit\n")
+      git(minimal, "add", "local-edit.txt")
+      git(
+        minimal,
+        "-c",
+        "user.name=Local developer",
+        "-c",
+        "user.email=local@example.invalid",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-m",
+        "feat: keep local edit",
+      )
+      const refsBefore = branchRefs(minimal)
 
-    await prepareLocalDevelopment(fixture.configuration, { runCommand: fixture.runTestCommand })
+      await prepareLocalDevelopment(fixture.configuration, { runCommand: fixture.runTestCommand })
 
-    expect(branchRefs(minimal)).toEqual(refsBefore)
-    expect(git(minimal, "branch", "--show-current")).toBe("prototype/edited")
-    expect(await readFile(resolve(minimal, "local-edit.txt"), "utf8")).toBe("keep my edit\n")
-    expect(fixture.npmDirectories[0]).toBe(fixture.configuration.buildActionDirectory)
-    expectSeedDependencyInstall(fixture.npmDirectories[1]!, fixture.configuration.root)
-    expect(fixture.npmDirectories[2]).toBe(fixture.configuration.buildActionDirectory)
-    expect(fixture.npmDirectories).toHaveLength(3)
-    expect(fixture.browserDirectories).toEqual([
-      fixture.configuration.buildActionDirectory,
-      fixture.configuration.buildActionDirectory,
-    ])
-  })
+      expect(branchRefs(minimal)).toEqual(refsBefore)
+      expect(git(minimal, "branch", "--show-current")).toBe("prototype/edited")
+      expect(await readFile(resolve(minimal, "local-edit.txt"), "utf8")).toBe("keep my edit\n")
+      expect(fixture.npmDirectories[0]).toBe(fixture.configuration.buildActionDirectory)
+      expectSeedDependencyInstall(fixture.npmDirectories[1]!, fixture.configuration.root)
+      expect(fixture.npmDirectories[2]).toBe(fixture.configuration.buildActionDirectory)
+      expect(fixture.npmDirectories).toHaveLength(3)
+      expect(fixture.browserDirectories).toEqual([
+        fixture.configuration.buildActionDirectory,
+        fixture.configuration.buildActionDirectory,
+      ])
+    },
+    seedTimeout,
+  )
 })

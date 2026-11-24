@@ -19,7 +19,7 @@ export function checkWorkflows(root: string): void {
   for (const [name, ids] of [
     ["hub-ci", ["check", "integration"]],
     ["actions-ci", ["test", "publish", "screenshots"]],
-    ["starter-ci", ["test"]],
+    ["starter-ci", ["test", "windows-setup"]],
     ["learning-ci", ["test"]],
     ["scripts-ci", ["check"]],
   ] as const) {

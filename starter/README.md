@@ -1,6 +1,6 @@
 # Replica Starter
 
-A minimal starting point for a new prototype. Download and review `scripts/install-starter.mjs` from `github/replica`, then run `node --use-env-proxy install-starter.mjs my-prototype` to create an independent, uncommitted repository without cloning Replica. From a local Replica checkout, run `node scripts/create-prototype-repo.mjs ../my-prototype` instead. Both paths copy this starter without source history or a remote. Open the new repository in a fresh agent session so it discovers the skills, then use `/setup-skills` to draft context from your product and design-system sources. Review and approve the drafts before building a prototype. See [prototype repository setup](https://github.com/github/replica/blob/main/docs/prototype-repository-setup.md) for commands and the path from local preview to optional guidance and a shared baseline.
+A minimal starting point for a new prototype. To create another independent repository, follow [prototype repository setup](https://github.com/github/replica/blob/main/docs/prototype-repository-setup.md). The Bash creator and download installer run outside this copied starter. On native Windows, use Git Bash from Git for Windows for creation. Open the new directory in a fresh agent session so it discovers the skills, then use `/setup-skills` to draft context from your product and design-system sources. Review and approve the drafts before building a prototype.
 
 The app has hash-based routing, a start page, a linked sub-page, and a scaffolded activity example. Replace the example pages with your prototype.
 
@@ -222,6 +222,8 @@ Installation commands run without interactive input and have bounded timeouts;
 approval or policy failures need user action. Session startup always attempts `npm ci`, even if CLI installation or plugin setup fails. If dependencies install successfully, startup completes without a hard error, but the Replica canvas remains unavailable until plugin setup succeeds. Dependency installation failures still fail startup.
 
 Session startup runs `node scripts/setup-replica-plugin.mjs --startup`. After `npm ci` finishes, the script prints a final summary of dependency installation and Replica plugin setup, including failure reasons and recovery commands. Plugin installation success does not prove that the current session loaded the canvas; the summary includes the separate activation steps.
+
+On native Windows, Copilot Startup uses the app's command runner, not the Git Bash session used to create the starter. Check the app's setup output for the result of `npm ci`. Successful creation or dependency installation in a separate terminal does not verify Startup or canvas availability.
 
 Plugin failures also print the cause and recovery guidance when they occur. Repository setup scripts have no documented way to post a chat message; agents do not automatically receive this output. Open the app's setup output to diagnose the failure, then rerun `node scripts/setup-replica-plugin.mjs` after resolving it. Running that script without `--startup` only sets up the plugin and still exits nonzero on failure.
 For manual installation, updates or source changes, follow the

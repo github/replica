@@ -291,7 +291,11 @@ export function createCanvasConnections(
       return database.$transaction(async (transaction) => {
         const viewer = await authority.current(transaction, browser.viewer, browser)
         const owner = viewer && canvasAuthorityReference(viewer)
-        return owner ? listCanvasGrants(transaction, owner) : null
+        if (!viewer || !owner) return null
+        return {
+          viewerId: viewer.userId,
+          connections: await listCanvasGrants(transaction, owner),
+        }
       })
     },
 

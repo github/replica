@@ -8,7 +8,7 @@ Hub is being rebuilt. Hosted publishing, sharing, comments, and deployment are n
 
 Download the [GitHub Copilot app](https://github.com/features/ai/github-app), install it, and follow its sign-in instructions.
 
-You also need [Git](https://git-scm.com/), [npm](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm), and [Node.js](https://nodejs.org/). Install the Node.js version required by your team's prototyping repository; npm comes with Node.js.
+You also need [Git](https://git-scm.com/), [npm](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm), and [Node.js](https://nodejs.org/). Install the Node.js version required by your team's prototyping repository; npm comes with Node.js. If you are creating a new starter on native Windows, use [Git for Windows with Git Bash](prototype-repository-setup.md#2-create-the-independent-starter).
 
 The canvas preview workflow supports macOS and Linux. Server discovery requires `lsof` on the machine running the canvas extension; install it with your system's package manager if it is missing. **Start dev server** is supported only on macOS and Linux.
 

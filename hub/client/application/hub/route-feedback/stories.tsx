@@ -1,6 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { fn } from "storybook/test"
 
+import { HubWorkspace } from "@features/hub-workspace"
+import { authenticatedHubWorkspaceData } from "@/storybook/fixtures/hub-administration"
+
 import { RouteFeedback } from "."
 
 const meta = {
@@ -35,4 +38,32 @@ export const NotFound: Story = {
     heading: "Page or record not found",
     description: "This page is not connected in the first frontend journey.",
   },
+}
+
+export const CanvasAccountMismatch: Story = {
+  args: {
+    heading: "Canvas connections unavailable",
+    description:
+      "Your Hub account changed while loading connections. Try again to see your connections.",
+    embedded: true,
+    onRetry: fn(),
+  },
+  decorators: [
+    (Story) => (
+      <HubWorkspace
+        data={{
+          ...authenticatedHubWorkspaceData,
+          canvasConnectionsPath: "/canvas/connections",
+          selectedSection: "canvas",
+        }}
+      >
+        <Story />
+      </HubWorkspace>
+    ),
+  ],
+}
+
+export const CanvasAccountRetrying: Story = {
+  ...CanvasAccountMismatch,
+  args: { ...CanvasAccountMismatch.args, retrying: true },
 }

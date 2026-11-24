@@ -264,8 +264,12 @@ it("pairs and renews the unchanged extension using local sign-in, then stops at 
       ).status,
     ).toBe(401)
 
+    const restoredSession = await browser("/api/auth/session")
+    expect(restoredSession.status).toBe(200)
+    const { userId } = z.object({ userId: z.uuid() }).parse(await restoredSession.json())
     const list = z
       .object({
+        viewerId: z.uuid(),
         connections: z.array(
           z
             .object({
@@ -279,6 +283,7 @@ it("pairs and renews the unchanged extension using local sign-in, then stops at 
       })
       .strict()
       .parse(await (await browser("/api/canvas/connections")).json())
+    expect(list.viewerId).toBe(userId)
     expect(list.connections.map(({ repository }) => repository)).toEqual(["local/example"])
     const id = list.connections[0]!.id
     const original = await prisma.canvasGrant.findUniqueOrThrow({ where: { id } })
@@ -289,7 +294,10 @@ it("pairs and renews the unchanged extension using local sign-in, then stops at 
     expect(renewed.inactiveAt).toEqual(original.inactiveAt)
 
     expect((await browser(`/api/canvas/connections/${id}`, "DELETE")).status).toBe(204)
-    expect(await (await browser("/api/canvas/connections")).json()).toEqual({ connections: [] })
+    expect(await (await browser("/api/canvas/connections")).json()).toEqual({
+      viewerId: userId,
+      connections: [],
+    })
     expect(await extension.status({ register: false })).toMatchObject({ state: "disconnected" })
     await expect(
       extension.request("/api/canvas/decision-model/evaluations", {
