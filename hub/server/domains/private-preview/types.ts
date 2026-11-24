@@ -2,6 +2,7 @@ import type { PrivatePreviewAddress } from "../../utils/private-preview-address/
 import { maximumDistFileBytes } from "../build-artifacts/constants.ts"
 
 export const privatePreviewManifestPath = "dist/replica-preview-base.json"
+export const maximumPrivatePreviewManifestBytes = 256
 export const maximumPrivatePreviewFileBytes = maximumDistFileBytes
 export const grantLifetime = 30_000
 export const sessionLifetime = 15 * 60_000

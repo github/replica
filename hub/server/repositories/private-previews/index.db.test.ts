@@ -110,6 +110,7 @@ function workflowBuild(githubWorkflowRunId: bigint, number = 1) {
   return {
     number,
     state: "successful" as const,
+    privatePreviewState: "ready" as const,
     githubWorkflowRunId,
     githubWorkflowRunAttempt: 1,
     artifacts: { create: distArtifact() },
@@ -210,12 +211,12 @@ describe("findPrivatePreviewTarget()", () => {
       },
     })
     await Promise.all(
-      ["prototype/one", "prototype/two"].map((branchName) =>
+      (["ready", "pending"] as const).map((privatePreviewState) =>
         prisma.prototype.create({
           data: {
             repositoryId: repository.id,
-            branchName,
-            builds: { create: workflowBuild(runId) },
+            branchName: `prototype/${privatePreviewState}`,
+            builds: { create: { ...workflowBuild(runId), privatePreviewState } },
           },
         }),
       ),
@@ -234,6 +235,8 @@ describe("findPrivatePreviewTarget()", () => {
       prototype: { branchName: "replica/install-workflow" },
     },
     { reason: "a failed Build", build: { state: "failed" as const } },
+    { reason: "a pending private preview", build: { privatePreviewState: "pending" as const } },
+    { reason: "a legacy Build", build: { privatePreviewState: null } },
     {
       reason: "a Build without a dist entry point",
       build: {

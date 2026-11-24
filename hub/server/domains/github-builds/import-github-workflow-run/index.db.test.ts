@@ -10,8 +10,12 @@ import type {
 } from "../../../integrations/github/create-github-actions-client/types"
 import { findBuildArtifact } from "../../../repositories/build-artifacts/find-build-artifact"
 import { listGitHubBuildsAwaitingImport } from "../../../repositories/github-builds/list-github-builds-awaiting-import"
+import { findPrivatePreviewDistFile } from "../../../repositories/private-previews/find-private-preview-dist-file"
+import { findPrivatePreviewTarget } from "../../../repositories/private-previews/find-private-preview-target"
+import { findPrototypeDetail } from "../../../repositories/prototype-index/find-prototype-detail"
 import { createGitHubWebhookRouteDependencies } from "../../../routes/api/github/webhooks/create-github-webhook-route-dependencies"
 import { createZipArchive } from "../../../test/create-zip-archive"
+import { privatePreviewAddress } from "../../../utils/private-preview-address"
 import type { ArtifactStorage } from "../../artifacts/create-artifact-storage/types"
 import { extractDistPackage } from "../../build-artifacts/extract-dist-package"
 import { readBuildPreviewFile } from "../../build-preview/read-build-preview-file"
@@ -20,6 +24,7 @@ import { discoverGitHubWorkflowRuns } from "../discover-github-workflow-runs"
 import type { GitHubWorkflowRunJob } from "../get-github-workflow-run-job-definition"
 import { refreshGitHubBranchHeads } from "../refresh-github-branch-heads"
 import { importGitHubWorkflowRun } from "."
+import type { ImportGitHubWorkflowRunDependencies } from "./types"
 
 const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1])
 const logger = { info() {}, warn() {} }
@@ -118,8 +123,14 @@ async function createFixture() {
         : { status: "gone" as const }
     },
   }
-  function importRun(job = { githubRepositoryId, runId: run.id }) {
-    return importGitHubWorkflowRun({ database: prisma, storage, client, logger }, job)
+  function importRun(
+    job = { githubRepositoryId, runId: run.id },
+    privatePreviewWriter?: ImportGitHubWorkflowRunDependencies["privatePreviewWriter"],
+  ) {
+    return importGitHubWorkflowRun(
+      { database: prisma, storage, client, logger, privatePreviewWriter },
+      job,
+    )
   }
   function findBuild(buildId?: string) {
     return prisma.build.findFirstOrThrow({
@@ -147,7 +158,306 @@ async function createFixture() {
   }
 }
 
+function privatePreviewPackage(basePath: string, asset = Buffer.from([0, 255, 9])) {
+  return createZipArchive([
+    { name: "dist/index.html", bytes: "<h1>Home</h1>" },
+    { name: "dist/assets/app.bin", bytes: asset },
+    { name: "dist/replica-preview-base.json", bytes: JSON.stringify({ basePath }) },
+    { name: "templates.json", bytes: JSON.stringify({ version: 1, templates: [] }) },
+  ])
+}
+
+function createPrivatePreviewDestination(repositoryId: number) {
+  const storage = createImmutableStorage()
+  return {
+    storage,
+    writer: {
+      repositoryId: String(repositoryId),
+      storage: {
+        read: vi.fn(storage.read.bind(storage)),
+        write: vi.fn(storage.write.bind(storage)),
+      },
+    },
+  }
+}
+
+async function readPrivatePreviewAvailability(
+  build: { prototype: { repositoryId: string }; prototypeId: string; number: number },
+  address: NonNullable<ReturnType<typeof privatePreviewAddress>>,
+) {
+  const detail = await findPrototypeDetail(
+    prisma,
+    build.prototype.repositoryId,
+    build.prototypeId,
+    build.number,
+    undefined,
+    null,
+    undefined,
+    "https://hub.example.com",
+  )
+  return [
+    detail?.selectedBuild?.privatePreviewUrl,
+    detail?.prototype.builds.find(({ number }) => number === build.number)?.privatePreviewUrl,
+    (await findPrivatePreviewTarget(prisma, address))?.buildId,
+  ]
+}
+
+async function expectPrivatePreviewHidden(
+  build: Parameters<typeof readPrivatePreviewAvailability>[0],
+  address: Parameters<typeof readPrivatePreviewAvailability>[1],
+) {
+  await expect(readPrivatePreviewAvailability(build, address)).resolves.toEqual([
+    undefined,
+    undefined,
+    undefined,
+  ])
+}
+
 describe("importGitHubWorkflowRun", () => {
+  describe("private preview publishing", () => {
+    it("publishes only served files under the ordinary Build's opaque keys and exposes its owning run", async () => {
+      const fixture = await createFixture()
+      const { repositoryId, id } = fixture.run
+      const address = privatePreviewAddress(String(repositoryId), String(id))!
+      const { storage, writer } = createPrivatePreviewDestination(repositoryId)
+      const asset = Buffer.from([0, 255, 37, 128])
+      const archive = privatePreviewPackage(`/previews/github/${repositoryId}/${id}/`, asset)
+      fixture.packages.set(distArtifactName, archive)
+      fixture.packages.set(
+        screenshotArtifactName,
+        screenshotPackage(extractDistPackage(archive).distDigest),
+      )
+
+      await expect(fixture.importRun(undefined, writer)).resolves.toEqual({
+        dist: "imported",
+        screenshots: "attached",
+      })
+
+      const build = await fixture.findBuild()
+      expect(build).toMatchObject({ state: "successful", privatePreviewState: "ready" })
+      expect(build.artifacts.map(({ path }) => path)).toEqual([
+        "dist/assets/app.bin",
+        "dist/index.html",
+        "dist/replica-preview-base.json",
+        "screenshots/desktop.png",
+        "templates.json",
+      ])
+      const served = build.artifacts.filter(({ path }) =>
+        ["dist/assets/app.bin", "dist/index.html"].includes(path),
+      )
+      expect(new Set(writer.storage.write.mock.calls.map(([key]) => key))).toEqual(
+        new Set(served.map(({ storageKey }) => storageKey)),
+      )
+      for (const { path, storageKey, byteLength } of served) {
+        const bytes = path.endsWith(".bin") ? asset : Buffer.from("<h1>Home</h1>")
+        await expect(findPrivatePreviewDistFile(prisma, build.id, path)).resolves.toEqual({
+          storageKey,
+          byteLength,
+        })
+        await expect(fixture.storage.read(storageKey)).resolves.toEqual({ status: "ok", bytes })
+        await expect(storage.read(storageKey)).resolves.toEqual({ status: "ok", bytes })
+      }
+      const launch = `https://hub.example.com/api/private-preview/launch/${repositoryId}/${id}`
+      await expect(readPrivatePreviewAvailability(build, address)).resolves.toEqual([
+        launch,
+        launch,
+        build.id,
+      ])
+    })
+
+    it.each([
+      { condition: "another configured repository", otherWriterRepository: true },
+      { condition: "a marker for another repository", markerRepositoryOffset: 1 },
+      { condition: "a marker for another run", markerRunOffset: 1 },
+      { condition: "a missing trailing slash", noTrailingSlash: true },
+      { condition: "no marker", noMarker: true },
+      { condition: "a local repository", local: true },
+    ])(
+      "does not publish for $condition",
+      async ({
+        otherWriterRepository,
+        markerRepositoryOffset = 0,
+        markerRunOffset = 0,
+        noTrailingSlash,
+        noMarker,
+        local,
+      }) => {
+        const fixture = await createFixture()
+        const { repositoryId, id } = fixture.run
+        const address = privatePreviewAddress(String(repositoryId), String(id))!
+        const { writer } = createPrivatePreviewDestination(
+          otherWriterRepository ? repositoryId + 1 : repositoryId,
+        )
+        if (local) {
+          await prisma.repository.update({
+            where: { githubRepositoryId: repositoryId },
+            data: { localPath: "/synthetic/repository" },
+          })
+        }
+        const basePath = `/previews/github/${repositoryId + markerRepositoryOffset}/${id + markerRunOffset}${noTrailingSlash ? "" : "/"}`
+        fixture.packages.set(
+          distArtifactName,
+          noMarker ? distPackage() : privatePreviewPackage(basePath),
+        )
+
+        await expect(fixture.importRun(undefined, writer)).resolves.toMatchObject({
+          dist: "imported",
+        })
+
+        const build = await fixture.findBuild()
+        expect(build.state).toBe("successful")
+        expect(writer.storage.read).not.toHaveBeenCalled()
+        expect(writer.storage.write).not.toHaveBeenCalled()
+        await expectPrivatePreviewHidden(build, address)
+      },
+    )
+
+    it("keeps a partial publication private until the owner retries with the retained dist bytes", async () => {
+      const fixture = await createFixture()
+      const { repositoryId, id } = fixture.run
+      const address = privatePreviewAddress(String(repositoryId), String(id))!
+      const { storage, writer } = createPrivatePreviewDestination(repositoryId)
+      writer.storage.write
+        .mockResolvedValue({ status: "unavailable" })
+        .mockImplementationOnce(storage.write.bind(storage))
+      fixture.packages.set(distArtifactName, privatePreviewPackage(address.mount))
+      fixture.run.status = "completed"
+      fixture.run.conclusion = "success"
+
+      await expect(fixture.importRun(undefined, writer)).rejects.toThrow()
+
+      const build = await fixture.findBuild()
+      expect(build).toMatchObject({
+        state: "successful",
+        privatePreviewState: "pending",
+        workflowCompletedAt: fixture.run.updatedAt,
+      })
+      const [storedKey] = writer.storage.write.mock.calls[0]!
+      await expect(storage.read(storedKey)).resolves.toMatchObject({ status: "ok" })
+      await expect(
+        readBuildPreviewFile(
+          { acceptsHtml: false, buildId: build.id, requestPath: "/assets/app.bin" },
+          {
+            storage: fixture.storage,
+            findArtifact: (buildId, file) => findBuildArtifact(prisma, buildId, file),
+          },
+        ),
+      ).resolves.toMatchObject({ status: "ok", bytes: Buffer.from([0, 255, 9]) })
+      await expectPrivatePreviewHidden(build, address)
+
+      writer.storage.read.mockClear()
+      writer.storage.write.mockClear().mockImplementation(storage.write.bind(storage))
+      fixture.run.id = id + 1
+      const contributor = privatePreviewAddress(String(repositoryId), String(fixture.run.id))!
+      fixture.packages.set(distArtifactName, privatePreviewPackage(contributor.mount))
+      fixture.packages.set(screenshotArtifactName, screenshotPackage(build.distDigest!))
+      await expect(fixture.importRun(undefined, writer)).resolves.toEqual({
+        dist: "unchanged",
+        screenshots: "attached",
+      })
+      expect(writer.storage.read).not.toHaveBeenCalled()
+      expect(writer.storage.write).not.toHaveBeenCalled()
+      await expect(findPrivatePreviewTarget(prisma, contributor)).resolves.toBeNull()
+      await expectPrivatePreviewHidden(build, address)
+
+      fixture.run.id = id
+      fixture.packages.set(distArtifactName, privatePreviewPackage(address.mount, Buffer.from([5])))
+      await expect(fixture.importRun(undefined, writer)).resolves.toMatchObject({
+        dist: "unchanged",
+      })
+
+      expect(await fixture.findBuild()).toMatchObject({
+        id: build.id,
+        privatePreviewState: "ready",
+        distDigest: build.distDigest,
+      })
+      for (const { path, storageKey } of build.artifacts) {
+        if (path !== "dist/assets/app.bin" && path !== "dist/index.html") continue
+        const original = await fixture.storage.read(storageKey)
+        expect(original.status).toBe("ok")
+        await expect(storage.read(storageKey)).resolves.toEqual(original)
+      }
+      const launch = `https://hub.example.com/api/private-preview/launch/${repositoryId}/${id}`
+      await expect(readPrivatePreviewAvailability(build, address)).resolves.toEqual([
+        launch,
+        launch,
+        build.id,
+      ])
+    })
+
+    it("does not replace conflicting destination bytes or expose the Build", async () => {
+      const fixture = await createFixture()
+      const { repositoryId, id } = fixture.run
+      const address = privatePreviewAddress(String(repositoryId), String(id))!
+      const { storage, writer } = createPrivatePreviewDestination(repositoryId)
+      const collision = Buffer.from([0, 80, 9])
+      fixture.packages.set(distArtifactName, privatePreviewPackage(address.mount))
+      const writeSource = fixture.storage.write.bind(fixture.storage)
+      const asset = Buffer.from([0, 255, 9])
+      vi.spyOn(fixture.storage, "write").mockImplementation(async (key, bytes) => {
+        if (Buffer.from(bytes).equals(asset)) await storage.write(key, collision)
+        return writeSource(key, bytes)
+      })
+
+      await expect(fixture.importRun(undefined, writer)).rejects.toThrow()
+
+      const build = await fixture.findBuild()
+      expect(build).toMatchObject({ state: "successful", privatePreviewState: "pending" })
+      const { storageKey } = build.artifacts.find(({ path }) => path === "dist/assets/app.bin")!
+      await expect(storage.read(storageKey)).resolves.toEqual({ status: "ok", bytes: collision })
+      await expect(fixture.storage.read(storageKey)).resolves.toEqual({
+        status: "ok",
+        bytes: asset,
+      })
+      await expectPrivatePreviewHidden(build, address)
+    })
+
+    it("writes nothing when retained source bytes no longer match the imported dist digest", async () => {
+      const fixture = await createFixture()
+      const { repositoryId, id } = fixture.run
+      const address = privatePreviewAddress(String(repositoryId), String(id))!
+      const { writer } = createPrivatePreviewDestination(repositoryId)
+      const original = Buffer.from([0, 255, 9])
+      fixture.packages.set(distArtifactName, privatePreviewPackage(address.mount, original))
+      const readSource = fixture.storage.read.bind(fixture.storage)
+      vi.spyOn(fixture.storage, "read").mockImplementation(async (key) => {
+        const stored = await readSource(key)
+        return stored.status === "ok" && original.equals(stored.bytes)
+          ? { status: "ok", bytes: Buffer.from([0, 80, 9]) }
+          : stored
+      })
+
+      await expect(fixture.importRun(undefined, writer)).rejects.toThrow()
+
+      expect(writer.storage.write).not.toHaveBeenCalled()
+      expect(await fixture.findBuild()).toMatchObject({
+        state: "successful",
+        privatePreviewState: "pending",
+      })
+    })
+
+    it("does not backfill an earlier compatible Build when publishing is enabled", async () => {
+      const fixture = await createFixture()
+      const { repositoryId, id } = fixture.run
+      const address = privatePreviewAddress(String(repositoryId), String(id))!
+      fixture.packages.set(distArtifactName, privatePreviewPackage(address.mount))
+
+      await expect(fixture.importRun()).resolves.toMatchObject({ dist: "imported" })
+      const build = await fixture.findBuild()
+      expect(build).toMatchObject({ state: "successful", privatePreviewState: null })
+
+      const { writer } = createPrivatePreviewDestination(repositoryId)
+      await expect(fixture.importRun(undefined, writer)).resolves.toMatchObject({
+        dist: "unchanged",
+      })
+
+      expect(writer.storage.read).not.toHaveBeenCalled()
+      expect(writer.storage.write).not.toHaveBeenCalled()
+      expect(await fixture.findBuild()).toMatchObject({ id: build.id, privatePreviewState: null })
+      await expectPrivatePreviewHidden(build, address)
+    })
+  })
+
   it("imports a selected custom caller from its webhook without letting a competing selected workflow replace its dist", async () => {
     const fixture = await createFixture()
     fixture.workflowPaths.splice(
@@ -1283,14 +1593,22 @@ describe("importGitHubWorkflowRun", () => {
       where: { githubRepositoryId: fixture.run.repositoryId },
       data: { defaultBranch: fixture.run.headBranch },
     })
-    fixture.packages.set(distArtifactName, distPackage())
+    const { repositoryId, id } = fixture.run
+    const address = privatePreviewAddress(String(repositoryId), String(id))!
+    const { writer } = createPrivatePreviewDestination(repositoryId)
+    fixture.packages.set(distArtifactName, privatePreviewPackage(address.mount))
 
-    await expect(fixture.importRun()).resolves.toMatchObject({ dist: "imported" })
+    await expect(fixture.importRun(undefined, writer)).resolves.toMatchObject({ dist: "imported" })
 
-    expect(await fixture.findBuild()).toMatchObject({
+    const build = await fixture.findBuild()
+    expect(build).toMatchObject({
       state: "successful",
+      privatePreviewState: null,
       prototype: { replica: true, registeredAt: null },
     })
+    expect(writer.storage.read).not.toHaveBeenCalled()
+    expect(writer.storage.write).not.toHaveBeenCalled()
+    await expect(findPrivatePreviewTarget(prisma, address)).resolves.toBeNull()
     await expect(fixture.findAnalyticsEvents()).resolves.toEqual([])
   })
 

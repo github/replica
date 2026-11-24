@@ -12,6 +12,7 @@ export async function completeGitHubBuildSuccess(
     run: Pick<GitHubBuildRun, "runId" | "runAttempt">
     distDigest: string
     artifacts: StoredGitHubBuildArtifact[]
+    privatePreviewPending?: boolean
   },
   recordPublication?: (
     tx: Prisma.TransactionClient,
@@ -30,10 +31,25 @@ export async function completeGitHubBuildSuccess(
       select: {
         startedAt: true,
         prototypeId: true,
-        prototype: { select: { repositoryId: true } },
+        prototype: {
+          select: {
+            repositoryId: true,
+            branchName: true,
+            replica: true,
+            repository: { select: { removedAt: true, localPath: true, defaultBranch: true } },
+          },
+        },
       },
     })
     if (!active) return false
+    const { prototype } = active
+    const privatePreviewPending =
+      input.privatePreviewPending &&
+      !prototype.replica &&
+      !prototype.repository.removedAt &&
+      !prototype.repository.localPath &&
+      prototype.branchName !== prototype.repository.defaultBranch &&
+      prototype.branchName !== "replica/install-workflow"
     // Completing first locks the row, so a run that lost ownership cannot add artifacts.
     const finishedAt = new Date()
     const result = await transaction.build.updateMany({
@@ -41,6 +57,7 @@ export async function completeGitHubBuildSuccess(
       data: {
         state: "successful",
         distDigest: input.distDigest,
+        ...(privatePreviewPending ? { privatePreviewState: "pending" } : {}),
         startedAt: active.startedAt ?? finishedAt,
         finishedAt,
         failureSummary: null,

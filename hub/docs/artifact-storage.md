@@ -43,6 +43,12 @@ The Azure endpoint accepts public-cloud HTTPS account URLs only. The adapter use
 
 The API's `/api/ready` includes configured storage. `isReady()` has a two-second deadline and makes a non-writing container-properties request through the selected managed identity, or verifies the filesystem directory. Provider failure or timeout fails readiness with a safe diagnostic. The Azure check verifies container read access, not write/delete permission, available capacity, or product operations. It never creates or deletes a probe artifact. Standalone workers have no readiness endpoint.
 
+### Private preview output
+
+The GitHub import worker can publish newly imported, compatible Builds from one GitHub repository to the dedicated private `private-preview-artifacts` container. Publication is off by default and does not enable [the reader](build-previews.md#runtime-settings). To opt in on the import worker, set `HUB_PRIVATE_PREVIEW_WRITE_ENABLED=true`, `HUB_PRIVATE_PREVIEW_WRITE_REPOSITORY_ID` to the numeric repository ID, and `HUB_PRIVATE_PREVIEW_WRITE_CONTAINER` to `private-preview-artifacts`. The writer uses the ordinary Azure storage account and worker managed identity; the destination must differ from the ordinary container. The worker needs blob create and read access on the dedicated container for writes and retry verification. This setting does not grant access. Keep the reader's own identity read-only and scoped to the dedicated container.
+
+After the ordinary import commits, the worker checks the exact owning run and mount marker, verifies the saved package against its immutable digest, and writes only served `dist/` files using their original artifact keys. The mount marker is Hub metadata, not a served file. Screenshot and template metadata stay in ordinary storage. A retry accepts an existing destination object only when its bytes match. A failed write logs a warning and fails the import job for retry, but leaves the ordinary Build and screenshots intact. A partial copy does not get a standalone link or pass reader authorization. Existing successful Builds are not queued for publication.
+
 ## Bytes and results
 
 Keys are case-sensitive opaque strings of 1–128 ASCII letters, digits, underscores, or hyphens, beginning with a letter or digit. They are not paths or URLs. The domain rejects traversal, separators, percent encoding, and other characters before calling a provider.

@@ -10,6 +10,7 @@ import type { createPrivatePreviewAccessStore } from "../../../repositories/priv
 import {
   grantLifetime,
   maximumPrivatePreviewFileBytes,
+  maximumPrivatePreviewManifestBytes,
   privatePreviewManifestPath,
   sessionLifetime,
   type PrivatePreviewAuthority,
@@ -88,7 +89,12 @@ export function createPrivatePreviewAuthority<CurrentViewer extends Viewer>({
 
   async function isCompatible(target: PrivatePreviewTarget, address: PrivatePreviewAddress) {
     const manifest = await findDistFile(target.buildId, privatePreviewManifestPath)
-    if (!manifest || manifest.byteLength < 1 || manifest.byteLength > 256) return false
+    if (
+      !manifest ||
+      manifest.byteLength < 1 ||
+      manifest.byteLength > maximumPrivatePreviewManifestBytes
+    )
+      return false
     const result = await storage.read(manifest.storageKey)
     if (result.status === "unavailable") throw new Error("Private preview manifest is unavailable.")
     if (result.status !== "ok" || result.bytes.byteLength !== manifest.byteLength) return false
@@ -142,7 +148,12 @@ export function createPrivatePreviewAuthority<CurrentViewer extends Viewer>({
       return exchanged ? { access: token, startPage } : null
     },
     async authorizeFile(token, address, path, allowEntryPointFallback) {
-      if (normalizeBuildArtifactPath(path) !== path || !path.startsWith("dist/")) return null
+      if (
+        normalizeBuildArtifactPath(path) !== path ||
+        !path.startsWith("dist/") ||
+        path === privatePreviewManifestPath
+      )
+        return null
       const session = await access.read(hashAuthenticationValue(token), readerOrigin, null)
       if (!session) return null
       const file = await withAccess(

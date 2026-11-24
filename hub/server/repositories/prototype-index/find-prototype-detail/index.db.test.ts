@@ -28,11 +28,13 @@ describe("findPrototypeDetail()", () => {
       storageKey: "base",
       byteLength: 20,
     }
-    for (const [number, runId, state, files] of [
-      [1, 4001n, "successful", [index, marker]],
-      [2, 4002n, "successful", [index]],
-      [3, 4003n, "failed", [index, marker]],
-      [4, 0n, "successful", [index, marker]],
+    for (const [number, runId, state, privatePreviewState, files] of [
+      [1, 4001n, "successful", "ready", [index, marker]],
+      [2, 4002n, "successful", "ready", [index]],
+      [3, 4003n, "failed", "ready", [index, marker]],
+      [4, 0n, "successful", "ready", [index, marker]],
+      [5, 4005n, "successful", "pending", [index, marker]],
+      [6, 4006n, "successful", null, [index, marker]],
     ] as const) {
       await prisma.build.create({
         data: {
@@ -40,6 +42,7 @@ describe("findPrototypeDetail()", () => {
           number,
           githubWorkflowRunId: runId,
           state,
+          privatePreviewState,
           artifacts: {
             create: files.map((file) => ({ ...file, storageKey: `${file.storageKey}-${number}` })),
           },
@@ -47,12 +50,12 @@ describe("findPrototypeDetail()", () => {
       })
     }
     const hub = "https://hub.example.com"
-    function find(origin?: string) {
+    function find(origin?: string, number = 1) {
       return findPrototypeDetail(
         prisma,
         repository.id,
         prototype.id,
-        1,
+        number,
         undefined,
         null,
         undefined,
@@ -69,6 +72,11 @@ describe("findPrototypeDetail()", () => {
         .filter(({ privatePreviewUrl }) => privatePreviewUrl)
         .map(({ number }) => number),
     ).toEqual([1])
+    for (const number of [5, 6]) {
+      const hidden = await find(hub, number)
+      expect(hidden?.selectedBuild?.number).toBe(number)
+      expect(hidden?.selectedBuild?.privatePreviewUrl).toBeUndefined()
+    }
     expect(detail?.repository).toEqual({
       id: repository.id,
       nameWithOwner: "team/design",
@@ -95,6 +103,7 @@ describe("findPrototypeDetail()", () => {
         prototypeId,
         number: 1,
         state: "successful",
+        privatePreviewState: "ready",
         githubWorkflowRunId,
         artifacts: {
           create: ["dist/index.html", "dist/replica-preview-base.json"].map((path) => ({

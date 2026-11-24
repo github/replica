@@ -3,8 +3,10 @@ import { markGitHubBuildRunning } from "../../../repositories/github-builds/mark
 import { recordGitHubBuildRunCompletion } from "../../../repositories/github-builds/record-github-build-run-completion/index.ts"
 import { settleDeselectedGitHubBuild } from "../../../repositories/github-builds/settle-deselected-github-build/index.ts"
 import { findConnectedGitHubRepository } from "../../../repositories/repository-access/find-connected-github-repository/index.ts"
+import { privatePreviewAddress } from "../../../utils/private-preview-address/index.ts"
 import { BuildPackageError } from "../../build-artifacts/errors.ts"
 import { extractScreenshotPackage } from "../../build-artifacts/extract-screenshot-package/index.ts"
+import { publishGitHubBuildPreview } from "../../private-preview/publish-github-build-preview/index.ts"
 import { registerImportedPrototype } from "../../prototypes/register-imported-prototype/index.ts"
 import type {
   GitHubWorkflowArtifact,
@@ -97,6 +99,10 @@ export async function importGitHubWorkflowRun(
   }
   const completed = run.status === "completed"
   const completedAt = completed ? run.updatedAt : null
+  const previewAddress =
+    dependencies.privatePreviewWriter?.repositoryId === String(job.githubRepositoryId)
+      ? privatePreviewAddress(String(job.githubRepositoryId), String(buildRun.runId))
+      : null
 
   async function fail(failureSummary: string) {
     await completeGitHubBuildFailure(database, {
@@ -179,6 +185,7 @@ export async function importGitHubWorkflowRun(
         run: buildRun,
         completedAt: authorError ? null : completedAt,
         expectedDistDigest,
+        privatePreviewAddress: previewAddress ?? undefined,
       },
       downloaded.bytes,
     )
@@ -208,6 +215,9 @@ export async function importGitHubWorkflowRun(
   // Author and screenshot errors throw before this, so recovery retries the pass.
   if (completedAt) {
     await recordGitHubBuildRunCompletion(database, { buildId, run: buildRun, completedAt })
+  }
+  if (previewAddress && (dist === "imported" || dist === "unchanged")) {
+    await publishGitHubBuildPreview(dependencies, buildId, previewAddress)
   }
   return { dist, screenshots }
 }
