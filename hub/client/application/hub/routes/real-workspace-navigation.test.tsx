@@ -18,6 +18,8 @@ import { HubThemeProvider } from "@hooks/use-hub-theme"
 
 import routes from "../routes"
 
+const workspaceViewerId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+
 type RouteModule = {
   default?: ComponentType<{ loaderData: unknown }>
   clientLoader?: (args: LoaderFunctionArgs & { serverLoader: () => Promise<never> }) => unknown
@@ -66,10 +68,17 @@ function applicationRoute(entry: RouteConfigEntry): RouteObject {
     : { ...common, children: entry.children?.map(applicationRoute) }
 }
 
-async function renderApplication(path: string, handlers: Parameters<typeof setupServer>) {
+async function renderApplication(
+  path: string,
+  handlers: Parameters<typeof setupServer>,
+  onMockedResponse?: (request: Request) => void,
+) {
   vi.stubEnv("MODE", "development")
   vi.stubEnv("DEV", true)
   const server = setupServer(...handlers)
+  if (onMockedResponse) {
+    server.events.on("response:mocked", ({ request }) => onMockedResponse(request))
+  }
   server.listen({ onUnhandledRequest: "error" })
   onTestFinished(() => server.close())
   window.history.replaceState(null, "", path)
@@ -109,9 +118,8 @@ function workspaceApi(
     login: provider === "local" ? "local-developer" : "octocat",
     name: provider === "local" ? "Local developer" : "The Octocat",
   }
-  const userId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
   const workspace = {
-    viewer: { id: userId, ...user, avatarUrl: null },
+    viewer: { id: workspaceViewerId, ...user, avatarUrl: null },
     capabilities: {
       createPrototypes: false,
       reviewPrototypes: false,
@@ -126,7 +134,7 @@ function workspaceApi(
     json("/api/auth/session", {
       authenticated: true,
       membershipId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-      userId,
+      userId: workspaceViewerId,
       ...user,
       role,
       reviewInboxAvailable,
@@ -847,7 +855,7 @@ describe("real workspace navigation", () => {
           unreadCount: countOnly ? 3 : 1,
         })
       }),
-      json("/api/canvas/connections", { connections: [] }),
+      json("/api/canvas/connections", { viewerId: workspaceViewerId, connections: [] }),
       http.get(`${window.location.origin}/api${galleryPath}/analytics`, () =>
         HttpResponse.json({ error: "Repository analytics is unavailable." }, { status: 403 }),
       ),
@@ -1035,6 +1043,72 @@ describe("real workspace navigation", () => {
     expect(screen.getByRole("button", { name: "Collapse sidebar" })).toBeVisible()
     expect(screen.queryByRole("link", { name: "Inbox, 5 unread" })).not.toBeInTheDocument()
   })
+
+  it.each(["workspace", "connections"] as const)(
+    "hides mismatched Canvas connections and allows retry when the %s response arrives last",
+    async (lastRead) => {
+      const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+      const mismatchedRepository = "team/palette"
+      const currentRepository = "team/garden"
+      const firstResponse = deferResponse()
+      const lastResponse = deferResponse()
+      const firstPath = lastRead === "workspace" ? "/api/canvas/connections" : "/api/workspace"
+      let enteringConnections = false
+      let retrying = false
+      const router = await renderApplication(
+        "/repositories",
+        [
+          ...workspaceApi([], {
+            async respondToWorkspace(_request, workspace) {
+              if (enteringConnections && lastRead === "workspace") await lastResponse.pending
+              return HttpResponse.json(
+                retrying
+                  ? { ...workspace, viewer: { ...workspace.viewer, id: viewerId, login: "mona" } }
+                  : workspace,
+              )
+            },
+          }),
+          http.get(`${window.location.origin}/api/canvas/connections`, async () => {
+            if (lastRead === "connections") await lastResponse.pending
+            return HttpResponse.json({
+              viewerId,
+              connections: [
+                {
+                  id: retrying ? 2 : 1,
+                  repository: retrying ? currentRepository : mismatchedRepository,
+                  expiresAt: "2026-11-30T12:00:00Z",
+                  inactiveAt: null,
+                },
+              ],
+            })
+          }),
+        ],
+        (request) => {
+          if (enteringConnections && new URL(request.url).pathname === firstPath) {
+            firstResponse.release()
+          }
+        },
+      )
+
+      enteringConnections = true
+      await act(async () => {
+        const navigation = router.navigate("/canvas/connections")
+        await firstResponse.pending
+        lastResponse.release()
+        await navigation
+      })
+
+      expect(screen.queryByText(mismatchedRepository)).not.toBeInTheDocument()
+      expect(screen.queryByRole("button", { name: "Revoke" })).not.toBeInTheDocument()
+      const retry = within(screen.getByRole("alert")).getByRole("button", { name: "Try again" })
+      retrying = true
+      fireEvent.click(retry)
+
+      expect(await screen.findByText(currentRepository)).toBeVisible()
+      expect(screen.getByRole("button", { name: "Revoke" })).toBeVisible()
+      expect(screen.queryByText(mismatchedRepository)).not.toBeInTheDocument()
+    },
+  )
 
   it("keeps the Canvas connections return destination on a signed-out deep link", async () => {
     const path = "/canvas/connections?repositoryId=22222222-2222-4222-8222-222222222222"

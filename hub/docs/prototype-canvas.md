@@ -12,7 +12,7 @@ Select **Connect to the hub** in the Replica canvas. Sign in if Hub asks, then c
 
 Hub checks that the approving identity can read the repository, and checks access again when the extension claims, uses, or renews the connection. In local development, sign in as the fixed local developer and start the canvas from its matching checkout under `.local/prototypes/`. Hub pairs the checkout as `local/<directory-name>`. A paired repository need not have a discovered branch.
 
-Open **Canvas connections** from the Hub navigation or at `/canvas/connections`. It lists your own active connections for the current identity. **Revoke** invalidates both the access and renewal credential without signing you out of Hub.
+Open **Canvas connections** from the Hub navigation or at `/canvas/connections`. It lists your own active connections for the current identity. If the connections and navigation load for different accounts, Hub hides the list. Select **Try again** to load connections for the current account. **Revoke** invalidates both the access and renewal credential without signing you out of Hub.
 
 The extension uses version `1` of `/api/canvas`. It keeps the device, access, and refresh secrets in its private Node store; Hub stores only their digests. No secret is included in the approval URL or browser responses. Access tokens last up to seven days. Renewing one rotates the access token without extending the connection's 30-day inactivity deadline. Only interactive use extends that deadline. Ending all Hub sessions also invalidates Canvas credentials.
 

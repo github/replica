@@ -68,6 +68,7 @@ export async function readCanvasAuthority(
     sessionProvider: identity.provider,
     issuer: identity.issuer,
     subject: identity.subject,
+    userId: identity.userId,
     viewerId: identity.user.canvasId,
     login,
     githubAccessRevision: accessState?.revision ?? null,

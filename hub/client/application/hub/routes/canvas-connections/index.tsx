@@ -1,4 +1,4 @@
-import { redirect, useLocation, useOutletContext } from "react-router"
+import { redirect, useLocation, useOutletContext, useRevalidator } from "react-router"
 import { z } from "zod"
 
 import { CanvasConnectionScreen } from "@application/hub/canvas-connections"
@@ -11,6 +11,7 @@ import {
 import type { WorkspaceResponse } from "@application/hub/contracts/types"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
 import { requestJson } from "@application/hub/requests/request-json"
+import { RouteFeedback } from "@application/hub/route-feedback"
 import { selectWorkspaceRepository } from "@application/hub/view-models/select-workspace-repository"
 import type { CanvasPairingsPageData } from "@pages/canvas-pairings-page/types"
 
@@ -23,20 +24,22 @@ export const handle = {
   signedOutEntry: "canvas",
 } satisfies WorkspaceRouteHandle
 
+type ConnectionsData = {
+  viewerId: string
+  page: Extract<CanvasPairingsPageData, { kind: "connections" }>
+}
+
 export async function clientLoader({
   request,
-}: Route.ClientLoaderArgs): Promise<Extract<
-  CanvasPairingsPageData,
-  { kind: "connections" }
-> | null> {
+}: Route.ClientLoaderArgs): Promise<ConnectionsData | null> {
   const url = new URL(request.url)
   try {
-    const { connections } = await requestJson(
+    const { viewerId, connections } = await requestJson(
       new URL("/api/canvas/connections", url),
       canvasConnectionsSchema,
       { signal: request.signal },
     )
-    return {
+    const page: ConnectionsData["page"] = {
       kind: "connections",
       productName: "Replica Hub",
       pageTitle: "Canvas connections",
@@ -59,6 +62,7 @@ export async function clientLoader({
         revokePath: `${canvasConnectionsPath}/${id}`,
       })),
     }
+    return { viewerId, page }
   } catch (error) {
     if (error instanceof ApiRequestError && error.status === 401) return null
     throw error
@@ -94,12 +98,26 @@ export function meta() {
 export default function CanvasConnections({ loaderData }: Route.ComponentProps) {
   const workspace = useOutletContext<WorkspaceResponse | null>()
   const { search } = useLocation()
+  const revalidator = useRevalidator()
+  if (loaderData && workspace && loaderData.viewerId !== workspace.viewer.id) {
+    return (
+      <RouteFeedback
+        kind="error"
+        heading="Canvas connections unavailable"
+        description="Your Hub account changed while loading connections. Try again to see your connections."
+        embedded
+        onRetry={() => void revalidator.revalidate()}
+        retrying={revalidator.state !== "idle"}
+      />
+    )
+  }
+
   const repository = workspace && selectWorkspaceRepository(workspace, new URLSearchParams(search))
   const page =
     loaderData && workspace
       ? {
-          ...loaderData,
-          backPath: repository ? `/repositories/${repository.id}` : loaderData.backPath,
+          ...loaderData.page,
+          backPath: repository ? `/repositories/${repository.id}` : loaderData.page.backPath,
         }
       : null
   return (
