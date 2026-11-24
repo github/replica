@@ -128,7 +128,7 @@ Additional properties:
 
 Don't use Fluent's fixed typography components (like `<Body1>` or `<Title2>`) directly. Always use CoreAI `<Text>` with `preset` and `foreground` props.
 
-**When you encounter these properties in existing CSS**: Refactor the code to remove them from CSS and use the `Text` component in the `.tsx` file instead.
+**When you encounter these properties in existing CSS**: Keep responsive typography in `@container` queries; otherwise remove these properties from CSS and use the `Text` component in the matching `.tsx` file.
 
 ## Combining CSS Classes
 
