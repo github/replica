@@ -334,7 +334,9 @@ async function migrateScope(session) {
     result,
     result.empty
       ? "Confirmed the new store is empty. The configured provider is unchanged."
-      : `Migrated this repository to ${result.file}. The original provider is unchanged and may contain other repositories.`,
+      : result.sourceProvider
+        ? `Repository history is in ${result.file}. The original provider is unchanged and may contain other repositories.`
+        : `Repository history is in ${result.file}. The provider is used in place.`,
   )
 }
 

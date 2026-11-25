@@ -1313,11 +1313,11 @@ class LearningStore {
    * same comments again adds nothing, and edits, deletions, and resolution changes are
    * appended as new events.
    *
-   * A scope holds one collection for each snapshot ID, and it records the digest of the
-   * snapshot's normalized contents. Importing a snapshot again, from this log or another log of
-   * it, keeps the stored collection. A snapshot ID already imported with different contents is
-   * refused, and the provider refuses a second collection for the snapshot ID in the same write
-   * as the comments, so of two imports that race, only one is stored.
+   * A collection records the digest of the snapshot's normalized contents. Importing a
+   * snapshot again keeps the stored collection; scope migration can retain multiple matching
+   * collections. Different contents under the same snapshot ID are refused. Normal imports
+   * enforce uniqueness in the same write as the comments, so of two imports that race, only
+   * one is stored.
    *
    * A deletion retracts the comment from every purpose and keeps its text. With redactDeleted,
    * the import then removes the text of every comment the snapshot shows as deleted, and of

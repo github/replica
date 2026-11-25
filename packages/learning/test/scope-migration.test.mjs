@@ -56,8 +56,8 @@ process.stdout.write("123456\\n")
   return repo
 }
 
-function cli(repo, args, { failLookup = false, extraEnv = {} } = {}) {
-  const result = spawnSync(process.execPath, [bin, ...args, "--json"], {
+function cli(repo, args, { failLookup = false, extraEnv = {}, json = true } = {}) {
+  const result = spawnSync(process.execPath, [bin, ...args, ...(json ? ["--json"] : [])], {
     cwd: repo,
     env: {
       ...process.env,
@@ -222,7 +222,9 @@ it("copies legacy custom-provider data only after an explicit offline migration"
     "--legacy-repository",
     "github.com/acme/checkout-prototypes",
   ]
-  const migration = ok(repo, migrationArgs, { failLookup: true })
+  const message = cli(repo, migrationArgs, { failLookup: true, json: false })
+  assert.equal(message.status, 0, message.stderr)
+  assert.match(message.stdout, /The original provider is unchanged/)
   const copied = ok(repo, ["grants", "list"], { failLookup: true })[0].grant
   for (const field of ["id", "purposes", "sources", "basis", "grantedBy", "grantedAt"])
     assert.deepEqual(copied[field], grant[field], field)
@@ -235,7 +237,7 @@ it("copies legacy custom-provider data only after an explicit offline migration"
   const files = sqliteFiles()
   assert.equal(files.length, 1)
   const retry = ok(repo, migrationArgs, { failLookup: true })
-  assert.equal(retry.file, migration.file)
+  assert.equal(path.basename(retry.file), files[0])
   assert.deepEqual(sqliteFiles(), files)
   assert.equal(ok(repo, ["grants", "list"], { failLookup: true })[0].grant.id, grant.id)
   assert.equal(ok(repo, ["verify"], { failLookup: true }).ok, true)
@@ -663,7 +665,10 @@ async function checkMigratedHistory(kind) {
     } finally {
       await provider.close()
     }
-    ok(repo, ["migrate-scope", "--offline"], { failLookup: true })
+    const message = cli(repo, ["migrate-scope", "--offline"], { failLookup: true, json: false })
+    assert.equal(message.status, 0, message.stderr)
+    assert.match(message.stdout, /The provider is used in place/)
+    assert.doesNotMatch(message.stdout, /original provider is unchanged/)
   }
   const options = hosted
     ? [
