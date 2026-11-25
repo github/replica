@@ -25,7 +25,7 @@ export function PrototypeCanvasFixPill({
         size="small"
         variant="primary"
         leadingVisual={<SparkleIcon size={16} />}
-        disabled={disabled || busy}
+        disabled={disabled}
         aria-busy={busy}
         aria-label={copy.label(count)}
         onClick={onFix}

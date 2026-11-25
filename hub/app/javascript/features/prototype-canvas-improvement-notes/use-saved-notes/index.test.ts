@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest"
 import { useSavedNotes } from "."
 
 describe("useSavedNotes()", () => {
-  it("saves before fixing only the new note and blocks duplicate mutations through both requests", async () => {
+  it("saves before fixing only the new note and queues later mutations behind both requests", async () => {
     vi.useFakeTimers()
     const note = {
       id: 99,
@@ -54,7 +54,10 @@ describe("useSavedNotes()", () => {
       await act(() => vi.advanceTimersByTimeAsync(0))
       expect(view.result.current.busy).toBe(true)
       expect(releaseFix).toBeUndefined()
-      expect(await view.result.current.change("create", { body: "Duplicate" })).toBe(false)
+      let later: Promise<boolean> | undefined
+      act(() => {
+        later = view.result.current.change("create", { body: "Later request" })
+      })
       await act(async () => {
         if (!releaseSave) throw new Error("Expected a pending save.")
         releaseSave(Response.json(saved))
@@ -62,18 +65,16 @@ describe("useSavedNotes()", () => {
       })
       expect(view.result.current.state).toEqual(saved)
       expect(view.result.current.busy).toBe(true)
-      await act(async () => {
-        await view.result.current.createAndFix({ body: "Duplicate" })
-        expect(await view.result.current.change("fix")).toBe(false)
-      })
-      const writes = fetch.mock.calls.filter(
-        ([path, options]) => options?.method === "POST" && !path.endsWith("/sync"),
-      )
-      expect(writes.map(([path]) => path)).toEqual([
+      function writes() {
+        return fetch.mock.calls.filter(
+          ([path, options]) => options?.method === "POST" && !path.endsWith("/sync"),
+        )
+      }
+      expect(writes().map(([path]) => path)).toEqual([
         "/api/improvement-notes",
         "/api/improvement-notes/fix",
       ])
-      const body = writes[1]?.[1]?.body
+      const body = writes()[1]?.[1]?.body
       if (typeof body !== "string") throw new Error("Expected a serialized scoped fix.")
       expect(JSON.parse(body)).toEqual({
         identity: saved.identity,
@@ -81,17 +82,27 @@ describe("useSavedNotes()", () => {
         id: created.id,
         expectedNoteRevision: created.revision,
       })
+      const fixedState = {
+        ...saved,
+        revision: 10,
+        activeBatch: "batch",
+        notes: [{ ...created, status: "sent" }, note],
+      }
       await act(async () => {
         if (!releaseFix) throw new Error("Expected a pending scoped fix.")
-        releaseFix(
-          Response.json({
-            ...saved,
-            revision: 10,
-            activeBatch: "batch",
-            notes: [{ ...created, status: "sent" }, note],
-          }),
-        )
+        releaseFix(Response.json(fixedState))
         await changed
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(writes().map(([path]) => path)).toEqual([
+        "/api/improvement-notes",
+        "/api/improvement-notes/fix",
+        "/api/improvement-notes",
+      ])
+      expect(view.result.current.busy).toBe(true)
+      await act(async () => {
+        releaseSave?.(Response.json({ ...fixedState, revision: 11 }))
+        expect(await later).toBe(true)
       })
       expect(view.result.current.busy).toBe(false)
       expect(view.result.current.state?.activeBatch).toBe("batch")
@@ -215,7 +226,7 @@ describe("useSavedNotes()", () => {
   })
 
   it.each(["delete", "fix"])(
-    "keeps background sync invisible and serializes one foreground %s with the refreshed revision",
+    "keeps background sync invisible and queues foreground %s requests with the refreshed revision",
     async (operation) => {
       vi.useFakeTimers()
       const state = {
@@ -257,7 +268,10 @@ describe("useSavedNotes()", () => {
           changed = view.result.current.change(operation, { id: 1, expectedNoteRevision: 1 })
         })
         expect(view.result.current.busy).toBe(true)
-        expect(await view.result.current.change(operation)).toBe(false)
+        let queuedChange: Promise<boolean> | undefined
+        act(() => {
+          queuedChange = view.result.current.change(operation, { id: 1, expectedNoteRevision: 1 })
+        })
         expect(releaseChange).toBeUndefined()
         await act(async () => {
           if (!releaseSync) throw new Error("Expected pending background sync.")
@@ -280,9 +294,20 @@ describe("useSavedNotes()", () => {
           if (!releaseChange) throw new Error("Expected pending foreground change.")
           releaseChange(Response.json({ ...state, revision: 3 }))
           expect(await changed).toBe(true)
+          await vi.advanceTimersByTimeAsync(0)
+        })
+        expect(
+          fetch.mock.calls.filter(
+            ([path, options]) => options?.method === "POST" && !path.endsWith("/sync"),
+          ),
+        ).toHaveLength(2)
+        expect(view.result.current.busy).toBe(true)
+        await act(async () => {
+          releaseChange?.(Response.json({ ...state, revision: 4 }))
+          expect(await queuedChange).toBe(true)
         })
         expect(view.result.current.busy).toBe(false)
-        expect(view.result.current.state?.revision).toBe(3)
+        expect(view.result.current.state?.revision).toBe(4)
       } finally {
         view.unmount()
         vi.useRealTimers()

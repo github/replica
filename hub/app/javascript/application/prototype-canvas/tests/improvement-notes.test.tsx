@@ -88,13 +88,9 @@ function savedNotesFixture(captureFails = false) {
           !("identity" in input) ||
           input.identity !== saved.identity ||
           !("revision" in input) ||
-          input.revision !== saved.revision ||
-          saved.activeBatch
+          input.revision !== saved.revision
         )
-          return Response.json(
-            { error: "The notes changed or a batch is active." },
-            { status: 409 },
-          )
+          return Response.json({ error: "The notes changed." }, { status: 409 })
         const scoped = "id" in input || "expectedNoteRevision" in input
         const selected = saved.notes.filter(
           (note) => note.status === "open" && (!scoped || ("id" in input && note.id === input.id)),
@@ -106,7 +102,7 @@ function savedNotesFixture(captureFails = false) {
             selected[0]?.revision !== input.expectedNoteRevision)
         )
           return Response.json({ error: "This note changed while it was open." }, { status: 409 })
-        saved.activeBatch = "batch"
+        saved.activeBatch ??= "batch"
         selected.forEach((note) => {
           note.status = "sent"
           if (note.thread.originalStatus === "open") note.thread.originalStatus = "sent"
@@ -1172,6 +1168,77 @@ describe("App()", () => {
     expect(JSON.parse(body)).not.toHaveProperty("id")
     expect(JSON.parse(body)).not.toHaveProperty("expectedNoteRevision")
     expect(saved.notes[0]?.thread.messages.filter((entry) => entry.status === "open")).toEqual([])
+  })
+
+  it("keeps fix controls enabled while a fix is in flight and queues later fixes in click order", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
+    const { fetch, saved } = savedNotesFixture()
+    await fetch("/api/improvement-notes", {
+      method: "POST",
+      body: JSON.stringify({ anchor, body: "Existing request" }),
+    })
+    let releaseFix: (() => void) | undefined
+    const pendingFix = new Promise<void>((resolve) => {
+      releaseFix = resolve
+    })
+    const original = fetch.getMockImplementation()!
+    fetch.mockImplementation(async (path, options) => {
+      if (path.endsWith("/fix")) await pendingFix
+      return original(path, options)
+    })
+    render(
+      <App config={{ name: "Demo", prototypeUrl: origin, token: "local", pickAndPolish: true }} />,
+    )
+    const frame = screen.getByTitle("Demo prototype")
+    if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
+    const picker = await screen.findByRole("button", { name: copy.annotate })
+    receive(frame, {
+      type: "replica:canvas:ready",
+      protocolVersion: 1,
+      improvementSelection: true,
+      route: anchor.route,
+    })
+    await waitFor(() => expect(picker).toBeEnabled())
+    fireEvent.click(picker)
+    const pill = await screen.findByRole("button", { name: "Fix 1" })
+    fireEvent.click(pill)
+    function mutations(): [string, Record<string, unknown>][] {
+      return fetch.mock.calls
+        .filter(
+          ([path, options]) =>
+            options?.method === "POST" &&
+            (path === "/api/improvement-notes" || path.endsWith("/fix")),
+        )
+        .map(([path, options]) => {
+          const body = options?.body
+          if (typeof body !== "string") throw new Error("Expected a serialized mutation.")
+          return [path, JSON.parse(body) as Record<string, unknown>]
+        })
+    }
+    await waitFor(() => expect(mutations()).toHaveLength(2))
+    expect(pill).toBeEnabled()
+    fireEvent.click(pill)
+
+    receive(frame, { type: "replica:canvas:selected", anchor })
+    const composer = within(await screen.findByRole("dialog", { name: copy.add }))
+    fireEvent.change(composer.getByRole("textbox", { name: copy.label }), {
+      target: { value: "Queued request" },
+    })
+    const fixNow = composer.getByRole("button", { name: "Fix now" })
+    expect(fixNow).toBeEnabled()
+    fireEvent.click(fixNow)
+    expect(mutations()).toHaveLength(2)
+
+    act(() => releaseFix?.())
+    await waitFor(() => expect(saved.notes[1]?.status).toBe("sent"))
+    const sent = mutations().slice(1)
+    expect(sent).toHaveLength(3)
+    expect(sent[0]?.[0]).toMatch(/\/fix$/)
+    expect(sent[0]?.[1]).not.toHaveProperty("id")
+    expect(sent[1]?.[1]).toMatchObject({ body: "Queued request" })
+    expect(sent[2]?.[0]).toMatch(/\/fix$/)
+    expect(sent[2]?.[1]).toMatchObject({ id: 2, expectedNoteRevision: 1 })
+    expect(saved.notes[0]?.status).toBe("sent")
   })
 
   it.each([false, true])(

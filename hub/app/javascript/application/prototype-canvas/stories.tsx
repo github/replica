@@ -26,6 +26,7 @@ function PublicationDemo({
   catalogState = "ready",
   serverState = "empty",
   withPickAndPolish = false,
+  withPendingFix = false,
   onImproveContext,
 }: {
   scenario: string
@@ -36,6 +37,7 @@ function PublicationDemo({
   catalogState?: "ready" | "default" | "loading" | "failed" | "submission-failed"
   serverState?: string
   withPickAndPolish?: boolean
+  withPendingFix?: boolean
   onImproveContext?: () => void
 }) {
   const [ready, setReady] = useState(false)
@@ -67,6 +69,20 @@ function PublicationDemo({
           rect: { x: 64, y: 180, width: 88, height: 44 },
         },
       ] as Note[],
+    }
+    if (withPendingFix) {
+      const running = savedNotes.notes[0]!
+      savedNotes.activeBatch = "storybook-running-batch"
+      running.status = "sent"
+      running.thread.originalStatus = "sent"
+      savedNotes.notes.push({
+        ...structuredClone(running),
+        id: 2,
+        localId: "storybook-save-alignment",
+        body: "Align the save action with the project name.",
+        status: "open",
+        thread: { originalStatus: "open", messages: [] },
+      })
     }
     if (onImproveContext && hub) hub.repositoryAuthorized = true
     let remember = false
@@ -288,7 +304,7 @@ function PublicationDemo({
               note.thread.originalStatus = "sent"
               note.revision++
             }
-            savedNotes.activeBatch = "storybook-batch"
+            savedNotes.activeBatch ??= "storybook-batch"
             savedNotes.revision++
           }
           data = savedNotes
@@ -338,6 +354,7 @@ function PublicationDemo({
     catalogState,
     serverState,
     withPickAndPolish,
+    withPendingFix,
     onImproveContext,
   ])
   return (
@@ -381,7 +398,7 @@ const meta = {
   argTypes: { scenario: { control: "select", options: Object.keys(publicationExamples) } },
   render: (args) => (
     <PublicationDemo
-      key={`${args.scenario}/${args.withShareLinks}/${args.withComments}/${args.withoutPreview}/${args.catalogState}/${args.serverState}/${args.withPickAndPolish}`}
+      key={`${args.scenario}/${args.withShareLinks}/${args.withComments}/${args.withoutPreview}/${args.catalogState}/${args.serverState}/${args.withPickAndPolish}/${args.withPendingFix}`}
       {...args}
     />
   ),
@@ -667,7 +684,26 @@ export const PickAndPolishPicking: Story = {
     const picker = await canvas.findByRole("button", { name: "Pick & polish" })
     await expect(picker).toBeEnabled()
     await userEvent.click(picker)
-    await canvas.findByRole("button", { name: "Fix 1" })
+    await expect(await canvas.findByRole("button", { name: "Fix 1" })).toBeEnabled()
+  },
+}
+
+export const PickAndPolishWhileFixing: Story = {
+  ...PickAndPolishPicking,
+  args: { ...CommentsAndPickAndPolish.args, withPendingFix: true },
+}
+
+export const PickAndPolishQueued: Story = {
+  ...PickAndPolishWhileFixing,
+  play: async ({ canvas, userEvent }) => {
+    const picker = await canvas.findByRole("button", { name: "Pick & polish" })
+    await expect(picker).toBeEnabled()
+    await userEvent.click(picker)
+    const fix = await canvas.findByRole("button", { name: "Fix 1" })
+    await expect(fix).toBeEnabled()
+    await userEvent.click(fix)
+    await expect(canvas.queryByRole("button", { name: "Fix 1" })).toBeNull()
+    await expect(picker).toHaveAttribute("aria-pressed", "true")
   },
 }
 

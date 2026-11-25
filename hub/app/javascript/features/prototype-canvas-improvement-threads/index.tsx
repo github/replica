@@ -68,7 +68,6 @@ export function ImprovementThreads({
   onRetry,
   identity,
   busy = false,
-  activeBatch = false,
   error = "",
   returnFocusRef,
   closeRequestRef,
@@ -377,7 +376,7 @@ export function ImprovementThreads({
                 variant="primary"
                 className="thread-sample__fix-all"
                 leadingVisual={<SparkleIcon size={16} />}
-                disabled={!pending || Boolean(draft.trim()) || discarding || busy || activeBatch}
+                disabled={!pending || Boolean(draft.trim()) || discarding}
                 aria-busy={busy}
                 aria-label={copy.simulate(pending)}
                 onClick={() => {

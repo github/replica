@@ -13,6 +13,13 @@ type SavedNotes = {
   profileError?: string | null
 }
 
+function openWork(value: SavedNotes) {
+  return value.notes
+    .filter((note) => note.status === "open")
+    .map((note) => `${note.id}:${note.revision}`)
+    .sort()
+}
+
 export function useSavedNotes(token: string | undefined) {
   const [state, setState] = useState<SavedNotes | null>(null)
   const [error, setError] = useState("")
@@ -20,6 +27,8 @@ export function useSavedNotes(token: string | undefined) {
   const [busy, setBusy] = useState(false)
   const current = useRef<SavedNotes | null>(null)
   const pending = useRef(false)
+  const queue = useRef<Promise<unknown>>(Promise.resolve())
+  const queued = useRef(0)
   const backgroundSync = useRef<Promise<void> | null>(null)
   const mounted = useRef(false)
   const generation = useRef(0)
@@ -86,37 +95,57 @@ export function useSavedNotes(token: string | undefined) {
     }
   }, [token])
 
-  async function performChange(
+  // Mutations run one at a time in click order so a fix requested during another request queues.
+  function enqueue<T>(task: () => Promise<T>): Promise<T> {
+    queued.current++
+    pending.current = true
+    generation.current++
+    setBusy(true)
+    const run = queue.current.then(task)
+    queue.current = run
+      .catch(() => undefined)
+      .finally(() => {
+        queued.current--
+        if (queued.current) return
+        pending.current = false
+        if (mounted.current) setBusy(false)
+      })
+    return run
+  }
+
+  function performChange(
     operation: string,
     input: Record<string, unknown> = {},
     fixCreated = false,
   ) {
-    let changed = false
-    if (!token || !current.current || pending.current) return { changed, fixStarted: false }
+    if (!token || !current.current) return Promise.resolve({ changed: false, fixStarted: false })
     const identity = current.current.identity
-    const requestedWork = current.current.notes
-      .filter((note) => note.status === "open")
-      .map((note) => `${note.id}:${note.revision}`)
-      .sort()
-      .join(",")
-    pending.current = true
-    generation.current++
-    setBusy(true)
+    const requestedWork = openWork(current.current)
+    return enqueue(() => runChange(operation, input, fixCreated, identity, requestedWork))
+  }
+
+  async function runChange(
+    operation: string,
+    input: Record<string, unknown>,
+    fixCreated: boolean,
+    identity: string,
+    requestedWork: string[],
+  ) {
+    let changed = false
+    if (!token || !mounted.current) return { changed, fixStarted: false }
     setError("")
     try {
       await backgroundSync.current
       if (!mounted.current) return { changed, fixStarted: false }
       if (!current.current || current.current.identity !== identity)
         throw new Error(copy.branchChanged)
-      if (
-        operation === "fix" &&
-        current.current.notes
-          .filter((note) => note.status === "open")
-          .map((note) => `${note.id}:${note.revision}`)
-          .sort()
-          .join(",") !== requestedWork
-      )
-        throw new Error(copy.workChanged)
+      if (operation === "fix") {
+        const open = openWork(current.current)
+        const remaining = requestedWork.filter((work) => open.includes(work))
+        // An earlier queued fix already captured everything this click selected.
+        if (requestedWork.length && !remaining.length) return { changed, fixStarted: false }
+        if (open.join(",") !== remaining.join(",")) throw new Error(copy.workChanged)
+      }
       const previousIds = new Set(current.current.notes.map((note) => note.id))
       const value = await prototypeCanvasRequest<SavedNotes>(
         operation === "fix" ? "/api/improvement-notes/fix" : "/api/improvement-notes",
@@ -156,9 +185,6 @@ export function useSavedNotes(token: string | undefined) {
     } catch (problem) {
       if (mounted.current) setError(problem instanceof Error ? problem.message : String(problem))
       return { changed, fixStarted: false }
-    } finally {
-      pending.current = false
-      if (mounted.current) setBusy(false)
     }
   }
 

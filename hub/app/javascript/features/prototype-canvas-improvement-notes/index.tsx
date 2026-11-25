@@ -57,6 +57,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
   const [selectedSource, setSelectedSource] = useState<Source | null>(null)
   const [selection, setSelection] = useState<Selection | null>(null)
   const [draft, setDraft] = useState("")
+  const [submitting, setSubmitting] = useState(false)
   const [discarding, setDiscarding] = useState(false)
   const [panelOpen, setPanelOpen] = useState(false)
   const [message, setMessage] = useState("")
@@ -76,7 +77,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
   const notesCount = notes.filter((note) => note.status !== "resolved").length
   const active = canvas.active !== false
   const notesOpen = panelOpen && active && !canvas.hubOpen
-  const canSave = Boolean(draft.trim()) && !saved.busy && !selectionChanged
+  const canSave = Boolean(draft.trim()) && !submitting && !selectionChanged
   const saveShortcutModifier = isMacPlatform() ? copy.saveShortcutMac : copy.saveShortcutOther
   const onInteractionChange = canvas.onInteractionChange
 
@@ -212,16 +213,22 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
   }
 
   async function save(fixNow = false) {
-    if (!selection || !draft.trim() || saved.busy || selectionChanged) return
+    if (!selection || !draft.trim() || submitting || selectionChanged) return
     const input = {
       identity: selection.identity,
       sourceId: selection.sourceId,
       body: draft.trim(),
       anchor: selection.anchor,
     }
-    const stored = fixNow
-      ? (await saved.createAndFix(input)).changed
-      : await saved.change("create", input)
+    setSubmitting(true)
+    let stored: boolean
+    try {
+      stored = fixNow
+        ? (await saved.createAndFix(input)).changed
+        : await saved.change("create", input)
+    } finally {
+      setSubmitting(false)
+    }
     if (!stored) return
     setDraft("")
     setSelection(null)
@@ -287,7 +294,6 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
         }}
         threads={threads}
         busy={saved.busy || !saved.state}
-        activeBatch={Boolean(saved.state?.activeBatch)}
         error={
           error ||
           syncError ||
@@ -331,13 +337,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
       {active && annotating && !canvas.hubOpen ? (
         <PrototypeCanvasFixPill
           count={pending}
-          disabled={
-            saved.busy ||
-            !saved.state ||
-            Boolean(saved.state.activeBatch) ||
-            threadInteraction ||
-            Boolean(selection)
-          }
+          disabled={!saved.state || threadInteraction || Boolean(selection)}
           busy={saved.busy}
           onFix={() => {
             void saved.change("fix")
@@ -394,7 +394,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
                 type="button"
                 size="small"
                 variant="secondary"
-                disabled={!canSave || Boolean(saved.state?.activeBatch)}
+                disabled={!canSave}
                 onClick={() => void save(true)}
               >
                 {copy.fixNow}

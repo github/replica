@@ -1,6 +1,6 @@
 .canvas-fix-pill {
   position: fixed;
-  z-index: 3;
+  z-index: 21;
   inset-inline-start: 50%;
   bottom: var(--base-size-24);
   translate: -50% 0;
@@ -8,8 +8,16 @@
 }
 
 .canvas-fix-pill button {
+  padding-block: 0;
+  padding-inline: 0.4375rem 0.3125rem;
   border-radius: 999px;
   box-shadow: var(--hub-shadow-floating);
+  gap: 0.375rem;
+}
+
+.canvas-fix-pill button span:has(> .canvas-fix-pill__count) {
+  display: inline-flex;
+  align-items: center;
 }
 
 .canvas-fix-pill__count {
