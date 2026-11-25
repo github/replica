@@ -271,6 +271,103 @@ describe("createApp()", () => {
     })
   })
 
+  it("keeps database capacity for navigation when several unread lookups stall", async () => {
+    const viewer = {
+      userId: randomUUID(),
+      membershipId: randomUUID(),
+      role: "MEMBER" as const,
+      provider: "local",
+      sessionProvider: "local",
+      login: "octocat",
+      name: null,
+    }
+    const repository = {
+      id: randomUUID(),
+      nameWithOwner: "team/alpha",
+      defaultBranch: "main",
+      localPath: "/workspace/alpha",
+    }
+    const poolSize = 10
+    let release!: (unread: boolean) => void
+    const stalled = new Promise<boolean>((resolve) => {
+      release = resolve
+    })
+    let activeLookups = 0
+    const hasUnread = vi.fn(async () => {
+      activeLookups += 1
+      try {
+        return await stalled
+      } finally {
+        activeLookups -= 1
+      }
+    })
+    const server = createServer(
+      createApp({
+        authentication: {
+          currentSession: {
+            restore: async () => {
+              if (activeLookups >= poolSize) await stalled
+              return viewer
+            },
+          },
+          signOut: {
+            applicationOrigin: "https://hub.example.com",
+            secureCookie: false,
+            end: vi.fn(),
+          },
+        },
+        product: {
+          reviewInbox: { hasUnread, list: vi.fn(), find: vi.fn(), setRead: vi.fn() },
+          isRepositoryVisible: vi.fn().mockResolvedValue(true),
+          listRepositories: vi.fn().mockResolvedValue([repository]),
+          findRepositoryIndex: vi.fn(),
+          findPrototypeDetail: vi.fn(),
+          readPrototypeWithIntroduction: vi.fn(),
+          findRepositoryAuthors: vi.fn(),
+          editPrototypeMetadata: vi.fn(),
+          findBuildPreviewTarget: vi.fn(),
+        },
+        logger: createLogger({ level: "silent" }),
+      }),
+    )
+    server.listen(0, "127.0.0.1")
+    await once(server, "listening")
+    onTestFinished(() => {
+      release(true)
+      return new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()))
+        server.closeAllConnections()
+      })
+    })
+    const { port } = server.address() as AddressInfo
+    function navigate() {
+      return fetch(`http://127.0.0.1:${port}/api/workspace?view=navigation`, {
+        headers: { cookie: "hub_session=local-session" },
+      })
+    }
+
+    const responses = await Promise.all(Array.from({ length: poolSize }, navigate))
+    for (const response of responses) {
+      expect(response.status).toBe(200)
+      const workspace: unknown = await response.json()
+      expect(workspace).toMatchObject({ repositories: [{ id: repository.id }] })
+      expect(workspace).not.toHaveProperty("inboxHasUnread")
+    }
+    expect(activeLookups).toBeGreaterThan(0)
+    expect(activeLookups).toBeLessThan(poolSize)
+    const started = hasUnread.mock.calls.length
+
+    const whileStalled = await navigate()
+    expect(whileStalled.status).toBe(200)
+    expect(await whileStalled.json()).not.toHaveProperty("inboxHasUnread")
+    expect(hasUnread).toHaveBeenCalledTimes(started)
+
+    release(true)
+    const recovered = await navigate()
+    expect(recovered.status).toBe(200)
+    expect(await recovered.json()).toMatchObject({ inboxHasUnread: true })
+  })
+
   it("composes review and public sharing routes without crossing their authorities", async () => {
     const repositoryId = randomUUID()
     const prototypeId = randomUUID()

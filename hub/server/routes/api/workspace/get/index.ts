@@ -16,12 +16,16 @@ import { canBrowseTemplates } from "../../product/template-repository-access/ind
 import type { WorkspaceProductRouteDependencies } from "../../product/types.ts"
 
 const inboxUnreadBudgetMs = 250
+// Leave space for required reads in the shared PostgreSQL pool, even after a lookup times out.
+const maxPendingInboxUnreadLookups = 2
 
 export function get(
   session: CurrentSessionDependencies,
   product: WorkspaceProductRouteDependencies,
   manageSharing = false,
 ): RequestHandler {
+  let pendingInboxUnreadLookups = 0
+
   return async (request, response, next) => {
     try {
       const cookie = readCookie(request, hubSessionCookieName)
@@ -42,12 +46,19 @@ export function get(
             product.welcome?.isHidden(viewer.userId),
           ])
           let inboxHasUnread: boolean | undefined
-          if (navigationOnly && product.reviewInbox) {
+          const inbox = navigationOnly ? product.reviewInbox : undefined
+          if (inbox && pendingInboxUnreadLookups < maxPendingInboxUnreadLookups) {
             const sessionDigest = hashAuthenticationValue(cookie)
             const deadline = new AbortController()
+            pendingInboxUnreadLookups += 1
+            const lookup = Promise.resolve()
+              .then(() => inbox.hasUnread({ viewer, sessionDigest }, repositories))
+              .finally(() => {
+                pendingInboxUnreadLookups -= 1
+              })
             try {
               inboxHasUnread = await Promise.race([
-                product.reviewInbox.hasUnread({ viewer, sessionDigest }, repositories),
+                lookup,
                 delay(inboxUnreadBudgetMs, undefined, { signal: deadline.signal, ref: false }),
               ])
               if (inboxHasUnread === undefined) {
@@ -58,6 +69,8 @@ export function get(
             } finally {
               deadline.abort()
             }
+          } else if (inbox) {
+            request.log.debug("Inbox unread lookup skipped while busy")
           }
           const requested = selectedRepository.success
             ? selectedRepository.data.toLowerCase()
