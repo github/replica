@@ -507,6 +507,12 @@ function transitionProblems(previous, version) {
         !version.accepted.edited ||
         version.accepted.at !== version.updatedAt ||
         version.accepted.reviewedDigest !== previous.digest ||
+        !version.accepted.requestedFields?.length ||
+        new Set(version.accepted.requestedFields).size !==
+          version.accepted.requestedFields.length ||
+        (version.title !== previous.title && !version.accepted.requestedFields.includes("title")) ||
+        (version.content !== previous.content &&
+          !version.accepted.requestedFields.includes("content")) ||
         version.accepted.edited !==
           (version.content !== previous.content || version.title !== previous.title)
       )
@@ -519,6 +525,7 @@ function transitionProblems(previous, version) {
   if (step === "rejected>accepted" || step === "retired>accepted") {
     if (
       version.accepted.decision !== "reinstate" ||
+      version.accepted.requestedFields !== undefined ||
       !version.accepted.note ||
       version.accepted.edited ||
       version.accepted.at !== version.updatedAt ||
@@ -2462,6 +2469,10 @@ class LearningStore {
     assertContext(context)
     requireHuman(context, `${decision} a learning`)
     const { expectedDigest, title, content, reason, operationId } = options
+    const requestedFields = [
+      ...(title !== undefined ? ["title"] : []),
+      ...(content !== undefined ? ["content"] : []),
+    ]
     if (typeof reason !== "string" || !reason.trim() || reason.length > 2000)
       throw new LearningError("invalid_input", "Give a reason for the decision.")
     if (decision === "edit" && title === undefined && content === undefined)
@@ -2496,6 +2507,8 @@ class LearningStore {
           previous.accepted.reviewedDigest !== expectedDigest ||
           previous.accepted.note !== reason ||
           canonicalJson(previous.accepted.by) !== canonicalJson(context.principal) ||
+          (decision === "edit" &&
+            canonicalJson(previous.accepted.requestedFields) !== canonicalJson(requestedFields)) ||
           (title !== undefined && previous.title !== title) ||
           (content !== undefined && previous.content !== content)
         )
@@ -2540,6 +2553,7 @@ class LearningStore {
       reviewedDigest: expectedDigest,
       edited,
       decision,
+      ...(decision === "edit" ? { requestedFields } : {}),
       note: reason,
       ...(operationId ? { operationId } : {}),
     }

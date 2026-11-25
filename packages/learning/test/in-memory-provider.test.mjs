@@ -201,6 +201,10 @@ describe("learning decisions", () => {
       store.editMemory(designer(), proposal.id, { ...titleEdit, reason: "A different decision." }),
       { code: "conflict" },
     )
+    await assert.rejects(
+      store.editMemory(designer(), proposal.id, { ...titleEdit, content: accepted.content }),
+      { code: "conflict" },
+    )
     assert.equal(titled.title, titleEdit.title)
     assert.equal(titled.content, accepted.content)
     assert.notEqual(titled.contentDigest, accepted.contentDigest)
@@ -212,11 +216,21 @@ describe("learning decisions", () => {
 
     const contentEdit = {
       expectedDigest: titled.digest,
+      title: titled.title,
       content: "Keep labels visible above fields while people type.",
       reason: "Clarify the expected behavior.",
       operationId: "22222222-2222-4222-8222-222222222222",
     }
     const edited = await store.editMemory(designer(), proposal.id, contentEdit)
+    assert.equal(
+      (await store.editMemory(designer(), proposal.id, contentEdit)).digest,
+      edited.digest,
+    )
+    const withoutTitle = { ...contentEdit }
+    delete withoutTitle.title
+    await assert.rejects(store.editMemory(designer(), proposal.id, withoutTitle), {
+      code: "conflict",
+    })
     assert.equal(edited.title, titleEdit.title)
     assert.equal(edited.content, contentEdit.content)
     assert.equal(edited.previousDigest, titled.digest)
