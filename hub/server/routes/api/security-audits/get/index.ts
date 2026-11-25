@@ -1,8 +1,7 @@
 import type { RequestHandler } from "express"
 import { z } from "zod"
 
-import { hubSessionCookieName } from "../../../../integrations/express/hub-session-cookie-name/index.ts"
-import { readCookie } from "../../../../integrations/express/read-cookie/index.ts"
+import { readHubSessionCookie } from "../../../../integrations/express/read-hub-session-cookie/index.ts"
 import { GitHubProviderRequestError } from "../../../../integrations/github/errors.ts"
 import { listSecurityAudits } from "../../../../repositories/security-audits/list-security-audits/index.ts"
 import type {
@@ -97,7 +96,7 @@ export function get(
       let result
       if ("session" in dependencies && repositoryId) {
         const { session, product } = dependencies
-        const cookie = readCookie(request, hubSessionCookieName)
+        const cookie = readHubSessionCookie(request)
         const initial = await readProductSession(cookie, session)
         const id = repositoryId
         const read =

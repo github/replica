@@ -10,8 +10,7 @@ import { createCanvasConnections } from "../../../domains/canvas/connections/ind
 import { canvasDigest, userCodePattern } from "../../../domains/canvas/credentials/index.ts"
 import { createCanvasPairings } from "../../../domains/canvas/pairings/index.ts"
 import { requireOrigin } from "../../../integrations/express/require-origin/index.ts"
-import { hubSessionCookieName } from "../../../integrations/express/hub-session-cookie-name/index.ts"
-import { readCookie } from "../../../integrations/express/read-cookie/index.ts"
+import { readHubSessionCookie } from "../../../integrations/express/read-hub-session-cookie/index.ts"
 import { GitHubProviderRequestError } from "../../../integrations/github/errors.ts"
 import { DecisionModelError } from "../../../domains/decision-model/errors.ts"
 import { reserveAuthenticationRateLimit } from "../../../repositories/authentication-rate-limits/reserve-authentication-rate-limit/index.ts"
@@ -131,7 +130,7 @@ export function canvasRoutes(
   }
 
   async function browser(request: Request, services: Dependencies) {
-    const cookie = readCookie(request, hubSessionCookieName)
+    const cookie = readHubSessionCookie(request)
     return cookie ? services.authority.browser(canvasDigest(cookie)) : null
   }
 

@@ -1,7 +1,6 @@
 import type { RequestHandler } from "express"
 
-import { hubSessionCookieName } from "../../../../../../integrations/express/hub-session-cookie-name/index.ts"
-import { readCookie } from "../../../../../../integrations/express/read-cookie/index.ts"
+import { readHubSessionCookie } from "../../../../../../integrations/express/read-hub-session-cookie/index.ts"
 import type { CurrentSessionDependencies } from "../../../../auth/types.ts"
 import { readProductWithCurrentAuthority } from "../../../../product/read-product-with-current-authority/index.ts"
 import type {
@@ -38,7 +37,7 @@ export function get(
       }
       const read = await readProductWithCurrentAuthority(
         current,
-        readCookie(request, hubSessionCookieName),
+        readHubSessionCookie(request),
         session,
         async (viewer) =>
           (await isRepositoryVisible(viewer, identifiers.repositoryId))

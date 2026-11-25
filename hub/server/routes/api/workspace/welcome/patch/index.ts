@@ -1,8 +1,7 @@
 import type { RequestHandler } from "express"
 
 import { hashAuthenticationValue } from "../../../../../domains/authentication/hash-authentication-value/index.ts"
-import { hubSessionCookieName } from "../../../../../integrations/express/hub-session-cookie-name/index.ts"
-import { readCookie } from "../../../../../integrations/express/read-cookie/index.ts"
+import { readHubSessionCookie } from "../../../../../integrations/express/read-hub-session-cookie/index.ts"
 import type { CurrentSessionDependencies } from "../../../auth/types.ts"
 import { readProductSession } from "../../../product/read-product-session/index.ts"
 import type { WorkspaceProductRouteDependencies } from "../../../product/types.ts"
@@ -13,7 +12,7 @@ export function patch(
 ): RequestHandler {
   return async (request, response, next) => {
     try {
-      const cookie = readCookie(request, hubSessionCookieName)
+      const cookie = readHubSessionCookie(request)
       const current = await readProductSession(cookie, session)
       if (
         !cookie ||

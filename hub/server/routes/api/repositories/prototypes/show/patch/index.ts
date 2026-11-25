@@ -3,8 +3,7 @@ import { z } from "zod"
 
 import { hashAuthenticationValue } from "../../../../../../domains/authentication/hash-authentication-value/index.ts"
 import { PrototypeMetadataError } from "../../../../../../domains/prototypes/errors.ts"
-import { hubSessionCookieName } from "../../../../../../integrations/express/hub-session-cookie-name/index.ts"
-import { readCookie } from "../../../../../../integrations/express/read-cookie/index.ts"
+import { readHubSessionCookie } from "../../../../../../integrations/express/read-hub-session-cookie/index.ts"
 import { GitHubProviderRequestError } from "../../../../../../integrations/github/errors.ts"
 import type { CurrentSessionDependencies } from "../../../../auth/types.ts"
 import { readProductSession } from "../../../../product/read-product-session/index.ts"
@@ -27,7 +26,7 @@ export function patch(
 ): RequestHandler {
   return async (request, response, next) => {
     try {
-      const cookie = readCookie(request, hubSessionCookieName)
+      const cookie = readHubSessionCookie(request)
       if (!cookie || !(await readProductSession(cookie, session))) {
         response.status(401).json({ error: "Sign in to continue." })
         return

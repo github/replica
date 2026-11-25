@@ -5,7 +5,7 @@ import { z } from "zod"
 import { hashAuthenticationValue } from "../../domains/authentication/hash-authentication-value/index.ts"
 import { previewDigestPattern, previewTokenPattern } from "../../domains/private-preview/types.ts"
 import { authenticationSecurity } from "../../integrations/express/authentication-security/index.ts"
-import { hubSessionCookieName } from "../../integrations/express/hub-session-cookie-name/index.ts"
+import { secureHubSessionCookieName } from "../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../integrations/express/read-cookie/index.ts"
 import { privatePreviewAddress } from "../../utils/private-preview-address/index.ts"
 import type { PrivatePreviewRouteDependencies } from "./types.ts"
@@ -46,12 +46,14 @@ export function mountPrivatePreview(
   router.get("/launch/:repositoryId/:runId", async (request, response) => {
     const address = privatePreviewAddress(request.params.repositoryId, request.params.runId)
     if (!address || request.method !== "GET") return response.sendStatus(404)
-    const session = readCookie(request, hubSessionCookieName)
+    const session = readCookie(request, secureHubSessionCookieName)
     if (!session) {
       return response
         .status(401)
         .type("text")
-        .send("Sign in to Hub, then reopen this preview link.")
+        .send(
+          "Sign in to Hub, then reopen this preview link. If already signed in, sign out first.",
+        )
     }
     const challenge = request.query.challenge
     if (
@@ -107,7 +109,7 @@ export function mountPrivatePreview(
     express.urlencoded({ extended: false, limit: "1kb", parameterLimit: 1, inflate: false }),
     async (request, response) => {
       const address = privatePreviewAddress(request.params.repositoryId, request.params.runId)
-      const session = readCookie(request, hubSessionCookieName)
+      const session = readCookie(request, secureHubSessionCookieName)
       const confirmation = z
         .strictObject({ challenge: z.string().regex(previewDigestPattern) })
         .safeParse(request.body)

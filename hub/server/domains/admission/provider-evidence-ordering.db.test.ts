@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto"
 import { once } from "node:events"
-import { createServer } from "node:http"
+import { createServer, request as httpRequest, type IncomingMessage } from "node:http"
 import type { AddressInfo } from "node:net"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { describe, expect, it, vi } from "vitest"
@@ -22,10 +22,27 @@ interface TokenEvidence {
   role: "ADMINISTRATOR" | "MEMBER" | null
 }
 
-function cookieValue(response: Response, name: string) {
-  const header = response.headers.get("set-cookie") ?? ""
-  const match = header.match(new RegExp(`(?:^|,\\s*)${name}=([^;,]*)`))
-  return match ? decodeURIComponent(match[1]!) : null
+function requestThroughProxy(url: URL, method: "GET" | "POST", headers: Record<string, string>) {
+  return new Promise<IncomingMessage>((resolve, reject) => {
+    const request = httpRequest(
+      url,
+      {
+        method,
+        headers: {
+          host: new URL(applicationOrigin).host,
+          "x-forwarded-proto": "https",
+          ...headers,
+        },
+      },
+      (response) => {
+        response.on("error", reject)
+        response.on("end", () => resolve(response))
+        response.resume()
+      },
+    )
+    request.on("error", reject)
+    request.end()
+  })
 }
 
 function environment() {
@@ -107,7 +124,7 @@ async function openServer(tokens: Map<string, TokenEvidence>) {
     throw new Error(`Unexpected provider request: ${url}`)
   })
   const dependencies = await createAuthenticationRouteDependencies(environment(), request)
-  const server = createServer(createApp({ authentication: dependencies }))
+  const server = createServer(createApp({ authentication: dependencies, trustedProxyHops: 1 }))
   server.listen(0, "127.0.0.1")
   await once(server, "listening")
   const { port } = server.address() as AddressInfo
@@ -127,17 +144,17 @@ async function openServer(tokens: Map<string, TokenEvidence>) {
 }
 
 async function startAuthentication(baseUrl: string) {
-  const response = await fetch(`${baseUrl}/api/auth/entra/start`, {
-    headers: { origin: applicationOrigin },
-    method: "POST",
-    redirect: "manual",
+  const response = await requestThroughProxy(new URL("/api/auth/entra/start", baseUrl), "POST", {
+    origin: applicationOrigin,
   })
-  const location = response.headers.get("location")
-  const browserBinding = cookieValue(response, "hub_auth_browser")
+  const location = response.headers.location
+  const browserCookie = response.headers["set-cookie"]
+    ?.find((cookie) => cookie.startsWith("hub_auth_browser="))
+    ?.split(";")[0]
   const state = location ? new URL(location).searchParams.get("state") : null
   const nonce = location ? new URL(location).searchParams.get("nonce") : null
-  if (!browserBinding || !nonce || !state) throw new Error("Authentication start was incomplete.")
-  return { browserBinding, nonce, state }
+  if (!browserCookie || !nonce || !state) throw new Error("Authentication start was incomplete.")
+  return { browserCookie, nonce, state }
 }
 
 function completeAuthentication(
@@ -145,16 +162,9 @@ function completeAuthentication(
   attempt: Awaited<ReturnType<typeof startAuthentication>>,
   code: string,
 ) {
-  return fetch(
-    `${baseUrl}/api/auth/entra/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(attempt.state)}`,
-    {
-      headers: {
-        cookie: `hub_auth_browser=${encodeURIComponent(attempt.browserBinding)}`,
-        host: "hub.example.test",
-      },
-      redirect: "manual",
-    },
-  )
+  const url = new URL("/api/auth/entra/callback", baseUrl)
+  url.search = new URLSearchParams({ code, state: attempt.state }).toString()
+  return requestThroughProxy(url, "GET", { cookie: attempt.browserCookie })
 }
 
 async function activeProviderRole() {
@@ -238,7 +248,7 @@ describe("provider evidence ordering", () => {
       const initialAttempt = await startAuthentication(server.baseUrl)
       tokens.get("initial")!.nonce = initialAttempt.nonce
       const initial = await completeAuthentication(server.baseUrl, initialAttempt, "initial")
-      expect(initial.headers.get("location")).toBe("/?authentication=success")
+      expect(initial.headers.location).toBe("/?authentication=success")
 
       const staleAttempt = await startAuthentication(server.baseUrl)
       const currentAttempt = await startAuthentication(server.baseUrl)
@@ -249,13 +259,13 @@ describe("provider evidence ordering", () => {
       await barrier.started
 
       const current = await completeAuthentication(server.baseUrl, currentAttempt, "current")
-      expect(current.headers.get("location")).toBe(
+      expect(current.headers.location).toBe(
         scenario.current === null ? "/?authentication=denied" : "/?authentication=success",
       )
       barrier.release()
       const stale = await staleCompletion
 
-      expect(stale.headers.get("location")).toBe("/?authentication=denied")
+      expect(stale.headers.location).toBe("/?authentication=denied")
       await expect(activeProviderRole()).resolves.toEqual(
         scenario.expected === null ? null : { role: scenario.expected },
       )
@@ -368,7 +378,7 @@ describe("provider evidence ordering", () => {
           initialAttempt,
           "initial",
         )
-        expect(initialResponse.headers.get("location")).toBe("/?authentication=success")
+        expect(initialResponse.headers.location).toBe("/?authentication=success")
 
         const firstAttempt = await startAuthentication(server.baseUrl)
         const secondAttempt = await startAuthentication(server.baseUrl)
@@ -379,11 +389,11 @@ describe("provider evidence ordering", () => {
         await barrier.started
 
         const firstResponse = await completeAuthentication(server.baseUrl, firstAttempt, "first")
-        expect(firstResponse.headers.get("location")).toBe(firstLocation)
+        expect(firstResponse.headers.location).toBe(firstLocation)
         barrier.release()
         const secondResponse = await secondCompletion
 
-        expect(secondResponse.headers.get("location")).toBe(secondLocation)
+        expect(secondResponse.headers.location).toBe(secondLocation)
         await expect(activeProviderRole()).resolves.toEqual(
           expectedRole === null ? null : { role: expectedRole },
         )
@@ -418,7 +428,7 @@ describe("provider evidence ordering", () => {
         const attempt = await startAuthentication(server.baseUrl)
         tokens.get(code)!.nonce = attempt.nonce
         const response = await completeAuthentication(server.baseUrl, attempt, code)
-        expect(response.headers.get("location")).toBe("/?authentication=success")
+        expect(response.headers.location).toBe("/?authentication=success")
       }
 
       await expect(activeProviderRole()).resolves.toEqual({ role: "ADMINISTRATOR" })

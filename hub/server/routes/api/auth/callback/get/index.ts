@@ -17,8 +17,12 @@ import {
 import { clearAuthenticationCookie } from "../../../../../integrations/express/clear-authentication-cookie/index.ts"
 import { createAuthenticationCookie } from "../../../../../integrations/express/create-authentication-cookie/index.ts"
 import { githubRepositoryDenialCookieName } from "../../../../../integrations/express/github-repository-denial-cookie-name/index.ts"
-import { hubSessionCookieName } from "../../../../../integrations/express/hub-session-cookie-name/index.ts"
+import {
+  hubSessionCookieName,
+  secureHubSessionCookieName,
+} from "../../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../../../../integrations/express/read-cookie/index.ts"
+import { readHubSessionCookie } from "../../../../../integrations/express/read-hub-session-cookie/index.ts"
 import type { AuthenticationCallbackDependencies } from "../../types.ts"
 
 const querySchema = z
@@ -31,8 +35,17 @@ const querySchema = z
   .strict()
 const browserBindingSchema = z.string().min(32).max(200)
 
-export function get(dependencies: AuthenticationCallbackDependencies): RequestHandler {
+export function get(
+  dependencies: AuthenticationCallbackDependencies,
+  applicationOrigin: string,
+): RequestHandler {
+  const host = new URL(applicationOrigin).host
   return async (request, response, next) => {
+    if (dependencies.secureCookie && (!request.secure || request.get("host") !== host)) {
+      response.sendStatus(404)
+      return
+    }
+
     const query = querySchema.safeParse(request.query)
     const browserBinding = browserBindingSchema.safeParse(
       readCookie(request, browserAuthenticationCookieName),
@@ -64,7 +77,7 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
       }
       githubLogin = completed.githubLogin
       if (completed.purpose === "ADMINISTRATOR_MANAGEMENT") {
-        const hubSessionValue = readCookie(request, hubSessionCookieName)
+        const hubSessionValue = readHubSessionCookie(request)
         if (
           !completed.sensitiveAuthorizationId ||
           !hubSessionValue ||
@@ -119,9 +132,12 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
         ...(returnTo
           ? [clearAuthenticationCookie(canvasSignInReturnCookie, dependencies.secureCookie)]
           : []),
+        ...(dependencies.secureCookie
+          ? [clearAuthenticationCookie(hubSessionCookieName, true)]
+          : []),
         createAuthenticationCookie({
           expiresAt: admitted.expiresAt,
-          name: hubSessionCookieName,
+          name: dependencies.secureCookie ? secureHubSessionCookieName : hubSessionCookieName,
           secure: dependencies.secureCookie,
           value: sessionValue,
         }),
@@ -138,7 +154,7 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
           .status(503)
           .type("text/plain")
           .send(
-            readCookie(request, hubSessionCookieName)
+            readHubSessionCookie(request)
               ? "Verification is temporarily unavailable. Return to Hub settings and start the administrator action again."
               : "Sign-in is temporarily unavailable. Return to Replica Hub and start sign-in again.",
           )

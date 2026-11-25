@@ -97,7 +97,13 @@ The callback must receive the original Hub session cookie and prove the same ext
 
 ## Browser session
 
-Hub creates a fresh opaque session value only after admission succeeds. The browser receives the value in an `HttpOnly`, `SameSite=Lax` cookie with a bounded lifetime; HTTPS origins also set `Secure`. The database stores only its SHA-256 digest.
+Hub creates a fresh opaque session value only after admission succeeds. The browser receives it in an `HttpOnly`, `SameSite=Lax` cookie with a bounded lifetime. On HTTPS, the sign-in callback must arrive at the configured Hub host over HTTPS. It sets `__Host-hub_session` with `Secure`, `Path=/`, and no `Domain`, so the browser confines the cookie to that host. HTTP loopback development still uses `hub_session`. The database stores only the session value's SHA-256 digest.
+
+If ingress terminates TLS, preserve the public Hub `Host` and configure the [trusted proxy chain](deployment.md#image-and-runtime) so Hub recognizes the original HTTPS connection. Verify a fresh provider sign-in after updating Hub; `/api/ready` does not exercise the callback.
+
+Existing `hub_session` cookies still work for ordinary Hub use until the session expires or ends. If the protected cookie is present, Hub never falls back to the legacy one, even if the protected session is invalid. Hub never exchanges a legacy cookie for a protected one; a fresh HTTPS sign-in sets the new cookie and removes the old one. Sign-out clears both names on HTTPS.
+
+Do not serve requests from old and new Hub versions at the same time. An older Hub that only reads `hub_session` does not recognize or clear the protected cookie. After rollback, users who received the protected cookie must sign in again. Before restoring a release that reads it, allow protected sessions issued before the rollback to expire (at most 12 hours from the last issuance), or use an approved global sign-out. Otherwise a browser can return with a still-valid protected session that the older release could not end. The cookie change does not require a database rollback.
 
 Every current-session restore rereads the global revocation revision, session expiry and termination state, membership lifecycle, and active assignments, then returns the current effective member or administrator role. Provider-owned authority is active only while its provider remains enabled and its revision remains selected. A retained cookie stops authorizing access after sign-out, expiry, suspension, removal, assignment revocation, provider removal, or a global revision change. Provider revision replacement removes authority from the old revision and stops the cookie only when no other active authority remains.
 

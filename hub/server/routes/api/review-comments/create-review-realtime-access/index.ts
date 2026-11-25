@@ -1,8 +1,7 @@
 import { z } from "zod"
 
 import { hashAuthenticationValue } from "../../../../domains/authentication/hash-authentication-value/index.ts"
-import { hubSessionCookieName } from "../../../../integrations/express/hub-session-cookie-name/index.ts"
-import { readCookie } from "../../../../integrations/express/read-cookie/index.ts"
+import { readHubSessionCookie } from "../../../../integrations/express/read-hub-session-cookie/index.ts"
 import type { RealtimeOptions } from "../../../../integrations/ws/types.ts"
 import type { AuthenticationRouteDependencies } from "../../auth/types.ts"
 import type { ProductRouteDependencies } from "../../product/types.ts"
@@ -33,7 +32,7 @@ export function createReviewRealtimeAccess(
   return {
     async authenticate(request, signal) {
       if (request.headers.origin !== authentication.signOut.applicationOrigin) return null
-      const cookie = readCookie(request, hubSessionCookieName)
+      const cookie = readHubSessionCookie(request)
       if (!cookie || signal.aborted) return null
       const digest = hashAuthenticationValue(cookie)
       const current = await authentication.currentSession.restore(digest)
