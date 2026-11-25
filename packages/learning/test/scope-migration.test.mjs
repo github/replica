@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { execFileSync, spawnSync } from "node:child_process"
 import {
+  chmodSync,
   copyFileSync,
   existsSync,
   mkdirSync,
@@ -85,6 +86,7 @@ function installLegacyStore(repo, fixture) {
   const directory = path.join(repo, ".replica", "learning")
   mkdirSync(directory, { recursive: true, mode: 0o700 })
   copyFileSync(path.join(here, "fixtures", fixture), path.join(directory, "learning.sqlite"))
+  chmodSync(path.join(directory, "learning.sqlite"), 0o600)
 }
 
 function configureCustomProvider(repo) {
