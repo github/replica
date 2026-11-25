@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto"
 import {
   chmodSync,
   copyFileSync,
+  existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -136,6 +137,46 @@ after(async () => admin.end())
 memoryProviderConformance({
   name: "PostgreSQL provider",
   createProvider: async () => provider(await database()),
+})
+
+it("returns no removals for an unmapped new PostgreSQL repository", async () => {
+  const root = path.resolve(`.learning-hub-tests-${randomBytes(12).toString("hex")}`)
+  mkdirSync(root, { mode: 0o700 })
+  workspaces.push(root)
+  execFileSync("git", ["init", "-q", root])
+  writeFileSync(path.join(root, ".gitignore"), ".replica/\n")
+  const directory = path.join(root, ".replica", "learning")
+  mkdirSync(directory, { recursive: true, mode: 0o700 })
+  writeFileSync(
+    path.join(directory, "config.json"),
+    JSON.stringify({
+      schemaVersion: "replica.learning-config/v1",
+      memory: { provider: "postgres" },
+    }),
+  )
+  const url = await database()
+  const oldScope = {
+    host: "github.com",
+    repository: "repositories/11111111-2222-4333-8444-555555555555",
+  }
+  const target = provider(url)
+  assert.equal(await target.scopeMigrationFrom(oldScope), null)
+  const result = await learningCommand(root, url, [
+    "redact",
+    "--comment",
+    "103",
+    "--by",
+    "github:ana-designer",
+    "--dir",
+    directory,
+    "--legacy-repository",
+    `github.com/${oldScope.repository}`,
+    "--legacy-redaction",
+    "--json",
+  ])
+  assert.equal(result.code, 0, result.stderr)
+  assert.equal(JSON.parse(result.stdout).removed, 0)
+  assert.equal(await target.scopeMigrationFrom(oldScope), null)
 })
 
 it("redacts a new PostgreSQL repository using its old Hub UUID", async () => {
@@ -298,6 +339,10 @@ it("imports Hub history offline, preserves mappings and redactions, and refuses 
   try {
     const original = await snapshot(sourceProvider, oldScope)
     assert.ok(original.records.events.some((event) => event.redaction && !event.payload))
+    assert.deepEqual(await sourceProvider.storedScopes(), [oldScope])
+    const originalNumeric = await snapshot(sourceProvider, scope)
+    assert.equal(await sourceProvider.scopeMigrationFrom(oldScope), null)
+    assert.deepEqual(await sourceProvider.scopeMigrations(scope), [])
     assert.deepEqual(
       original.versions.map((version) => version.state),
       ["proposed", "accepted"],
@@ -322,20 +367,19 @@ it("imports Hub history offline, preserves mappings and redactions, and refuses 
     assert.equal(imported.code, 0, imported.stderr)
     assert.deepEqual(await snapshot(target, scope), expectedHistory)
     assert.deepEqual(await target.scopeMigrationFrom(oldScope), expectedMapping)
-    const oldSource = await snapshot(sourceProvider, oldScope)
-    const newSource = await snapshot(sourceProvider, scope)
-    if (newSource.records.events.length) assert.deepEqual(newSource, expectedHistory)
-    else assert.deepEqual(oldSource, original)
+    assert.equal(digestOf(await snapshot(sourceProvider, oldScope)), digestOf(original))
+    assert.equal(digestOf(await snapshot(sourceProvider, scope)), digestOf(originalNumeric))
+    assert.equal(await sourceProvider.scopeMigrationFrom(oldScope), null)
+    assert.deepEqual(await sourceProvider.scopeMigrations(scope), [])
 
     const retry = await learningCommand(root, url, ["import-sqlite", "--offline", ...flags])
     assert.equal(retry.code, 0, retry.stderr)
     assert.deepEqual(await snapshot(target, scope), expectedHistory)
     assert.deepEqual(await target.scopeMigrationFrom(oldScope), expectedMapping)
 
-    const sourceScope = newSource.records.events.length ? scope : oldScope
     const store = await createLearningStore({ provider: sourceProvider })
     await store.addGrant(
-      { scope: sourceScope, principal: { kind: "human", id: "github:later" } },
+      { scope: oldScope, principal: { kind: "human", id: "github:later" } },
       {
         purposes: ["review"],
         sources: ["hub_review_comments"],
@@ -398,6 +442,46 @@ it("imports Hub history offline, preserves mappings and redactions, and refuses 
   } finally {
     await expected.close()
     await sourceProvider.close()
+  }
+})
+
+it("refuses an import when the selected SQLite file is missing", async () => {
+  const { root } = importWorkspace()
+  const url = await database()
+  const source = path.join(root, ".replica", "empty")
+  mkdirSync(source, { mode: 0o700 })
+  const selected = path.join(source, "selected.sqlite")
+  writeFileSync(
+    path.join(source, "config.json"),
+    JSON.stringify({
+      schemaVersion: "replica.learning-config/v1",
+      memory: { provider: { builtin: "sqlite", file: "selected.sqlite" } },
+    }),
+  )
+  const result = await learningCommand(root, url, [
+    "import-sqlite",
+    "--offline",
+    "--dir",
+    source,
+    "--repository",
+    "github.com/repositories/123456",
+    "--legacy-repository",
+    "github.com/repositories/11111111-2222-4333-8444-555555555555",
+  ])
+  const db = new pg.Client({ connectionString: url })
+  await db.connect()
+  try {
+    assert.notEqual(result.code, 0)
+    assert.equal(existsSync(selected), false)
+    assert.deepEqual(readdirSync(source), ["config.json"])
+    for (const table of ["records", "memory_versions", "scope_migrations", "sqlite_imports"]) {
+      const { rows } = await db.query(
+        `select count(*)::int as count from replica_learning.${table}`,
+      )
+      assert.equal(rows[0].count, 0, table)
+    }
+  } finally {
+    await db.end()
   }
 })
 
@@ -947,8 +1031,20 @@ it("rolls back a failed PostgreSQL import and permits a retry", async () => {
   const { root, source } = importWorkspace()
   const url = await database()
   const db = new pg.Client({ connectionString: url })
+  const oldScope = {
+    host: "github.com",
+    repository: "repositories/11111111-2222-4333-8444-555555555555",
+  }
+  const scope = { host: "github.com", repository: "repositories/123456" }
+  const sourceProvider = createSqliteMemoryProvider({ directory: source })
   await db.connect()
   try {
+    const original = await snapshot(sourceProvider, oldScope)
+    assert.ok(original.records.events.length > 0)
+    assert.deepEqual(await sourceProvider.storedScopes(), [oldScope])
+    const originalNumeric = await snapshot(sourceProvider, scope)
+    assert.equal(await sourceProvider.scopeMigrationFrom(oldScope), null)
+    assert.deepEqual(await sourceProvider.scopeMigrations(scope), [])
     await db.query("create sequence replica_learning.test_import_attempt")
     await db.query(`
       create function replica_learning.test_refuse_events() returns trigger language plpgsql as $$
@@ -981,14 +1077,22 @@ it("rolls back a failed PostgreSQL import and permits a retry", async () => {
     )
     assert.equal(records.rows[0].count, 0)
     assert.equal(versions.rows[0].count, 0)
+    const receipts = await db.query(
+      "select count(*)::int as count from replica_learning.sqlite_imports",
+    )
+    assert.equal(receipts.rows[0].count, 0)
+    assert.equal(digestOf(await snapshot(sourceProvider, oldScope)), digestOf(original))
+    assert.equal(digestOf(await snapshot(sourceProvider, scope)), digestOf(originalNumeric))
+    assert.equal(await sourceProvider.scopeMigrationFrom(oldScope), null)
+    assert.deepEqual(await sourceProvider.scopeMigrations(scope), [])
     await db.query("drop trigger test_refuse_events on replica_learning.records")
     const retried = await learningCommand(root, url, args)
     assert.equal(retried.code, 0, retried.stderr)
     const target = provider(url)
-    const scope = { host: "github.com", repository: "repositories/123456" }
     assert.ok((await target.readRecords("events", { scope })).length > 0)
     assert.equal((await target.readMemoryVersions({ scope })).length, 2)
   } finally {
+    await sourceProvider.close()
     await db.end()
   }
 })

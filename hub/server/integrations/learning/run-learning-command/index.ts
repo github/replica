@@ -1,4 +1,5 @@
-import { chmod, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises"
+import { constants } from "node:fs"
+import { chmod, mkdtemp, open, readdir, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { spawn } from "node:child_process"
@@ -10,6 +11,8 @@ const childVariables = [
   ...passedVariables,
   "COPILOT_GITHUB_TOKEN",
   "REPLICA_LEARNING_DATABASE_URL",
+  "REPLICA_LEARNING_HUB_POSTGRES",
+  "REPLICA_LEARNING_HUB_REQUIRE_IMPORT",
   "TMPDIR",
 ]
 const bootstrap = `
@@ -30,6 +33,7 @@ function commandEnvironment(
   temporaryDirectory: string,
   githubToken?: string,
   learningDatabaseUrl?: string,
+  requireImport = false,
 ) {
   const environment: NodeJS.ProcessEnv = { TMPDIR: temporaryDirectory }
   for (const [name, value] of Object.entries(source)) {
@@ -38,7 +42,11 @@ function commandEnvironment(
     }
   }
   if (githubToken) environment.COPILOT_GITHUB_TOKEN = githubToken
-  if (learningDatabaseUrl) environment.REPLICA_LEARNING_DATABASE_URL = learningDatabaseUrl
+  if (learningDatabaseUrl) {
+    environment.REPLICA_LEARNING_DATABASE_URL = learningDatabaseUrl
+    environment.REPLICA_LEARNING_HUB_POSTGRES = "1"
+    if (requireImport) environment.REPLICA_LEARNING_HUB_REQUIRE_IMPORT = "1"
+  }
   return environment
 }
 
@@ -108,18 +116,51 @@ export async function runLearningCommand(
   try {
     const commandArguments = [...arguments_]
     let hasDirectory = false
+    let requireImport = false
     if (learningDatabaseUrl) {
-      let requireImport = false
+      let existingConfig: Buffer | undefined
       async function preserveExistingStore(directory: string) {
+        let entries: string[]
         try {
-          if ((await readdir(directory)).length) requireImport = true
+          entries = await readdir(directory)
         } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") return
+          throw error
+        }
+        if (entries.some((name) => name !== "postgres-config.json")) requireImport = true
+        if (entries.includes("config.json") && entries.includes("postgres-config.json"))
+          throw new LearningCommandError(
+            "invalid_request",
+            "Keep only one learning configuration for this repository.",
+          )
+        const name = entries.includes("postgres-config.json")
+          ? "postgres-config.json"
+          : entries.includes("config.json")
+            ? "config.json"
+            : undefined
+        if (name) {
+          const handle = await open(
+            join(directory, name),
+            constants.O_RDONLY | constants.O_NOFOLLOW,
+          )
+          try {
+            const info = await handle.stat()
+            if (!info.isFile() || info.nlink !== 1)
+              throw new LearningCommandError(
+                "invalid_request",
+                "Learning configuration is invalid.",
+              )
+            existingConfig = await handle.readFile()
+          } finally {
+            await handle.close()
+          }
         }
       }
       for (let index = 0; index < commandArguments.length; index += 1) {
         const argument = commandArguments[index]
         if (argument === "--dir") {
+          if (hasDirectory)
+            throw new LearningCommandError("invalid_request", "Give one learning directory.")
           const directory = commandArguments[index + 1]
           if (!directory || directory.startsWith("--"))
             throw new LearningCommandError("invalid_request", "The learning directory is missing.")
@@ -127,6 +168,8 @@ export async function runLearningCommand(
           commandArguments[++index] = temporaryDirectory
           hasDirectory = true
         } else if (argument?.startsWith("--dir=")) {
+          if (hasDirectory)
+            throw new LearningCommandError("invalid_request", "Give one learning directory.")
           await preserveExistingStore(argument.slice("--dir=".length))
           commandArguments[index] = `--dir=${temporaryDirectory}`
           hasDirectory = true
@@ -135,15 +178,22 @@ export async function runLearningCommand(
       if (hasDirectory) {
         await writeFile(
           join(temporaryDirectory, "config.json"),
-          JSON.stringify({
-            schemaVersion: "replica.learning-config/v1",
-            memory: { provider: "postgres", ...(requireImport ? { requireImport: true } : {}) },
-            consolidation: {
-              options: {
-                signals: ["visual_quality", "accessibility", "usability", "content", "interaction"],
+          existingConfig ??
+            JSON.stringify({
+              schemaVersion: "replica.learning-config/v1",
+              memory: { provider: "postgres", ...(requireImport ? { requireImport: true } : {}) },
+              consolidation: {
+                options: {
+                  signals: [
+                    "visual_quality",
+                    "accessibility",
+                    "usability",
+                    "content",
+                    "interaction",
+                  ],
+                },
               },
-            },
-          }),
+            }),
           { mode: 0o600, flag: "wx" },
         )
       }
@@ -195,6 +245,7 @@ export async function runLearningCommand(
             temporaryDirectory,
             githubToken,
             hasDirectory ? learningDatabaseUrl : undefined,
+            requireImport,
           ),
           stdio: ["ignore", "pipe", "pipe"],
         },

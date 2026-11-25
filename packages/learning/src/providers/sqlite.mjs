@@ -9,7 +9,7 @@ import {
   statSync,
 } from "node:fs"
 import path from "node:path"
-import { DatabaseSync } from "node:sqlite"
+import { backup, DatabaseSync } from "node:sqlite"
 import { canonicalJson, digestOf } from "../canonical-json.mjs"
 import { LearningError, ProviderConflictError } from "../errors.mjs"
 import {
@@ -57,6 +57,46 @@ const SCHEMA = `
   );
   create index if not exists memory_versions_by_scope on memory_versions (scope_key, seq);
 `
+
+/** Copy a stopped store without creating or migrating its source. */
+export async function backupSqliteMemoryStore(
+  { directory, file = "learning.sqlite" },
+  destination,
+) {
+  if (typeof file !== "string" || path.basename(file) !== file || file.startsWith("."))
+    throw new LearningError("invalid_input", "file must be a plain file name in the directory.")
+  const root = path.resolve(directory)
+  const target = path.join(root, file)
+  assertPrivate(root)
+  for (const name of [file, `${file}-wal`, `${file}-shm`, `${file}-journal`]) {
+    const candidate = path.join(root, name)
+    const info = lstatSync(candidate, { throwIfNoEntry: false })
+    if (info) assertOwnPath(root, candidate, info)
+  }
+  let descriptor
+  try {
+    descriptor = openSync(target, constants.O_RDONLY | NO_FOLLOW)
+  } catch (error) {
+    if (error.code === "ENOENT")
+      throw new LearningError("not_found", "The selected SQLite learning database is missing.")
+    throw openError(root, target, error)
+  }
+  try {
+    const checked = fstatSync(descriptor)
+    assertPrivate(target)
+    assertSameFile(root, target, checked)
+    const db = new DatabaseSync(target, { readOnly: true })
+    try {
+      assertSameFile(root, target, checked)
+      await backup(db, destination)
+      assertSameFile(root, target, checked)
+    } finally {
+      db.close()
+    }
+  } finally {
+    closeSync(descriptor)
+  }
+}
 
 /**
  * Stores learning records in one SQLite file with the driver built into Node.js 24, so it

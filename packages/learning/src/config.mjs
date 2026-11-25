@@ -1,7 +1,19 @@
 import { execFile } from "node:child_process"
-import { randomBytes } from "node:crypto"
-import { constants } from "node:fs"
-import { lstat, mkdir, open, realpath, rename, stat, unlink } from "node:fs/promises"
+import { createHash, randomBytes } from "node:crypto"
+import { constants, createReadStream } from "node:fs"
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  open,
+  realpath,
+  rename,
+  rm,
+  stat,
+  unlink,
+} from "node:fs/promises"
+import { tmpdir } from "node:os"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
@@ -15,7 +27,7 @@ import { createInMemoryProvider } from "./providers/in-memory.mjs"
 import { createJsonLinesMemoryProvider } from "./providers/json-lines.mjs"
 import { createFileLock } from "./providers/lock.mjs"
 import { createPostgresMemoryProvider } from "./providers/postgres.mjs"
-import { createSqliteMemoryProvider } from "./providers/sqlite.mjs"
+import { backupSqliteMemoryStore, createSqliteMemoryProvider } from "./providers/sqlite.mjs"
 import { migrateRepositoryScope } from "./scope-migration.mjs"
 import { createLearningStore, scopeProblem } from "./store.mjs"
 
@@ -154,6 +166,26 @@ async function resolveHostedEnvironment({
   const dataDirectory = await realLocation(path.resolve(cwd, directory))
   const configPath = path.join(dataDirectory, "config.json")
   const config = await readConfig(configPath)
+  let selectedConfig = config ?? {}
+  if (env.REPLICA_LEARNING_HUB_POSTGRES === "1") {
+    if (!env.REPLICA_LEARNING_DATABASE_URL)
+      throw new LearningError("invalid_input", "The Hub learning database URL is missing.")
+    if (
+      typeof config?.consolidation?.consolidator === "object" ||
+      typeof config?.labeling?.labeler === "object"
+    )
+      throw new LearningError(
+        "unsupported",
+        "Hub PostgreSQL learning supports built-in consolidators and labelers only.",
+      )
+    selectedConfig = {
+      ...selectedConfig,
+      memory: {
+        provider: "postgres",
+        ...(env.REPLICA_LEARNING_HUB_REQUIRE_IMPORT === "1" ? { requireImport: true } : {}),
+      },
+    }
+  }
   const checkout = await checkoutAround(dataDirectory)
   const placement = checkout ? placeIn(checkout, dataDirectory) : null
   return {
@@ -164,7 +196,7 @@ async function resolveHostedEnvironment({
     dataDirectory,
     configPath,
     configFound: config !== null,
-    config: config ?? {},
+    config: selectedConfig,
     env: { REPLICA_LEARNING_DATABASE_URL: env.REPLICA_LEARNING_DATABASE_URL },
     scope,
     legacyScope,
@@ -566,9 +598,8 @@ export async function openLegacyRedactionStore(environment, { clock = Date.now }
       )
     const migration = await provider.scopeMigrationFrom?.(environment.scope)
     if (
-      (!migration && typeof provider.hasSqliteImport === "function") ||
-      (environment.config.memory?.requireImport &&
-        (!migration || !(await provider.hasSqliteImport?.(migration.newScope))))
+      environment.config.memory?.requireImport &&
+      (!migration || !(await provider.hasSqliteImport?.(migration.newScope)))
     )
       throw new LearningError(
         "conflict",
@@ -649,10 +680,22 @@ export async function importSqliteStore(environment, { clock = Date.now } = {}) 
       "invalid_input",
       "Import needs an existing Hub SQLite store, its numeric repository ID, and its old Hub scope.",
     )
+  if (choice?.builtin === "sqlite" && typeof choice.file !== "string")
+    throw new LearningError("invalid_input", "A migrated SQLite provider needs its file name.")
   const destination = createPostgresMemoryProvider({
     connectionString: environment.env.REPLICA_LEARNING_DATABASE_URL,
   })
+  const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "replica-learning-import-"))
+  const file = choice === "sqlite" ? "learning.sqlite" : choice.file
+  const sourceOptions = { directory: environment.dataDirectory, file }
+  const snapshotPath = path.join(temporaryDirectory, file)
+  const copyEnvironment = { ...environment, dataDirectory: temporaryDirectory }
   let source
+  async function fileDigest(filePath) {
+    const hash = createHash("sha256")
+    for await (const chunk of createReadStream(filePath)) hash.update(chunk)
+    return hash.digest("hex")
+  }
   async function snapshot() {
     const scopes = await source.storedScopes()
     if (scopes.some((scope) => canonicalJson(scope) !== canonicalJson(environment.scope)))
@@ -675,7 +718,10 @@ export async function importSqliteStore(environment, { clock = Date.now } = {}) 
   }
   try {
     await destination.hasSqliteImport(environment.scope)
-    const { store } = await openLearningStore(environment, { clock })
+    await backupSqliteMemoryStore(sourceOptions, snapshotPath)
+    await chmod(snapshotPath, 0o600)
+    const originalDigest = await fileDigest(snapshotPath)
+    const { store } = await openLearningStore(copyEnvironment, { clock })
     try {
       const verified = await store.verify({
         scope: environment.scope,
@@ -689,7 +735,7 @@ export async function importSqliteStore(environment, { clock = Date.now } = {}) 
     } finally {
       await store.close()
     }
-    source = (await openProvider(environment)).provider
+    source = (await openProvider(copyEnvironment)).provider
     const original = await snapshot()
     if (
       !original.migrations.some(
@@ -705,7 +751,11 @@ export async function importSqliteStore(environment, { clock = Date.now } = {}) 
       ...original,
       sourceDigest: digestOf(original),
       beforeCommit: async () => {
+        const checkDirectory = await mkdtemp(path.join(temporaryDirectory, "recheck-"))
+        const checkPath = path.join(checkDirectory, "source.sqlite")
+        await backupSqliteMemoryStore(sourceOptions, checkPath)
         if (
+          (await fileDigest(checkPath)) !== originalDigest ||
           canonicalJson(await snapshot()) !== canonicalJson(original) ||
           canonicalJson(await readConfig(environment.configPath)) !==
             canonicalJson(environment.config)
@@ -720,7 +770,11 @@ export async function importSqliteStore(environment, { clock = Date.now } = {}) 
     try {
       await source?.close()
     } finally {
-      await destination.close()
+      try {
+        await destination.close()
+      } finally {
+        await rm(temporaryDirectory, { recursive: true, force: true })
+      }
     }
   }
 }

@@ -51,6 +51,8 @@ describe("runLearningCommand()", () => {
         LC_ALL: "C",
         PATH: process.env.PATH,
         REPLICA_LEARNING_DATABASE_URL: "ambient-database-url-must-not-leak",
+        REPLICA_LEARNING_HUB_POSTGRES: "ambient-postgres-must-not-leak",
+        REPLICA_LEARNING_HUB_REQUIRE_IMPORT: "ambient-import-must-not-leak",
         REPLICA_LEARNING_MIGRATION_DATABASE_URL: "migration-url-must-not-leak",
         REPLICA_LEARNING_ROOT: "/private/learning",
         REPLICA_LEARNING_SECRET: "must-not-leak",
@@ -140,6 +142,7 @@ describe("runLearningCommand()", () => {
       TMPDIR: result.temporaryDirectory,
       COPILOT_GITHUB_TOKEN: "explicit-token",
       REPLICA_LEARNING_DATABASE_URL: databaseUrl,
+      REPLICA_LEARNING_HUB_POSTGRES: "1",
     })
     expect(JSON.parse(result.config)).toMatchObject({
       memory: { provider: "postgres" },
@@ -162,6 +165,174 @@ describe("runLearningCommand()", () => {
     }
     expect(result.temporaryDirectoryMode).toBe(0o700)
     await expect(stat(result.temporaryDirectory)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("preserves an existing SQLite config when opening Postgres", async () => {
+    const directory = resolve(`server/integrations/learning/.process-test-${randomUUID()}`)
+    await mkdir(directory)
+    onTestFinished(() => rm(directory, { force: true, recursive: true }))
+    const configPath = resolve(directory, "config.json")
+    const config = `${JSON.stringify(
+      {
+        schemaVersion: "replica.learning-config/v1",
+        memory: { provider: "sqlite" },
+        consolidation: { options: { minPrototypes: 4, minReviewers: 3 } },
+        labeling: { options: { model: "example-model", timeoutMs: 12000 } },
+      },
+      null,
+      2,
+    )}\n`
+    await writeFile(configPath, config)
+    const databaseUrl = "postgres://learning-user:learning-password@localhost/learning"
+    const token = "explicit-token"
+
+    const result = (await runLearningCommand(
+      ["consolidate", "--dir", directory, "--repository", "github.com/repositories/123"],
+      {
+        cliPath: resolve(fixtures, "report-runtime.mjs"),
+        learningDatabaseUrl: databaseUrl,
+        githubToken: token,
+        environment: { PATH: process.env.PATH },
+      },
+    )) as {
+      config: string
+      environment: NodeJS.ProcessEnv
+      temporaryDirectory: string
+    }
+
+    expect(result.config).toBe(config)
+    expect(result.environment.REPLICA_LEARNING_HUB_POSTGRES).toBe("1")
+    expect(result.environment.REPLICA_LEARNING_HUB_REQUIRE_IMPORT).toBe("1")
+    expect(result.config).not.toContain(databaseUrl)
+    expect(result.config).not.toContain(token)
+    expect(await readFile(configPath, "utf8")).toBe(config)
+    await expect(stat(result.temporaryDirectory)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("uses Postgres-only config for a fresh store without requiring import", async () => {
+    const directory = resolve(`server/integrations/learning/.process-test-${randomUUID()}`)
+    await mkdir(directory)
+    onTestFinished(() => rm(directory, { force: true, recursive: true }))
+    const configPath = resolve(directory, "postgres-config.json")
+    const config = `${JSON.stringify(
+      {
+        schemaVersion: "replica.learning-config/v1",
+        consolidation: { options: { minPrototypes: 4 } },
+        labeling: { options: { model: "example-model" } },
+      },
+      null,
+      2,
+    )}\n`
+    await writeFile(configPath, config)
+    const databaseUrl = "postgres://learning-user:learning-password@localhost/learning"
+    const token = "explicit-token"
+
+    const result = (await runLearningCommand(
+      ["consolidate", "--dir", directory, "--repository", "github.com/repositories/123"],
+      {
+        cliPath: resolve(fixtures, "report-runtime.mjs"),
+        learningDatabaseUrl: databaseUrl,
+        githubToken: token,
+        environment: { PATH: process.env.PATH },
+      },
+    )) as {
+      config: string
+      environment: NodeJS.ProcessEnv
+      temporaryDirectory: string
+    }
+
+    expect(result.config).toBe(config)
+    expect(result.environment.REPLICA_LEARNING_HUB_POSTGRES).toBe("1")
+    expect(result.environment.REPLICA_LEARNING_HUB_REQUIRE_IMPORT).toBeUndefined()
+    expect(result.config).not.toContain(databaseUrl)
+    expect(result.config).not.toContain(token)
+    expect(await readFile(configPath, "utf8")).toBe(config)
+    await expect(stat(result.temporaryDirectory)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("rejects a store with both SQLite and Postgres configs", async () => {
+    const directory = resolve(`server/integrations/learning/.process-test-${randomUUID()}`)
+    await mkdir(directory)
+    onTestFinished(() => rm(directory, { force: true, recursive: true }))
+    const sqliteConfig = resolve(directory, "config.json")
+    const postgresConfig = resolve(directory, "postgres-config.json")
+    const marker = resolve(directory, "command.json")
+    await writeFile(sqliteConfig, '{"memory":{"provider":"sqlite"}}\n')
+    await writeFile(postgresConfig, '{"memory":{"provider":"postgres"}}\n')
+
+    await expect(
+      runLearningCommand(["consolidate", "--dir", directory, "--fixture-fail-report", marker], {
+        cliPath: resolve(fixtures, "report-runtime.mjs"),
+        learningDatabaseUrl: "postgres://learning-user:learning-password@localhost/learning",
+        environment: { PATH: process.env.PATH },
+      }),
+    ).rejects.toBeInstanceOf(LearningCommandError)
+
+    await expect(stat(marker)).rejects.toMatchObject({ code: "ENOENT" })
+    expect(await readFile(sqliteConfig, "utf8")).toBe('{"memory":{"provider":"sqlite"}}\n')
+    expect(await readFile(postgresConfig, "utf8")).toBe('{"memory":{"provider":"postgres"}}\n')
+  })
+
+  it("uses the preserved built-in config in the real learning command", async () => {
+    const directory = resolve(`server/integrations/learning/.process-test-${randomUUID()}`)
+    await mkdir(directory)
+    onTestFinished(() => rm(directory, { force: true, recursive: true }))
+    const configPath = resolve(directory, "config.json")
+    const config = JSON.stringify({
+      schemaVersion: "replica.learning-config/v1",
+      memory: { provider: "sqlite" },
+      consolidation: { consolidator: "none" },
+      labeling: { options: { model: "example-model" } },
+    })
+    await writeFile(configPath, config)
+
+    const error: unknown = await runLearningCommand(
+      ["doctor", "--dir", directory, "--repository", "github.com/repositories/123"],
+      {
+        cliPath: resolve("../packages/learning/bin/replica-learning.mjs"),
+        learningDatabaseUrl:
+          "postgres://learning-user:learning-password@postgres.example.invalid/learning",
+        environment: { PATH: process.env.PATH },
+      },
+    ).catch((failure: unknown) => failure)
+
+    expect(error).toBeInstanceOf(LearningCommandError)
+    if (!(error instanceof LearningCommandError)) throw new Error("Expected a command failure.")
+    expect(error.code).toBe("learning_failed")
+    const result = error.result as { provider: { error: string }; consolidator: { source: string } }
+    expect(result.provider.error).toContain("sslmode=verify-full")
+    expect(result.consolidator.source).toBe("built-in none")
+    expect(await readFile(configPath, "utf8")).toBe(config)
+  })
+
+  it("clearly rejects custom learning modules in the real command", async () => {
+    const directory = resolve(`server/integrations/learning/.process-test-${randomUUID()}`)
+    await mkdir(directory)
+    onTestFinished(() => rm(directory, { force: true, recursive: true }))
+    const configPath = resolve(directory, "postgres-config.json")
+
+    for (const selection of [
+      { consolidation: { consolidator: { module: "./custom.mjs" } } },
+      { labeling: { labeler: { module: "./custom.mjs" } } },
+    ]) {
+      await writeFile(
+        configPath,
+        JSON.stringify({ schemaVersion: "replica.learning-config/v1", ...selection }),
+      )
+      const error: unknown = await runLearningCommand(
+        ["doctor", "--dir", directory, "--repository", "github.com/repositories/123"],
+        {
+          cliPath: resolve("../packages/learning/bin/replica-learning.mjs"),
+          learningDatabaseUrl: "postgres://learning-user:learning-password@localhost/learning",
+          environment: { PATH: process.env.PATH },
+        },
+      ).catch((failure: unknown) => failure)
+
+      expect(error).toBeInstanceOf(LearningCommandError)
+      if (!(error instanceof LearningCommandError)) throw new Error("Expected a command failure.")
+      expect(error.code).toBe("unsupported")
+      expect(error.message).toMatch(/built-in.*only/)
+    }
   })
 
   it("requires import when the original store directory is nonempty", async () => {

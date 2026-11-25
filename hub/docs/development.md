@@ -16,7 +16,18 @@ The repository is mounted at `/workspaces/replica`, with `hub/` as the working d
 
 After the container opens and PostgreSQL is healthy, install the separate learning runtime with `npm ci --prefix ../packages/learning --engine-strict`, then run `npm run setup` before starting `npm run dev:api`. Run setup again after pulling new migrations.
 
-New devcontainer databases create a separate local learning login. Setup migrates the learning schema and grants that login access. If the PostgreSQL volume predates this configuration and the login is absent, run `docker compose -f .devcontainer/compose.yaml exec db psql -U replica -d replica -f /docker-entrypoint-initdb.d/learning-role.sql` once from `hub/`, then run setup. The included password is for this local container only.
+Learning uses SQLite by default, including after recreating an existing devcontainer. To use PostgreSQL instead, first stop Hub and all older clients and follow the [offline import and verification procedure](learning-foundation.md#private-storage) for every existing learning store. Keep SQLite selected if any history cannot be recovered or verified.
+
+New devcontainer databases create a separate local learning login. If the PostgreSQL volume predates this configuration, check whether `replica_learning_runtime` exists. If it is absent, run `docker compose -f .devcontainer/compose.yaml exec db psql -U replica -d replica -f /docker-entrypoint-initdb.d/learning-role.sql` once from `hub/` on the host. Do not overwrite or adopt an existing role without reviewing its ownership and permissions. The included password is for this local container only.
+
+Inside the devcontainer, initialize the learning schema and grant the local role access before importing:
+
+```sh
+REPLICA_LEARNING_MIGRATION_DATABASE_URL='postgresql://replica:replica@localhost/replica?host=%2Fvar%2Frun%2Fpostgresql' \
+REPLICA_LEARNING_RUNTIME_ROLE=replica_learning_runtime npm run setup
+```
+
+For the offline import, provide `REPLICA_LEARNING_DATABASE_URL='postgresql://replica_learning_runtime:replica-learning-dev@localhost/replica?host=%2Fvar%2Frun%2Fpostgresql'` only to the import command. After verifying all imported stores, explicitly set that runtime URL in the Hub process environment or its private `.env` before starting Hub and its workers. Repeat the setup command above after pulling learning migrations. The URL uses a shared Unix socket, not the remote `db` TCP hostname; the learning provider allows local sockets without TLS. These development credentials and socket are not suitable for a hosted deployment. Do not restart older clients against the retained SQLite copies.
 
 ## Local Node.js
 

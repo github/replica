@@ -23,6 +23,7 @@ import {
   weekTwoLog,
 } from "../conformance/fixtures.mjs"
 import { createRecurrenceConsolidator } from "../src/consolidators/recurrence.mjs"
+import { openLegacyRedactionStore } from "../src/config.mjs"
 import { labelComments } from "../src/labeling.mjs"
 import { STREAMS } from "../src/provider-contract.mjs"
 import { createInMemoryProvider } from "../src/providers/in-memory.mjs"
@@ -1426,6 +1427,83 @@ it("redacts a Hub UUID store before and after its migration without touching ano
   } finally {
     await store.close()
   }
+})
+
+it("completes legacy redaction when a database has no store or mapping", async () => {
+  const repo = checkout("empty-database-legacy-redaction")
+  const providerPath = path.join(repo, "tools", "database-provider.mjs")
+  const inMemoryUrl = pathToFileURL(path.join(here, "../src/providers/in-memory.mjs")).href
+  writeFileSync(
+    providerPath,
+    `import { createInMemoryProvider } from ${JSON.stringify(inMemoryUrl)}
+export function createMemoryProvider() {
+  return {
+    ...createInMemoryProvider(),
+    scopeMigrationFrom: async () => null,
+    hasSqliteImport: async () => false,
+  }
+}
+`,
+  )
+  const legacyScope = { host: "github.com", repository: `repositories/${hubId}` }
+  const environment = {
+    hosted: true,
+    legacyRedaction: true,
+    root: repo,
+    dataDirectory: path.join(repo, ".replica", "learning"),
+    scope: legacyScope,
+    config: { memory: { provider: { module: "./tools/database-provider.mjs" } } },
+  }
+
+  const { store } = await openLegacyRedactionStore(environment)
+  try {
+    const result = await store.redactHubComment(
+      { scope: legacyScope, principal: { kind: "human", id: "github:ana-designer" } },
+      101,
+    )
+    assert.deepEqual(result.redacted, [])
+    assert.equal(existsSync(environment.dataDirectory), false)
+  } finally {
+    await store.close()
+  }
+})
+
+it("keeps legacy redaction pending when existing SQLite history is not imported", async () => {
+  const repo = checkout("unimported-database-legacy-redaction")
+  installLegacyStore(repo, "legacy-hub-scope.sqlite")
+  const providerPath = path.join(repo, "tools", "database-provider.mjs")
+  const inMemoryUrl = pathToFileURL(path.join(here, "../src/providers/in-memory.mjs")).href
+  writeFileSync(
+    providerPath,
+    `import { createInMemoryProvider } from ${JSON.stringify(inMemoryUrl)}
+export function createMemoryProvider({ migration } = {}) {
+  return {
+    ...createInMemoryProvider(),
+    scopeMigrationFrom: async () => migration ?? null,
+    hasSqliteImport: async () => false,
+  }
+}
+`,
+  )
+  const directory = path.join(repo, ".replica", "learning")
+  const original = readFileSync(path.join(directory, "learning.sqlite"))
+  const legacyScope = { host: "github.com", repository: `repositories/${hubId}` }
+  const environment = {
+    hosted: true,
+    legacyRedaction: true,
+    root: repo,
+    dataDirectory: directory,
+    scope: legacyScope,
+    config: {
+      memory: { provider: { module: "./tools/database-provider.mjs" }, requireImport: true },
+    },
+  }
+  await assert.rejects(openLegacyRedactionStore(environment), { code: "conflict" })
+  environment.config.memory.provider.options = {
+    migration: { oldScope: legacyScope, newScope: scope },
+  }
+  await assert.rejects(openLegacyRedactionStore(environment), { code: "conflict" })
+  assert.deepEqual(readFileSync(path.join(directory, "learning.sqlite")), original)
 })
 
 async function checkMigratedHistory(kind) {
