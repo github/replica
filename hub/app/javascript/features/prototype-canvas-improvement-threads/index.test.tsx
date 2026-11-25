@@ -264,7 +264,7 @@ describe("ImprovementThreads()", () => {
     expect(onResolve).toHaveBeenCalledExactlyOnceWith(first)
   })
 
-  it("stops bulk resolution when the branch changes while a note is saving", async () => {
+  it("stops bulk resolution when the branch changes away and back while a note is saving", async () => {
     const thread: ImprovementThread = {
       id: 1,
       revision: 1,
@@ -299,6 +299,7 @@ describe("ImprovementThreads()", () => {
     fireEvent.click(screen.getByRole("menuitemradio", { name: copy.ready }))
     fireEvent.click(screen.getByRole("button", { name: copy.resolveAll }))
     view.rerender(<ImprovementThreads {...props} identity="second" />)
+    view.rerender(<ImprovementThreads {...props} identity="first" />)
     await act(async () => {
       finish(true)
       await Promise.resolve()

@@ -96,12 +96,12 @@ export function ImprovementThreads({
   const selectedNotes = noteSelection.ids
   const [selectedAction, setSelectedAction] = useState<"fix" | "resolve" | null>(null)
   const resolving = useRef(false)
-  const resolutionIdentity = useRef<string | null>(identity)
+  const resolutionToken = useRef({})
   const busy = saving || resolvingAll || selectedAction !== null
   useLayoutEffect(() => {
-    resolutionIdentity.current = identity
+    resolutionToken.current = {}
     return () => {
-      resolutionIdentity.current = null
+      resolutionToken.current = {}
     }
   }, [identity])
   const [discarding, setDiscarding] = useState(false)
@@ -321,11 +321,12 @@ export function ImprovementThreads({
     if (busy || resolving.current || draft.trim() || discarding || changedIdentity) return
     const ready = threads.filter((item) => item.status === "ready")
     if (!ready.length) return
+    const targetToken = resolutionToken.current
     resolving.current = true
     setResolvingAll(true)
     try {
       for (const item of ready) {
-        if (resolutionIdentity.current !== identity || !(await onResolve(item))) break
+        if (resolutionToken.current !== targetToken || !(await onResolve(item))) break
       }
     } finally {
       resolving.current = false
@@ -359,11 +360,11 @@ export function ImprovementThreads({
   async function resolveSelected() {
     if (!selectedReady.length || busy || draft.trim() || discarding || changedIdentity) return
     const resolving = selectedReady
-    const targetIdentity = identity
+    const targetToken = resolutionToken.current
     setSelectedAction("resolve")
     try {
       for (const item of resolving) {
-        if (resolutionIdentity.current !== targetIdentity || !(await onResolve(item))) break
+        if (resolutionToken.current !== targetToken || !(await onResolve(item))) break
         setNoteSelection((selection) => ({
           ...selection,
           ids: selection.ids.filter((id) => id !== item.id),
