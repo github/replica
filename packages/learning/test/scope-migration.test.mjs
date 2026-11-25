@@ -889,11 +889,13 @@ it("keeps a first-seen deletion from reviving an older comment", async () => {
   }
 })
 
-it("reports redaction follow-ups from the other migrated history on retry", async () => {
+it("reports redaction follow-ups on migration and retry", async () => {
   const repo = checkout("redaction-follow-ups")
   const directory = path.join(repo, ".replica", "learning")
   const firstScope = { host: "github.com", repository: "acme/checkout-prototypes" }
-  const secondScope = { host: "github.com", repository: "acme/previous-name" }
+  const secondScope = { host: "github.com", repository: `repositories/${hubId}` }
+  const destination = "private/exports/team-\u001b[2J.json"
+  const quotedDestination = JSON.stringify(destination)
   function human(oldScope) {
     return { scope: oldScope, principal: { kind: "human", id: "github:ana-designer" } }
   }
@@ -934,35 +936,179 @@ it("reports redaction follow-ups from the other migrated history on retry", asyn
     })
     const exported = await store.exportRecords(human(secondScope), {
       purpose: "instruction",
-      destination: "synthetic-export.json",
+      destination,
       contents: "learnings",
     })
     const redacted = await store.redactHubComment(human(firstScope), 101)
     assert.ok(!redacted.exportsToFollowUp.some((item) => item.id === exported.manifest.id))
-    for (const oldScope of [firstScope, secondScope])
-      ok(repo, [
-        "migrate-scope",
-        "--offline",
-        "--legacy-repository",
-        `github.com/${oldScope.repository}`,
-      ])
+    const jsonlRepo = checkout("jsonl-redaction-follow-ups")
+    const jsonlDirectory = path.join(jsonlRepo, ".replica", "learning")
+    mkdirSync(jsonlDirectory, { recursive: true, mode: 0o700 })
+    writeFileSync(
+      path.join(jsonlDirectory, "config.json"),
+      JSON.stringify({
+        schemaVersion: "replica.learning-config/v1",
+        memory: { provider: "jsonl" },
+      }),
+      { mode: 0o600 },
+    )
+    const jsonl = createJsonLinesMemoryProvider({ directory: jsonlDirectory })
+    const sourceHistories = []
+    for (const oldScope of [firstScope, secondScope]) {
+      const records = Object.fromEntries(
+        await Promise.all(
+          Object.keys(STREAMS).map(async (stream) => [
+            stream,
+            await provider.readRecords(stream, { scope: oldScope }),
+          ]),
+        ),
+      )
+      const memories = await provider.readMemoryVersions({ scope: oldScope })
+      sourceHistories.push({ records, memories })
+      await jsonl.appendBatch(records)
+      for (const version of memories)
+        await jsonl.appendMemoryVersion(version, {
+          expectedPreviousDigest: version.previousDigest ?? null,
+        })
+    }
+    await store.close()
+    const hostedRepo = checkout("hosted-redaction-follow-ups")
+    const jsonRepo = checkout("json-redaction-follow-ups")
+    const autoRepo = checkout("automatic-redaction-follow-ups")
+    for (const target of [hostedRepo, jsonRepo, autoRepo]) {
+      const targetDirectory = path.join(target, ".replica", "learning")
+      mkdirSync(targetDirectory, { recursive: true, mode: 0o700 })
+      copyFileSync(
+        path.join(directory, "learning.sqlite"),
+        path.join(targetDirectory, "learning.sqlite"),
+      )
+      chmodSync(path.join(targetDirectory, "learning.sqlite"), 0o600)
+    }
+    ok(repo, [
+      "migrate-scope",
+      "--offline",
+      "--legacy-repository",
+      `github.com/${firstScope.repository}`,
+    ])
+    const migrate = [
+      "migrate-scope",
+      "--offline",
+      "--legacy-repository",
+      `github.com/${secondScope.repository}`,
+    ]
+    const initial = cli(repo, migrate, { failLookup: true, json: false })
+    assert.equal(initial.status, 0, initial.stderr)
+    for (const value of [memory.id, exported.manifest.id, quotedDestination])
+      assert.ok(initial.stdout.includes(value), `Migration output should include ${value}`)
+    assert.ok(!initial.stdout.includes("\u001b"))
     const followUps = ok(repo, ["status"], { failLookup: true }).migrationRedactionFollowUps
     assert.ok(followUps.memoriesNeedingRebuild.includes(memory.id))
     assert.ok(
       followUps.exportsToFollowUp.some(
-        (item) => item.id === exported.manifest.id && item.destination === "synthetic-export.json",
+        (item) => item.id === exported.manifest.id && item.destination === destination,
       ),
     )
-    ok(
-      repo,
-      ["migrate-scope", "--offline", "--legacy-repository", `github.com/${secondScope.repository}`],
-      { failLookup: true },
-    )
+    const retry = ok(repo, migrate, { failLookup: true })
+    assert.deepEqual(retry.redactionFollowUps, followUps)
+    const retryText = cli(repo, migrate, { failLookup: true, json: false })
+    assert.equal(retryText.status, 0, retryText.stderr)
+    for (const value of [memory.id, exported.manifest.id, quotedDestination])
+      assert.ok(retryText.stdout.includes(value), `Migration retry should include ${value}`)
+    assert.ok(!retryText.stdout.includes("\u001b"))
+    const statusText = cli(repo, ["status"], { failLookup: true, json: false })
+    assert.equal(statusText.status, 0, statusText.stderr)
+    assert.match(statusText.stdout, /Needs attention:/)
+    assert.ok(statusText.stdout.split("Needs attention:")[1].includes(memory.id))
+    assert.ok(statusText.stdout.includes(exported.manifest.id))
+    assert.ok(statusText.stdout.includes(quotedDestination.slice(1, -1)))
+    assert.ok(!statusText.stdout.includes("\u001b"))
     assert.deepEqual(
       ok(repo, ["status"], { failLookup: true }).migrationRedactionFollowUps,
       followUps,
     )
     assert.equal(ok(repo, ["verify"], { failLookup: true }).ok, true)
+
+    for (const target of [jsonRepo, autoRepo, hostedRepo])
+      ok(target, [
+        "migrate-scope",
+        "--offline",
+        "--legacy-repository",
+        `github.com/${firstScope.repository}`,
+      ])
+    assert.deepEqual(ok(jsonRepo, migrate, { failLookup: true }).redactionFollowUps, followUps)
+
+    const copied = ok(jsonlRepo, [
+      "migrate-scope",
+      "--offline",
+      "--legacy-repository",
+      `github.com/${firstScope.repository}`,
+    ])
+    const merged = ok(jsonlRepo, migrate, { failLookup: true })
+    assert.equal(merged.file, copied.file)
+    assert.equal(merged.sourceProvider, "jsonl")
+    assert.deepEqual(merged.redactionFollowUps, followUps)
+    const copiedRetry = ok(jsonlRepo, migrate, { failLookup: true })
+    assert.equal(copiedRetry.file, copied.file)
+    assert.equal(copiedRetry.alreadyMigrated, true)
+    assert.deepEqual(copiedRetry.redactionFollowUps, followUps)
+    const copiedRetryText = cli(jsonlRepo, migrate, { failLookup: true, json: false })
+    assert.equal(copiedRetryText.status, 0, copiedRetryText.stderr)
+    for (const value of [memory.id, exported.manifest.id, quotedDestination])
+      assert.ok(
+        copiedRetryText.stdout.includes(value),
+        `Copied migration retry should include ${value}`,
+      )
+    assert.ok(!copiedRetryText.stdout.includes("\u001b"))
+    assert.deepEqual(
+      ok(jsonlRepo, ["status"], { failLookup: true }).migrationRedactionFollowUps,
+      followUps,
+    )
+    assert.equal(ok(jsonlRepo, ["verify"], { failLookup: true }).ok, true)
+    for (const [index, oldScope] of [firstScope, secondScope].entries()) {
+      for (const stream of Object.keys(STREAMS))
+        assert.deepEqual(
+          await jsonl.readRecords(stream, { scope: oldScope }),
+          sourceHistories[index].records[stream],
+        )
+      assert.deepEqual(
+        await jsonl.readMemoryVersions({ scope: oldScope }),
+        sourceHistories[index].memories,
+      )
+    }
+
+    const autoConfigPath = path.join(autoRepo, ".replica", "learning", "config.json")
+    const autoConfig = JSON.parse(readFileSync(autoConfigPath, "utf8"))
+    autoConfig.githubRepository.legacyRepository = secondScope.repository
+    writeFileSync(autoConfigPath, JSON.stringify(autoConfig))
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const automatic = cli(autoRepo, ["grants", "list"], { failLookup: true })
+      assert.equal(automatic.status, 0, automatic.stderr)
+      assert.ok(Array.isArray(JSON.parse(automatic.stdout)))
+      for (const value of [memory.id, exported.manifest.id, quotedDestination])
+        assert.ok(automatic.stderr.includes(value), `Automatic open should warn about ${value}`)
+      assert.ok(!automatic.stderr.includes("\u001b"))
+    }
+    assert.deepEqual(
+      ok(autoRepo, ["status"], { failLookup: true }).migrationRedactionFollowUps,
+      followUps,
+    )
+    const hosted = [
+      "--dir",
+      ".replica/learning",
+      "--repository",
+      "github.com/repositories/123456",
+      "--legacy-repository",
+      `github.com/${secondScope.repository}`,
+    ]
+    assert.deepEqual(
+      ok(hostedRepo, ["status", ...hosted], { failLookup: true }).migrationRedactionFollowUps,
+      followUps,
+    )
+    assert.deepEqual(
+      ok(hostedRepo, ["status", ...hosted], { failLookup: true }).migrationRedactionFollowUps,
+      followUps,
+    )
+    assert.equal(ok(hostedRepo, ["verify", ...hosted], { failLookup: true }).ok, true)
   } finally {
     await store.close()
   }

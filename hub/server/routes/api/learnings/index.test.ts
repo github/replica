@@ -159,6 +159,8 @@ describe("learning routes", () => {
   })
 
   it("maps the repository administrator overview for a Hub member", async () => {
+    const loadError =
+      "Rebuild learning mem_111111111111111111111111. Follow up on export exp_222222222222222222222222 at private/exports/team.json."
     const evidence = {
       eventId: "review-comment-17",
       commentId: 17,
@@ -198,7 +200,7 @@ describe("learning routes", () => {
     const deps = dependencies({
       automaticRunsEnabled: true,
       getOverview: vi.fn().mockResolvedValue({
-        loadError: null,
+        loadError,
         identityReviewCount: 1,
         suggestions: [suggestion],
         learnings: [],
@@ -233,7 +235,7 @@ describe("learning routes", () => {
           automaticRunsEnabled: true,
           usageCredits: "0.021",
           runAvailable: false,
-          loadError: null,
+          loadError,
           identityReviewCount: 1,
           suggestions: [suggestion],
           learnings: [],

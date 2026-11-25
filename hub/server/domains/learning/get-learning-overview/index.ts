@@ -79,6 +79,18 @@ const recallSchema = z
     memories: z.array(z.object({ id: z.string() }).loose()),
   })
   .loose()
+const statusSchema = z
+  .object({
+    migrationRedactionFollowUps: z
+      .object({
+        memoriesNeedingRebuild: z.array(z.string().min(1)),
+        exportsToFollowUp: z.array(
+          z.object({ id: z.string().min(1), destination: z.string().min(1) }).loose(),
+        ),
+      })
+      .optional(),
+  })
+  .loose()
 const observationsSchema = z
   .object({
     events: z.array(
@@ -143,11 +155,13 @@ export async function getLearningOverview(input: {
     repositoryScope: input.repositoryScope,
   })
   const rawMemories = await runLearningCommand(["memories", ...commonArguments], commandOptions)
+  const rawStatus = await runLearningCommand(["status", ...commonArguments], commandOptions)
   const rawRecall = await runLearningCommand(
     ["recall", "--preview", "--by", input.viewer, ...commonArguments],
     commandOptions,
   )
   const memories = z.array(memorySchema).parse(rawMemories)
+  const followUps = statusSchema.parse(rawStatus).migrationRedactionFollowUps
   const recall = recallSchema.parse(rawRecall)
   const recalledIds = new Set(recall.memories.map((memory) => memory.id))
   const records = new Map(memories.map((item) => [item.record.id, item]))
@@ -160,10 +174,26 @@ export async function getLearningOverview(input: {
       item.status.conflicts.length === 0,
   )
   let loadError: string | null = null
+  if (followUps) {
+    loadError =
+      [
+        ...followUps.memoriesNeedingRebuild.map(
+          (id) => `Rebuild learning ${id} because its evidence was removed.`,
+        ),
+        ...followUps.exportsToFollowUp.map(
+          (item) =>
+            `Follow up on export ${item.id} at ${item.destination}; it may contain removed text.`,
+        ),
+      ].join(" ") || null
+  }
   const suggestions: LearningSuggestion[] = []
   if (proposed.length > 0 && !input.evidenceSource) {
-    loadError =
-      "Review comment evidence is not available yet, so Hub withheld learning suggestions."
+    loadError = [
+      loadError,
+      "Review comment evidence is not available yet, so Hub withheld learning suggestions.",
+    ]
+      .filter(Boolean)
+      .join(" ")
   } else if (input.evidenceSource) {
     const prepared = proposed.map((item) => {
       if (!item.record.content || !item.record.reviewDigest) {

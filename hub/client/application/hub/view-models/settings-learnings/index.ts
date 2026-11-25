@@ -350,9 +350,7 @@ export function settingsLearnings(
       path: `/repositories/${repositoryId}/learnings/runs`,
       available: state.permissions.requestRun && state.runAvailable,
     },
-    loadError: state.loadError
-      ? `Hub could not read this repository's learnings: ${state.loadError}`
-      : null,
+    loadError: state.loadError,
     identityNotice:
       state.identityReviewCount > 0
         ? "Earlier suggestions or accepted learnings need identity revalidation. Hub keeps their history, but agents cannot use those versions. Find learnings again, then review any rebuilt suggestions."

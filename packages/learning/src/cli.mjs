@@ -354,14 +354,15 @@ async function migrateScope(session) {
     clock: session.clock,
     empty: session.values.empty,
   })
-  session.out(
-    result,
+  const lines = [
     result.empty
       ? "Confirmed the new store is empty. The configured provider is unchanged."
       : result.sourceProvider
         ? `Repository history is in ${result.file}. The original provider is unchanged and may contain other repositories.`
         : `Repository history is in ${result.file}. The provider is used in place.`,
-  )
+    ...(result.redactionFollowUps ? redactionFollowUpLines(result.redactionFollowUps) : []),
+  ]
+  session.out(result, lines.join("\n"))
 }
 
 async function open(session) {
@@ -372,7 +373,23 @@ async function open(session) {
     clock: session.clock,
   })
   session.opened.push(opened.store)
+  if (!session.environment.hosted && session.positionals[0] !== "status") {
+    const lines = (opened.migrationRedactionFollowUps ?? []).flatMap(redactionFollowUpLines)
+    if (lines.length) session.stderr.write(`${[...new Set(lines)].join("\n")}\n`)
+  }
   return opened
+}
+
+function redactionFollowUpLines(followUps) {
+  return [
+    ...(followUps.memoriesNeedingRebuild ?? []).map(
+      (id) => `Rebuild learning ${id} because its evidence was removed.`,
+    ),
+    ...(followUps.exportsToFollowUp ?? []).map(
+      (item) =>
+        `Follow up on export ${item.id} at ${quoted(item.destination, Infinity)}; it may contain removed text.`,
+    ),
+  ]
 }
 
 function context(session, principal) {
@@ -495,6 +512,12 @@ async function status(session) {
   const result = await store.status(context(session, actor(session)))
   const { counts } = result
   const memories = counts?.memories
+  const attention = [
+    ...result.attention,
+    ...(result.migrationRedactionFollowUps?.memoriesNeedingRebuild ?? []).map(
+      (id) => `Rebuild learning ${id} because its evidence was removed.`,
+    ),
+  ]
   session.out(
     result,
     [
@@ -507,8 +530,11 @@ async function status(session) {
             `Learnings: ${memories.proposed} proposed, ${memories.accepted} accepted (${counts.recallable} recalled), ${memories.rejected} rejected, ${memories.retired} retired`,
           ]
         : []),
-      ...(result.attention.length
-        ? ["Needs attention:", ...result.attention.map((item) => `  - ${item}`)]
+      ...(attention.length
+        ? [
+            "Needs attention:",
+            ...attention.map((item) => `  - ${quoted(item, Infinity).slice(1, -1)}`),
+          ]
         : ["Nothing needs attention."]),
     ].join("\n"),
   )

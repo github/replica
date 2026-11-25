@@ -315,6 +315,29 @@ describe("Learnings frontend integration", () => {
     ).toBeVisible()
   })
 
+  it("shows migration redaction follow-ups to the repository administrator after reload", async () => {
+    const store = createMockStore({ origin: window.location.origin })
+    const server = setupServer(...createMockHandlers(store))
+    const notice =
+      "Rebuild learning mem_111111111111111111111111. Follow up on export exp_222222222222222222222222 at private/exports/team.json."
+    let loads = 0
+    server.use(
+      http.get(`${store.origin}/api/repositories/2001/learnings`, () => {
+        loads++
+        return HttpResponse.json({
+          ...learningsResponse(),
+          loadError: notice,
+        })
+      }),
+    )
+    const router = await renderHubFlow(server, "/repositories/2001/learnings", { workspaceRoutes })
+
+    expect(await screen.findByText(notice)).toBeVisible()
+    await router.settle(() => router.revalidate())
+    expect(loads).toBe(2)
+    expect(screen.getByText(notice)).toBeVisible()
+  })
+
   it("posts a run only to the dedicated repository endpoint", async () => {
     const server = stubHubFetch(...learningsWorkspace())
     const runRequests = vi.fn()

@@ -857,3 +857,13 @@ export const LoadError: Story = {
     },
   },
 }
+
+export const RedactionFollowUp: Story = {
+  args: {
+    data: {
+      ...data,
+      loadError:
+        "Rebuild learning mem_example because its evidence was removed. Follow up on export exp_example at .replica/learning/exports/instruction.json; it may contain removed text.",
+    },
+  },
+}

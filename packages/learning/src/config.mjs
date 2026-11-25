@@ -516,6 +516,9 @@ export async function openLearningStore(environment, { clock = Date.now } = {}) 
         digestMappings,
       }),
       providerSource: source,
+      migrationRedactionFollowUps: migrations
+        .map((item) => item.redactionFollowUps)
+        .filter(Boolean),
     }
   } catch (error) {
     await provider.close?.()
@@ -726,7 +729,11 @@ export async function migrateScopeOffline(environment, { clock = Date.now, empty
           clock,
         })
         if (!environment.hosted) await writePrivateConfig(environment.configPath, confirmedConfig)
-        return { file: source.manifest().storage.location, migrated: result.migrated }
+        return {
+          file: source.manifest().storage.location,
+          migrated: result.migrated,
+          ...(result.redactionFollowUps ? { redactionFollowUps: result.redactionFollowUps } : {}),
+        }
       }
       async function readScope(provider, scope) {
         return {
@@ -776,6 +783,9 @@ export async function migrateScopeOffline(environment, { clock = Date.now, empty
             file: path.join(environment.dataDirectory, config.memory.provider.file),
             sourceProvider: config.memory.migration.sourceProvider,
             alreadyMigrated: true,
+            ...(previous.redactionFollowUps
+              ? { redactionFollowUps: previous.redactionFollowUps }
+              : {}),
           }
         }
       }
@@ -792,7 +802,7 @@ export async function migrateScopeOffline(environment, { clock = Date.now, empty
           `Scope migration refused: ${verified.problems.join("; ")}`,
         )
       if (config.memory?.migration) {
-        await migrateRepositoryScope({
+        const result = await migrateRepositoryScope({
           provider: destination,
           oldScope: environment.legacyScope,
           newScope: environment.scope,
@@ -816,6 +826,7 @@ export async function migrateScopeOffline(environment, { clock = Date.now, empty
         return {
           file: path.join(environment.dataDirectory, config.memory.provider.file),
           sourceProvider: config.memory.migration.sourceProvider,
+          ...(result.redactionFollowUps ? { redactionFollowUps: result.redactionFollowUps } : {}),
         }
       }
       file = `scope-migration-${randomBytes(12).toString("hex")}.sqlite`
@@ -837,7 +848,7 @@ export async function migrateScopeOffline(environment, { clock = Date.now, empty
         canonicalJson(await readScope(destination, environment.legacyScope)) !== canonicalJson(old)
       )
         throw new LearningError("storage_corrupt", "The copied store does not match the source.")
-      await migrateRepositoryScope({
+      const result = await migrateRepositoryScope({
         provider: destination,
         oldScope: environment.legacyScope,
         newScope: environment.scope,
@@ -875,7 +886,11 @@ export async function migrateScopeOffline(environment, { clock = Date.now, empty
         throw error
       }
       switched = true
-      return { file: target, sourceProvider: config.memory?.provider ?? "sqlite" }
+      return {
+        file: target,
+        sourceProvider: config.memory?.provider ?? "sqlite",
+        ...(result.redactionFollowUps ? { redactionFollowUps: result.redactionFollowUps } : {}),
+      }
     } finally {
       try {
         await destination?.close()

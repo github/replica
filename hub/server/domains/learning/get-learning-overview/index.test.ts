@@ -56,6 +56,7 @@ describe("getLearningOverview()", () => {
           },
         },
       ])
+      .mockResolvedValueOnce({})
       .mockResolvedValueOnce({ text: "", memories: [] })
       .mockResolvedValueOnce({
         events: [
@@ -167,6 +168,60 @@ describe("getLearningOverview()", () => {
     ).rejects.toMatchObject({ code: "EACCES" })
   })
 
+  it("returns migration redaction follow-ups again when the overview reloads", async () => {
+    const learningId = "mem_111111111111111111111111"
+    const exportId = "exp_222222222222222222222222"
+    const destination = "private/exports/team.json"
+    const followUps = {
+      memoriesNeedingRebuild: [learningId],
+      exportsToFollowUp: [
+        {
+          id: exportId,
+          purpose: "instruction",
+          destination,
+        },
+      ],
+    }
+    vi.mocked(runLearningCommand).mockImplementation((arguments_) => {
+      if (arguments_[0] === "memories") return Promise.resolve([])
+      if (arguments_[0] === "recall") return Promise.resolve({ text: "", memories: [] })
+      if (arguments_[0] === "status")
+        return Promise.resolve({ migrationRedactionFollowUps: followUps })
+      throw new Error(`Unexpected learning command: ${arguments_[0]}`)
+    })
+    const input = {
+      applicationRoot: "/app",
+      cliPath: "/app/replica-learning.mjs",
+      nodePath: "/node",
+      repositoryId: "11111111-2222-4333-8444-555555555555",
+      repositoryScope: "github.com/repositories/123",
+      root: "/private/learning",
+      staticDirectories: [],
+      viewer: "human:mona",
+    }
+
+    const first = await getLearningOverview(input)
+    const reloaded = await getLearningOverview(input)
+    for (const result of [first, reloaded]) {
+      expect(result.loadError).toContain(learningId)
+      expect(result.loadError).toContain(exportId)
+      expect(result.loadError).toContain(destination)
+    }
+    const statusCalls = vi
+      .mocked(runLearningCommand)
+      .mock.calls.filter(([arguments_]) => arguments_[0] === "status")
+    expect(statusCalls).toHaveLength(2)
+    for (const [arguments_] of statusCalls)
+      expect(arguments_).toEqual(
+        expect.arrayContaining([
+          "--repository",
+          "github.com/repositories/123",
+          "--legacy-repository",
+          "github.com/repositories/11111111-2222-4333-8444-555555555555",
+        ]),
+      )
+  })
+
   it("loads observations and the repository snapshot once for all suggestions", async () => {
     function proposal(id: string, eventId: string, commentId: number) {
       return {
@@ -196,6 +251,7 @@ describe("getLearningOverview()", () => {
     const memories = [proposal("mem_1", "event-1", 17), proposal("mem_2", "event-2", 18)]
     vi.mocked(runLearningCommand)
       .mockResolvedValueOnce(memories)
+      .mockResolvedValueOnce({})
       .mockResolvedValueOnce({ text: "", memories: [] })
       .mockResolvedValueOnce({
         events: [
@@ -228,6 +284,6 @@ describe("getLearningOverview()", () => {
     })
 
     expect(resolveEvidence).toHaveBeenCalledOnce()
-    expect(vi.mocked(runLearningCommand)).toHaveBeenCalledTimes(3)
+    expect(vi.mocked(runLearningCommand)).toHaveBeenCalledTimes(4)
   })
 })
