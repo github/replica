@@ -142,8 +142,9 @@ export function createDecisionModelJobProcessors(input: {
     }
   })
   const reconcileDeletions = createJobProcessor(reconcileRuntimeDeletionsJob, async () => {
-    for (const withdrawal of await (input.dependencies.listTrainingWithdrawals?.() ??
-      Promise.resolve([]))) {
+    const discovery = await (input.dependencies.listTrainingWithdrawals?.() ??
+      Promise.resolve({ withdrawals: [], failedRepositoryIds: [] }))
+    for (const withdrawal of discovery.withdrawals) {
       try {
         await processDecisionRuntimeDeletion(withdrawal, input.dependencies)
       } catch (error) {
@@ -170,6 +171,11 @@ export function createDecisionModelJobProcessors(input: {
           "Decision runtime deletion receipt reconciliation failed",
         )
       }
+    }
+    if (discovery.failedRepositoryIds.length) {
+      throw new Error(
+        `Decision training withdrawal discovery remains pending for ${discovery.failedRepositoryIds.length} repositories.`,
+      )
     }
   })
   return { run, recover, reconcileDeletions }

@@ -826,6 +826,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
       },
       async listTrainingWithdrawals() {
         const pending = []
+        const failedRepositoryIds: string[] = []
         for (const repository of await listDecisionWithdrawalSources(options.database)) {
           let withdrawals: z.infer<typeof withdrawalsSchema>
           try {
@@ -834,6 +835,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
               await command(["grants", "withdrawals", ...learningStoreArguments(store)]),
             )
           } catch (error) {
+            failedRepositoryIds.push(repository.id)
             options.logger?.warn(
               {
                 repositoryId: repository.id,
@@ -883,7 +885,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
             }
           }
         }
-        return pending
+        return { withdrawals: pending, failedRepositoryIds }
       },
       async preflight({ repositoryId, actorMembershipId }): Promise<DecisionTrainingPreflight> {
         const [trainingExport, buildArtifacts] = await Promise.all([

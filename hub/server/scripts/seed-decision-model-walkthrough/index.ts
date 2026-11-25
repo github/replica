@@ -6,7 +6,6 @@ import { join, resolve } from "node:path"
 import { createConfiguredArtifactStorage } from "../../domains/artifacts/create-configured-artifact-storage/index.ts"
 import { readDecisionRuntimeConfiguration } from "../../domains/decision-model/read-decision-runtime-configuration/index.ts"
 import { createHubReviewCollection } from "../../domains/learning/create-hub-review-collection/index.ts"
-import { getLearningRepositoryScope } from "../../domains/learning/get-learning-repository-scope/index.ts"
 import { learningStoreArguments } from "../../domains/learning/learning-store-arguments/index.ts"
 import { prepareLearningStore } from "../../domains/learning/prepare-learning-store/index.ts"
 import { readLearningConfiguration } from "../../domains/learning/read-learning-configuration/index.ts"
@@ -14,10 +13,12 @@ import { captureRepositoryReviewSnapshot } from "../../domains/review-comments/c
 import { runLearningCommand } from "../../integrations/learning/run-learning-command/index.ts"
 import { createDecisionRuntimeClient } from "../../integrations/decision-runtime/create-decision-runtime-client/index.ts"
 import { localDeveloperIdentity } from "../../utils/local-developer-identity/index.ts"
+import { validatePrivateStorageRoot } from "../../utils/validate-private-storage-root/index.ts"
 import { createSolidPng } from "./create-solid-png/index.ts"
 import { validateResetState, validateSeedEnvironment } from "./validate-seed-environment/index.ts"
 
 const repositoryId = "00000000-0000-4000-8000-000000000121"
+const repositoryLocalPath = "/workspaces/replica/hub/.local/prototypes/decision-walkthrough"
 const reviewerUserId = "00000000-0000-4000-8000-000000000122"
 const reviewerProfileId = "00000000-0000-4000-8000-000000000123"
 const prototypeIds = [
@@ -79,15 +80,52 @@ if (!localMembership || localMembership.lifecycle !== "ACTIVE") {
 
 const storage = await createConfiguredArtifactStorage(process.env)
 const learning = await readLearningConfiguration(process.env)
-const repositoryScope = await getLearningRepositoryScope(prisma, repositoryId)
-const preparedStore = await prepareLearningStore({
-  applicationRoot: process.cwd(),
-  repositoryKey: repositoryId,
-  repositoryScope,
-  root: learning.root,
-  staticDirectories: learning.staticDirectories,
+const directory = await validatePrivateStorageRoot(
+  resolve(learning.root, "repositories", repositoryId),
+  {
+    applicationRoot: process.cwd(),
+    excludedDirectories: learning.staticDirectories,
+    name: "REPLICA_LEARNING_ROOT",
+    publicRoot: resolve(process.cwd(), "public"),
+  },
+)
+validateSeedEnvironment(process.env, directory, learning.root)
+const githubId = process.env.REPLICA_DECISION_WALKTHROUGH_GITHUB_ID
+const githubName = process.env.REPLICA_DECISION_WALKTHROUGH_GITHUB_REPOSITORY
+if (
+  !githubId ||
+  !/^[1-9][0-9]*$/.test(githubId) ||
+  BigInt(githubId) > 9223372036854775807n ||
+  !githubName ||
+  !/^[a-zA-Z0-9_.-]{1,100}\/[a-zA-Z0-9_.-]{1,100}$/.test(githubName)
+) {
+  await prisma.$disconnect()
+  throw new Error(
+    "Set the verified GitHub repository name and ID for the dedicated walkthrough repository.",
+  )
+}
+const githubRepositoryId = BigInt(githubId)
+const existingRepository = await prisma.repository.findUnique({
+  where: { id: repositoryId },
+  select: { githubRepositoryId: true, localPath: true, nameWithOwner: true },
 })
-validateSeedEnvironment(process.env, preparedStore.directory, learning.root)
+const existingOwner = await prisma.repository.findUnique({
+  where: { githubRepositoryId },
+  select: { id: true },
+})
+if (
+  (existingOwner && existingOwner.id !== repositoryId) ||
+  (existingRepository && existingRepository.localPath !== repositoryLocalPath) ||
+  (existingRepository?.githubRepositoryId != null &&
+    existingRepository.githubRepositoryId !== githubRepositoryId) ||
+  (existingRepository?.githubRepositoryId == null &&
+    existingRepository &&
+    existingRepository.nameWithOwner !== "local/decision-walkthrough")
+) {
+  await prisma.$disconnect()
+  throw new Error("The walkthrough repository ID is already bound to different repository data.")
+}
+const repositoryScope = `github.com/repositories/${githubId}`
 const activeJobs = await prisma.decisionTrainingJob.count({
   where: {
     repositoryId,
@@ -103,7 +141,7 @@ if (activeJobs) {
   }
 }
 const runtimeConfiguration = readDecisionRuntimeConfiguration(process.env)
-if (!runtimeConfiguration) {
+if (!runtimeConfiguration || runtimeConfiguration.environment !== "fixture") {
   await prisma.$disconnect()
   throw new Error("Configure the fixture decision runtime before reseeding.")
 }
@@ -114,21 +152,40 @@ try {
   await prisma.$disconnect()
   throw error
 }
-await rm(preparedStore.directory, { force: true, recursive: true })
-const store = await prepareLearningStore({
-  applicationRoot: process.cwd(),
-  repositoryKey: repositoryId,
-  repositoryScope,
-  root: learning.root,
-  staticDirectories: learning.staticDirectories,
-})
-
 const startedAt = new Date("2026-11-18T16:00:00.000Z")
 const finishedAt = new Date("2026-11-18T16:05:00.000Z")
 const fixedAt = new Date("2026-11-18T17:00:00.000Z")
 const resolvedAt = new Date("2026-11-18T18:00:00.000Z")
 
 await prisma.$transaction(async (database) => {
+  const updatedRepository = await database.repository.updateMany({
+    where: {
+      id: repositoryId,
+      localPath: repositoryLocalPath,
+      OR: [
+        { githubRepositoryId },
+        { githubRepositoryId: null, nameWithOwner: "local/decision-walkthrough" },
+      ],
+    },
+    data: {
+      githubRepositoryId,
+      nameWithOwner: githubName,
+      defaultBranch: "main",
+      localPath: repositoryLocalPath,
+      removedAt: null,
+    },
+  })
+  if (updatedRepository.count === 0) {
+    await database.repository.create({
+      data: {
+        id: repositoryId,
+        githubRepositoryId,
+        nameWithOwner: githubName,
+        defaultBranch: "main",
+        localPath: repositoryLocalPath,
+      },
+    })
+  }
   await database.decisionBuildEvaluation.deleteMany({ where: { repositoryId } })
   await database.decisionModelPromotion.deleteMany({ where: { repositoryId } })
   await database.decisionCandidate.deleteMany({ where: { repositoryId } })
@@ -167,21 +224,6 @@ await prisma.$transaction(async (database) => {
       name: "Mona",
     },
     update: { provider: "local", login: "mona", name: "Mona" },
-  })
-  await database.repository.upsert({
-    where: { id: repositoryId },
-    create: {
-      id: repositoryId,
-      nameWithOwner: "local/decision-walkthrough",
-      defaultBranch: "main",
-      localPath: "/workspaces/replica/hub/.local/prototypes/decision-walkthrough",
-    },
-    update: {
-      nameWithOwner: "local/decision-walkthrough",
-      defaultBranch: "main",
-      localPath: "/workspaces/replica/hub/.local/prototypes/decision-walkthrough",
-      removedAt: null,
-    },
   })
   await database.repositoryAccessGrant.upsert({
     where: {
@@ -339,6 +381,15 @@ await prisma.$transaction(async (database) => {
       },
     })
   }
+})
+
+await rm(directory, { force: true, recursive: true })
+const store = await prepareLearningStore({
+  applicationRoot: process.cwd(),
+  repositoryKey: repositoryId,
+  repositoryScope,
+  root: learning.root,
+  staticDirectories: learning.staticDirectories,
 })
 
 const screenshotPaths = [

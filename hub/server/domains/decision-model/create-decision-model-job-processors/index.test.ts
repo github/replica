@@ -208,7 +208,9 @@ describe("createDecisionModelJobProcessors()", () => {
         idempotencyKey: "withdrawal-succeeded",
       },
     ]
-    input.listTrainingWithdrawals = vi.fn().mockResolvedValue(withdrawals)
+    input.listTrainingWithdrawals = vi
+      .fn()
+      .mockResolvedValue({ withdrawals, failedRepositoryIds: [] })
     const createOrGetDeletion = vi
       .fn()
       .mockRejectedValueOnce(new Error("first failed"))
@@ -249,5 +251,26 @@ describe("createDecisionModelJobProcessors()", () => {
       expect.objectContaining({ idempotencyKey: "withdrawal-failed" }),
       "Decision runtime withdrawal reconciliation failed",
     )
+  })
+
+  it("retries withdrawal discovery when a repository could not be read", async () => {
+    const input = dependencies("RUNNING")
+    const listTrainingWithdrawals = vi
+      .fn()
+      .mockResolvedValueOnce({ withdrawals: [], failedRepositoryIds: [repositoryId] })
+      .mockResolvedValueOnce({ withdrawals: [], failedRepositoryIds: [] })
+    input.listTrainingWithdrawals = listTrainingWithdrawals
+    const processors = createDecisionModelJobProcessors({
+      databaseUrl: "postgresql://localhost/replica",
+      dependencies: input,
+      database: { decisionTrainingJob: {} } as never,
+      logger: { warn: vi.fn(), child: () => ({}) } as never,
+    })
+
+    await expect(processors.reconcileDeletions.process({})).rejects.toThrow(
+      "withdrawal discovery remains pending",
+    )
+    await expect(processors.reconcileDeletions.process({})).resolves.toBeUndefined()
+    expect(listTrainingWithdrawals).toHaveBeenCalledTimes(2)
   })
 })

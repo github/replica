@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto"
 
 import { DecisionModelError } from "../errors.ts"
-import type { DecisionTrainingPreflight, PreparedDecisionTaskset } from "../types.ts"
+import type {
+  DecisionTrainingPreflight,
+  DecisionTrainingWithdrawalDiscovery,
+  PreparedDecisionTaskset,
+} from "../types.ts"
 
 export interface DecisionTasksetPreparationSource {
   preflight(input: {
@@ -14,21 +18,7 @@ export interface DecisionTasksetPreparationSource {
     consentGrantId: string
   }): Promise<boolean>
   getAcceptedLearningTexts(repositoryId: string): Promise<Record<string, string | null>>
-  listTrainingWithdrawals(): Promise<
-    {
-      repositoryId: string
-      actorMembershipId: string
-      actorLogin: string
-      selectors: {
-        exportId?: string
-        grantId?: string
-        evidenceDigest?: string
-        tasksetDigest?: string
-      }
-      reason: string
-      idempotencyKey: string
-    }[]
-  >
+  listTrainingWithdrawals(): Promise<DecisionTrainingWithdrawalDiscovery>
   exportTrainingEvidence(input: { repositoryId: string; actorMembershipId: string }): Promise<{
     bytes: Uint8Array
     consentGrantId: string | null

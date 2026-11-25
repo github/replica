@@ -1,7 +1,7 @@
 import { resolve } from "node:path"
 import { z } from "zod"
 
-import { runLearningCommand } from "../run-learning-command/index.ts"
+import { runLearningCommand } from "../../../integrations/learning/run-learning-command/index.ts"
 import { validatePrivateStorageRoot } from "../../../utils/validate-private-storage-root/index.ts"
 
 export async function redactLegacyReviewComment(

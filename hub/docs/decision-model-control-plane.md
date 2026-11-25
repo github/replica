@@ -70,6 +70,8 @@ Saved Build evaluations list the persisted page-level findings. Each finding nam
 
 Training withdrawal is selector-based. Hub records the export, grant, evidence, and taskset identifiers, enumerates content-free copy references from the repository's configured runtime, requests deletion, and persists the durable receipt. Pending and completed revocations block taskset upload, training, promotion, rollback, and evaluation for matching inputs. A scheduled recovery pass polls pending receipts after restart. The overview exposes only safe selectors, state, pending and failure counts, and receipt times; PostgreSQL never stores screenshots, learning text, labels, prompts, adapters, or model bytes from the receipt flow.
 
+When a repository's learning store cannot be read, including when its GitHub ID is missing, withdrawal discovery remains pending against its saved training jobs. The scheduled job reports failure and retries discovery, while still processing withdrawals and deletion receipts from other repositories. Operators must restore the repository's verified GitHub ID or repair its store before Hub can determine which runtime copies need deletion.
+
 ## Agent visual critic
 
 The prototype canvas exposes `evaluate_prototype` for an authoring agent to request explicit visual feedback while iterating. The action accepts only bounded PNG captures for named routes and the supported desktop or narrow, light or dark view combinations. Agents capture those images through the isolated browser canvas or the existing Replica Build capture path. The action never sends the user's prompt, Copilot session ID, local preview origin, Hub credential, or runtime credential.

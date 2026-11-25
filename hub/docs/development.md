@@ -192,14 +192,26 @@ docker compose -f hub/.devcontainer/compose.yaml exec -T app \
   ./node_modules/.bin/react-router dev --host 0.0.0.0
 ```
 
+Choose a dedicated disposable GitHub repository for this local fixture. Do not use a repository whose Hub data or learnings you need to keep. Look up its exact name and numeric ID with your GitHub CLI sign-in:
+
+```sh
+gh api repos/OWNER/REPOSITORY | python3 -c 'import json, sys; repo = json.load(sys.stdin); print(repo["full_name"], repo["id"])'
+```
+
+Set the returned values below. The seed uses them only for this local fixture; it does not read or write the GitHub repository. It refuses to reuse an ID already assigned to another Hub repository or change the ID of an existing walkthrough.
+
 Open <http://127.0.0.1:5173>, choose **Sign in as local developer**, then seed the walkthrough:
 
 ```sh
-docker compose -f hub/.devcontainer/compose.yaml exec -T app \
-  npm run db:seed:decision-walkthrough
+export REPLICA_DECISION_WALKTHROUGH_GITHUB_REPOSITORY=OWNER/REPOSITORY
+export REPLICA_DECISION_WALKTHROUGH_GITHUB_ID=ID_FROM_GITHUB
+docker compose -f hub/.devcontainer/compose.yaml exec -T \
+  -e REPLICA_DECISION_WALKTHROUGH_GITHUB_REPOSITORY="$REPLICA_DECISION_WALKTHROUGH_GITHUB_REPOSITORY" \
+  -e REPLICA_DECISION_WALKTHROUGH_GITHUB_ID="$REPLICA_DECISION_WALKTHROUGH_GITHUB_ID" \
+  app npm run db:seed:decision-walkthrough
 ```
 
-The seed resets only `local/decision-walkthrough`. It refuses to run while a walkthrough job is active or after the dedicated fixture runtime has a promotion generation. To restart from the beginning, stop the worker and services, remove only `$REPLICA_RUNTIME_STATE_DIR`, recreate it with mode `0700`, and start the Compose bundle again before reseeding. The seed creates four reviewed prototypes with breaking and fixed Builds distributed across training, development, and test splits; 32 valid screenshots; two reviewer identities; one accepted learning; training consent; and local repository administrator authority. It uses the learning CLI to grant consent, import the real Hub review snapshot, label and consolidate the evidence, and accept the learning.
+The seed resets only the dedicated local walkthrough repository. It refuses to run while a walkthrough job is active or after the dedicated fixture runtime has a promotion generation. To restart from the beginning, stop the worker and services, remove only `$REPLICA_RUNTIME_STATE_DIR`, recreate it with mode `0700`, and start the Compose bundle again before reseeding. The seed creates four reviewed prototypes with breaking and fixed Builds distributed across training, development, and test splits; 32 valid screenshots; two reviewer identities; one accepted learning; training consent; and local repository administrator authority. It uses the learning CLI to grant consent, import the real Hub review snapshot, label and consolidate the evidence, and accept the learning.
 
 Start the on-demand worker in a third terminal:
 

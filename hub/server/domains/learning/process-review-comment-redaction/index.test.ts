@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite"
 import { describe, expect, it, vi } from "vitest"
 
 import { processReviewCommentRedaction } from "."
-import { redactLegacyReviewComment } from "../../../integrations/learning/redact-legacy-review-comment"
+import { redactLegacyReviewComment } from "../redact-legacy-review-comment"
 import { runLearningCommand } from "../../../integrations/learning/run-learning-command"
 
 type Dependencies = Parameters<typeof processReviewCommentRedaction>[1]

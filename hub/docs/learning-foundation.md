@@ -34,7 +34,7 @@ An ID-less legacy repository remains unavailable for learning. A queued learning
 
 SQLite overwrites removed event text in its database pages and checkpoints its write-ahead log when possible. JSON Lines rewrites its event file but cannot erase old bytes from free disk space. Offline provider migrations leave their original store untouched; operators must separately remove any retained copies, backups, or exports after verifying the migrated data. A provider that cannot safely resolve and redact its legacy data leaves the job pending.
 
-Review snapshot digests include the numeric scope, so a change of GitHub repository identity invalidates a new run or decision-model source pin. A queued learning run from before this change can still use its original snapshot digest. Previously pinned decision-model jobs must be prepared again if their source digest changes. The local decision-model walkthrough also requires a persisted GitHub repository ID; it cannot invent one for its local fixture.
+Review snapshot digests include the numeric scope, so a change of GitHub repository identity invalidates a new run or decision-model source pin. A queued learning run from before this change can still use its original snapshot digest. Previously pinned decision-model jobs must be prepared again if their source digest changes. The [local decision-model walkthrough](development.md#walk-through-the-local-decision-model) requires an explicitly selected GitHub repository and its verified ID for its isolated fixture.
 
 ## Command boundary
 

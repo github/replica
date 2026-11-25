@@ -285,6 +285,18 @@ export interface DecisionModelStore {
   >
 }
 
+export interface DecisionTrainingWithdrawalDiscovery {
+  withdrawals: {
+    repositoryId: string
+    actorMembershipId: string
+    actorLogin: string
+    selectors: DecisionRuntimeDeletionSelectors
+    reason: string
+    idempotencyKey: string
+  }[]
+  failedRepositoryIds: string[]
+}
+
 export interface DecisionModelDependencies {
   authorization: DecisionModelAuthorization
   now(): Date
@@ -310,16 +322,7 @@ export interface DecisionModelDependencies {
   runtimeForRepository?: (repositoryId: string) => DecisionRuntimeClient
   store: DecisionModelStore
   withControlLock<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T>
-  listTrainingWithdrawals?(): Promise<
-    {
-      repositoryId: string
-      actorMembershipId: string
-      actorLogin: string
-      selectors: DecisionRuntimeDeletionSelectors
-      reason: string
-      idempotencyKey: string
-    }[]
-  >
+  listTrainingWithdrawals?(): Promise<DecisionTrainingWithdrawalDiscovery>
 }
 
 export interface AgentEvaluationScreenshot {

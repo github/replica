@@ -297,7 +297,36 @@ describe("createHubDecisionTasksetSource()", () => {
       },
     ])
 
-    await expect(source(storage({})).listTrainingWithdrawals()).resolves.toHaveLength(1)
+    await expect(source(storage({})).listTrainingWithdrawals()).resolves.toMatchObject({
+      withdrawals: [expect.objectContaining({ repositoryId })],
+      failedRepositoryIds: ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
+    })
+  })
+
+  it("keeps withdrawal discovery pending for a repository without a GitHub ID", async () => {
+    vi.mocked(listDecisionWithdrawalSources).mockResolvedValue([
+      {
+        id: repositoryId,
+        decisionTrainingJobs: [
+          {
+            consentGrantId: "grant-training",
+            trainingExportId: "export-1",
+            evidenceDigest: `sha256:${"e".repeat(64)}`,
+            tasksetDigest: `sha256:${"t".repeat(64)}`,
+          },
+        ],
+        accessGrants: [],
+      },
+    ] as never)
+
+    await expect(
+      hubSource(storage({}), null).tasksetSource.listTrainingWithdrawals(),
+    ).resolves.toEqual({
+      withdrawals: [],
+      failedRepositoryIds: [repositoryId],
+    })
+    expect(prepareLearningStore).not.toHaveBeenCalled()
+    expect(runLearningCommand).not.toHaveBeenCalled()
   })
 
   it("maps training grant withdrawals to idempotent runtime deletion selectors", async () => {
@@ -339,16 +368,19 @@ describe("createHubDecisionTasksetSource()", () => {
       },
     ])
 
-    await expect(source(storage({})).listTrainingWithdrawals()).resolves.toEqual([
-      {
-        repositoryId,
-        actorMembershipId: "99999999-9999-4999-8999-999999999999",
-        actorLogin: "mona",
-        selectors: { grantId: "grant-secondary" },
-        reason: "The repository administrator withdrew training consent.",
-        idempotencyKey: "withdrawal:withdrawal-1:grant",
-      },
-    ])
+    await expect(source(storage({})).listTrainingWithdrawals()).resolves.toEqual({
+      withdrawals: [
+        {
+          repositoryId,
+          actorMembershipId: "99999999-9999-4999-8999-999999999999",
+          actorLogin: "mona",
+          selectors: { grantId: "grant-secondary" },
+          reason: "The repository administrator withdrew training consent.",
+          idempotencyKey: "withdrawal:withdrawal-1:grant",
+        },
+      ],
+      failedRepositoryIds: [],
+    })
   })
 
   it("reports deterministic eligible evidence, task, split, and label counts", async () => {
