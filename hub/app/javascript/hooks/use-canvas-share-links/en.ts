@@ -7,6 +7,7 @@ export const shareCopy = {
   internalUnavailable: "Internal prototype link unavailable.",
   internalCopy: "Copy internal prototype link",
   internalOpen: "Open internal prototype link",
+  fullScreenPreview: "Full screen preview",
   public: "Public share links",
   permissionUnknown: "Hub has not confirmed permission to manage public share links.",
   group: "Publish and share",
