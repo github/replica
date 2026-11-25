@@ -1281,7 +1281,8 @@ export function PrototypeCanvasHubPanel({
               aria-label={reviewCommentsCopy.heading}
             >
               <ReviewCommentControl
-                bridgeReady={bridgeReady && canCreateComment}
+                bridgeReady={bridgeReady}
+                canCreateComment={canCreateComment}
                 copy={reviewCommentsCopy}
                 selectionBlocked={selectionBlocked}
                 selecting={selectionMode !== null}

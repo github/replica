@@ -27,6 +27,7 @@ function MenuLabel({ children, shortcut }: { children: string; shortcut: string[
 /** Starts or cancels selecting a target for a review comment. */
 export function ReviewCommentControl({
   bridgeReady,
+  canCreateComment = true,
   copy,
   selectionBlocked,
   selecting,
@@ -35,7 +36,7 @@ export function ReviewCommentControl({
   onStartSelection,
 }: ReviewCommentControlProps) {
   const descriptionId = useId()
-  const unavailable = !bridgeReady || selectionBlocked
+  const unavailable = !bridgeReady || selectionBlocked || (!canCreateComment && !visibilityAction)
   const actionDescription = !bridgeReady
     ? copy.bridgeUnavailableLabel
     : selectionBlocked
@@ -88,9 +89,10 @@ export function ReviewCommentControl({
           value="comment"
           leadingVisual={<CommentIcon size={16} />}
           aria-keyshortcuts="C"
+          disabled={!canCreateComment}
           onClick={onStartSelection}
           onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") {
+            if (canCreateComment && (event.key === "Enter" || event.key === " ")) {
               event.preventDefault()
               onStartSelection()
             }

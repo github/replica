@@ -1,6 +1,6 @@
 ---
 name: prototype-controls
-description: "Create and wire Replica prototype options (also called controls). Use when asked to add or change dropdowns, sliders, input fields, toggles or action buttons that configure variants, scenarios, visible UI, app state or data sources, even without canvas terminology. Covers declarations, typed bindings, defaults, conditions, resets and actions. Product UI form fields and filters alone belong to create-prototype."
+description: "Create and wire Replica prototype controls. Also called options. Use when asked to add or change dropdowns, sliders, input fields, toggles or action buttons that configure variants, scenarios, visible UI, app state or data sources, even without canvas terminology. Covers declarations, typed bindings, defaults, conditions, resets and actions. Product UI form fields and filters alone belong to create-prototype."
 ---
 
 # Prototype options

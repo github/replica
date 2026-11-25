@@ -74,6 +74,11 @@ export const CanvasVisibilityMenu: Story = {
   },
 }
 
+export const CanvasVisibilityWithoutCreation: Story = {
+  ...CanvasVisibilityMenu,
+  args: { canCreateComment: false },
+}
+
 export const CanvasCommentsHidden: Story = {
   ...CanvasVisibilityMenu,
   play: async ({ canvas, userEvent }) => {

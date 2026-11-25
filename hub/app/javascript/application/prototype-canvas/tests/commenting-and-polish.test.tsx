@@ -232,6 +232,45 @@ describe("App()", () => {
     view.unmount()
   })
 
+  it("can hide and show readable comments when creating comments is unavailable", async () => {
+    reviewFixture({ reviewRevision: undefined, reviewError: "Revision unavailable." })
+    const view = render(
+      <App
+        config={{
+          name: "Demo",
+          prototypeUrl: "http://localhost:4321/",
+          token: "local",
+          pickAndPolish: true,
+        }}
+      />,
+    )
+    await screen.findByRole("button", { name: /^Comments, 1/ })
+    const bridge = previewBridge()
+    bridge.ready()
+    bridge.resolve(bridge.resolveNonce("#comment-target"))
+    function pin() {
+      return screen.queryByRole("button", { name: "Unread thread started by @octocat" })
+    }
+    expect(pin()).toBeVisible()
+
+    const trigger = screen.getByRole("button", { name: commentsCopy.commentMenuLabel })
+    expect(trigger).toBeEnabled()
+    fireEvent.click(trigger)
+    expect(screen.getByRole("menuitem", { name: commentsCopy.commentMenuLabel })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    )
+    fireEvent.click(screen.getByRole("menuitem", { name: "Hide comments" }))
+    expect(pin()).not.toBeInTheDocument()
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole("menuitem", { name: "Show comments" }))
+    expect(pin()).toBeVisible()
+    bridge.post.mockClear()
+    fireEvent.keyDown(window, { key: "c" })
+    expect(bridge.messages().some((data) => data.type === "replica:canvas:select")).toBe(false)
+    view.unmount()
+  })
+
   it("toggles comment pins with the menu and the comments panel with Shift+C without interrupting typing", async () => {
     reviewFixture()
     const view = render(
