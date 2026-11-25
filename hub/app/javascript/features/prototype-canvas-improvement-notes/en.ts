@@ -17,6 +17,9 @@ export const copy = {
   label: "What should change?",
   placeholder: "Describe what you want Copilot to change...",
   save: "Save",
+  fixNow: "Fix now",
+  createdNoteUnavailable:
+    "Your note was saved, but could not be identified for fixing. Open Notes to fix it.",
   saveShortcutMac: "⌘",
   saveShortcutOther: "Ctrl",
   saveShortcutEnter: "↵",

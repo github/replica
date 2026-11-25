@@ -83,12 +83,36 @@ function savedNotesFixture(captureFails = false) {
       if (typeof options.body !== "string") throw new Error("Expected a JSON notes request.")
       const input: unknown = JSON.parse(options.body)
       if (path.endsWith("/fix")) {
+        if (!input || typeof input !== "object") throw new Error("Expected a fix request.")
+        if (
+          !("identity" in input) ||
+          input.identity !== saved.identity ||
+          !("revision" in input) ||
+          input.revision !== saved.revision ||
+          saved.activeBatch
+        )
+          return Response.json(
+            { error: "The notes changed or a batch is active." },
+            { status: 409 },
+          )
+        const scoped = "id" in input || "expectedNoteRevision" in input
+        const selected = saved.notes.filter(
+          (note) => note.status === "open" && (!scoped || ("id" in input && note.id === input.id)),
+        )
+        if (
+          scoped &&
+          (selected.length !== 1 ||
+            !("expectedNoteRevision" in input) ||
+            selected[0]?.revision !== input.expectedNoteRevision)
+        )
+          return Response.json({ error: "This note changed while it was open." }, { status: 409 })
         saved.activeBatch = "batch"
-        saved.notes.forEach((note) => {
+        selected.forEach((note) => {
           note.status = "sent"
-          note.thread.originalStatus = "sent"
+          if (note.thread.originalStatus === "open") note.thread.originalStatus = "sent"
           for (const message of note.thread.messages)
             if (message.role === "author" && message.status === "open") message.status = "sent"
+          note.revision++
         })
       } else if (!path.endsWith("/sync")) {
         if (!input || typeof input !== "object") throw new Error("Expected a notes request.")
@@ -400,18 +424,20 @@ describe("App()", () => {
       sourceId: "early-target-source",
       anchor,
     })
-    const notesToggle = screen.getByRole("button", { name: copy.closeNotes(1) })
-    expect(notesToggle).toHaveAttribute("aria-expanded", "true")
+    await waitFor(() => expect(picker).toHaveAttribute("aria-pressed", "true"))
+    expect(screen.queryByRole("dialog", { name: copy.add })).not.toBeInTheDocument()
+    const notesToggle = screen.getByRole("button", { name: copy.openNotes(1) })
+    expect(notesToggle).toHaveAttribute("aria-expanded", "false")
+    expect(screen.queryByRole("complementary", { name: copy.notes })).not.toBeInTheDocument()
     act(() => notesToggle.focus())
     fireEvent.click(notesToggle)
     expect(notesToggle).toHaveFocus()
-    expect(notesToggle).toHaveAttribute("aria-expanded", "false")
-    expect(notesToggle).toHaveAccessibleName(copy.openNotes(1))
-    expect(screen.queryByRole("complementary", { name: copy.notes })).not.toBeInTheDocument()
-    fireEvent.click(notesToggle)
     expect(notesToggle).toHaveAttribute("aria-expanded", "true")
     expect(notesToggle).toHaveAccessibleName(copy.closeNotes(1))
     expect(screen.getByRole("complementary", { name: copy.notes })).toBeVisible()
+    fireEvent.click(notesToggle)
+    expect(notesToggle).toHaveAttribute("aria-expanded", "false")
+    expect(screen.queryByRole("complementary", { name: copy.notes })).not.toBeInTheDocument()
     view.unmount()
   })
 
@@ -636,7 +662,7 @@ describe("App()", () => {
     view.unmount()
   })
 
-  it("reports a failed save outside the composer and keeps the unsaved draft", async () => {
+  it.each([copy.save, "Fix now"])("keeps the unsaved draft when %s cannot save", async (action) => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
     const { fetch, saved } = savedNotesFixture()
     const original = fetch.getMockImplementation()!
@@ -679,7 +705,7 @@ describe("App()", () => {
     fireEvent.change(composer.getByRole("textbox", { name: copy.label }), {
       target: { value: "Keep the save action visible." },
     })
-    fireEvent.click(composer.getByRole("button", { name: copy.save }))
+    fireEvent.click(composer.getByRole("button", { name: action }))
     const notifications = await screen.findByRole("region", { name: "Comment notifications" })
     const alert = within(notifications).getByRole("alert")
     expect(alert).toBeVisible()
@@ -693,6 +719,9 @@ describe("App()", () => {
       "Keep the save action visible.",
     )
     expect(saved.notes).toHaveLength(0)
+    expect(annotate).toHaveAttribute("aria-pressed", "true")
+    expect(screen.queryByRole("complementary", { name: copy.notes })).not.toBeInTheDocument()
+    expect(fetch.mock.calls.filter(([path]) => path.endsWith("/fix"))).toHaveLength(0)
     fireEvent.click(within(notifications).getByRole("button", { name: "Dismiss notification" }))
     expect(screen.queryByText("Notes could not be saved.")).not.toBeInTheDocument()
     expect(composer.getByRole("textbox", { name: copy.label })).toHaveValue(
@@ -945,7 +974,7 @@ describe("App()", () => {
   })
 
   it.each([undefined, "http://127.0.0.1:6789/projects"])(
-    "saves real local notes and dispatches only through Fix all with preview %s",
+    "keeps picking after Save and dispatches only when Fix all is requested with preview %s",
     async (previewUrl) => {
       vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
       const previewOrigin = new URL(previewUrl ?? origin).origin
@@ -1004,7 +1033,7 @@ describe("App()", () => {
       expect(composer.queryByText("/settings?tab=account#profile")).not.toBeInTheDocument()
       expect(dialog.querySelector("code")).toBeNull()
       expect(composer.queryByRole("button", { name: copy.cancel })).not.toBeInTheDocument()
-      expect(composer.getAllByRole("button")).toHaveLength(2)
+      expect(composer.getByRole("button", { name: "Fix now" })).toBeDisabled()
       expect(composer.getByRole("button", { name: copy.closeComposer })).toBeEnabled()
       expect(composer.getByRole("textbox", { name: copy.label })).toHaveFocus()
       fireEvent.change(composer.getByRole("textbox", { name: copy.label }), {
@@ -1035,8 +1064,14 @@ describe("App()", () => {
       )
       fireEvent.click(composer.getByRole("button", { name: copy.save }))
       await waitFor(() =>
-        expect(screen.getByRole("complementary", { name: copy.notes })).toBeVisible(),
+        expect(screen.queryByRole("dialog", { name: copy.add })).not.toBeInTheDocument(),
       )
+      expect(annotate).toHaveAttribute("aria-pressed", "true")
+      expect(screen.queryByRole("complementary", { name: copy.notes })).not.toBeInTheDocument()
+      expect(screen.getByRole("button", { name: /^Fix 1$/ })).toBeVisible()
+      expect(fetch.mock.calls.filter(([path]) => path.endsWith("/fix"))).toHaveLength(0)
+      fireEvent.click(screen.getByRole("button", { name: copy.openNotes(1) }))
+      expect(screen.getByRole("complementary", { name: copy.notes })).toBeVisible()
 
       fireEvent.click(
         screen.getByRole("button", {
@@ -1069,6 +1104,7 @@ describe("App()", () => {
       expect(writes.map(([path]) => path)).toEqual([
         "/api/improvement-notes/capture",
         "/api/improvement-notes",
+        "/api/improvement-notes/capture",
         "/api/improvement-notes/fix",
       ])
       const savedBody = writes.find(([path]) => path === "/api/improvement-notes")?.[1]?.body
@@ -1077,6 +1113,132 @@ describe("App()", () => {
       expect(saved.notes[0]).toMatchObject({ anchor, body: "Clarify this action." })
       expect(saved.notes[0]).not.toHaveProperty("capture")
       view.unmount()
+    },
+  )
+
+  it("shows the same pending request count as Fix all only while picking and hides it at zero", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
+    const { fetch, saved } = savedNotesFixture()
+    await fetch("/api/improvement-notes", {
+      method: "POST",
+      body: JSON.stringify({ anchor, body: "Original request" }),
+    })
+    saved.notes[0]!.thread.messages.push(
+      { id: "follow-up-1", role: "author", body: "First follow-up", status: "open" },
+      { id: "follow-up-2", role: "author", body: "Second follow-up", status: "open" },
+      { id: "history", role: "author", body: "Already handled", status: "ready" },
+      { id: "answer", role: "copilot", body: "Earlier result", status: "ready", requestIds: [] },
+    )
+    render(
+      <App config={{ name: "Demo", prototypeUrl: origin, token: "local", pickAndPolish: true }} />,
+    )
+    const frame = screen.getByTitle("Demo prototype")
+    if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
+    const picker = await screen.findByRole("button", { name: copy.annotate })
+    receive(frame, {
+      type: "replica:canvas:ready",
+      protocolVersion: 1,
+      improvementSelection: true,
+      route: anchor.route,
+    })
+    await waitFor(() => expect(picker).toBeEnabled())
+    expect(screen.queryByRole("button", { name: /^Fix \d+$/ })).not.toBeInTheDocument()
+    fireEvent.click(picker)
+    const pill = await screen.findByRole("button", { name: "Fix 3" })
+    expect(pill).toBeEnabled()
+    receive(frame, {
+      type: "replica:canvas:ready",
+      protocolVersion: 1,
+      improvementSelection: true,
+      route: anchor.route,
+    })
+    await waitFor(() => expect(picker).toBeEnabled())
+    fireEvent.click(picker)
+    expect(screen.queryByRole("button", { name: /^Fix \d+$/ })).not.toBeInTheDocument()
+    fireEvent.click(picker)
+    await screen.findByRole("button", { name: "Fix 3" })
+    fireEvent.click(screen.getByRole("button", { name: copy.openNotes(1) }))
+    expect(screen.getByRole("button", { name: threadCopy.simulate(3) })).toBeEnabled()
+    fireEvent.click(screen.getByRole("button", { name: copy.closeNotes(1) }))
+    fireEvent.click(screen.getByRole("button", { name: "Fix 3" }))
+    await waitFor(() => expect(saved.activeBatch).toBe("batch"))
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /^Fix \d+$/ })).not.toBeInTheDocument(),
+    )
+    expect(picker).toHaveAttribute("aria-pressed", "true")
+    const fix = fetch.mock.calls.find(([path]) => path.endsWith("/fix"))
+    const body = fix?.[1]?.body
+    if (typeof body !== "string") throw new Error("Expected a serialized Fix all request.")
+    expect(JSON.parse(body)).not.toHaveProperty("id")
+    expect(JSON.parse(body)).not.toHaveProperty("expectedNoteRevision")
+    expect(saved.notes[0]?.thread.messages.filter((entry) => entry.status === "open")).toEqual([])
+  })
+
+  it.each([false, true])(
+    "Fix now saves and targets only the new note, keeping the sidebar closed when dispatch fails: %s",
+    async (fixFails) => {
+      vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
+      const { fetch, saved } = savedNotesFixture()
+      await fetch("/api/improvement-notes", {
+        method: "POST",
+        body: JSON.stringify({ anchor, body: "Existing request" }),
+      })
+      const untouched = structuredClone(saved.notes[0])
+      const original = fetch.getMockImplementation()!
+      fetch.mockImplementation((path, options) =>
+        fixFails && path.endsWith("/fix")
+          ? Promise.resolve(Response.json({ error: "Fix could not start." }, { status: 409 }))
+          : original(path, options),
+      )
+      render(
+        <App
+          config={{ name: "Demo", prototypeUrl: origin, token: "local", pickAndPolish: true }}
+        />,
+      )
+      const frame = screen.getByTitle("Demo prototype")
+      if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
+      const picker = await screen.findByRole("button", { name: copy.annotate })
+      receive(frame, {
+        type: "replica:canvas:ready",
+        protocolVersion: 1,
+        improvementSelection: true,
+        route: anchor.route,
+      })
+      await waitFor(() => expect(picker).toBeEnabled())
+      fireEvent.click(picker)
+      receive(frame, { type: "replica:canvas:selected", anchor })
+      const composer = within(await screen.findByRole("dialog", { name: copy.add }))
+      fireEvent.change(composer.getByRole("textbox", { name: copy.label }), {
+        target: { value: "Only fix this new request" },
+      })
+      fireEvent.click(composer.getByRole("button", { name: "Fix now" }))
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog", { name: copy.add })).not.toBeInTheDocument(),
+      )
+      expect(saved.notes).toHaveLength(2)
+      expect(saved.notes[0]).toEqual(untouched)
+      expect(saved.notes[1]).toMatchObject({
+        body: "Only fix this new request",
+        status: fixFails ? "open" : "sent",
+      })
+      expect(picker).toHaveAttribute("aria-pressed", "false")
+      expect(screen.queryByRole("complementary", { name: copy.notes })).not.toBeInTheDocument()
+      expect(screen.queryByRole("button", { name: /^Fix \d+$/ })).not.toBeInTheDocument()
+      const fixes = fetch.mock.calls.filter(([path]) => path.endsWith("/fix"))
+      expect(fixes).toHaveLength(1)
+      const body = fixes[0]?.[1]?.body
+      if (typeof body !== "string") throw new Error("Expected a serialized scoped fix.")
+      expect(JSON.parse(body)).toMatchObject({
+        identity: saved.identity,
+        id: 2,
+        expectedNoteRevision: 1,
+      })
+      if (fixFails) {
+        const notifications = await screen.findByRole("region", { name: "Comment notifications" })
+        expect(within(notifications).getByRole("alert")).toHaveTextContent("Fix could not start.")
+        fireEvent.click(screen.getByRole("button", { name: copy.openNotes(2) }))
+        expect(screen.getByRole("button", { name: threadCopy.simulate(2) })).toBeEnabled()
+      }
     },
   )
 

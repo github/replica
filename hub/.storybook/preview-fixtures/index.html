@@ -59,6 +59,32 @@
             })),
           })
         }
+        const button = document.getElementById("save")
+        if (data.type === "replica:canvas:cancel-selection") button.onclick = null
+        if (data.type === "replica:canvas:select" && data.mode === "improvement")
+          button.onclick = () => {
+            const bounds = button.getBoundingClientRect()
+            send({
+              type: "replica:canvas:selected",
+              anchor: {
+                schemaVersion: 1,
+                kind: "element",
+                route,
+                selector: "#save",
+                accessibleName: "Save",
+                tagName: "button",
+                selectedText: "",
+                rect: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
+                viewport: {
+                  width: innerWidth,
+                  height: innerHeight,
+                  scrollX,
+                  scrollY,
+                },
+                elementOffset: { x: 0.5, y: 0.5 },
+              },
+            })
+          }
       })
     </script>
   </body>

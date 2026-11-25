@@ -14,6 +14,7 @@ import { createPortal } from "react-dom"
 import { HubCounter } from "@components/hub-counter"
 import { ShortcutTooltip } from "@components/shortcut-tooltip"
 import { CanvasDialog } from "@components/prototype-canvas-dialog"
+import { PrototypeCanvasFixPill } from "@components/prototype-canvas-fix-pill"
 import { ImprovementThreads } from "@features/prototype-canvas-improvement-threads"
 import { useReviewError } from "@hooks/use-review-error"
 import { isAnnotationShortcut } from "@utils/is-annotation-shortcut"
@@ -21,6 +22,7 @@ import { isMacPlatform } from "@utils/is-mac-platform"
 import { isSubmitShortcut } from "@utils/is-submit-shortcut"
 import type { ReviewAnchor } from "@utils/review-anchor/types"
 import { canvasReviewError } from "@utils/canvas-review-error"
+import { countPendingImprovements } from "@utils/count-pending-improvements"
 import { copy } from "./en"
 import { improvementThreadView } from "./thread-view"
 import { usePreviewSelection } from "./use-preview-selection"
@@ -118,6 +120,8 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
     onProblem: setMessage,
     onToggle: toggleSelection,
   })
+  const threads = notes.map((note) => improvementThreadView(note, preview.resolutions.get(note.id)))
+  const pending = countPendingImprovements(threads)
 
   const handleShortcut = useEffectEvent((event: KeyboardEvent) => {
     if (
@@ -207,20 +211,22 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
     cancelPreviewSelection()
   }
 
-  async function save() {
+  async function save(fixNow = false) {
     if (!selection || !draft.trim() || saved.busy || selectionChanged) return
-    if (
-      !(await saved.change("create", {
-        identity: selection.identity,
-        sourceId: selection.sourceId,
-        body: draft.trim(),
-        anchor: selection.anchor,
-      }))
-    )
-      return
-    openNotes()
-    cancelPreviewSelection()
+    const input = {
+      identity: selection.identity,
+      sourceId: selection.sourceId,
+      body: draft.trim(),
+      anchor: selection.anchor,
+    }
+    const stored = fixNow
+      ? (await saved.createAndFix(input)).changed
+      : await saved.change("create", input)
+    if (!stored) return
+    setDraft("")
     setSelection(null)
+    if (fixNow) cancelPreviewSelection()
+    else void beginSelection()
     setMessage(copy.saved)
   }
 
@@ -279,7 +285,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
           setPanelOpen(false)
           notesToggleRef.current?.focus()
         }}
-        threads={notes.map((note) => improvementThreadView(note, preview.resolutions.get(note.id)))}
+        threads={threads}
         busy={saved.busy || !saved.state}
         activeBatch={Boolean(saved.state?.activeBatch)}
         error={
@@ -322,6 +328,22 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
           })
         }
       />
+      {active && annotating && !canvas.hubOpen ? (
+        <PrototypeCanvasFixPill
+          count={pending}
+          disabled={
+            saved.busy ||
+            !saved.state ||
+            Boolean(saved.state.activeBatch) ||
+            threadInteraction ||
+            Boolean(selection)
+          }
+          busy={saved.busy}
+          onFix={() => {
+            void saved.change("fix")
+          }}
+        />
+      ) : null}
       <p className="visually-hidden" role="status">
         {saved.state ? message : copy.storageLoading}
       </p>
@@ -368,6 +390,15 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
               />
             </FormControl>
             <div className="improvement-demo__dialog-actions">
+              <Button
+                type="button"
+                size="small"
+                variant="secondary"
+                disabled={!canSave || Boolean(saved.state?.activeBatch)}
+                onClick={() => void save(true)}
+              >
+                {copy.fixNow}
+              </Button>
               <Button
                 type="submit"
                 size="small"

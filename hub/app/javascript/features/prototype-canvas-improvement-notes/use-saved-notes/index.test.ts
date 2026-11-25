@@ -4,6 +4,161 @@ import { describe, expect, it, vi } from "vitest"
 import { useSavedNotes } from "."
 
 describe("useSavedNotes()", () => {
+  it("saves before fixing only the new note and blocks duplicate mutations through both requests", async () => {
+    vi.useFakeTimers()
+    const note = {
+      id: 99,
+      localId: "existing",
+      revision: 1,
+      kind: "improvement_note",
+      author: "local",
+      body: "Existing request",
+      route: "/",
+      target: "Save",
+      selector: "#save",
+      rect: { x: 1, y: 1, width: 10, height: 10 },
+      thread: { originalStatus: "open", messages: [] },
+      status: "open",
+      sync: "local",
+    }
+    const state = {
+      identity: "notes",
+      revision: 3,
+      notes: [note],
+      syncError: null,
+      activeBatch: null,
+    }
+    const created = { ...note, id: 7, localId: "created", revision: 4, body: "New request" }
+    const saved = { ...state, revision: 9, notes: [created, note] }
+    let releaseSave: ((response: Response) => void) | undefined
+    let releaseFix: ((response: Response) => void) | undefined
+    const fetch = vi.fn((path: string, options?: RequestInit) => {
+      if (path.endsWith("/fix"))
+        return new Promise<Response>((resolve) => {
+          releaseFix = resolve
+        })
+      if (path === "/api/improvement-notes" && options?.method === "POST")
+        return new Promise<Response>((resolve) => {
+          releaseSave = resolve
+        })
+      return Promise.resolve(Response.json(state))
+    })
+    vi.stubGlobal("fetch", fetch)
+    const view = renderHook(() => useSavedNotes("local"))
+    try {
+      await act(() => vi.advanceTimersByTimeAsync(0))
+      let changed: ReturnType<typeof view.result.current.createAndFix> | undefined
+      act(() => {
+        changed = view.result.current.createAndFix({ body: "New request" })
+      })
+      await act(() => vi.advanceTimersByTimeAsync(0))
+      expect(view.result.current.busy).toBe(true)
+      expect(releaseFix).toBeUndefined()
+      expect(await view.result.current.change("create", { body: "Duplicate" })).toBe(false)
+      await act(async () => {
+        if (!releaseSave) throw new Error("Expected a pending save.")
+        releaseSave(Response.json(saved))
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(view.result.current.state).toEqual(saved)
+      expect(view.result.current.busy).toBe(true)
+      await act(async () => {
+        await view.result.current.createAndFix({ body: "Duplicate" })
+        expect(await view.result.current.change("fix")).toBe(false)
+      })
+      const writes = fetch.mock.calls.filter(
+        ([path, options]) => options?.method === "POST" && !path.endsWith("/sync"),
+      )
+      expect(writes.map(([path]) => path)).toEqual([
+        "/api/improvement-notes",
+        "/api/improvement-notes/fix",
+      ])
+      const body = writes[1]?.[1]?.body
+      if (typeof body !== "string") throw new Error("Expected a serialized scoped fix.")
+      expect(JSON.parse(body)).toEqual({
+        identity: saved.identity,
+        revision: saved.revision,
+        id: created.id,
+        expectedNoteRevision: created.revision,
+      })
+      await act(async () => {
+        if (!releaseFix) throw new Error("Expected a pending scoped fix.")
+        releaseFix(
+          Response.json({
+            ...saved,
+            revision: 10,
+            activeBatch: "batch",
+            notes: [{ ...created, status: "sent" }, note],
+          }),
+        )
+        await changed
+      })
+      expect(view.result.current.busy).toBe(false)
+      expect(view.result.current.state?.activeBatch).toBe("batch")
+      expect(view.result.current.state?.notes.find(({ id }) => id === 99)).toEqual(note)
+    } finally {
+      view.unmount()
+      vi.useRealTimers()
+    }
+  })
+
+  it.each(["save", "fix"])(
+    "keeps recoverable state and reports a failed create-and-fix %s",
+    async (failure) => {
+      vi.useFakeTimers()
+      const state = {
+        identity: "notes",
+        revision: 0,
+        notes: [],
+        syncError: null,
+        activeBatch: null,
+      }
+      const saved = {
+        ...state,
+        revision: 1,
+        notes: [
+          {
+            id: 1,
+            localId: "new",
+            revision: 1,
+            body: "Keep this request",
+            status: "open",
+          },
+        ],
+      }
+      const fetch = vi.fn((path: string, options?: RequestInit) => {
+        if (path.endsWith("/fix"))
+          return Promise.resolve(Response.json({ error: "Fix could not start." }, { status: 409 }))
+        if (path === "/api/improvement-notes" && options?.method === "POST")
+          return Promise.resolve(
+            failure === "save"
+              ? Response.json({ error: "Save failed." }, { status: 503 })
+              : Response.json(saved),
+          )
+        return Promise.resolve(Response.json(state))
+      })
+      vi.stubGlobal("fetch", fetch)
+      const view = renderHook(() => useSavedNotes("local"))
+      try {
+        await act(() => vi.advanceTimersByTimeAsync(0))
+        await act(async () => {
+          await view.result.current.createAndFix({ body: "Keep this request" })
+        })
+        expect(view.result.current.state).toEqual(failure === "save" ? state : saved)
+        expect(view.result.current.error).toBe(
+          failure === "save" ? "Save failed." : "Fix could not start.",
+        )
+        expect(view.result.current.busy).toBe(false)
+        expect(fetch.mock.calls.filter(([path]) => path.endsWith("/fix"))).toHaveLength(
+          failure === "save" ? 0 : 1,
+        )
+      } finally {
+        view.unmount()
+        vi.useRealTimers()
+      }
+    },
+  )
+
   it("does not expand a queued Fix all snapshot when sync discovers new open work", async () => {
     vi.useFakeTimers()
     const state = { identity: "notes", revision: 1, notes: [], syncError: null, activeBatch: null }

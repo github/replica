@@ -1119,10 +1119,27 @@ export function createImprovementNotes(
     },
     async fix(value: unknown): Promise<ImprovementNotesView> {
       const mutation = readMutationInput(value)
+      if (!isRecord(value)) fail("Invalid improvement-note operation.")
+      const { id, expectedNoteRevision } = value
+      const scoped = id !== undefined || expectedNoteRevision !== undefined
+      if (
+        scoped &&
+        (typeof id !== "number" ||
+          !Number.isSafeInteger(id) ||
+          id < 1 ||
+          typeof expectedNoteRevision !== "number" ||
+          !Number.isSafeInteger(expectedNoteRevision) ||
+          expectedNoteRevision < 1)
+      )
+        fail("Select a saved note revision to fix.")
       return mutate(mutation, async (record, context) => {
         if (record.batches.some((batch) => ["requested", "delivery_unknown"].includes(batch.state)))
           fail("A Pick & polish batch is already awaiting results.", 409)
-        const notes = record.notes.filter((note) => !note.deleted && note.status === "open")
+        const notes = record.notes.filter(
+          (note) => !note.deleted && note.status === "open" && (!scoped || note.id === id),
+        )
+        if (scoped && (notes.length !== 1 || notes[0]?.revision !== expectedNoteRevision))
+          fail("This note changed. Review it before fixing.", 409)
         if (!notes.length) fail("There are no open notes to fix.", 409)
         const skillCatalog = session.rpc?.skills?.list ? await session.rpc.skills.list() : null
         const skillAvailable = hasPickAndPolishSkill(skillCatalog)

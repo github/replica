@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn } from "storybook/test"
+import { z } from "zod"
 
 import { App } from "."
 import { publicationExamples } from "@utils/resolve-prototype-publication/fixtures"
@@ -8,6 +9,8 @@ import { repliedReviewThread } from "@/storybook/fixtures/review/comments"
 import type { ShareLink } from "@hooks/use-canvas-share-links/types"
 import type { HubStatus, PrototypeState, PublishPreparation } from "@utils/prototype-canvas/types"
 import type { ReviewComment } from "@utils/review-comment/types"
+import type { Note } from "@features/prototype-canvas-improvement-notes/types"
+import { REVIEW_ANCHOR_SCHEMA } from "@utils/review-anchor/schemas"
 import createPageMeta from "@pages/new-prototype-page/stories"
 
 import { fixtureResponse } from "./server-connection/fixture-response"
@@ -41,6 +44,30 @@ function PublicationDemo({
     if (!fixture) throw new Error(`Unknown publication example: ${scenario}`)
     let state: PrototypeState | null = structuredClone(fixture.state)
     let hub: HubStatus | null = structuredClone(fixture.hub)
+    const savedNotes = {
+      identity: "storybook-notes",
+      revision: 1,
+      syncError: null,
+      activeBatch: null as string | null,
+      notes: [
+        {
+          id: 1,
+          localId: "storybook-save-action",
+          kind: "improvement_note",
+          author: "local",
+          body: "Keep the save action visible while editing project details.",
+          thread: { originalStatus: "open", messages: [] },
+          anchor: repliedReviewThread.root.anchor,
+          status: "open",
+          sync: "local",
+          revision: 1,
+          route: "/",
+          target: "Save",
+          selector: "#save",
+          rect: { x: 64, y: 180, width: 88, height: 44 },
+        },
+      ] as Note[],
+    }
     if (onImproveContext && hub) hub.repositoryAuthorized = true
     let remember = false
     if (withShareLinks && hub?.prototype)
@@ -228,35 +255,45 @@ function PublicationDemo({
           hasMore: false,
           nextCursor: null,
         }
-      else if (
-        withPickAndPolish &&
-        (path === "/api/improvement-notes" || path === "/api/improvement-notes/sync")
-      )
-        data = {
-          identity: "storybook-notes",
-          revision: 1,
-          syncError: null,
-          activeBatch: null,
-          notes: [
-            {
-              id: 1,
-              localId: "storybook-save-action",
-              kind: "improvement_note",
-              author: "local",
-              body: "Keep the save action visible while editing project details.",
+      else if (withPickAndPolish && path.startsWith("/api/improvement-notes")) {
+        const input = z
+          .object({
+            anchor: REVIEW_ANCHOR_SCHEMA.optional(),
+            body: z.string().optional(),
+            id: z.number().optional(),
+          })
+          .parse(JSON.parse(typeof init?.body === "string" ? init.body : "{}"))
+        if (path.endsWith("/capture"))
+          data = { identity: savedNotes.identity, sourceId: "storybook-source" }
+        else {
+          if (path === "/api/improvement-notes" && init?.method === "POST") {
+            const anchor = REVIEW_ANCHOR_SCHEMA.parse(input.anchor)
+            savedNotes.notes.push({
+              ...savedNotes.notes[0]!,
+              id: savedNotes.notes.length + 1,
+              localId: crypto.randomUUID(),
+              body: String(input.body),
+              anchor,
+              rect: anchor.rect,
               thread: { originalStatus: "open", messages: [] },
-              anchor: repliedReviewThread.root.anchor,
               status: "open",
-              sync: "local",
               revision: 1,
-              route: "/",
-              target: "Save",
-              selector: "#save",
-              rect: { x: 64, y: 180, width: 88, height: 44 },
-            },
-          ],
+            })
+            savedNotes.revision++
+          }
+          if (path.endsWith("/fix")) {
+            for (const note of savedNotes.notes) {
+              if (note.status !== "open" || (input.id && note.id !== input.id)) continue
+              note.status = "sent"
+              note.thread.originalStatus = "sent"
+              note.revision++
+            }
+            savedNotes.activeBatch = "storybook-batch"
+            savedNotes.revision++
+          }
+          data = savedNotes
         }
-      else if (withComments && /^\/api\/hub\/comments\/\d+\/read$/.test(path)) {
+      } else if (withComments && /^\/api\/hub\/comments\/\d+\/read$/.test(path)) {
         const id = Number(path.split("/").at(-2))
         const root = comments.find((comment) => comment.id === id && comment.kind === "root")
         if (!root || root.kind !== "root") throw new Error("Unknown demo conversation.")
@@ -621,6 +658,34 @@ export const PickAndPolishNotesSidebar: Story = {
       await canvas.findByRole("button", { name: "Open Notes (1)" }, { timeout: 5_000 }),
     )
     await canvas.findByRole("complementary", { name: "Notes" })
+  },
+}
+
+export const PickAndPolishPicking: Story = {
+  ...CommentsAndPickAndPolish,
+  play: async ({ canvas, userEvent }) => {
+    const picker = await canvas.findByRole("button", { name: "Pick & polish" })
+    await expect(picker).toBeEnabled()
+    await userEvent.click(picker)
+    await canvas.findByRole("button", { name: "Fix 1" })
+  },
+}
+
+export const PickAndPolishComposer: Story = {
+  ...CommentsAndPickAndPolish,
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const picker = await canvas.findByRole("button", { name: "Pick & polish" })
+    await expect(picker).toBeEnabled()
+    await userEvent.click(picker)
+    const frame = canvasElement.querySelector("iframe")
+    const target = frame?.contentDocument?.querySelector("button")
+    if (!target) throw new Error("The preview save action is unavailable.")
+    await userEvent.click(target)
+    await canvas.findByRole("dialog", { name: "Add note" })
+    await userEvent.type(
+      canvas.getByRole("textbox", { name: "What should change?" }),
+      "Keep the save action aligned with the project name.",
+    )
   },
 }
 

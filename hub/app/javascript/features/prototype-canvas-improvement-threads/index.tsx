@@ -31,6 +31,7 @@ import { HubUserAvatar } from "@components/hub-user-avatar"
 import { ReviewParticipantStack } from "@features/review-participant-stack"
 import { useReviewCardPosition } from "@hooks/use-review-card-position"
 import { useReviewError } from "@hooks/use-review-error"
+import { countPendingImprovements } from "@utils/count-pending-improvements"
 import { ReviewThreadReplyForm } from "@features/review-thread-reply-form"
 import { copy } from "./en"
 import type { ImprovementThread, ImprovementThreadsProps } from "./types"
@@ -108,11 +109,7 @@ export function ImprovementThreads({
     anchorSelector: selected === null ? undefined : `[data-improvement-thread-id="${selected}"]`,
     layoutKey: `${selected}:${discarding}:${thread?.messages.length}:${thread?.status}`,
   })
-  const pending = threads.reduce(
-    (count, item) =>
-      count + Number(item.originalPending) + item.messages.filter((entry) => entry.pending).length,
-    0,
-  )
+  const pending = countPendingImprovements(threads)
   const tooLong = new TextEncoder().encode(draft).length > 10_000
   const filters = [
     { value: "active", label: copy.allActive },
