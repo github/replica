@@ -1,4 +1,5 @@
-import { chmod, copyFile, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
+import { chmod, copyFile, mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { DatabaseSync } from "node:sqlite"
@@ -22,6 +23,32 @@ async function withLearningLock<T>(run: (signal: AbortSignal) => Promise<T>) {
 }
 
 describe("processReviewCommentRedaction()", () => {
+  it("redacts an ID-less database repository without a local configuration", async () => {
+    const root = resolve(`server/domains/learning/.redaction-${randomUUID()}`)
+    const input = { repositoryId, commentId: 101, actor: "human:mona" }
+    const redactLegacy = vi.fn().mockResolvedValue(undefined)
+    const markComplete = vi.fn().mockResolvedValue(undefined)
+
+    await processReviewCommentRedaction(input, {
+      learningDatabaseUrl: "postgresql://learning.example/replica",
+      root,
+      prepare: vi.fn().mockResolvedValue(null),
+      redactLegacy,
+      runCommand: vi.fn(),
+      markComplete,
+      now: () => new Date("2026-11-13T10:00:00Z"),
+      withLock: withLearningLock,
+    })
+
+    expect(redactLegacy).toHaveBeenCalledOnce()
+    expect(redactLegacy.mock.calls[0]?.[0]).toEqual(input)
+    expect((redactLegacy.mock.calls[0]?.[1] as { signal: AbortSignal }).signal).toBeInstanceOf(
+      AbortSignal,
+    )
+    expect(markComplete).toHaveBeenCalledOnce()
+    await expect(stat(root)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
   it("serializes redaction through the learning lock and does nothing without a store", async () => {
     let lockCalls = 0
     async function withLock<T>(run: (signal: AbortSignal) => Promise<T>) {

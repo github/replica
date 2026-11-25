@@ -11,6 +11,7 @@ services:
       ARTIFACT_STORAGE_PROVIDER: filesystem
       ARTIFACT_STORAGE_DIRECTORY: /workspaces/replica/hub/storage/decision-walkthrough-artifacts
       REPLICA_LEARNING_ROOT: /workspaces/replica/hub/storage/decision-walkthrough-learning
+      REPLICA_LEARNING_DATABASE_URL: ""
       REPLICA_LEARNING_CLI: /workspaces/replica/packages/learning/bin/replica-learning.mjs
       REPLICA_DECISION_RUNTIME_URL: http://127.0.0.1:8010
       REPLICA_DECISION_RUNTIME_AUTHENTICATION: environment-token

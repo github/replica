@@ -16,6 +16,14 @@ export async function setup() {
   ) {
     throw new Error("Separate roles require replica_runtime and a replica_migration database URL.")
   }
+  const learningMigrationUrl = process.env.REPLICA_LEARNING_MIGRATION_DATABASE_URL
+  const learningRuntimeRole = process.env.REPLICA_LEARNING_RUNTIME_ROLE
+  if (
+    (learningRuntimeRole && learningRuntimeRole !== "replica_learning_runtime") ||
+    (learningRuntimeRole && !learningMigrationUrl)
+  ) {
+    throw new Error("Learning runtime grants require the learning migration URL and runtime role.")
+  }
   const controller = new AbortController()
   function stop() {
     controller.abort()
@@ -33,17 +41,40 @@ export async function setup() {
           `../grant-runtime-database-access/index.${extension}`,
           import.meta.url,
         )
+        const learningGrantScript = new URL(
+          `../grant-learning-database-access/index.${extension}`,
+          import.meta.url,
+        )
         const steps = [
-          [resolve("node_modules/prisma/build/index.js"), "migrate", "deploy"],
-          [fileURLToPath(jobScript)],
-          ...(process.env.DATABASE_RUNTIME_ROLE ? [[fileURLToPath(grantScript)]] : []),
+          {
+            name: "prisma",
+            args: [resolve("node_modules/prisma/build/index.js"), "migrate", "deploy"],
+          },
+          { name: "jobs", args: [fileURLToPath(jobScript)] },
+          ...(process.env.DATABASE_RUNTIME_ROLE
+            ? [{ name: "runtime-grants", args: [fileURLToPath(grantScript)] }]
+            : []),
+          ...(learningMigrationUrl
+            ? [
+                {
+                  name: "learning-migrate",
+                  args: [
+                    resolve(
+                      process.env.REPLICA_LEARNING_CLI ??
+                        "../packages/learning/bin/replica-learning.mjs",
+                    ),
+                    "migrate",
+                  ],
+                },
+              ]
+            : []),
+          ...(learningRuntimeRole
+            ? [{ name: "learning-grants", args: [fileURLToPath(learningGrantScript)] }]
+            : []),
         ]
-        for (const [index, args] of steps.entries()) {
+        for (const { name, args } of steps) {
           signal.throwIfAborted()
-          logger.info(
-            { step: ["prisma", "jobs", "runtime-grants"][index] },
-            "Hub setup step started",
-          )
+          logger.info({ step: name }, "Hub setup step started")
           // Migration tools can include database URLs in diagnostics; keep their output private.
           const child = spawn(process.execPath, args, { stdio: "ignore" })
           let timeout: ReturnType<typeof setTimeout> | undefined

@@ -119,6 +119,7 @@ export async function getLearningOverview(input: {
   applicationRoot?: string
   cliPath: string
   evidenceSource?: Pick<ReviewCommentLearningSource, "resolveEvidence">
+  learningDatabaseUrl?: string
   nodePath: string
   repositoryId: string
   repositoryScope: string
@@ -136,19 +137,25 @@ export async function getLearningOverview(input: {
       publicRoot: resolve(applicationRoot, "public"),
     },
   )
-  try {
-    await access(resolve(directory, "config.json"))
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-    return {
-      loadError: null,
-      identityReviewCount: 0,
-      suggestions: [],
-      learnings: [],
-      recall: { text: "", count: 0 },
+  if (!input.learningDatabaseUrl) {
+    try {
+      await access(resolve(directory, "config.json"))
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+      return {
+        loadError: null,
+        identityReviewCount: 0,
+        suggestions: [],
+        learnings: [],
+        recall: { text: "", count: 0 },
+      }
     }
   }
-  const commandOptions = { cliPath: input.cliPath, nodePath: input.nodePath }
+  const commandOptions = {
+    cliPath: input.cliPath,
+    nodePath: input.nodePath,
+    ...(input.learningDatabaseUrl ? { learningDatabaseUrl: input.learningDatabaseUrl } : {}),
+  }
   const commonArguments = learningStoreArguments({
     directory,
     repositoryId: input.repositoryId,

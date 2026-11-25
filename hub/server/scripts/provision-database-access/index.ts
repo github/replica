@@ -7,20 +7,27 @@ import { logger } from "../../integrations/pino/index.ts"
 
 export async function provisionDatabaseAccess({
   databaseUrl,
+  learningPassword,
   migrationPassword,
   runtimePassword,
 }: {
   databaseUrl: string
+  learningPassword: string
   migrationPassword: string
   runtimePassword: string
 }) {
-  if (!databaseUrl || migrationPassword.length < 16 || runtimePassword.length < 16) {
+  if (
+    !databaseUrl ||
+    learningPassword.length < 16 ||
+    migrationPassword.length < 16 ||
+    runtimePassword.length < 16
+  ) {
     throw new Error(
-      "Database provisioning requires a URL and two passwords of at least 16 characters.",
+      "Database provisioning requires a URL and three passwords of at least 16 characters.",
     )
   }
-  if (migrationPassword === runtimePassword) {
-    throw new Error("Database provisioning requires different migration and runtime passwords.")
+  if (new Set([learningPassword, migrationPassword, runtimePassword]).size !== 3) {
+    throw new Error("Database provisioning requires different role passwords.")
   }
   const client = new pg.Client({ connectionString: databaseUrl, connectionTimeoutMillis: 5_000 })
   try {
@@ -41,11 +48,15 @@ export async function provisionDatabaseAccess({
     await client.query(
       `CREATE ROLE replica_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD ${pg.escapeLiteral(runtimePassword)}`,
     )
+    await client.query(
+      `CREATE ROLE replica_learning_runtime LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD ${pg.escapeLiteral(learningPassword)}`,
+    )
     await client.query("GRANT replica_migration TO CURRENT_USER")
     await client.query(`REVOKE CREATE, TEMPORARY ON DATABASE ${name} FROM PUBLIC`)
     await client.query(
       `GRANT CONNECT, TEMPORARY ON DATABASE ${name} TO replica_migration, replica_runtime`,
     )
+    await client.query(`GRANT CONNECT ON DATABASE ${name} TO replica_learning_runtime`)
     await client.query(`GRANT CREATE ON DATABASE ${name} TO replica_migration`)
     await client.query("ALTER SCHEMA public OWNER TO replica_migration")
     await client.query("REVOKE ALL ON SCHEMA public FROM PUBLIC")
@@ -62,6 +73,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   try {
     await provisionDatabaseAccess({
       databaseUrl: process.env.DATABASE_URL ?? "",
+      learningPassword: process.env.HUB_LEARNING_PASSWORD ?? "",
       migrationPassword: process.env.HUB_MIGRATION_PASSWORD ?? "",
       runtimePassword: process.env.HUB_RUNTIME_PASSWORD ?? "",
     })

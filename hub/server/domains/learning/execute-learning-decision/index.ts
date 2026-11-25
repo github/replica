@@ -14,6 +14,7 @@ export async function executeLearningDecision(input: {
   cliPath: string
   decision: LearningDecision
   learningId: string
+  learningDatabaseUrl?: string
   nodePath: string
   operationId: string
   repositoryId: string
@@ -32,11 +33,13 @@ export async function executeLearningDecision(input: {
       publicRoot: resolve(applicationRoot, "public"),
     },
   )
-  try {
-    await access(resolve(directory, "config.json"))
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-    throw new LearningCommandError("not_found", "That learning no longer exists.")
+  if (!input.learningDatabaseUrl) {
+    try {
+      await access(resolve(directory, "config.json"))
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+      throw new LearningCommandError("not_found", "That learning no longer exists.")
+    }
   }
   const arguments_ = [input.decision.decision, input.learningId]
   arguments_.push("--operation-id", input.operationId)
@@ -69,6 +72,7 @@ export async function executeLearningDecision(input: {
       ],
       {
         cliPath: input.cliPath,
+        ...(input.learningDatabaseUrl ? { learningDatabaseUrl: input.learningDatabaseUrl } : {}),
         nodePath: input.nodePath,
         signal: input.signal,
       },

@@ -33,6 +33,7 @@ export async function readLearningConfiguration(
     environment.REPLICA_LEARNING_CLI ?? "../packages/learning/bin/replica-learning.mjs",
   )
   const nodePath = environment.REPLICA_LEARNING_NODE?.trim() || process.execPath
+  const learningDatabaseUrl = environment.REPLICA_LEARNING_DATABASE_URL?.trim() || undefined
   let copilotCredentialProvider
   try {
     copilotCredentialProvider = createCopilotCredentialProvider(environment)
@@ -46,6 +47,7 @@ export async function readLearningConfiguration(
     automaticRuns,
     cliPath,
     copilotCredentialProvider,
+    learningDatabaseUrl,
     nodePath,
     root,
     staticDirectories: [

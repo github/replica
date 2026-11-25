@@ -6,6 +6,25 @@ import { describe, expect, it, onTestFinished } from "vitest"
 import { prepareLearningStore } from "."
 
 describe("prepareLearningStore()", () => {
+  it("uses a database store without creating a local learning directory", async () => {
+    const applicationRoot = resolve(`server/domains/learning/.store-test-${randomUUID()}`)
+    const root = resolve(applicationRoot, "learning")
+    const repositoryKey = randomUUID()
+    onTestFinished(() => rm(applicationRoot, { force: true, recursive: true }))
+
+    const result = await prepareLearningStore({
+      applicationRoot,
+      learningDatabaseUrl: "postgresql://learning.example/replica",
+      repositoryKey,
+      repositoryScope: "github.com/repositories/123",
+      root,
+      staticDirectories: [],
+    })
+
+    expect(result.repositoryScope).toBe("github.com/repositories/123")
+    await expect(stat(root)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
   it.each([
     ["source public directory", 0],
     ["configured client directory", 1],

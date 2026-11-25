@@ -170,6 +170,7 @@ interface HubDecisionTasksetSourceOptions {
   database: PrismaClient
   databaseUrl: string
   hubOrigin: string
+  learningDatabaseUrl?: string
   learningRoot: string
   nodePath?: string
   staticDirectories: string[]
@@ -458,6 +459,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
   async function command(arguments_: string[], timeoutMs = 60_000, signal?: AbortSignal) {
     return runLearningCommand(arguments_, {
       cliPath: options.cliPath,
+      learningDatabaseUrl: options.learningDatabaseUrl,
       nodePath: options.nodePath,
       signal,
       timeoutMs,
@@ -483,6 +485,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
   async function learningStore(repositoryId: string) {
     return prepareLearningStore({
       applicationRoot,
+      learningDatabaseUrl: options.learningDatabaseUrl,
       repositoryKey: repositoryId,
       repositoryScope: await learningScope(repositoryId),
       root: options.learningRoot,

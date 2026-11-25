@@ -10,6 +10,7 @@ export async function redactLegacyReviewComment(
     root: string
     staticDirectories: string[]
     cliPath: string
+    learningDatabaseUrl?: string
     nodePath: string
     signal: AbortSignal
   },
@@ -37,6 +38,11 @@ export async function redactLegacyReviewComment(
       `github.com/repositories/${repositoryId}`,
       "--legacy-redaction",
     ],
-    { cliPath: options.cliPath, nodePath: options.nodePath, signal: options.signal },
+    {
+      cliPath: options.cliPath,
+      nodePath: options.nodePath,
+      signal: options.signal,
+      ...(options.learningDatabaseUrl ? { learningDatabaseUrl: options.learningDatabaseUrl } : {}),
+    },
   )
 }

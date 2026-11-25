@@ -154,6 +154,7 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
       prepare: async (repositoryId) =>
         prepareLearningStore({
           applicationRoot: process.cwd(),
+          learningDatabaseUrl: configuration.learningDatabaseUrl,
           repositoryKey: repositoryId,
           repositoryScope: await getLearningRepositoryScope(prisma, repositoryId),
           root: configuration.root,
@@ -199,6 +200,7 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
       runCommand: (arguments_, options) =>
         runLearningCommand(arguments_, {
           cliPath: configuration.cliPath,
+          learningDatabaseUrl: configuration.learningDatabaseUrl,
           nodePath: configuration.nodePath,
           ...options,
         }),
@@ -326,6 +328,7 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
             prepare: async (repositoryId) =>
               prepareLearningStore({
                 applicationRoot: process.cwd(),
+                learningDatabaseUrl: configuration.learningDatabaseUrl,
                 repositoryKey: repositoryId,
                 repositoryScope: await getLearningRepositoryScope(prisma, repositoryId),
                 root: configuration.root,
@@ -334,6 +337,7 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
             runCommand: (arguments_, options) =>
               runLearningCommand(arguments_, {
                 cliPath: configuration.cliPath,
+                learningDatabaseUrl: configuration.learningDatabaseUrl,
                 nodePath: configuration.nodePath,
                 ...options,
               }),
@@ -423,6 +427,7 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
   const redact = createJobProcessor(redactReviewCommentJob, async (input) => {
     const { configuration, databaseUrl, prisma } = await dependencies()
     await processReviewCommentRedaction(input, {
+      learningDatabaseUrl: configuration.learningDatabaseUrl,
       root: configuration.root,
       markComplete: (completed) => markReviewCommentLearningRedacted(prisma, completed),
       now: () => new Date(),
@@ -433,6 +438,7 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
           return null
         return await prepareLearningStore({
           applicationRoot: process.cwd(),
+          learningDatabaseUrl: configuration.learningDatabaseUrl,
           repositoryKey: repositoryId,
           repositoryScope: `github.com/repositories/${repository.githubRepositoryId}`,
           root: configuration.root,
@@ -444,6 +450,7 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
       runCommand: (arguments_, options) =>
         runLearningCommand(arguments_, {
           cliPath: configuration.cliPath,
+          learningDatabaseUrl: configuration.learningDatabaseUrl,
           nodePath: configuration.nodePath,
           ...options,
         }),

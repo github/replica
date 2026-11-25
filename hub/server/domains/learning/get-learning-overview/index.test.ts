@@ -19,6 +19,51 @@ describe("getLearningOverview()", () => {
     vi.mocked(access).mockResolvedValue(undefined)
   })
 
+  it("reads database learnings without a local configuration", async () => {
+    vi.mocked(access).mockRejectedValue(Object.assign(new Error("missing"), { code: "ENOENT" }))
+    vi.mocked(runLearningCommand)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({ text: "Useful guidance", memories: [] })
+    const learningDatabaseUrl = "postgresql://learning.example/replica"
+
+    const result = await getLearningOverview({
+      applicationRoot: "/app",
+      cliPath: "/app/replica-learning.mjs",
+      learningDatabaseUrl,
+      nodePath: "/node",
+      repositoryId: "11111111-2222-4333-8444-555555555555",
+      repositoryScope: "github.com/repositories/123",
+      root: "/private/learning",
+      staticDirectories: [],
+      viewer: "human:mona",
+    })
+
+    expect(result.recall.text).toBe("Useful guidance")
+    expect(runLearningCommand).toHaveBeenCalledTimes(2)
+    for (const [arguments_, options] of vi.mocked(runLearningCommand).mock.calls) {
+      expect(arguments_).not.toContain(learningDatabaseUrl)
+      expect(options).toMatchObject({ learningDatabaseUrl })
+    }
+  })
+
+  it("returns an empty overview for a missing local store", async () => {
+    vi.mocked(access).mockRejectedValue(Object.assign(new Error("missing"), { code: "ENOENT" }))
+
+    const result = await getLearningOverview({
+      applicationRoot: "/app",
+      cliPath: "/app/replica-learning.mjs",
+      nodePath: "/node",
+      repositoryId: "11111111-2222-4333-8444-555555555555",
+      repositoryScope: "github.com/repositories/123",
+      root: "/private/learning",
+      staticDirectories: [],
+      viewer: "human:mona",
+    })
+
+    expect(result.suggestions).toEqual([])
+    expect(runLearningCommand).not.toHaveBeenCalled()
+  })
+
   it("uses only the review source's exact event resolution for displayed evidence", async () => {
     vi.mocked(runLearningCommand)
       .mockResolvedValueOnce([

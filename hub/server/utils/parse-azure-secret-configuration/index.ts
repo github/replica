@@ -10,7 +10,7 @@ export function parseAzureSecretConfiguration(
   const clientId = environment.AZURE_CLIENT_ID
   const input = environment.AZURE_KEY_VAULT_SECRET_REFERENCES
   if (
-    !["runtime", "setup", "provision"].includes(target) ||
+    !["runtime", "setup", "provision", "provision-learning"].includes(target) ||
     !clientId ||
     !/^[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}$/.test(clientId) ||
     !input ||
@@ -29,12 +29,17 @@ export function parseAzureSecretConfiguration(
   const names = entries.map(([name]) => name)
   const required =
     target === "provision"
-      ? ["DATABASE_URL", "HUB_MIGRATION_PASSWORD", "HUB_RUNTIME_PASSWORD"]
-      : ["DATABASE_URL"]
+      ? ["DATABASE_URL", "HUB_MIGRATION_PASSWORD", "HUB_RUNTIME_PASSWORD", "HUB_LEARNING_PASSWORD"]
+      : target === "provision-learning"
+        ? ["DATABASE_URL", "HUB_LEARNING_PASSWORD"]
+        : ["DATABASE_URL"]
+  const allowed =
+    target === "setup" ? [...required, "REPLICA_LEARNING_MIGRATION_DATABASE_URL"] : required
   const reserved = new Set([
     "AZURE_CLIENT_ID",
     "AZURE_KEY_VAULT_SECRET_REFERENCES",
     "DATABASE_RUNTIME_ROLE",
+    "REPLICA_LEARNING_RUNTIME_ROLE",
     "NODE_ENV",
     "RUNTIME_MODE",
     "HOST",
@@ -50,7 +55,7 @@ export function parseAzureSecretConfiguration(
     !entries.length ||
     entries.length > 64 ||
     required.some((name) => !names.includes(name)) ||
-    (target !== "runtime" && names.some((name) => !required.includes(name)))
+    (target !== "runtime" && names.some((name) => !allowed.includes(name)))
   ) {
     throw invalid()
   }
@@ -64,7 +69,8 @@ export function parseAzureSecretConfiguration(
       !/^https:\/\/[a-zA-Z0-9-]+\.vault\.azure\.net\/secrets\/[a-zA-Z0-9-]+(?:\/[a-fA-F0-9]{32})?$/.test(
         url,
       ) ||
-      (target === "provision" && new URL(url).pathname.split("/").length !== 4)
+      ((target === "provision" || target === "provision-learning") &&
+        new URL(url).pathname.split("/").length !== 4)
     ) {
       throw invalid()
     }

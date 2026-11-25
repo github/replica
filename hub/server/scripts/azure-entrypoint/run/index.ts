@@ -5,7 +5,13 @@ export async function runAzureEntrypoint(target: string | undefined): Promise<vo
     target === "repair-github-build-author" ||
     target === "check-github-webhooks" ||
     target === "replay-private-preview"
-  if (!maintenance && target !== "runtime" && target !== "setup" && target !== "provision") {
+  if (
+    !maintenance &&
+    target !== "runtime" &&
+    target !== "setup" &&
+    target !== "provision" &&
+    target !== "provision-learning"
+  ) {
     throw new Error("Azure entrypoint target is invalid.")
   }
   const environment = process.env
@@ -35,15 +41,26 @@ export async function runAzureEntrypoint(target: string | undefined): Promise<vo
     await loadAzureSecretEnvironment(environment, "setup")
     const { setup } = await import("../../setup/index.ts")
     await setup()
-  } else {
-    await loadAzureSecretEnvironment(environment, "provision")
+  } else if (target === "provision") {
+    await loadAzureSecretEnvironment(environment, target)
     const { provisionDatabaseAccess } = await import("../../provision-database-access/index.ts")
     const { logger } = await import("../../../integrations/pino/index.ts")
     await provisionDatabaseAccess({
       databaseUrl: environment.DATABASE_URL ?? "",
+      learningPassword: environment.HUB_LEARNING_PASSWORD ?? "",
       migrationPassword: environment.HUB_MIGRATION_PASSWORD ?? "",
       runtimePassword: environment.HUB_RUNTIME_PASSWORD ?? "",
     })
     logger.info("Database access provisioned")
+  } else {
+    await loadAzureSecretEnvironment(environment, "provision-learning")
+    const { provisionLearningDatabaseAccess } =
+      await import("../../provision-learning-database-access/index.ts")
+    const { logger } = await import("../../../integrations/pino/index.ts")
+    await provisionLearningDatabaseAccess({
+      databaseUrl: environment.DATABASE_URL ?? "",
+      learningPassword: environment.HUB_LEARNING_PASSWORD ?? "",
+    })
+    logger.info("Learning database access provisioned")
   }
 }

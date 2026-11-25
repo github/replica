@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
 import type { provisionDatabaseAccess } from "../../provision-database-access"
+import type { provisionLearningDatabaseAccess } from "../../provision-learning-database-access"
 import type { loadAzureSecretEnvironment } from "../load-secret-environment"
 
 const mocks = vi.hoisted(() => ({
@@ -11,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   loggerImported: vi.fn(),
   setup: vi.fn<() => Promise<void>>(),
   provision: vi.fn<typeof provisionDatabaseAccess>(),
+  provisionLearning: vi.fn<typeof provisionLearningDatabaseAccess>(),
+  provisionLearningImported: vi.fn(),
   repairImported: vi.fn(),
   checkImported: vi.fn(),
   replayImported: vi.fn(),
@@ -41,6 +44,10 @@ describe("runAzureEntrypoint()", () => {
     vi.doMock("../../provision-database-access", () => {
       mocks.provisionImported()
       return { provisionDatabaseAccess: mocks.provision }
+    })
+    vi.doMock("../../provision-learning-database-access", () => {
+      mocks.provisionLearningImported()
+      return { provisionLearningDatabaseAccess: mocks.provisionLearning }
     })
     vi.doMock("../../../integrations/pino", () => {
       mocks.loggerImported()
@@ -113,6 +120,7 @@ describe("runAzureEntrypoint()", () => {
                 DATABASE_URL: "postgresql://synthetic-admin:fixture@database.invalid/replica",
                 HUB_MIGRATION_PASSWORD: "synthetic-migration-password",
                 HUB_RUNTIME_PASSWORD: "synthetic-runtime-password",
+                HUB_LEARNING_PASSWORD: "synthetic-learning-password",
               }
       const environment: NodeJS.ProcessEnv = {
         NODE_ENV: "production",
@@ -186,6 +194,7 @@ describe("runAzureEntrypoint()", () => {
           databaseUrl: secrets.DATABASE_URL,
           migrationPassword: secrets.HUB_MIGRATION_PASSWORD,
           runtimePassword: secrets.HUB_RUNTIME_PASSWORD,
+          learningPassword: secrets.HUB_LEARNING_PASSWORD,
         })
         expect(mocks.info).toHaveBeenCalledTimes(1)
         expect(JSON.stringify(mocks.info.mock.calls)).not.toMatch(/synthetic-|postgresql:/)
@@ -195,6 +204,32 @@ describe("runAzureEntrypoint()", () => {
       }
     },
   )
+
+  it("provisions only the learning role for an existing installation", async () => {
+    const originalEnvironment = process.env
+    process.env = { NODE_ENV: "production" }
+    onTestFinished(() => {
+      process.env = originalEnvironment
+    })
+    mocks.loadSecrets.mockImplementation((environment, target) => {
+      expect(target).toBe("provision-learning")
+      expect(mocks.provisionLearningImported).not.toHaveBeenCalled()
+      environment.DATABASE_URL = "postgresql://admin@database.invalid/replica"
+      environment.HUB_LEARNING_PASSWORD = "synthetic-learning-password"
+      return Promise.resolve()
+    })
+    mocks.provisionLearning.mockResolvedValue(undefined)
+
+    await runAzureEntrypoint("provision-learning")
+
+    expect(mocks.provisionLearning).toHaveBeenCalledExactlyOnceWith({
+      databaseUrl: "postgresql://admin@database.invalid/replica",
+      learningPassword: "synthetic-learning-password",
+    })
+    expect(mocks.provisionImported).not.toHaveBeenCalled()
+    expect(mocks.provision).not.toHaveBeenCalled()
+    expect(mocks.setupImported).not.toHaveBeenCalled()
+  })
 
   it.each(["runtime", "setup", "provision"] as const)(
     "does not import any workload or begin database work after %s secret loading fails",

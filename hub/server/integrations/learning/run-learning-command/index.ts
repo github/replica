@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, rm, stat } from "node:fs/promises"
+import { chmod, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { spawn } from "node:child_process"
@@ -6,7 +6,12 @@ import { spawn } from "node:child_process"
 import { LearningCommandError } from "./errors.ts"
 
 const passedVariables = new Set(["PATH", "HOME", "LANG", "LC_ALL", "TZ"])
-const childVariables = [...passedVariables, "COPILOT_GITHUB_TOKEN", "TMPDIR"]
+const childVariables = [
+  ...passedVariables,
+  "COPILOT_GITHUB_TOKEN",
+  "REPLICA_LEARNING_DATABASE_URL",
+  "TMPDIR",
+]
 const bootstrap = `
   import { pathToFileURL } from "node:url";
   const allowed = new Set(${JSON.stringify(childVariables)});
@@ -24,6 +29,7 @@ function commandEnvironment(
   source: NodeJS.ProcessEnv,
   temporaryDirectory: string,
   githubToken?: string,
+  learningDatabaseUrl?: string,
 ) {
   const environment: NodeJS.ProcessEnv = { TMPDIR: temporaryDirectory }
   for (const [name, value] of Object.entries(source)) {
@@ -32,6 +38,7 @@ function commandEnvironment(
     }
   }
   if (githubToken) environment.COPILOT_GITHUB_TOKEN = githubToken
+  if (learningDatabaseUrl) environment.REPLICA_LEARNING_DATABASE_URL = learningDatabaseUrl
   return environment
 }
 
@@ -69,6 +76,7 @@ export async function runLearningCommand(
     environment = process.env,
     errorLimit = 1024 * 1024,
     githubToken,
+    learningDatabaseUrl,
     nodePath = process.execPath,
     outputLimit = 16 * 1024 * 1024,
     signal,
@@ -79,6 +87,7 @@ export async function runLearningCommand(
     environment?: NodeJS.ProcessEnv
     errorLimit?: number
     githubToken?: string
+    learningDatabaseUrl?: string
     nodePath?: string
     outputLimit?: number
     signal?: AbortSignal
@@ -97,14 +106,61 @@ export async function runLearningCommand(
   const temporaryDirectory = await mkdtemp(join(tmpdir(), "replica-learning-"))
   await chmod(temporaryDirectory, 0o700)
   try {
+    const commandArguments = [...arguments_]
+    if (learningDatabaseUrl) {
+      let hasDirectory = false
+      let requireImport = false
+      async function preserveExistingStore(directory: string) {
+        try {
+          if ((await readdir(directory)).length) requireImport = true
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+        }
+      }
+      for (let index = 0; index < commandArguments.length; index += 1) {
+        const argument = commandArguments[index]
+        if (argument === "--dir") {
+          const directory = commandArguments[index + 1]
+          if (!directory || directory.startsWith("--"))
+            throw new LearningCommandError("invalid_request", "The learning directory is missing.")
+          await preserveExistingStore(directory)
+          commandArguments[++index] = temporaryDirectory
+          hasDirectory = true
+        } else if (argument?.startsWith("--dir=")) {
+          await preserveExistingStore(argument.slice("--dir=".length))
+          commandArguments[index] = `--dir=${temporaryDirectory}`
+          hasDirectory = true
+        }
+      }
+      if (hasDirectory) {
+        await writeFile(
+          join(temporaryDirectory, "config.json"),
+          JSON.stringify({
+            schemaVersion: "replica.learning-config/v1",
+            memory: { provider: "postgres", ...(requireImport ? { requireImport: true } : {}) },
+            consolidation: {
+              options: {
+                signals: ["visual_quality", "accessibility", "usability", "content", "interaction"],
+              },
+            },
+          }),
+          { mode: 0o600, flag: "wx" },
+        )
+      }
+    }
     return await new Promise<unknown>((resolve, reject) => {
       const child = spawn(
         nodePath,
-        ["--input-type=module", "--eval", bootstrap, cliPath, ...arguments_, "--json"],
+        ["--input-type=module", "--eval", bootstrap, cliPath, ...commandArguments, "--json"],
         {
           cwd: directory ?? temporaryDirectory,
           detached: true,
-          env: commandEnvironment(environment, temporaryDirectory, githubToken),
+          env: commandEnvironment(
+            environment,
+            temporaryDirectory,
+            githubToken,
+            learningDatabaseUrl,
+          ),
           stdio: ["ignore", "pipe", "pipe"],
         },
       )

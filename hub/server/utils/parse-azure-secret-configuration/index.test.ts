@@ -37,7 +37,7 @@ describe("parseAzureSecretConfiguration()", () => {
     })
   })
 
-  it("accepts exactly the three versioned provisioning references", () => {
+  it("accepts exactly the versioned provisioning references", () => {
     const references = {
       DATABASE_URL:
         "https://fixture.vault.azure.net/secrets/admin-database/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -45,6 +45,8 @@ describe("parseAzureSecretConfiguration()", () => {
         "https://fixture.vault.azure.net/secrets/migration-password/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       HUB_RUNTIME_PASSWORD:
         "https://fixture.vault.azure.net/secrets/runtime-password/cccccccccccccccccccccccccccccccc",
+      HUB_LEARNING_PASSWORD:
+        "https://fixture.vault.azure.net/secrets/learning-password/dddddddddddddddddddddddddddddddd",
     }
     const environment = {
       AZURE_CLIENT_ID: "00000000-0000-0000-0000-000000000005",
@@ -55,6 +57,96 @@ describe("parseAzureSecretConfiguration()", () => {
       managedIdentityClientId: environment.AZURE_CLIENT_ID,
       references,
     })
+  })
+
+  it("accepts only the admin URL and learning password for an existing installation", () => {
+    const references = {
+      DATABASE_URL:
+        "https://fixture.vault.azure.net/secrets/admin-database/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      HUB_LEARNING_PASSWORD:
+        "https://fixture.vault.azure.net/secrets/learning-password/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    }
+    const environment = {
+      AZURE_CLIENT_ID: "00000000-0000-0000-0000-000000000005",
+      AZURE_KEY_VAULT_SECRET_REFERENCES: JSON.stringify(references),
+    }
+
+    expect(parseAzureSecretConfiguration(environment, "provision-learning").references).toEqual(
+      references,
+    )
+    expect(() =>
+      parseAzureSecretConfiguration(
+        {
+          ...environment,
+          AZURE_KEY_VAULT_SECRET_REFERENCES: JSON.stringify({
+            DATABASE_URL: references.DATABASE_URL,
+          }),
+        },
+        "provision-learning",
+      ),
+    ).toThrow()
+    expect(() =>
+      parseAzureSecretConfiguration(
+        {
+          ...environment,
+          AZURE_KEY_VAULT_SECRET_REFERENCES: JSON.stringify({
+            HUB_LEARNING_PASSWORD: references.HUB_LEARNING_PASSWORD,
+          }),
+        },
+        "provision-learning",
+      ),
+    ).toThrow()
+    expect(() =>
+      parseAzureSecretConfiguration(
+        {
+          ...environment,
+          AZURE_KEY_VAULT_SECRET_REFERENCES: JSON.stringify({
+            DATABASE_URL: references.DATABASE_URL,
+            HUB_RUNTIME_PASSWORD: references.HUB_LEARNING_PASSWORD,
+          }),
+        },
+        "provision-learning",
+      ),
+    ).toThrow()
+    expect(() =>
+      parseAzureSecretConfiguration(
+        {
+          ...environment,
+          AZURE_KEY_VAULT_SECRET_REFERENCES: JSON.stringify({
+            ...references,
+            HUB_RUNTIME_PASSWORD: references.HUB_LEARNING_PASSWORD,
+          }),
+        },
+        "provision-learning",
+      ),
+    ).toThrow()
+  })
+
+  it("requires a versioned learning password for an existing installation", () => {
+    const environment = {
+      AZURE_CLIENT_ID: "00000000-0000-0000-0000-000000000005",
+      AZURE_KEY_VAULT_SECRET_REFERENCES: JSON.stringify({
+        DATABASE_URL:
+          "https://fixture.vault.azure.net/secrets/admin-database/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        HUB_LEARNING_PASSWORD: "https://fixture.vault.azure.net/secrets/learning-password",
+      }),
+    }
+
+    expect(() => parseAzureSecretConfiguration(environment, "provision-learning")).toThrow()
+  })
+
+  it("allows the optional learning migration URL in setup", () => {
+    const references = {
+      DATABASE_URL: "https://fixture.vault.azure.net/secrets/migration-database",
+      REPLICA_LEARNING_MIGRATION_DATABASE_URL:
+        "https://fixture.vault.azure.net/secrets/learning-migration-database",
+    }
+    const environment = {
+      AZURE_CLIENT_ID: "00000000-0000-0000-0000-000000000003",
+      AZURE_KEY_VAULT_SECRET_REFERENCES: JSON.stringify(references),
+    }
+
+    expect(parseAzureSecretConfiguration(environment, "setup").references).toEqual(references)
   })
 
   it.each([undefined, "", "synthetic-client-token", " 00000000-0000-0000-0000-000000000001"])(
@@ -94,26 +186,30 @@ describe("parseAzureSecretConfiguration()", () => {
     expect(() => parseAzureSecretConfiguration(environment, target)).toThrow()
   })
 
-  it.each(["DATABASE_URL", "HUB_MIGRATION_PASSWORD", "HUB_RUNTIME_PASSWORD"])(
-    "requires the provisioning reference %s",
-    (missing) => {
-      const references: Record<string, string> = {
-        DATABASE_URL:
-          "https://fixture.vault.azure.net/secrets/admin-database/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        HUB_MIGRATION_PASSWORD:
-          "https://fixture.vault.azure.net/secrets/migration-password/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        HUB_RUNTIME_PASSWORD:
-          "https://fixture.vault.azure.net/secrets/runtime-password/cccccccccccccccccccccccccccccccc",
-      }
-      delete references[missing]
-      const environment = {
-        AZURE_CLIENT_ID: "00000000-0000-0000-0000-000000000005",
-        AZURE_KEY_VAULT_SECRET_REFERENCES: JSON.stringify(references),
-      }
+  it.each([
+    "DATABASE_URL",
+    "HUB_MIGRATION_PASSWORD",
+    "HUB_RUNTIME_PASSWORD",
+    "HUB_LEARNING_PASSWORD",
+  ])("requires the provisioning reference %s", (missing) => {
+    const references: Record<string, string> = {
+      DATABASE_URL:
+        "https://fixture.vault.azure.net/secrets/admin-database/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      HUB_MIGRATION_PASSWORD:
+        "https://fixture.vault.azure.net/secrets/migration-password/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      HUB_RUNTIME_PASSWORD:
+        "https://fixture.vault.azure.net/secrets/runtime-password/cccccccccccccccccccccccccccccccc",
+      HUB_LEARNING_PASSWORD:
+        "https://fixture.vault.azure.net/secrets/learning-password/dddddddddddddddddddddddddddddddd",
+    }
+    delete references[missing]
+    const environment = {
+      AZURE_CLIENT_ID: "00000000-0000-0000-0000-000000000005",
+      AZURE_KEY_VAULT_SECRET_REFERENCES: JSON.stringify(references),
+    }
 
-      expect(() => parseAzureSecretConfiguration(environment, "provision")).toThrow()
-    },
-  )
+    expect(() => parseAzureSecretConfiguration(environment, "provision")).toThrow()
+  })
 
   it.each(["setup", "provision"] as const)(
     "does not grant additional secret access to %s",
@@ -127,6 +223,8 @@ describe("parseAzureSecretConfiguration()", () => {
                 "https://fixture.vault.azure.net/secrets/migration-password/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
               HUB_RUNTIME_PASSWORD:
                 "https://fixture.vault.azure.net/secrets/runtime-password/cccccccccccccccccccccccccccccccc",
+              HUB_LEARNING_PASSWORD:
+                "https://fixture.vault.azure.net/secrets/learning-password/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
             }
           : {}),
         SERVICE_API_KEY:
@@ -150,6 +248,8 @@ describe("parseAzureSecretConfiguration()", () => {
         HUB_MIGRATION_PASSWORD: "https://fixture.vault.azure.net/secrets/migration-password",
         HUB_RUNTIME_PASSWORD:
           "https://fixture.vault.azure.net/secrets/runtime-password/cccccccccccccccccccccccccccccccc",
+        HUB_LEARNING_PASSWORD:
+          "https://fixture.vault.azure.net/secrets/learning-password/dddddddddddddddddddddddddddddddd",
       }),
     }
 

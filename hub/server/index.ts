@@ -201,6 +201,7 @@ try {
                 database: (await import("./integrations/prisma/index.ts")).prisma,
                 databaseUrl,
                 hubOrigin: applicationOrigin,
+                learningDatabaseUrl: learningConfiguration.learningDatabaseUrl,
                 learningRoot: learningConfiguration.root,
                 nodePath: learningConfiguration.nodePath,
                 staticDirectories: learningConfiguration.staticDirectories,

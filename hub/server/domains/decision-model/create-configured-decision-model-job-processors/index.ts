@@ -40,6 +40,7 @@ export function createConfiguredDecisionModelJobProcessors(
       database: prisma,
       databaseUrl,
       hubOrigin,
+      learningDatabaseUrl: learning.learningDatabaseUrl,
       learningRoot: learning.root,
       nodePath: learning.nodePath,
       staticDirectories: learning.staticDirectories,

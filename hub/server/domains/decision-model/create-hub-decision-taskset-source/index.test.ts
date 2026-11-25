@@ -89,7 +89,11 @@ function storage(
   }
 }
 
-function hubSource(artifactStorage: ArtifactStorage, githubRepositoryId: bigint | null = 123n) {
+function hubSource(
+  artifactStorage: ArtifactStorage,
+  githubRepositoryId: bigint | null = 123n,
+  learningDatabaseUrl?: string,
+) {
   return createHubDecisionTasksetSource({
     applicationRoot: process.cwd(),
     artifactStorage,
@@ -99,6 +103,7 @@ function hubSource(artifactStorage: ArtifactStorage, githubRepositoryId: bigint 
     } as never,
     databaseUrl: "postgresql://test",
     hubOrigin: "https://hub.example.test",
+    learningDatabaseUrl,
     learningRoot: "server/domains/decision-model/create-hub-decision-taskset-source/.learning",
     staticDirectories: [],
     stabilizeSnapshot: vi.fn().mockResolvedValue({
@@ -147,6 +152,40 @@ function decodeArchive(bytes: Uint8Array) {
 }
 
 describe("createHubDecisionTasksetSource()", () => {
+  it("reads training consent from the configured database", async () => {
+    const learningDatabaseUrl = "postgresql://learning.example/replica"
+    vi.mocked(prepareLearningStore).mockResolvedValue({
+      directory: "/private/learning/repository",
+      repositoryScope: "github.com/repositories/123",
+      repositoryId,
+    })
+    vi.mocked(runLearningCommand).mockResolvedValue([
+      {
+        grant: { id: "grant-training", sources: ["hub_review_comments"] },
+        activePurposes: ["training"],
+        expired: false,
+      },
+    ])
+
+    const result = await hubSource(
+      storage({}),
+      123n,
+      learningDatabaseUrl,
+    ).tasksetSource.hasTrainingConsent({
+      repositoryId,
+      actorMembershipId: "44444444-4444-4444-8444-444444444444",
+      consentGrantId: "grant-training",
+    })
+
+    expect(result).toBe(true)
+    expect(prepareLearningStore).toHaveBeenCalledWith(
+      expect.objectContaining({ learningDatabaseUrl }),
+    )
+    const [arguments_, options] = vi.mocked(runLearningCommand).mock.calls[0]!
+    expect(arguments_).not.toContain(learningDatabaseUrl)
+    expect(options).toMatchObject({ learningDatabaseUrl })
+  })
+
   it("does not open a learning store for a repository without a GitHub ID", async () => {
     const taskset = hubSource(storage({}), null).tasksetSource
 

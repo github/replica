@@ -1,4 +1,4 @@
-export type AzureEntrypoint = "runtime" | "setup" | "provision"
+export type AzureEntrypoint = "runtime" | "setup" | "provision" | "provision-learning"
 
 export interface AzureSecretConfiguration {
   managedIdentityClientId: string

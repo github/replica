@@ -14,12 +14,14 @@ const repositoryScopeSchema = z
 
 export async function prepareLearningStore({
   applicationRoot = process.cwd(),
+  learningDatabaseUrl,
   repositoryKey,
   repositoryScope,
   root,
   staticDirectories,
 }: {
   applicationRoot?: string
+  learningDatabaseUrl?: string
   repositoryKey: string
   repositoryScope: string
   root: string
@@ -33,6 +35,7 @@ export async function prepareLearningStore({
     name: "REPLICA_LEARNING_ROOT",
     publicRoot: resolve(applicationRoot, "public"),
   })
+  if (learningDatabaseUrl) return { directory, repositoryScope: scope, repositoryId: key }
   await mkdir(directory, { mode: 0o700, recursive: true })
   await validatePrivateStorageRoot(directory, {
     applicationRoot,

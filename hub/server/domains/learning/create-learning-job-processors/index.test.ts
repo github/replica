@@ -1,10 +1,12 @@
-import { chmod, copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
+import { chmod, copyFile, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 
 import { describe, expect, it, vi } from "vitest"
 
 import { enqueueRecoverableJob } from "../../../integrations/bullmq/enqueue-recoverable-job"
+import * as learningCommand from "../../../integrations/learning/run-learning-command"
 import { deleteExpiredLearningRuns } from "../../../repositories/learning-runs/delete-expired-learning-runs"
 import { redactReviewCommentJob } from "../jobs/redact-review-comment"
 import { createLearningJobProcessors } from "."
@@ -32,6 +34,34 @@ vi.mock("../../../integrations/bullmq/enqueue-recoverable-job", () => ({
 }))
 
 describe("createLearningJobProcessors()", () => {
+  it("redacts database comments without creating a local store", async () => {
+    const root = resolve(`server/domains/learning/.redaction-worker-${randomUUID()}`)
+    const repositoryId = "11111111-2222-4333-8444-555555555555"
+    const learningDatabaseUrl = "postgresql://learning.example/replica"
+    const command = vi.spyOn(learningCommand, "runLearningCommand").mockResolvedValue({})
+    prisma.repository.findUnique.mockResolvedValue({ githubRepositoryId: 123n })
+    prisma.reviewComment.updateMany.mockResolvedValue({ count: 1 })
+    const processors = createLearningJobProcessors(
+      {
+        DATABASE_URL: "postgresql://unused.example/replica",
+        HUB_APPLICATION_ORIGIN: "https://hub.example.com",
+        REPLICA_LEARNING_DATABASE_URL: learningDatabaseUrl,
+        REPLICA_LEARNING_ROOT: root,
+      },
+      {} as never,
+    )
+
+    await processors.redact.process({ repositoryId, commentId: 101, actor: "human:mona" })
+
+    expect(command).toHaveBeenCalledOnce()
+    const [arguments_, options] = command.mock.calls[0]!
+    expect(arguments_).toEqual(expect.arrayContaining(["redact", "--comment", "101"]))
+    expect(arguments_).not.toContain(learningDatabaseUrl)
+    expect(options).toMatchObject({ learningDatabaseUrl })
+    expect(prisma.reviewComment.updateMany).toHaveBeenCalledOnce()
+    await expect(stat(root)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
   it("prunes run history without initializing learning or Copilot when scheduling is disabled", async () => {
     const processors = createLearningJobProcessors(
       {

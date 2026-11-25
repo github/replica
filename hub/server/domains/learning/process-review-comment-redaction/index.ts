@@ -7,6 +7,7 @@ import { learningStoreArguments } from "../learning-store-arguments/index.ts"
 export async function processReviewCommentRedaction(
   input: { repositoryId: string; commentId: number; actor: string },
   dependencies: {
+    learningDatabaseUrl?: string
     root: string
     prepare(repositoryId: string): Promise<{
       directory: string
@@ -30,11 +31,13 @@ export async function processReviewCommentRedaction(
   const repositoryId = z.uuid().parse(input.repositoryId)
   await dependencies.withLock(async (signal) => {
     const directory = resolve(dependencies.root, "repositories", repositoryId)
-    try {
-      await access(resolve(directory, "config.json"))
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-      return
+    if (!dependencies.learningDatabaseUrl) {
+      try {
+        await access(resolve(directory, "config.json"))
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+        return
+      }
     }
     const store = await dependencies.prepare(input.repositoryId)
     if (store) {

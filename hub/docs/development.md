@@ -16,6 +16,8 @@ The repository is mounted at `/workspaces/replica`, with `hub/` as the working d
 
 After the container opens and PostgreSQL is healthy, install the separate learning runtime with `npm ci --prefix ../packages/learning --engine-strict`, then run `npm run setup` before starting `npm run dev:api`. Run setup again after pulling new migrations.
 
+New devcontainer databases create a separate local learning login. Setup migrates the learning schema and grants that login access. If the PostgreSQL volume predates this configuration and the login is absent, run `docker compose -f .devcontainer/compose.yaml exec db psql -U replica -d replica -f /docker-entrypoint-initdb.d/learning-role.sql` once from `hub/`, then run setup. The included password is for this local container only.
+
 ## Local Node.js
 
 Use npm and a Node.js version supported by `engines.node` in `hub/package.json`. From `hub/`, start only the database and copy the local configuration:
@@ -149,7 +151,7 @@ The scheduled worker reconciles the configured GitHub installation every 15 minu
 
 This walkthrough uses the real Hub API, PostgreSQL, workers, artifact and learning stores, and the customer-operated reference runtime. Its deterministic fixture backend ignores image content. Use it to check orchestration and interface behavior only; do not treat its metrics or findings as model-quality evidence.
 
-The filesystem artifact provider requires Linux. The walkthrough Compose override runs Hub and the fixture runtime on one private Docker network, so the same commands work with Docker Desktop and native Linux Docker Engine. From the repository root, create a private runtime token and state directory:
+The filesystem artifact provider requires Linux. The walkthrough Compose override runs Hub and the fixture runtime on one private Docker network, so the same commands work with Docker Desktop and native Linux Docker Engine. It uses a separate SQLite learning store so the fixture can be reset without changing PostgreSQL learning history. From the repository root, create a private runtime token and state directory:
 
 ```sh
 mkdir -p hub/.local/decision-runtime

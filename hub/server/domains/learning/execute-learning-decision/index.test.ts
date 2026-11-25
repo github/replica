@@ -1,6 +1,7 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 
 import { runLearningCommand } from "../../../integrations/learning/run-learning-command"
@@ -15,6 +16,35 @@ vi.mock("../../../utils/validate-private-storage-root", () => ({
 }))
 
 describe("executeLearningDecision()", () => {
+  it("accepts a database learning without creating a local store", async () => {
+    const directory = resolve(`server/domains/learning/.decision-test-${randomUUID()}`)
+    const learningDatabaseUrl = "postgresql://learning.example/replica"
+    vi.mocked(validatePrivateStorageRoot).mockResolvedValue(directory)
+    vi.mocked(runLearningCommand).mockResolvedValue({})
+
+    const result = await executeLearningDecision({
+      actor: "human:mona",
+      applicationRoot: "/app",
+      cliPath: "/app/replica-learning.mjs",
+      decision: { decision: "accept", digest: `sha256:${"a".repeat(64)}` },
+      learningDatabaseUrl,
+      learningId: "mem_1",
+      nodePath: "/node",
+      operationId: "22222222-2222-4222-8222-222222222222",
+      repositoryId: "11111111-2222-4333-8444-555555555555",
+      repositoryScope: "github.com/repositories/123",
+      root: "/private/learning",
+      staticDirectories: [],
+    })
+
+    expect(result.notice).toBe("Learning accepted.")
+    const [arguments_, options] = vi.mocked(runLearningCommand).mock.calls[0]!
+    expect(arguments_).toEqual(expect.arrayContaining(["accept", "mem_1"]))
+    expect(arguments_).not.toContain(learningDatabaseUrl)
+    expect(options).toMatchObject({ learningDatabaseUrl })
+    await expect(stat(directory)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
   it("passes a dash-leading reason through a private file instead of process arguments", async () => {
     const directory = await mkdtemp(join(tmpdir(), "replica-learning-decision-test-"))
     try {
