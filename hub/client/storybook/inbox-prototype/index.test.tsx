@@ -10,7 +10,7 @@ describe("InboxPrototype()", () => {
       vi.stubGlobal("innerWidth", 1200)
       vi.stubGlobal("innerHeight", 900)
       render(<InboxPrototype defaultNavigationCollapsed={collapsed} />)
-      const link = screen.getByRole("link", { name: "Notifications, 6 unread items" })
+      const link = screen.getByRole("link", { name: "Notifications, unread notifications" })
       vi.spyOn(link, "getBoundingClientRect").mockReturnValue(
         new DOMRect(12, 200, collapsed ? 40 : 230, 40),
       )
@@ -30,9 +30,9 @@ describe("InboxPrototype()", () => {
     expect(
       links.map((link) => link.querySelector(".repository-navigation-item__label")?.textContent),
     ).toEqual(["Create", "Prototypes", "Notifications"])
-    const inbox = screen.getByRole("link", { name: "Notifications, 6 unread items" })
+    const inbox = screen.getByRole("link", { name: "Notifications, unread notifications" })
     expect(inbox).not.toHaveAttribute("title")
-    expect(inbox.querySelector(".repository-navigation-item__count")).toHaveTextContent("6")
+    expect(inbox).not.toHaveTextContent(/\d/)
     expect(screen.queryByRole("region", { name: "Inbox" })).not.toBeInTheDocument()
     fireEvent.mouseEnter(inbox)
     const preview = screen.getByRole("region", { name: "Inbox" })
@@ -70,7 +70,7 @@ describe("InboxPrototype()", () => {
 
   it("removes read items from the hover panel", () => {
     render(<InboxPrototype />)
-    fireEvent.mouseEnter(screen.getByRole("link", { name: "Notifications, 6 unread items" }))
+    fireEvent.mouseEnter(screen.getByRole("link", { name: "Notifications, unread notifications" }))
     const preview = screen.getByRole("region", { name: "Inbox" })
     const first = within(preview).getAllByRole("listitem")[0]
     if (!first) throw new Error("Expected an unread activity row")
@@ -78,11 +78,7 @@ describe("InboxPrototype()", () => {
     fireEvent.click(within(first).getByRole("button", { name: "Mark as read: mona" }))
     expect(within(preview).getAllByRole("listitem")).toHaveLength(5)
     expect(screen.getByLabelText("5 unread items")).toBeInTheDocument()
-    expect(
-      screen
-        .getByRole("link", { name: "Notifications, 5 unread items" })
-        .querySelector(".repository-navigation-item__count"),
-    ).toHaveTextContent("5")
+    expect(screen.getByRole("link", { name: "Notifications, unread notifications" })).toBeVisible()
   })
 
   it("shows older unread items in the preview independently of the page filter", () => {
@@ -99,8 +95,7 @@ describe("InboxPrototype()", () => {
         name: "Prototypes",
       }),
     )
-    const inbox = screen.getByRole("link", { name: "Notifications, 7 unread items" })
-    expect(inbox.querySelector(".repository-navigation-item__count")).toHaveTextContent("7")
+    const inbox = screen.getByRole("link", { name: "Notifications, unread notifications" })
     fireEvent.mouseEnter(inbox)
     const preview = screen.getByRole("region", { name: "Inbox" })
     expect(within(preview).getAllByRole("listitem")).toHaveLength(7)
@@ -113,22 +108,16 @@ describe("InboxPrototype()", () => {
   })
 
   it.each([false, true])(
-    "updates and clears the sidebar count with a collapsed sidebar=%s",
+    "clears the unread dot when all preview items are read with a collapsed sidebar=%s",
     (collapsed) => {
       render(<InboxPrototype defaultNavigationCollapsed={collapsed} />)
-      const inbox = screen.getByRole("link", { name: "Notifications, 6 unread items" })
-      expect(inbox.querySelector(".repository-navigation-item__count")).toHaveTextContent("6")
-      expect(document.querySelector(".repository-navigation__unread")).not.toBeInTheDocument()
+      const inbox = screen.getByRole("link", { name: "Notifications, unread notifications" })
       fireEvent.mouseEnter(inbox)
       const preview = screen.getByRole("region", { name: "Inbox" })
       for (const button of within(preview).getAllByRole("button", { name: /^Mark as read:/ })) {
         fireEvent.click(button)
       }
-      expect(
-        screen
-          .getByRole("link", { name: "Notifications" })
-          .querySelector(".repository-navigation-item__count"),
-      ).not.toBeInTheDocument()
+      expect(screen.getByRole("link", { name: "Notifications" })).toBeVisible()
       expect(within(preview).queryAllByRole("listitem")).toHaveLength(0)
       expect(within(preview).getByText("You are all caught up")).toBeInTheDocument()
       expect(within(preview).queryByLabelText(/unread items/)).not.toBeInTheDocument()
@@ -141,7 +130,9 @@ describe("InboxPrototype()", () => {
       render(<InboxPrototype initialInbox defaultNavigationCollapsed={collapsed} />)
       const page = screen.getByRole("region", { name: "Inbox" })
       fireEvent.click(within(page).getByRole("button", { name: "Unread" }))
-      fireEvent.mouseEnter(screen.getByRole("link", { name: "Notifications, 6 unread items" }))
+      fireEvent.mouseEnter(
+        screen.getByRole("link", { name: "Notifications, unread notifications" }),
+      )
       const preview = screen
         .getAllByRole("region", { name: "Inbox" })
         .find((region) => region.dataset.mode === "preview")
@@ -160,7 +151,9 @@ describe("InboxPrototype()", () => {
       vi.stubGlobal("fetch", fetch)
       render(<InboxPrototype initialInbox={initialInbox} />)
       if (!initialInbox) {
-        fireEvent.mouseEnter(screen.getByRole("link", { name: "Notifications, 6 unread items" }))
+        fireEvent.mouseEnter(
+          screen.getByRole("link", { name: "Notifications, unread notifications" }),
+        )
       }
       const inbox = screen.getByRole("region", { name: "Inbox" })
       const row = within(inbox).getAllByRole("listitem")[1]
@@ -183,7 +176,7 @@ describe("InboxPrototype()", () => {
   it("keeps the card open during a long diagonal path and closes after leaving it", async () => {
     vi.useFakeTimers()
     render(<InboxPrototype />)
-    const link = screen.getByRole("link", { name: "Notifications, 6 unread items" })
+    const link = screen.getByRole("link", { name: "Notifications, unread notifications" })
     fireEvent.mouseEnter(link)
     const panel = document.querySelector<HTMLElement>(".repository-navigation__inbox-preview")
     if (!panel) throw new Error("Expected an inbox hover panel")

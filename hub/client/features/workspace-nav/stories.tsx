@@ -38,11 +38,9 @@ const administrator: WorkspaceNavData = {
   settingsNavigationLabel: "Security and settings",
   welcomeLabel: "Welcome",
   welcomePath: "/welcome?repositoryId=2001",
-  notificationsLabel: "Notifications",
+  notificationsLabel: "Inbox",
   notificationsPath: "/notifications?repositoryId=2001",
   notificationsUnread: true,
-  notificationsUnreadCount: 12,
-  notificationsUnreadLabel: "Notifications, 12 unread",
   repositoriesLabel: "Repositories",
   repositoriesPath: "/repositories",
   repository,
@@ -83,6 +81,7 @@ export const WithoutRepository: Story = {
       repository: null,
       welcomePath: "/welcome",
       notificationsPath: "/notifications",
+      notificationsUnread: false,
       administrationLinks,
       securityAuditPath: "/settings/audit?scope=hub",
       selectedSection: "welcome",
@@ -100,17 +99,6 @@ export const ReadOnly: Story = {
       repository: { ...repository, newPrototypePath: null },
       administrationLinks: [],
       securityAuditPath: "/settings/audit?repositoryId=2001&scope=repository",
-    },
-  },
-}
-
-export const UnreadInbox: Story = {
-  args: {
-    data: {
-      ...administrator,
-      notificationsLabel: "Inbox",
-      notificationsUnreadCount: undefined,
-      notificationsUnreadLabel: "Inbox, unread notifications",
     },
   },
 }

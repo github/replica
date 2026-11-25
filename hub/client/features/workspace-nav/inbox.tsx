@@ -23,26 +23,17 @@ export function WorkspaceInbox({
   onInboxClick?: MouseEventHandler<HTMLAnchorElement>
 }) {
   const configuration =
-    data.liveInbox || inboxPreview || !data.notificationInbox?.connected
-      ? undefined
-      : data.notificationInbox
-  const managed = useNotificationInbox({
+    inboxPreview || !data.notificationInbox?.connected ? undefined : data.notificationInbox
+  const inbox = useNotificationInbox({
     path: configuration?.path,
     authenticityToken: data.authenticityToken,
-    initialUnreadCount: data.notificationsUnreadCount,
     initialUnreadOnly: true,
     autoLoad: false,
     synchronize: Boolean(configuration),
     limit: 10,
   })
-  const liveInbox =
-    data.liveInbox ?? (configuration ? { ...managed, copy: configuration.copy } : undefined)
-  const count =
-    data.notificationsUnreadCount === undefined
-      ? undefined
-      : (liveInbox?.unreadCount ?? data.notificationsUnreadCount)
   const { open, triggerRef, panelRef, enter, leave, close } = useHoverPreview(
-    Boolean(inboxPreview || liveInbox),
+    Boolean(inboxPreview || configuration),
   )
   const [position, setPosition] = useState({ top: 12, left: 12, width: 448, maxHeight: 592 })
   function openPreview() {
@@ -59,19 +50,11 @@ export function WorkspaceInbox({
       setPosition({ left, top, width, maxHeight: Math.min(592, window.innerHeight - top - 12) })
     }
     enter()
-    if (!open) liveInbox?.onOpen(Boolean(configuration))
+    if (!open && configuration) inbox.onOpen(true)
   }
 
   if (!data.notificationsPath || !data.notificationsLabel) return null
   const label = data.notificationsLabel
-  const unreadLabel =
-    liveInbox && count !== undefined
-      ? count
-        ? `${label}, ${count} unread`
-        : undefined
-      : data.notificationsUnread
-        ? data.notificationsUnreadLabel
-        : undefined
 
   return (
     <li
@@ -99,18 +82,17 @@ export function WorkspaceInbox({
         href={data.notificationsPath}
         icon={InboxIcon}
         label={label}
-        ariaLabel={unreadLabel ?? label}
-        count={count}
+        ariaLabel={data.notificationsUnread ? `${label}, unread notifications` : label}
         selected={data.selectedSection === "notifications"}
         onClick={(event) => {
           close()
           onInboxClick?.(event)
         }}
       />
-      {data.notificationsUnread && count === undefined ? (
+      {data.notificationsUnread ? (
         <span className="repository-navigation__unread" aria-hidden="true" />
       ) : null}
-      {(inboxPreview || liveInbox) && open
+      {(inboxPreview || configuration) && open
         ? createPortal(
             <div
               ref={panelRef}
@@ -121,18 +103,18 @@ export function WorkspaceInbox({
             >
               {inboxPreview ? (
                 inboxPreview(close)
-              ) : liveInbox ? (
+              ) : configuration ? (
                 <ConversationInbox
-                  items={liveInbox.notifications}
-                  copy={liveInbox.copy}
-                  totalUnreadCount={liveInbox.unreadCount}
+                  items={inbox.notifications}
+                  copy={configuration.copy}
+                  totalUnreadCount={inbox.unreadCount}
                   unreadOnly
-                  onFilter={liveInbox.onFilter}
-                  onToggleRead={liveInbox.onToggleRead}
+                  onFilter={inbox.onFilter}
+                  onToggleRead={inbox.onToggleRead}
                   viewAllPath={data.notificationsPath}
                   onViewAll={close}
                   onOpenActivity={close}
-                  status={{ ...liveInbox, onRetry: liveInbox.onRetry }}
+                  status={{ ...inbox, copy: configuration.copy }}
                 />
               ) : null}
             </div>,

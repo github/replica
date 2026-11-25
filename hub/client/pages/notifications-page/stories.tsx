@@ -114,6 +114,7 @@ const meta = {
       ...signedInWorkspace,
       notificationsLabel: "Inbox",
       notificationsPath: `/notifications?repositoryId=${signedInRepository.selectedRepositoryId}`,
+      notificationsUnread: true,
       // The page gets its data from this story, not the sidebar's connected requests.
       notificationInbox: notificationInboxConfiguration,
     },
@@ -134,7 +135,13 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Single: Story = {}
-export const Empty: Story = { args: { notifications: [], unreadCount: 0 } }
+export const Empty: Story = {
+  args: {
+    notifications: [],
+    unreadCount: 0,
+    data: { ...meta.args.data, notificationsUnread: false },
+  },
+}
 export const NoRepositories: Story = {
   args: {
     ...Empty.args,
@@ -145,12 +152,13 @@ export const NoRepositories: Story = {
       emptyRepositoryLabel: "No repository selected",
       canvasConnectionsPath: "/canvas/connections",
       notificationsPath: "/notifications",
+      notificationsUnread: false,
     },
   },
 }
 export const Multiple: Story = { args: { notifications: activity, unreadCount: 6 } }
 export const Failure: Story = { args: { notifications: activity, unreadCount: 0, failed: true } }
-export const Loading: Story = { args: { notifications: [], unreadCount: 0, loading: true } }
+export const Loading: Story = { args: { ...Empty.args, loading: true } }
 
 export const CachedRefresh: Story = {
   args: { notifications: activity.slice(0, 3), unreadCount: 2 },
