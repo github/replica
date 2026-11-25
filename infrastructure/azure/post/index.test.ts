@@ -118,6 +118,9 @@ async function scenario() {
     }),
     AZURE_KEY_VAULT_SECRET_REFERENCES: JSON.stringify({
       DATABASE_URL: reference("database-runtime").secret_id,
+      ...(value.learning_database_secret && {
+        REPLICA_LEARNING_DATABASE_URL: value.learning_database_secret.secret_id,
+      }),
       ...Object.fromEntries(
         Object.entries(value.runtime_secret_references ?? {}).map(([key, value]) => [
           key,
@@ -602,6 +605,12 @@ it("retains leases and resumes when the completion marker cannot be saved", asyn
 
 it("uses the deployed digest despite stale deploy_hub=false and preserves settings across verification and configuration reruns", async () => {
   const test = await scenario()
+  test.inputs.learning_database_secret = test.reference("learning-runtime")
+  await writeFile(test.inputsPath, JSON.stringify(test.inputs), { mode: 0o600 })
+  test.state.environment.AZURE_KEY_VAULT_SECRET_REFERENCES = JSON.stringify({
+    ...JSON.parse(test.state.environment.AZURE_KEY_VAULT_SECRET_REFERENCES!),
+    REPLICA_LEARNING_DATABASE_URL: test.inputs.learning_database_secret.secret_id,
+  })
   expect(test.state.environment.HUB_TRUSTED_PROXY_HOPS).toBe("1")
   test.state.verifyFailures = 1
   test.state.recovery = "verify"
@@ -1021,9 +1030,9 @@ it("blocks an origin change with Entra configured before creating shared secrets
   expect(test.uploads).toEqual([])
   expect(test.plans).toEqual([])
   expect(test.applies).toBe(0)
-  expect((await readdir(test.directory)).filter((name) => name.startsWith("post-bootstrap-"))).toEqual(
-    [],
-  )
+  expect(
+    (await readdir(test.directory)).filter((name) => name.startsWith("post-bootstrap-")),
+  ).toEqual([])
 })
 
 it.each(["plain", "secret-backed"] as const)(
@@ -1063,7 +1072,9 @@ it.each(["plain", "secret-backed"] as const)(
       .privateKey.export({ type: "pkcs8", format: "pem" })
       .toString()
     const values = ["synthetic-client-secret", pem, "synthetic-webhook-secret-for-tests-only"]
-    const paths = values.map((_, index) => join(test.directory, `custom-origin-credential-${index}`))
+    const paths = values.map((_, index) =>
+      join(test.directory, `custom-origin-credential-${index}`),
+    )
     await Promise.all(paths.map((path, index) => writeFile(path, values[index]!, { mode: 0o600 })))
     vi.mocked(test.ui.text)
       .mockReset()
@@ -1474,9 +1485,7 @@ it.each([
         args.slice(0, 3).join(" ") === "keyvault secret set" &&
         args[args.indexOf("--name") + 1] === "hub-bootstrap-secret"
       ) {
-        expect(test.uploads.map(({ name }) => name)).toEqual([
-          "hub-authentication-encryption-key",
-        ])
+        expect(test.uploads.map(({ name }) => name)).toEqual(["hub-authentication-encryption-key"])
         throw new command.CommandExecutionError("Synthetic secret write failure", false, 1)
       }
       return execute(executable, args, options)
@@ -1792,7 +1801,9 @@ it.each([
                 principalId,
                 roleDefinitionId: lookup === "filtered duplicate" ? roleId.toUpperCase() : roleId,
                 roleDefinitionName:
-                  lookup === "conflicting retry" ? "Key Vault Administrator" : "Key Vault Secrets User",
+                  lookup === "conflicting retry"
+                    ? "Key Vault Administrator"
+                    : "Key Vault Secrets User",
               },
             ]
       return JSON.stringify(
@@ -1873,9 +1884,7 @@ it.each([
       test.run.mock.calls.some(
         ([executable, args]) =>
           (executable === "terraform" && ["import", "state"].includes(args[1]!)) ||
-          (executable === "az" &&
-            args[0] === "role" &&
-            ["create", "delete"].includes(args[2]!)),
+          (executable === "az" && args[0] === "role" && ["create", "delete"].includes(args[2]!)),
       ),
     ).toBe(false)
   },

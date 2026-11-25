@@ -155,6 +155,9 @@ export async function postSetupAzure(
       throw new Error("The deployed startup secret references are missing or unsupported.")
     const savedReferences = {
       DATABASE_URL: runtimeDatabase.secret_id,
+      ...(saved.learning_database_secret
+        ? { REPLICA_LEARNING_DATABASE_URL: saved.learning_database_secret.secret_id }
+        : {}),
       ...Object.fromEntries(
         Object.entries(saved.runtime_secret_references ?? {}).map(([key, reference]) => [
           key,

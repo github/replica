@@ -39,16 +39,24 @@ variable "vault_id" {
     error_message = "Supply the Key Vault resource ID that owns the provisioning secrets."
   }
 }
+variable "mode" {
+  type    = string
+  default = "provision"
+  validation {
+    condition     = contains(["provision", "provision-learning"], var.mode)
+    error_message = "Choose provision for a fresh database or provision-learning for an existing installation."
+  }
+}
 variable "secret_urls" {
   type = map(string)
   validation {
     condition = (
-      toset(keys(var.secret_urls)) == toset(["DATABASE_URL", "HUB_MIGRATION_PASSWORD", "HUB_RUNTIME_PASSWORD"]) &&
+      toset(keys(var.secret_urls)) == toset(var.mode == "provision" ? ["DATABASE_URL", "HUB_MIGRATION_PASSWORD", "HUB_RUNTIME_PASSWORD", "HUB_LEARNING_PASSWORD"] : ["DATABASE_URL", "HUB_LEARNING_PASSWORD"]) &&
       alltrue([for secret in values(var.secret_urls) :
         can(regex("^https://[a-zA-Z0-9-]{1,24}\\.vault\\.azure\\.net/secrets/[a-zA-Z0-9-]{1,127}/[a-fA-F0-9]{32}$", secret))
       ])
     )
-    error_message = "Provide exactly three versioned Key Vault references for the administrator URL and two role passwords, never raw values."
+    error_message = "Provide the exact versioned Key Vault references required by the provisioning mode, never raw values."
   }
   validation {
     condition = (
@@ -111,7 +119,7 @@ resource "azurerm_container_app_job" "provision" {
       image   = var.image
       cpu     = 0.5
       memory  = "1Gi"
-      command = ["node", "dist/server/scripts/azure-entrypoint/index.js", "provision"]
+      command = ["node", "dist/server/scripts/azure-entrypoint/index.js", var.mode]
       env {
         name  = "NODE_ENV"
         value = "production"

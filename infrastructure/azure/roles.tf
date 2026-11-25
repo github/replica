@@ -1,6 +1,6 @@
 locals {
   runtime_secret_scopes = toset([
-    for secret in concat([var.runtime_database_secret], values(var.runtime_secret_references)) :
+    for secret in concat([var.runtime_database_secret], var.learning_database_secret == null ? [] : [var.learning_database_secret], values(var.runtime_secret_references)) :
     "${secret.key_vault_id}/secrets/${split("/", secret.secret_id)[4]}"
   ])
 }

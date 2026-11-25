@@ -16,22 +16,25 @@ export async function provisionDatabase(
   secrets: Awaited<ReturnType<typeof installationSecrets>>,
   image: string,
   backend: string,
+  learningBackend: string,
 ) {
   const { run, ui, env, config, directory, azure } = context
-  const module = terraformModule({
-    directory: resolve(import.meta.dirname, "../../provision"),
-    dataDirectory: join(directory, "terraform", "provision"),
-    run,
-    ui,
-    env,
-    preapproved: context.approval !== undefined,
-    retryApply: retryableProvisioningFailure,
-    signal: context.signal,
-    findUntracked: existingRoleAssignment(azure, config.azure.subscriptionId),
-  })
-  await module.init(backend)
-  const complete = await secrets.provisioned()
-  if (complete && !(await module.state()).length) return
+  const moduleFor = (name: string) =>
+    terraformModule({
+      directory: resolve(import.meta.dirname, "../../provision"),
+      dataDirectory: join(directory, "terraform", name),
+      run,
+      ui,
+      env,
+      preapproved: context.approval !== undefined,
+      retryApply: retryableProvisioningFailure,
+      signal: context.signal,
+      findUntracked: existingRoleAssignment(azure, config.azure.subscriptionId),
+    })
+  const freshModule = moduleFor("provision")
+  const learningModule = moduleFor("learning-provision")
+  await freshModule.init(backend)
+  await learningModule.init(learningBackend)
   const lease = await acquireLease(
     context,
     installation.storage_account,
@@ -58,113 +61,164 @@ export async function provisionDatabase(
       )
     }
     const variables = join(directory, "provision.tfvars.json")
-    await writePrivateFile(
-      variables,
-      JSON.stringify({
-        subscription_id: config.azure.subscriptionId,
-        name: config.name,
-        location: config.azure.location,
-        resource_group: installation.resource_group,
-        environment_id: installation.environment_id,
-        registry_id: foundation.registry_id,
-        image,
-        vault_id: foundation.vault_id,
-        secret_urls: secrets.provisioning,
-      }),
-    )
-    if (complete) {
-      const job = await module.output<string>("job_name")
-      const executions = JSON.parse(
-        await azure(
-          "containerapp",
-          "job",
-          "execution",
-          "list",
-          "--name",
-          job,
-          "--resource-group",
-          installation.resource_group,
-        ),
-      ) as { properties: { status: string } }[]
-      if (executions.some(({ properties }) => !terminal.includes(properties.status))) {
-        throw new Error(
-          "A provisioning execution is still running. Temporary access cannot be removed yet.",
-        )
-      }
-    } else {
-      await module.apply(variables)
-      const job = await module.output<string>("job_name")
-      const executions = JSON.parse(
-        await azure(
-          "containerapp",
-          "job",
-          "execution",
-          "list",
-          "--name",
-          job,
-          "--resource-group",
-          installation.resource_group,
-        ),
-      ) as { name: string; properties: { status: string } }[]
-      if (executions.length) {
-        throw new Error(
-          "Database provisioning has prior executions but no completion marker. Inspect the database and exact job execution; do not rerun fresh-database provisioning blindly.",
-        )
-      }
-      const execution = JSON.parse(
-        await azure(
-          "containerapp",
-          "job",
-          "start",
-          "--name",
-          job,
-          "--resource-group",
-          installation.resource_group,
-        ),
-      ) as { name: string }
-      const deadline = performance.now() + 720_000
-      let success = false
-      while (performance.now() < deadline) {
-        const result = JSON.parse(
+    const complete = await secrets.provisioned()
+    const learningComplete = await secrets.learningProvisioned()
+    const freshState = await freshModule.state()
+    const learningState = await learningModule.state()
+    if (learningState.length && (!complete || freshState.length)) {
+      throw new Error(
+        "Learning provisioning state conflicts with the database marker or fresh provisioning state. Inspect both states and database ownership before recovery.",
+      )
+    }
+    const cleanup = async (module: ReturnType<typeof terraformModule>) => {
+      await module.apply(variables, {
+        destroy: true,
+        allowedDeletions: [
+          "azurerm_container_app_job.provision",
+          "azurerm_user_assigned_identity.provision",
+          "azurerm_role_assignment.image[0]",
+          'azurerm_role_assignment.secrets["DATABASE_URL"]',
+          'azurerm_role_assignment.secrets["HUB_MIGRATION_PASSWORD"]',
+          'azurerm_role_assignment.secrets["HUB_RUNTIME_PASSWORD"]',
+          'azurerm_role_assignment.secrets["HUB_LEARNING_PASSWORD"]',
+        ],
+      })
+    }
+    const provision = async (
+      module: ReturnType<typeof terraformModule>,
+      mode: "provision" | "provision-learning",
+      done: boolean,
+    ) => {
+      const state = await module.state()
+      if (done && !state.length) return
+      if (!done && state.includes("azurerm_container_app_job.provision")) {
+        const job = await module.output<string>("job_name")
+        const executions = JSON.parse(
           await azure(
             "containerapp",
             "job",
             "execution",
-            "show",
+            "list",
             "--name",
             job,
             "--resource-group",
             installation.resource_group,
-            "--job-execution-name",
-            execution.name,
           ),
-        ) as { properties: { status: string } }
-        if (result.properties.status === "Succeeded") {
-          success = true
-          break
-        }
-        if (["Failed", "Stopped", "Canceled"].includes(result.properties.status)) {
+        ) as { name: string }[]
+        if (executions.length) {
           throw new Error(
-            "Fresh-database provisioning failed. Inspect the named provisioning job and database ownership; the release lock is retained.",
+            "Database provisioning has prior executions but no completion marker. Inspect the database and exact job execution; do not rerun provisioning blindly.",
           )
         }
-        await timers.setTimeout(5_000)
       }
-      if (!success)
-        throw new Error("Provisioning timed out. Check the execution before releasing any lock.")
-      await secrets.markProvisioned()
+      await writePrivateFile(
+        variables,
+        JSON.stringify({
+          subscription_id: config.azure.subscriptionId,
+          name: config.name,
+          location: config.azure.location,
+          resource_group: installation.resource_group,
+          environment_id: installation.environment_id,
+          registry_id: foundation.registry_id,
+          image,
+          vault_id: foundation.vault_id,
+          mode,
+          secret_urls: mode === "provision" ? secrets.provisioning : secrets.learningProvisioning,
+        }),
+      )
+      if (done) {
+        const job = await module.output<string>("job_name")
+        const executions = JSON.parse(
+          await azure(
+            "containerapp",
+            "job",
+            "execution",
+            "list",
+            "--name",
+            job,
+            "--resource-group",
+            installation.resource_group,
+          ),
+        ) as { properties: { status: string } }[]
+        if (executions.some(({ properties }) => !terminal.includes(properties.status))) {
+          throw new Error(
+            "A provisioning execution is still running. Temporary access cannot be removed yet.",
+          )
+        }
+      } else {
+        await module.apply(variables)
+        const job = await module.output<string>("job_name")
+        const executions = JSON.parse(
+          await azure(
+            "containerapp",
+            "job",
+            "execution",
+            "list",
+            "--name",
+            job,
+            "--resource-group",
+            installation.resource_group,
+          ),
+        ) as { name: string; properties: { status: string } }[]
+        if (executions.length) {
+          throw new Error(
+            "Database provisioning has prior executions but no completion marker. Inspect the database and exact job execution; do not rerun provisioning blindly.",
+          )
+        }
+        await lease.verify()
+        const execution = JSON.parse(
+          await azure(
+            "containerapp",
+            "job",
+            "start",
+            "--name",
+            job,
+            "--resource-group",
+            installation.resource_group,
+          ),
+        ) as { name: string }
+        const deadline = performance.now() + 720_000
+        let success = false
+        while (performance.now() < deadline) {
+          const result = JSON.parse(
+            await azure(
+              "containerapp",
+              "job",
+              "execution",
+              "show",
+              "--name",
+              job,
+              "--resource-group",
+              installation.resource_group,
+              "--job-execution-name",
+              execution.name,
+            ),
+          ) as { properties: { status: string } }
+          if (result.properties.status === "Succeeded") {
+            success = true
+            break
+          }
+          if (["Failed", "Stopped", "Canceled"].includes(result.properties.status)) {
+            throw new Error(
+              "Database provisioning failed. Inspect the named provisioning job and database ownership; the release lock is retained.",
+            )
+          }
+          await timers.setTimeout(5_000)
+        }
+        if (!success)
+          throw new Error("Provisioning timed out. Check the execution before releasing any lock.")
+        await lease.verify()
+        if (mode === "provision") {
+          await secrets.markLearningProvisioned()
+          await secrets.markProvisioned()
+        } else {
+          await secrets.markLearningProvisioned()
+        }
+      }
+      await cleanup(module)
     }
-    await module.apply(variables, {
-      destroy: true,
-      allowedDeletions: [
-        "azurerm_container_app_job.provision",
-        "azurerm_user_assigned_identity.provision",
-        "azurerm_role_assignment.image[0]",
-        'azurerm_role_assignment.secrets["DATABASE_URL"]',
-        'azurerm_role_assignment.secrets["HUB_MIGRATION_PASSWORD"]',
-        'azurerm_role_assignment.secrets["HUB_RUNTIME_PASSWORD"]',
-      ],
-    })
+    await provision(freshModule, "provision", complete)
+    await provision(learningModule, "provision-learning", learningComplete || !complete)
     await lease.release()
   } finally {
     lease.reportRetained()

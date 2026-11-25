@@ -110,9 +110,10 @@ async function install(
     "foundation-backend.hcl",
     "app-backend.hcl",
     "provision-backend.hcl",
+    "learning-provision-backend.hcl",
   ])
     await privateFile(join(directory, file))
-  for (const module of ["foundation", "app", "provision"])
+  for (const module of ["foundation", "app", "provision", "learning-provision"])
     await privateDirectory(join(directory, "terraform", module))
   const env: NodeJS.ProcessEnv = {
     ARM_SUBSCRIPTION_ID: config.azure.subscriptionId,
@@ -242,6 +243,7 @@ async function install(
       )
     }
     const appCreated = appState.includes("azurerm_container_app.hub[0]")
+    const databaseProvisioned = await secrets.provisioned()
     const variables = join(directory, "installation.tfvars.json")
     const inputs = {
       ...postgres,
@@ -256,12 +258,20 @@ async function install(
       acr_id: resources.registry_id,
       runtime_database_secret: { key_vault_id: resources.vault_id, secret_id: secrets.runtimeUrl },
       setup_database_secret: { key_vault_id: resources.vault_id, secret_id: secrets.migrationUrl },
+      ...(!appCreated && !databaseProvisioned && !operatorInputs.learning_database_secret
+        ? {
+            learning_database_secret: {
+              key_vault_id: resources.vault_id,
+              secret_id: secrets.learningUrl,
+            },
+          }
+        : {}),
     }
     await writePrivateFile(variables, JSON.stringify({ ...inputs, ...operatorInputs }))
     if (!appCreated) {
       ui.status("Bootstrapping infrastructure with Hub stopped")
       await app.apply(variables)
-    } else if (!(await secrets.provisioned())) {
+    } else if (!databaseProvisioned) {
       throw new Error(
         "An app exists without the wizard's database provisioning marker. Review ownership; do not provision database roles again.",
       )
@@ -280,6 +290,7 @@ async function install(
       secrets,
       image,
       await state.backend("provision"),
+      await state.backend("learning-provision"),
     )
     await ui.phase?.("release")
     await recoverLease(context, installation.storage_account, "releases", "deployment.lock")

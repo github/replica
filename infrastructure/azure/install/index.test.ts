@@ -58,6 +58,7 @@ afterEach(async () => {
 
 async function scenario({
   existing = false,
+  learningProvisioned = true,
   releaseFails = false,
   priorProvisioning = false,
   provisioningFails = false,
@@ -82,9 +83,12 @@ async function scenario({
   const image = `registry.azurecr.io/replica-hub@sha256:${"a".repeat(64)}`
   const events: { command: string[]; env?: NodeJS.ProcessEnv }[] = []
   const messages: string[] = []
-  const secretValues = new Map<string, string>(
-    existing ? [["database-provisioned", config.azure.resourceGroup]] : [],
-  )
+  const secretValues = new Map<string, string>([
+    ...(existing ? [["database-provisioned", config.azure.resourceGroup]] : []),
+    ...(existing && learningProvisioned
+      ? [["learning-database-provisioned", config.azure.resourceGroup]]
+      : []),
+  ] as [string, string][])
   const vaultId = `/subscriptions/${config.azure.subscriptionId}/resourceGroups/foundation/providers/Microsoft.KeyVault/vaults/testvault`
   const foundation = {
     vault_id: vaultId,
@@ -897,6 +901,18 @@ it("uses one deployment approval for dirty-source publication, nonempty plans, t
     ),
   ).toBe(false)
   expect(s.secretValues.get("database-provisioned")).toBe(s.config.azure.resourceGroup)
+  expect(s.secretValues.get("learning-database-provisioned")).toBe(s.config.azure.resourceGroup)
+  const workspace = installationWorkspace(s.config, s.directory)
+  const provision = JSON.parse(await readFile(join(workspace, "provision.tfvars.json"), "utf8"))
+  expect(provision.mode).toBe("provision")
+  expect(Object.keys(provision.secret_urls).sort()).toEqual([
+    "DATABASE_URL",
+    "HUB_LEARNING_PASSWORD",
+    "HUB_MIGRATION_PASSWORD",
+    "HUB_RUNTIME_PASSWORD",
+  ])
+  const inputs = JSON.parse(await readFile(join(workspace, "installation.tfvars.json"), "utf8"))
+  expect(inputs.learning_database_secret.secret_id).toContain("/secrets/postgres-learning-url/")
   const serialized = JSON.stringify({ commands, messages: s.messages })
   for (const [name, value] of s.secretValues) {
     if (name.includes("password") || name.endsWith("-url")) expect(serialized).not.toContain(value)
@@ -1054,6 +1070,77 @@ it("updates an installed app only through the release orchestrator and never rer
         ["plan", "apply"].includes(command[2]!),
     ),
   ).toBe(false)
+})
+
+it("provisions only the learning role on a SQLite installation without activating PostgreSQL", async () => {
+  const s = await scenario({ existing: true, learningProvisioned: false })
+
+  await installAzure(s.config, s)
+
+  const workspace = installationWorkspace(s.config, s.directory)
+  const provision = JSON.parse(await readFile(join(workspace, "provision.tfvars.json"), "utf8"))
+  expect(provision.mode).toBe("provision-learning")
+  expect(Object.keys(provision.secret_urls).sort()).toEqual([
+    "DATABASE_URL",
+    "HUB_LEARNING_PASSWORD",
+  ])
+  const inputs = JSON.parse(await readFile(join(workspace, "installation.tfvars.json"), "utf8"))
+  expect(inputs).not.toHaveProperty("learning_database_secret")
+  expect(s.secretValues.get("learning-database-provisioned")).toBe(s.config.azure.resourceGroup)
+  expect(
+    s.events.filter(({ command }) => command.slice(0, 4).join(" ") === "az containerapp job start"),
+  ).toHaveLength(1)
+  expect(s.released()).toBe(true)
+})
+
+it("cleans up a completed learning provisioning job without rerunning it", async () => {
+  const s = await scenario({ existing: true })
+  const run: RunCommand = async (executable, args, options) => {
+    const result = await s.run(executable, args, options)
+    if (
+      executable === "terraform" &&
+      args[1] === "state" &&
+      options?.env?.TF_DATA_DIR?.endsWith("/learning-provision")
+    )
+      return "azurerm_container_app_job.provision"
+    return result
+  }
+
+  await installAzure(s.config, { ...s, run })
+
+  expect(
+    s.events.some(({ command }) => command.slice(0, 4).join(" ") === "az containerapp job start"),
+  ).toBe(false)
+  expect(
+    s.events.some(
+      ({ command, env }) =>
+        command[0] === "terraform" &&
+        command[2] === "plan" &&
+        command.includes("-destroy") &&
+        env?.TF_DATA_DIR?.endsWith("/learning-provision"),
+    ),
+  ).toBe(true)
+  expect(s.released()).toBe(true)
+})
+
+it("refuses to replay learning provisioning with prior executions but no marker", async () => {
+  const s = await scenario({ existing: true, learningProvisioned: false, priorProvisioning: true })
+  const run: RunCommand = async (executable, args, options) => {
+    const result = await s.run(executable, args, options)
+    if (
+      executable === "terraform" &&
+      args[1] === "state" &&
+      options?.env?.TF_DATA_DIR?.endsWith("/learning-provision")
+    )
+      return "azurerm_container_app_job.provision"
+    return result
+  }
+
+  await expect(installAzure(s.config, { ...s, run })).rejects.toThrow("prior executions")
+  expect(
+    s.events.some(({ command }) => command.slice(0, 4).join(" ") === "az containerapp job start"),
+  ).toBe(false)
+  expect(s.released()).toBe(false)
 })
 
 it("corrects an image-build proxy under the same installation lease without replaying infrastructure or credentials", async () => {

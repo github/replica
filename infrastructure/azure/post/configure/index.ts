@@ -374,9 +374,10 @@ export async function configurePostSetup(
     action === "sign-in"
       ? Object.keys(shared)
       : ["GITHUB_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY_BASE64", "GITHUB_WEBHOOK_SECRET"]
-  if (new Set([...Object.keys(references), ...requiredReferences]).size > 63)
+  const maximumReferences = next.learning_database_secret ? 62 : 63
+  if (new Set([...Object.keys(references), ...requiredReferences]).size > maximumReferences)
     throw new Error(
-      "This configuration would exceed the runtime limit of 63 additional secret references. Review unused references separately before creating secrets.",
+      `This configuration would exceed the runtime limit of ${maximumReferences} additional secret references. Review unused references separately before creating secrets.`,
     )
   if (action === "sign-in") {
     if (
@@ -735,8 +736,7 @@ export async function configurePostSetup(
     next.github_app_installation_id !== deployment.environment.GITHUB_APP_INSTALLATION_ID ||
     credentials.some(
       ({ key }) =>
-        references[key]?.secret_id !==
-        (liveSecretReferences as Record<string, string>)[key],
+        references[key]?.secret_id !== (liveSecretReferences as Record<string, string>)[key],
     )
   const storedRevision = await verifiedGitHubRevision()
   const savedRevision =
@@ -793,8 +793,7 @@ export async function configurePostSetup(
   ])
     delete next.runtime_environment_variables[name]
   replacements.sort(
-    (left, right) =>
-      Number(right.key === progress.pending) - Number(left.key === progress.pending),
+    (left, right) => Number(right.key === progress.pending) - Number(left.key === progress.pending),
   )
   for (const credential of replacements)
     references[credential.key] = await put(credential.key, credential.name, credential.value)

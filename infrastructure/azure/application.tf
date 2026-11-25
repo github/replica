@@ -52,6 +52,7 @@ locals {
     AZURE_CLIENT_ID           = azurerm_user_assigned_identity.hub.client_id
     AZURE_KEY_VAULT_SECRET_REFERENCES = jsonencode(merge(
       { DATABASE_URL = var.runtime_database_secret.secret_id },
+      var.learning_database_secret == null ? {} : { REPLICA_LEARNING_DATABASE_URL = var.learning_database_secret.secret_id },
       { for name, reference in var.runtime_secret_references : name => reference.secret_id },
     ))
   }, local.github_environment)

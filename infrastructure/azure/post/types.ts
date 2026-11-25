@@ -23,6 +23,7 @@ export interface PostInputs extends Record<string, unknown> {
   deploy_hub: boolean
   runtime_environment_variables?: Record<string, string>
   runtime_secret_references?: Record<string, { key_vault_id: string; secret_id: string }>
+  learning_database_secret?: { key_vault_id: string; secret_id: string }
   hub_application_origin?: string
   github_app_id?: string
   github_client_id?: string

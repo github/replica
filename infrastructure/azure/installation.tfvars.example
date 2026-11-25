@@ -12,6 +12,12 @@ setup_database_secret = {
   key_vault_id = "/subscriptions/YOUR_SUBSCRIPTION/resourceGroups/YOUR_SECRETS_GROUP/providers/Microsoft.KeyVault/vaults/YOUR_VAULT"
   secret_id    = "https://YOUR-VAULT.vault.azure.net/secrets/hub-migration-database"
 }
+# Enable on a new installation, or only after an existing installation's SQLite
+# history and mappings have been imported and verified. Leave unset otherwise.
+# learning_database_secret = {
+#   key_vault_id = "/subscriptions/YOUR_SUBSCRIPTION/resourceGroups/YOUR_SECRETS_GROUP/providers/Microsoft.KeyVault/vaults/YOUR_VAULT"
+#   secret_id    = "https://YOUR-VAULT.vault.azure.net/secrets/postgres-learning-url"
+# }
 
 # Supply postgres_admin_password through a secret manager as TF_VAR_postgres_admin_password.
 # Application secrets stay in Key Vault. Optional references, never values:

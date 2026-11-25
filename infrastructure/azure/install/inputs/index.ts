@@ -7,6 +7,7 @@ import type { DeploymentConfig } from "../../../installer/types.ts"
 
 type SecretReference = { key_vault_id: string; secret_id: string }
 interface OperatorInputs {
+  learning_database_secret?: SecretReference
   runtime_environment_variables?: Record<string, string>
   hub_application_origin?: string
   github_app_id?: string
@@ -56,6 +57,7 @@ export async function readInstallationInputs(
   ]
   const optional = [
     "runtime_environment_variables",
+    "learning_database_secret",
     "hub_application_origin",
     "github_app_id",
     "github_client_id",
@@ -98,6 +100,18 @@ export async function readInstallationInputs(
     return { key_vault_id: secret.key_vault_id, secret_id: secret.secret_id }
   }
   const result: OperatorInputs = {}
+  if (inputs.learning_database_secret != null) {
+    const learning = reference(inputs.learning_database_secret)
+    const identity = (secret: SecretReference) =>
+      `${secret.key_vault_id}/secrets/${new URL(secret.secret_id).pathname.split("/")[2]}`.toLowerCase()
+    if (
+      [reference(inputs.setup_database_secret), reference(inputs.runtime_database_secret)].some(
+        (secret) => identity(secret) === identity(learning),
+      )
+    )
+      throw invalid()
+    result.learning_database_secret = learning
+  }
   for (const key of ["github_app_id", "github_app_installation_id"] as const) {
     const value = inputs[key]
     if (value == null) continue
@@ -173,6 +187,9 @@ export async function readInstallationInputs(
   const reserved = [
     "DATABASE_URL",
     "DATABASE_RUNTIME_ROLE",
+    "REPLICA_LEARNING_DATABASE_URL",
+    "REPLICA_LEARNING_MIGRATION_DATABASE_URL",
+    "REPLICA_LEARNING_RUNTIME_ROLE",
     "NODE_ENV",
     "RUNTIME_MODE",
     "HOST",
@@ -191,7 +208,8 @@ export async function readInstallationInputs(
       typeof inputs.runtime_secret_references !== "object" ||
       inputs.runtime_secret_references === null ||
       Array.isArray(inputs.runtime_secret_references) ||
-      Object.keys(inputs.runtime_secret_references).length > 63
+      Object.keys(inputs.runtime_secret_references).length >
+        (result.learning_database_secret ? 62 : 63)
     )
       throw invalid()
     const setup = reference(inputs.setup_database_secret)

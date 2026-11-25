@@ -144,9 +144,31 @@ variable "setup_database_secret" {
   }
 }
 
+variable "learning_database_secret" {
+  type = object({
+    key_vault_id = string
+    secret_id    = string
+  })
+  default     = null
+  description = "Optional Key Vault reference containing the replica_learning_runtime database URL. Set only after existing SQLite history is reconciled."
+
+  validation {
+    condition = var.learning_database_secret == null ? true : (
+      can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.KeyVault/vaults/[^/]+$", var.learning_database_secret.key_vault_id)) &&
+      can(regex("^https://[a-zA-Z0-9-]{1,24}\\.vault\\.azure\\.net/secrets/[a-zA-Z0-9-]{1,127}(/[a-fA-F0-9]{32})?$", var.learning_database_secret.secret_id)) &&
+      lower(try(split("/", var.learning_database_secret.secret_id)[2], "")) == "${lower(try(split("/", var.learning_database_secret.key_vault_id)[8], ""))}.vault.azure.net" &&
+      alltrue([for secret in [var.runtime_database_secret, var.setup_database_secret] :
+        lower("${secret.key_vault_id}/secrets/${try(split("/", secret.secret_id)[4], "")}") != lower("${var.learning_database_secret.key_vault_id}/secrets/${try(split("/", var.learning_database_secret.secret_id)[4], "")}")
+      ])
+    )
+    error_message = "Supply a separate learning runtime secret URL and its Key Vault resource ID."
+  }
+}
+
 locals {
   runtime_reserved_environment_names = [
     "DATABASE_URL", "DATABASE_RUNTIME_ROLE", "NODE_ENV", "RUNTIME_MODE", "HOST", "PORT",
+    "REPLICA_LEARNING_DATABASE_URL", "REPLICA_LEARNING_MIGRATION_DATABASE_URL", "REPLICA_LEARNING_RUNTIME_ROLE",
     "CLIENT_DIRECTORY", "SHUTDOWN_TIMEOUT_MS", "ARTIFACT_STORAGE_PROVIDER",
     "ARTIFACT_STORAGE_DIRECTORY", "AZURE_STORAGE_ACCOUNT", "AZURE_STORAGE_CONTAINER",
     "AZURE_CLIENT_ID", "AZURE_KEY_VAULT_SECRET_REFERENCES",
@@ -266,12 +288,12 @@ variable "runtime_secret_references" {
   description = "Existing RBAC Key Vault secret references keyed by uppercase runtime environment name. Values remain outside Terraform."
 
   validation {
-    condition = length(keys(var.runtime_secret_references)) <= 63 && alltrue([
+    condition = length(keys(var.runtime_secret_references)) <= (var.learning_database_secret == null ? 63 : 62) && alltrue([
       for name in keys(var.runtime_secret_references) :
       can(regex("^[A-Z][A-Z0-9_]{0,40}$", name)) &&
       !contains(concat(local.runtime_reserved_environment_names, ["GITHUB_APP_ID", "GITHUB_CLIENT_ID", "GITHUB_APP_INSTALLATION_ID", "GITHUB_PROVIDER_REVISION"]), name)
     ])
-    error_message = "Supply at most 63 additional secret references, using uppercase environment names of at most 41 characters; deployment-owned settings cannot be overridden."
+    error_message = "Supply at most 63 additional secret references (62 with a learning database), using uppercase environment names of at most 41 characters; deployment-owned settings cannot be overridden."
   }
 
   validation {

@@ -347,7 +347,8 @@ run "setup_and_runtime_have_separate_secret_access" {
         SERVICE_API_KEY = var.runtime_secret_references.SERVICE_API_KEY.secret_id
       }) &&
       tomap(jsondecode(one([for env in azurerm_container_app_job.setup.template[0].container[0].env : env.value if env.name == "AZURE_KEY_VAULT_SECRET_REFERENCES"]))) == tomap({
-        DATABASE_URL = var.setup_database_secret.secret_id
+        DATABASE_URL                            = var.setup_database_secret.secret_id
+        REPLICA_LEARNING_MIGRATION_DATABASE_URL = var.setup_database_secret.secret_id
       })
     )
     error_message = "Each container must receive only its explicit identity and URI-only startup metadata, without platform secrets, secret-name bindings, or resolved secret values."
@@ -364,7 +365,7 @@ run "setup_and_runtime_have_separate_secret_access" {
         } : one([for env in azurerm_container_app_job.setup.template[0].container[0].env : env.value if env.name == name]) == value
       ])
     )
-    error_message = "Setup must receive only production/setup mode, its identity and migration URI metadata, and the fixed runtime grant target."
+    error_message = "SQLite setup must not grant an unprovisioned learning runtime role."
   }
   assert {
     condition = (
@@ -383,6 +384,28 @@ run "setup_and_runtime_have_separate_secret_access" {
       ])
     )
     error_message = "Public settings, empty strings, and maximum-length names must reach only Hub without a secret-reference count cap or changes to deployment-owned values."
+  }
+}
+
+run "learning_postgresql_uses_runtime_secret_and_setup_migration_identity" {
+  command = plan
+
+  variables {
+    deploy_hub = true
+    learning_database_secret = {
+      key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/database"
+      secret_id    = "https://database.vault.azure.net/secrets/learning-runtime/dddddddddddddddddddddddddddddddd"
+    }
+  }
+
+  assert {
+    condition = (
+      jsondecode(one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == "AZURE_KEY_VAULT_SECRET_REFERENCES"])).REPLICA_LEARNING_DATABASE_URL == var.learning_database_secret.secret_id &&
+      contains([for grant in azurerm_role_assignment.runtime_secrets : grant.scope], "${var.learning_database_secret.key_vault_id}/secrets/learning-runtime") &&
+      jsondecode(one([for env in azurerm_container_app_job.setup.template[0].container[0].env : env.value if env.name == "AZURE_KEY_VAULT_SECRET_REFERENCES"])).REPLICA_LEARNING_MIGRATION_DATABASE_URL == var.setup_database_secret.secret_id &&
+      one([for env in azurerm_container_app_job.setup.template[0].container[0].env : env.value if env.name == "REPLICA_LEARNING_RUNTIME_ROLE"]) == "replica_learning_runtime"
+    )
+    error_message = "Learning must use its own runtime secret and setup's migration identity."
   }
 }
 

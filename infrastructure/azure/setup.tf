@@ -35,15 +35,18 @@ resource "azurerm_container_app_job" "setup" {
       command = ["node", "dist/server/scripts/azure-entrypoint/index.js", "setup"]
 
       dynamic "env" {
-        for_each = {
+        for_each = merge({
           NODE_ENV              = "production"
           RUNTIME_MODE          = "setup"
           DATABASE_RUNTIME_ROLE = "replica_runtime"
           AZURE_CLIENT_ID       = azurerm_user_assigned_identity.setup.client_id
           AZURE_KEY_VAULT_SECRET_REFERENCES = jsonencode({
-            DATABASE_URL = var.setup_database_secret.secret_id
+            DATABASE_URL                            = var.setup_database_secret.secret_id
+            REPLICA_LEARNING_MIGRATION_DATABASE_URL = var.setup_database_secret.secret_id
           })
-        }
+          }, var.learning_database_secret == null ? {} : {
+          REPLICA_LEARNING_RUNTIME_ROLE = "replica_learning_runtime"
+        })
         content {
           name  = env.key
           value = env.value

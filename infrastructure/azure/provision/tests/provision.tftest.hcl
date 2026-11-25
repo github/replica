@@ -21,6 +21,7 @@ variables {
     DATABASE_URL           = "https://testvault.vault.azure.net/secrets/postgres-admin-url/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     HUB_MIGRATION_PASSWORD = "https://testvault.vault.azure.net/secrets/postgres-migration-password/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     HUB_RUNTIME_PASSWORD   = "https://testvault.vault.azure.net/secrets/postgres-runtime-password/cccccccccccccccccccccccccccccccc"
+    HUB_LEARNING_PASSWORD  = "https://testvault.vault.azure.net/secrets/postgres-learning-password/dddddddddddddddddddddddddddddddd"
   }
 }
 
@@ -39,7 +40,7 @@ run "fresh_database_job_is_explicit_and_has_separate_access" {
       azurerm_container_app_job.provision.manual_trigger_config[0].replica_completion_count == 1 &&
       azurerm_container_app_job.provision.template[0].container[0].command == tolist(["node", "dist/server/scripts/azure-entrypoint/index.js", "provision"]) &&
       length(azurerm_container_app_job.provision.secret) == 0 &&
-      length(azurerm_role_assignment.secrets) == 3 &&
+      length(azurerm_role_assignment.secrets) == 4 &&
       alltrue([for env in azurerm_container_app_job.provision.template[0].container[0].env :
         env.secret_name == null || env.secret_name == ""
       ])
@@ -68,6 +69,7 @@ run "fresh_database_job_is_explicit_and_has_separate_access" {
         "${var.vault_id}/secrets/postgres-admin-url",
         "${var.vault_id}/secrets/postgres-migration-password",
         "${var.vault_id}/secrets/postgres-runtime-password",
+        "${var.vault_id}/secrets/postgres-learning-password",
       ]) &&
       alltrue([for grant in azurerm_role_assignment.secrets :
         grant.principal_id == azurerm_user_assigned_identity.provision.principal_id &&
@@ -80,7 +82,7 @@ run "fresh_database_job_is_explicit_and_has_separate_access" {
       one([for env in azurerm_container_app_job.provision.template[0].container[0].env : env.value if env.name == "AZURE_CLIENT_ID"]) == azurerm_user_assigned_identity.provision.client_id &&
       tomap(jsondecode(one([for env in azurerm_container_app_job.provision.template[0].container[0].env : env.value if env.name == "AZURE_KEY_VAULT_SECRET_REFERENCES"]))) == var.secret_urls
     )
-    error_message = "Only the isolated provisioning identity may receive three secret-scoped grants; its container must contain only production mode, its explicit client ID, and the exact URI-only administrator/password map."
+    error_message = "Only the isolated provisioning identity may receive the required secret-scoped grants and exact URI-only administrator/password map."
   }
 }
 
@@ -98,6 +100,30 @@ run "public_digest_needs_no_registry_or_pull_grant" {
   }
 }
 
+run "existing_installation_receives_only_learning_provisioning_secrets" {
+  command = plan
+
+  variables {
+    mode = "provision-learning"
+    secret_urls = {
+      DATABASE_URL          = "https://testvault.vault.azure.net/secrets/postgres-admin-url/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      HUB_LEARNING_PASSWORD = "https://testvault.vault.azure.net/secrets/postgres-learning-password/dddddddddddddddddddddddddddddddd"
+    }
+  }
+
+  assert {
+    condition = (
+      azurerm_container_app_job.provision.template[0].container[0].command == tolist(["node", "dist/server/scripts/azure-entrypoint/index.js", "provision-learning"]) &&
+      toset([for grant in azurerm_role_assignment.secrets : grant.scope]) == toset([
+        "${var.vault_id}/secrets/postgres-admin-url",
+        "${var.vault_id}/secrets/postgres-learning-password",
+      ]) &&
+      tomap(jsondecode(one([for env in azurerm_container_app_job.provision.template[0].container[0].env : env.value if env.name == "AZURE_KEY_VAULT_SECRET_REFERENCES"]))) == var.secret_urls
+    )
+    error_message = "Existing installations must grant the job only the admin URL and learning password."
+  }
+}
+
 run "matching_vault_names_are_case_insensitive" {
   command = plan
 
@@ -107,12 +133,13 @@ run "matching_vault_names_are_case_insensitive" {
       DATABASE_URL           = "https://TestVault.vault.azure.net/secrets/postgres-admin-url/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       HUB_MIGRATION_PASSWORD = "https://testvault.vault.azure.net/secrets/postgres-migration-password/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
       HUB_RUNTIME_PASSWORD   = "https://TESTVAULT.vault.azure.net/secrets/postgres-runtime-password/cccccccccccccccccccccccccccccccc"
+      HUB_LEARNING_PASSWORD  = "https://testvault.vault.azure.net/secrets/postgres-learning-password/dddddddddddddddddddddddddddddddd"
     }
   }
 
   assert {
     condition = (
-      length(azurerm_role_assignment.secrets) == 3 &&
+      length(azurerm_role_assignment.secrets) == 4 &&
       alltrue([for grant in azurerm_role_assignment.secrets : startswith(grant.scope, "${var.vault_id}/secrets/")]) &&
       tomap(jsondecode(one([for env in azurerm_container_app_job.provision.template[0].container[0].env : env.value if env.name == "AZURE_KEY_VAULT_SECRET_REFERENCES"]))) == var.secret_urls
     )
@@ -130,13 +157,14 @@ run "mutable_image_is_rejected" {
   expect_failures = [var.image]
 }
 
-run "all_three_provisioning_secrets_are_required" {
+run "all_provisioning_secrets_are_required" {
   command = plan
 
   variables {
     secret_urls = {
       HUB_MIGRATION_PASSWORD = "https://testvault.vault.azure.net/secrets/postgres-migration-password/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
       HUB_RUNTIME_PASSWORD   = "https://testvault.vault.azure.net/secrets/postgres-runtime-password/cccccccccccccccccccccccccccccccc"
+      HUB_LEARNING_PASSWORD  = "https://testvault.vault.azure.net/secrets/postgres-learning-password/dddddddddddddddddddddddddddddddd"
     }
   }
 
@@ -151,6 +179,7 @@ run "additional_secret_access_is_rejected" {
       DATABASE_URL           = "https://testvault.vault.azure.net/secrets/postgres-admin-url/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       HUB_MIGRATION_PASSWORD = "https://testvault.vault.azure.net/secrets/postgres-migration-password/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
       HUB_RUNTIME_PASSWORD   = "https://testvault.vault.azure.net/secrets/postgres-runtime-password/cccccccccccccccccccccccccccccccc"
+      HUB_LEARNING_PASSWORD  = "https://testvault.vault.azure.net/secrets/postgres-learning-password/dddddddddddddddddddddddddddddddd"
       EXTRA_SECRET           = "https://testvault.vault.azure.net/secrets/extra/dddddddddddddddddddddddddddddddd"
     }
   }
@@ -166,6 +195,7 @@ run "unversioned_secret_is_rejected" {
       DATABASE_URL           = "https://testvault.vault.azure.net/secrets/postgres-admin-url"
       HUB_MIGRATION_PASSWORD = "https://testvault.vault.azure.net/secrets/postgres-migration-password/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
       HUB_RUNTIME_PASSWORD   = "https://testvault.vault.azure.net/secrets/postgres-runtime-password/cccccccccccccccccccccccccccccccc"
+      HUB_LEARNING_PASSWORD  = "https://testvault.vault.azure.net/secrets/postgres-learning-password/dddddddddddddddddddddddddddddddd"
     }
   }
 
@@ -200,6 +230,7 @@ run "secret_hosts_must_match_the_granted_vault" {
       DATABASE_URL           = "https://another-vault.vault.azure.net/secrets/postgres-admin-url/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       HUB_MIGRATION_PASSWORD = "https://testvault.vault.azure.net/secrets/postgres-migration-password/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
       HUB_RUNTIME_PASSWORD   = "https://testvault.vault.azure.net/secrets/postgres-runtime-password/cccccccccccccccccccccccccccccccc"
+      HUB_LEARNING_PASSWORD  = "https://testvault.vault.azure.net/secrets/postgres-learning-password/dddddddddddddddddddddddddddddddd"
     }
   }
 
@@ -215,6 +246,7 @@ run "maximum_length_secret_urls_are_accepted" {
       DATABASE_URL           = "https://vvvvvvvvvvvvvvvvvvvvvvvv.vault.azure.net/secrets/${join("", [for i in range(127) : "a"])}/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       HUB_MIGRATION_PASSWORD = "https://vvvvvvvvvvvvvvvvvvvvvvvv.vault.azure.net/secrets/${join("", [for i in range(127) : "b"])}/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
       HUB_RUNTIME_PASSWORD   = "https://vvvvvvvvvvvvvvvvvvvvvvvv.vault.azure.net/secrets/${join("", [for i in range(127) : "c"])}/cccccccccccccccccccccccccccccccc"
+      HUB_LEARNING_PASSWORD  = "https://vvvvvvvvvvvvvvvvvvvvvvvv.vault.azure.net/secrets/${join("", [for i in range(127) : "d"])}/dddddddddddddddddddddddddddddddd"
     }
   }
 
@@ -236,6 +268,7 @@ run "secret_urls_reject_oversized_vault" {
       DATABASE_URL           = "https://vvvvvvvvvvvvvvvvvvvvvvvvv.vault.azure.net/secrets/admin/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       HUB_MIGRATION_PASSWORD = "https://vvvvvvvvvvvvvvvvvvvvvvvvv.vault.azure.net/secrets/migration/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
       HUB_RUNTIME_PASSWORD   = "https://vvvvvvvvvvvvvvvvvvvvvvvvv.vault.azure.net/secrets/runtime/cccccccccccccccccccccccccccccccc"
+      HUB_LEARNING_PASSWORD  = "https://vvvvvvvvvvvvvvvvvvvvvvvvv.vault.azure.net/secrets/learning/dddddddddddddddddddddddddddddddd"
     }
   }
 
@@ -250,6 +283,7 @@ run "secret_urls_reject_oversized_secret" {
       DATABASE_URL           = "https://testvault.vault.azure.net/secrets/${join("", [for i in range(128) : "a"])}/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       HUB_MIGRATION_PASSWORD = "https://testvault.vault.azure.net/secrets/migration/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
       HUB_RUNTIME_PASSWORD   = "https://testvault.vault.azure.net/secrets/runtime/cccccccccccccccccccccccccccccccc"
+      HUB_LEARNING_PASSWORD  = "https://testvault.vault.azure.net/secrets/learning/dddddddddddddddddddddddddddddddd"
     }
   }
 

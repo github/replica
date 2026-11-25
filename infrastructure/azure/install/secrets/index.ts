@@ -62,6 +62,7 @@ export async function installationSecrets(context: AzureInstallation, foundation
   const admin = await ensure("postgres-admin-password", password)
   const migration = await ensure("postgres-migration-password", password)
   const runtime = await ensure("postgres-runtime-password", password)
+  const learning = await ensure("postgres-learning-password", password)
   const host = `${config.name}-postgres.postgres.database.azure.com`
   const url = (role: string, password: string) =>
     `postgresql://${role}:${encodeURIComponent(password)}@${host}:5432/replica?sslmode=verify-full`
@@ -72,14 +73,23 @@ export async function installationSecrets(context: AzureInstallation, foundation
   const runtimeUrl = await ensure("postgres-runtime-url", () =>
     url("replica_runtime", runtime.value),
   )
+  const learningUrl = await ensure("postgres-learning-url", () =>
+    url("replica_learning_runtime", learning.value),
+  )
   return {
     adminPassword: admin.value,
     migrationUrl: migrationUrl.id,
     runtimeUrl: runtimeUrl.id,
+    learningUrl: learningUrl.id,
     provisioning: {
       DATABASE_URL: adminUrl.id,
       HUB_MIGRATION_PASSWORD: migration.id,
       HUB_RUNTIME_PASSWORD: runtime.id,
+      HUB_LEARNING_PASSWORD: learning.id,
+    },
+    learningProvisioning: {
+      DATABASE_URL: adminUrl.id,
+      HUB_LEARNING_PASSWORD: learning.id,
     },
     async provisioned() {
       return (
@@ -89,6 +99,17 @@ export async function installationSecrets(context: AzureInstallation, foundation
     },
     async markProvisioned() {
       await put("database-provisioned", config.azure.resourceGroup)
+    },
+    async learningProvisioned() {
+      if (!names.has("learning-database-provisioned")) return false
+      if ((await read("learning-database-provisioned")).value !== config.azure.resourceGroup)
+        throw new Error(
+          "The learning database provisioning marker belongs to another installation.",
+        )
+      return true
+    },
+    async markLearningProvisioned() {
+      await put("learning-database-provisioned", config.azure.resourceGroup)
     },
   }
 }
