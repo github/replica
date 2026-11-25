@@ -49,6 +49,7 @@ class Notification < ApplicationRecord
   belongs_to :actor, class_name: "User"
   belongs_to :comment_mention, optional: true
   has_many :notification_resources, dependent: :delete_all
+  has_one :notification_delivery, dependent: :delete
   has_one :primary_resource, -> { where(role: "primary") }, class_name: "NotificationResource"
   has_one :review_comment, through: :primary_resource, source: :resource, source_type: "ReviewComment"
 
@@ -152,6 +153,7 @@ class Notification < ApplicationRecord
         comment_mention: comment_mention
       notification.notification_resources.create! resource: comment, role: "primary"
       notification.notification_resources.create! resource: comment.prototype, role: "context"
+      NotificationDelivery.record!(notification)
       notification
     end
   end

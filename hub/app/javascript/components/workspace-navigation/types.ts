@@ -14,4 +14,5 @@ export interface WorkspaceAccountData {
   signOutLabel: string
   signOutPath: string
   systemThemeLabel: string
+  notificationSettings?: { label: string; path: string }
 }

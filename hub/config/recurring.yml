@@ -10,6 +10,12 @@
 #     schedule: at 5am every day
 
 development:
+  recover_notification_deliveries:
+    command: "NotificationDelivery.recover!"
+    schedule: every minute
+  clear_expired_notification_deliveries:
+    command: "NotificationDelivery.clear_expired!"
+    schedule: every hour at minute 20
   clear_expired_security_audit:
     command: "SecurityAuditEvent.clear_expired!"
     schedule: every hour at minute 21
@@ -69,6 +75,12 @@ development:
     schedule: every 15 minutes
 
 production:
+  recover_notification_deliveries:
+    command: "NotificationDelivery.recover!"
+    schedule: every minute
+  clear_expired_notification_deliveries:
+    command: "NotificationDelivery.clear_expired!"
+    schedule: every hour at minute 20
   clear_expired_security_audit:
     command: "SecurityAuditEvent.clear_expired!"
     schedule: every hour at minute 21

@@ -1,5 +1,6 @@
 import {
   AlertIcon,
+  BellIcon,
   HistoryIcon,
   InfoIcon,
   KebabHorizontalIcon,
@@ -12,7 +13,7 @@ import {
 } from "@primer/octicons-react"
 import { ActionMenu, Tooltip } from "@primer/react-brand/esm"
 import { NavigationContext } from "@thoughtbot/superglue"
-import { useContext, useState } from "react"
+import { useContext, useRef, useState } from "react"
 import type { CSSProperties, KeyboardEvent, MouseEvent } from "react"
 
 import { BuildStateLabel } from "@components/build-state-label"
@@ -36,6 +37,7 @@ export function PrototypeWorkspaceHeader({
 }: PrototypeWorkspaceHeaderProps) {
   const { resolvedColorMode, setColorMode } = useHubTheme()
   const { visit } = useContext(NavigationContext)
+  const muteForm = useRef<HTMLFormElement>(null)
   const controls = useControlQuery()
   function controlPath(path: string) {
     const url = new URL(withControlQuery(path, controls.query))
@@ -280,6 +282,20 @@ export function PrototypeWorkspaceHeader({
                 {""}
               </ActionMenu.Button>
               <ActionMenu.Overlay aria-label={data.moreActionsLabel}>
+                {data.notificationMute ? (
+                  <ActionMenu.Item
+                    value="notification-mute"
+                    leadingVisual={<BellIcon size={16} />}
+                    onClick={() => muteForm.current?.requestSubmit()}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return
+                      event.preventDefault()
+                      muteForm.current?.requestSubmit()
+                    }}
+                  >
+                    {data.notificationMute.label}
+                  </ActionMenu.Item>
+                ) : null}
                 {menuLinks.map(({ label, path, icon: Icon }) => (
                   <ActionMenu.Item
                     key={path}
@@ -300,6 +316,18 @@ export function PrototypeWorkspaceHeader({
             </ActionMenu>
           </div>
         </Tooltip>
+      ) : null}
+
+      {!data.browseReplica && data.notificationMute ? (
+        <form ref={muteForm} action={data.notificationMute.path} method="post" hidden>
+          <input type="hidden" name="_method" value="patch" />
+          <input
+            type="hidden"
+            name="authenticity_token"
+            value={data.notificationMute.authenticityToken}
+          />
+          <input type="hidden" name="muted" value={data.notificationMute.muted ? "0" : "1"} />
+        </form>
       ) : null}
 
       <div className="review-shell__actions-scroller">

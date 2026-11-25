@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_07_220000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_25_124000) do
   create_table "analytics_deliveries", force: :cascade do |t|
     t.integer "attempts", default: 0, null: false
     t.datetime "created_at", null: false
@@ -242,7 +242,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_07_220000) do
     t.index ["user_id"], name: "index_fresh_authorizations_on_user_id"
     t.check_constraint "continued_at IS NULL OR (verified_at IS NOT NULL AND pending_action IS NULL)", name: "fresh_authorizations_continuation"
     t.check_constraint "credential_type IN ('Session', 'CanvasGrant') AND credential_id > 0 AND github_id > 0", name: "fresh_authorizations_identity"
-    t.check_constraint "purpose IN ('never_expiring_share', 'analytics_destination', 'hub_admin_management', 'sharing_settings', 'session_revocation', 'github_app_reset', 'github_app_credentials', 'github_app_webhook', 'github_app_finish_webhook', 'copilot_connection', 'copilot_disconnection')", name: "fresh_authorizations_purpose"
+    t.check_constraint "purpose IN ('never_expiring_share', 'analytics_destination', 'hub_admin_management', 'sharing_settings', 'session_revocation', 'github_app_reset', 'github_app_credentials', 'github_app_webhook', 'github_app_finish_webhook', 'copilot_connection', 'copilot_disconnection', 'notification_delivery')", name: "fresh_authorizations_purpose"
     t.check_constraint "verified_at IS NULL OR consumed_at IS NOT NULL", name: "fresh_authorizations_verification"
   end
 
@@ -405,6 +405,42 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_07_220000) do
     t.check_constraint "state IN ('queued', 'running', 'succeeded', 'failed')", name: "learning_runs_state"
   end
 
+  create_table "notification_deliveries", force: :cascade do |t|
+    t.integer "notification_id", null: false
+    t.string "provider_key", null: false
+    t.string "state", default: "pending", null: false
+    t.integer "attempts", default: 0, null: false
+    t.datetime "due_at", null: false
+    t.datetime "enqueue_claim_expires_at"
+    t.string "lease_token"
+    t.string "failure_code"
+    t.datetime "delivered_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["notification_id"], name: "index_notification_deliveries_on_notification_id", unique: true
+    t.index ["state", "due_at"], name: "index_notification_deliveries_on_state_and_due_at"
+    t.check_constraint "attempts >= 0", name: "notification_deliveries_attempts"
+    t.check_constraint "state IN ('pending', 'delivering', 'retryable', 'succeeded', 'failed', 'canceled')", name: "notification_deliveries_state"
+  end
+
+  create_table "notification_mutes", force: :cascade do |t|
+    t.integer "recipient_id", null: false
+    t.integer "prototype_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["prototype_id"], name: "index_notification_mutes_on_prototype_id"
+    t.index ["recipient_id", "prototype_id"], name: "index_notification_mutes_on_recipient_id_and_prototype_id", unique: true
+    t.index ["recipient_id"], name: "index_notification_mutes_on_recipient_id"
+  end
+
+  create_table "notification_preferences", force: :cascade do |t|
+    t.integer "recipient_id", null: false
+    t.boolean "enabled", default: true, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["recipient_id"], name: "index_notification_preferences_on_recipient_id", unique: true
+  end
+
   create_table "notification_resources", force: :cascade do |t|
     t.integer "notification_id", null: false
     t.string "resource_type", null: false
@@ -416,6 +452,13 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_07_220000) do
     t.index ["notification_id"], name: "index_notification_resources_on_notification_id"
     t.index ["resource_type", "resource_id"], name: "index_notification_resources_on_resource"
     t.check_constraint "role IN ('primary', 'context')", name: "notification_resources_role"
+  end
+
+  create_table "notification_settings", force: :cascade do |t|
+    t.boolean "enabled", default: true, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.check_constraint "id = 1", name: "notification_settings_singleton"
   end
 
   create_table "notifications", force: :cascade do |t|
@@ -792,6 +835,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_07_220000) do
   add_foreign_key "learning_decision_models", "users", column: "chosen_by_id", on_delete: :nullify
   add_foreign_key "learning_runs", "repositories", on_delete: :cascade
   add_foreign_key "learning_runs", "users", column: "requested_by_id", on_delete: :nullify
+  add_foreign_key "notification_deliveries", "notifications", on_delete: :cascade
+  add_foreign_key "notification_mutes", "github_identities", column: "recipient_id", on_delete: :cascade
+  add_foreign_key "notification_mutes", "prototypes", on_delete: :cascade
+  add_foreign_key "notification_preferences", "github_identities", column: "recipient_id", on_delete: :cascade
   add_foreign_key "notification_resources", "notifications", on_delete: :cascade
   add_foreign_key "notifications", "comment_mentions", on_delete: :cascade
   add_foreign_key "notifications", "github_identities", column: "recipient_id", on_delete: :restrict

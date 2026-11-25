@@ -1,6 +1,6 @@
 import { useRef } from "react"
 
-import { DeviceDesktopIcon, MoonIcon, SignOutIcon, SunIcon } from "@primer/octicons-react"
+import { BellIcon, DeviceDesktopIcon, MoonIcon, SignOutIcon, SunIcon } from "@primer/octicons-react"
 import { ActionMenu } from "@primer/react-brand/esm"
 
 import { HubUserAvatar } from "@components/hub-user-avatar"
@@ -68,6 +68,7 @@ export function RepositoryUserMenu({
   signOutLabel,
   signOutPath,
   systemThemeLabel,
+  notificationSettings,
 }: {
   accountMenuLabel: string
   authenticityToken: string
@@ -82,6 +83,7 @@ export function RepositoryUserMenu({
   signOutLabel: string
   signOutPath: string
   systemThemeLabel?: string
+  notificationSettings?: { label: string; path: string }
 }) {
   const signOutForm = useRef<HTMLFormElement>(null)
   const theme = useOptionalHubTheme()
@@ -114,6 +116,16 @@ export function RepositoryUserMenu({
             </span>
           </ActionMenu.Button>
           <ActionMenu.Overlay aria-label={accountMenuLabel}>
+            {notificationSettings ? (
+              <ActionMenu.Item
+                as="a"
+                href={notificationSettings.path}
+                value="notification-settings"
+                leadingVisual={<BellIcon size={16} />}
+              >
+                {notificationSettings.label}
+              </ActionMenu.Item>
+            ) : null}
             {showThemeOptions ? (
               <ThemeModeControl
                 colorMode={theme.colorMode}

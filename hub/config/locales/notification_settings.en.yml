@@ -1,0 +1,26 @@
+en:
+  notification_settings:
+    heading: Notifications
+    description: Choose which review updates reach you outside Hub. Your Inbox stays unchanged.
+    enabled: "Receive hourly %{provider} digests"
+    explanation: Digests include comment previews and links to conversations you can access.
+    privacy: Text already delivered outside Hub may remain there after deletion or loss of access.
+    paused: External delivery is turned off for this Hub. Your personal preferences are saved.
+    save: Save preferences
+    save_failed: Notification preferences could not be saved. Try again.
+    muted_heading: Muted prototypes
+    muted_empty: You have not muted any prototypes. Use a prototype's More actions menu to mute its external notifications.
+    mute: "Mute %{provider} for this prototype"
+    unmute: "Unmute %{provider} for this prototype"
+    unmute_label: Unmute
+    prototype_explanation: Muting stops all external updates for that prototype, including mentions, for you only.
+    administration_heading: Hub delivery
+    administration_description: Turn external notifications on or off for everyone. Turning them off cancels pending digests.
+    deployment_enabled: External delivery is on
+    deployment_disabled: External delivery is off
+    disable: Turn off for everyone
+    enable: Turn on for everyone
+    confirm: I understand this changes external notification delivery for everyone using this Hub.
+    failures:
+      one: "1 delivery item needs attention. Check the sanitized delivery failure codes in the server logs or database."
+      other: "%{count} delivery items need attention. Check the sanitized delivery failure codes in the server logs or database."
