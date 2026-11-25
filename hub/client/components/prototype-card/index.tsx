@@ -4,6 +4,7 @@ import { Label } from "@primer/react-brand"
 import { BuildStateLabel } from "@components/build-state-label"
 import { HubUserAvatar } from "@components/hub-user-avatar"
 import { ScrollingScreenshot } from "@components/scrolling-screenshot"
+import { screenshotViewportStyles } from "@utils/screenshot-viewports"
 
 import type { PrototypeCardData } from "./types"
 
@@ -29,7 +30,7 @@ export function PrototypeCard({
     <HubUserAvatar src={prototype.author.avatarUrl} size={layout === "gallery" ? 28 : 24} />
   )
   const preview = (
-    <div className="prototype-card__preview">
+    <div className="prototype-card__preview" style={screenshotViewportStyles.desktop}>
       {prototype.reviewBuild ? (
         <ScrollingScreenshot
           src={prototype.reviewBuild.screenshotSrc}

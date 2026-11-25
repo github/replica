@@ -89,6 +89,12 @@ For [standalone private previews](build-previews.md#standalone-private-previews)
 
 If Hub is offline during an update, the workflow can still upload both artifacts to GitHub. GitHub does not automatically retry failed webhook deliveries. Once Hub returns, polling or requested redelivery can import the retained packages. Hub still needs GitHub API and artifact-download access. Recovery is bounded by the three-day artifact retention and polling window; expired packages cannot be recovered automatically. Re-running the workflow is safe because successful Builds and artifacts are never replaced.
 
+### Screenshot dimensions
+
+The [shared viewport settings](../client/utils/screenshot-viewports/viewports.json) define the capture width and minimum height for desktop and narrow screenshots. The build action uses these settings for both capture and package validation. Hub uses the same desktop ratio for prototype cards, template cards, and template-picker thumbnails, so a viewport-height image fills its frame without changing shape. Taller pages retain their full height; prototype and template cards reveal the remaining content on hover, keyboard focus, or manual scrolling.
+
+Change these settings rather than adding independent sizes to workflow YAML or card styles. Capture at least the configured height, not a fixed full-page height. The widths remain part of the versioned artifact contract; changing them also requires updating Hub's import and decision-model consumers. Existing Build images are immutable. To use revised capture settings, pin the prototype workflow's Replica actions to the new implementation commit and push a new Build. Deploy the matching Hub change to update displayed frame ratios.
+
 ## Flow
 
 ```mermaid

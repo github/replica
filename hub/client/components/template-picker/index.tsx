@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react"
 import type { KeyboardEvent } from "react"
 
 import { useOptionalHubTheme } from "@hooks/use-hub-theme"
+import { screenshotViewportStyles } from "@utils/screenshot-viewports"
 
 import type { StartingTemplate } from "./types"
 import "./styles.css"
@@ -166,7 +167,7 @@ export function TemplatePicker({
                   closeOptions()
                 }}
               >
-                <span className="template-picker__preview">
+                <span className="template-picker__preview" style={screenshotViewportStyles.desktop}>
                   {screenshotSrc && !failedScreenshots.includes(screenshotSrc) ? (
                     <img
                       src={screenshotSrc}

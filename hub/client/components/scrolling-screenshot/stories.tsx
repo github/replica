@@ -1,5 +1,7 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite"
 
+import { screenshotViewportStyles } from "@utils/screenshot-viewports"
+
 import {
   welcomeFullPageScreenshot,
   welcomeNarrowFullPageScreenshot,
@@ -37,7 +39,7 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const FullPage: Story = {
-  decorators: [previewFrame("395 / 280")],
+  decorators: [previewFrame(screenshotViewportStyles.desktop.aspectRatio)],
 }
 
 export const NarrowBuildDetail: Story = {
@@ -45,7 +47,7 @@ export const NarrowBuildDetail: Story = {
     alt: "Full-height narrow screenshot of the welcome prototype",
     src: welcomeNarrowFullPageScreenshot,
   },
-  decorators: [previewFrame("390 / 844")],
+  decorators: [previewFrame(screenshotViewportStyles.narrow.aspectRatio)],
 }
 
 export const ViewportHeight: Story = {
@@ -53,5 +55,5 @@ export const ViewportHeight: Story = {
     alt: "Viewport-height screenshot of the welcome prototype",
     src: welcomeScreenshot,
   },
-  decorators: [previewFrame("395 / 280")],
+  decorators: [previewFrame(screenshotViewportStyles.desktop.aspectRatio)],
 }

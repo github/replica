@@ -3,6 +3,8 @@ import { ArrowUpRightIcon, BrowserIcon } from "@primer/octicons-react"
 import { ScrollingScreenshot } from "@components/scrolling-screenshot"
 import "@components/prototype-card/styles.css"
 
+import { screenshotViewportStyles } from "@utils/screenshot-viewports"
+
 import type { TemplateCardData } from "./types"
 import "./styles.css"
 
@@ -17,7 +19,7 @@ export function TemplateCard({
 }) {
   return (
     <section className="prototype-card template-card">
-      <div className="prototype-card__preview">
+      <div className="prototype-card__preview" style={screenshotViewportStyles.desktop}>
         {template.screenshotSrc ? (
           <ScrollingScreenshot
             src={template.screenshotSrc}
