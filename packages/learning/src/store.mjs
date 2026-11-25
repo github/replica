@@ -341,8 +341,28 @@ function hubThreadKey(episode) {
 function retractedEvents(episodes, events) {
   const episodeKeys = new Map(episodes.map((episode) => [episode.id, hubThreadKey(episode)]))
   const byId = new Map(events.map((event) => [event.id, event]))
-  const comments = events.filter((event) => event.type === "human_comment")
+  const comments = new Map()
+  for (const event of events) {
+    if (event.type !== "human_comment") continue
+    const thread = episodeKeys.get(event.episodeId)
+    const commentId = commentIdOf(event)
+    if (!thread || commentId === undefined) continue
+    const key = canonicalJson([thread, commentId])
+    if (!comments.has(key)) comments.set(key, [])
+    comments.get(key).push(event)
+  }
   const retracted = new Set()
+  for (const versions of comments.values()) {
+    const deletedAt = versions
+      .filter((event) => event.payload?.body === null && event.payload.deletedAt)
+      .reduce(
+        (latest, event) => (event.payload.deletedAt > latest ? event.payload.deletedAt : latest),
+        "",
+      )
+    if (deletedAt)
+      for (const event of versions)
+        if (event.payload?.body !== null && event.at <= deletedAt) retracted.add(event.id)
+  }
   for (const event of events) {
     if (event.type !== "retraction") continue
     retracted.add(targetOf(event))
@@ -353,9 +373,7 @@ function retractedEvents(episodes, events) {
     const deleted =
       event.payload?.reason === "deleted_at_source" ||
       event.id === derivedId("ev", { episodeId: event.episodeId, retracts: target.id })
-    for (const candidate of comments) {
-      if (episodeKeys.get(candidate.episodeId) !== thread || commentIdOf(candidate) !== commentId)
-        continue
+    for (const candidate of comments.get(canonicalJson([thread, commentId])) ?? []) {
       if (
         (deleted && candidate.at <= event.at) ||
         (candidate.at === target.at && candidate.actor.id === target.actor.id)
@@ -490,6 +508,22 @@ class LearningStore {
     return timestampFromMilliseconds(this.#clock())
   }
 
+  /** Resolve the active scope on each operation, including migrations committed after opening. */
+  async #migrationContext(scope) {
+    const migrations = (await this.#provider.scopeMigrations?.(scope)) ?? []
+    const scopes = new Map(
+      [...this.#legacyScopes, ...migrations.map((migration) => migration.oldScope)].map(
+        (legacy) => [canonicalJson(legacy), legacy],
+      ),
+    )
+    const originalDigests = new Map(this.#originalDigests)
+    for (const migration of migrations)
+      for (const mapping of migration.digestMappings ?? [])
+        if (mapping.kind === "memory" && mapping.field === "digest")
+          originalDigests.set(mapping.newDigest, mapping.oldDigest)
+    return { legacyScopes: [...scopes.values()], originalDigests, digest: digestOf(migrations) }
+  }
+
   /**
    * Records from a stream in the caller's scope. Any record that fails its scope, schema, or
    * digest check stops the operation: dropping a damaged withdrawal or retraction would
@@ -619,6 +653,17 @@ class LearningStore {
       for (const migration of migrations)
         for (const group of migration.overlappingEpisodes ?? [])
           if (group.some((id) => selected.has(id))) for (const id of group) selected.add(id)
+      if (migrations.length) {
+        const episodes = await this.#read("episodes", context)
+        const keys = new Set(
+          episodes
+            .filter((episode) => selected.has(episode.id))
+            .map(hubThreadKey)
+            .filter(Boolean),
+        )
+        for (const episode of episodes)
+          if (keys.has(hubThreadKey(episode))) selected.add(episode.id)
+      }
       ids = [...selected]
     }
     const [episodes, events] = await Promise.all([
@@ -651,6 +696,7 @@ class LearningStore {
     const byId = new Map(events.map((event) => [event.id, event]))
     const retracted = retractedEvents(episodes, events)
     const copies = new Map()
+    const commentVersions = new Map()
     const evidenceGrants = new Map()
     for (const event of events) {
       if (event.type !== "human_comment") continue
@@ -659,6 +705,9 @@ class LearningStore {
       if (!thread || commentId === undefined) continue
       const key = canonicalJson([thread, commentId, event.at])
       copies.set(key, [...(copies.get(key) ?? []), event])
+      const identity = canonicalJson([thread, commentId])
+      if (!commentVersions.has(identity)) commentVersions.set(identity, [])
+      commentVersions.get(identity).push(event)
     }
     const identityObsolete = new Set(
       events
@@ -732,6 +781,13 @@ class LearningStore {
       )
     })
     const eventsById = new Map(kept.map((event) => [event.id, event]))
+    const hiddenEdits = new Set()
+    for (const versions of commentVersions.values()) {
+      const latest = versions.reduce((time, event) => (event.at > time ? event.at : time), "")
+      if (versions.some((event) => event.at === latest && eventsById.has(event.id))) continue
+      for (const event of versions)
+        if (event.at < latest && eventsById.has(event.id)) hiddenEdits.add(event.id)
+    }
     const episodeIds = new Set(kept.map((event) => event.episodeId))
     return {
       episodes: episodes.filter((episode) => episodeIds.has(episode.id)),
@@ -742,6 +798,8 @@ class LearningStore {
       evidenceGrants,
       retracted,
       identityObsolete,
+      migrationDigest: eligibility.migrationDigest,
+      hiddenEdits,
     }
   }
 
@@ -1356,6 +1414,11 @@ class LearningStore {
           `Grant ${grantId} does not currently permit review.`,
         )
     }
+    const migration = await this.#migrationContext(context.scope)
+    if (migration.digest !== eligibility.migrationDigest)
+      throw new LearningError("conflict", "Repository migration changed while reading. Try again.")
+    const { legacyScopes } = migration
+    const collections = await this.#read("collections", context)
     const repository = context.sourceRepository ?? context.scope.repository
     let collection
     let historicalSource = false
@@ -1363,10 +1426,13 @@ class LearningStore {
       collection = readHubReviewCollection(log, { repository })
     } catch (error) {
       if (error.code !== "scope_violation") throw error
-      for (const scope of this.#legacyScopes) {
-        if (scope.repository === repository) continue
+      const historicalRepositories = unique([
+        ...legacyScopes.map((scope) => scope.repository),
+        ...collections.map((item) => item.source.repository),
+      ]).filter((name) => name && name !== repository)
+      for (const name of historicalRepositories) {
         try {
-          collection = readHubReviewCollection(log, { repository: scope.repository })
+          collection = readHubReviewCollection(log, { repository: name })
           historicalSource = true
           break
         } catch (legacyError) {
@@ -1406,7 +1472,6 @@ class LearningStore {
       "conflict",
       `Snapshot ${snapshotId} was already imported with different contents, so nothing was imported. Collect a new snapshot and import that.`,
     )
-    const collections = await this.#read("collections", context)
     const adopted = collections.some(
       (item) =>
         item.reviewerIdentity === "stable-user-id" &&
@@ -1434,7 +1499,7 @@ class LearningStore {
         `Snapshot ${snapshotId} is older than a snapshot already imported from this Hub repository, so nothing was imported. Collect a new snapshot and import that.`,
       )
     const candidateIds = collection.threads.map((thread) =>
-      [context.scope, ...this.#legacyScopes].map((scope) =>
+      [context.scope, ...legacyScopes].map((scope) =>
         hubEpisodeId(scope, collection.meta, thread.root),
       ),
     )
@@ -1457,6 +1522,8 @@ class LearningStore {
       const deleted = new Set(
         threadEvents
           .filter((event) => {
+            if (event.type === "human_comment")
+              return event.payload?.body === null && event.payload.deletedAt
             if (event.type !== "retraction") return false
             const target = byId.get(event.parentEventId)
             return (
@@ -1466,6 +1533,7 @@ class LearningStore {
             )
           })
           .map((event) => {
+            if (event.type === "human_comment") return commentIdOf(event)
             const target = byId.get(event.parentEventId)
             return target ? commentIdOf(target) : undefined
           })
@@ -1551,6 +1619,14 @@ class LearningStore {
       await this.#provider.appendBatch(
         { episodes, events, collections: [record] },
         {
+          ...(this.#provider.atomicMigrationFence
+            ? {
+                expectedMigrations: {
+                  scope: context.scope,
+                  digest: migration.digest,
+                },
+              }
+            : {}),
           ...(this.#provider.atomicMigrationRedactions
             ? {
                 expectedCollection: {
@@ -1949,7 +2025,15 @@ class LearningStore {
       "instruction",
     )
     const entries = await this.#memories(context)
-    const { record } = await this.#storeProposal(context, proposal, { eligible, entries, now })
+    const migration = await this.#migrationContext(context.scope)
+    if (migration.digest !== eligible.migrationDigest)
+      throw new LearningError("conflict", "Repository migration changed while reading. Try again.")
+    const { record } = await this.#storeProposal(context, proposal, {
+      eligible,
+      entries,
+      now,
+      migration,
+    })
     return record
   }
 
@@ -1960,14 +2044,22 @@ class LearningStore {
   async #storeProposal(
     context,
     proposal,
-    { eligible, entries, now, purpose = "instruction", reason },
+    { eligible, entries, now, migration, purpose = "instruction", reason },
   ) {
-    const { record, latest } = this.#draftProposal(context, proposal, { eligible, entries, now })
+    const { record, latest } = this.#draftProposal(context, proposal, {
+      eligible,
+      entries,
+      now,
+      migration,
+    })
     if (latest && latest.reviewDigest === record.reviewDigest)
       return { record: latest, changed: false }
     assertValid("memoryRecord", record)
     await this.#provider.appendMemoryVersion(record, {
       expectedPreviousDigest: latest?.digest ?? null,
+      ...(this.#provider.atomicMigrationFence
+        ? { expectedMigrations: { scope: context.scope, digest: migration.digest } }
+        : {}),
       audit: [
         this.#auditEntry(
           context,
@@ -1984,7 +2076,7 @@ class LearningStore {
    * The undecided learning a proposal would update, if any, and the version it would store.
    * Throws when the proposal cannot be stored. Writes nothing.
    */
-  #draftProposal(context, proposal, { eligible, entries, now }) {
+  #draftProposal(context, proposal, { eligible, entries, now, migration }) {
     assertValid("memoryProposal", proposal, { sealed: false })
     const evidence = proposal.evidence.map((reference) =>
       this.#canonicalEvidence(reference, eligible, "instruction"),
@@ -2017,14 +2109,13 @@ class LearningStore {
     }
     function findExisting(candidates) {
       const matches = unique(candidates.filter((candidate) => entries.has(candidate)))
-      if (matches.length > 1)
-        throw new LearningError("conflict", "This proposal has more than one stored history.")
+      if (matches.length > 1) return candidates[0]
       return matches[0] ?? candidates[0]
     }
-    let id = findExisting([context.scope, ...this.#legacyScopes].map(proposalId))
+    let id = findExisting([context.scope, ...migration.legacyScopes].map(proposalId))
     let latest = entries.get(id)?.record
     while (latest && latest.state !== "proposed") {
-      const original = this.#originalDigests.get(latest.digest)
+      const original = migration.originalDigests.get(latest.digest)
       id = findExisting([
         derivedId("mem", { after: latest.digest }),
         ...(original ? [derivedId("mem", { after: original })] : []),
@@ -2453,6 +2544,9 @@ class LearningStore {
       throw new LearningError("invalid_input", "maxProposals must be a positive whole number.")
     const { items, eligible } = await this.#statuses(context, purpose)
     const entries = new Map(items.map((item) => [item.id, item]))
+    const migration = await this.#migrationContext(context.scope)
+    if (migration.digest !== eligible.migrationDigest)
+      throw new LearningError("conflict", "Repository migration changed while reading. Try again.")
     const coverage = await this.#coverage(context, window)
     const view = deepFreeze(
       structuredClone({
@@ -2460,7 +2554,9 @@ class LearningStore {
         window,
         scope: context.scope,
         episodes: eligible.episodes,
-        events: eligible.events,
+        events: eligible.events.filter(
+          (event) => event.type !== "annotation" || !eligible.hiddenEdits.has(event.parentEventId),
+        ),
         memories: items.filter((item) => !item.status.problems.length).map(memoryView),
       }),
     )
@@ -2479,7 +2575,7 @@ class LearningStore {
     let room = maxProposals
     let overBudget = 0
     for (const proposal of output.proposals) {
-      const change = this.#proposalChange(context, proposal, { eligible, entries, now })
+      const change = this.#proposalChange(context, proposal, { eligible, entries, now, migration })
       if (change === "changed" && room === 0) {
         overBudget++
         continue
@@ -2495,6 +2591,7 @@ class LearningStore {
           eligible,
           entries,
           now,
+          migration,
           purpose,
           reason: `Proposed by consolidator ${consolidator.manifest.id}.`,
         })
@@ -2882,6 +2979,21 @@ class LearningStore {
       }
     }
     const [{ eligibility, grants }, observations, { items }, collections] = read
+    const migrations = (await this.#provider.scopeMigrations?.(context.scope)) ?? []
+    const followUps = {
+      memoriesNeedingRebuild: unique(
+        migrations.flatMap(
+          (migration) => migration.redactionFollowUps?.memoriesNeedingRebuild ?? [],
+        ),
+      ),
+      exportsToFollowUp: [
+        ...new Map(
+          migrations
+            .flatMap((migration) => migration.redactionFollowUps?.exportsToFollowUp ?? [])
+            .map((item) => [item.id, item]),
+        ).values(),
+      ],
+    }
     const states = { proposed: 0, accepted: 0, rejected: 0, retired: 0 }
     for (const item of items) states[item.record.state]++
     const attention = [
@@ -2918,6 +3030,9 @@ class LearningStore {
           (item) =>
             `Collection ${item.id} is incomplete: ${item.problems[0] ?? "pages are missing"}`,
         ),
+      ...followUps.exportsToFollowUp.map(
+        (item) => `Export ${item.id} at ${item.destination} may contain removed comment text.`,
+      ),
     ]
     return {
       provider,
@@ -2933,6 +3048,9 @@ class LearningStore {
         recallable: items.filter((item) => item.status.recallEligible).length,
       },
       attention,
+      ...(followUps.memoriesNeedingRebuild.length || followUps.exportsToFollowUp.length
+        ? { migrationRedactionFollowUps: followUps }
+        : {}),
     }
   }
 

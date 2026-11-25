@@ -267,6 +267,10 @@ export interface StatusReport {
     recallable: number
   } | null
   attention: string[]
+  migrationRedactionFollowUps?: {
+    memoriesNeedingRebuild: string[]
+    exportsToFollowUp: Array<{ id: string; purpose: Purpose; destination: string }>
+  }
 }
 
 export interface HubReviewCollection {

@@ -11,7 +11,7 @@ import {
   sealRecord,
   without,
 } from "./records.mjs"
-import { commentIdOf } from "./sources/hub-review-comments.mjs"
+import { commentIdOf, stableReviewer } from "./sources/hub-review-comments.mjs"
 import { createLearningStore, sameCollectionSnapshot, scopeProblem } from "./store.mjs"
 
 const KINDS = {
@@ -190,7 +190,7 @@ export async function migrateRepositoryScope({
             "unsupported",
             "This provider cannot atomically reconcile overlapping repository histories.",
           )
-        const { targetRedactions, audit } = reconcileRedactions(
+        const { targetRedactions, audit, redactedIds } = reconcileRedactions(
           targetRecords,
           changed,
           newScope,
@@ -222,6 +222,36 @@ export async function migrateRepositoryScope({
           manifest,
           clock,
         })
+        const allMemories = [...targetMemories, ...versions]
+        const latest = new Map(allMemories.map((record) => [record.id, record]))
+        const affected = new Set(redactedIds)
+        function cites(record) {
+          return [...record.evidence, ...(record.contradictions ?? [])].some((reference) =>
+            reference.eventIds.some((id) => affected.has(id)),
+          )
+        }
+        const citing = new Set(
+          allMemories.filter(cites).map((record) => `${record.id} ${record.digest}`),
+        )
+        const redactionFollowUps = {
+          memoriesNeedingRebuild: [...latest.values()]
+            .filter((record) => record.state === "accepted" && cites(record))
+            .map((record) => record.id)
+            .sort(),
+          exportsToFollowUp: merged.exports
+            .filter((record) =>
+              record.records.some(
+                (subject) =>
+                  (subject.kind === "event" && affected.has(subject.id)) ||
+                  (subject.kind === "memory" && citing.has(`${subject.id} ${subject.digest}`)),
+              ),
+            )
+            .map((record) => ({
+              id: record.id,
+              purpose: record.purpose,
+              destination: record.destination,
+            })),
+        }
         await beforeCommit?.()
         return {
           records: changed,
@@ -233,6 +263,7 @@ export async function migrateRepositoryScope({
             newScope,
             digestMappings,
             overlappingEpisodes,
+            redactionFollowUps,
             sourceDigest: digestOf({ records, memories }),
             migrated: true,
           },
@@ -270,16 +301,30 @@ function threadKey(episode) {
 function reconcileRedactions(target, source, scope, manifest) {
   const episodes = [...target.episodes, ...source.episodes]
   const threads = new Map(episodes.map((episode) => [episode.id, threadKey(episode)]))
+  const episodesById = new Map(episodes.map((episode) => [episode.id, episode]))
   const targetIds = new Set(target.episodes.map(threadKey).filter(Boolean))
   const sourceIds = new Set(source.episodes.map(threadKey).filter(Boolean))
   const overlapping = new Set([...targetIds].filter((key) => sourceIds.has(key)))
   const events = [...target.events, ...source.events]
+  const eventsById = new Map(events.map((event) => [event.id, event]))
   const versions = new Map()
+  const authors = new Map()
   for (const event of events) {
     const thread = threads.get(event.episodeId)
     if (!overlapping.has(thread) || event.type !== "human_comment") continue
     const commentId = commentIdOf(event)
     if (commentId === undefined) continue
+    const episode = episodesById.get(event.episodeId)
+    if (stableReviewer(event.actor, episode.scope, episode.source)) {
+      const authorKey = canonicalJson([thread, commentId])
+      const prior = authors.get(authorKey)
+      if (prior && prior !== event.actor.id)
+        throw new LearningError(
+          "conflict",
+          "Overlapping histories name different stable authors for the same comment.",
+        )
+      authors.set(authorKey, event.actor.id)
+    }
     const key = canonicalJson([thread, commentId, event.at])
     const previous = versions.get(key) ?? []
     for (const other of previous)
@@ -326,12 +371,13 @@ function reconcileRedactions(target, source, scope, manifest) {
     if (removal) selected.set(event.id, removal.redaction)
   }
   for (const event of events)
-    if (
-      event.type === "annotation" &&
-      event.payload !== undefined &&
-      selected.has(event.parentEventId)
-    )
-      selected.set(event.id, selected.get(event.parentEventId))
+    if (event.type === "annotation" && event.payload !== undefined) {
+      const parent = eventsById.get(event.parentEventId)
+      const note =
+        selected.get(event.parentEventId) ??
+        (overlapping.has(threads.get(parent?.episodeId)) ? parent?.redaction : undefined)
+      if (note) selected.set(event.id, note)
+    }
   const targetRedactions = []
   const audit = []
   for (const [stream, items] of [
@@ -373,7 +419,15 @@ function reconcileRedactions(target, source, scope, manifest) {
       )
     }
   }
-  return { targetRedactions, audit }
+  const redactedIds = events
+    .filter(
+      (event) =>
+        overlapping.has(threads.get(event.episodeId)) &&
+        (selected.has(event.id) ||
+          (event.redaction && ["human_comment", "annotation"].includes(event.type))),
+    )
+    .map((event) => event.id)
+  return { targetRedactions, audit, redactedIds }
 }
 
 /** Verify the exact locked snapshot without letting the store write to the real provider. */

@@ -230,6 +230,30 @@ export async function main(
       repository: values.repository,
       legacyRepository: values["legacy-repository"],
       legacyRedaction: values["legacy-redaction"],
+      resolveIdentity:
+        [
+          "status",
+          "doctor",
+          "migrate-scope",
+          "label",
+          "observations",
+          "consolidate",
+          "memories",
+          "show",
+          "operation-status",
+          "accept",
+          "reject",
+          "retire",
+          "supersede",
+          "redact",
+          "recall",
+          "export",
+          "verify",
+        ].includes(positionals[0]) ||
+        (positionals[0] === "grants" &&
+          ["list", "withdrawals", "add", "withdraw"].includes(positionals[1])) ||
+        (positionals[0] === "import" && positionals[1] === "hub-comments") ||
+        (positionals[0] === "decision" && positionals[1] === "questions"),
     })
     const session = {
       environment,

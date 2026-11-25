@@ -13,9 +13,17 @@ import {
 } from "node:fs"
 import path from "node:path"
 import { after, it } from "node:test"
-import { fileURLToPath } from "node:url"
-import { REMOTE, weekOneLabels, weekOneLog, weekTwoLog } from "../conformance/fixtures.mjs"
+import { fileURLToPath, pathToFileURL } from "node:url"
+import {
+  collectionLog,
+  HUB_ORIGIN,
+  REMOTE,
+  weekOneLabels,
+  weekOneLog,
+  weekTwoLog,
+} from "../conformance/fixtures.mjs"
 import { createRecurrenceConsolidator } from "../src/consolidators/recurrence.mjs"
+import { labelComments } from "../src/labeling.mjs"
 import { STREAMS } from "../src/provider-contract.mjs"
 import { createInMemoryProvider } from "../src/providers/in-memory.mjs"
 import { createJsonLinesMemoryProvider } from "../src/providers/json-lines.mjs"
@@ -348,6 +356,66 @@ it("adds a second confirmed custom-provider history to the migrated SQLite store
   }
 })
 
+it("copies both explicitly named hosted histories from a custom provider", async () => {
+  const repo = checkout("hosted-custom-second-history")
+  const directory = configureCustomProvider(repo)
+  mkdirSync(path.join(directory, "tools"))
+  copyFileSync(
+    path.join(repo, "tools", "provider.mjs"),
+    path.join(directory, "tools", "provider.mjs"),
+  )
+  const first = {
+    host: "github.com",
+    repository: "repositories/11111111-2222-4333-8444-111111111111",
+  }
+  const second = {
+    host: "github.com",
+    repository: "repositories/11111111-2222-4333-8444-222222222222",
+  }
+  const source = createMemoryProvider({ dataDirectory: directory })
+  const store = await createLearningStore({ provider: source })
+  const grants = []
+  for (const oldScope of [first, second])
+    grants.push(
+      await store.addGrant(
+        { scope: oldScope, principal: { kind: "human", id: "github:ana-designer" } },
+        {
+          purposes: ["review"],
+          sources: ["hub_review_comments"],
+          basis: "The team agreed to learn from review comments.",
+        },
+      ),
+    )
+  await store.close()
+  const original = readFileSync(path.join(directory, "json-file-store.json"), "utf8")
+  const hosted = ["--dir", ".replica/learning", "--repository", "github.com/repositories/123456"]
+  const firstArgs = [
+    "migrate-scope",
+    "--offline",
+    ...hosted,
+    "--legacy-repository",
+    `github.com/${first.repository}`,
+  ]
+  const secondArgs = [
+    "migrate-scope",
+    "--offline",
+    ...hosted,
+    "--legacy-repository",
+    `github.com/${second.repository}`,
+  ]
+  const copied = ok(repo, firstArgs, { failLookup: true })
+  assert.equal(ok(repo, secondArgs, { failLookup: true }).file, copied.file)
+  const listed = ok(repo, ["grants", "list", ...hosted], { failLookup: true })
+  assert.deepEqual(
+    listed.map(({ grant }) => grant.id).sort(),
+    grants.map((grant) => grant.id).sort(),
+  )
+  assert.equal(ok(repo, secondArgs, { failLookup: true }).file, copied.file)
+  assert.equal(ok(repo, ["verify", ...hosted], { failLookup: true }).ok, true)
+  assert.equal(readFileSync(path.join(directory, "json-file-store.json"), "utf8"), original)
+  assert.equal(existsSync(path.join(repo, "gh-calls")), false)
+})
+
 it("keeps the original store selected when its source changes during an offline copy", async () => {
   const repo = checkout("offline-source-change")
   const directory = configureCustomProvider(repo)
@@ -560,6 +628,549 @@ it("retries a failed lookup and reuses the saved repository ID offline", () => {
   assert.deepEqual(ok(repo, ["doctor"], { failLookup: true }).scope, scope)
   ok(repo, ["grants", "list"], { failLookup: true })
   assert.equal(readFileSync(path.join(repo, "gh-calls"), "utf8").trim().split("\n").length, 2)
+})
+
+it("lists decision models in a fresh checkout without GitHub access", () => {
+  const repo = checkout("offline-decision-models")
+  const result = cli(repo, ["decision", "models"], { failLookup: true })
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(JSON.parse(result.stdout).schemaVersion, "replica.decision-models/v1")
+  assert.equal(existsSync(path.join(repo, "gh-calls")), false)
+})
+
+it("writes an offline decision taskset only in a private checkout location", async () => {
+  const repo = checkout("offline-decision-taskset")
+  const oldScope = { host: "github.com", repository: "acme/checkout-prototypes" }
+  const human = { scope: oldScope, principal: { kind: "human", id: "github:ana-designer" } }
+  const agent = { scope: oldScope, principal: { kind: "agent", id: "agent:copilot" } }
+  const store = await createLearningStore({
+    provider: createInMemoryProvider(),
+    clock: () => Date.parse("2026-10-09T12:00:00Z"),
+  })
+  let bundle
+  try {
+    const grant = await store.addGrant(human, {
+      purposes: ["review", "instruction", "training"],
+      sources: ["hub_review_comments"],
+      basis: "The team agreed to learn from review comments.",
+    })
+    await store.importHubReviewComments(agent, weekOneLog(), { grantIds: [grant.id] })
+    await store.annotate(agent, weekOneLabels().labels)
+    const run = await store.consolidate(agent, {
+      consolidator: createRecurrenceConsolidator(),
+      window: { from: "2026-09-29T00:00:00.000000Z", to: "2026-10-05T18:00:00.000000Z" },
+    })
+    await store.acceptMemory(human, run.proposals[0].id, {
+      expectedDigest: run.proposals[0].reviewDigest,
+    })
+    const exported = await store.exportRecords(human, {
+      purpose: "training",
+      destination: "offline-training.json",
+    })
+    bundle = exported.bundle
+  } finally {
+    await store.close()
+  }
+  const privateDir = path.join(repo, ".replica")
+  mkdirSync(privateDir)
+  writeFileSync(path.join(privateDir, "export.json"), JSON.stringify(bundle))
+  writeFileSync(
+    path.join(privateDir, "screen.png"),
+    Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
+      "base64",
+    ),
+  )
+  const screenshots = ["desktop", "narrow"].flatMap((size) =>
+    ["light", "dark"].map((theme) => ({ route: "/checkout", size, theme, path: "screen.png" })),
+  )
+  writeFileSync(
+    path.join(privateDir, "builds.json"),
+    JSON.stringify({
+      schemaVersion: "replica.decision-builds/v1",
+      source: { hubOrigin: HUB_ORIGIN, repositoryId: 42 },
+      builds: [
+        { prototypeId: 11, number: 3 },
+        { prototypeId: 12, number: 2 },
+        { prototypeId: 13, number: 5 },
+      ].map((build) => ({
+        ...build,
+        createdAt: "2026-09-29T08:00:00Z",
+        publishedAt: "2026-09-29T09:00:00Z",
+        screenshots,
+      })),
+    }),
+  )
+  const args = [
+    "decision",
+    "taskset",
+    "--export",
+    ".replica/export.json",
+    "--builds",
+    ".replica/builds.json",
+  ]
+  const unsafe = cli(repo, [...args, "--out", "tasksets/public"], { failLookup: true })
+  assert.notEqual(unsafe.status, 0)
+  assert.match(unsafe.stderr, /not under \.replica/)
+  assert.equal(existsSync(path.join(repo, "tasksets")), false)
+  const result = ok(repo, [...args, "--out", ".replica/tasksets/private"], { failLookup: true })
+  assert.ok(result.counts.tasks > 0)
+  assert.equal(existsSync(path.join(privateDir, "tasksets", "private", "tasks.jsonl")), true)
+  assert.equal(existsSync(path.join(repo, "gh-calls")), false)
+  assert.equal(existsSync(path.join(privateDir, "learning")), false)
+})
+
+it("reuses a saved scope mapping without taking the migration write path", () => {
+  const repo = checkout("saved-mapping-read")
+  installLegacyStore(repo, "legacy-scope.sqlite")
+  ok(repo, ["migrate-scope", "--offline"])
+  const directory = path.join(repo, ".replica", "learning")
+  const configPath = path.join(directory, "config.json")
+  const config = JSON.parse(readFileSync(configPath, "utf8"))
+  config.memory = { provider: { module: "./tools/sqlite-probe.mjs" } }
+  writeFileSync(configPath, JSON.stringify(config))
+  writeFileSync(
+    path.join(repo, "tools", "sqlite-probe.mjs"),
+    `import { writeFileSync } from "node:fs"
+import path from "node:path"
+import { createSqliteMemoryProvider } from ${JSON.stringify(pathToFileURL(path.join(here, "../src/providers/sqlite.mjs")).href)}
+export function createMemoryProvider({ dataDirectory }) {
+  const provider = createSqliteMemoryProvider({ directory: dataDirectory })
+  return {
+    ...provider,
+    async migrateScope() {
+      writeFileSync(path.join(dataDirectory, "migration-write-attempted"), "yes")
+      throw new Error("migration write path reached")
+    },
+  }
+}
+`,
+  )
+  const marker = path.join(directory, "migration-write-attempted")
+  const first = ok(repo, ["grants", "list"], { failLookup: true })
+  assert.ok(first.length > 0)
+  assert.deepEqual(ok(repo, ["grants", "list"], { failLookup: true }), first)
+  assert.equal(existsSync(marker), false)
+
+  config.githubRepository.id = "987654"
+  writeFileSync(configPath, JSON.stringify(config))
+  const conflict = cli(repo, ["grants", "list"], { failLookup: true })
+  assert.notEqual(conflict.status, 0)
+  assert.match(conflict.stderr, /old scope was migrated to another repository/i)
+  assert.equal(existsSync(marker), false)
+
+  config.githubRepository.id = "123456"
+  config.githubRepository.legacyRepository = "acme/unmapped"
+  writeFileSync(configPath, JSON.stringify(config))
+  const unmapped = cli(repo, ["grants", "list"], { failLookup: true })
+  assert.notEqual(unmapped.status, 0)
+  assert.match(unmapped.stderr, /migration write path reached/)
+  assert.equal(existsSync(marker), true)
+})
+
+it("uses migration metadata when a host reopens the store directly", async () => {
+  const repo = checkout("direct-api-metadata")
+  installLegacyStore(repo, "legacy-scope.sqlite")
+  ok(repo, ["migrate-scope", "--offline"])
+  const directory = path.join(repo, ".replica", "learning")
+  const provider = createSqliteMemoryProvider({ directory })
+  const store = await createLearningStore({ provider })
+  const human = { scope, principal: { kind: "human", id: "github:ana-designer" } }
+  const agent = {
+    scope,
+    sourceRepository: "acme/checkout-prototypes",
+    principal: { kind: "agent", id: "agent:copilot" },
+  }
+  const text = "Agree. I lost track of which field was which halfway through."
+  try {
+    const [grant] = await provider.readRecords("grants", { scope })
+    const newer = weekOneLog({
+      snapshotId: "11111111-2222-4333-8444-333333333333",
+      capturedAt: "2026-10-08T18:00:00.000000Z",
+    })
+    await store.importHubReviewComments(agent, newer, { grantIds: [grant.id] })
+    const events = await provider.readRecords("events", { scope })
+    assert.ok(events.some((event) => event.redaction?.commentId === 102))
+    assert.ok(!events.some((event) => event.payload?.body === text))
+    const selected = await store.queryObservations(human, { purpose: "review" })
+    assert.ok(!selected.events.some((event) => event.payload?.commentId === 102))
+    assert.equal((await store.verify(human)).ok, true)
+    const file = provider.manifest().storage.location
+    for (const name of [file, `${file}-wal`])
+      if (existsSync(name)) assert.equal(readFileSync(name).includes(text), false)
+  } finally {
+    await store.close()
+  }
+})
+
+it("keeps a first-seen deletion from reviving an older comment", async () => {
+  const repo = checkout("first-seen-deletion")
+  const directory = path.join(repo, ".replica", "learning")
+  const firstScope = { host: "github.com", repository: "acme/checkout-prototypes" }
+  const secondScope = { host: "github.com", repository: "acme/previous-name" }
+  function human(oldScope) {
+    return { scope: oldScope, principal: { kind: "human", id: "github:ana-designer" } }
+  }
+  function agent(oldScope) {
+    return { scope: oldScope, principal: { kind: "agent", id: "agent:copilot" } }
+  }
+  const provider = createSqliteMemoryProvider({ directory })
+  const store = await createLearningStore({
+    provider,
+    clock: () => Date.parse("2026-10-09T12:00:00Z"),
+  })
+  try {
+    const input = {
+      purposes: ["review", "instruction"],
+      sources: ["hub_review_comments"],
+      basis: "The team agreed to learn from review comments.",
+    }
+    const firstGrant = await store.addGrant(human(firstScope), input)
+    await store.importHubReviewComments(agent(firstScope), weekOneLog(), {
+      grantIds: [firstGrant.id],
+    })
+    await store.annotate(agent(firstScope), weekOneLabels().labels)
+    const window = { from: "2026-09-29T00:00:00.000000Z", to: "2026-10-05T18:00:00.000000Z" }
+    const run = await store.consolidate(agent(firstScope), {
+      consolidator: createRecurrenceConsolidator(),
+      window,
+    })
+    assert.equal(run.proposals.length, 1)
+    await store.acceptMemory(human(firstScope), run.proposals[0].id, {
+      expectedDigest: run.proposals[0].reviewDigest,
+    })
+    const original = (await provider.readRecords("events", { scope: firstScope })).find(
+      (event) => event.payload?.commentId === 103,
+    )
+    assert.ok(original)
+    const secondGrant = await store.addGrant(human(secondScope), input)
+    const deleted = weekOneLog({
+      repository: secondScope.repository,
+      snapshotId: "11111111-2222-4333-8444-444444444444",
+      capturedAt: "2026-10-08T18:00:00.000000Z",
+    })
+    for (const call of deleted.calls)
+      for (const thread of call.result.threads ?? [])
+        if (thread.id === 103) {
+          thread.body = null
+          thread.deletedAt = "2026-10-07T09:00:00.000000Z"
+          thread.updatedAt = thread.deletedAt
+        }
+    await store.importHubReviewComments(agent(secondScope), deleted, { grantIds: [secondGrant.id] })
+    const secondEvents = await provider.readRecords("events", { scope: secondScope })
+    assert.ok(secondEvents.some((event) => event.payload?.commentId === 103))
+    assert.ok(!secondEvents.some((event) => event.type === "retraction"))
+    for (const oldScope of [firstScope, secondScope])
+      ok(repo, [
+        "migrate-scope",
+        "--offline",
+        "--legacy-repository",
+        `github.com/${oldScope.repository}`,
+      ])
+    const selected = await store.queryObservations(human(scope), {
+      purpose: "instruction",
+      eventIds: [original.id],
+    })
+    assert.deepEqual(selected.events, [])
+    assert.deepEqual((await store.recall(agent(scope))).memories, [])
+    const result = await store.consolidate(agent(scope), {
+      consolidator: createRecurrenceConsolidator(),
+      window,
+      dryRun: true,
+    })
+    assert.ok(
+      result.proposals.every((proposal) =>
+        proposal.evidence.every((reference) => !reference.eventIds.includes(original.id)),
+      ),
+    )
+    assert.equal(ok(repo, ["verify"], { failLookup: true }).ok, true)
+  } finally {
+    await store.close()
+  }
+})
+
+it("reports redaction follow-ups from the other migrated history on retry", async () => {
+  const repo = checkout("redaction-follow-ups")
+  const directory = path.join(repo, ".replica", "learning")
+  const firstScope = { host: "github.com", repository: "acme/checkout-prototypes" }
+  const secondScope = { host: "github.com", repository: "acme/previous-name" }
+  function human(oldScope) {
+    return { scope: oldScope, principal: { kind: "human", id: "github:ana-designer" } }
+  }
+  function agent(oldScope) {
+    return { scope: oldScope, principal: { kind: "agent", id: "agent:copilot" } }
+  }
+  const provider = createSqliteMemoryProvider({ directory })
+  const store = await createLearningStore({
+    provider,
+    clock: () => Date.parse("2026-10-09T12:00:00Z"),
+  })
+  try {
+    const input = {
+      purposes: ["review", "instruction"],
+      sources: ["hub_review_comments"],
+      basis: "The team agreed to learn from review comments.",
+    }
+    const firstGrant = await store.addGrant(human(firstScope), input)
+    await store.importHubReviewComments(agent(firstScope), weekOneLog(), {
+      grantIds: [firstGrant.id],
+    })
+    const secondGrant = await store.addGrant(human(secondScope), input)
+    const secondLog = weekOneLog({
+      repository: secondScope.repository,
+      snapshotId: "11111111-2222-4333-8444-888888888888",
+    })
+    await store.importHubReviewComments(agent(secondScope), secondLog, {
+      grantIds: [secondGrant.id],
+    })
+    await store.annotate(agent(secondScope), weekOneLabels().labels)
+    const run = await store.consolidate(agent(secondScope), {
+      consolidator: createRecurrenceConsolidator(),
+      window: { from: "2026-09-29T00:00:00.000000Z", to: "2026-10-05T18:00:00.000000Z" },
+    })
+    assert.equal(run.proposals.length, 1)
+    const memory = await store.acceptMemory(human(secondScope), run.proposals[0].id, {
+      expectedDigest: run.proposals[0].reviewDigest,
+    })
+    const exported = await store.exportRecords(human(secondScope), {
+      purpose: "instruction",
+      destination: "synthetic-export.json",
+      contents: "learnings",
+    })
+    const redacted = await store.redactHubComment(human(firstScope), 101)
+    assert.ok(!redacted.exportsToFollowUp.some((item) => item.id === exported.manifest.id))
+    for (const oldScope of [firstScope, secondScope])
+      ok(repo, [
+        "migrate-scope",
+        "--offline",
+        "--legacy-repository",
+        `github.com/${oldScope.repository}`,
+      ])
+    const followUps = ok(repo, ["status"], { failLookup: true }).migrationRedactionFollowUps
+    assert.ok(followUps.memoriesNeedingRebuild.includes(memory.id))
+    assert.ok(
+      followUps.exportsToFollowUp.some(
+        (item) => item.id === exported.manifest.id && item.destination === "synthetic-export.json",
+      ),
+    )
+    ok(
+      repo,
+      ["migrate-scope", "--offline", "--legacy-repository", `github.com/${secondScope.repository}`],
+      { failLookup: true },
+    )
+    assert.deepEqual(
+      ok(repo, ["status"], { failLookup: true }).migrationRedactionFollowUps,
+      followUps,
+    )
+    assert.equal(ok(repo, ["verify"], { failLookup: true }).ok, true)
+  } finally {
+    await store.close()
+  }
+})
+
+it("does not label the same migrated comment version twice", async () => {
+  const repo = checkout("overlap-label-once")
+  const directory = path.join(repo, ".replica", "learning")
+  const scopes = [
+    { host: "github.com", repository: "acme/checkout-prototypes" },
+    { host: "github.com", repository: "acme/previous-name" },
+  ]
+  function human(oldScope) {
+    return { scope: oldScope, principal: { kind: "human", id: "github:ana-designer" } }
+  }
+  function agent(oldScope) {
+    return { scope: oldScope, principal: { kind: "agent", id: "agent:copilot" } }
+  }
+  const provider = createSqliteMemoryProvider({ directory })
+  const store = await createLearningStore({ provider })
+  const requests = []
+  const labeler = {
+    manifest: { id: "copilot", name: "Copilot", version: "test" },
+    async label(request) {
+      requests.push(structuredClone(request))
+      return { labels: [], usage: [] }
+    },
+  }
+  try {
+    for (const [index, oldScope] of scopes.entries()) {
+      const grant = await store.addGrant(human(oldScope), {
+        purposes: ["review"],
+        sources: ["hub_review_comments"],
+        basis: "The team agreed to learn from review comments.",
+      })
+      const log = weekOneLog({
+        repository: oldScope.repository,
+        snapshotId: `11111111-2222-4333-8444-99999999999${index}`,
+      })
+      await store.importHubReviewComments(agent(oldScope), log, { grantIds: [grant.id] })
+      if (index === 0)
+        assert.ok((await labelComments(store, agent(oldScope), { labeler })).considered > 0)
+    }
+    for (const oldScope of scopes)
+      ok(repo, [
+        "migrate-scope",
+        "--offline",
+        "--legacy-repository",
+        `github.com/${oldScope.repository}`,
+      ])
+    const before = requests.length
+    const retry = await labelComments(store, agent(scope), { labeler })
+    assert.equal(retry.considered, 0)
+    assert.equal(requests.length, before)
+    assert.equal(ok(repo, ["verify"], { failLookup: true }).ok, true)
+  } finally {
+    await store.close()
+  }
+})
+
+it("saves a new proposal after two old names rejected the same theme", async () => {
+  const repo = checkout("multiple-rejected-themes")
+  const directory = path.join(repo, ".replica", "learning")
+  const scopes = [
+    { host: "github.com", repository: "acme/checkout-prototypes" },
+    { host: "github.com", repository: "acme/previous-name" },
+  ]
+  function human(oldScope) {
+    return { scope: oldScope, principal: { kind: "human", id: "github:ana-designer" } }
+  }
+  function agent(oldScope) {
+    return { scope: oldScope, principal: { kind: "agent", id: "agent:copilot" } }
+  }
+  const provider = createSqliteMemoryProvider({ directory })
+  const store = await createLearningStore({
+    provider,
+    clock: () => Date.parse("2026-10-09T12:00:00Z"),
+  })
+  const window = { from: "2026-09-29T00:00:00.000000Z", to: "2026-10-05T18:00:00.000000Z" }
+  try {
+    const rejected = []
+    for (const [index, oldScope] of scopes.entries()) {
+      const grant = await store.addGrant(human(oldScope), {
+        purposes: ["review", "instruction"],
+        sources: ["hub_review_comments"],
+        basis: "The team agreed to learn from review comments.",
+      })
+      const log = weekOneLog({
+        repository: oldScope.repository,
+        snapshotId: `11111111-2222-4333-8444-77777777777${index}`,
+      })
+      if (index === 1) for (const call of log.calls) call.result.target.repositoryId = 84
+      await store.importHubReviewComments(agent(oldScope), log, { grantIds: [grant.id] })
+      await store.annotate(agent(oldScope), weekOneLabels().labels)
+      const run = await store.consolidate(agent(oldScope), {
+        consolidator: createRecurrenceConsolidator(),
+        window,
+      })
+      assert.equal(run.proposals.length, 1)
+      const proposal = run.proposals[0]
+      await store.rejectMemory(human(oldScope), proposal.id, {
+        expectedDigest: proposal.reviewDigest,
+        reason: "Wait for more evidence.",
+      })
+      rejected.push(proposal.id)
+    }
+    for (const oldScope of scopes)
+      ok(repo, [
+        "migrate-scope",
+        "--offline",
+        "--legacy-repository",
+        `github.com/${oldScope.repository}`,
+      ])
+    const run = await store.consolidate(agent(scope), {
+      consolidator: createRecurrenceConsolidator(),
+      window,
+    })
+    assert.equal(run.proposals.length, 1, JSON.stringify(run.diagnostics))
+    assert.ok(!rejected.includes(run.proposals[0].id))
+    const versions = await provider.readMemoryVersions({ scope })
+    assert.ok(
+      rejected.every((id) =>
+        versions.some((version) => version.id === id && version.state === "rejected"),
+      ),
+    )
+    assert.ok(
+      versions.some(
+        (version) => version.id === run.proposals[0].id && version.state === "proposed",
+      ),
+    )
+    assert.equal(ok(repo, ["verify"], { failLookup: true }).ok, true)
+  } finally {
+    await store.close()
+  }
+})
+
+it("rolls back migration when a comment version has different stable authors", async () => {
+  const repo = checkout("overlap-identity-conflict")
+  const directory = path.join(repo, ".replica", "learning")
+  const scopes = [
+    { host: "github.com", repository: "acme/checkout-prototypes" },
+    { host: "github.com", repository: "acme/previous-name" },
+  ]
+  const provider = createSqliteMemoryProvider({ directory })
+  const store = await createLearningStore({ provider })
+  const root = weekOneLog()
+    .calls.flatMap((call) => call.result.threads ?? [])
+    .find((thread) => thread.id === 101)
+  async function snapshot(queryScope) {
+    return Object.fromEntries(
+      await Promise.all(
+        Object.keys(STREAMS).map(async (stream) => [
+          stream,
+          await provider.readRecords(stream, { scope: queryScope }),
+        ]),
+      ),
+    )
+  }
+  try {
+    for (const [index, oldScope] of scopes.entries()) {
+      const human = { scope: oldScope, principal: { kind: "human", id: "github:ana-designer" } }
+      const grant = await store.addGrant(human, {
+        purposes: ["review"],
+        sources: ["hub_review_comments"],
+        basis: "The team agreed to learn from review comments.",
+      })
+      const log = collectionLog({
+        repository: oldScope.repository,
+        snapshotId: `11111111-2222-4333-8444-66666666666${index}`,
+        capturedAt: "2026-10-05T18:00:00.000000Z",
+        threads: [
+          {
+            root: { ...root, author: { ...root.author, githubId: index === 0 ? 41 : 99 } },
+            replies: [],
+          },
+        ],
+      })
+      await store.importHubReviewComments(human, log, { grantIds: [grant.id] })
+    }
+    const first = (await provider.readRecords("events", { scope: scopes[0] })).find(
+      (event) => event.type === "human_comment",
+    )
+    const second = (await provider.readRecords("events", { scope: scopes[1] })).find(
+      (event) => event.type === "human_comment",
+    )
+    assert.equal(first.payloadDigest, second.payloadDigest)
+    assert.notEqual(first.actor.id, second.actor.id)
+    ok(repo, [
+      "migrate-scope",
+      "--offline",
+      "--legacy-repository",
+      `github.com/${scopes[0].repository}`,
+    ])
+    const beforeTarget = await snapshot(scope)
+    const beforeOld = await snapshot(scopes[1])
+    const failed = cli(
+      repo,
+      ["migrate-scope", "--offline", "--legacy-repository", `github.com/${scopes[1].repository}`],
+      { failLookup: true },
+    )
+    assert.notEqual(failed.status, 0)
+    assert.match(failed.stderr, /author|identity|conflict/i)
+    assert.deepEqual(await snapshot(scope), beforeTarget)
+    assert.deepEqual(await snapshot(scopes[1]), beforeOld)
+    assert.equal(ok(repo, ["verify"], { failLookup: true }).ok, true)
+  } finally {
+    await store.close()
+  }
 })
 
 it("migrates Solo history and keeps redactions across retries and replay", async () => {
@@ -827,6 +1438,69 @@ it("replays an old-name snapshot after a rename but rejects a new old-name snaps
   assert.match(refused.stderr, /repository|scope/i)
   assert.deepEqual(await evidence(), before)
   assert.equal(ok(repo, ["verify"], { failLookup: true }).ok, true)
+})
+
+it("replays an intermediate repository name after two renames", async () => {
+  const repo = checkout("two-renames")
+  const grant = ok(repo, [
+    "grants",
+    "add",
+    "--purpose",
+    "review",
+    "--basis",
+    "The team agreed to learn from review comments.",
+    "--by",
+    "github:ana-designer",
+  ])
+  ok(repo, ["import", "hub-comments", "log.json", "--grant", grant.id])
+  execFileSync("git", [
+    "-C",
+    repo,
+    "remote",
+    "set-url",
+    "origin",
+    "https://github.com/acme/intermediate-name.git",
+  ])
+  const intermediate = weekOneLog({
+    repository: "acme/intermediate-name",
+    snapshotId: "11111111-2222-4333-8444-555555555555",
+    capturedAt: "2026-10-06T18:00:00.000000Z",
+  })
+  writeFileSync(path.join(repo, "intermediate.json"), JSON.stringify(intermediate))
+  ok(repo, ["import", "hub-comments", "intermediate.json", "--grant", grant.id])
+  execFileSync("git", [
+    "-C",
+    repo,
+    "remote",
+    "set-url",
+    "origin",
+    "https://github.com/acme/current-name.git",
+  ])
+  const provider = createSqliteMemoryProvider({
+    directory: path.join(repo, ".replica", "learning"),
+  })
+  try {
+    const beforeEvents = await provider.readRecords("events", { scope })
+    const beforeCollections = await provider.readRecords("collections", { scope })
+    ok(repo, ["import", "hub-comments", "intermediate.json", "--grant", grant.id])
+    assert.deepEqual(await provider.readRecords("events", { scope }), beforeEvents)
+    assert.deepEqual(await provider.readRecords("collections", { scope }), beforeCollections)
+    const changed = structuredClone(intermediate)
+    changed.calls.find((call) => call.result.threads?.length).result.threads[0].body =
+      "A changed comment under the stored snapshot ID."
+    writeFileSync(path.join(repo, "changed-intermediate.json"), JSON.stringify(changed))
+    assert.notEqual(
+      cli(repo, ["import", "hub-comments", "changed-intermediate.json", "--grant", grant.id], {
+        failLookup: true,
+      }).status,
+      0,
+    )
+    assert.deepEqual(await provider.readRecords("events", { scope }), beforeEvents)
+    assert.deepEqual(await provider.readRecords("collections", { scope }), beforeCollections)
+    assert.equal(ok(repo, ["verify"], { failLookup: true }).ok, true)
+  } finally {
+    await provider.close()
+  }
 })
 
 it("preserves old history when confirming a rename before the upgrade", () => {
@@ -1166,6 +1840,159 @@ it("refuses an import when a migration stores the same snapshot during its write
   }
 })
 
+it("refuses a new snapshot when another history migrates during its import", async () => {
+  const fixture = await identicalSnapshotHistories("new-snapshot-migration-race")
+  const { provider, scopes } = fixture
+  const ready = Promise.withResolvers()
+  const resume = Promise.withResolvers()
+  const forwarding = {
+    ...provider,
+    async appendBatch(batch, options) {
+      if (batch.collections?.length) {
+        ready.resolve()
+        await resume.promise
+      }
+      return provider.appendBatch(batch, options)
+    },
+  }
+  const store = await createLearningStore({ provider: forwarding })
+  const human = { scope, principal: { kind: "human", id: "github:ana-designer" } }
+  const agent = {
+    scope,
+    sourceRepository: scopes[0].repository,
+    principal: { kind: "agent", id: "agent:copilot" },
+  }
+  const seedScope = { host: "github.com", repository: "acme/earlier-name" }
+  let pending
+  try {
+    const grant = await fixture.store.addGrant(
+      { ...human, scope: seedScope },
+      {
+        purposes: ["review"],
+        sources: ["hub_review_comments"],
+        basis: "The team agreed to learn from review comments.",
+      },
+    )
+    fixture.migrate(seedScope)
+    const snapshotId = "11111111-2222-4333-8444-333333333333"
+    const log = weekOneLog({
+      repository: agent.sourceRepository,
+      snapshotId,
+    })
+    pending = store.importHubReviewComments(agent, log, { grantIds: [grant.id] })
+    await Promise.race([
+      ready.promise,
+      pending.then(
+        () => {
+          throw new Error("The import finished before the write was paused.")
+        },
+        (error) => {
+          throw error
+        },
+      ),
+    ])
+    fixture.migrate(scopes[0])
+    const before = Object.fromEntries(
+      await Promise.all(
+        Object.keys(STREAMS).map(async (stream) => [
+          stream,
+          await provider.readRecords(stream, { scope }),
+        ]),
+      ),
+    )
+    resume.resolve()
+    await assert.rejects(pending, { code: "conflict" })
+    for (const stream of Object.keys(STREAMS))
+      assert.deepEqual(await provider.readRecords(stream, { scope }), before[stream])
+    assert.ok(before.collections.every((collection) => collection.snapshotId !== snapshotId))
+    const retried = await store.importHubReviewComments(agent, log, { grantIds: [grant.id] })
+    assert.equal(retried.collection.snapshotId, snapshotId)
+    assert.equal(ok(fixture.repo, ["verify"], { failLookup: true }).ok, true)
+  } finally {
+    resume.resolve()
+    if (pending) await pending.catch(() => {})
+    await fixture.store.close()
+  }
+})
+
+it("refuses a proposal when another history migrates during its write", async () => {
+  const repo = checkout("proposal-migration-race")
+  const scopes = [
+    { host: "github.com", repository: "acme/checkout-prototypes" },
+    { host: "github.com", repository: "acme/previous-name" },
+  ]
+  function human(oldScope) {
+    return { scope: oldScope, principal: { kind: "human", id: "github:ana-designer" } }
+  }
+  function agent(oldScope) {
+    return { scope: oldScope, principal: { kind: "agent", id: "agent:copilot" } }
+  }
+  const provider = createSqliteMemoryProvider({
+    directory: path.join(repo, ".replica", "learning"),
+  })
+  function clock() {
+    return Date.parse("2026-10-09T12:00:00Z")
+  }
+  const source = await createLearningStore({ provider, clock })
+  const ready = Promise.withResolvers()
+  const resume = Promise.withResolvers()
+  const forwarding = {
+    ...provider,
+    async appendMemoryVersion(record, options) {
+      ready.resolve()
+      await resume.promise
+      return provider.appendMemoryVersion(record, options)
+    },
+  }
+  const store = await createLearningStore({ provider: forwarding, clock })
+  let pending
+  try {
+    const grantInput = {
+      purposes: ["review", "instruction"],
+      sources: ["hub_review_comments"],
+      basis: "The team agreed to learn from review comments.",
+    }
+    const grant = await source.addGrant(human(scopes[0]), grantInput)
+    await source.importHubReviewComments(agent(scopes[0]), weekOneLog(), { grantIds: [grant.id] })
+    await source.annotate(agent(scopes[0]), weekOneLabels().labels)
+    await source.addGrant(human(scopes[1]), grantInput)
+    await migrateRepositoryScope({ provider, oldScope: scopes[0], newScope: scope, clock })
+    const preview = await store.consolidate(agent(scope), {
+      consolidator: createRecurrenceConsolidator(),
+      window: { from: "2026-09-29T00:00:00.000000Z", to: "2026-10-05T18:00:00.000000Z" },
+      dryRun: true,
+    })
+    assert.equal(preview.proposals.length, 1)
+    pending = store.proposeMemory(agent(scope), preview.proposals[0])
+    await Promise.race([
+      ready.promise,
+      pending.then(
+        () => {
+          throw new Error("The proposal finished before the write was paused.")
+        },
+        (error) => {
+          throw error
+        },
+      ),
+    ])
+    await migrateRepositoryScope({ provider, oldScope: scopes[1], newScope: scope, clock })
+    const beforeVersions = await provider.readMemoryVersions({ scope })
+    const beforeAudit = await provider.readRecords("audit", { scope })
+    assert.deepEqual(beforeVersions, [])
+    resume.resolve()
+    await assert.rejects(pending, { code: "conflict" })
+    assert.deepEqual(await provider.readMemoryVersions({ scope }), beforeVersions)
+    assert.deepEqual(await provider.readRecords("audit", { scope }), beforeAudit)
+    const retried = await store.proposeMemory(agent(scope), preview.proposals[0])
+    assert.equal(retried.state, "proposed")
+    assert.equal((await source.verify(human(scope))).ok, true)
+  } finally {
+    resume.resolve()
+    if (pending) await pending.catch(() => {})
+    await source.close()
+  }
+})
+
 async function identicalSnapshotHistories(name) {
   const repo = checkout(name)
   const directory = path.join(repo, ".replica", "learning")
@@ -1422,6 +2249,104 @@ it("keeps overlapping withdrawn evidence withheld when its history migrates seco
     assert.deepEqual(new Set(await fixture.observe("instruction")), new Set(comments))
     for (const id of comments) assert.deepEqual(await fixture.observe("instruction", [id]), [id])
     assert.ok((await store.recall(agent(scope))).memories.some((item) => item.id === memories[0]))
+  } finally {
+    await store.close()
+  }
+})
+
+it("does not revive an older label when a newer comment version is withheld", async () => {
+  const repo = checkout("withheld-newer-comment")
+  const scopes = [
+    { host: "github.com", repository: "acme/checkout-prototypes" },
+    { host: "github.com", repository: "acme/previous-name" },
+  ]
+  function human(oldScope) {
+    return { scope: oldScope, principal: { kind: "human", id: "github:ana-designer" } }
+  }
+  function agent(oldScope) {
+    return { scope: oldScope, principal: { kind: "agent", id: "agent:copilot" } }
+  }
+  const provider = createSqliteMemoryProvider({
+    directory: path.join(repo, ".replica", "learning"),
+  })
+  const store = await createLearningStore({
+    provider,
+    clock: () => Date.parse("2026-10-09T12:00:00Z"),
+  })
+  const grantInput = {
+    purposes: ["review", "instruction"],
+    sources: ["hub_review_comments"],
+    basis: "The team agreed to learn from review comments.",
+  }
+  const root = weekOneLog()
+    .calls.flatMap((call) => call.result.threads ?? [])
+    .find((thread) => thread.id === 101)
+  const label = weekOneLabels().labels.find((item) => item.target.commentId === 101)
+  const window = { from: "2026-09-29T00:00:00.000000Z", to: "2026-10-08T18:00:00.000000Z" }
+  const consolidator = createRecurrenceConsolidator({
+    minEpisodes: 1,
+    minPrototypes: 1,
+    minReviewers: 1,
+  })
+  try {
+    const firstGrant = await store.addGrant(human(scopes[0]), grantInput)
+    const first = collectionLog({
+      repository: scopes[0].repository,
+      snapshotId: "11111111-2222-4333-8444-111111111111",
+      capturedAt: "2026-10-05T18:00:00.000000Z",
+      threads: [{ root, replies: [] }],
+    })
+    await store.importHubReviewComments(agent(scopes[0]), first, { grantIds: [firstGrant.id] })
+    await store.annotate(agent(scopes[0]), [label])
+    assert.equal(
+      (await store.consolidate(agent(scopes[0]), { consolidator, window, dryRun: true })).proposals
+        .length,
+      1,
+    )
+    const oldComment = (await provider.readRecords("events", { scope: scopes[0] })).find(
+      (event) => event.type === "human_comment" && event.payload?.commentId === 101,
+    )
+    const secondGrant = await store.addGrant(human(scopes[1]), grantInput)
+    const editedAt = "2026-10-07T09:00:00.000000Z"
+    const second = collectionLog({
+      repository: scopes[1].repository,
+      snapshotId: "11111111-2222-4333-8444-222222222222",
+      capturedAt: "2026-10-08T18:00:00.000000Z",
+      threads: [
+        { root: { ...root, body: "A newer version.", editedAt, updatedAt: editedAt }, replies: [] },
+      ],
+    })
+    await store.importHubReviewComments(agent(scopes[1]), second, { grantIds: [secondGrant.id] })
+    const newComment = (await provider.readRecords("events", { scope: scopes[1] })).find(
+      (event) => event.type === "human_comment" && event.payload?.commentId === 101,
+    )
+    assert.equal(newComment.supersedes, undefined)
+    await store.withdrawGrant(human(scopes[1]), secondGrant.id, {
+      purposes: ["review", "instruction"],
+    })
+    for (const oldScope of scopes)
+      await migrateRepositoryScope({ provider, oldScope, newScope: scope })
+    const selected = await store.queryObservations(human(scope), {
+      purpose: "instruction",
+      eventIds: [oldComment.id, newComment.id],
+    })
+    assert.deepEqual(
+      selected.events.map((event) => event.id),
+      [oldComment.id],
+    )
+    const withheld = await store.consolidate(agent(scope), { consolidator, window, dryRun: true })
+    assert.deepEqual(withheld.proposals, [])
+
+    await store.addGrant(human(scope), grantInput)
+    assert.deepEqual(
+      (await store.consolidate(agent(scope), { consolidator, window, dryRun: true })).proposals,
+      [],
+    )
+    await store.annotate(agent(scope), [{ ...label, target: { eventId: newComment.id } }])
+    const current = await store.consolidate(agent(scope), { consolidator, window, dryRun: true })
+    assert.equal(current.proposals.length, 1)
+    assert.ok(current.proposals[0].evidence.some((item) => item.eventIds.includes(newComment.id)))
+    assert.equal((await store.verify(human(scope))).ok, true)
   } finally {
     await store.close()
   }

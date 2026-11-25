@@ -73,6 +73,27 @@ function run(options, input) {
 }
 
 describe("recurrence consolidator", () => {
+  it("does not use an older label after an independently imported edit", async () => {
+    const input = view([
+      { by: "ana-designer", prototype: 1, at: "2026-10-02T10:00:00.000000Z" },
+      { by: "ana-designer", prototype: 1, at: "2026-10-03T10:00:00.000000Z", labels: [] },
+    ])
+    for (const episode of input.episodes) {
+      episode.source.repositoryId = 42
+      episode.source.threadId = 101
+    }
+    const comments = input.events.filter((event) => event.type === "human_comment")
+    comments[1].payload.commentId = comments[0].payload.commentId
+    const first = {
+      ...input,
+      episodes: [input.episodes[0]],
+      events: input.events.filter((event) => event.episodeId === input.episodes[0].id),
+    }
+    const thresholds = { minEpisodes: 1, minPrototypes: 1, minReviewers: 1 }
+    assert.equal((await run(thresholds, first)).proposals.length, 1)
+    assert.deepEqual((await run(thresholds, input)).proposals, [])
+  })
+
   it("proposes a theme with distinct support and counts a repeat reviewer once", async () => {
     const result = await run(
       {},

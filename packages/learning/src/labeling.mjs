@@ -1,6 +1,8 @@
+import { canonicalJson } from "./canonical-json.mjs"
 import { LearningError } from "./errors.mjs"
 import { OBSERVATIONS, SIGNALS, STANCES } from "./labelers/copilot.mjs"
 import { oneLine } from "./recall.mjs"
+import { stableReviewer } from "./sources/hub-review-comments.mjs"
 import { isTimestamp } from "./time.mjs"
 
 const SLUG = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/
@@ -34,10 +36,10 @@ export async function labelComments(store, context, { labeler, limit = 400, maxR
     throw new LearningError("invalid_input", "maxRequests must be a positive safe integer.")
   if (since !== undefined && !isTimestamp(since))
     throw new LearningError("invalid_input", "since must be an RFC 3339 UTC time.")
-  const { events } = await store.queryObservations(context, {
+  const { episodes, events } = await store.queryObservations(context, {
     purpose: "review",
   })
-  const { comments, waiting } = labelingView(events, context.principal.id, since)
+  const { comments, waiting } = labelingView(episodes, events, context.principal.id, since)
   const annotations = events.filter(
     (event) => event.type === "annotation" && event.payload !== undefined,
   )
@@ -123,8 +125,14 @@ export async function labelComments(store, context, { labeler, limit = 400, maxR
   } catch (error) {
     const failure = labelingError(error)
     try {
-      const current = (await store.queryObservations(context, { purpose: "review" })).events
-      result.remaining = labelingView(current, context.principal.id, since).waiting.length
+      const currentView = await store.queryObservations(context, { purpose: "review" })
+      const current = currentView.events
+      result.remaining = labelingView(
+        currentView.episodes,
+        current,
+        context.principal.id,
+        since,
+      ).waiting.length
       const previous = new Set(events.map((event) => event.id))
       const stored = current.filter(
         (event) =>
@@ -202,12 +210,31 @@ export function labelingError(error) {
     : new LearningError(typeof error?.code === "string" ? error.code : "unavailable", message)
 }
 
-function labelingView(events, principalId, since) {
+function labelingView(episodes, events, principalId, since) {
   const retracted = new Set(
     events.filter((event) => event.type === "retraction").map((event) => event.parentEventId),
   )
   const superseded = new Set(events.map((event) => event.supersedes).filter(Boolean))
-  const comments = events.filter(
+  const episodeById = new Map(episodes.map((episode) => [episode.id, episode]))
+  function identity(event) {
+    const source = episodeById.get(event.episodeId)?.source
+    const commentId = event.payload?.commentId
+    if (
+      source?.kind !== "hub_review_comments" ||
+      [source.hubOrigin, source.repositoryId, source.prototypeId, source.threadId, commentId].some(
+        (value) => value === undefined,
+      )
+    )
+      return event.id
+    return canonicalJson([
+      source.hubOrigin,
+      source.repositoryId,
+      source.prototypeId,
+      source.threadId,
+      commentId,
+    ])
+  }
+  const candidates = events.filter(
     (event) =>
       event.type === "human_comment" &&
       event.payload !== undefined &&
@@ -215,6 +242,10 @@ function labelingView(events, principalId, since) {
       !retracted.has(event.id) &&
       !superseded.has(event.id),
   )
+  function keyOf(event) {
+    return canonicalJson([identity(event), event.at])
+  }
+  const byId = new Map(candidates.map((event) => [event.id, event]))
   const done = new Set(
     events
       .filter(
@@ -223,12 +254,33 @@ function labelingView(events, principalId, since) {
           event.payload !== undefined &&
           event.actor.id === principalId,
       )
-      .map((event) => event.parentEventId),
+      .map((event) => byId.get(event.parentEventId))
+      .filter(Boolean)
+      .map(keyOf),
   )
+  const latest = new Map()
+  for (const event of candidates) {
+    const key = identity(event)
+    if (!latest.has(key) || latest.get(key) < event.at) latest.set(key, event.at)
+  }
+  const copies = new Map()
+  for (const event of candidates) {
+    if (event.at < latest.get(identity(event))) continue
+    const key = keyOf(event)
+    const previous = copies.get(key)
+    const episode = episodeById.get(event.episodeId)
+    const stable = stableReviewer(event.actor, episode.scope, episode.source)
+    const oldEpisode = previous && episodeById.get(previous.episodeId)
+    const oldStable =
+      previous && stableReviewer(previous.actor, oldEpisode.scope, oldEpisode.source)
+    if (!previous || (stable && !oldStable) || (stable === oldStable && event.id < previous.id))
+      copies.set(key, event)
+  }
+  const comments = [...copies.values()]
   return {
     comments,
     waiting: comments.filter(
-      (event) => !done.has(event.id) && (since === undefined || event.at >= since),
+      (event) => !done.has(keyOf(event)) && (since === undefined || event.at >= since),
     ),
   }
 }

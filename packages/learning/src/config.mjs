@@ -40,7 +40,7 @@ export const CONFIG_SCHEMA_VERSION = "replica.learning-config/v1"
  * repository with `repository` (github.com/repositories/ID) and the store with `directory`; Git is then
  * consulted only to keep the store out of a checkout's committed files.
  *
- * @param {{ cwd?: string, env?: Record<string, string | undefined>, directory?: string, repository?: string, legacyRepository?: string }} [options]
+ * @param {{ cwd?: string, env?: Record<string, string | undefined>, directory?: string, repository?: string, legacyRepository?: string, resolveIdentity?: boolean }} [options]
  */
 export async function resolveEnvironment({
   cwd = process.cwd(),
@@ -49,6 +49,7 @@ export async function resolveEnvironment({
   repository,
   legacyRepository,
   legacyRedaction = false,
+  resolveIdentity = true,
 } = {}) {
   if (legacyRedaction)
     return resolveHostedEnvironment({
@@ -98,7 +99,7 @@ export async function resolveEnvironment({
       ? await isIgnoredByGit(root, placement.relative, { directory: true })
       : null,
   }
-  if (!originScope || originScope.host !== "github.com") return environment
+  if (!resolveIdentity || !originScope || originScope.host !== "github.com") return environment
   const problem = await placementProblem(environment, dataDirectory)
   if (problem) return environment
   const identity = await resolveGitHubIdentity(environment, originScope, env)
@@ -161,6 +162,7 @@ async function resolveHostedEnvironment({
     config: config ?? {},
     scope,
     legacyScope,
+    explicitLegacyScope: legacyRepository !== undefined,
     sourceRepository: legacyScope?.repository ?? scope.repository,
     scopeSource: "--repository",
     insideCheckout: Boolean(placement?.inside),
@@ -453,12 +455,31 @@ export async function openLearningStore(environment, { clock = Date.now } = {}) 
             "Confirm which repository owns the old learning data, stop older clients, then run replica-learning migrate-scope --offline.",
           )
       }
-      result = await migrateRepositoryScope({
-        provider,
-        oldScope: environment.legacyScope,
-        newScope: environment.scope,
-        clock,
-      })
+      const previous =
+        typeof provider.scopeMigrationFrom === "function"
+          ? await provider.scopeMigrationFrom(environment.legacyScope)
+          : null
+      if (previous) {
+        if (
+          !previous.oldScope ||
+          canonicalJson(previous.oldScope) !== canonicalJson(environment.legacyScope)
+        )
+          throw new LearningError("storage_corrupt", "The repository migration mapping is invalid.")
+        if (
+          !previous.newScope ||
+          canonicalJson(previous.newScope) !== canonicalJson(environment.scope)
+        )
+          throw new LearningError("conflict", "The old scope was migrated to another repository.")
+      }
+      if (previous && canonicalJson(environment.legacyScope) !== canonicalJson(environment.scope))
+        result = previous
+      else
+        result = await migrateRepositoryScope({
+          provider,
+          oldScope: environment.legacyScope,
+          newScope: environment.scope,
+          clock,
+        })
     } else if (environment.legacyScope) {
       const query = { scope: environment.legacyScope }
       const scopes =

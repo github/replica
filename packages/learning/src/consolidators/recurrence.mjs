@@ -66,6 +66,13 @@ export function createRecurrenceConsolidator(options = {}) {
     async consolidate({ window }, view) {
       const episodes = new Map(view.episodes.map((episode) => [episode.id, episode]))
       const events = new Map(view.events.map((event) => [event.id, event]))
+      const latestComments = new Map()
+      for (const event of view.events) {
+        if (event.type !== "human_comment" || event.payload?.body === null) continue
+        const key = commentIdentity(event, episodes)
+        const latest = latestComments.get(key)
+        if (!latest || event.at > latest) latestComments.set(key, event.at)
+      }
       const superseded = new Set(
         view.events.filter((event) => event.supersedes).map((event) => event.supersedes),
       )
@@ -107,6 +114,7 @@ export function createRecurrenceConsolidator(options = {}) {
         if (!target || target.type !== "human_comment" || target.payload.body === null) continue
         if (
           superseded.has(target.id) ||
+          target.at < latestComments.get(commentIdentity(target, episodes)) ||
           supersededComments.has(`${commentKey(target, episodes)}\u0000${target.actor.id}`)
         ) {
           edited++
@@ -315,11 +323,14 @@ function threadKey(episode) {
 }
 
 function commentKey(target, episodes) {
+  const identity = commentIdentity(target, episodes)
+  return identity === target.id ? identity : canonicalJson([identity, target.at])
+}
+
+function commentIdentity(target, episodes) {
   const thread = threadKey(episodes.get(target.episodeId))
   const commentId = target.payload?.commentId
-  return thread && commentId !== undefined
-    ? canonicalJson([thread, commentId, target.at])
-    : target.id
+  return thread && commentId !== undefined ? canonicalJson([thread, commentId]) : target.id
 }
 
 function evidence(target, episodes) {

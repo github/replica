@@ -10,7 +10,7 @@ import {
 } from "node:fs"
 import path from "node:path"
 import { DatabaseSync } from "node:sqlite"
-import { canonicalJson } from "../canonical-json.mjs"
+import { canonicalJson, digestOf } from "../canonical-json.mjs"
 import { LearningError, ProviderConflictError } from "../errors.mjs"
 import {
   PROVIDER_CONTRACT,
@@ -193,10 +193,27 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
     return { appended, existing }
   }
 
+  function assertMigrations(expectedMigrations) {
+    if (expectedMigrations) {
+      const table = db
+        .prepare("select 1 from sqlite_master where type = 'table' and name = 'scope_migrations'")
+        .get()
+      const migrations = table
+        ? db
+            .prepare("select metadata from scope_migrations where new_scope_key = ? order by rowid")
+            .all(canonicalJson(expectedMigrations.scope))
+            .map((row) => JSON.parse(row.metadata))
+        : []
+      if (digestOf(migrations) !== expectedMigrations.digest)
+        throw new ProviderConflictError("Repository migration changed during the write.")
+    }
+  }
+
   /** Append to several streams in one transaction. */
-  function write(batch, { audit = [], expectedCollection } = {}) {
+  function write(batch, { audit = [], expectedCollection, expectedMigrations } = {}) {
     const writes = batchWrites(batch, audit)
     return transaction(() => {
+      assertMigrations(expectedMigrations)
       if (expectedCollection) {
         const actual = statements.snapshotCollections
           .all(canonicalJson(expectedCollection.scope), expectedCollection.snapshotId)
@@ -215,6 +232,7 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
 
   return {
     atomicMigrationRedactions: true,
+    atomicMigrationFence: true,
 
     manifest() {
       return {
@@ -270,13 +288,17 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
       })
     },
 
-    async appendMemoryVersion(record, { expectedPreviousDigest = null, audit = [] } = {}) {
+    async appendMemoryVersion(
+      record,
+      { expectedPreviousDigest = null, audit = [], expectedMigrations } = {},
+    ) {
       assertStorable([record])
       assertStorable(audit)
       if (!Number.isSafeInteger(record.version) || record.version < 1)
         throw new LearningError("invalid_input", "A memory version needs a positive version.")
       try {
         transaction(() => {
+          assertMigrations(expectedMigrations)
           const latest = statements.latestVersion.get(record.id)
           if ((latest?.digest ?? null) !== expectedPreviousDigest)
             throw new ProviderConflictError(`Memory ${record.id} changed since it was read.`, {
