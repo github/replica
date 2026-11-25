@@ -34,3 +34,5 @@ export type LearningDecision =
   | { decision: "accept"; digest: string; content?: string }
   | { decision: "reject"; digest: string; reason: string }
   | { decision: "retire"; reason: string }
+  | { decision: "edit"; digest: string; title?: string; content?: string; reason: string }
+  | { decision: "reinstate"; digest: string; reason: string }

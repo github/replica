@@ -35,6 +35,8 @@ export async function reconcileLearningDecisionOperation(
 ) {
   const expected = {
     accept: "accepted",
+    edit: "accepted",
+    reinstate: "accepted",
     reject: "rejected",
     retire: "retired",
   }[operation.decision]

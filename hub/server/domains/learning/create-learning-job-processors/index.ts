@@ -317,7 +317,8 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
                   id: input.auditId,
                   type: "learning_decision",
                   actorMembershipId: operation.actorMembershipId,
-                  decision: operation.decision as "accept" | "reject" | "retire",
+                  decision: operation.decision as
+                    "accept" | "reject" | "retire" | "edit" | "reinstate",
                   learningId: operation.learningId,
                   operationId: operation.id,
                   outcome: input.outcome,

@@ -109,4 +109,106 @@ describe("executeLearningDecision()", () => {
       }),
     ).rejects.toMatchObject({ code: "EACCES" })
   })
+
+  it("passes an accepted learning edit and its private text to the command", async () => {
+    let reasonPath = ""
+    vi.mocked(validatePrivateStorageRoot).mockResolvedValue("/private/learning/repository")
+    vi.mocked(runLearningCommand).mockImplementation(async (arguments_) => {
+      expect(arguments_).toEqual(
+        expect.arrayContaining([
+          "edit",
+          "mem_1",
+          "--digest",
+          `sha256:${"a".repeat(64)}`,
+          "--operation-id",
+          "22222222-2222-4222-8222-222222222222",
+          "--by",
+          "human:mona",
+        ]),
+      )
+      for (const [flag, text] of [
+        ["--title-file", "Labels stay visible"],
+        ["--content-file", "Show labels above each field."],
+        ["--reason-file", "Clarify the guidance."],
+      ] as const) {
+        expect(arguments_).not.toContain(text)
+        const index = arguments_.indexOf(flag)
+        expect(index).toBeGreaterThan(-1)
+        const path = arguments_[index + 1]!
+        expect(await readFile(path, "utf8")).toBe(text)
+        expect((await stat(path)).mode & 0o077).toBe(0)
+        if (flag === "--reason-file") reasonPath = path
+      }
+      return {}
+    })
+
+    await executeLearningDecision({
+      actor: "human:mona",
+      applicationRoot: "/app",
+      cliPath: "/app/replica-learning.mjs",
+      decision: {
+        decision: "edit",
+        digest: `sha256:${"a".repeat(64)}`,
+        title: "Labels stay visible",
+        content: "Show labels above each field.",
+        reason: "Clarify the guidance.",
+      },
+      learningDatabaseUrl: "postgresql://learning.example/replica",
+      learningId: "mem_1",
+      nodePath: "/node",
+      operationId: "22222222-2222-4222-8222-222222222222",
+      repositoryId: "11111111-2222-4333-8444-555555555555",
+      repositoryScope: "github.com/repositories/123",
+      root: "/private/learning",
+      staticDirectories: [],
+    })
+    expect(reasonPath).not.toBe("")
+    await expect(stat(reasonPath)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("passes the reviewed digest and reason when reinstating a learning", async () => {
+    let reasonPath = ""
+    vi.mocked(validatePrivateStorageRoot).mockResolvedValue("/private/learning/repository")
+    vi.mocked(runLearningCommand).mockImplementation(async (arguments_) => {
+      expect(arguments_).toEqual(
+        expect.arrayContaining([
+          "reinstate",
+          "mem_1",
+          "--digest",
+          `sha256:${"b".repeat(64)}`,
+          "--operation-id",
+          "33333333-3333-4333-8333-333333333333",
+          "--by",
+          "human:mona",
+        ]),
+      )
+      expect(arguments_).not.toContain("The team confirmed the guidance.")
+      const index = arguments_.indexOf("--reason-file")
+      expect(index).toBeGreaterThan(-1)
+      reasonPath = arguments_[index + 1]!
+      expect(await readFile(reasonPath, "utf8")).toBe("The team confirmed the guidance.")
+      return {}
+    })
+
+    await executeLearningDecision({
+      actor: "human:mona",
+      applicationRoot: "/app",
+      cliPath: "/app/replica-learning.mjs",
+      decision: {
+        decision: "reinstate",
+        digest: `sha256:${"b".repeat(64)}`,
+        reason: "The team confirmed the guidance.",
+      },
+      learningDatabaseUrl: "postgresql://learning.example/replica",
+      learningId: "mem_1",
+      nodePath: "/node",
+      operationId: "33333333-3333-4333-8333-333333333333",
+      repositoryId: "11111111-2222-4333-8444-555555555555",
+      repositoryScope: "github.com/repositories/123",
+      root: "/private/learning",
+      staticDirectories: [],
+    })
+    expect(reasonPath).not.toBe("")
+    await expect(stat(reasonPath)).rejects.toMatchObject({ code: "ENOENT" })
+  })
 })

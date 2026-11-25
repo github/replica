@@ -7,7 +7,7 @@ export function createLearningDecisionOperation(
     repositoryId: string
     actorMembershipId: string
     learningId: string
-    decision: "accept" | "reject" | "retire"
+    decision: "accept" | "reject" | "retire" | "edit" | "reinstate"
   },
 ) {
   return database.learningDecisionOperation.create({ data: input })

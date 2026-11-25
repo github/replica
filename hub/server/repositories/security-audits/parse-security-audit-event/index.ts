@@ -289,7 +289,7 @@ const eventSchema = z.discriminatedUnion("type", [
   z
     .object({
       actorMembershipId: z.uuid(),
-      decision: z.enum(["accept", "reject", "retire"]),
+      decision: z.enum(["accept", "reject", "retire", "edit", "reinstate"]),
       id: z.uuid(),
       learningId: z.string().min(1).max(255),
       operationId: z.uuid(),

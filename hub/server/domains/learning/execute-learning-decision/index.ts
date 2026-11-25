@@ -49,17 +49,26 @@ export async function executeLearningDecision(input: {
   arguments_.push("--by", input.actor)
   let temporaryDirectory: string | undefined
   try {
-    if (input.decision.decision !== "accept") {
+    if (input.decision.decision !== "accept" || input.decision.content !== undefined) {
       temporaryDirectory = await mkdtemp(resolve(tmpdir(), "replica-learning-decision-"))
-      const reasonPath = resolve(temporaryDirectory, "reason.txt")
+    }
+    if (input.decision.decision !== "accept") {
+      const reasonPath = resolve(temporaryDirectory!, "reason.txt")
       await writeFile(reasonPath, input.decision.reason, { mode: 0o600 })
       arguments_.push("--reason-file", reasonPath)
     }
-    if (input.decision.decision === "accept" && input.decision.content !== undefined) {
-      temporaryDirectory = await mkdtemp(resolve(tmpdir(), "replica-learning-decision-"))
-      const contentPath = resolve(temporaryDirectory, "content.txt")
+    if (
+      (input.decision.decision === "accept" || input.decision.decision === "edit") &&
+      input.decision.content !== undefined
+    ) {
+      const contentPath = resolve(temporaryDirectory!, "content.txt")
       await writeFile(contentPath, input.decision.content, { mode: 0o600 })
       arguments_.push("--content-file", contentPath)
+    }
+    if (input.decision.decision === "edit" && input.decision.title !== undefined) {
+      const titlePath = resolve(temporaryDirectory!, "title.txt")
+      await writeFile(titlePath, input.decision.title, { mode: 0o600 })
+      arguments_.push("--title-file", titlePath)
     }
     await runLearningCommand(
       [
@@ -86,6 +95,10 @@ export async function executeLearningDecision(input: {
         ? "Learning accepted."
         : input.decision.decision === "reject"
           ? "Suggestion rejected."
-          : "Learning retired.",
+          : input.decision.decision === "retire"
+            ? "Learning retired."
+            : input.decision.decision === "edit"
+              ? "Learning updated."
+              : "Learning reinstated.",
   }
 }
