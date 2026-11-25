@@ -31,8 +31,6 @@ export interface ReviewCommentsCopy {
   heading: string
   closeLabel: string
   commentMenuLabel: string
-  commentOnElementLabel: string
-  highlightRegionLabel: string
   cancelSelectionLabel: string
   bridgeUnavailableLabel: string
   selectionBlockedLabel: string

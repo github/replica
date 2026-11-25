@@ -158,12 +158,12 @@ export const AccessChanged: Story = {
   },
 }
 export const Single: Story = { args: { state: { ...state, links: [link] } } }
-export const ShowChrome: Story = {
+export const FullScreenPreviewOff: Story = {
   args: { state: { ...state, links: [link] } },
   play: async ({ canvas, userEvent }) => {
-    const checkbox = canvas.getByRole("checkbox", { name: shareCopy.showChrome })
+    const checkbox = canvas.getByRole("checkbox", { name: shareCopy.fullScreenPreview })
     await userEvent.click(checkbox)
-    await expect(checkbox).toBeChecked()
+    await expect(checkbox).not.toBeChecked()
     await expect(canvas.getByRole("textbox", { name: shareCopy.internal })).toHaveValue(
       state.context!.prototype.build!.url,
     )

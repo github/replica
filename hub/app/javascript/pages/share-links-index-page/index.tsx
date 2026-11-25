@@ -25,13 +25,13 @@ export function ShareLinksIndexPage({
   sourceControlQuery?: string
   controlSettings?: ReturnType<typeof useShareControlSettings>
 }) {
-  const [showChrome, setShowChrome] = useState(false)
-  const showChromeId = useId()
+  const [fullScreenPreview, setFullScreenPreview] = useState(true)
+  const fullScreenPreviewId = useId()
   const internalShareUrl =
     data.selectedBuild && !controlSettings?.blocked
       ? withViewMode(
           withControlQuery(data.closePath ?? data.branchPath, controlSettings?.query ?? ""),
-          showChrome,
+          fullScreenPreview,
         )
       : null
 
@@ -65,12 +65,12 @@ export function ShareLinksIndexPage({
                     description={data.internalOpenLabel}
                   />
                 </div>
-                <FormControl id={showChromeId}>
+                <FormControl id={fullScreenPreviewId}>
                   <Checkbox
-                    checked={showChrome}
-                    onChange={(event) => setShowChrome(event.target.checked)}
+                    checked={fullScreenPreview}
+                    onChange={(event) => setFullScreenPreview(event.target.checked)}
                   />
-                  <FormControl.Label>{data.showChromeLabel}</FormControl.Label>
+                  <FormControl.Label>{data.fullScreenPreviewLabel}</FormControl.Label>
                 </FormControl>
               </section>
             ) : data.selectedBuild ? (

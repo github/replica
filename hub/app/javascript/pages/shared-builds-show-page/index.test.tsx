@@ -45,6 +45,6 @@ describe("SharedBuildsShowPage()", () => {
     })
 
     expect(screen.getByRole("toolbar")).toHaveClass("build-controls-floating-toolbar")
-    expect(screen.getByRole("button", { name: "Controls" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Options" })).toBeInTheDocument()
   })
 })

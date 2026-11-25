@@ -3,8 +3,21 @@ import { createRef } from "react"
 import { describe, expect, it, vi } from "vitest"
 
 import { replicaBrowseData } from "@/storybook/fixtures/replica-browse"
+import type * as AnnotationShortcut from "@utils/is-annotation-shortcut"
+import { OPTIONS_TOGGLE_EVENT } from "@utils/preview-bridge/constants"
 
 import { PrototypePreview } from "."
+
+vi.mock("@utils/is-annotation-shortcut", async (importOriginal) => {
+  const actual = await importOriginal<typeof AnnotationShortcut>()
+  const { asTrustedKeyboardEvent } = await import("@/test/as-trusted-keyboard-event")
+  return {
+    ...actual,
+    isAnnotationShortcut(event: KeyboardEvent, shortcut?: "s" | "c" | "o", shift = false) {
+      return actual.isAnnotationShortcut(asTrustedKeyboardEvent(event), shortcut, shift)
+    },
+  }
+})
 
 const props = {
   address: "http://replica.localhost:19500/repositories/2001/replica?return_path=%2F",
@@ -71,18 +84,45 @@ describe("PrototypePreview()", () => {
     const { rerender } = render(<PrototypePreview {...controlled} />)
     const frame = screen.getByTitle(props.frameTitle)
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Controls" }))
+      fireEvent.click(screen.getByRole("button", { name: "Options" }))
       await Promise.resolve()
     })
-    fireEvent.click(screen.getByRole("button", { name: "Collapse controls" }))
+    fireEvent.click(screen.getByRole("button", { name: "Collapse options" }))
     rerender(<PrototypePreview {...controlled} minimized />)
     expect(screen.getByTitle(props.frameTitle)).toBe(frame)
-    expect(screen.getByRole("button", { name: "Expand controls" })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole("button", { name: "Controls" }))
-    expect(screen.queryByRole("button", { name: "Expand controls" })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole("button", { name: "Controls" }))
-    expect(screen.getByRole("button", { name: "Expand controls" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Expand options" })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Options" }))
+    expect(screen.queryByRole("button", { name: "Expand options" })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Options" }))
+    expect(screen.getByRole("button", { name: "Expand options" })).toBeInTheDocument()
     expect(screen.getByTitle(props.frameTitle)).toBe(frame)
     expect(frame).toHaveAttribute("src", props.previewUrl)
+  })
+  it("toggles options with O from Hub and from the focused preview, except while typing or in menus", () => {
+    render(<PrototypePreview {...props} controlsIdentity="preview-options-shortcut" />)
+    const options = screen.getByRole("button", { name: "Options" })
+    expect(options).toHaveAttribute("aria-keyshortcuts", "O")
+    expect(options).toHaveAttribute("aria-expanded", "false")
+
+    fireEvent.keyDown(screen.getByRole("textbox", { name: props.copy.previewUrlLabel }), {
+      key: "o",
+    })
+    expect(options).toHaveAttribute("aria-expanded", "false")
+    const menu = document.createElement("div")
+    menu.setAttribute("role", "menu")
+    document.body.append(menu)
+    fireEvent.keyDown(window, { key: "o" })
+    act(() => {
+      window.dispatchEvent(new Event(OPTIONS_TOGGLE_EVENT))
+    })
+    expect(options).toHaveAttribute("aria-expanded", "false")
+    menu.remove()
+
+    fireEvent.keyDown(window, { key: "o" })
+    expect(options).toHaveAttribute("aria-expanded", "true")
+    act(() => {
+      window.dispatchEvent(new Event(OPTIONS_TOGGLE_EVENT))
+    })
+    expect(options).toHaveAttribute("aria-expanded", "false")
   })
 })

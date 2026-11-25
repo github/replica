@@ -49,7 +49,7 @@ const PAGE_DATA: ShareLinksIndexPageData = {
   internalDescription: "People with repository access can open this prototype.",
   internalCopyLabel: "Copy internal prototype link",
   internalOpenLabel: "Open internal prototype link",
-  showChromeLabel: "Show chrome",
+  fullScreenPreviewLabel: "Full screen preview",
   internalUnavailableLabel: "Internal prototype link unavailable.",
 }
 
@@ -93,7 +93,7 @@ describe("ShareLinksIndexPage()", () => {
       />,
       { wrapper: HubThemeProvider },
     )
-    const checkbox = screen.getByRole("checkbox", { name: "Show chrome" })
+    const checkbox = screen.getByRole("checkbox", { name: "Full screen preview" })
     const input = screen.getByRole("textbox", { name: "Internal prototype link" })
     const open = screen.getByRole("link", { name: "Open internal prototype link" })
     const expected = new URL(PAGE_DATA.closePath!, window.location.href)
@@ -101,7 +101,7 @@ describe("ShareLinksIndexPage()", () => {
     expected.searchParams.append("view", "minimized")
     const publicLinkUrl = new URL(PAGE_DATA.shareLinks[0]!.url)
     publicLinkUrl.searchParams.set("rc.page.title", '"Configured"')
-    expect(checkbox).not.toBeChecked()
+    expect(checkbox).toBeChecked()
     expect(input.compareDocumentPosition(checkbox) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     )
@@ -128,7 +128,7 @@ describe("ShareLinksIndexPage()", () => {
     )
     unmount()
     render(<ShareLinksIndexPage data={PAGE_DATA} />, { wrapper: HubThemeProvider })
-    expect(screen.getByRole("checkbox", { name: "Show chrome" })).not.toBeChecked()
+    expect(screen.getByRole("checkbox", { name: "Full screen preview" })).toBeChecked()
   })
 
   it("falls back to the branch path when no close path is available", async () => {
@@ -159,7 +159,7 @@ describe("ShareLinksIndexPage()", () => {
       <ShareLinksIndexPage data={{ ...PAGE_DATA, selectedBuild: undefined }} />,
       { wrapper: HubThemeProvider },
     )
-    expect(screen.queryByRole("checkbox", { name: "Show chrome" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("checkbox", { name: "Full screen preview" })).not.toBeInTheDocument()
     expect(
       screen.queryByRole("textbox", { name: "Internal prototype link" }),
     ).not.toBeInTheDocument()
@@ -176,7 +176,7 @@ describe("ShareLinksIndexPage()", () => {
         }}
       />,
     )
-    expect(screen.queryByRole("checkbox", { name: "Show chrome" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("checkbox", { name: "Full screen preview" })).not.toBeInTheDocument()
     expect(screen.getByRole("status")).toHaveTextContent("Internal prototype link unavailable.")
   })
   it("decorates copied and opened links while preserving source settings in native mutation forms", async () => {

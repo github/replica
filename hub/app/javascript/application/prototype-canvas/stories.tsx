@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { fn } from "storybook/test"
+import { expect, fn } from "storybook/test"
 
 import { App } from "."
 import { publicationExamples } from "@utils/resolve-prototype-publication/fixtures"
@@ -595,6 +595,13 @@ export const CommentsAndPickAndPolish: Story = {
       prototypeUrl={new URL("/prototype-preview/index.html", window.location.href).href}
     />
   ),
+  play: async ({ canvas }) => {
+    await canvas.findByRole("button", { name: "Open Notes (1)" }, { timeout: 5_000 })
+    await canvas.findByRole("button", { name: /^Comments, 3/ }, { timeout: 5_000 })
+    await expect(
+      canvas.queryByText("Annotation needs the updated Replica preview bridge."),
+    ).toBeNull()
+  },
 }
 
 export const CommentsWithPickAndPolishSidebar: Story = {

@@ -7,7 +7,7 @@ export const shareCopy = {
   internalUnavailable: "Internal prototype link unavailable.",
   internalCopy: "Copy internal prototype link",
   internalOpen: "Open internal prototype link",
-  showChrome: "Show chrome",
+  fullScreenPreview: "Full screen preview",
   public: "Public share links",
   permissionUnknown: "Hub has not confirmed permission to manage public share links.",
   group: "Publish and share",
@@ -16,11 +16,11 @@ export const shareCopy = {
     "Anyone with a link can view its Build without signing in, but cannot view or add comments.",
   target: "New links share this published Build:",
   oldBuild: "This is the last published Build, not the current local preview.",
-  includeControlSettings: "Include current control settings",
+  includeControlSettings: "Include current option settings",
   controlSettingsDescription:
     "Adds settings for all configured pages to the links you copy or open. Saved share links stay unchanged.",
   controlSettingsWarning:
-    "Settings for controls that have not been published will not take effect for shared links.",
+    "Settings for options that have not been published will not take effect for shared links.",
   controlSettingsWarningTitle: "Local changes are not in the shared Build",
   label: "Label",
   labelPlaceholder: "Usability review",

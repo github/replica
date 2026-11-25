@@ -7,7 +7,6 @@ import type {
   ReviewRoute,
 } from "@utils/review-anchor/types"
 
-export type ReviewSelectionMode = "element" | "area"
 export type ReviewSelectionFailure = "element-unavailable" | "area-too-small" | "area-unavailable"
 
 export interface PreviewBridgeOptions {
@@ -25,13 +24,11 @@ export interface PreviewBridgeState {
   ready: boolean
   route: ReviewRoute | null
   selecting: boolean
-  selectionMode: ReviewSelectionMode | null
   selectedAnchor: ReviewAnchor | null
   selectionFailure: ReviewSelectionFailure | null
   resolutions: Map<number, AnchorResolution>
   handleFrameLoad: () => void
-  startElementSelection: () => void
-  startAreaSelection: () => void
+  startSelection: () => void
   cancelSelection: () => void
   clearSelection: () => void
   focusAnchor: (commentId: number) => void

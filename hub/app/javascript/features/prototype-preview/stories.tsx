@@ -39,7 +39,7 @@ export const WithControls: Story = {
     previewUrl: new URL("/prototype-preview/build-controls/index.html", window.location.href).href,
   },
   play: async ({ canvas, userEvent }) => {
-    await userEvent.click(await canvas.findByRole("button", { name: "Controls" }))
+    await userEvent.click(await canvas.findByRole("button", { name: "Options" }))
     await canvas.findByRole("textbox", { name: "Title" })
   },
 }
@@ -52,12 +52,12 @@ export const MinimizedControls: Story = {
 export const MissingControlsRuntime: Story = {
   args: { controlsIdentity: "storybook-preview-missing-controls-runtime" },
   play: async ({ canvas, userEvent }) => {
-    await userEvent.click(await canvas.findByRole("button", { name: "Controls" }))
+    await userEvent.click(await canvas.findByRole("button", { name: "Options" }))
     await waitFor(
       () =>
         expect(
           canvas.getByText(
-            "Build Controls did not connect. Reload the preview or check its definitions.",
+            "Build Options did not connect. Reload the preview or check its definitions.",
           ),
         ).toBeVisible(),
       { timeout: 10_000 },

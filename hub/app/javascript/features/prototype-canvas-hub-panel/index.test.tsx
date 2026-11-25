@@ -13,9 +13,21 @@ import {
 } from "@utils/resolve-prototype-publication/fixtures"
 import { resolvePublication } from "@utils/resolve-prototype-publication"
 import type { HubStatus } from "@utils/prototype-canvas/types"
+import type * as AnnotationShortcut from "@utils/is-annotation-shortcut"
 
 import { PrototypeCanvasHubPanel } from "."
 import { renderPrototypeCanvasHubPanel } from "./test-support/render-prototype-canvas-hub-panel"
+
+vi.mock("@utils/is-annotation-shortcut", async (importOriginal) => {
+  const actual = await importOriginal<typeof AnnotationShortcut>()
+  const { asTrustedKeyboardEvent } = await import("@/test/as-trusted-keyboard-event")
+  return {
+    ...actual,
+    isAnnotationShortcut(event: KeyboardEvent, shortcut?: "s" | "c" | "o", shift = false) {
+      return actual.isAnnotationShortcut(asTrustedKeyboardEvent(event), shortcut, shift)
+    },
+  }
+})
 
 it("reports an ordinary comment-loading failure outside the Comments sidebar", async () => {
   render(<div id="canvas-review-controls" />)
@@ -981,14 +993,14 @@ it("creates Hub conversations and supports existing-thread actions", async () =>
   postMessage.mockClear()
   fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
   fireEvent.click(
-    await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
+    await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentMenuLabel }),
   )
   await waitFor(() =>
     expect(postMessage).toHaveBeenCalledWith(
       {
         type: "replica:canvas:select",
         nonce,
-        mode: "element",
+        mode: "comment",
       },
       "http://localhost:4321",
     ),
@@ -1329,6 +1341,7 @@ describe("PrototypeCanvasHubPanel()", () => {
         {
           frameRef,
           onStatusChange,
+          open: false,
           status: {
             ...status,
             reviewRevision:
@@ -1355,18 +1368,12 @@ describe("PrototypeCanvasHubPanel()", () => {
           }),
         )
       })
-      fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
-      fireEvent.click(
-        await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
+      const post = vi.spyOn(frameRef.current!.contentWindow!, "postMessage")
+      fireEvent.keyDown(window, { key: "c" })
+      expect(post).toHaveBeenCalledWith(
+        { type: "replica:canvas:select", nonce, mode: "comment" },
+        "http://localhost:4321",
       )
-      if (target === "draft revision") {
-        await waitFor(() => expect(finishPreparation).toBeTypeOf("function"))
-        await act(async () => {
-          finishPreparation(Response.json(status))
-          await Promise.resolve()
-        })
-      }
-      await screen.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel })
       act(() => {
         window.dispatchEvent(
           new MessageEvent("message", {
@@ -1380,9 +1387,21 @@ describe("PrototypeCanvasHubPanel()", () => {
           }),
         )
       })
-      fireEvent.change(screen.getByRole("textbox", { name: reviewCommentsCopy.composerLabel }), {
-        target: { value: "Keep the comment on the source I selected." },
-      })
+      if (target === "draft revision") {
+        expect(
+          screen.queryByRole("textbox", { name: reviewCommentsCopy.composerLabel }),
+        ).not.toBeInTheDocument()
+        await act(async () => {
+          finishPreparation(Response.json(status))
+          await Promise.resolve()
+        })
+      }
+      fireEvent.change(
+        await screen.findByRole("textbox", { name: reviewCommentsCopy.composerLabel }),
+        {
+          target: { value: "Keep the comment on the source I selected." },
+        },
+      )
       view.rerender({
         status: {
           ...status,
@@ -1459,6 +1478,141 @@ describe("PrototypeCanvasHubPanel()", () => {
           ([input, options]) => input === "/api/hub/comments" && options?.method === "POST",
         ),
       ).toHaveLength(1)
+      view.unmount()
+    },
+  )
+
+  it.each(["status failure", "source mismatch", "cancellation", "replacement"] as const)(
+    "does not open a composer from an early selection after %s",
+    async (outcome) => {
+      const nonce = "00000000-0000-4000-8000-000000000023"
+      vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
+      const frameRef = createRef<HTMLIFrameElement>()
+      const onFrameLoad = vi.fn()
+      const preparations: ((response: Response) => void)[] = []
+      const status: HubStatus = {
+        ...publicationHub,
+        state: "connected",
+        prototype: importedPrototype,
+      }
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((path: string) => {
+          if (path === "/api/hub/events") return Promise.reject(new Error("Live unavailable"))
+          if (path === "/api/hub/status")
+            return new Promise<Response>((resolve) => preparations.push(resolve))
+          return Promise.resolve(Response.json({ comments: [], hasMore: false, nextCursor: null }))
+        }),
+      )
+      const view = renderPrototypeCanvasHubPanel(
+        { frameRef, status, open: false },
+        <iframe ref={frameRef} title="Prototype" src="about:blank" onLoad={onFrameLoad} />,
+      )
+      function respond(data: Record<string, unknown>) {
+        act(() => {
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              origin: "http://localhost:4321",
+              source: frameRef.current?.contentWindow,
+              data: { nonce, ...data },
+            }),
+          )
+        })
+      }
+      await waitFor(() => expect(onFrameLoad).toHaveBeenCalled())
+      respond({
+        type: "replica:canvas:ready",
+        protocolVersion: 1,
+        route: { pathname: "/", search: "", hash: "" },
+      })
+      const post = vi.spyOn(frameRef.current!.contentWindow!, "postMessage")
+      fireEvent.keyDown(window, { key: "c" })
+      expect(post).toHaveBeenCalledWith(
+        { type: "replica:canvas:select", nonce, mode: "comment" },
+        "http://localhost:4321",
+      )
+      respond({ type: "replica:canvas:selected", anchor: octocatRootComment.anchor })
+      expect(
+        screen.queryByRole("textbox", { name: reviewCommentsCopy.composerLabel }),
+      ).not.toBeInTheDocument()
+
+      if (outcome === "cancellation" || outcome === "replacement") {
+        fireEvent.keyDown(window, { key: "c" })
+        expect(post).toHaveBeenCalledWith(
+          { type: "replica:canvas:cancel-selection", nonce },
+          "http://localhost:4321",
+        )
+        expect(
+          screen.queryByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel }),
+        ).not.toBeInTheDocument()
+        if (outcome === "replacement") {
+          fireEvent.keyDown(window, { key: "c" })
+          expect(preparations).toHaveLength(2)
+        }
+      }
+      await act(async () => {
+        preparations[0]!(
+          outcome === "status failure"
+            ? Response.json({ error: "Source capture failed." }, { status: 503 })
+            : Response.json({
+                ...status,
+                ...(outcome === "source mismatch" ? { branch: "prototype/other" } : {}),
+              }),
+        )
+        await Promise.resolve()
+      })
+      expect(
+        screen.queryByRole("textbox", { name: reviewCommentsCopy.composerLabel }),
+      ).not.toBeInTheDocument()
+      if (outcome === "replacement") {
+        expect(
+          screen.getByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel }),
+        ).toBeVisible()
+        expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+        respond({ type: "replica:canvas:selected", anchor: octocatRootComment.anchor })
+        expect(
+          screen.queryByRole("textbox", { name: reviewCommentsCopy.composerLabel }),
+        ).not.toBeInTheDocument()
+        await act(async () => {
+          preparations[1]!(Response.json(status))
+          await Promise.resolve()
+        })
+        expect(
+          screen.getByRole("textbox", { name: reviewCommentsCopy.composerLabel }),
+        ).toBeVisible()
+      } else {
+        expect(post).toHaveBeenCalledWith(
+          { type: "replica:canvas:cancel-selection", nonce },
+          "http://localhost:4321",
+        )
+        expect(post).toHaveBeenCalledWith(
+          { type: "replica:canvas:clear-selection", nonce },
+          "http://localhost:4321",
+        )
+        expect(
+          screen.queryByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel }),
+        ).not.toBeInTheDocument()
+        if (outcome === "cancellation") {
+          expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+          expect(
+            post.mock.calls.filter(
+              ([data]: [unknown, ...unknown[]]) =>
+                typeof data === "object" &&
+                data !== null &&
+                "type" in data &&
+                data.type === "replica:canvas:select",
+            ),
+          ).toHaveLength(1)
+        } else {
+          expect(await screen.findByRole("alert")).toBeVisible()
+          if (outcome === "status failure")
+            expect(screen.getByRole("alert")).toHaveTextContent("Source capture failed.")
+        }
+        respond({ type: "replica:canvas:selected", anchor: octocatRootComment.anchor })
+        expect(
+          screen.queryByRole("textbox", { name: reviewCommentsCopy.composerLabel }),
+        ).not.toBeInTheDocument()
+      }
       view.unmount()
     },
   )

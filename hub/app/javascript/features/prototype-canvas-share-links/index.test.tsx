@@ -77,19 +77,19 @@ describe("ShareLinksPage()", () => {
       },
     }
     const f = fixture(display)
-    const checkbox = screen.getByRole("checkbox", { name: "Show chrome" })
+    const checkbox = screen.getByRole("checkbox", { name: "Full screen preview" })
     const input = screen.getByRole("textbox", { name: shareCopy.internal })
     const open = screen.getByRole("link", { name: shareCopy.internalOpen })
-    expect(checkbox).not.toBeChecked()
+    expect(checkbox).toBeChecked()
     expect(input.compareDocumentPosition(checkbox) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     )
 
-    for (const [index, showChrome] of [false, true, false].entries()) {
+    for (const [index, fullScreenPreview] of [true, false, true].entries()) {
       if (index > 0) fireEvent.click(checkbox)
       const expected = new URL(url)
       expected.searchParams.delete("view")
-      if (!showChrome) expected.searchParams.append("view", "minimized")
+      if (fullScreenPreview) expected.searchParams.append("view", "minimized")
       expect(input).toHaveValue(expected.toString())
       expect(open).toHaveAttribute("href", expected.toString())
       fireEvent.click(screen.getByRole("button", { name: shareCopy.internalCopy }))
@@ -347,7 +347,9 @@ describe("ShareLinksPage()", () => {
       expect(screen.getByText(shareCopy.internalUnavailable)).toBeInTheDocument()
       expect(screen.queryByRole("textbox", { name: shareCopy.internal })).not.toBeInTheDocument()
       expect(screen.queryByRole("link", { name: shareCopy.internalOpen })).not.toBeInTheDocument()
-      expect(screen.queryByRole("checkbox", { name: "Show chrome" })).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("checkbox", { name: "Full screen preview" }),
+      ).not.toBeInTheDocument()
     },
   )
 
@@ -383,7 +385,7 @@ describe("ShareLinksPage()", () => {
     )
     fireEvent.click(screen.getByRole("button", { name: shareCopy.internalCopy }))
     await waitFor(() => expect(writeText).toHaveBeenCalledExactlyOnceWith(internalUrl.toString()))
-    fireEvent.click(screen.getByRole("checkbox", { name: "Show chrome" }))
+    fireEvent.click(screen.getByRole("checkbox", { name: "Full screen preview" }))
     internalUrl.searchParams.delete("view")
     expect(screen.getByRole("textbox", { name: shareCopy.internal })).toHaveValue(
       internalUrl.toString(),

@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import { beforeAll, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
+import type * as AnnotationShortcut from "@utils/is-annotation-shortcut"
 import { octocatRootComment } from "@/storybook/fixtures/review/comments"
 import { copy as notesCopy } from "@features/prototype-canvas-improvement-notes/en"
 import type { Note } from "@features/prototype-canvas-improvement-notes/types"
@@ -9,22 +10,39 @@ import { copy as threadsCopy } from "@features/prototype-canvas-improvement-thre
 import { REVIEW_ANCHOR_SCHEMA } from "@utils/review-anchor/schemas"
 import { reviewCommentsCopy as commentsCopy } from "@utils/review-comment/en"
 import { importedPrototype, publicationHub } from "@utils/resolve-prototype-publication/fixtures"
+import type { HubStatus } from "@utils/prototype-canvas/types"
 
 import { App } from ".."
 import { sharingFixture } from "./sharing-fixture"
+
+vi.mock("@utils/is-annotation-shortcut", async (importOriginal) => {
+  const actual = await importOriginal<typeof AnnotationShortcut>()
+  const { asTrustedKeyboardEvent } = await import("@/test/as-trusted-keyboard-event")
+  return {
+    ...actual,
+    isAnnotationShortcut(event: KeyboardEvent, shortcut?: "s" | "c", shiftKey = false) {
+      return actual.isAnnotationShortcut(asTrustedKeyboardEvent(event), shortcut, shiftKey)
+    },
+  }
+})
+
+afterEach(() => {
+  Reflect.deleteProperty(navigator, "userActivation")
+})
 
 // Keep cold loading of the real lazy feature outside the interaction test budget.
 beforeAll(async () => {
   await import("@features/prototype-canvas-improvement-notes")
 })
 
-function reviewFixture() {
+function reviewFixture(hubOverrides: Partial<HubStatus> = {}) {
   const { fetch } = sharingFixture(undefined, {
     ...publicationHub,
     state: "connected",
     repositoryAuthorized: true,
     viewerLogin: "octocat",
     prototype: importedPrototype,
+    ...hubOverrides,
   })
   const original = fetch.getMockImplementation()!
   const comment = structuredClone(octocatRootComment)
@@ -77,6 +95,9 @@ function previewBridge() {
     type: z.string(),
     nonce: z.string(),
     mode: z.string().optional(),
+    commentShortcut: z.boolean().optional(),
+    selectionShortcut: z.boolean().optional(),
+    pinsShortcut: z.boolean().optional(),
     anchors: z.array(z.object({ id: z.number(), anchor: REVIEW_ANCHOR_SCHEMA })).optional(),
   })
   function messages() {
@@ -130,10 +151,331 @@ function previewBridge() {
   }
   fireEvent.load(frame)
   ready()
-  return { post, messages, ready, receive, resolve, resolveNonce }
+  return { frame, post, messages, ready, receive, resolve, resolveNonce }
 }
 
 describe("App()", () => {
+  it("toggles unified comment selection with C without starting Pick & polish", async () => {
+    const { fetch } = reviewFixture()
+    const view = render(
+      <App
+        config={{
+          name: "Demo",
+          prototypeUrl: "http://localhost:4321/",
+          token: "local",
+          pickAndPolish: true,
+        }}
+      />,
+    )
+    await screen.findByRole("button", { name: /^Comments, 1/ })
+    const picker = await screen.findByRole("button", { name: notesCopy.annotate })
+    fireEvent.keyDown(window, { key: "c" })
+    expect(screen.queryByRole("button", { name: commentsCopy.cancelSelectionLabel })).toBeNull()
+    const bridge = previewBridge()
+    function select() {
+      return bridge.messages().filter((data) => data.type === "replica:canvas:select")
+    }
+    fireEvent.click(screen.getByRole("button", { name: commentsCopy.commentMenuLabel }))
+    const menu = screen.getByRole("menu")
+    expect(
+      within(menu).getByRole("menuitem", { name: commentsCopy.commentMenuLabel }),
+    ).toHaveAttribute("aria-keyshortcuts", "C")
+    expect(within(menu).getAllByRole("menuitem")).toHaveLength(2)
+    bridge.post.mockClear()
+    fireEvent.keyDown(window, { key: "c" })
+    expect(select()).toEqual([])
+    fireEvent.keyDown(menu, { key: "Escape" })
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument())
+    bridge.post.mockClear()
+    fireEvent.keyDown(window, { key: "c" })
+    bridge.ready()
+    await waitFor(() => expect(select().at(-1)?.mode).toBe("comment"))
+    expect(picker).toHaveAttribute("aria-pressed", "false")
+    bridge.post.mockClear()
+    fireEvent.keyDown(window, { key: "C" })
+    expect(await screen.findByRole("button", { name: commentsCopy.commentMenuLabel })).toBeEnabled()
+    expect(document.activeElement).not.toBe(screen.getByRole("button", { name: "Edit details" }))
+    expect(select()).toEqual([])
+    expect(bridge.messages().some((data) => data.type === "replica:canvas:cancel-selection")).toBe(
+      true,
+    )
+    expect(fetch.mock.calls.some(([path]) => path.endsWith("/capture"))).toBe(false)
+    view.unmount()
+  })
+
+  it("does not start comments when the preview is ready but repository review is unauthorized", async () => {
+    reviewFixture({
+      repositoryAuthorized: false,
+      prototype: undefined,
+      reviewRevision: undefined,
+      reviewError: "Repository review is not authorized.",
+    })
+    const view = render(
+      <App
+        config={{
+          name: "Demo",
+          prototypeUrl: "http://localhost:4321/",
+          token: "local",
+          pickAndPolish: true,
+        }}
+      />,
+    )
+    await screen.findByRole("button", { name: notesCopy.annotate })
+    const bridge = previewBridge()
+    bridge.post.mockClear()
+    fireEvent.keyDown(window, { key: "c" })
+    fireEvent.keyDown(window, { key: "C", shiftKey: true })
+    expect(bridge.messages().some((data) => data.type === "replica:canvas:select")).toBe(false)
+    expect(bridge.messages().some((data) => data.commentShortcut === true)).toBe(false)
+    expect(bridge.messages().some((data) => data.pinsShortcut === true)).toBe(false)
+    expect(screen.queryByRole("dialog", { name: commentsCopy.composerHeading })).toBeNull()
+    view.unmount()
+  })
+
+  it("can hide and show readable comments when creating comments is unavailable", async () => {
+    reviewFixture({ reviewRevision: undefined, reviewError: "Revision unavailable." })
+    const view = render(
+      <App
+        config={{
+          name: "Demo",
+          prototypeUrl: "http://localhost:4321/",
+          token: "local",
+          pickAndPolish: true,
+        }}
+      />,
+    )
+    await screen.findByRole("button", { name: /^Comments, 1/ })
+    const bridge = previewBridge()
+    bridge.ready()
+    bridge.resolve(bridge.resolveNonce("#comment-target"))
+    function pin() {
+      return screen.queryByRole("button", { name: "Unread thread started by @octocat" })
+    }
+    expect(pin()).toBeVisible()
+
+    const trigger = screen.getByRole("button", { name: commentsCopy.commentMenuLabel })
+    expect(trigger).toBeEnabled()
+    fireEvent.click(trigger)
+    expect(screen.getByRole("menuitem", { name: commentsCopy.commentMenuLabel })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    )
+    fireEvent.click(screen.getByRole("menuitem", { name: "Hide comments" }))
+    expect(pin()).not.toBeInTheDocument()
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole("menuitem", { name: "Show comments" }))
+    expect(pin()).toBeVisible()
+    bridge.post.mockClear()
+    fireEvent.keyDown(window, { key: "c" })
+    expect(bridge.messages().some((data) => data.type === "replica:canvas:select")).toBe(false)
+    view.unmount()
+  })
+
+  it("toggles comment pins with the menu and the comments panel with Shift+C without interrupting typing", async () => {
+    reviewFixture()
+    const view = render(
+      <App
+        config={{
+          name: "Demo",
+          prototypeUrl: "http://localhost:4321/",
+          token: "local",
+          pickAndPolish: true,
+        }}
+      />,
+    )
+    const comments = await screen.findByRole("button", { name: /^Comments, 1/ })
+    const bridge = previewBridge()
+    fireEvent.click(comments)
+    bridge.ready()
+    const search = await screen.findByRole("searchbox", { name: commentsCopy.searchLabel })
+    bridge.resolve(bridge.resolveNonce("#comment-target"))
+    function pin() {
+      return screen.queryByRole("button", { name: "Unread thread started by @octocat" })
+    }
+    expect(pin()).toBeVisible()
+
+    fireEvent.click(screen.getByRole("button", { name: commentsCopy.commentMenuLabel }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Hide comments" }))
+    expect(pin()).not.toBeInTheDocument()
+    expect(search).toBeVisible()
+    expect(comments).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByRole("button", { name: /Please align this control/ })).toBeVisible()
+
+    fireEvent.click(screen.getByRole("button", { name: commentsCopy.commentMenuLabel }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Show comments" }))
+    expect(pin()).toBeVisible()
+
+    expect(comments).toHaveAttribute("aria-keyshortcuts", "Shift+C")
+    fireEvent.keyDown(search, { key: "C", shiftKey: true })
+    expect(search).toBeVisible()
+    fireEvent.keyDown(window, { key: "C", shiftKey: true })
+    expect(comments).toHaveAttribute("aria-expanded", "false")
+    expect(
+      screen.queryByRole("searchbox", { name: commentsCopy.searchLabel }),
+    ).not.toBeInTheDocument()
+    fireEvent.keyDown(window, { key: "C", shiftKey: true })
+    expect(comments).toHaveAttribute("aria-expanded", "true")
+    expect(await screen.findByRole("searchbox", { name: commentsCopy.searchLabel })).toBeVisible()
+    view.unmount()
+  })
+
+  it("accepts iframe Shift+C only from the focused and activated preview with its comments nonce", async () => {
+    reviewFixture()
+    const view = render(
+      <App
+        config={{
+          name: "Demo",
+          prototypeUrl: "http://localhost:4321/",
+          token: "local",
+          pickAndPolish: true,
+        }}
+      />,
+    )
+    const comments = await screen.findByRole("button", { name: /^Comments, 1/ })
+    const bridge = previewBridge()
+    fireEvent.click(comments)
+    bridge.ready()
+    await screen.findByRole("searchbox", { name: commentsCopy.searchLabel })
+    bridge.resolve(bridge.resolveNonce("#comment-target"))
+    function pin() {
+      return screen.queryByRole("button", { name: "Unread thread started by @octocat" })
+    }
+    expect(pin()).toBeVisible()
+    const nonce = bridge.messages().findLast((data) => data.pinsShortcut === true)?.nonce
+    expect(nonce).toBeTypeOf("string")
+    if (!nonce) throw new Error("Expected pins shortcut opt-in.")
+    const noteNonce = bridge.messages().find((data) => data.selectionShortcut)?.nonce
+    expect(noteNonce).toBeTypeOf("string")
+    const message = { type: "replica:canvas:comment-visibility-toggle-requested", nonce }
+    const origin = new URL(bridge.frame.src).origin
+    function send(data = message, requestOrigin = origin, source = bridge.frame.contentWindow) {
+      act(() => {
+        window.dispatchEvent(new MessageEvent("message", { data, origin: requestOrigin, source }))
+      })
+      expect(comments).toHaveAttribute("aria-expanded", "true")
+    }
+    function activation(isActive: boolean) {
+      Object.defineProperty(navigator, "userActivation", {
+        configurable: true,
+        value: { isActive },
+      })
+    }
+    act(() => bridge.frame.focus())
+    Reflect.deleteProperty(navigator, "userActivation")
+    send()
+    activation(false)
+    send()
+    activation(true)
+    act(() => comments.focus())
+    send()
+    act(() => bridge.frame.focus())
+    send(message, "https://untrusted.example")
+    send(message, origin, window)
+    send({ ...message, nonce: "stale" })
+    send({ ...message, nonce: noteNonce! })
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: message,
+          origin,
+          source: bridge.frame.contentWindow,
+        }),
+      )
+    })
+    expect(comments).toHaveAttribute("aria-expanded", "false")
+    expect(
+      screen.queryByRole("searchbox", { name: commentsCopy.searchLabel }),
+    ).not.toBeInTheDocument()
+    const reopenNonce = bridge.messages().findLast((data) => data.pinsShortcut === true)?.nonce
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { ...message, nonce: reopenNonce },
+          origin,
+          source: bridge.frame.contentWindow,
+        }),
+      )
+    })
+    expect(comments).toHaveAttribute("aria-expanded", "true")
+    view.unmount()
+  })
+
+  it("accepts iframe C only with the comment nonce, expected source and origin, focus and activation", async () => {
+    reviewFixture()
+    const view = render(
+      <App
+        config={{
+          name: "Demo",
+          prototypeUrl: "http://localhost:4321/",
+          token: "local",
+          pickAndPolish: true,
+        }}
+      />,
+    )
+    await screen.findByRole("button", { name: /^Comments, 1/ })
+    await screen.findByRole("button", { name: notesCopy.annotate })
+    const bridge = previewBridge()
+    const commentNonce = bridge
+      .messages()
+      .find((data) => data.type === "replica:canvas:request-ready" && data.commentShortcut)?.nonce
+    expect(commentNonce).toBeTypeOf("string")
+    if (!commentNonce) throw new Error("Expected comment shortcut opt-in.")
+    const noteNonce = bridge.messages().find((data) => data.selectionShortcut)?.nonce
+    expect(noteNonce).toBeTypeOf("string")
+    expect(noteNonce).not.toBe(commentNonce)
+    const message = { type: "replica:canvas:comment-cycle-requested", nonce: commentNonce }
+    function send(
+      data = message,
+      origin = new URL(bridge.frame.src).origin,
+      source = bridge.frame.contentWindow,
+    ) {
+      act(() => {
+        window.dispatchEvent(new MessageEvent("message", { data, origin, source }))
+      })
+    }
+    function activation(isActive: boolean) {
+      Object.defineProperty(navigator, "userActivation", {
+        configurable: true,
+        value: { isActive },
+      })
+    }
+    bridge.post.mockClear()
+    act(() => bridge.frame.focus())
+    activation(false)
+    send()
+    activation(true)
+    act(() => screen.getByRole("button", { name: notesCopy.annotate }).focus())
+    send()
+    act(() => bridge.frame.focus())
+    send(message, "https://untrusted.example")
+    send(message, new URL(bridge.frame.src).origin, window)
+    send({ ...message, nonce: "stale-comment" })
+    send({ ...message, nonce: noteNonce! })
+    expect(bridge.messages().filter((data) => data.type === "replica:canvas:select")).toEqual([])
+    act(() => bridge.frame.focus())
+    send()
+    bridge.ready()
+    await waitFor(() =>
+      expect(
+        bridge
+          .messages()
+          .filter((data) => data.type === "replica:canvas:select")
+          .at(-1)?.mode,
+      ).toBe("comment"),
+    )
+    bridge.post.mockClear()
+    act(() => bridge.frame.focus())
+    send()
+    expect(await screen.findByRole("button", { name: commentsCopy.commentMenuLabel })).toBeEnabled()
+    expect(bridge.messages().filter((data) => data.type === "replica:canvas:select")).toEqual([])
+    expect(bridge.post).toHaveBeenCalledWith(
+      { type: "replica:canvas:cancel-selection", nonce: commentNonce },
+      "http://localhost:4321",
+    )
+    view.unmount()
+  })
+
   it("keeps saved notes closed and selection off on load and after reopening the canvas", async () => {
     const { fetch, note } = reviewFixture()
     const config = {
@@ -164,6 +506,40 @@ describe("App()", () => {
       expect(picker).toHaveAttribute("aria-pressed", "false")
       view.unmount()
     }
+  })
+
+  it("opens the comments panel with its pins from Notes with Shift+C", async () => {
+    const { note } = reviewFixture()
+    const view = render(
+      <App
+        config={{
+          name: "Demo",
+          prototypeUrl: "http://localhost:4321/",
+          token: "local",
+          pickAndPolish: true,
+        }}
+      />,
+    )
+    const comments = await screen.findByRole("button", { name: /^Comments, 1/ })
+    const improvements = await screen.findByRole("button", {
+      name: /^(Open|Close) Notes \(1\)$/,
+    })
+    const bridge = previewBridge()
+    fireEvent.click(comments)
+    bridge.ready()
+    await screen.findByRole("searchbox", { name: commentsCopy.searchLabel })
+    bridge.resolve(bridge.resolveNonce("#comment-target"))
+
+    fireEvent.click(improvements)
+    bridge.ready()
+    expect(await screen.findByRole("button", { name: `Open note: ${note.body}` })).toBeVisible()
+    fireEvent.keyDown(window, { key: "C", shiftKey: true })
+    bridge.ready()
+    bridge.resolve(bridge.resolveNonce("#comment-target"))
+    expect(screen.getByRole("button", { name: "Unread thread started by @octocat" })).toBeVisible()
+    expect(screen.getByRole("searchbox", { name: commentsCopy.searchLabel })).toBeVisible()
+    expect(screen.queryByRole("complementary", { name: notesCopy.notes })).not.toBeInTheDocument()
+    view.unmount()
   })
 
   it("keeps both review surfaces available and resolves only the active surface's saved pins", async () => {
@@ -202,6 +578,7 @@ describe("App()", () => {
       name: threadsCopy.comments.replyLabel,
     })
     fireEvent.change(reply, { target: { value: "Keep this follow-up draft." } })
+    fireEvent.keyDown(window, { key: "c" })
     expect(comments).toBeDisabled()
     fireEvent.click(comments)
     expect(conversation).toBeVisible()
@@ -291,21 +668,19 @@ describe("App()", () => {
       fireEvent.click(screen.getByRole("button", { name: commentsCopy.commentMenuLabel }))
       fireEvent.click(
         screen.getByRole("menuitem", {
-          name:
-            mode === "element"
-              ? commentsCopy.commentOnElementLabel
-              : commentsCopy.highlightRegionLabel,
+          name: commentsCopy.commentMenuLabel,
         }),
       )
       bridge.ready()
       const commentNonce = bridge.resolveNonce("#comment-target")
       await waitFor(() =>
         expect(bridge.post).toHaveBeenCalledWith(
-          { type: "replica:canvas:select", nonce: commentNonce, mode },
+          { type: "replica:canvas:select", nonce: commentNonce, mode: "comment" },
           "http://localhost:4321",
         ),
       )
       fireEvent.click(screen.getByRole("button", { name: notesCopy.annotate }))
+      fireEvent.keyDown(window, { key: "s" })
       expect(improvements).toBeDisabled()
       const anchor =
         mode === "element"
@@ -329,6 +704,9 @@ describe("App()", () => {
       expect(screen.getAllByRole("dialog")).toEqual([composer])
       const draft = within(composer).getByRole("textbox", { name: commentsCopy.composerLabel })
       fireEvent.change(draft, { target: { value: "Keep this comment draft." } })
+      fireEvent.keyDown(window, { key: "c" })
+      fireEvent.keyDown(draft, { key: "C", shiftKey: true })
+      fireEvent.keyDown(window, { key: "C", shiftKey: true })
       fireEvent.click(improvements)
       expect(composer).toBeVisible()
       expect(draft).toHaveValue("Keep this comment draft.")
@@ -352,6 +730,9 @@ describe("App()", () => {
       expect(screen.getAllByRole("dialog")).toEqual([noteComposer])
       const noteDraft = within(noteComposer).getByRole("textbox", { name: notesCopy.label })
       fireEvent.change(noteDraft, { target: { value: "Keep this improvement draft." } })
+      fireEvent.keyDown(window, { key: "c" })
+      fireEvent.keyDown(noteDraft, { key: "C", shiftKey: true })
+      fireEvent.keyDown(window, { key: "C", shiftKey: true })
       fireEvent.click(comments)
       expect(noteComposer).toBeVisible()
       expect(noteDraft).toHaveValue("Keep this improvement draft.")
@@ -392,6 +773,7 @@ describe("App()", () => {
     expect(addComment).toBeDisabled()
     fireEvent.click(comments)
     fireEvent.click(addComment)
+    fireEvent.keyDown(window, { key: "c" })
     expect(screen.queryByRole("menuitem")).not.toBeInTheDocument()
     expect(
       screen.queryByRole("searchbox", { name: commentsCopy.searchLabel }),

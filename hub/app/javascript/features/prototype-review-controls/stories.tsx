@@ -18,8 +18,7 @@ function InteractiveControls(props: PrototypeReviewControlsProps) {
       selecting={selecting}
       sidebarOpen={sidebarOpen}
       onCancelSelection={() => setSelecting(false)}
-      onStartElementSelection={() => setSelecting(true)}
-      onStartAreaSelection={() => setSelecting(true)}
+      onStartSelection={() => setSelecting(true)}
       onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
     />
   )
@@ -38,8 +37,7 @@ const meta = {
     sidebarToggleBlocked: false,
     sidebarOpen: false,
     onCancelSelection: noop,
-    onStartAreaSelection: noop,
-    onStartElementSelection: noop,
+    onStartSelection: noop,
     onToggleSidebar: noop,
   },
   render: (args) => <InteractiveControls {...args} />,

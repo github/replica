@@ -69,7 +69,7 @@ const data: ShareLinksIndexPageData = {
   internalDescription: "People with repository access can open this prototype.",
   internalCopyLabel: "Copy internal prototype link",
   internalOpenLabel: "Open internal prototype link",
-  showChromeLabel: "Show chrome",
+  fullScreenPreviewLabel: "Full screen preview",
   internalUnavailableLabel: "Internal prototype link unavailable.",
 }
 
@@ -97,7 +97,7 @@ export const NoBuild: Story = {
 }
 
 export const Empty: Story = {}
-export const ShowChrome: Story = {
+export const FullScreenPreviewOff: Story = {
   args: {
     data: {
       ...data,
@@ -105,9 +105,9 @@ export const ShowChrome: Story = {
     },
   },
   play: async ({ canvas, userEvent }) => {
-    const checkbox = canvas.getByRole("checkbox", { name: data.showChromeLabel })
+    const checkbox = canvas.getByRole("checkbox", { name: data.fullScreenPreviewLabel })
     await userEvent.click(checkbox)
-    await expect(checkbox).toBeChecked()
+    await expect(checkbox).not.toBeChecked()
     await expect(canvas.getByRole("textbox", { name: data.internalHeading })).toHaveValue(
       new URL(data.closePath ?? data.branchPath, window.location.href).toString(),
     )

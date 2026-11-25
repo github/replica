@@ -1,4 +1,6 @@
-# Prototype Controls
+# Prototype Options
+
+The panel is named **Options** in the canvas and Hub. Users can ask the AI for either "options" or "controls"; the shared `prototype-controls` skill handles both. Existing `controls.replica.json` files, schema fields, APIs and action names remain unchanged.
 
 Ordinary prototypes declare bindings in `public/controls.replica.json`. For example, a text control can bind to an existing native field without adding a Replica import to the app. The Copilot plugin and Hub inject the shared engine and adapter; Build screenshots use the generated `browser.js`. Each retained Build supplies its own static definitions.
 

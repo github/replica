@@ -79,7 +79,7 @@ class ShareLinksTest < ActionDispatch::IntegrationTest
     assert_equal I18n.t("share_links.index.internal_description"), data.fetch("internalDescription")
     assert_equal I18n.t("share_links.index.internal_copy"), data.fetch("internalCopyLabel")
     assert_equal I18n.t("share_links.index.internal_open"), data.fetch("internalOpenLabel")
-    assert_equal I18n.t("share_links.index.show_chrome"), data.fetch("showChromeLabel")
+    assert_equal I18n.t("share_links.index.full_screen_preview"), data.fetch("fullScreenPreviewLabel")
     assert_equal I18n.t("share_links.index.internal_unavailable"), data.fetch("internalUnavailableLabel")
   end
 

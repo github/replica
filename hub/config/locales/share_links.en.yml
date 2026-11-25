@@ -16,11 +16,11 @@ en:
       internal_description: People with repository access can view and comment on this prototype.
       internal_copy: Copy internal prototype link
       internal_open: Open internal prototype link
-      show_chrome: Show chrome
+      full_screen_preview: Full screen preview
       internal_unavailable: Internal prototype link unavailable.
       controls:
-        label: Include control settings
-        description: Include settings from all pages. Each page only uses its own controls.
+        label: Include option settings
+        description: Include settings from all pages. Each page only uses its own options.
       build: "Build %{number}"
       form:
         label: Label

@@ -28,6 +28,6 @@ export interface ShareLinksIndexPageData extends PrototypeWorkspaceData {
   internalDescription: string
   internalCopyLabel: string
   internalOpenLabel: string
-  showChromeLabel: string
+  fullScreenPreviewLabel: string
   internalUnavailableLabel: string
 }

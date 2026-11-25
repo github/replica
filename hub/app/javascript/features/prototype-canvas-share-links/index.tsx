@@ -59,8 +59,8 @@ export function ShareLinksPage({
   const [expiration, setExpiration] = useState("seven_days")
   const [validation, setValidation] = useState("")
   const [now, setNow] = useState(Date.now)
-  const [showChrome, setShowChrome] = useState(false)
-  const chromeId = useId()
+  const [fullScreenPreview, setFullScreenPreview] = useState(true)
+  const fullScreenPreviewId = useId()
   const listRef = useRef<HTMLUListElement>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
   const focusAfterDelete = useRef<number[] | null>(null)
@@ -98,7 +98,7 @@ export function ShareLinksPage({
     return withControlQuery(url, controlsQuery)
   }
   const internalShareUrl =
-    internalUrl && !controlsBlocked ? withViewMode(sharedUrl(internalUrl), showChrome) : null
+    internalUrl && !controlsBlocked ? withViewMode(sharedUrl(internalUrl), fullScreenPreview) : null
   const recoveryLink =
     sharingEnabled &&
     state.stale &&
@@ -224,12 +224,12 @@ export function ShareLinksPage({
                         description={shareCopy.internalOpen}
                       />
                     </div>
-                    <FormControl id={chromeId}>
+                    <FormControl id={fullScreenPreviewId}>
                       <Checkbox
-                        checked={showChrome}
-                        onChange={(event) => setShowChrome(event.target.checked)}
+                        checked={fullScreenPreview}
+                        onChange={(event) => setFullScreenPreview(event.target.checked)}
                       />
-                      <FormControl.Label>{shareCopy.showChrome}</FormControl.Label>
+                      <FormControl.Label>{shareCopy.fullScreenPreview}</FormControl.Label>
                     </FormControl>
                   </>
                 ) : !internalUrl ? (

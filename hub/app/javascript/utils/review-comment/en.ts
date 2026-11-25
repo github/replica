@@ -4,8 +4,6 @@ export const reviewCommentsCopy: ReviewCommentsCopy = {
   heading: "Comments",
   closeLabel: "Close comments",
   commentMenuLabel: "Add a comment",
-  commentOnElementLabel: "Comment on element",
-  highlightRegionLabel: "Highlight a region",
   cancelSelectionLabel: "Cancel selection",
   bridgeUnavailableLabel: "Adding comments needs the review bridge.",
   selectionBlockedLabel: "Close or submit the open draft.",

@@ -87,6 +87,11 @@
   flex-shrink: 0;
 }
 
+.canvas-toolbar .hub-counter {
+  background: color-mix(in srgb, var(--hub-fg-default) 14%, transparent);
+  color: var(--hub-fg-default);
+}
+
 .canvas-toolbar
   button:is([aria-pressed="true"], [aria-expanded="true"]):not(
     .canvas-title,

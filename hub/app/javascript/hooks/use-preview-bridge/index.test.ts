@@ -1,6 +1,7 @@
 import { act, renderHook } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
+import { OPTIONS_TOGGLE_EVENT } from "@utils/preview-bridge/constants"
 import type { AnchorReference } from "@utils/review-anchor/types"
 import type { PreviewBridgeCommand, PreviewBridgeMessage } from "@utils/preview-bridge/types"
 
@@ -245,13 +246,15 @@ describe("usePreviewBridge()", () => {
     )
   })
 
-  it("uses only theme and route messages in browse-only mode", () => {
+  it("forwards only theme, route, and options messages in browse-only mode", () => {
     const iframe = document.createElement("iframe")
     document.body.append(iframe)
     const frameWindow = iframe.contentWindow
     if (!frameWindow) throw new Error("Expected iframe content window")
     const postMessage = vi.spyOn(frameWindow, "postMessage")
     const onToggleSidebar = vi.fn()
+    const onToggleOptions = vi.fn()
+    window.addEventListener(OPTIONS_TOGGLE_EVENT, onToggleOptions)
     const { result } = renderHook(() =>
       usePreviewBridge({
         iframeRef: { current: iframe },
@@ -282,19 +285,32 @@ describe("usePreviewBridge()", () => {
       PREVIEW_ORIGIN,
     )
     act(() => {
-      result.current.startElementSelection()
-      result.current.startAreaSelection()
+      result.current.startSelection()
       result.current.focusAnchor(1)
       result.current.clearSelection()
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "c" }))
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "C", shiftKey: true }))
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            protocolVersion: 1,
+            requestId: "options-request",
+            type: "replica:bridge:options-toggle-requested",
+            payload: {},
+          },
+          origin: PREVIEW_ORIGIN,
+          source: frameWindow,
+        }),
+      )
     })
     expect(result.current.selecting).toBe(false)
     expect(onToggleSidebar).not.toHaveBeenCalled()
+    expect(onToggleOptions).toHaveBeenCalledOnce()
     expect(postMessage.mock.calls).toEqual([
       [expect.objectContaining({ type: "replica:bridge:request-ready" }), PREVIEW_ORIGIN],
       [expect.objectContaining({ type: "replica:bridge:set-theme" }), PREVIEW_ORIGIN],
     ])
+    window.removeEventListener(OPTIONS_TOGGLE_EVENT, onToggleOptions)
   })
 
   it("handles Shift+C in Hub and the trusted preview without starting selection", () => {
@@ -374,6 +390,51 @@ describe("usePreviewBridge()", () => {
       expect.objectContaining({ type: "replica:bridge:select-element" }),
       PREVIEW_ORIGIN,
     )
+  })
+
+  it("forwards O from the trusted preview as an options toggle", () => {
+    const iframe = document.createElement("iframe")
+    document.body.append(iframe)
+    const frameWindow = iframe.contentWindow
+    if (!frameWindow) throw new Error("Expected iframe content window")
+    const toggled = vi.fn()
+    window.addEventListener(OPTIONS_TOGGLE_EVENT, toggled)
+    renderHook(() =>
+      usePreviewBridge({
+        iframeRef: { current: iframe },
+        previewUrl: PREVIEW_URL,
+        previewTheme: "light",
+        anchors: EMPTY_ANCHORS,
+      }),
+    )
+    function optionsShortcut(origin = PREVIEW_ORIGIN) {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            protocolVersion: 1,
+            requestId: "options-request",
+            type: "replica:bridge:options-toggle-requested",
+            payload: {},
+          },
+          origin,
+          source: frameWindow,
+        }),
+      )
+    }
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: READY_MESSAGE,
+          origin: PREVIEW_ORIGIN,
+          source: frameWindow,
+        }),
+      )
+      optionsShortcut()
+      optionsShortcut("https://example.test")
+    })
+    expect(toggled).toHaveBeenCalledOnce()
+    window.removeEventListener(OPTIONS_TOGGLE_EVENT, toggled)
+    iframe.remove()
   })
 
   it("sends the selected theme on readiness and whenever it changes", () => {
@@ -652,16 +713,8 @@ describe("usePreviewBridge()", () => {
       window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "c" }))
     })
     expect(postedMessages.at(-1)?.type).toBe("replica:bridge:select-element")
-    expect(result.current.selectionMode).toBe("element")
+    expect(result.current.selecting).toBe(true)
     expect(onSelectionStart).toHaveBeenCalledTimes(1)
-
-    act(() => result.current.cancelSelection())
-    act(() => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "h" }))
-    })
-    expect(postedMessages.at(-1)?.type).toBe("replica:bridge:select-area")
-    expect(result.current.selectionMode).toBe("area")
-    expect(onSelectionStart).toHaveBeenCalledTimes(2)
 
     act(() => result.current.cancelSelection())
     act(() => {
@@ -684,7 +737,10 @@ describe("usePreviewBridge()", () => {
       input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "h" }))
       input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "c" }))
     })
-    expect(onSelectionStart).toHaveBeenCalledTimes(2)
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "h" }))
+    })
+    expect(onSelectionStart).toHaveBeenCalledTimes(1)
     input.remove()
 
     act(() => {
@@ -702,38 +758,19 @@ describe("usePreviewBridge()", () => {
       )
     })
     expect(postedMessages.at(-1)?.type).toBe("replica:bridge:select-element")
-    expect(result.current.selectionMode).toBe("element")
-    expect(onSelectionStart).toHaveBeenCalledTimes(3)
-
-    act(() => result.current.cancelSelection())
-    act(() => {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          data: {
-            protocolVersion: 1,
-            requestId: "shortcut-request",
-            type: "replica:bridge:area-selection-requested",
-            payload: {},
-          },
-          origin: PREVIEW_ORIGIN,
-          source: frameWindow,
-        }),
-      )
-    })
-    expect(postedMessages.at(-1)?.type).toBe("replica:bridge:select-area")
-    expect(result.current.selectionMode).toBe("area")
-    expect(onSelectionStart).toHaveBeenCalledTimes(4)
+    expect(result.current.selecting).toBe(true)
+    expect(onSelectionStart).toHaveBeenCalledTimes(2)
 
     act(() => result.current.cancelSelection())
     expect(postedMessages.at(-1)?.type).toBe("replica:bridge:cancel-selection")
-    expect(result.current.selectionMode).toBeNull()
+    expect(result.current.selecting).toBe(false)
 
-    act(() => result.current.startElementSelection())
+    act(() => result.current.startSelection())
     const selectionMessage = postedMessages.find(
       (message) => message.type === "replica:bridge:select-element",
     )
     expect(selectionMessage?.requestId).toBe(REQUEST_ID)
-    expect(onSelectionStart).toHaveBeenCalledTimes(5)
+    expect(onSelectionStart).toHaveBeenCalledTimes(3)
 
     act(() => {
       window.dispatchEvent(
@@ -771,7 +808,7 @@ describe("usePreviewBridge()", () => {
 
     postMessage.mockClear()
     postedMessages.length = 0
-    act(() => result.current.startElementSelection())
+    act(() => result.current.startSelection())
     expect(postMessage).not.toHaveBeenCalled()
 
     act(() => result.current.handleFrameLoad())

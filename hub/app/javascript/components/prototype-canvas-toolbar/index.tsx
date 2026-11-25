@@ -141,7 +141,12 @@ export function Toolbar({
         <div ref={improvementControlsRef} id="canvas-improvement-controls" />
       ) : null}
       {onControls ? (
-        <ControlsToggle buttonRef={controlsButtonRef} open={controlsOpen} onToggle={onControls} />
+        <ControlsToggle
+          buttonRef={controlsButtonRef}
+          open={controlsOpen}
+          onToggle={onControls}
+          shortcut
+        />
       ) : null}
 
       {onHub ? (

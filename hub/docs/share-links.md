@@ -61,7 +61,7 @@ A signed-in user may manage a Prototype's share links when either rule applies:
 
 The management page opens within the prototype workspace beneath the branch header. Its Build selection stays tied to the requested successful Build; returning to the preview keeps the same workspace navigation. Copied and opened internal prototype links retain that Build selection.
 
-The management page also shows the signed-in **Internal prototype link** when a successful Build is selected. **Show chrome** starts unchecked, so copied and opened internal links add `view=minimized` after the existing query parameters. Checking it removes that parameter. This option does not change public share links.
+The management page also shows the signed-in **Internal prototype link** when a successful Build is selected. **Full screen preview** starts checked, so copied and opened internal links add `view=minimized` after the existing query parameters. Unchecking it removes that parameter. This option does not change public share links.
 
 ## Canvas API
 

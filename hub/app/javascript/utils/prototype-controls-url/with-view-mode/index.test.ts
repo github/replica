@@ -7,14 +7,14 @@ describe("withViewMode()", () => {
     expect(
       withViewMode(
         "https://hub.example.com/prototypes/1?build=2&view=expanded&filter=all#comments",
-        false,
+        true,
       ),
     ).toBe("https://hub.example.com/prototypes/1?build=2&filter=all&view=minimized#comments")
   })
 
   it("removes view when the full Hub interface is requested", () => {
     expect(
-      withViewMode("https://hub.example.com/prototypes/1?build=2&view=minimized#comments", true),
+      withViewMode("https://hub.example.com/prototypes/1?build=2&view=minimized#comments", false),
     ).toBe("https://hub.example.com/prototypes/1?build=2#comments")
   })
 })

@@ -9,7 +9,6 @@ export interface PreviewBridgeCommandPayloads {
   "replica:bridge:restore-fragment": { route: ReviewRoute }
   "replica:bridge:set-theme": { theme: "light" | "dark" }
   "replica:bridge:select-element": Record<string, never>
-  "replica:bridge:select-area": Record<string, never>
   "replica:bridge:cancel-selection": Record<string, never>
   "replica:bridge:clear-selection": Record<string, never>
   "replica:bridge:focus-anchor": { commentId: number }
