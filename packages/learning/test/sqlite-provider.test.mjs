@@ -16,7 +16,8 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { after, describe, it } from "node:test"
-import { agent, designer, weekOneLog } from "../conformance/index.mjs"
+import { agent, designer, weekOneLog, weekTwoLog } from "../conformance/index.mjs"
+import { STREAMS } from "../src/provider-contract.mjs"
 import { createSqliteMemoryProvider } from "../src/providers/sqlite.mjs"
 import { SCHEMA_VERSIONS, sealRecord } from "../src/records.mjs"
 import { createLearningStore } from "../src/store.mjs"
@@ -162,6 +163,75 @@ describe("SQLite provider", () => {
     const records = await writers[1].readRecords("grants", { scope })
     assert.equal(records.length, 20)
     assert.equal(new Set(records.map((record) => record.id)).size, 20)
+  })
+
+  it("refuses an older prepared import after a newer snapshot commits", async () => {
+    const directory = path.join(work, `store-${++count}`)
+    const olderProvider = provider({ directory })
+    const newerProvider = provider({ directory })
+    const ready = Promise.withResolvers()
+    const resume = Promise.withResolvers()
+    const olderStore = await createLearningStore({
+      provider: {
+        ...olderProvider,
+        async appendBatch(batch, options) {
+          if (batch.collections?.length) {
+            ready.resolve()
+            await resume.promise
+          }
+          return olderProvider.appendBatch(batch, options)
+        },
+      },
+      clock: () => Date.parse("2026-10-09T12:00:00Z"),
+    })
+    const newerStore = await createLearningStore({
+      provider: newerProvider,
+      clock: () => Date.parse("2026-10-09T12:00:00Z"),
+    })
+    const grant = await olderStore.addGrant(designer(), {
+      purposes: ["review"],
+      sources: ["hub_review_comments"],
+      basis: "Test agreement.",
+    })
+    let pending
+    try {
+      const olderLog = weekOneLog()
+      const newerLog = weekTwoLog()
+      assert.notEqual(olderLog.calls[0].result.snapshotId, newerLog.calls[0].result.snapshotId)
+      assert.ok(olderLog.calls[0].result.capturedAt < newerLog.calls[0].result.capturedAt)
+      pending = olderStore.importHubReviewComments(agent(), olderLog, { grantIds: [grant.id] })
+      await Promise.race([
+        ready.promise,
+        pending.then(
+          () => {
+            throw new Error("The older import finished before its write.")
+          },
+          (error) => {
+            throw error
+          },
+        ),
+      ])
+      const newer = await newerStore.importHubReviewComments(agent(), newerLog, {
+        grantIds: [grant.id],
+      })
+      const before = Object.fromEntries(
+        await Promise.all(
+          Object.keys(STREAMS).map(async (stream) => [
+            stream,
+            await newerProvider.readRecords(stream, { scope }),
+          ]),
+        ),
+      )
+      assert.deepEqual(before.collections, [newer.collection])
+      assert.ok(before.events.length > 0)
+      resume.resolve()
+      await assert.rejects(pending, { code: "conflict" })
+      for (const stream of Object.keys(STREAMS))
+        assert.deepEqual(await newerProvider.readRecords(stream, { scope }), before[stream])
+    } finally {
+      resume.resolve()
+      if (pending) await pending.catch(() => {})
+    }
   })
 
   it("waits for another process that holds the database instead of failing to open it", async () => {
