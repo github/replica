@@ -1,6 +1,6 @@
 # Replica learning
 
-`@github/replica-learning` lets Replica learn from review evidence without training a model. It owns the version 1 learning contracts, the memory provider interface, built-in SQLite, JSON Lines, and in-memory providers, two reference consolidators, a conformance suite, the `replica-learning` command, and an example that plugs in [Agent Memory Repo](examples/agent-memory-repo/README.md). It also prepares training for a team that chooses to post-train a [decision model](#decision-model). It isn't published to npm yet, so run it from a Replica checkout with a Node.js version matching `engines.node` in [package.json](package.json).
+`@github/replica-learning` lets Replica learn from review evidence without training a model. It owns the version 1 learning contracts, the memory provider interface, built-in SQLite, PostgreSQL, JSON Lines, and in-memory providers, two reference consolidators, a conformance suite, the `replica-learning` command, and an example that plugs in [Agent Memory Repo](examples/agent-memory-repo/README.md). It also prepares training for a team that chooses to post-train a [decision model](#decision-model). It isn't published to npm yet, so run it from a Replica checkout with a Node.js version matching `engines.node` in [package.json](package.json).
 
 The design and its trade-offs are in [ADR 0001](../../docs/adr/0001-learning-extension-architecture.md), and the decision model's in [ADR 0002](../../docs/adr/0002-decision-model-and-rl-environment.md).
 
@@ -38,6 +38,7 @@ node <replica-checkout>/packages/learning/bin/replica-learning.mjs doctor
 | Command | What it does |
 | --- | --- |
 | `doctor` | Shows the scope, the provider, where data goes, and why each was chosen |
+| `migrate` | Sets up the package-owned PostgreSQL schema using a privileged environment-supplied URL |
 | `grants add`, `grants list`, `grants withdraw` | Records, lists, and ends consent for purposes |
 | `redact <event-id>` | Removes a comment's text when a person asks: every version and its labels |
 | `redact --comment <hub-comment-id>` | Removes the same text for a Hub comment named by its Hub ID. It imports and labels nothing and needs no active grant. `--reason` defaults to the comment being deleted at its source. `removed` in the `--json` output counts the events whose text it removed, 0 when none was left. Run it only while no import or labeling of the same store is in progress |
@@ -142,6 +143,7 @@ The module must be inside the checkout and export `createMemoryProvider(options)
 | Provider | Choose it with | Stores | Redaction |
 | --- | --- | --- | --- |
 | SQLite, the default | `"sqlite"` | One database file, with the SQLite driver built into Node.js | Yes |
+| PostgreSQL | `"postgres"` | The package-owned `replica_learning` schema, using the optional `pg` dependency | Yes |
 | JSON Lines | `"jsonl"` | One file per stream that a person can read | Yes |
 | In memory | `"in-memory"` | Process memory, for tests | Yes |
 | Single file | [`test/fixtures/json-file-provider.mjs`](test/fixtures/json-file-provider.mjs) | One JSON file, written only from the contract with no imports from this package | No |
@@ -149,6 +151,18 @@ The module must be inside the checkout and export `createMemoryProvider(options)
 The optional `observation.redact` capability adds `redactRecord`, described in [`src/provider-contract.mjs`](src/provider-contract.mjs); without it, `redact` refuses with `unsupported`.
 
 Provider queries may filter audit entries with `operations`, together with scope, IDs, and time. An empty operations list matches nothing; omitting it returns every matching operation. Comment removal and imports that erase deleted text read only `evidence.redact` receipts, so their audit reads do not return the repository's growing recall history. SQLite indexes those operations, including when it opens an existing store. JSON Lines still scans the file, but reads it one line at a time and retains only matches; its writes retain only the existing IDs they need to check. No recall audit entries are deleted or compacted.
+
+## PostgreSQL storage
+
+An operator can store learnings in an existing PostgreSQL database instead of a local SQLite file. Set `"memory": { "provider": "postgres" }` in the learning config and supply `REPLICA_LEARNING_DATABASE_URL` to each command. Standard PostgreSQL URLs support DNS names, IPv4, IPv6, and Unix sockets. Never put a database URL or credential in `config.json`. Installing without optional dependencies keeps SQLite usable; PostgreSQL needs the optional `pg` package.
+
+Before a runtime login uses the database, an operator runs `replica-learning migrate` with `REPLICA_LEARNING_MIGRATION_DATABASE_URL` set to a privileged connection URL. This command does not read the runtime URL or learning config. It creates the `replica_learning` schema, tables, indexes, and its migration ledger in a transaction. Retrying, including concurrent retries, is safe. Run it again before using a package version with new migrations. The runtime checks the ledger but never creates or migrates schema objects.
+
+The migration login needs permission to create the schema and own its objects. Give a separate runtime login only `USAGE` on `replica_learning`, `SELECT` on its migration ledger, `SELECT`, `INSERT`, and `UPDATE` on its record and version tables, and `USAGE` on their identity sequences. After each migration, grant these privileges on newly created objects as needed. Restrict database access to trusted hosts: scope is a package-level boundary, not database row-level authorization.
+
+PostgreSQL stores the exact record JSON and indexes scope, IDs, time, episode, and audit operation. A write locks every affected scope until its transaction ends, and stores records and their audit entries together. Memory versions also check the expected prior digest. Redaction removes the payload from the current row, but old row versions may retain it until vacuum. Write-ahead logs and backups can retain it longer. Operators must set vacuum, WAL, backup, and replica retention policies to meet their deletion requirements; redaction does not erase those copies immediately.
+
+For database checks, point `REPLICA_LEARNING_TEST_DATABASE_URL` at a dedicated disposable database and run `npm run test:database`. The test login needs `CREATEDB` and `CREATEROLE`; the tests create and remove their own databases and a restricted login. Never point this command at a database containing real learning data. Learning CI supplies its own PostgreSQL service.
 
 ## Label with Copilot
 

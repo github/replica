@@ -909,6 +909,9 @@ export declare function createSqliteMemoryProvider(options: {
   directory: string
   file?: string
 }): MemoryProvider
+export declare function createPostgresMemoryProvider(options: {
+  connectionString: string
+}): MemoryProvider
 export declare function createJsonLinesMemoryProvider(options: {
   directory: string
   lockTimeoutMs?: number

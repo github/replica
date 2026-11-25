@@ -52,7 +52,7 @@ We chose this split so that consent and purpose rules exist in one place. If eve
 
 A provider declares a manifest with its contract versions, capabilities, storage kind, and the hosts it sends data to. The store refuses a provider without the seven required capabilities. Optional capabilities, such as semantic, graph, or temporal search, leave room for Graphiti, Mem0, or a Hub provider without changing the contract.
 
-A SQLite provider on the driver built into Node.js 24 is the default. A JSON Lines provider, whose files a person can read, is the reference, and an in-memory provider serves tests. A fourth provider in the tests is written only from the contract, with no imports from the package. All four pass the same conformance suite, which ships as `@github/replica-learning/conformance` and includes adversarial cases: damaged withdrawals, forged approvals, forged evidence pins, and racing replacements.
+A SQLite provider on the driver built into Node.js 24 is the default. A PostgreSQL provider uses the package-owned `replica_learning` schema for hosts that need a shared database. A JSON Lines provider, whose files a person can read, is the reference, and an in-memory provider serves tests. Another provider in the tests is written only from the contract, with no imports from the package. The conformance suite ships as `@github/replica-learning/conformance` and includes adversarial cases: damaged withdrawals, forged approvals, forged evidence pins, and racing replacements. The [learning guide](../../packages/learning/README.md#postgresql-storage) describes PostgreSQL setup and retention.
 
 ### Consolidation is separate from memory
 
@@ -116,7 +116,7 @@ Learning happens first in explicit, inspectable memory. A training-purpose expor
 - Inside a checkout, learning data and exports live only under `.replica/`, after following links, and only when Git ignores that exact path. The checkout root and names that merely start with two dots count as inside. Git ignoring a path is not enough, since a dev server or build may still serve it.
 - The command asserts identities. An integrating host must pass only identities and repository authority it authenticated.
 - The generated validator file is large, as in `packages/controls`.
-- SQLite is the default local provider. A host that needs another database implements the provider interface and runs the conformance suite against it.
+- SQLite is the default local provider. PostgreSQL is available for a shared database; another provider implements the same interface and runs the conformance suite.
 - Copilot credential custody, billing, subprocess isolation, and deployed authentication remain integration decisions for the new Hub layer.
 
 ## Alternatives considered
@@ -128,7 +128,7 @@ Learning happens first in explicit, inspectable memory. A training-purpose expor
 - A knowledge graph or vector store as the default. Rejected; the default should be simple and local, and graph or semantic search can arrive as provider capabilities.
 - An agent collects comments through the canvas, and a starter skill runs each step. Replaced: a person had to start every step, and every comment passed through an agent session, which cost tokens and could introduce copying errors.
 - Billing Copilot to the organization through the App's installation token. Deferred: it needs the App's Copilot requests permission and an installation on every repository in the organization.
-- PostgreSQL or Neo4j providers in this version. Deferred: SQLite meets one Hub's needs, and the provider interface and conformance suite let a team add one later.
+- Neo4j as a built-in provider. Deferred; the provider interface and conformance suite let a team add one later.
 - Model-only consolidation. Kept as a plug-in option; the reference stays deterministic so tests and reviews are reproducible.
 
 ## Next steps

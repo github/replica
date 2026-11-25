@@ -14,6 +14,7 @@ import { STREAMS } from "./provider-contract.mjs"
 import { createInMemoryProvider } from "./providers/in-memory.mjs"
 import { createJsonLinesMemoryProvider } from "./providers/json-lines.mjs"
 import { createFileLock } from "./providers/lock.mjs"
+import { createPostgresMemoryProvider } from "./providers/postgres.mjs"
 import { createSqliteMemoryProvider } from "./providers/sqlite.mjs"
 import { migrateRepositoryScope } from "./scope-migration.mjs"
 import { createLearningStore, scopeProblem } from "./store.mjs"
@@ -57,6 +58,7 @@ export async function resolveEnvironment({
       directory: directory ?? env.REPLICA_LEARNING_DIR,
       repository: legacyRepository,
       legacyRedaction: true,
+      env,
     })
   if (repository !== undefined)
     return resolveHostedEnvironment({
@@ -64,6 +66,7 @@ export async function resolveEnvironment({
       directory: directory ?? env.REPLICA_LEARNING_DIR,
       repository,
       legacyRepository,
+      env,
     })
   const requestedLegacyScope =
     legacyRepository === undefined ? null : legacyScopeFromName(legacyRepository)
@@ -88,6 +91,7 @@ export async function resolveEnvironment({
     configPath,
     configFound: config !== null,
     config: config ?? {},
+    env: { REPLICA_LEARNING_DATABASE_URL: env.REPLICA_LEARNING_DATABASE_URL },
     scope: null,
     sourceRepository: originScope?.repository ?? null,
     legacyScope: originScope,
@@ -120,6 +124,7 @@ async function resolveHostedEnvironment({
   repository,
   legacyRepository,
   legacyRedaction = false,
+  env,
 }) {
   if (!directory)
     throw new LearningError(
@@ -160,6 +165,7 @@ async function resolveHostedEnvironment({
     configPath,
     configFound: config !== null,
     config: config ?? {},
+    env: { REPLICA_LEARNING_DATABASE_URL: env.REPLICA_LEARNING_DATABASE_URL },
     scope,
     legacyScope,
     explicitLegacyScope: legacyRepository !== undefined,
@@ -586,6 +592,13 @@ export async function openProvider(environment) {
     }
   if (choice === "in-memory")
     return { provider: createInMemoryProvider(), source: "built-in in-memory" }
+  if (choice === "postgres")
+    return {
+      provider: createPostgresMemoryProvider({
+        connectionString: environment.env?.REPLICA_LEARNING_DATABASE_URL,
+      }),
+      source: "built-in postgres",
+    }
   const factory = await loadFactory(environment, choice, "createMemoryProvider", "memory.provider")
   const provider = await factory({
     ...(choice.options ?? {}),

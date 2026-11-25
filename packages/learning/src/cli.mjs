@@ -16,6 +16,7 @@ import {
   resolveEnvironment,
 } from "./config.mjs"
 import { labelComments, labelingError } from "./labeling.mjs"
+import { migratePostgres } from "./providers/postgres-database.mjs"
 import { PRODUCER } from "./records.mjs"
 import { HUB_SOURCE } from "./sources/hub-review-comments.mjs"
 import { createLearningStore } from "./store.mjs"
@@ -40,6 +41,7 @@ Inspect
   operation-status <memory-id> --operation-id <uuid>
                                   Whether one host decision operation is in intact history
   verify                          Re-check every record's schema, digest, and history
+  migrate                         Set up PostgreSQL using REPLICA_LEARNING_MIGRATION_DATABASE_URL
   migrate-scope --offline         Confirm and migrate a legacy store after stopping older clients
                 [--empty]         Confirm that a new custom-provider store is empty
   copilot status                  Whether Copilot answers here, as whom, and with which models
@@ -198,6 +200,15 @@ export async function main(
   // running, so every one is closed before the command returns, whatever happened.
   const opened = []
   try {
+    if (positionals[0] === "migrate") {
+      if (positionals.length !== 1)
+        throw new UsageError("Use migrate without additional arguments.")
+      const result = await migratePostgres({
+        connectionString: env.REPLICA_LEARNING_MIGRATION_DATABASE_URL,
+      })
+      out(result, `PostgreSQL learning schema is at migration ${result.version}.`)
+      return 0
+    }
     if (
       values["legacy-redaction"] &&
       (positionals.length !== 1 ||
