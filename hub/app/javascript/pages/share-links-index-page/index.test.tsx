@@ -12,7 +12,7 @@ const writeText = vi.fn()
 const PAGE_DATA: ShareLinksIndexPageData = {
   ...story.args.data,
   closePath: "/repositories/2001/prototypes/1?build=2",
-  branchPath: "/repositories/2001/prototypes/1?build=2",
+  branchPath: "/repositories/2001/prototypes/1",
   form: {
     ...story.args.data.form,
     buildLabel: "Build 2",
@@ -70,7 +70,7 @@ describe("ShareLinksIndexPage()", () => {
     expect(screen.queryByRole("button", { name: "Create share link" })).not.toBeInTheDocument()
     expect(screen.queryByRole("link", { name: "Open" })).not.toBeInTheDocument()
     expect(screen.queryByRole("heading", { name: "No active share links" })).not.toBeInTheDocument()
-    const internalUrl = new URL(PAGE_DATA.branchPath, window.location.href)
+    const internalUrl = new URL(PAGE_DATA.closePath!, window.location.href)
     internalUrl.searchParams.append("view", "minimized")
     expect(screen.getByRole("textbox", { name: "Internal prototype link" })).toHaveValue(
       internalUrl.toString(),
@@ -96,7 +96,7 @@ describe("ShareLinksIndexPage()", () => {
     const checkbox = screen.getByRole("checkbox", { name: "Show chrome" })
     const input = screen.getByRole("textbox", { name: "Internal prototype link" })
     const open = screen.getByRole("link", { name: "Open internal prototype link" })
-    const expected = new URL(PAGE_DATA.branchPath, window.location.href)
+    const expected = new URL(PAGE_DATA.closePath!, window.location.href)
     expected.searchParams.set("rc.page.title", '"Configured"')
     expected.searchParams.append("view", "minimized")
     const publicLinkUrl = new URL(PAGE_DATA.shareLinks[0]!.url)
@@ -129,6 +129,29 @@ describe("ShareLinksIndexPage()", () => {
     unmount()
     render(<ShareLinksIndexPage data={PAGE_DATA} />, { wrapper: HubThemeProvider })
     expect(screen.getByRole("checkbox", { name: "Show chrome" })).not.toBeChecked()
+  })
+
+  it("falls back to the branch path when no close path is available", async () => {
+    writeText.mockResolvedValue(undefined)
+    const data = {
+      ...PAGE_DATA,
+      branchPath: "/repositories/2001/prototypes/1?build=2",
+      closePath: undefined,
+    }
+    render(<ShareLinksIndexPage data={data} />, { wrapper: HubThemeProvider })
+
+    const expected = new URL(data.branchPath, window.location.href)
+    expected.searchParams.append("view", "minimized")
+    expect(screen.getByRole("textbox", { name: "Internal prototype link" })).toHaveValue(
+      expected.toString(),
+    )
+    expect(screen.getByRole("link", { name: "Open internal prototype link" })).toHaveAttribute(
+      "href",
+      expected.toString(),
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Copy internal prototype link" }))
+    await screen.findByRole("button", { name: "Copied" })
+    expect(writeText).toHaveBeenCalledWith(expected.toString())
   })
 
   it("omits the internal link without a selected Build or valid control settings", () => {
@@ -220,7 +243,7 @@ describe("ShareLinksIndexPage()", () => {
     expect(screen.getByRole("heading", { name: "prototype/welcome", level: 1 })).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "prototype/welcome" })).toHaveAttribute(
       "href",
-      "/repositories/2001/prototypes/1?build=2",
+      "/repositories/2001/prototypes/1",
     )
     expect(
       screen.getByRole("heading", { name: "Share links", level: 2 }).closest("header"),

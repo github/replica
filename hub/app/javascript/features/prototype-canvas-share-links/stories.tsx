@@ -303,9 +303,6 @@ export const FreshAuthorizationRequired: Story = {
   },
 }
 export const Creating: Story = { args: { state: { ...state, busy: true, links: [link] } } }
-export const Created: Story = {
-  args: { state: { ...state, links: [link], created: link } },
-}
 export const Disconnected: Story = {
   args: {
     state: { ...state, context: null, stale: true, error: shareCopy.disconnected },

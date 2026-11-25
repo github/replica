@@ -29,7 +29,10 @@ export function ShareLinksIndexPage({
   const showChromeId = useId()
   const internalShareUrl =
     data.selectedBuild && !controlSettings?.blocked
-      ? withViewMode(withControlQuery(data.branchPath, controlSettings?.query ?? ""), showChrome)
+      ? withViewMode(
+          withControlQuery(data.closePath ?? data.branchPath, controlSettings?.query ?? ""),
+          showChrome,
+        )
       : null
 
   return (

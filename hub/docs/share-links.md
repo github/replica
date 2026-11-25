@@ -59,7 +59,7 @@ A signed-in user may manage a Prototype's share links when either rule applies:
 - GitHub reports that the user is a repository administrator.
 - A successful Build for the Prototype records the user as its commit author, and GitHub still reports at least read access.
 
-The management page opens within the prototype workspace beneath the branch header. Its Build selection stays tied to the requested successful Build; returning to the preview keeps the same workspace navigation.
+The management page opens within the prototype workspace beneath the branch header. Its Build selection stays tied to the requested successful Build; returning to the preview keeps the same workspace navigation. Copied and opened internal prototype links retain that Build selection.
 
 The management page also shows the signed-in **Internal prototype link** when a successful Build is selected. **Show chrome** starts unchecked, so copied and opened internal links add `view=minimized` after the existing query parameters. Checking it removes that parameter. This option does not change public share links.
 

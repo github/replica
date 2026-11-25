@@ -22,7 +22,16 @@ const shareLink = {
 const data: ShareLinksIndexPageData = {
   ...prototypeWorkspaceData,
   alert: null,
-  closePath: "/repositories/2001/prototypes/1",
+  buildOptions: [
+    {
+      number: 2,
+      label: "v2",
+      path: "/repositories/2001/prototypes/1?build=2",
+      state: "successful",
+    },
+    ...prototypeWorkspaceData.buildOptions,
+  ],
+  closePath: "/repositories/2001/prototypes/1?build=1",
   copyErrorLabel: "Copy failed",
   copiedLabel: "Copied",
   copyLabel: "Copy link",
@@ -100,24 +109,10 @@ export const ShowChrome: Story = {
     await userEvent.click(checkbox)
     await expect(checkbox).toBeChecked()
     await expect(canvas.getByRole("textbox", { name: data.internalHeading })).toHaveValue(
-      new URL(data.branchPath, window.location.href).toString(),
+      new URL(data.closePath ?? data.branchPath, window.location.href).toString(),
     )
   },
 }
-export const MandatorySevenDayMaximum: Story = {
-  args: {
-    data: {
-      ...data,
-      form: {
-        ...data.form,
-        expirationOptions: data.form.expirationOptions.filter((option) =>
-          ["one_day", "seven_days"].includes(option.value),
-        ),
-      },
-    },
-  },
-}
-
 export const ThirtyDayMaximum: Story = {
   args: {
     data: {
