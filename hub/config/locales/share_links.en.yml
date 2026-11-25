@@ -12,6 +12,12 @@ en:
       page_title: "%{branch} share links"
       heading: Share links
       description: Anyone with a link can view its Build without signing in, but cannot view or add comments. To collect comments, share the Hub prototype link with people who have repository access.
+      internal_heading: Internal prototype link
+      internal_description: People with repository access can view and comment on this prototype.
+      internal_copy: Copy internal prototype link
+      internal_open: Open internal prototype link
+      full_screen_preview: Full screen preview
+      internal_unavailable: Internal prototype link unavailable.
       controls:
         label: Include option settings
         description: Include settings from all pages. Each page only uses its own options.

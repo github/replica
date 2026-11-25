@@ -75,6 +75,12 @@ class ShareLinksTest < ActionDispatch::IntegrationTest
     assert_includes description, "Anyone with a link"
     assert_includes description, "without signing in"
     assert_includes description, "cannot view or add comments"
+    assert_equal I18n.t("share_links.index.internal_heading"), data.fetch("internalHeading")
+    assert_equal I18n.t("share_links.index.internal_description"), data.fetch("internalDescription")
+    assert_equal I18n.t("share_links.index.internal_copy"), data.fetch("internalCopyLabel")
+    assert_equal I18n.t("share_links.index.internal_open"), data.fetch("internalOpenLabel")
+    assert_equal I18n.t("share_links.index.full_screen_preview"), data.fetch("fullScreenPreviewLabel")
+    assert_equal I18n.t("share_links.index.internal_unavailable"), data.fetch("internalUnavailableLabel")
   end
 
   test "shows the time zone for link creation and expiration" do

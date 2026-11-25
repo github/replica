@@ -1,6 +1,6 @@
 import { InfoIcon, LinkExternalIcon, TrashIcon, XIcon } from "@primer/octicons-react"
-import { Button, Heading, Tooltip } from "@primer/react-brand/esm"
-import { useEffect, useRef, useState, type RefObject } from "react"
+import { Button, Checkbox, FormControl, Heading, Tooltip } from "@primer/react-brand/esm"
+import { useEffect, useId, useRef, useState, type RefObject } from "react"
 
 import { CopyableTextInput } from "@components/copyable-text-input"
 import { HubAlert } from "@components/hub-alert"
@@ -13,6 +13,7 @@ import { ShareControlSettings } from "./share-control-settings"
 import { shareCopy } from "@hooks/use-canvas-share-links/en"
 import type { SharingState } from "@hooks/use-canvas-share-links/types"
 import { withControlQuery } from "@utils/prototype-controls-url/with-control-query"
+import { withViewMode } from "@utils/prototype-controls-url/with-view-mode"
 
 import "./styles.css"
 
@@ -58,6 +59,8 @@ export function ShareLinksPage({
   const [expiration, setExpiration] = useState("seven_days")
   const [validation, setValidation] = useState("")
   const [now, setNow] = useState(Date.now)
+  const [fullScreenPreview, setFullScreenPreview] = useState(true)
+  const fullScreenPreviewId = useId()
   const listRef = useRef<HTMLUListElement>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
   const focusAfterDelete = useRef<number[] | null>(null)
@@ -94,6 +97,8 @@ export function ShareLinksPage({
   function sharedUrl(url: string) {
     return withControlQuery(url, controlsQuery)
   }
+  const internalShareUrl =
+    internalUrl && !controlsBlocked ? withViewMode(sharedUrl(internalUrl), fullScreenPreview) : null
   const recoveryLink =
     sharingEnabled &&
     state.stale &&
@@ -199,25 +204,34 @@ export function ShareLinksPage({
                   {shareCopy.internal}
                 </Heading>
                 <p>{shareCopy.internalDescription}</p>
-                {internalUrl && !controlsBlocked ? (
-                  <div className="share-link-item__actions canvas-share-internal-actions">
-                    <CopyableTextInput
-                      value={sharedUrl(internalUrl)}
-                      label={shareCopy.internal}
-                      copyLabel={shareCopy.internalCopy}
-                      copiedLabel={shareCopy.copied}
-                      copyErrorLabel={shareCopy.copyError}
-                    />
-                    <HubIconButton
-                      as="a"
-                      href={sharedUrl(internalUrl)}
-                      target="_blank"
-                      rel="noopener"
-                      icon={LinkExternalIcon}
-                      aria-label={shareCopy.internalOpen}
-                      description={shareCopy.internalOpen}
-                    />
-                  </div>
+                {internalShareUrl ? (
+                  <>
+                    <div className="share-link-item__actions canvas-share-internal-actions">
+                      <CopyableTextInput
+                        value={internalShareUrl}
+                        label={shareCopy.internal}
+                        copyLabel={shareCopy.internalCopy}
+                        copiedLabel={shareCopy.copied}
+                        copyErrorLabel={shareCopy.copyError}
+                      />
+                      <HubIconButton
+                        as="a"
+                        href={internalShareUrl}
+                        target="_blank"
+                        rel="noopener"
+                        icon={LinkExternalIcon}
+                        aria-label={shareCopy.internalOpen}
+                        description={shareCopy.internalOpen}
+                      />
+                    </div>
+                    <FormControl id={fullScreenPreviewId}>
+                      <Checkbox
+                        checked={fullScreenPreview}
+                        onChange={(event) => setFullScreenPreview(event.target.checked)}
+                      />
+                      <FormControl.Label>{shareCopy.fullScreenPreview}</FormControl.Label>
+                    </FormControl>
+                  </>
                 ) : !internalUrl ? (
                   <p role="status">{shareCopy.internalUnavailable}</p>
                 ) : null}
