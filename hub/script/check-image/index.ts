@@ -92,6 +92,7 @@ export async function checkImage() {
       await new Promise((resolve) => setTimeout(resolve, 500))
     }
     const databaseUrl = `DATABASE_URL=postgresql://replica:replica@${database}:5432/replica`
+    const learningPassword = "replica-learning-image-only"
     const migrationPassword = "replica-migration-image-only"
     const runtimePassword = "replica-runtime-image-only"
     docker(
@@ -101,6 +102,8 @@ export async function checkImage() {
       network,
       "-e",
       databaseUrl,
+      "-e",
+      `HUB_LEARNING_PASSWORD=${learningPassword}`,
       "-e",
       `HUB_MIGRATION_PASSWORD=${migrationPassword}`,
       "-e",

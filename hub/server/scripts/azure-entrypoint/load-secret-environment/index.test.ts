@@ -135,12 +135,14 @@ describe("loadAzureSecretEnvironment()", () => {
     vi.useFakeTimers()
     const version = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     const databaseUrl = `https://fixture.vault.azure.net/secrets/database/${version}`
+    const learningUrl = `https://fixture.vault.azure.net/secrets/learning/${version}`
     const migrationUrl = `https://fixture.vault.azure.net/secrets/migration/${version}`
     const runtimeUrl = `https://fixture.vault.azure.net/secrets/runtime/${version}`
     const environment: NodeJS.ProcessEnv = {
       AZURE_CLIENT_ID: "00000000-0000-0000-0000-000000000001",
       AZURE_KEY_VAULT_SECRET_REFERENCES: JSON.stringify({
         DATABASE_URL: databaseUrl,
+        HUB_LEARNING_PASSWORD: learningUrl,
         HUB_MIGRATION_PASSWORD: migrationUrl,
         HUB_RUNTIME_PASSWORD: runtimeUrl,
       }),
@@ -155,9 +157,11 @@ describe("loadAzureSecretEnvironment()", () => {
       return Promise.resolve(
         url === databaseUrl
           ? "synthetic-database-url"
-          : url === migrationUrl
-            ? "synthetic-migration-password"
-            : "synthetic-runtime-password",
+          : url === learningUrl
+            ? "synthetic-learning-password"
+            : url === migrationUrl
+              ? "synthetic-migration-password"
+              : "synthetic-runtime-password",
       )
     })
 
@@ -176,6 +180,7 @@ describe("loadAzureSecretEnvironment()", () => {
     expect(environment).toEqual({
       ...before,
       DATABASE_URL: "synthetic-database-url",
+      HUB_LEARNING_PASSWORD: "synthetic-learning-password",
       HUB_MIGRATION_PASSWORD: "synthetic-migration-password",
       HUB_RUNTIME_PASSWORD: "synthetic-runtime-password",
     })
