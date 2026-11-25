@@ -1,4 +1,4 @@
-import { canonicalJson } from "../canonical-json.mjs"
+import { canonicalJson, digestOf } from "../canonical-json.mjs"
 import { LearningError, ProviderConflictError } from "../errors.mjs"
 import {
   PROVIDER_CONTRACT,
@@ -128,11 +128,29 @@ export function createPostgresMemoryProvider({ connectionString } = {}) {
     return { appended: inserted.rowCount, existing: records.length - inserted.rowCount }
   }
 
-  async function write(batch, { audit = [], expectedCollection } = {}) {
+  async function assertMigrations(client, expectedMigrations) {
+    if (!expectedMigrations) return
+    const { rows } = await client.query(
+      "select metadata from replica_learning.scope_migrations where new_scope_key = $1 order by seq",
+      [canonicalJson(expectedMigrations.scope)],
+    )
+    let migrations
+    try {
+      migrations = rows.map((row) => JSON.parse(row.metadata))
+    } catch {
+      throw new LearningError("storage_corrupt", "A PostgreSQL migration mapping is invalid.")
+    }
+    if (digestOf(migrations) !== expectedMigrations.digest)
+      throw new ProviderConflictError("Repository migration changed during the write.")
+  }
+
+  async function write(batch, { audit = [], expectedCollection, expectedMigrations } = {}) {
     const writes = batchWrites(batch, audit)
     const scopes = [...writes.values()].flat().map((record) => canonicalJson(record.scope))
     if (expectedCollection) scopes.push(canonicalJson(expectedCollection.scope))
+    if (expectedMigrations) scopes.push(canonicalJson(expectedMigrations.scope))
     return transaction(scopes, async (client) => {
+      await assertMigrations(client, expectedMigrations)
       if (expectedCollection) {
         const { rows } = await client.query(
           `select id, digest from replica_learning.records
@@ -182,6 +200,7 @@ export function createPostgresMemoryProvider({ connectionString } = {}) {
   return {
     atomicCollectionImport: true,
     atomicMigrationRedactions: true,
+    atomicMigrationFence: true,
 
     manifest() {
       return {
@@ -230,15 +249,23 @@ export function createPostgresMemoryProvider({ connectionString } = {}) {
       })
     },
 
-    async appendMemoryVersion(record, { expectedPreviousDigest = null, audit = [] } = {}) {
+    async appendMemoryVersion(
+      record,
+      { expectedPreviousDigest = null, audit = [], expectedMigrations } = {},
+    ) {
       assertStorable([record])
       assertStorable(audit)
       if (!Number.isSafeInteger(record.version) || record.version < 1)
         throw new LearningError("invalid_input", "A memory version needs a positive version.")
       const scope = canonicalJson(record.scope)
       await transaction(
-        [scope, ...audit.map((entry) => canonicalJson(entry.scope))],
+        [
+          scope,
+          ...audit.map((entry) => canonicalJson(entry.scope)),
+          ...(expectedMigrations ? [canonicalJson(expectedMigrations.scope)] : []),
+        ],
         async (client) => {
+          await assertMigrations(client, expectedMigrations)
           const { rows } = await client.query(
             "select version, digest, scope_key from replica_learning.memory_versions where id = $1 order by version desc limit 1",
             [record.id],

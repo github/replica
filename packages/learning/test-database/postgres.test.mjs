@@ -22,6 +22,7 @@ import {
   weekOneLog,
   weekTwoLog,
 } from "../conformance/index.mjs"
+import { canonicalJson, digestOf } from "../src/canonical-json.mjs"
 import { main } from "../src/cli.mjs"
 import { openProvider } from "../src/config.mjs"
 import { STREAMS } from "../src/provider-contract.mjs"
@@ -1110,6 +1111,110 @@ it("allows only one concurrent version based on the same previous digest", async
   assert.equal(results.filter((result) => result.status === "fulfilled").length, 1)
   assert.equal(results.find((result) => result.status === "rejected").reason.code, "conflict")
   assert.equal((await first.readMemoryVersions({ scope })).length, 2)
+})
+
+it("refuses an import and proposal when migration metadata changes during their writes", async () => {
+  const url = await database()
+  const writer = provider(url)
+  const scope = { host: "github.com", repository: "repositories/123" }
+  const oldScope = { host: "github.com", repository: "acme/old" }
+  const mapping = { oldScope, newScope: scope, digestMappings: [] }
+  const expectedMigrations = { scope, digest: digestOf(await writer.scopeMigrations(scope)) }
+  function record(id) {
+    return { id, digest: `sha256:${id}`, scope }
+  }
+  const batch = { collections: [record("collection")], events: [record("event")] }
+  const batchAudit = record("import-audit")
+  const memory = { ...record("memory"), version: 1 }
+  const memoryAudit = record("proposal-audit")
+  const holder = new pg.Client({ connectionString: url })
+  await holder.connect()
+  let writes = []
+  let results
+  try {
+    await holder.query("begin")
+    await holder.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [
+      `replica_learning.scope:${canonicalJson(scope)}`,
+    ])
+    await holder.query(
+      "insert into replica_learning.scope_migrations (old_scope_key, new_scope_key, metadata) values ($1, $2, $3)",
+      [canonicalJson(oldScope), canonicalJson(scope), JSON.stringify(mapping)],
+    )
+    writes = [
+      writer.appendBatch(batch, { audit: [batchAudit], expectedMigrations }),
+      writer.appendMemoryVersion(memory, { audit: [memoryAudit], expectedMigrations }),
+    ]
+    for (const write of writes) write.catch(() => {})
+    const deadline = Date.now() + 5000
+    while (true) {
+      await holder.query("select pg_stat_clear_snapshot()")
+      const { rows } = await holder.query(
+        "select count(*)::int as count from pg_stat_activity where datname = current_database() and wait_event = 'advisory'",
+      )
+      if (rows[0].count >= 2) break
+      assert.ok(Date.now() < deadline, "Both writes must wait for the migration's scope lock.")
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    await holder.query("commit")
+    results = await Promise.allSettled(writes)
+  } finally {
+    await holder.query("rollback")
+    await Promise.allSettled(writes)
+    await holder.end()
+  }
+  assert.deepEqual(
+    results.map((result) => result.status === "rejected" && result.reason.code),
+    ["conflict", "conflict"],
+  )
+  for (const stream of ["collections", "events", "audit"])
+    assert.deepEqual(await writer.readRecords(stream, { scope }), [])
+  assert.deepEqual(await writer.readMemoryVersions({ scope }), [])
+
+  const currentMigrations = { scope, digest: digestOf(await writer.scopeMigrations(scope)) }
+  await writer.appendBatch(batch, { audit: [batchAudit], expectedMigrations: currentMigrations })
+  await writer.appendMemoryVersion(memory, {
+    audit: [memoryAudit],
+    expectedMigrations: currentMigrations,
+  })
+  assert.deepEqual(await writer.readRecords("collections", { scope }), batch.collections)
+  assert.deepEqual(await writer.readRecords("events", { scope }), batch.events)
+  assert.deepEqual(await writer.readRecords("audit", { scope }), [batchAudit, memoryAudit])
+  assert.deepEqual(await writer.readMemoryVersions({ scope }), [memory])
+})
+
+it("refuses an import when any collection history changes", async () => {
+  const url = await database()
+  const writer = provider(url)
+  const scope = { host: "github.com", repository: "repositories/123" }
+  function record(id) {
+    return { id, digest: `sha256:${id}`, scope }
+  }
+  const first = { ...record("first"), snapshotId: "same-snapshot" }
+  const second = { ...record("second"), snapshotId: "different-snapshot" }
+  await writer.registerLegacyScope({ host: "github.com", repository: "acme/old" }, scope)
+  const expectedMigrations = { scope, digest: digestOf(await writer.scopeMigrations(scope)) }
+  await writer.appendRecords("collections", [first])
+  const expectedCollection = { scope, records: [{ id: first.id, digest: first.digest }] }
+  await writer.appendRecords("collections", [second])
+  const batch = { collections: [record("new")], events: [record("event")] }
+  const audit = record("import-audit")
+  await assert.rejects(
+    writer.appendBatch(batch, { audit: [audit], expectedCollection, expectedMigrations }),
+    { code: "conflict" },
+  )
+  assert.deepEqual(await writer.readRecords("collections", { scope }), [first, second])
+  assert.deepEqual(await writer.readRecords("events", { scope }), [])
+  assert.deepEqual(await writer.readRecords("audit", { scope }), [])
+
+  expectedCollection.records.push({ id: second.id, digest: second.digest })
+  await writer.appendBatch(batch, { audit: [audit], expectedCollection, expectedMigrations })
+  assert.deepEqual(await writer.readRecords("collections", { scope }), [
+    first,
+    second,
+    ...batch.collections,
+  ])
+  assert.deepEqual(await writer.readRecords("events", { scope }), batch.events)
+  assert.deepEqual(await writer.readRecords("audit", { scope }), [audit])
 })
 
 it("treats a concurrent duplicate as existing under a repeatable-read default", async () => {
