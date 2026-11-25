@@ -307,6 +307,11 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
             status: "resolved",
           })
         }
+        onFixSelected={(threads) =>
+          saved.change("fix", {
+            noteIds: threads.map(({ id, revision }) => ({ id, revision })),
+          })
+        }
         onDelete={(thread) =>
           saved.change("delete", {
             id: thread.id,

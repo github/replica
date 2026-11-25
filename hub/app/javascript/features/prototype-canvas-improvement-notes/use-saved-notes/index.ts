@@ -13,6 +13,19 @@ type SavedNotes = {
   profileError?: string | null
 }
 
+function selectedNoteKey(value: unknown): string | null {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("id" in value) ||
+    !("revision" in value) ||
+    typeof value.id !== "number" ||
+    typeof value.revision !== "number"
+  )
+    return null
+  return `${value.id}:${value.revision}`
+}
+
 export function useSavedNotes(token: string | undefined) {
   const [state, setState] = useState<SavedNotes | null>(null)
   const [error, setError] = useState("")
@@ -89,8 +102,17 @@ export function useSavedNotes(token: string | undefined) {
   async function change(operation: string, input: Record<string, unknown> = {}): Promise<boolean> {
     if (!token || !current.current || pending.current) return false
     const identity = current.current.identity
+    const selectedIds =
+      operation === "fix" && Array.isArray(input.noteIds)
+        ? new Set(
+            input.noteIds
+              .map((item: unknown) => selectedNoteKey(item))
+              .filter((key): key is string => key !== null),
+          )
+        : null
     const requestedWork = current.current.notes
       .filter((note) => note.status === "open")
+      .filter((note) => selectedIds === null || selectedIds.has(`${note.id}:${note.revision}`))
       .map((note) => `${note.id}:${note.revision}`)
       .sort()
       .join(",")
@@ -107,6 +129,7 @@ export function useSavedNotes(token: string | undefined) {
         operation === "fix" &&
         current.current.notes
           .filter((note) => note.status === "open")
+          .filter((note) => selectedIds === null || selectedIds.has(`${note.id}:${note.revision}`))
           .map((note) => `${note.id}:${note.revision}`)
           .sort()
           .join(",") !== requestedWork

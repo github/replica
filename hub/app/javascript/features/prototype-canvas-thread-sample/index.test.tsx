@@ -213,6 +213,11 @@ describe("PrototypeCanvasThreadSample()", () => {
     expect(screen.getByRole("button", { name: copy.simulate(0) })).toBeDisabled()
     choose(copy.ready)
     expect(cards()).toHaveLength(2)
+    fireEvent.click(screen.getByRole("button", { name: copy.resolveAll }))
+    await waitFor(() => expect(cards()).toHaveLength(0))
+    expect(screen.getByRole("button", { name: copy.resolveAll })).toBeDisabled()
+    choose(copy.resolved)
+    expect(cards()).toHaveLength(3)
     expect(fetch).not.toHaveBeenCalled()
   })
 
