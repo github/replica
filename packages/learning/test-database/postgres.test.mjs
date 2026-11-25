@@ -569,6 +569,218 @@ it("refuses noncanonical SQLite memory version scopes after migration", async ()
   }
 })
 
+it("refuses a hidden noncanonical SQLite migration target", async () => {
+  const { root, source } = importWorkspace()
+  const oldScope = {
+    host: "github.com",
+    repository: "repositories/11111111-2222-4333-8444-555555555555",
+  }
+  const otherOldScope = {
+    host: "github.com",
+    repository: "repositories/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+  }
+  const scope = { host: "github.com", repository: "repositories/123456" }
+  const sourceProvider = createSqliteMemoryProvider({ directory: source })
+  try {
+    await migrateRepositoryScope({ provider: sourceProvider, oldScope, newScope: scope })
+    const primary = await sourceProvider.scopeMigrationFrom(oldScope)
+    assert.deepEqual(primary.oldScope, oldScope)
+    assert.deepEqual(primary.newScope, scope)
+    assert.ok(primary.digestMappings.length > 0)
+  } finally {
+    await sourceProvider.close()
+  }
+  const sqlite = new DatabaseSync(path.join(source, "learning.sqlite"))
+  try {
+    const inserted = sqlite
+      .prepare(
+        `insert into scope_migrations (old_scope_key, new_scope_key, metadata)
+         select ?, ?, json_set(metadata, '$.oldScope', json(?), '$.digestMappings', json('[]'))
+         from scope_migrations where old_scope_key = ? and new_scope_key = ?`,
+      )
+      .run(
+        canonicalJson(otherOldScope),
+        ` ${canonicalJson(scope)}`,
+        canonicalJson(otherOldScope),
+        canonicalJson(oldScope),
+        canonicalJson(scope),
+      )
+    assert.equal(inserted.changes, 1)
+  } finally {
+    sqlite.close()
+  }
+  const url = await database()
+  const result = await learningCommand(root, url, [
+    "import-sqlite",
+    "--offline",
+    "--dir",
+    source,
+    "--repository",
+    `github.com/${scope.repository}`,
+    "--legacy-repository",
+    `github.com/${oldScope.repository}`,
+  ])
+  const db = new pg.Client({ connectionString: url })
+  await db.connect()
+  try {
+    assert.notEqual(result.code, 0)
+    assert.match(result.stderr, /error \(storage_corrupt\)/)
+    for (const table of ["records", "memory_versions", "scope_migrations", "sqlite_imports"]) {
+      const { rows } = await db.query(
+        `select count(*)::int as count from replica_learning.${table}`,
+      )
+      assert.equal(rows[0].count, 0, table)
+    }
+  } finally {
+    await db.end()
+  }
+})
+
+it("refuses a SQLite migration target that disagrees with its metadata", async () => {
+  const { root, source } = importWorkspace()
+  const oldScope = {
+    host: "github.com",
+    repository: "repositories/11111111-2222-4333-8444-555555555555",
+  }
+  const otherOldScope = {
+    host: "github.com",
+    repository: "repositories/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+  }
+  const scope = { host: "github.com", repository: "repositories/123456" }
+  const otherScope = { host: "github.com", repository: "repositories/654321" }
+  const sourceProvider = createSqliteMemoryProvider({ directory: source })
+  try {
+    await migrateRepositoryScope({ provider: sourceProvider, oldScope, newScope: scope })
+    const primary = await sourceProvider.scopeMigrationFrom(oldScope)
+    assert.deepEqual(primary.oldScope, oldScope)
+    assert.deepEqual(primary.newScope, scope)
+    assert.ok(primary.digestMappings.length > 0)
+  } finally {
+    await sourceProvider.close()
+  }
+  const sqlite = new DatabaseSync(path.join(source, "learning.sqlite"))
+  try {
+    const inserted = sqlite
+      .prepare(
+        `insert into scope_migrations (old_scope_key, new_scope_key, metadata)
+         select ?, ?, json_set(metadata, '$.oldScope', json(?), '$.digestMappings', json('[]'))
+         from scope_migrations where old_scope_key = ? and new_scope_key = ?`,
+      )
+      .run(
+        canonicalJson(otherOldScope),
+        canonicalJson(otherScope),
+        canonicalJson(otherOldScope),
+        canonicalJson(oldScope),
+        canonicalJson(scope),
+      )
+    assert.equal(inserted.changes, 1)
+  } finally {
+    sqlite.close()
+  }
+  const url = await database()
+  const result = await learningCommand(root, url, [
+    "import-sqlite",
+    "--offline",
+    "--dir",
+    source,
+    "--repository",
+    `github.com/${scope.repository}`,
+    "--legacy-repository",
+    `github.com/${oldScope.repository}`,
+  ])
+  const db = new pg.Client({ connectionString: url })
+  await db.connect()
+  try {
+    assert.notEqual(result.code, 0)
+    assert.match(result.stderr, /error \(storage_corrupt\)/)
+    for (const table of ["records", "memory_versions", "scope_migrations", "sqlite_imports"]) {
+      const { rows } = await db.query(
+        `select count(*)::int as count from replica_learning.${table}`,
+      )
+      assert.equal(rows[0].count, 0, table)
+    }
+  } finally {
+    await db.end()
+  }
+})
+
+it("refuses a SQLite migration to another target with no records", async () => {
+  const { root, source } = importWorkspace()
+  const oldScope = {
+    host: "github.com",
+    repository: "repositories/11111111-2222-4333-8444-555555555555",
+  }
+  const otherOldScope = {
+    host: "github.com",
+    repository: "repositories/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+  }
+  const scope = { host: "github.com", repository: "repositories/123456" }
+  const otherScope = { host: "github.com", repository: "repositories/654321" }
+  const sourceProvider = createSqliteMemoryProvider({ directory: source })
+  try {
+    await migrateRepositoryScope({ provider: sourceProvider, oldScope, newScope: scope })
+    const primary = await sourceProvider.scopeMigrationFrom(oldScope)
+    assert.deepEqual(primary.oldScope, oldScope)
+    assert.deepEqual(primary.newScope, scope)
+    assert.ok(primary.digestMappings.length > 0)
+    assert.deepEqual(await sourceProvider.readMemoryVersions({ scope: otherScope }), [])
+  } finally {
+    await sourceProvider.close()
+  }
+  const sqlite = new DatabaseSync(path.join(source, "learning.sqlite"))
+  try {
+    const inserted = sqlite
+      .prepare(
+        `insert into scope_migrations (old_scope_key, new_scope_key, metadata)
+         select ?, ?, json_set(metadata, '$.oldScope', json(?), '$.newScope', json(?),
+                               '$.digestMappings', json('[]'))
+         from scope_migrations where old_scope_key = ? and new_scope_key = ?`,
+      )
+      .run(
+        canonicalJson(otherOldScope),
+        canonicalJson(otherScope),
+        canonicalJson(otherOldScope),
+        canonicalJson(otherScope),
+        canonicalJson(oldScope),
+        canonicalJson(scope),
+      )
+    assert.equal(inserted.changes, 1)
+    assert.equal(
+      sqlite
+        .prepare("select count(*) as count from records where scope_key = ?")
+        .get(canonicalJson(otherScope)).count,
+      0,
+    )
+  } finally {
+    sqlite.close()
+  }
+  const url = await database()
+  const result = await learningCommand(root, url, [
+    "import-sqlite",
+    "--offline",
+    "--dir",
+    source,
+    "--repository",
+    `github.com/${scope.repository}`,
+    "--legacy-repository",
+    `github.com/${oldScope.repository}`,
+  ])
+  const db = new pg.Client({ connectionString: url })
+  await db.connect()
+  try {
+    assert.notEqual(result.code, 0)
+    assert.match(result.stderr, /error \(conflict\)/)
+    for (const table of ["records", "memory_versions", "scope_migrations", "sqlite_imports"]) {
+      const { rows } = await db.query(
+        `select count(*)::int as count from replica_learning.${table}`,
+      )
+      assert.equal(rows[0].count, 0, table)
+    }
+  } finally {
+    await db.end()
+  }
+})
+
 it("refuses unrelated history in the same scope but preserves other scopes", async () => {
   const { root, source } = importWorkspace()
   const url = await database()

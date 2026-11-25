@@ -235,20 +235,45 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
     for (const { stream } of database.prepare("select distinct stream from records").all())
       if (!Object.hasOwn(STREAMS, stream))
         throw new LearningError("storage_corrupt", "SQLite store has an unknown record stream.")
-    return database
+    function parseScopeKey(key) {
+      try {
+        const scope = JSON.parse(key)
+        if (!scope || typeof scope !== "object" || Array.isArray(scope)) throw new Error()
+        if (canonicalJson(scope) === key) return scope
+      } catch {
+        throw new LearningError("storage_corrupt", "SQLite store has an invalid scope key.")
+      }
+      throw new LearningError("storage_corrupt", "SQLite store has a noncanonical scope key.")
+    }
+    const scopes = new Map()
+    for (const { scope_key: key } of database
       .prepare("select scope_key from records union select scope_key from memory_versions")
-      .all()
-      .map((row) => {
-        let scope
+      .all())
+      scopes.set(key, parseScopeKey(key))
+    if (
+      database
+        .prepare("select 1 from sqlite_master where type = 'table' and name = 'scope_migrations'")
+        .get()
+    ) {
+      for (const row of database
+        .prepare("select old_scope_key, new_scope_key, metadata from scope_migrations")
+        .all()) {
+        parseScopeKey(row.old_scope_key)
+        const target = parseScopeKey(row.new_scope_key)
         try {
-          scope = JSON.parse(row.scope_key)
+          const metadata = JSON.parse(row.metadata)
+          if (
+            canonicalJson(metadata.oldScope) !== row.old_scope_key ||
+            canonicalJson(metadata.newScope) !== row.new_scope_key
+          )
+            throw new Error()
         } catch {
-          throw new LearningError("storage_corrupt", "SQLite store has an invalid scope key.")
+          throw new LearningError("storage_corrupt", "SQLite store has an invalid scope mapping.")
         }
-        if (canonicalJson(scope) !== row.scope_key)
-          throw new LearningError("storage_corrupt", "SQLite store has a noncanonical scope key.")
-        return scope
-      })
+        scopes.set(row.new_scope_key, target)
+      }
+    }
+    return [...scopes.values()]
   }
 
   return {
