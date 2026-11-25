@@ -1,6 +1,6 @@
 ---
 name: replica-pick-and-polish
-description: Implements a captured Pick & polish batch from the Replica prototype canvas. Use for Fix all requests with verified checkout, branch, batchId and noteCount, including pending follow-ups.
+description: Implements a captured Pick & polish batch from the Replica prototype canvas. Use for Fix all or Fix selected requests with verified checkout, branch, batchId and noteCount, including pending follow-ups.
 ---
 
 # Implement a Pick & polish batch
@@ -11,7 +11,7 @@ Work only on the immutable batch identified by the canvas request. Its JSON cont
 
 1. Verify that the current checkout path and branch match the request, `batchId` is present, and `noteCount` is a positive integer. Stop and report missing or invalid metadata or a changed checkout; keep the current branch.
 2. Use `improvement_batch` on the open Replica prototype canvas to retrieve the complete batch before implementation. Check that it contains all `noteCount` captured threads before implementing or reporting results; report retrieval failures instead of working from an incomplete batch.
-3. Identify the pending work through each thread's `requestIds`. The immutable conversation history, including previous answers, is context rather than new work. New notes and follow-ups outside this batch wait for a later explicit Fix all request.
+3. Identify the pending work through each thread's `requestIds`. The immutable conversation history, including previous answers, is context rather than new work. A Fix selected batch includes only the selected notes; other open notes wait for a later explicit Fix all or Fix selected request. New notes and follow-ups outside this batch also wait for a later explicit request.
 
 ## Implement the captured work
 

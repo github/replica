@@ -59,6 +59,77 @@ describe("useSavedNotes()", () => {
     }
   })
 
+  it("keeps Fix selected scoped when sync discovers other open work", async () => {
+    vi.useFakeTimers()
+    const selected = {
+      id: 1,
+      localId: "selected",
+      revision: 1,
+      kind: "improvement_note",
+      author: "local",
+      body: "Selected work",
+      route: "/",
+      target: "Save",
+      selector: "#save",
+      rect: { x: 1, y: 1, width: 10, height: 10 },
+      thread: { originalStatus: "open", messages: [] },
+      status: "open",
+      sync: "synced",
+    }
+    const state = {
+      identity: "notes",
+      revision: 1,
+      notes: [selected],
+      syncError: null,
+      activeBatch: null,
+    }
+    const unselected = { ...selected, id: 2, localId: "unselected", body: "Other work" }
+    let releaseSync: ((response: Response) => void) | undefined
+    const fetch = vi.fn((path: string, options?: RequestInit) => {
+      if (path.endsWith("/sync"))
+        return new Promise<Response>((resolve) => {
+          releaseSync = resolve
+        })
+      if (path.endsWith("/fix")) return Promise.resolve(Response.json(state))
+      return Promise.resolve(
+        Response.json(
+          options?.method === "POST"
+            ? state
+            : {
+                ...state,
+                revision: 2,
+                notes: [selected, unselected],
+              },
+        ),
+      )
+    })
+    vi.stubGlobal("fetch", fetch)
+    const view = renderHook(() => useSavedNotes("local"))
+    try {
+      await act(() => vi.advanceTimersByTimeAsync(0))
+      let changed: Promise<boolean> | undefined
+      act(() => {
+        changed = view.result.current.change("fix", {
+          noteIds: [{ id: selected.id, revision: selected.revision }],
+        })
+      })
+      await act(async () => {
+        if (!releaseSync) throw new Error("Expected pending background sync.")
+        releaseSync(Response.json({ ...state, revision: 2, notes: [selected, unselected] }))
+        expect(await changed).toBe(true)
+      })
+      const request = fetch.mock.calls.find(([path]) => path.endsWith("/fix"))
+      if (typeof request?.[1]?.body !== "string") throw new Error("Expected a serialized fix.")
+      expect(JSON.parse(request[1].body)).toMatchObject({
+        operation: "fix",
+        noteIds: [{ id: selected.id, revision: selected.revision }],
+      })
+    } finally {
+      view.unmount()
+      vi.useRealTimers()
+    }
+  })
+
   it.each(["delete", "fix"])(
     "keeps background sync invisible and serializes one foreground %s with the refreshed revision",
     async (operation) => {

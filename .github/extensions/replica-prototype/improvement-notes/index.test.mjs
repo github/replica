@@ -809,6 +809,7 @@ it("captures an immutable cross-screen batch while follow-ups wait for the next 
       body: "One",
       anchor,
     })
+
     state = await store.save({
       ...state,
       operation: "create",
@@ -869,6 +870,50 @@ it("captures an immutable cross-screen batch while follow-ups wait for the next 
       status: "resolved",
     })
     assert.equal(state.notes[1].status, "resolved")
+  })
+})
+
+it("captures only selected open notes and rejects stale or ineligible selections", async () => {
+  await fixture(async ({ create, anchor, messages }) => {
+    const store = create()
+    let state = await store.load()
+    state = await store.save({
+      ...state,
+      operation: "create",
+      body: "Selected work",
+      anchor,
+    })
+    state = await store.save({
+      ...state,
+      operation: "create",
+      body: "Unselected work",
+      anchor,
+    })
+    const [selected, unselected] = state.notes
+
+    await assert.rejects(
+      store.fix({
+        ...state,
+        noteIds: [{ id: selected.id, revision: selected.revision + 1 }],
+      }),
+      /selected note changed/i,
+    )
+    assert.equal(messages.length, 0)
+
+    state = await store.fix({
+      ...state,
+      noteIds: [{ id: selected.id, revision: selected.revision }],
+    })
+    const batch = await store.batch({ batchId: state.activeBatch })
+    assert.deepEqual(
+      batch.notes.map(({ id, body }) => ({ id, body })),
+      [{ id: selected.id, body: "Selected work" }],
+    )
+    const current = await store.load()
+    assert.equal(current.notes.find(({ id }) => id === selected.id).status, "sent")
+    assert.equal(current.notes.find(({ id }) => id === unselected.id).status, "open")
+    assert.equal(messages.length, 1)
+    assert.match(messages[0].prompt, /Fix selected request/)
   })
 })
 

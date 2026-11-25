@@ -1,6 +1,6 @@
 import { mona, octocat } from "@/storybook/fixtures/users"
 
-import type { ImprovementThread } from "../types"
+import type { ImprovementThread } from "./types"
 
 export const notes: ImprovementThread[] = [
   {

@@ -61,6 +61,92 @@
   padding-inline: var(--hub-space-8);
 }
 
+.thread-sample__select {
+  position: absolute;
+  z-index: 2;
+  inset-inline-start: calc(-1 * var(--hub-space-24));
+  top: 50%;
+  display: grid;
+  width: 1.25rem;
+  height: 1.25rem;
+  place-items: center;
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+
+.thread-sample__select > * {
+  grid-area: 1 / 1;
+}
+
+.thread-sample__checkbox {
+  display: flex;
+  align-items: center;
+  opacity: 0;
+}
+
+.thread-sample__card:is(:hover, :focus-within) .thread-sample__checkbox,
+.thread-sample__select[data-selecting="true"] .thread-sample__checkbox {
+  opacity: 1;
+}
+
+.thread-sample__card:is(:hover, :focus-within) .thread-sample__select .hub-user-avatar,
+.thread-sample__select[data-selecting="true"] .hub-user-avatar {
+  visibility: hidden;
+}
+
+.thread-sample__selection {
+  flex: none;
+  padding: var(--hub-space-12) var(--hub-space-16);
+  border-top: 1px solid var(--hub-border-muted);
+  background: var(--hub-canvas-muted);
+  animation: thread-sample-selection-slide-in 180ms ease-out;
+}
+
+.thread-sample__selection-summary {
+  margin-bottom: var(--hub-space-16);
+  font-size: var(--brand-text-size-100);
+}
+
+.thread-sample__clear-group {
+  color: var(--hub-fg-muted);
+}
+
+.thread-sample__clear-selection {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.thread-sample__clear-selection:hover {
+  text-decoration: underline;
+}
+
+.thread-sample__clear-selection:focus-visible {
+  outline: 2px solid var(--hub-focus);
+  outline-offset: 2px;
+}
+
+.thread-sample__selection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hub-space-8);
+}
+
+@keyframes thread-sample-selection-slide-in {
+  from {
+    transform: translateY(100%);
+  }
+
+  to {
+    transform: translateY(0);
+  }
+}
+
 /* Shared rows isolate their hover layer; lift the open menu's entire row above siblings. */
 .thread-sample__card:has(.thread-sample__menu button[aria-expanded="true"]) {
   z-index: 1;
@@ -175,10 +261,21 @@
     opacity: 1;
     pointer-events: auto;
   }
+
+  .thread-sample__checkbox {
+    opacity: 1;
+  }
+
+  .thread-sample__select .hub-user-avatar {
+    visibility: hidden;
+  }
 }
 
 .thread-sample__surface {
   z-index: 40;
+  .thread-sample__selection {
+    animation: none;
+  }
 }
 
 .thread-sample__markers {

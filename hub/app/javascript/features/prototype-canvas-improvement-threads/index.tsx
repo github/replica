@@ -9,7 +9,7 @@ import {
   TrashIcon,
   XIcon,
 } from "@primer/octicons-react"
-import { ActionMenu, Button, Heading } from "@primer/react-brand/esm"
+import { ActionMenu, Button, Checkbox, Heading } from "@primer/react-brand/esm"
 import {
   useCallback,
   useEffect,
@@ -61,6 +61,7 @@ export function ImprovementThreads({
   onFollowUp,
   onResolve,
   onDelete,
+  onFixSelected,
   onFix,
   onSelect,
   onInteractionChange,
@@ -78,9 +79,25 @@ export function ImprovementThreads({
   const [draft, setDraft] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [resolvingAll, setResolvingAll] = useState(false)
+  const [filter, setFilter] = useState("active")
+  const [noteSelection, setNoteSelection] = useState<{
+    identity: string
+    open: boolean
+    filter: string
+    ids: number[]
+  }>({ identity, open, filter, ids: [] })
+  if (
+    noteSelection.identity !== identity ||
+    noteSelection.open !== open ||
+    noteSelection.filter !== filter
+  ) {
+    setNoteSelection({ identity, open, filter, ids: [] })
+  }
+  const selectedNotes = noteSelection.ids
+  const [selectedAction, setSelectedAction] = useState<"fix" | "resolve" | null>(null)
   const resolving = useRef(false)
   const resolutionIdentity = useRef<string | null>(identity)
-  const busy = saving || resolvingAll
+  const busy = saving || resolvingAll || selectedAction !== null
   useLayoutEffect(() => {
     resolutionIdentity.current = identity
     return () => {
@@ -94,7 +111,6 @@ export function ImprovementThreads({
   }, [selected, deleting, onInteractionChange])
   const [openedIdentity, setOpenedIdentity] = useState(identity)
   const [message, setMessage] = useState("")
-  const [filter, setFilter] = useState("active")
   const [surface, setSurface] = useState<HTMLDivElement | null>(null)
   const [slot] = useState(() => document.querySelector("#canvas-improvement-controls"))
   const trigger = useRef<HTMLButtonElement>(null)
@@ -136,6 +152,12 @@ export function ImprovementThreads({
       : filter === "ready"
         ? item.status === "ready"
         : item.status !== "resolved",
+  )
+  const selectedOpen = visible.filter(
+    (item) => item.status === "open" && selectedNotes.includes(item.id),
+  )
+  const selectedReady = visible.filter(
+    (item) => item.status === "ready" && selectedNotes.includes(item.id),
   )
 
   useLayoutEffect(() => {
@@ -311,6 +333,47 @@ export function ImprovementThreads({
     }
   }
 
+  async function fixSelected() {
+    if (
+      !onFixSelected ||
+      !selectedOpen.length ||
+      busy ||
+      draft.trim() ||
+      discarding ||
+      changedIdentity
+    )
+      return
+    const fixing = selectedOpen
+    setSelectedAction("fix")
+    try {
+      if (await onFixSelected(fixing))
+        setNoteSelection((selection) => ({
+          ...selection,
+          ids: selection.ids.filter((id) => !fixing.some((item) => item.id === id)),
+        }))
+    } finally {
+      setSelectedAction(null)
+    }
+  }
+
+  async function resolveSelected() {
+    if (!selectedReady.length || busy || draft.trim() || discarding || changedIdentity) return
+    const resolving = selectedReady
+    const targetIdentity = identity
+    setSelectedAction("resolve")
+    try {
+      for (const item of resolving) {
+        if (resolutionIdentity.current !== targetIdentity || !(await onResolve(item))) break
+        setNoteSelection((selection) => ({
+          ...selection,
+          ids: selection.ids.filter((id) => id !== item.id),
+        }))
+      }
+    } finally {
+      setSelectedAction(null)
+    }
+  }
+
   async function retryFromMenu(item: ImprovementThread) {
     if (
       menuThread.current?.identity !== identity ||
@@ -372,7 +435,9 @@ export function ImprovementThreads({
               size="small"
               selectionVariant="single"
               menuAlignment="start"
-              onSelect={setFilter}
+              onSelect={(value) => {
+                setFilter(value)
+              }}
             >
               <ActionMenu.Button
                 size="small"
@@ -585,14 +650,36 @@ export function ImprovementThreads({
           {visible.length === 0 ? <p className="thread-sample__empty">{copy.empty}</p> : null}
           {visible.map((item) => {
             const count = item.messages.filter((entry) => entry.role === "author").length
+            const isSelected = selectedNotes.includes(item.id)
             const hasOtherActions = Boolean(
               (onRetry && item.retryStatus) || item.status === "ready",
             )
             return (
               <article
-                className={`review-comment-row thread-sample__card${item.status === "resolved" ? " thread-sample__card--resolved" : ""}`}
+                className={`review-comment-row thread-sample__card${item.status === "resolved" ? " thread-sample__card--resolved" : ""}${isSelected ? " review-comment-row--selected" : ""}`}
                 key={item.id}
               >
+                {filter === "active" ? (
+                  <span className="thread-sample__select" data-selecting={selectedNotes.length > 0}>
+                    <HubUserAvatar src={item.avatarUrl ?? fallbackAvatar} size={20} />
+                    <span className="thread-sample__checkbox">
+                      <Checkbox
+                        aria-label={copy.select(item.body)}
+                        checked={isSelected}
+                        disabled={busy || Boolean(draft.trim()) || discarding || changedIdentity}
+                        onChange={(event) => {
+                          const checked = event.target.checked
+                          setNoteSelection((selection) => ({
+                            ...selection,
+                            ids: checked
+                              ? [...selection.ids, item.id]
+                              : selection.ids.filter((id) => id !== item.id),
+                          }))
+                        }}
+                      />
+                    </span>
+                  </span>
+                ) : null}
                 <button
                   ref={(element) => {
                     if (element) cardButtons.current.set(item.id, element)
@@ -706,6 +793,58 @@ export function ImprovementThreads({
             )
           })}
         </div>
+        {selectedNotes.length > 0 && filter === "active" ? (
+          <section className="thread-sample__selection" aria-label={copy.selection}>
+            <div className="thread-sample__selection-summary">
+              <span role="status">{copy.selected(selectedNotes.length)}</span>{" "}
+              <span className="thread-sample__clear-group">
+                (
+                <button
+                  type="button"
+                  className="thread-sample__clear-selection"
+                  onClick={() => setNoteSelection((selection) => ({ ...selection, ids: [] }))}
+                >
+                  {copy.clearSelection}
+                </button>
+                )
+              </span>
+            </div>
+            <div className="thread-sample__selection-actions">
+              {onFixSelected && selectedOpen.length > 0 ? (
+                <Button
+                  size="small"
+                  variant="primary"
+                  disabled={busy || Boolean(draft.trim()) || discarding || changedIdentity}
+                  aria-busy={selectedAction === "fix"}
+                  onClick={() => {
+                    void fixSelected()
+                  }}
+                >
+                  <span className="thread-sample__fix-label">
+                    {copy.fixSelected}
+                    <HubCounter>{selectedOpen.length}</HubCounter>
+                  </span>
+                </Button>
+              ) : null}
+              {selectedReady.length > 0 ? (
+                <Button
+                  size="small"
+                  variant="secondary"
+                  disabled={busy || Boolean(draft.trim()) || discarding || changedIdentity}
+                  aria-busy={selectedAction === "resolve"}
+                  onClick={() => {
+                    void resolveSelected()
+                  }}
+                >
+                  <span className="thread-sample__fix-label">
+                    {copy.markResolved}
+                    <HubCounter>{selectedReady.length}</HubCounter>
+                  </span>
+                </Button>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
       </HubSidebar>
       <div
         ref={setSurface}

@@ -103,7 +103,7 @@ Deleted stories need no after screenshot; explain removed UI in the PR. Omit the
 
 `Components/Prototype canvas/Improvement threads` is the presentation workbench for [Pick & polish](prototype-canvas.md#pick--polish). Small fixtures render the real conversation component with pins, active notes, a Copilot answer, no pending work and an identity error. They do not implement a second prototype app, selection bridge, storage, synchronization or agent workflow. The former `Improvement notes prototype` stories and their standalone simulated app have been removed.
 
-Its **Select Notes** story is an isolated selection demo, not enabled in the live canvas. Hover or focus an avatar in Active to select notes; a bottom action bar slides in to fix selected open requests or resolve selected ready-to-review notes. Each action shows its eligible selected count. Mixed selections offer both actions, each affecting only eligible notes. Actions change in-memory fixtures only, and leaving Active clears the selection.
+Its **Select Notes** story uses the production thread component with in-memory callbacks. In the live canvas, hover or focus an avatar in Active to select notes; a bottom action bar offers Fix selected for open requests and Mark as resolved for ready-to-review notes. Mixed selections offer both actions, each with its eligible count and affecting only eligible notes. Fix selected captures only those open notes for Copilot; resolution saves only selected ready notes. Changing filters, closing the sidebar, or changing branches clears selection.
 
 Keep `stories.tsx` beside the code it presents:
 

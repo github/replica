@@ -41,6 +41,7 @@ export type ImprovementThreadsProps = {
   onFollowUp: (thread: ImprovementThread, body: string) => Promise<boolean>
   onResolve: (thread: ImprovementThread) => Promise<boolean>
   onDelete: (thread: ImprovementThread) => Promise<boolean>
+  onFixSelected?: (threads: ImprovementThread[]) => Promise<boolean>
   onFix: () => Promise<boolean>
   onRetry?: (thread: ImprovementThread) => Promise<boolean>
 }

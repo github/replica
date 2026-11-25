@@ -145,6 +145,9 @@ type StatusInput = {
 }
 type SaveInput = CreateInput | EditInput | DeleteInput | StatusInput
 type MutationInput = { identity: string; revision: number }
+type FixInput = MutationInput & {
+  noteIds: { id: number; revision: number }[] | null
+}
 type BatchResultsInput = {
   batchId: string
   results: {
@@ -247,6 +250,30 @@ function readMutationInput(value: unknown): MutationInput {
   )
     fail("Invalid improvement-note operation.")
   return { identity: value.identity, revision: value.revision }
+}
+
+function readFixInput(value: unknown): FixInput {
+  const mutation = readMutationInput(value)
+  if (!isRecord(value) || value.noteIds === undefined) return { ...mutation, noteIds: null }
+  if (!isUnknownArray(value.noteIds) || value.noteIds.length === 0)
+    fail("Select at least one open note to fix.")
+  const seen = new Set<number>()
+  const noteIds = value.noteIds.map((item) => {
+    if (
+      !isRecord(item) ||
+      typeof item.id !== "number" ||
+      !Number.isSafeInteger(item.id) ||
+      item.id < 1 ||
+      typeof item.revision !== "number" ||
+      !Number.isSafeInteger(item.revision) ||
+      item.revision < 1 ||
+      seen.has(item.id)
+    )
+      fail("Invalid selected notes.")
+    seen.add(item.id)
+    return { id: item.id, revision: item.revision }
+  })
+  return { ...mutation, noteIds }
 }
 
 function readSaveInput(value: unknown, mutation: MutationInput): SaveInput {
@@ -1118,11 +1145,19 @@ export function createImprovementNotes(
       })
     },
     async fix(value: unknown): Promise<ImprovementNotesView> {
-      const mutation = readMutationInput(value)
+      const mutation = readFixInput(value)
       return mutate(mutation, async (record, context) => {
         if (record.batches.some((batch) => ["requested", "delivery_unknown"].includes(batch.state)))
           fail("A Pick & polish batch is already awaiting results.", 409)
-        const notes = record.notes.filter((note) => !note.deleted && note.status === "open")
+        const notes =
+          mutation.noteIds === null
+            ? record.notes.filter((note) => !note.deleted && note.status === "open")
+            : mutation.noteIds.map(({ id, revision }) => {
+                const note = record.notes.find((item) => item.id === id && !item.deleted)
+                if (!note || note.status !== "open" || note.revision !== revision)
+                  fail("A selected note changed. Reload notes and select it again.", 409)
+                return note
+              })
         if (!notes.length) fail("There are no open notes to fix.", 409)
         const skillCatalog = session.rpc?.skills?.list ? await session.rpc.skills.list() : null
         const skillAvailable = hasPickAndPolishSkill(skillCatalog)
@@ -1150,7 +1185,7 @@ export function createImprovementNotes(
         try {
           await session.send({
             prompt: [
-              "Use the /replica-pick-and-polish skill to implement the user's Fix all request for this captured batch.",
+              `Use the /replica-pick-and-polish skill to implement the user's ${mutation.noteIds === null ? "Fix all" : "Fix selected"} request for this captured batch.`,
               ...(instructions
                 ? [
                     "The skill is unavailable in this session. Follow the complete fallback procedure below.",

@@ -5,7 +5,7 @@ import { CanvasReviewFeedback } from "@components/canvas-review-feedback"
 
 import { ImprovementThreads } from "."
 import { copy } from "./en"
-import { ImprovementSelectionDemo } from "./selection-demo"
+import { notes as selectionNotes } from "./selection-fixtures"
 
 const meta = {
   title: "Components/Prototype canvas/Improvement threads",
@@ -91,6 +91,22 @@ function ResolvableNotes(props: ComponentProps<typeof ImprovementThreads>) {
         )
         return Promise.resolve(true)
       }}
+      onFixSelected={(selected) => {
+        const ids = new Set(selected.map((item) => item.id))
+        setThreads((items) =>
+          items.map((item) =>
+            ids.has(item.id)
+              ? {
+                  ...item,
+                  status: "sent",
+                  originalPending: false,
+                  messages: item.messages.map((entry) => ({ ...entry, pending: false })),
+                }
+              : item,
+          ),
+        )
+        return Promise.resolve(true)
+      }}
     />
   )
 }
@@ -99,10 +115,20 @@ export const PinsWithoutSidebar: Story = {}
 
 export const ActiveNotes: Story = {
   args: { open: true },
+  render: (args) => <ResolvableNotes {...args} />,
 }
 
 export const SelectNotes: Story = {
-  render: () => <ImprovementSelectionDemo />,
+  args: { open: true, threads: selectionNotes },
+  render: (args) => <ResolvableNotes {...args} />,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(
+      canvas.getByRole("checkbox", { name: copy.select(selectionNotes[0]!.body) }),
+    )
+    await userEvent.click(
+      canvas.getByRole("checkbox", { name: copy.select(selectionNotes[1]!.body) }),
+    )
+  },
 }
 
 export const BlockedNotes: Story = {
