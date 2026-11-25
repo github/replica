@@ -28,23 +28,6 @@ const decisionSchema = z.discriminatedUnion("decision", [
       reason: z.string().trim().min(1).max(500),
     })
     .strict(),
-  z
-    .object({
-      decision: z.literal("edit"),
-      digest,
-      title: z.string().trim().min(1).max(120).optional(),
-      content: z.string().trim().min(1).max(2000).optional(),
-      reason: z.string().trim().min(1).max(500),
-    })
-    .strict()
-    .refine((value) => value.title !== undefined || value.content !== undefined),
-  z
-    .object({
-      decision: z.literal("reinstate"),
-      digest,
-      reason: z.string().trim().min(1).max(500),
-    })
-    .strict(),
 ])
 const learningIdSchema = z
   .string()

@@ -558,6 +558,43 @@ describe("learning routes", () => {
     )
   })
 
+  it("does not expose editing or reinstatement before the live library", async () => {
+    const decide = vi.fn()
+    const deps = dependencies({ decide })
+
+    await withRoute(
+      "post",
+      "/api/repositories/:repositoryId/learnings/:learningId/decision",
+      postDecision(deps),
+      async (baseUrl) => {
+        const url = `${baseUrl}/api/repositories/${repositoryId}/learnings/mem_1/decision`
+        const edit = await fetch(url, {
+          method: "POST",
+          headers: { ...headers, "content-type": "application/json" },
+          body: JSON.stringify({
+            decision: "edit",
+            digest: `sha256:${"a".repeat(64)}`,
+            title: "Keep labels visible",
+            reason: "Clarify the guidance.",
+          }),
+        })
+        const reinstate = await fetch(url, {
+          method: "POST",
+          headers: { ...headers, "content-type": "application/json" },
+          body: JSON.stringify({
+            decision: "reinstate",
+            digest: `sha256:${"b".repeat(64)}`,
+            reason: "The guidance applies again.",
+          }),
+        })
+
+        expect(edit.status).toBe(422)
+        expect(reinstate.status).toBe(422)
+        expect(decide).not.toHaveBeenCalled()
+      },
+    )
+  })
+
   it("surfaces a stale digest as a conflict", async () => {
     const decide = vi
       .fn()
@@ -587,147 +624,6 @@ describe("learning routes", () => {
           code: "stale_digest",
           error: "The reviewed digest is stale.",
         })
-      },
-    )
-  })
-
-  it("passes an accepted learning edit with its reviewed digest", async () => {
-    const decide = vi.fn().mockResolvedValue({ notice: "Learning edited." })
-    const deps = dependencies({ decide })
-    const decision = {
-      decision: "edit",
-      digest: `sha256:${"a".repeat(64)}`,
-      title: "Keep labels visible",
-      content: "Show labels above fields.",
-      reason: "Clarify the guidance.",
-    }
-
-    await withRoute(
-      "post",
-      "/api/repositories/:repositoryId/learnings/:learningId/decision",
-      postDecision(deps),
-      async (baseUrl) => {
-        const response = await fetch(
-          `${baseUrl}/api/repositories/${repositoryId}/learnings/mem_1/decision`,
-          {
-            method: "POST",
-            headers: { ...headers, "content-type": "application/json" },
-            body: JSON.stringify(decision),
-          },
-        )
-
-        expect(response.status).toBe(200)
-        expect(decide).toHaveBeenCalledWith({
-          repositoryId,
-          learningId: "mem_1",
-          actor: "human:mona",
-          actorMembershipId: session.membershipId,
-          decision,
-          sessionDigest: hashAuthenticationValue("current-session"),
-        })
-      },
-    )
-  })
-
-  it("passes a reinstatement with its reviewed digest", async () => {
-    const decide = vi.fn().mockResolvedValue({ notice: "Learning reinstated." })
-    const deps = dependencies({ decide })
-    const decision = {
-      decision: "reinstate",
-      digest: `sha256:${"b".repeat(64)}`,
-      reason: "The guidance applies again.",
-    }
-
-    await withRoute(
-      "post",
-      "/api/repositories/:repositoryId/learnings/:learningId/decision",
-      postDecision(deps),
-      async (baseUrl) => {
-        const response = await fetch(
-          `${baseUrl}/api/repositories/${repositoryId}/learnings/mem_1/decision`,
-          {
-            method: "POST",
-            headers: { ...headers, "content-type": "application/json" },
-            body: JSON.stringify(decision),
-          },
-        )
-
-        expect(response.status).toBe(200)
-        expect(decide).toHaveBeenCalledWith({
-          repositoryId,
-          learningId: "mem_1",
-          actor: "human:mona",
-          actorMembershipId: session.membershipId,
-          decision,
-          sessionDigest: hashAuthenticationValue("current-session"),
-        })
-      },
-    )
-  })
-
-  it("denies edits without repository administrator authority", async () => {
-    const decide = vi.fn()
-    const deps = dependencies({
-      currentSession: { restore: vi.fn().mockResolvedValue({ ...session, role: "ADMINISTRATOR" }) },
-      authorizeRepositoryAdministration: vi.fn().mockResolvedValue(false),
-      decide,
-    })
-
-    await withRoute(
-      "post",
-      "/api/repositories/:repositoryId/learnings/:learningId/decision",
-      postDecision(deps),
-      async (baseUrl) => {
-        const response = await fetch(
-          `${baseUrl}/api/repositories/${repositoryId}/learnings/mem_1/decision`,
-          {
-            method: "POST",
-            headers: { ...headers, "content-type": "application/json" },
-            body: JSON.stringify({
-              decision: "edit",
-              digest: `sha256:${"a".repeat(64)}`,
-              title: "Keep labels visible",
-              reason: "Clarify the guidance.",
-            }),
-          },
-        )
-
-        expect(response.status).toBe(403)
-        expect(await response.json()).toMatchObject({ code: "repository_administrator_required" })
-        expect(decide).not.toHaveBeenCalled()
-      },
-    )
-  })
-
-  it("denies reinstatement without repository administrator authority", async () => {
-    const decide = vi.fn()
-    const deps = dependencies({
-      currentSession: { restore: vi.fn().mockResolvedValue({ ...session, role: "ADMINISTRATOR" }) },
-      authorizeRepositoryAdministration: vi.fn().mockResolvedValue(false),
-      decide,
-    })
-
-    await withRoute(
-      "post",
-      "/api/repositories/:repositoryId/learnings/:learningId/decision",
-      postDecision(deps),
-      async (baseUrl) => {
-        const response = await fetch(
-          `${baseUrl}/api/repositories/${repositoryId}/learnings/mem_1/decision`,
-          {
-            method: "POST",
-            headers: { ...headers, "content-type": "application/json" },
-            body: JSON.stringify({
-              decision: "reinstate",
-              digest: `sha256:${"b".repeat(64)}`,
-              reason: "The guidance applies again.",
-            }),
-          },
-        )
-
-        expect(response.status).toBe(403)
-        expect(await response.json()).toMatchObject({ code: "repository_administrator_required" })
-        expect(decide).not.toHaveBeenCalled()
       },
     )
   })
