@@ -701,8 +701,7 @@ export function PrototypeCanvasHubPanel({
     if (
       !canLoadComments ||
       !reviewControlsTarget ||
-      selectionBlocked ||
-      selectionMode !== null ||
+      selectionUnavailable ||
       document.querySelector('[role="dialog"], dialog[open]')
     )
       return false
@@ -731,7 +730,7 @@ export function PrototypeCanvasHubPanel({
     const nonce = bridgeNonceRef.current
     const origin = new URL(frameUrl).origin
     const commentShortcut = canCreateComment && !selectionUnavailable && !open
-    const pinsShortcut = canLoadComments && !selectionBlocked && !selectionMode
+    const pinsShortcut = canLoadComments && !selectionUnavailable
     frame?.contentWindow?.postMessage(
       { type: "replica:canvas:request-ready", nonce, commentShortcut, pinsShortcut },
       origin,
@@ -756,8 +755,6 @@ export function PrototypeCanvasHubPanel({
     frameRef,
     open,
     selectionUnavailable,
-    selectionBlocked,
-    selectionMode,
   ])
 
   const clearSelection = useCallback(() => {
@@ -1123,7 +1120,7 @@ export function PrototypeCanvasHubPanel({
   }
 
   function toggleComments() {
-    if (selectionBlocked) return
+    if (selectionUnavailable) return
     if (commentsOpen && reviewActive) {
       setSelected(null)
       setCommentsOpen(false)
@@ -1300,7 +1297,7 @@ export function PrototypeCanvasHubPanel({
               <ShortcutTooltip
                 ref={commentsButtonRef}
                 text={
-                  selectionBlocked
+                  selectionUnavailable
                     ? reviewCommentsCopy.selectionBlockedLabel
                     : reviewCommentsCopy.heading
                 }
@@ -1314,7 +1311,7 @@ export function PrototypeCanvasHubPanel({
                   aria-label={`${reviewCommentsCopy.heading}, ${visibleThreadCount}${hasUnreadVisibleThreads ? `, ${reviewCommentsCopy.unreadLabel}` : ""}`}
                   aria-expanded={commentsOpen && reviewActive}
                   aria-keyshortcuts="Shift+C"
-                  disabled={selectionBlocked}
+                  disabled={selectionUnavailable}
                   onClick={toggleComments}
                 >
                   <HubCounter>{visibleThreadCount}</HubCounter>

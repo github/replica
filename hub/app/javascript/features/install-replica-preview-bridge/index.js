@@ -36,8 +36,6 @@
   let selectionRequestId = null
   let drawingPointerId = null
   let pressStart = null
-  let shapeOptimizing = false
-  let areaStroke = []
   let selectionPending = false
   let pendingAreaAnchor = null
   let highlightedElement = null
@@ -518,46 +516,13 @@
     }
   }
 
-  function pointToSegmentDistance(point, start, end) {
-    const dx = end.x - start.x
-    const dy = end.y - start.y
-    const lengthSquared = dx * dx + dy * dy
-    if (lengthSquared === 0) return pointDistance(point, start)
-
-    const projection = clamp(
-      ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared,
-      0,
-      1,
-    )
-    return Math.hypot(point.x - (start.x + projection * dx), point.y - (start.y + projection * dy))
-  }
-
-  function pathScore(points, candidate, normalizer) {
-    const squaredErrors = points.map((point) => {
-      let nearest = Number.POSITIVE_INFINITY
-      for (let index = 1; index < candidate.length; index += 1) {
-        nearest = Math.min(
-          nearest,
-          pointToSegmentDistance(point, candidate[index - 1], candidate[index]),
-        )
-      }
-      return nearest * nearest
-    })
-    return (
-      Math.sqrt(squaredErrors.reduce((sum, error) => sum + error, 0) / squaredErrors.length) /
-      normalizer
-    )
-  }
-
-  function rectanglePath(bounds, square) {
-    const centerX = (bounds.left + bounds.right) / 2
-    const centerY = (bounds.top + bounds.bottom) / 2
-    const halfWidth = square ? (bounds.width + bounds.height) / 4 : bounds.width / 2
-    const halfHeight = square ? halfWidth : bounds.height / 2
-    const left = centerX - halfWidth
-    const right = centerX + halfWidth
-    const top = centerY - halfHeight
-    const bottom = centerY + halfHeight
+  function rectanglePath(start, end) {
+    const endX = clamp(end.x, 0, window.innerWidth)
+    const endY = clamp(end.y, 0, window.innerHeight)
+    const left = Math.min(start.x, endX)
+    const right = Math.max(start.x, endX)
+    const top = Math.min(start.y, endY)
+    const bottom = Math.max(start.y, endY)
     return [
       { x: left, y: top },
       { x: right, y: top },
@@ -565,46 +530,6 @@
       { x: left, y: bottom },
       { x: left, y: top },
     ]
-  }
-
-  function ellipsePath(bounds, circle) {
-    const centerX = (bounds.left + bounds.right) / 2
-    const centerY = (bounds.top + bounds.bottom) / 2
-    const radiusX = circle ? (bounds.width + bounds.height) / 4 : bounds.width / 2
-    const radiusY = circle ? radiusX : bounds.height / 2
-    return Array.from({ length: 49 }, (_, index) => {
-      const angle = (index / 48) * Math.PI * 2
-      return {
-        x: centerX + Math.cos(angle) * radiusX,
-        y: centerY + Math.sin(angle) * radiusY,
-      }
-    })
-  }
-
-  function optimizedStroke(points) {
-    if (points.length < 2) return points
-
-    const bounds = pathBounds(points)
-    if (bounds.diagonal < 16) return points
-
-    const first = points[0]
-    const last = points[points.length - 1]
-    const closureRatio = pointDistance(first, last) / bounds.diagonal
-    if (closureRatio > 0.25 || points.length < 8) {
-      const line = [first, last]
-      return pathScore(points, line, bounds.diagonal) <= 0.08 ? line : points
-    }
-
-    const candidates = [
-      rectanglePath(bounds, false),
-      rectanglePath(bounds, true),
-      ellipsePath(bounds, false),
-      ellipsePath(bounds, true),
-    ].map((path) => ({ path, score: pathScore(points, path, bounds.diagonal) }))
-    const best = candidates.reduce((current, candidate) =>
-      candidate.score < current.score ? candidate : current,
-    )
-    return best.score <= 0.1 ? best.path : points
   }
 
   function downsamplePath(points, maximum) {
@@ -675,9 +600,7 @@
     }))
   }
 
-  function capturedAreaAnchor(clientPoints, optimize) {
-    let points = optimize ? optimizedStroke(clientPoints) : clientPoints
-    points = downsamplePath(points, AREA_PATH_MAXIMUM_POINTS)
+  function capturedAreaAnchor(points) {
     const bounds = pathBounds(points)
     if (bounds.width < AREA_MINIMUM_DIMENSION || bounds.height < AREA_MINIMUM_DIMENSION) {
       return { reason: "area-too-small" }
@@ -1174,8 +1097,6 @@
     selectionRequestId = null
     drawingPointerId = null
     pressStart = null
-    shapeOptimizing = false
-    areaStroke = []
     if (wasSelecting) {
       document.documentElement.style.cursor = originalCursor
       document.documentElement.style.touchAction = originalTouchAction
@@ -1230,11 +1151,8 @@
       if (pointDistance(pressStart.point, point) < DRAG_THRESHOLD_PIXELS) return
       // Dragging past the threshold turns the press into a region selection.
       selectionMode = "area"
-      shapeOptimizing = event.shiftKey
-      areaStroke = [pressStart.point, point]
-      pressStart = null
       hideHighlight()
-      showAreaHighlight(shapeOptimizing ? optimizedStroke(areaStroke) : areaStroke)
+      showAreaHighlight(rectanglePath(pressStart.point, point))
       return
     }
     const element = eventElement(event)
@@ -1298,10 +1216,7 @@
     event.preventDefault()
     event.stopImmediatePropagation()
     const point = { x: event.clientX, y: event.clientY }
-    const previous = areaStroke[areaStroke.length - 1]
-    if (!previous || pointDistance(previous, point) >= 1) areaStroke.push(point)
-    shapeOptimizing = event.shiftKey
-    showAreaHighlight(shapeOptimizing ? optimizedStroke(areaStroke) : areaStroke)
+    showAreaHighlight(rectanglePath(pressStart.point, point))
   }
 
   function handleAreaPointerUp(event) {
@@ -1326,12 +1241,9 @@
     event.preventDefault()
     event.stopImmediatePropagation()
     const finalPoint = { x: event.clientX, y: event.clientY }
-    const previous = areaStroke[areaStroke.length - 1]
-    if (!previous || pointDistance(previous, finalPoint) >= 1) areaStroke.push(finalPoint)
-
     const requestId = selectionRequestId
     suppressNextClick()
-    const captured = capturedAreaAnchor(areaStroke, shapeOptimizing || event.shiftKey)
+    const captured = capturedAreaAnchor(rectanglePath(pressStart.point, finalPoint))
     if (captured.anchor) {
       selectionPending = true
       pendingAreaAnchor = captured.anchor
@@ -1413,7 +1325,7 @@
             ? "replica:bridge:sidebar-toggle-requested"
             : "replica:bridge:element-selection-requested"
     if (
-      selectionMode ||
+      (selectionMode && messageType !== "replica:bridge:sidebar-toggle-requested") ||
       selectionPending ||
       pendingAreaAnchor ||
       event.defaultPrevented ||

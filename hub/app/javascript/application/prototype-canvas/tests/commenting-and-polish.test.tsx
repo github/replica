@@ -319,6 +319,95 @@ describe("App()", () => {
     view.unmount()
   })
 
+  it.each(["canvas", "preview"] as const)(
+    "keeps comment selection active while Shift+C toggles the sidebar from the %s during and after source preparation",
+    async (surface) => {
+      const { fetch, comment } = reviewFixture()
+      const original = fetch.getMockImplementation()!
+      const view = render(
+        <App
+          config={{
+            name: "Demo",
+            prototypeUrl: "http://localhost:4321/",
+            token: "local",
+            pickAndPolish: true,
+          }}
+        />,
+      )
+      const comments = await screen.findByRole("button", { name: /^Comments, 1/ })
+      const bridge = previewBridge()
+      fireEvent.click(comments)
+      bridge.ready()
+      await screen.findByRole("searchbox", { name: commentsCopy.searchLabel })
+      let completePreparation!: (response: Response) => void
+      fetch.mockImplementation((path, options) =>
+        path === "/api/hub/status"
+          ? new Promise<Response>((resolve) => {
+              completePreparation = resolve
+            })
+          : original(path, options),
+      )
+      fireEvent.keyDown(window, { key: "c" })
+      bridge.ready()
+      await waitFor(() =>
+        expect(bridge.messages()).toContainEqual(
+          expect.objectContaining({ type: "replica:canvas:select", mode: "comment" }),
+        ),
+      )
+      expect(completePreparation).toBeTypeOf("function")
+      const selection = bridge.messages().findLast((data) => data.type === "replica:canvas:select")
+      if (!selection) throw new Error("Expected comment target selection.")
+      const { nonce } = selection
+      const selectionMessageCount = bridge.messages().length
+      Object.defineProperty(navigator, "userActivation", {
+        configurable: true,
+        value: { isActive: true },
+      })
+      function toggle() {
+        if (surface === "canvas") {
+          fireEvent.keyDown(window, { key: "C", shiftKey: true })
+        } else {
+          expect(
+            bridge
+              .messages()
+              .findLast(
+                (data) => data.type === "replica:canvas:request-ready" && data.nonce === nonce,
+              ),
+          ).toMatchObject({ pinsShortcut: true })
+          act(() => bridge.frame.focus())
+          bridge.receive(nonce, { type: "replica:canvas:comment-visibility-toggle-requested" })
+        }
+      }
+      function toggleClosedAndOpen() {
+        toggle()
+        expect(comments).toHaveAttribute("aria-expanded", "false")
+        expect(
+          screen.queryByRole("searchbox", { name: commentsCopy.searchLabel }),
+        ).not.toBeInTheDocument()
+        toggle()
+        expect(comments).toHaveAttribute("aria-expanded", "true")
+        expect(screen.getByRole("searchbox", { name: commentsCopy.searchLabel })).toBeVisible()
+      }
+
+      toggleClosedAndOpen()
+      await act(async () => completePreparation(await original("/api/hub/status")))
+      toggleClosedAndOpen()
+      expect(
+        bridge
+          .messages()
+          .slice(selectionMessageCount)
+          .some((data) =>
+            ["replica:canvas:cancel-selection", "replica:canvas:clear-selection"].includes(
+              data.type,
+            ),
+          ),
+      ).toBe(false)
+      bridge.receive(nonce, { type: "replica:canvas:selected", anchor: comment.anchor })
+      expect(screen.getByRole("dialog", { name: commentsCopy.composerHeading })).toBeVisible()
+      view.unmount()
+    },
+  )
+
   it("accepts iframe Shift+C only from the focused and activated preview with its comments nonce", async () => {
     reviewFixture()
     const view = render(

@@ -599,7 +599,7 @@ export const PinDuringCommentSelection: Story = {
     docs: {
       description: {
         story:
-          "Comment selection is active. Click the pin to cancel selection and open the conversation.",
+          "Comment selection stays active when the Comments sidebar opens or closes with its count or Shift+C. Click the pin to cancel selection and open the conversation.",
       },
     },
   },
@@ -611,6 +611,12 @@ export const PinDuringCommentSelection: Story = {
     )
     await canvas.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel })
     await canvas.findByRole("button", { name: "Unread thread started by @octocat" })
+    const toggle = canvas.getByRole("button", { name: /^Comments, 1/ })
+    await userEvent.click(toggle)
+    await canvas.findByRole("complementary", { name: reviewCommentsCopy.heading })
+    await canvas.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel })
+    await userEvent.click(toggle)
+    await canvas.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel })
   },
 }
 
