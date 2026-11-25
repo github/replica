@@ -12,6 +12,7 @@ import {
 } from "node:fs"
 import { createConnection, createServer } from "node:net"
 import path from "node:path"
+import { DatabaseSync } from "node:sqlite"
 import { after, afterEach, it } from "node:test"
 import { fileURLToPath } from "node:url"
 import pg from "pg"
@@ -400,6 +401,57 @@ it("imports Hub history offline, preserves mappings and redactions, and refuses 
   }
 })
 
+it("refuses an unknown SQLite stream after the scope was migrated", async () => {
+  const { root, source } = importWorkspace()
+  const url = await database()
+  const oldScope = {
+    host: "github.com",
+    repository: "repositories/11111111-2222-4333-8444-555555555555",
+  }
+  const scope = { host: "github.com", repository: "repositories/123456" }
+  const sourceProvider = createSqliteMemoryProvider({ directory: source })
+  try {
+    await migrateRepositoryScope({ provider: sourceProvider, oldScope, newScope: scope })
+    assert.ok(await sourceProvider.scopeMigrationFrom(oldScope))
+    assert.ok((await sourceProvider.readRecords("events", { scope })).length > 0)
+  } finally {
+    await sourceProvider.close()
+  }
+  const sqlite = new DatabaseSync(path.join(source, "learning.sqlite"))
+  try {
+    sqlite
+      .prepare("insert into records (stream, id, scope_key, digest, body) values (?, ?, ?, ?, ?)")
+      .run("future_stream", "unknown", canonicalJson(scope), "sha256:unknown", "{}")
+  } finally {
+    sqlite.close()
+  }
+
+  const result = await learningCommand(root, url, [
+    "import-sqlite",
+    "--offline",
+    "--dir",
+    source,
+    "--repository",
+    `github.com/${scope.repository}`,
+    "--legacy-repository",
+    `github.com/${oldScope.repository}`,
+  ])
+  const db = new pg.Client({ connectionString: url })
+  await db.connect()
+  try {
+    assert.notEqual(result.code, 0)
+    assert.match(result.stderr, /error \(storage_corrupt\)/)
+    for (const table of ["records", "memory_versions", "scope_migrations", "sqlite_imports"]) {
+      const { rows } = await db.query(
+        `select count(*)::int as count from replica_learning.${table}`,
+      )
+      assert.equal(rows[0].count, 0, table)
+    }
+  } finally {
+    await db.end()
+  }
+})
+
 it("refuses unrelated history in the same scope but preserves other scopes", async () => {
   const { root, source } = importWorkspace()
   const url = await database()
@@ -489,6 +541,75 @@ it("rolls back a failed PostgreSQL import and permits a retry", async () => {
     const scope = { host: "github.com", repository: "repositories/123456" }
     assert.ok((await target.readRecords("events", { scope })).length > 0)
     assert.equal((await target.readMemoryVersions({ scope })).length, 2)
+  } finally {
+    await db.end()
+  }
+})
+
+it("upgrades the base PostgreSQL schema without losing history", async () => {
+  const url = await database({ migrate: false })
+  const db = new pg.Client({ connectionString: url })
+  await db.connect()
+  const scope = { host: "github.com", repository: "repositories/123456" }
+  const record = { id: "grant_v1", digest: "sha256:grant", scope }
+  const memory = { id: "memory_v1", version: 1, digest: "sha256:memory", scope }
+  try {
+    await db.query("create schema replica_learning")
+    await db.query(
+      "create table replica_learning.schema_migrations (version integer primary key, checksum text not null)",
+    )
+    // Keep the base schema and its ledger checksum independent of current migrations.
+    await db.query(readFileSync(new URL("./postgres-v1.sql", import.meta.url), "utf8"))
+    await db.query("insert into replica_learning.schema_migrations values (1, $1)", [
+      "2d5e9ea362af3e7753d16c699f483c4d150b28b188f058d32b666db5b2a6c868",
+    ])
+    await db.query(
+      "insert into replica_learning.records (stream, id, scope_key, digest, body) values ($1, $2, $3, $4, $5)",
+      ["grants", record.id, canonicalJson(scope), record.digest, JSON.stringify(record)],
+    )
+    await db.query(
+      "insert into replica_learning.memory_versions (id, version, scope_key, digest, body) values ($1, $2, $3, $4, $5)",
+      [memory.id, memory.version, canonicalJson(scope), memory.digest, JSON.stringify(memory)],
+    )
+
+    assert.equal((await migratePostgres({ connectionString: url })).version, 2)
+    const ledger = await db.query(
+      "select version, checksum from replica_learning.schema_migrations order by version",
+    )
+    assert.deepEqual(
+      ledger.rows.map((row) => row.version),
+      [1, 2],
+    )
+    assert.equal(
+      ledger.rows[0].checksum,
+      "2d5e9ea362af3e7753d16c699f483c4d150b28b188f058d32b666db5b2a6c868",
+    )
+    const target = provider(url)
+    assert.deepEqual(await target.readRecords("grants", { scope }), [record])
+    assert.deepEqual(await target.readMemoryVersions({ scope }), [memory])
+
+    const importedScope = { host: "github.com", repository: "repositories/987654" }
+    const oldScope = { host: "github.com", repository: "repositories/old" }
+    const mapping = { oldScope, newScope: importedScope, digestMappings: [] }
+    const imported = { id: "grant_import", digest: "sha256:import", scope: importedScope }
+    const input = {
+      scope: importedScope,
+      records: { grants: [imported] },
+      memories: [],
+      migrations: [mapping],
+      sourceDigest: "sha256:source",
+      beforeCommit: async () => {},
+    }
+    assert.deepEqual(await target.importSqlite(input), { alreadyImported: false })
+    assert.deepEqual(await target.importSqlite(input), { alreadyImported: true })
+    await assert.rejects(target.importSqlite({ ...input, sourceDigest: "sha256:changed" }), {
+      code: "conflict",
+    })
+    assert.deepEqual(await target.readRecords("grants", { scope: importedScope }), [imported])
+    assert.deepEqual(await target.scopeMigrationFrom(oldScope), mapping)
+    assert.equal(await target.hasSqliteImport(importedScope), true)
+    assert.deepEqual(await target.readRecords("grants", { scope }), [record])
+    assert.deepEqual(await target.readMemoryVersions({ scope }), [memory])
   } finally {
     await db.end()
   }

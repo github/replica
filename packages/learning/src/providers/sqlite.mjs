@@ -232,6 +232,9 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
   function storedScopes() {
     const database = connect({ create: false })
     if (!database) return []
+    for (const { stream } of database.prepare("select distinct stream from records").all())
+      if (!Object.hasOwn(STREAMS, stream))
+        throw new LearningError("storage_corrupt", "SQLite store has an unknown record stream.")
     return database
       .prepare("select scope_key from records union select scope_key from memory_versions")
       .all()
