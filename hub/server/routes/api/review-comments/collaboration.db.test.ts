@@ -375,6 +375,61 @@ describe("saved review collaboration", () => {
     }
   })
 
+  it.each(["initial", "final"] as const)(
+    "cancels the %s access check if the mention client disconnects",
+    async (phase) => {
+      const checkStarted = deferred<AbortSignal | undefined>()
+      const checkFinished = deferred<void>()
+      const releaseCheck = deferred<void>()
+      const disconnected = deferred<void>()
+      let checks = 0
+      let searches = 0
+      const base = await api(
+        "github",
+        {
+          async canRead(_repository, _login, _githubId, signal) {
+            checks++
+            if (checks === (phase === "initial" ? 1 : 2)) {
+              checkStarted.resolve(signal)
+              await releaseCheck.promise
+              checkFinished.resolve()
+              signal?.throwIfAborted()
+            }
+            return true
+          },
+          find: () => Promise.resolve(null),
+          search() {
+            searches++
+            return Promise.resolve([])
+          },
+        },
+        (response) => response.once("close", () => disconnected.resolve()),
+      )
+      const author = await member("github", "author_corp", "500")
+      const { path, repositoryId } = await target(author.userId, false)
+      await grant(repositoryId, author.membershipId)
+
+      const controller = new AbortController()
+      const lookup = fetch(`${base}${path}/mention-candidates?q=target`, {
+        headers: { origin, cookie: `hub_session=${author.token}` },
+        signal: controller.signal,
+      }).catch((error: unknown) => error)
+
+      try {
+        const signal = await checkStarted.promise
+        controller.abort()
+        await disconnected.promise
+        expect(signal?.aborted).toBe(true)
+        expect(searches).toBe(phase === "initial" ? 0 : 1)
+      } finally {
+        controller.abort()
+        releaseCheck.resolve()
+        await lookup
+      }
+      await checkFinished.promise
+    },
+  )
+
   it("verifies new hosted mentions before saving and hides retained notices after the recipient loses access", async () => {
     let collaboratorCanRead = true
     let providerAvailable = true

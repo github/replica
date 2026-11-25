@@ -1,4 +1,4 @@
-import type { Request, RequestHandler, Response } from "express"
+import type { Request, RequestHandler } from "express"
 import { z } from "zod"
 
 import { reviewReactionContents } from "../../../../domains/review-comments/types.ts"
@@ -38,12 +38,21 @@ export function createCollaborationHandlers(
     run: (
       input: ReviewMutationScope,
       request: Request,
-      response: Response,
+      signal: AbortSignal,
     ) => Promise<Result | null>,
   ): RequestHandler {
     return async (request, response, next) => {
+      const cancellation = new AbortController()
+      const signal = cancellation.signal
+      function cancel() {
+        cancellation.abort()
+      }
+      // The incoming GET can finish before its client disconnects.
+      if (permission === "view") response.once("close", cancel)
       try {
+        if (response.destroyed) return
         const actor = await readReviewSession(request, session)
+        signal.throwIfAborted()
         if (!actor) {
           response.status(401).json({ error: "Sign in to continue." })
           return
@@ -60,13 +69,14 @@ export function createCollaborationHandlers(
             identifiers.repositoryId,
             actor,
             permission,
+            signal,
           ))
         )
           return
         const result = await run(
           { ...identifiers, sessionDigest: actor.sessionDigest, actor },
           request,
-          response,
+          signal,
         )
         if (response.destroyed) return
         if (result === null) {
@@ -75,6 +85,7 @@ export function createCollaborationHandlers(
         }
         if (permission === "view") {
           const current = await readReviewSession(request, session)
+          signal.throwIfAborted()
           if (!current || current.userId !== actor.userId) {
             response.status(401).json({ error: "Sign in to continue." })
             return
@@ -86,6 +97,7 @@ export function createCollaborationHandlers(
               identifiers.repositoryId,
               current,
               "view",
+              signal,
             ))
           )
             return
@@ -94,6 +106,8 @@ export function createCollaborationHandlers(
       } catch (error) {
         if (response.destroyed) return
         if (!respondReviewError(error, response)) next(error)
+      } finally {
+        response.off("close", cancel)
       }
     }
   }
@@ -142,34 +156,24 @@ export function createCollaborationHandlers(
     removeReaction: react(false),
     markRead: markRead(true),
     markUnread: markRead(false),
-    mentionCandidates: handle("view", async (input, request, response) => {
+    mentionCandidates: handle("view", async (input, request, signal) => {
       const query = candidateQuery.safeParse(request.query)
-      if (!query.success || !review.searchReviewMentions || response.destroyed) return null
-      const cancellation = new AbortController()
-      function cancel() {
-        cancellation.abort()
-      }
-      // The incoming GET can finish before its client disconnects.
-      response.once("close", cancel)
-      try {
-        const candidates = await review.searchReviewMentions(
-          input.repositoryId,
-          input.prototypeId,
-          query.data.q.toLowerCase(),
-          input.actor.userId,
-          cancellation.signal,
-        )
-        if (cancellation.signal.aborted) return null
-        // Recheck the branch itself after the provider request as well.
-        if (
-          review.isPrototypeReviewable &&
-          !(await review.isPrototypeReviewable(input.repositoryId, input.prototypeId))
-        )
-          return null
-        return { candidates }
-      } finally {
-        response.off("close", cancel)
-      }
+      if (!query.success || !review.searchReviewMentions) return null
+      const candidates = await review.searchReviewMentions(
+        input.repositoryId,
+        input.prototypeId,
+        query.data.q.toLowerCase(),
+        input.actor.userId,
+        signal,
+      )
+      signal.throwIfAborted()
+      // Recheck the branch itself after the provider request as well.
+      if (
+        review.isPrototypeReviewable &&
+        !(await review.isPrototypeReviewable(input.repositoryId, input.prototypeId))
+      )
+        return null
+      return { candidates }
     }),
   }
 }

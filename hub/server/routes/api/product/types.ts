@@ -38,6 +38,7 @@ export interface ReviewRouteDependencies {
   authorizeReviewAccess(
     repositoryId: string,
     actor: ReviewAccessActor,
+    signal?: AbortSignal,
   ): Promise<RepositoryReviewAccess>
 }
 

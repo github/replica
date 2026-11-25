@@ -27,13 +27,68 @@ const repositorySchema = z.object({
   full_name: z.string().max(255),
 })
 
+type PendingRequest<Value> = {
+  controller: AbortController
+  promise: Promise<Value>
+  callers: number
+}
+
+function shareRequest<Key, Value>(
+  requests: Map<Key, PendingRequest<Value>>,
+  key: Key,
+  signal: AbortSignal | undefined,
+  run: (signal: AbortSignal) => Promise<Value>,
+): Promise<Value> {
+  signal?.throwIfAborted()
+  let pending = requests.get(key)
+  if (!pending) {
+    const controller = new AbortController()
+    const promise = run(controller.signal).finally(() => {
+      if (requests.get(key)?.controller === controller) requests.delete(key)
+    })
+    pending = { controller, promise, callers: 0 }
+    requests.set(key, pending)
+  }
+  const request = pending
+  request.callers++
+
+  return new Promise<Value>((resolve, reject) => {
+    function release() {
+      listener?.[Symbol.dispose]()
+      request.callers--
+      if (request.callers === 0 && requests.get(key) === request) {
+        requests.delete(key)
+        request.controller.abort(signal?.reason)
+      }
+    }
+    const listener =
+      signal &&
+      addAbortListener(signal, () => {
+        release()
+        reject(new Error("GitHub review request was canceled.", { cause: signal.reason }))
+      })
+    void request.promise.then(
+      (value) => {
+        if (signal?.aborted) return
+        release()
+        resolve(value)
+      },
+      (error) => {
+        if (signal?.aborted) return
+        release()
+        reject(error instanceof Error ? error : new GitHubProviderRequestError({ cause: error }))
+      },
+    )
+  })
+}
+
 export function createReviewDirectory(
   credentials: { appId: string; installationId: string; privateKey: KeyObject },
   request = globalThis.fetch,
 ): GitHubReviewDirectory {
   const tokens = new Map<number, { value: string; expiresAt: number }>()
-  const minting = new Map<number, Promise<string>>()
-  const reading = new Map<string, Promise<boolean>>()
+  const minting = new Map<number, PendingRequest<string>>()
+  const reading = new Map<string, PendingRequest<boolean>>()
 
   async function send<S extends z.ZodType>(
     path: string,
@@ -64,19 +119,19 @@ export function createReviewDirectory(
       throw new GitHubProviderRequestError({ cause: error })
     }
   }
-  async function installationToken(repositoryId: number) {
+  async function installationToken(repositoryId: number, signal: AbortSignal) {
+    signal.throwIfAborted()
     const token = tokens.get(repositoryId)
     if (token && token.expiresAt - 60_000 > Date.now()) return token.value
-    const pending = minting.get(repositoryId)
-    if (pending) return pending
-    const request = (async () => {
+    return shareRequest(minting, repositoryId, signal, async (cancellation) => {
       const result = await send(
         `/app/installations/${encodeURIComponent(credentials.installationId)}/access_tokens`,
         tokenSchema,
         await createGitHubAppJwt(credentials, new Date()),
-        AbortSignal.timeout(5000),
+        AbortSignal.any([cancellation, AbortSignal.timeout(5000)]),
         { repository_ids: [repositoryId] },
       )
+      cancellation.throwIfAborted()
       if (!result) throw new GitHubProviderRequestError()
       tokens.delete(repositoryId)
       tokens.set(repositoryId, { value: result.token, expiresAt: Date.parse(result.expires_at) })
@@ -85,11 +140,7 @@ export function createReviewDirectory(
         if (!oldest.done) tokens.delete(oldest.value)
       }
       return result.token
-    })().finally(() => {
-      minting.delete(repositoryId)
     })
-    minting.set(repositoryId, request)
-    return request
   }
   function repositoryPath(repository: string) {
     const parts = repository.split("/")
@@ -107,13 +158,18 @@ export function createReviewDirectory(
   async function scope(repositoryId: bigint, signal: AbortSignal) {
     const id = Number(repositoryId)
     if (!Number.isSafeInteger(id) || id <= 0) return null
-    const bearer = await installationToken(id)
+    const bearer = await installationToken(id, signal)
     const record = await send(`/repositories/${id}`, repositorySchema, bearer, signal)
     // The restricted token still addresses the original repository if its name changes mid-request.
     return record?.id === id ? { bearer, path: repositoryPath(record.full_name) } : null
   }
-  async function verifyRead(repositoryId: bigint, login: string, githubId: number) {
-    const signal = AbortSignal.timeout(6000)
+  async function verifyRead(
+    repositoryId: bigint,
+    login: string,
+    githubId: number,
+    cancellation: AbortSignal,
+  ) {
+    const signal = AbortSignal.any([cancellation, AbortSignal.timeout(6000)])
     const repository = await scope(repositoryId, signal)
     if (!repository) return false
     const { bearer, path } = repository
@@ -144,19 +200,9 @@ export function createReviewDirectory(
       cancellation?.throwIfAborted()
       if (!Number.isSafeInteger(githubId) || githubId <= 0) return false
       const key = `${repositoryId}:${githubId}`
-      let pending = reading.get(key)
-      if (!pending) {
-        pending = verifyRead(repositoryId, login, githubId).finally(() => reading.delete(key))
-        reading.set(key, pending)
-      }
-      if (!cancellation) return pending
-      // Share the in-progress check, not a completed permission or any caller's timeout.
-      return new Promise<boolean>((resolve, reject) => {
-        const abort = addAbortListener(cancellation, () => {
-          reject(new Error("Review permission check was canceled.", { cause: cancellation.reason }))
-        })
-        void pending.then(resolve, reject).finally(() => abort[Symbol.dispose]())
-      })
+      return shareRequest(reading, key, cancellation, (signal) =>
+        verifyRead(repositoryId, login, githubId, signal),
+      )
     },
     async find(repositoryId, login, githubId, cancellation) {
       cancellation?.throwIfAborted()

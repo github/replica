@@ -8,8 +8,11 @@ export async function requireReviewAccess(
   repositoryId: string,
   actor: ReviewAccessActor,
   permission: "view" | "change",
+  signal?: AbortSignal,
 ): Promise<boolean> {
-  const access = await dependencies.authorizeReviewAccess(repositoryId, actor)
+  signal?.throwIfAborted()
+  const access = await dependencies.authorizeReviewAccess(repositoryId, actor, signal)
+  signal?.throwIfAborted()
   const allowed = permission === "view" ? access.canView : access.canChange
   if (allowed) return true
 
