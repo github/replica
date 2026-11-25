@@ -23,6 +23,7 @@ describe("getLearningOverview()", () => {
     vi.mocked(access).mockRejectedValue(Object.assign(new Error("missing"), { code: "ENOENT" }))
     vi.mocked(runLearningCommand)
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({})
       .mockResolvedValueOnce({ text: "Useful guidance", memories: [] })
     const learningDatabaseUrl = "postgresql://learning.example/replica"
 
@@ -39,7 +40,7 @@ describe("getLearningOverview()", () => {
     })
 
     expect(result.recall.text).toBe("Useful guidance")
-    expect(runLearningCommand).toHaveBeenCalledTimes(2)
+    expect(runLearningCommand).toHaveBeenCalledTimes(3)
     for (const [arguments_, options] of vi.mocked(runLearningCommand).mock.calls) {
       expect(arguments_).not.toContain(learningDatabaseUrl)
       expect(options).toMatchObject({ learningDatabaseUrl })
