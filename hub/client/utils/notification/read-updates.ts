@@ -3,6 +3,7 @@ import type { NotificationReadUpdate } from "./types"
 const eventName = "replica:notification-read"
 
 export interface InboxReadUpdate {
+  viewerId: string
   id: number
   saved: NotificationReadUpdate
   startedAt: number

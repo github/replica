@@ -44,9 +44,8 @@ export function workspaceNavigation(
     notificationInbox: inboxConnected
       ? { ...notificationInboxConfiguration, connected: true }
       : undefined,
-    notificationsUnread: false,
-    notificationsUnreadCount: 0,
-    notificationsUnreadLabel: "Inbox, 0 unread",
+    notificationsUnread: workspace.inboxHasUnread,
+    inboxViewerId: workspace.viewer.id,
     administrationLinks: admin
       ? [
           {

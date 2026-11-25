@@ -15,6 +15,7 @@ describe("NotificationsPage()", () => {
         data={{
           ...stories.args.data,
           repository: null,
+          notificationsUnread: false,
           emptyRepositoryLabel: "No repository selected",
           securityAuditPath: null,
         }}
@@ -30,9 +31,6 @@ describe("NotificationsPage()", () => {
     expect(
       screen.queryByRole("button", { name: signedInRepository.repositorySelectorLabel }),
     ).not.toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Inbox, 1 unread items" })).toHaveAttribute(
-      "aria-current",
-      "page",
-    )
+    expect(screen.getByRole("link", { name: "Inbox" })).toHaveAttribute("aria-current", "page")
   })
 })

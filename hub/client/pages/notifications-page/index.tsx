@@ -22,15 +22,7 @@ export function NotificationsPage({
 }: NotificationsPageProps) {
   const copy = data.notificationInbox.copy
   return (
-    <HubWorkspace
-      data={{
-        ...data,
-        notificationsUnread: unreadCount > 0,
-        notificationsUnreadCount: unreadCount,
-        notificationsUnreadLabel: `${data.notificationsLabel}, ${copy.unreadCount.replace("%{count}", String(unreadCount))}`,
-        selectedSection: "notifications",
-      }}
-    >
+    <HubWorkspace data={{ ...data, selectedSection: "notifications" }}>
       <div className="notifications-page">
         <ConversationInbox
           mode="page"

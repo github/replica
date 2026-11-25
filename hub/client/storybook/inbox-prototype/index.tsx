@@ -76,8 +76,6 @@ export function InboxPrototype({
           notificationsLabel: "Notifications",
           notificationsPath: "#inbox",
           notificationsUnread: unreadCount > 0,
-          notificationsUnreadCount: unreadCount,
-          notificationsUnreadLabel: `Notifications, ${inboxCopy.unreadCount.replace("%{count}", String(unreadCount))}`,
           selectedSection: inbox ? "notifications" : "prototypes",
           repositories: [githubPrototype, githubEmpty],
           repositoryMenuLabel: "Repositories",

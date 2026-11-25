@@ -1,6 +1,9 @@
+import { setTimeout as delay } from "node:timers/promises"
+
 import type { RequestHandler } from "express"
 import { z } from "zod"
 
+import { hashAuthenticationValue } from "../../../../domains/authentication/hash-authentication-value/index.ts"
 import { authorizeRepositoryReview } from "../../../../domains/review-comments/authorize-repository-review/index.ts"
 import { hubSessionCookieName } from "../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../../../integrations/express/read-cookie/index.ts"
@@ -12,16 +15,22 @@ import { readProductWithCurrentAuthority } from "../../product/read-product-with
 import { canBrowseTemplates } from "../../product/template-repository-access/index.ts"
 import type { WorkspaceProductRouteDependencies } from "../../product/types.ts"
 
+const inboxUnreadBudgetMs = 250
+// Leave space for required reads in the shared PostgreSQL pool, even after a lookup times out.
+const maxPendingInboxUnreadLookups = 2
+
 export function get(
   session: CurrentSessionDependencies,
   product: WorkspaceProductRouteDependencies,
   manageSharing = false,
 ): RequestHandler {
+  let pendingInboxUnreadLookups = 0
+
   return async (request, response, next) => {
     try {
       const cookie = readCookie(request, hubSessionCookieName)
       const initial = await readProductSession(cookie, session)
-      if (!initial) {
+      if (!initial || !cookie) {
         response.status(401).json({ error: "Sign in to continue." })
         return
       }
@@ -36,6 +45,33 @@ export function get(
             product.listRepositories(viewer),
             product.welcome?.isHidden(viewer.userId),
           ])
+          let inboxHasUnread: boolean | undefined
+          const inbox = navigationOnly ? product.reviewInbox : undefined
+          if (inbox && pendingInboxUnreadLookups < maxPendingInboxUnreadLookups) {
+            const sessionDigest = hashAuthenticationValue(cookie)
+            const deadline = new AbortController()
+            pendingInboxUnreadLookups += 1
+            const lookup = Promise.resolve()
+              .then(() => inbox.hasUnread({ viewer, sessionDigest }, repositories))
+              .finally(() => {
+                pendingInboxUnreadLookups -= 1
+              })
+            try {
+              inboxHasUnread = await Promise.race([
+                lookup,
+                delay(inboxUnreadBudgetMs, undefined, { signal: deadline.signal, ref: false }),
+              ])
+              if (inboxHasUnread === undefined) {
+                request.log.warn("Inbox unread lookup exceeded its deadline")
+              }
+            } catch {
+              request.log.warn("Inbox unread status unavailable")
+            } finally {
+              deadline.abort()
+            }
+          } else if (inbox) {
+            request.log.debug("Inbox unread lookup skipped while busy")
+          }
           const requested = selectedRepository.success
             ? selectedRepository.data.toLowerCase()
             : null
@@ -53,7 +89,14 @@ export function get(
               permissionUnavailable = true
             }
           }
-          return { repositories, selected, permission, permissionUnavailable, welcomeHidden }
+          return {
+            repositories,
+            selected,
+            permission,
+            permissionUnavailable,
+            welcomeHidden,
+            inboxHasUnread,
+          }
         },
       )
       if (!read) {
@@ -62,7 +105,14 @@ export function get(
       }
       const {
         current,
-        result: { repositories, selected, permission, permissionUnavailable, welcomeHidden },
+        result: {
+          repositories,
+          selected,
+          permission,
+          permissionUnavailable,
+          welcomeHidden,
+          inboxHasUnread,
+        },
       } = read
       const presentedRepositories = repositories.map(({ localPath, ...repository }) => ({
         ...repository,
@@ -110,6 +160,7 @@ export function get(
           ? { repositoryPermissionsAvailable: true }
           : {}),
         ...(product.reviewInbox ? { reviewInboxAvailable: true } : {}),
+        ...(inboxHasUnread !== undefined ? { inboxHasUnread } : {}),
         ...(manageSharing ? { publicSharingSettingsAvailable: true } : {}),
         ...(welcomeHidden !== undefined ? { welcomeHidden } : {}),
         capabilities: {

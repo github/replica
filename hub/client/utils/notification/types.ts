@@ -30,12 +30,3 @@ export interface NotificationInboxConfiguration {
     retry: string
   }
 }
-
-export interface RepositoryInboxData {
-  authenticityToken: string
-  notificationInbox?: NotificationInboxConfiguration
-  notificationsLabel?: string
-  notificationsUnread?: boolean
-  notificationsUnreadCount?: number
-  notificationsUnreadLabel?: string
-}

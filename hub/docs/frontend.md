@@ -22,7 +22,7 @@ Review search and participant filters use `commentSearch` and `commentParticipan
 
 Closing a conversation removes `comment`; browser back/forward restores the selection and filters.
 
-Repository pages, Hub settings and Public sharing use one [workspace navigation definition](../client/application/hub/view-models/workspace-navigation/index.ts) for labels, ordering, destinations and visibility. Repository navigation adds its repository-specific links without redefining Hub settings. Current settings permissions, hidden Welcome state and unread counts replace cached workspace values before navigation is assembled.
+Repository pages, Hub settings and Public sharing use one [workspace navigation definition](../client/application/hub/view-models/workspace-navigation/index.ts) for labels, ordering, destinations and visibility. Repository navigation adds its repository-specific links without redefining Hub settings. Current settings permissions, hidden Welcome state and the Inbox unread indicator come from the workspace response.
 
 Workspace navigation carries `repositoryId` into Hub-wide pages. The ID selects navigation only from repositories the session can already read. A direct visit with no readable selection uses the first available repository. Without a readable repository, the picker shows **No repository selected** and the **Prototypes** link and available Hub-wide controls stay visible. The `/repositories` entry point opens the selected gallery when one exists.
 
@@ -40,7 +40,9 @@ Pending page navigation shows a thin green pulse moving to the right, with a scr
 
 Signed-in page and filter changes refresh the lightweight workspace alongside page data. This keeps the current account and readable repositories in sync when access changes in another tab. GitHub management controls wait for a separate, live lookup for the selected repository. The layout retains that result while the viewer, Hub role, and repository selection stay the same. A failed lookup offers a retry without blocking browsing. An expired session or changed access refreshes the workspace before private navigation returns. These results only control what Hub shows; protected APIs still verify access.
 
-One layout keeps the signed-in navigation mounted while the route content changes. It owns the picker, collapse choice, and Inbox badge across Welcome, repository pages, Inbox, Canvas connections, and settings. Route metadata selects the active link. Entering prototype review collapses the sidebar. You can reopen it, and changing Builds or leaving review keeps its current state. A page error stays in the content area, and Inbox rows update the same badge instead of starting another count request. A minimized prototype preview hides navigation without resetting it.
+One layout keeps the signed-in navigation mounted while the route content changes. It owns the picker, collapse choice, and Inbox dot across Welcome, repository pages, Inbox, Canvas connections, and settings. Route metadata selects the active link. Entering prototype review collapses the sidebar. You can reopen it, and changing Builds or leaving review keeps its current state. A page error stays in the content area. A minimized prototype preview hides navigation without resetting it.
+
+The sidebar shows a dot when the viewer has unread Inbox activity. It updates with the workspace as the viewer moves between pages. Hub keeps the last dot state if navigation fails temporarily and discards it when the session ends or the viewer changes. Opening the Inbox or its preview does not supply the dot state.
 
 Hub settings and audit loaders request their own authorized data. They do not request full workspace data to build navigation. An administrator can still use Hub-wide settings if no repository is readable or if repository navigation fails. For Hub administrators, **Security audit** opens the Hub-wide records. The scope menu also offers the selected repository when Hub verifies repository administrator permission. Repository audit and Analytics still check current repository permissions in their APIs.
 
@@ -120,7 +122,7 @@ History loads only the requested page and any successful Build pinned by `build`
 
 ### Workspace projections
 
-`GET /api/workspace?view=navigation` returns the signed-in viewer, readable repositories, and Hub preferences without checking live GitHub management permissions. `GET /api/workspace` retains the full response and checks management permissions for the selected repository. Both views verify the session and scope repositories to the viewer's access.
+`GET /api/workspace?view=navigation` returns the signed-in viewer, readable repositories, Hub preferences, and the [Inbox unread indicator](review-collaboration.md#inbox-and-live-review). It does not check live GitHub repository permissions. Hub limits concurrent unread lookups to leave database connections available for required reads. If the lookup is busy, fails, or takes too long, Hub omits the indicator rather than blocking navigation. `GET /api/workspace` retains the full response and checks management permissions for the selected repository. Both views verify the session and scope repositories to the viewer's access.
 
 ### Prototype metadata edits
 

@@ -28,6 +28,7 @@ model ReviewNotification {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@unique([recipientKey, sourceKey])
+  @@index([recipientKey, readAt])
   @@index([recipientKey, publicId])
   @@index([commentId])
   @@index([actorId])

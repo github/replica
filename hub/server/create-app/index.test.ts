@@ -6,6 +6,7 @@ import type { AddressInfo } from "node:net"
 import { join } from "node:path"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
+import { Prisma } from "../generated/prisma/client"
 import { createLogger } from "../integrations/pino/create-logger"
 import type { AuthenticationRouteDependencies } from "../routes/api/auth/types"
 import type { ProductRouteDependencies } from "../routes/api/product/types"
@@ -158,7 +159,27 @@ describe("createApp()", () => {
     }
   })
 
-  it("reads navigation without live permissions and verifies them on a full workspace read", async () => {
+  it.each([
+    {
+      outcome: "hits a statement timeout",
+      lookup: () =>
+        Promise.reject(
+          new Prisma.PrismaClientKnownRequestError("Unread query timed out", {
+            code: "P2010",
+            clientVersion: "test",
+            meta: { code: "57014" },
+          }),
+        ),
+    },
+    {
+      outcome: "loses the PostgreSQL connection",
+      lookup: () => Promise.reject(new Error("Connection terminated unexpectedly")),
+    },
+    {
+      outcome: "never settles",
+      lookup: () => new Promise<boolean>(() => {}),
+    },
+  ])("keeps navigation available when the unread lookup $outcome", async ({ lookup }) => {
     const viewer = {
       membershipId: randomUUID(),
       userId: randomUUID(),
@@ -174,13 +195,16 @@ describe("createApp()", () => {
       defaultBranch: "main",
       localPath: null,
     }
+    const restore = vi.fn().mockResolvedValue(viewer)
     const authentication: AuthenticationRouteDependencies = {
-      currentSession: { restore: vi.fn().mockResolvedValue(viewer) },
+      currentSession: { restore },
       signOut: { applicationOrigin: "https://hub.example.com", secureCookie: false, end: vi.fn() },
     }
     const getRepositoryPermission = vi.fn().mockResolvedValue("admin")
+    const hasUnread = vi.fn(lookup)
     const product: ProductRouteDependencies = {
       getRepositoryPermission,
+      reviewInbox: { hasUnread, list: vi.fn(), find: vi.fn(), setRead: vi.fn() },
       isRepositoryVisible: vi.fn().mockResolvedValue(true),
       listRepositories: vi.fn().mockResolvedValue([repository]),
       findRepositoryIndex: vi.fn(),
@@ -195,45 +219,153 @@ describe("createApp()", () => {
       createApp({ authentication, product, logger: createLogger({ level: "silent" }) }),
     )
 
-    try {
-      server.listen(0, "127.0.0.1")
-      await once(server, "listening")
-      const { port } = server.address() as AddressInfo
-      const base = `http://127.0.0.1:${port}/api/workspace`
-      const headers = { cookie: "hub_session=github-session" }
+    server.listen(0, "127.0.0.1")
+    await once(server, "listening")
+    onTestFinished(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()))
+          server.closeAllConnections()
+        }),
+    )
+    const { port } = server.address() as AddressInfo
+    const base = `http://127.0.0.1:${port}/api/workspace`
+    const headers = { cookie: "hub_session=github-session" }
 
-      expect((await fetch(`${base}?view=navigation`)).status).toBe(401)
-      const navigation = await fetch(`${base}?view=navigation`, { headers })
-      expect(navigation.status).toBe(200)
-      expect(getRepositoryPermission).not.toHaveBeenCalled()
-      const workspace: unknown = await navigation.json()
-      expect(workspace).toMatchObject({
-        viewer: { id: viewer.userId },
-        repositoryPermissionsAvailable: true,
-        repositories: [{ id: repository.id, capabilities: { reviewPrototypes: true } }],
-      })
-      expect(workspace).not.toHaveProperty("repositories.0.capabilities.administerRepository")
-      expect(workspace).not.toHaveProperty("repositories.0.capabilities.managePrototypeListings")
+    expect((await fetch(`${base}?view=navigation`)).status).toBe(401)
+    const navigation = await fetch(`${base}?view=navigation`, { headers })
+    expect(navigation.status).toBe(200)
+    expect(restore).toHaveBeenCalled()
+    expect(getRepositoryPermission).not.toHaveBeenCalled()
+    const workspace: unknown = await navigation.json()
+    expect(workspace).toMatchObject({
+      viewer: { id: viewer.userId },
+      repositoryPermissionsAvailable: true,
+      reviewInboxAvailable: true,
+      repositories: [
+        {
+          id: repository.id,
+          nameWithOwner: repository.nameWithOwner,
+          capabilities: { reviewPrototypes: true },
+        },
+      ],
+    })
+    expect(workspace).not.toHaveProperty("inboxHasUnread")
+    expect(workspace).not.toHaveProperty("repositories.0.capabilities.administerRepository")
+    expect(workspace).not.toHaveProperty("repositories.0.capabilities.managePrototypeListings")
 
-      const verified = await fetch(`${base}?repositoryId=${repository.id}`, { headers })
-      expect(verified.status).toBe(200)
-      expect(getRepositoryPermission).toHaveBeenCalledExactlyOnceWith(
-        expect.objectContaining({ membershipId: viewer.membershipId, sessionProvider: "github" }),
-        repository.id,
-      )
-      expect(await verified.json()).toMatchObject({
-        repositories: [
-          {
-            id: repository.id,
-            capabilities: { administerRepository: true, managePrototypeListings: true },
+    const verified = await fetch(`${base}?repositoryId=${repository.id}`, { headers })
+    expect(verified.status).toBe(200)
+    expect(hasUnread).toHaveBeenCalledTimes(1)
+    expect(getRepositoryPermission).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ membershipId: viewer.membershipId, sessionProvider: "github" }),
+      repository.id,
+    )
+    expect(await verified.json()).toMatchObject({
+      repositories: [
+        {
+          id: repository.id,
+          capabilities: { administerRepository: true, managePrototypeListings: true },
+        },
+      ],
+    })
+  })
+
+  it("keeps database capacity for navigation when several unread lookups stall", async () => {
+    const viewer = {
+      userId: randomUUID(),
+      membershipId: randomUUID(),
+      role: "MEMBER" as const,
+      provider: "local",
+      sessionProvider: "local",
+      login: "octocat",
+      name: null,
+    }
+    const repository = {
+      id: randomUUID(),
+      nameWithOwner: "team/alpha",
+      defaultBranch: "main",
+      localPath: "/workspace/alpha",
+    }
+    const poolSize = 10
+    let release!: (unread: boolean) => void
+    const stalled = new Promise<boolean>((resolve) => {
+      release = resolve
+    })
+    let activeLookups = 0
+    const hasUnread = vi.fn(async () => {
+      activeLookups += 1
+      try {
+        return await stalled
+      } finally {
+        activeLookups -= 1
+      }
+    })
+    const server = createServer(
+      createApp({
+        authentication: {
+          currentSession: {
+            restore: async () => {
+              if (activeLookups >= poolSize) await stalled
+              return viewer
+            },
           },
-        ],
-      })
-    } finally {
-      await new Promise<void>((resolve, reject) => {
+          signOut: {
+            applicationOrigin: "https://hub.example.com",
+            secureCookie: false,
+            end: vi.fn(),
+          },
+        },
+        product: {
+          reviewInbox: { hasUnread, list: vi.fn(), find: vi.fn(), setRead: vi.fn() },
+          isRepositoryVisible: vi.fn().mockResolvedValue(true),
+          listRepositories: vi.fn().mockResolvedValue([repository]),
+          findRepositoryIndex: vi.fn(),
+          findPrototypeDetail: vi.fn(),
+          readPrototypeWithIntroduction: vi.fn(),
+          findRepositoryAuthors: vi.fn(),
+          editPrototypeMetadata: vi.fn(),
+          findBuildPreviewTarget: vi.fn(),
+        },
+        logger: createLogger({ level: "silent" }),
+      }),
+    )
+    server.listen(0, "127.0.0.1")
+    await once(server, "listening")
+    onTestFinished(() => {
+      release(true)
+      return new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()))
+        server.closeAllConnections()
+      })
+    })
+    const { port } = server.address() as AddressInfo
+    function navigate() {
+      return fetch(`http://127.0.0.1:${port}/api/workspace?view=navigation`, {
+        headers: { cookie: "hub_session=local-session" },
       })
     }
+
+    const responses = await Promise.all(Array.from({ length: poolSize }, navigate))
+    for (const response of responses) {
+      expect(response.status).toBe(200)
+      const workspace: unknown = await response.json()
+      expect(workspace).toMatchObject({ repositories: [{ id: repository.id }] })
+      expect(workspace).not.toHaveProperty("inboxHasUnread")
+    }
+    expect(activeLookups).toBeGreaterThan(0)
+    expect(activeLookups).toBeLessThan(poolSize)
+    const started = hasUnread.mock.calls.length
+
+    const whileStalled = await navigate()
+    expect(whileStalled.status).toBe(200)
+    expect(await whileStalled.json()).not.toHaveProperty("inboxHasUnread")
+    expect(hasUnread).toHaveBeenCalledTimes(started)
+
+    release(true)
+    const recovered = await navigate()
+    expect(recovered.status).toBe(200)
+    expect(await recovered.json()).toMatchObject({ inboxHasUnread: true })
   })
 
   it("composes review and public sharing routes without crossing their authorities", async () => {

@@ -5,6 +5,15 @@ import { notifyInboxRead, onInboxReadChanged } from "@utils/notification/read-up
 import type { InboxReadUpdate } from "@utils/notification/read-updates"
 import type { InboxNotification, NotificationReadUpdate } from "@utils/notification/types"
 
+class InboxAccessDeniedError extends Error {}
+
+function requireInboxResponse(response: Response) {
+  if (response.status === 401 || response.status === 403) {
+    throw new InboxAccessDeniedError("Inbox access denied")
+  }
+  if (!response.ok) throw new Error("Inbox request failed")
+}
+
 export function useNotificationInbox({
   path,
   authenticityToken,
@@ -12,8 +21,7 @@ export function useNotificationInbox({
   initialUnreadOnly = false,
   unreadOnly: controlledUnreadOnly,
   autoLoad = true,
-  autoCount = false,
-  synchronize = false,
+  viewerId,
   limit = 50,
   onReadChange,
   onUnreadCountChange,
@@ -24,12 +32,12 @@ export function useNotificationInbox({
   initialUnreadOnly?: boolean
   unreadOnly?: boolean
   autoLoad?: boolean
-  autoCount?: boolean
-  synchronize?: boolean
+  viewerId?: string
   limit?: number
   onReadChange?: (id: number, saved: NotificationReadUpdate) => void
-  onUnreadCountChange?: (count: number) => void
+  onUnreadCountChange?: (count: number | null) => void
 }) {
+  const synchronize = viewerId !== undefined
   const [localUnreadOnly, setUnreadOnly] = useState(initialUnreadOnly)
   const unreadOnly = controlledUnreadOnly ?? localUnreadOnly
   const [notifications, setNotifications] = useState<InboxNotification[]>([])
@@ -49,7 +57,6 @@ export function useNotificationInbox({
   const [loading, setLoading] = useState(autoLoad && Boolean(path))
   const [failed, setFailed] = useState(false)
   const generation = useRef(0)
-  const pendingCount = useRef<AbortController | null>(null)
   const countReceivedAt = useRef<number | null>(null)
   const suppliedCountRevision = useRef(0)
   const loaded = useRef(false)
@@ -65,6 +72,43 @@ export function useNotificationInbox({
     oldest.current = { all: null, unread: null }
     countReceivedAt.current = null
   }, [path])
+
+  const clearFailedList = useCallback(() => {
+    setNotifications([])
+    loaded.current = false
+    setNextBefore(null)
+    setFailed(true)
+    setLoading(false)
+  }, [])
+
+  const receiveUnreadCount = useCallback(
+    (count: number | null) => {
+      suppliedCountRevision.current += 1
+      countReceivedAt.current = count === null ? null : performance.now()
+      setUnreadCount(count ?? 0)
+      if (count === null) {
+        generation.current += 1
+        oldest.current = { all: null, unread: null }
+        clearFailedList()
+      }
+    },
+    [clearFailedList],
+  )
+
+  const failInboxRequest = useCallback(
+    (error: unknown, countRevision: number) => {
+      if (countRevision === suppliedCountRevision.current) {
+        countReceivedAt.current = null
+        if (error instanceof InboxAccessDeniedError) {
+          receiveUnreadCount(null)
+          callbacks.current.onUnreadCountChange?.(null)
+          return
+        }
+      }
+      clearFailedList()
+    },
+    [clearFailedList, receiveUnreadCount],
+  )
 
   const load = useCallback(
     async (before: number | null = null) => {
@@ -84,7 +128,7 @@ export function useNotificationInbox({
             credentials: "same-origin",
             ...(synchronize ? { cache: "no-store" } : {}),
           })
-          if (!response.ok) throw new Error("Inbox is unavailable")
+          requireInboxResponse(response)
           return NOTIFICATION_PAGE_SCHEMA.parse(await response.json())
         }
         const reloadPrefix = synchronize && autoLoad
@@ -127,24 +171,16 @@ export function useNotificationInbox({
           setUnreadCount(page.unreadCount)
           callbacks.current.onUnreadCountChange?.(page.unreadCount)
         }
-      } catch {
+      } catch (error) {
         if (requestGeneration !== generation.current) return
 
-        setNotifications([])
-        loaded.current = false
         oldest.current = { all: null, unread: null }
-        if (countRevision === suppliedCountRevision.current) {
-          countReceivedAt.current = null
-          setUnreadCount(0)
-          callbacks.current.onUnreadCountChange?.(0)
-        }
-        setNextBefore(null)
-        setFailed(true)
+        failInboxRequest(error, countRevision)
       } finally {
         if (requestGeneration === generation.current) setLoading(false)
       }
     },
-    [path, limit, unreadOnly, synchronize, autoLoad],
+    [path, limit, unreadOnly, synchronize, autoLoad, failInboxRequest],
   )
 
   useEffect(() => {
@@ -155,57 +191,11 @@ export function useNotificationInbox({
     }
   }, [autoLoad, load, path])
 
-  const loadCount = useCallback(() => {
-    if (!path) return
-    pendingCount.current?.abort()
-    const requestGeneration = generation.current
-    const controller = new AbortController()
-    pendingCount.current = controller
-    const url = new URL(path, window.location.origin)
-    url.searchParams.set("limit", "1")
-    url.searchParams.set("unread", "true")
-    void fetch(url, { credentials: "same-origin", cache: "no-store", signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Inbox is unavailable")
-        const page = NOTIFICATION_PAGE_SCHEMA.parse(await response.json())
-        if (!controller.signal.aborted && requestGeneration === generation.current) {
-          countReceivedAt.current = performance.now()
-          setUnreadCount(page.unreadCount)
-        }
-      })
-      .catch(() => {
-        if (!controller.signal.aborted && requestGeneration === generation.current) {
-          countReceivedAt.current = null
-          setUnreadCount(0)
-        }
-      })
-      .finally(() => {
-        if (pendingCount.current === controller) pendingCount.current = null
-      })
-  }, [path])
-
-  useEffect(() => {
-    if (autoCount && countReceivedAt.current === null) loadCount()
-    return () => {
-      pendingCount.current?.abort()
-      pendingCount.current = null
-    }
-  }, [autoCount, loadCount])
-
-  const receiveUnreadCount = useCallback((count: number) => {
-    suppliedCountRevision.current += 1
-    pendingCount.current?.abort()
-    pendingCount.current = null
-    countReceivedAt.current = performance.now()
-    setUnreadCount(count)
-  }, [])
-
   function needsCountRefresh(saved: NotificationReadUpdate, startedAt?: number) {
     const lastCount = countReceivedAt.current
     return (
       saved.unreadCount === undefined &&
-      (pendingCount.current !== null ||
-        lastCount === null ||
+      (lastCount === null ||
         (startedAt !== undefined && lastCount >= startedAt) ||
         (saved.read && unreadCount <= 1))
     )
@@ -228,8 +218,9 @@ export function useNotificationInbox({
       ),
     )
     if (updateCount) {
-      if (saved.unreadCount !== undefined) countReceivedAt.current = performance.now()
-      setUnreadCount((previous) => saved.unreadCount ?? Math.max(0, previous + delta))
+      if (saved.unreadCount === undefined)
+        setUnreadCount((previous) => Math.max(0, previous + delta))
+      else receiveUnreadCount(saved.unreadCount)
     } else {
       // The visible count omits this save's change. Later saves still need a fresh count.
       countReceivedAt.current = null
@@ -246,16 +237,16 @@ export function useNotificationInbox({
     }
   }
 
-  const receiveReadUpdate = useEffectEvent(({ id, saved, startedAt }: InboxReadUpdate) => {
-    if (ownReadUpdate.current === saved) return
+  const receiveReadUpdate = useEffectEvent((update: InboxReadUpdate) => {
+    const { id, saved, startedAt } = update
+    if (update.viewerId !== viewerId || ownReadUpdate.current === saved) return
     const reloadList = loaded.current || autoLoad || loading
-    const needsCount = (reloadList || autoCount) && needsCountRefresh(saved, startedAt)
+    const needsCount = reloadList && needsCountRefresh(saved, startedAt)
     applyReadUpdate(id, saved, !needsCount)
     if (reloadList) {
       void load()
     } else {
       generation.current += 1
-      if (needsCount) loadCount()
     }
   })
 
@@ -266,6 +257,7 @@ export function useNotificationInbox({
 
   async function toggleRead(notification: InboxNotification) {
     const requestGeneration = ++generation.current
+    const countRevision = suppliedCountRevision.current
     const startedAt = performance.now()
     setLoading(true)
     setFailed(false)
@@ -279,32 +271,27 @@ export function useNotificationInbox({
           notification: { read: !notification.read, version: notification.version },
         }),
       })
-      if (!response.ok) throw new Error("Notification could not be updated")
-      if (requestGeneration !== generation.current) return
+      requireInboxResponse(response)
 
       saved = NOTIFICATION_READ_SCHEMA.parse(await response.json())
-      if (requestGeneration !== generation.current) return
       if (saved.read !== !notification.read)
         throw new Error("Notification read state did not change")
-    } catch {
+    } catch (error) {
       if (requestGeneration !== generation.current) return
 
-      setNotifications([])
-      loaded.current = false
-      countReceivedAt.current = null
-      setUnreadCount(0)
-      setNextBefore(null)
-      setFailed(true)
-      setLoading(false)
+      failInboxRequest(error, countRevision)
       return
     }
 
+    // The save can finish after the preview unmounts while the same viewer's Inbox is open.
+    if (viewerId !== undefined) {
+      if (requestGeneration === generation.current) ownReadUpdate.current = saved
+      notifyInboxRead({ viewerId, id: notification.id, saved, startedAt })
+    }
+    if (requestGeneration !== generation.current) return
+
     const needsCount = needsCountRefresh(saved, startedAt)
     const { count, refill } = applyReadUpdate(notification.id, saved, !needsCount)
-    if (synchronize) {
-      ownReadUpdate.current = saved
-      notifyInboxRead({ id: notification.id, saved, startedAt })
-    }
     callbacks.current.onReadChange?.(notification.id, saved)
     if (!needsCount) callbacks.current.onUnreadCountChange?.(count)
     if (needsCount || refill) {

@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from "../../../generated/prisma/client.ts"
 import type { GitHubReviewDirectory } from "../../../integrations/github/create-review-directory/types.ts"
+import { hasUnreadInbox } from "../../../repositories/review-comments/has-unread-inbox/index.ts"
 import {
   countUnreadInbox,
   findInboxActivity,
@@ -26,7 +27,7 @@ interface InboxContext {
 
 type Db = Pick<
   PrismaClient,
-  "$transaction" | "hubSession" | "repository" | "gitHubRepositoryAccessState"
+  "$queryRaw" | "$transaction" | "hubSession" | "repository" | "gitHubRepositoryAccessState"
 >
 
 export function createReviewInbox(
@@ -134,6 +135,20 @@ export function createReviewInbox(
     return new ReviewCommentError("not_found", "Notification not found.")
   }
   return {
+    async hasUnread(input: InboxContext, repositories: { id: string; localPath: string | null }[]) {
+      const local = input.viewer.sessionProvider === "local"
+      const visible = repositories.filter(({ localPath }) => (localPath !== null) === local)
+      if (visible.length === 0) return false
+
+      return hasUnreadInbox(database, {
+        keys: await recipientKeys(database, input),
+        repositoryIds: visible.map(({ id }) => id),
+        local,
+        // Hub administrators can browse repository names without a GitHub grant.
+        githubMembershipId:
+          input.viewer.sessionProvider === "github" ? input.viewer.membershipId : undefined,
+      })
+    },
     list(input: InboxContext & { unread: boolean; limit: number; before?: number }) {
       return run(input, async (transaction, where) => {
         const results = await findInboxPage(transaction, where, input)

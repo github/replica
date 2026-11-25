@@ -1,6 +1,5 @@
 import type { WorkspaceAccountData } from "@components/workspace-navigation/types"
-import type { useNotificationInbox } from "@hooks/use-notification-inbox"
-import type { NotificationInboxConfiguration, RepositoryInboxData } from "@utils/notification/types"
+import type { NotificationInboxConfiguration } from "@utils/notification/types"
 
 export interface RepositoryNavigationContext {
   analyticsLabel?: string
@@ -17,15 +16,16 @@ export interface RepositoryNavigationContext {
   selectedRepositoryId: string
 }
 
-export interface WorkspaceNavData extends WorkspaceAccountData, RepositoryInboxData {
+export interface WorkspaceNavData extends WorkspaceAccountData {
   emptyRepositoryLabel?: string
   welcomeLabel?: string
   welcomePath?: string | null
+  notificationInbox?: NotificationInboxConfiguration
+  notificationsLabel?: string
   notificationsPath?: string
-  liveInbox?: ReturnType<typeof useNotificationInbox> & {
-    copy: NotificationInboxConfiguration["copy"]
-  }
+  notificationsUnread?: boolean
   inboxPreviewScope?: string
+  inboxViewerId?: string
   navigationLabel: string
   settingsNavigationLabel?: string
   selectedSection?:
