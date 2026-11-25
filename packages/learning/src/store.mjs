@@ -97,8 +97,8 @@ const PIN_KEYS = [
 const TRANSITIONS = {
   proposed: ["proposed", "accepted", "rejected"],
   accepted: ["accepted", "retired"],
-  rejected: [],
-  retired: [],
+  rejected: ["accepted"],
+  retired: ["accepted"],
 }
 
 /**
@@ -425,6 +425,25 @@ const CHANGEABLE = {
   "proposed>rejected": ["version", "previousDigest", "state", "rejected", "updatedAt", "digest"],
   "accepted>accepted": ["version", "previousDigest", "updatedAt", "digest", "supersedes"],
   "accepted>retired": ["version", "previousDigest", "state", "retired", "updatedAt", "digest"],
+  "rejected>accepted": [
+    "version",
+    "previousDigest",
+    "state",
+    "rejected",
+    "accepted",
+    "supersedes",
+    "updatedAt",
+    "digest",
+  ],
+  "retired>accepted": [
+    "version",
+    "previousDigest",
+    "state",
+    "retired",
+    "accepted",
+    "updatedAt",
+    "digest",
+  ],
 }
 
 /**
@@ -446,7 +465,22 @@ function transitionProblems(previous, version) {
       problems.push(`${label} changes when the learning was created`)
     return problems
   }
-  const fixed = CHANGEABLE[step]
+  const isEdit =
+    step === "accepted>accepted" &&
+    canonicalJson(version.accepted) !== canonicalJson(previous.accepted)
+  const fixed = isEdit
+    ? [
+        "version",
+        "previousDigest",
+        "updatedAt",
+        "digest",
+        "accepted",
+        "title",
+        "content",
+        "contentDigest",
+        "reviewDigest",
+      ]
+    : CHANGEABLE[step]
   if (canonicalJson(without(version, ...fixed)) !== canonicalJson(without(previous, ...fixed)))
     problems.push(
       `${label} changes something a ${previous.state} to ${version.state} step cannot change`,
@@ -466,10 +500,40 @@ function transitionProblems(previous, version) {
   if (step === "proposed>rejected" && version.rejected.reviewedDigest !== previous.reviewDigest)
     problems.push(`${label} rejects something other than version ${previous.version}`)
   if (step === "accepted>accepted") {
-    if (previous.supersedes)
+    if (isEdit) {
+      if (
+        version.accepted.decision !== "edit" ||
+        !version.accepted.note ||
+        !version.accepted.edited ||
+        version.accepted.at !== version.updatedAt ||
+        version.accepted.reviewedDigest !== previous.digest ||
+        version.accepted.edited !==
+          (version.content !== previous.content || version.title !== previous.title)
+      )
+        problems.push(`${label} does not record the reviewed edit`)
+    } else if (previous.supersedes)
       problems.push(`${label} changes what the learning replaces, which is fixed once recorded`)
     else if (!version.supersedes || version.supersedes.includes(version.id))
       problems.push(`${label} records no valid replacement`)
+  }
+  if (step === "rejected>accepted" || step === "retired>accepted") {
+    if (
+      version.accepted.decision !== "reinstate" ||
+      !version.accepted.note ||
+      version.accepted.edited ||
+      version.accepted.at !== version.updatedAt ||
+      version.accepted.reviewedDigest !== previous.digest
+    )
+      problems.push(`${label} does not record the reviewed reinstatement`)
+    if (step === "rejected>accepted") {
+      const expected = unique(previous.proposal.lifecycle.targets ?? [])
+      if (
+        version.supersedes?.includes(version.id) ||
+        canonicalJson([...(version.supersedes ?? [])].sort()) !==
+          canonicalJson([...expected].sort())
+      )
+        problems.push(`${label} replaces learnings the reviewed lifecycle does not name`)
+    }
   }
   return problems
 }
@@ -1009,7 +1073,14 @@ class LearningStore {
       return { record: metadataOf(item.record), status: item.status, withheld: true }
     if (item.status.evidenceEligible)
       return { record: item.record, status: item.status, withheld: false }
-    const record = without(item.record, "content", "evidence", "contradictions", "appliesTo")
+    const record = without(
+      item.record,
+      "title",
+      "content",
+      "evidence",
+      "contradictions",
+      "appliesTo",
+    )
     record.proposal = without(item.record.proposal, "rationale")
     return { record, status: item.status, withheld: true }
   }
@@ -2124,6 +2195,7 @@ class LearningStore {
       )
     const optional = {}
     for (const key of [
+      "title",
       "themeKey",
       "appliesTo",
       "support",
@@ -2361,6 +2433,133 @@ class LearningStore {
         `Only accepted memories can be retired; ${id} is ${entry.record.state}.`,
       )
     return this.#retire(entry.record, context, reason, this.#now(), operationId)
+  }
+
+  /** Edit an accepted learning without losing the approved history. */
+  async editMemory(context, id, { expectedDigest, title, content, reason, operationId } = {}) {
+    return this.#changeAccepted(context, id, "edit", {
+      expectedDigest,
+      title,
+      content,
+      reason,
+      operationId,
+    })
+  }
+
+  /** Restore a rejected or retired learning only while its evidence still permits use. */
+  async reinstateMemory(context, id, { expectedDigest, reason, operationId } = {}) {
+    return this.#changeAccepted(context, id, "reinstate", {
+      expectedDigest,
+      reason,
+      operationId,
+    })
+  }
+
+  async #changeAccepted(context, id, decision, options, retried = false) {
+    assertContext(context)
+    requireHuman(context, `${decision} a learning`)
+    const { expectedDigest, title, content, reason, operationId } = options
+    if (typeof reason !== "string" || !reason.trim() || reason.length > 2000)
+      throw new LearningError("invalid_input", "Give a reason for the decision.")
+    if (decision === "edit" && title === undefined && content === undefined)
+      throw new LearningError("invalid_input", "Give a title or text to edit.")
+    const { items, eligible, now } = await this.#statuses(context)
+    const entries = new Map(items.map((item) => [item.id, item]))
+    const entry = entries.get(id)
+    if (!entry) throw new LearningError("not_found", `No memory ${id} in this scope.`)
+    if (entry.problems.length)
+      throw new LearningError("invalid_record", `Memory ${id} failed its integrity checks.`)
+    const latest = entry.record
+    if (!this.#evidenceEligible(dependencies(latest), eligible))
+      throw new LearningError(
+        "purpose_not_granted",
+        `Some evidence or counterevidence for ${id} is missing or no longer permitted for instruction.`,
+      )
+    if (entry.status.identityNeedsReview)
+      throw new LearningError(
+        "identity_revalidation_required",
+        `Reviewer identity for ${id} changed or remains unverified.`,
+      )
+    if (operationId) {
+      const previous = entry.intact.find(
+        (version) =>
+          version.accepted?.operationId === operationId ||
+          version.rejected?.operationId === operationId ||
+          version.retired?.operationId === operationId,
+      )
+      if (previous) {
+        if (
+          previous.accepted?.decision !== decision ||
+          previous.accepted.reviewedDigest !== expectedDigest ||
+          previous.accepted.note !== reason ||
+          canonicalJson(previous.accepted.by) !== canonicalJson(context.principal) ||
+          (title !== undefined && previous.title !== title) ||
+          (content !== undefined && previous.content !== content)
+        )
+          throw new LearningError("conflict", "This operation ID was used for another decision.")
+        return previous
+      }
+    }
+    if (
+      (decision === "edit" && latest.state !== "accepted") ||
+      (decision === "reinstate" && !["rejected", "retired"].includes(latest.state))
+    )
+      throw new LearningError("invalid_transition", `Memory ${id} cannot be ${decision}ed.`)
+    if (latest.digest !== expectedDigest)
+      throw new LearningError("stale_review", `Memory ${id} changed since it was reviewed.`)
+    if (entry.status.superseded || entry.status.conflicts.length)
+      throw new LearningError("invalid_transition", `Memory ${id} has been replaced or conflicts.`)
+    const targets =
+      decision === "reinstate" && latest.state === "rejected"
+        ? (latest.proposal.lifecycle.targets ?? [])
+        : []
+    for (const target of targets) this.#assertReplaceable(entries.get(target), target)
+    const unusable = targets.length ? replacementProblem(validity(latest, now)) : null
+    if (unusable)
+      throw new LearningError("invalid_transition", `${id} cannot replace another learning now.`)
+    const draft = {
+      ...without(latest, "digest", "contentDigest", "accepted", "rejected", "retired"),
+      version: latest.version + 1,
+      previousDigest: latest.digest,
+      state: "accepted",
+      ...(title !== undefined ? { title } : {}),
+      ...(content !== undefined ? { content } : {}),
+      ...(targets.length ? { supersedes: unique(targets) } : {}),
+      updatedAt: now,
+    }
+    const edited = draft.title !== latest.title || draft.content !== latest.content
+    if (decision === "edit" && !edited)
+      throw new LearningError("invalid_input", "The title and text have not changed.")
+    draft.accepted = {
+      by: context.principal,
+      at: now,
+      contentDigest: memoryContentDigest(draft),
+      reviewedDigest: expectedDigest,
+      edited,
+      decision,
+      note: reason,
+      ...(operationId ? { operationId } : {}),
+    }
+    const record = sealMemory(draft)
+    assertValid("memoryRecord", record)
+    try {
+      await this.#appendVersion(
+        record,
+        latest.digest,
+        "stale_review",
+        this.#auditEntry(
+          context,
+          `memory.${decision}`,
+          [{ kind: "memory", id, digest: record.digest }],
+          { purpose: "instruction", reason },
+        ),
+      )
+    } catch (error) {
+      if (error?.code === "stale_review" && operationId && !retried)
+        return this.#changeAccepted(context, id, decision, options, true)
+      throw error
+    }
+    return record
   }
 
   /**
@@ -3190,8 +3389,14 @@ const RECEIPTS = {
 
 /** The audit operation that records a learning version, named for the step that wrote it. */
 function versionOperation(previous, version) {
-  if (version.state === "accepted")
-    return previous?.state === "accepted" ? "memory.supersede" : "memory.accept"
+  if (version.state === "accepted") {
+    if (previous?.state === "accepted")
+      return canonicalJson(previous.accepted) !== canonicalJson(version.accepted)
+        ? "memory.edit"
+        : "memory.supersede"
+    if (previous?.state === "rejected" || previous?.state === "retired") return "memory.reinstate"
+    return "memory.accept"
+  }
   return { proposed: "memory.propose", rejected: "memory.reject", retired: "memory.retire" }[
     version.state
   ]

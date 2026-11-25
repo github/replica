@@ -115,6 +115,76 @@ function configureCustomProvider(repo) {
   return directory
 }
 
+it("preserves reviewed versions when migrating edited and reinstated learnings", async () => {
+  const oldScope = { host: "github.com", repository: "acme/checkout-prototypes" }
+  const human = { scope: oldScope, principal: { kind: "human", id: "github:ana-designer" } }
+  const agent = { scope: oldScope, principal: { kind: "agent", id: "agent:copilot" } }
+  const source = createInMemoryProvider()
+  const target = createInMemoryProvider()
+  function clock() {
+    return Date.parse("2026-10-09T12:00:00Z")
+  }
+  const store = await createLearningStore({ provider: source, clock })
+  const grant = await store.addGrant(human, {
+    purposes: ["review", "instruction"],
+    sources: ["hub_review_comments"],
+    basis: "Test agreement.",
+  })
+  await store.importHubReviewComments(agent, weekOneLog(), { grantIds: [grant.id] })
+  await store.annotate(agent, weekOneLabels().labels)
+  const { proposals } = await store.consolidate(agent, {
+    consolidator: createRecurrenceConsolidator(),
+    window: { from: "2026-09-29T00:00:00.000000Z", to: "2026-10-05T18:00:00.000000Z" },
+  })
+  const proposal = proposals[0]
+  const rejected = await store.rejectMemory(human, proposal.id, {
+    expectedDigest: proposal.reviewDigest,
+    reason: "Reconsider later.",
+  })
+  const restored = await store.reinstateMemory(human, proposal.id, {
+    expectedDigest: rejected.digest,
+    reason: "The team confirmed the guidance.",
+  })
+  await store.editMemory(human, proposal.id, {
+    expectedDigest: restored.digest,
+    title: "Keep labels visible",
+    reason: "Clarify the title.",
+  })
+  const migrator = {
+    ...source,
+    async migrateScope({ transform }) {
+      const records = Object.fromEntries(
+        await Promise.all(
+          Object.keys(STREAMS).map(async (stream) => [
+            stream,
+            await source.readRecords(stream, { scope: oldScope }),
+          ]),
+        ),
+      )
+      const memories = await source.readMemoryVersions({ scope: oldScope })
+      const changed = await transform({ records, memories })
+      await target.appendBatch(changed.records)
+      for (const version of changed.memories)
+        await target.appendMemoryVersion(version, {
+          expectedPreviousDigest: version.previousDigest ?? null,
+        })
+      return changed.metadata
+    },
+  }
+  await migrateRepositoryScope({ provider: migrator, oldScope, newScope: scope, clock })
+  const migrated = await createLearningStore({ provider: target, clock })
+  const history = await migrated.getMemory({ ...human, scope }, proposal.id, { history: true })
+  assert.deepEqual(
+    history.versions.map((version) => version.state),
+    ["proposed", "rejected", "accepted", "accepted"],
+  )
+  assert.equal(history.versions[2].accepted.reviewedDigest, history.versions[1].digest)
+  assert.equal(history.versions[3].accepted.reviewedDigest, history.versions[2].digest)
+  assert.equal(history.record.title, "Keep labels visible")
+  assert.equal((await migrated.verify({ ...human, scope })).ok, true)
+  assert.equal((await migrated.recall({ ...agent, scope })).memories[0].id, proposal.id)
+})
+
 it("uses a new custom-provider store after confirming it is empty", async () => {
   const repo = checkout("new-custom-provider")
   const directory = configureCustomProvider(repo)

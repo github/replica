@@ -2,8 +2,10 @@ import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import { agent, designer, weekOneLabels, weekOneLog } from "../conformance/index.mjs"
 import { createRecurrenceConsolidator } from "../src/consolidators/recurrence.mjs"
+import { digestOf } from "../src/canonical-json.mjs"
 import { LearningError } from "../src/errors.mjs"
 import { createInMemoryProvider } from "../src/providers/in-memory.mjs"
+import { sealMemory } from "../src/records.mjs"
 import { createLearningStore } from "../src/store.mjs"
 
 describe("in-memory provider atomic writes", () => {
@@ -19,6 +21,7 @@ describe("in-memory provider atomic writes", () => {
       },
       clock: () => Date.parse("2026-10-09T12:00:00Z"),
     })
+
     const grant = await store.addGrant(designer(), {
       purposes: ["review", "instruction"],
       sources: ["hub_review_comments"],
@@ -92,5 +95,463 @@ describe("in-memory provider atomic writes", () => {
     )
     assert.deepEqual(await provider.readMemoryVersions({ scope }), [])
     assert.deepEqual(await provider.readRecords("audit", { scope }), [])
+  })
+})
+
+describe("learning decisions", () => {
+  it("adds a short title to a recurrence proposal", async () => {
+    const store = await createLearningStore({
+      provider: createInMemoryProvider(),
+      clock: () => Date.parse("2026-10-09T12:00:00Z"),
+    })
+    const grant = await store.addGrant(designer(), {
+      purposes: ["review", "instruction"],
+      sources: ["hub_review_comments"],
+      basis: "Test agreement.",
+    })
+    await store.importHubReviewComments(agent(), weekOneLog(), { grantIds: [grant.id] })
+    await store.annotate(agent(), weekOneLabels().labels)
+    const { proposals } = await store.consolidate(agent(), {
+      consolidator: createRecurrenceConsolidator(),
+      window: { from: "2026-09-29T00:00:00.000000Z", to: "2026-10-05T18:00:00.000000Z" },
+    })
+
+    assert.equal(proposals.length, 1)
+    assert.equal(typeof proposals[0].title, "string")
+    assert.ok(proposals[0].title.trim().length > 0)
+    assert.doesNotMatch(proposals[0].title, /[\r\n]/)
+  })
+
+  it("preserves historical content digests when the title is absent", async () => {
+    const store = await createLearningStore({
+      provider: createInMemoryProvider(),
+      clock: () => Date.parse("2026-10-09T12:00:00Z"),
+    })
+    const grant = await store.addGrant(designer(), {
+      purposes: ["review", "instruction"],
+      sources: ["hub_review_comments"],
+      basis: "Test agreement.",
+    })
+    await store.importHubReviewComments(agent(), weekOneLog(), { grantIds: [grant.id] })
+    await store.annotate(agent(), weekOneLabels().labels)
+    const { proposals } = await store.consolidate(agent(), {
+      consolidator: createRecurrenceConsolidator(),
+      window: { from: "2026-09-29T00:00:00.000000Z", to: "2026-10-05T18:00:00.000000Z" },
+    })
+    const proposal = await store.proposeMemory(designer(), {
+      schemaVersion: "replica.memory-proposal/v1",
+      kind: "rule",
+      content: "Keep field labels visible.",
+      evidence: proposals[0].evidence,
+      rationale: {
+        recurrence: "Repeated feedback.",
+        expectedBenefit: "Clearer fields.",
+        falsification: "Reviewers still report problems.",
+      },
+      lifecycle: { action: "new" },
+      consolidator: { id: "manual", version: "1" },
+    })
+    const historicalDigest = digestOf({
+      scope: proposal.scope,
+      kind: proposal.kind,
+      content: proposal.content,
+      appliesTo: proposal.appliesTo ?? [],
+      lifecycle: proposal.proposal?.lifecycle ?? null,
+      evidence: proposal.evidence,
+      validFrom: proposal.validFrom ?? null,
+      validUntil: proposal.validUntil ?? null,
+      expiresAt: proposal.expiresAt ?? null,
+    })
+    assert.equal(proposal.title, undefined)
+    assert.equal(proposal.contentDigest, historicalDigest)
+    await store.acceptMemory(designer(), proposal.id, { expectedDigest: proposal.reviewDigest })
+    assert.equal((await store.verify(designer())).ok, true)
+  })
+
+  it("records separate title and content edits and safely retries an edit", async () => {
+    const store = await createLearningStore({
+      provider: createInMemoryProvider(),
+      clock: () => Date.parse("2026-10-09T12:00:00Z"),
+    })
+    const grant = await store.addGrant(designer(), {
+      purposes: ["review", "instruction"],
+      sources: ["hub_review_comments"],
+      basis: "Test agreement.",
+    })
+    await store.importHubReviewComments(agent(), weekOneLog(), { grantIds: [grant.id] })
+    await store.annotate(agent(), weekOneLabels().labels)
+    const { proposals } = await store.consolidate(agent(), {
+      consolidator: createRecurrenceConsolidator(),
+      window: { from: "2026-09-29T00:00:00.000000Z", to: "2026-10-05T18:00:00.000000Z" },
+    })
+    const proposal = proposals[0]
+    const accepted = await store.acceptMemory(designer(), proposal.id, {
+      expectedDigest: proposal.reviewDigest,
+    })
+    const titleEdit = {
+      expectedDigest: accepted.digest,
+      title: "Keep labels visible",
+      reason: "Make the title clearer.",
+      operationId: "11111111-1111-4111-8111-111111111111",
+    }
+    const titled = await store.editMemory(designer(), proposal.id, titleEdit)
+    const retried = await store.editMemory(designer(), proposal.id, titleEdit)
+    assert.equal(retried.digest, titled.digest)
+    await assert.rejects(
+      store.editMemory(designer(), proposal.id, { ...titleEdit, reason: "A different decision." }),
+      { code: "conflict" },
+    )
+    assert.equal(titled.title, titleEdit.title)
+    assert.equal(titled.content, accepted.content)
+    assert.notEqual(titled.contentDigest, accepted.contentDigest)
+    assert.equal(titled.previousDigest, accepted.digest)
+    assert.deepEqual(titled.accepted.by, designer().principal)
+    assert.equal(titled.accepted.at, "2026-10-09T12:00:00.000000Z")
+    assert.ok(JSON.stringify(titled.accepted).includes(titleEdit.reason))
+    assert.equal(titled.accepted.contentDigest, titled.contentDigest)
+
+    const contentEdit = {
+      expectedDigest: titled.digest,
+      content: "Keep labels visible above fields while people type.",
+      reason: "Clarify the expected behavior.",
+      operationId: "22222222-2222-4222-8222-222222222222",
+    }
+    const edited = await store.editMemory(designer(), proposal.id, contentEdit)
+    assert.equal(edited.title, titleEdit.title)
+    assert.equal(edited.content, contentEdit.content)
+    assert.equal(edited.previousDigest, titled.digest)
+    assert.ok(JSON.stringify(edited.accepted).includes(contentEdit.reason))
+    const history = await store.getMemory(designer(), proposal.id, { history: true })
+    assert.deepEqual(
+      history.versions.map((version) => version.digest),
+      [proposal.digest, accepted.digest, titled.digest, edited.digest],
+    )
+    assert.equal((await store.recall(agent())).memories[0].content, contentEdit.content)
+    assert.equal((await store.verify(designer())).ok, true)
+  })
+
+  it("refuses stale or nonhuman edits without changing history", async () => {
+    const store = await createLearningStore({
+      provider: createInMemoryProvider(),
+      clock: () => Date.parse("2026-10-09T12:00:00Z"),
+    })
+    const grant = await store.addGrant(designer(), {
+      purposes: ["review", "instruction"],
+      sources: ["hub_review_comments"],
+      basis: "Test agreement.",
+    })
+    await store.importHubReviewComments(agent(), weekOneLog(), { grantIds: [grant.id] })
+    await store.annotate(agent(), weekOneLabels().labels)
+    const { proposals } = await store.consolidate(agent(), {
+      consolidator: createRecurrenceConsolidator(),
+      window: { from: "2026-09-29T00:00:00.000000Z", to: "2026-10-05T18:00:00.000000Z" },
+    })
+    const proposal = proposals[0]
+    const accepted = await store.acceptMemory(designer(), proposal.id, {
+      expectedDigest: proposal.reviewDigest,
+      content: "Keep labels visible.",
+    })
+    const input = {
+      title: "Form labels",
+      reason: "Clarify the title.",
+      operationId: "33333333-3333-4333-8333-333333333333",
+    }
+    await assert.rejects(
+      store.editMemory(agent(), proposal.id, { ...input, expectedDigest: accepted.digest }),
+      { code: "human_required" },
+    )
+    await assert.rejects(
+      store.editMemory(designer(), proposal.id, { ...input, expectedDigest: proposal.digest }),
+      { code: "stale_review" },
+    )
+    const history = await store.getMemory(designer(), proposal.id, { history: true })
+    assert.deepEqual(
+      history.versions.map((version) => version.digest),
+      [proposal.digest, accepted.digest],
+    )
+  })
+
+  it("reinstates a rejected learning once and keeps its decision history", async () => {
+    const store = await createLearningStore({
+      provider: createInMemoryProvider(),
+      clock: () => Date.parse("2026-10-09T12:00:00Z"),
+    })
+    const grant = await store.addGrant(designer(), {
+      purposes: ["review", "instruction"],
+      sources: ["hub_review_comments"],
+      basis: "Test agreement.",
+    })
+    await store.importHubReviewComments(agent(), weekOneLog(), { grantIds: [grant.id] })
+    await store.annotate(agent(), weekOneLabels().labels)
+    const { proposals } = await store.consolidate(agent(), {
+      consolidator: createRecurrenceConsolidator(),
+      window: { from: "2026-09-29T00:00:00.000000Z", to: "2026-10-05T18:00:00.000000Z" },
+    })
+    const proposal = proposals[0]
+    const rejected = await store.rejectMemory(designer(), proposal.id, {
+      expectedDigest: proposal.reviewDigest,
+      reason: "Needs another review.",
+    })
+    const input = {
+      expectedDigest: rejected.digest,
+      reason: "The team confirmed the guidance.",
+      operationId: "44444444-4444-4444-8444-444444444444",
+    }
+    const restored = await store.reinstateMemory(designer(), proposal.id, input)
+    assert.equal(
+      (await store.reinstateMemory(designer(), proposal.id, input)).digest,
+      restored.digest,
+    )
+    assert.equal(restored.state, "accepted")
+    assert.equal(restored.previousDigest, rejected.digest)
+    assert.deepEqual(restored.accepted.by, designer().principal)
+    assert.equal(restored.accepted.at, "2026-10-09T12:00:00.000000Z")
+    assert.ok(JSON.stringify(restored.accepted).includes(input.reason))
+    assert.equal(restored.accepted.contentDigest, restored.contentDigest)
+    const history = await store.getMemory(designer(), proposal.id, { history: true })
+    assert.deepEqual(
+      history.versions.map((version) => version.state),
+      ["proposed", "rejected", "accepted"],
+    )
+    assert.equal((await store.recall(agent())).memories[0].id, proposal.id)
+    assert.equal((await store.verify(designer())).ok, true)
+  })
+
+  it("reinstates a retired learning only against the reviewed version", async () => {
+    const store = await createLearningStore({
+      provider: createInMemoryProvider(),
+      clock: () => Date.parse("2026-10-09T12:00:00Z"),
+    })
+    const grant = await store.addGrant(designer(), {
+      purposes: ["review", "instruction"],
+      sources: ["hub_review_comments"],
+      basis: "Test agreement.",
+    })
+    await store.importHubReviewComments(agent(), weekOneLog(), { grantIds: [grant.id] })
+    await store.annotate(agent(), weekOneLabels().labels)
+    const { proposals } = await store.consolidate(agent(), {
+      consolidator: createRecurrenceConsolidator(),
+      window: { from: "2026-09-29T00:00:00.000000Z", to: "2026-10-05T18:00:00.000000Z" },
+    })
+    const proposal = proposals[0]
+    const accepted = await store.acceptMemory(designer(), proposal.id, {
+      expectedDigest: proposal.reviewDigest,
+      content: "Keep labels visible.",
+    })
+    const retired = await store.retireMemory(designer(), proposal.id, { reason: "Out of date." })
+    const input = {
+      expectedDigest: retired.digest,
+      reason: "The guidance applies again.",
+      operationId: "55555555-5555-4555-8555-555555555555",
+    }
+    await assert.rejects(store.reinstateMemory(agent(), proposal.id, input), {
+      code: "human_required",
+    })
+    await assert.rejects(
+      store.reinstateMemory(designer(), proposal.id, {
+        ...input,
+        expectedDigest: accepted.digest,
+      }),
+      { code: "stale_review" },
+    )
+    const restored = await store.reinstateMemory(designer(), proposal.id, input)
+    assert.equal(restored.previousDigest, retired.digest)
+    assert.equal(restored.content, accepted.content)
+    const history = await store.getMemory(designer(), proposal.id, { history: true })
+    assert.deepEqual(
+      history.versions.map((version) => version.state),
+      ["proposed", "accepted", "retired", "accepted"],
+    )
+    assert.equal((await store.recall(agent())).memories[0].id, proposal.id)
+    assert.equal((await store.verify(designer())).ok, true)
+  })
+
+  it("refuses a stale reinstatement after the learning is restored and retired again", async () => {
+    const store = await createLearningStore({
+      provider: createInMemoryProvider(),
+      clock: () => Date.parse("2026-10-09T12:00:00Z"),
+    })
+    const grant = await store.addGrant(designer(), {
+      purposes: ["review", "instruction"],
+      sources: ["hub_review_comments"],
+      basis: "Test agreement.",
+    })
+    await store.importHubReviewComments(agent(), weekOneLog(), { grantIds: [grant.id] })
+    await store.annotate(agent(), weekOneLabels().labels)
+    const { proposals } = await store.consolidate(agent(), {
+      consolidator: createRecurrenceConsolidator(),
+      window: { from: "2026-09-29T00:00:00.000000Z", to: "2026-10-05T18:00:00.000000Z" },
+    })
+    const proposal = proposals[0]
+    const rejected = await store.rejectMemory(designer(), proposal.id, {
+      expectedDigest: proposal.reviewDigest,
+      reason: "Reconsider later.",
+    })
+    await store.reinstateMemory(designer(), proposal.id, {
+      expectedDigest: rejected.digest,
+      reason: "The team confirmed the guidance.",
+      operationId: "99999999-9999-4999-8999-999999999991",
+    })
+    const retired = await store.retireMemory(designer(), proposal.id, { reason: "Out of date." })
+    assert.equal(retired.reviewDigest, rejected.reviewDigest)
+    await assert.rejects(
+      store.reinstateMemory(designer(), proposal.id, {
+        expectedDigest: rejected.digest,
+        reason: "An outdated review.",
+        operationId: "99999999-9999-4999-8999-999999999992",
+      }),
+      { code: "stale_review" },
+    )
+    const history = await store.getMemory(designer(), proposal.id, { history: true })
+    assert.equal(history.record.digest, retired.digest)
+    assert.deepEqual(
+      history.versions.map((version) => version.state),
+      ["proposed", "rejected", "accepted", "retired"],
+    )
+    assert.equal((await store.verify(designer())).ok, true)
+  })
+
+  it("refuses reinstatement when counterevidence no longer permits instruction", async () => {
+    const store = await createLearningStore({
+      provider: createInMemoryProvider(),
+      clock: () => Date.parse("2026-10-09T12:00:00Z"),
+    })
+    const early = await store.addGrant(designer(), {
+      purposes: ["review", "instruction"],
+      sources: ["hub_review_comments"],
+      basis: "Early evidence.",
+      evidenceUntil: "2026-10-03T00:00:00.000000Z",
+    })
+    const late = await store.addGrant(designer(), {
+      purposes: ["review", "instruction"],
+      sources: ["hub_review_comments"],
+      basis: "Later evidence.",
+      evidenceFrom: "2026-10-03T00:00:00.000000Z",
+    })
+    await store.importHubReviewComments(agent(), weekOneLog(), { grantIds: [early.id, late.id] })
+    await store.annotate(agent(), weekOneLabels().labels)
+    await store.annotate(agent(), [
+      {
+        target: { commentId: 110 },
+        theme: { key: "visible-form-labels", statement: "Labels can stay inside short inputs." },
+        signal: "accessibility",
+        observation: "observed",
+        stance: "contradicts",
+      },
+    ])
+    const { proposals } = await store.consolidate(agent(), {
+      consolidator: createRecurrenceConsolidator(),
+      window: { from: "2026-09-29T00:00:00.000000Z", to: "2026-10-05T18:00:00.000000Z" },
+    })
+    const proposal = proposals[0]
+    assert.ok(proposal.contradictions.length > 0)
+    const rejected = await store.rejectMemory(designer(), proposal.id, {
+      expectedDigest: proposal.reviewDigest,
+      reason: "Reconsider later.",
+    })
+    await store.withdrawGrant(designer(), late.id, { purposes: ["instruction"] })
+    await assert.rejects(
+      store.reinstateMemory(designer(), proposal.id, {
+        expectedDigest: rejected.digest,
+        reason: "Try again.",
+        operationId: "66666666-6666-4666-8666-666666666666",
+      }),
+      { code: "purpose_not_granted" },
+    )
+    assert.deepEqual(
+      (await store.getMemory(designer(), proposal.id, { history: true })).versions.map(
+        (version) => version.state,
+      ),
+      ["proposed", "rejected"],
+    )
+    assert.equal((await store.recall(agent())).memories.length, 0)
+  })
+
+  it("refuses to reinstate a learning after its supporting comment is redacted", async () => {
+    const store = await createLearningStore({
+      provider: createInMemoryProvider(),
+      clock: () => Date.parse("2026-10-09T12:00:00Z"),
+    })
+    const grant = await store.addGrant(designer(), {
+      purposes: ["review", "instruction"],
+      sources: ["hub_review_comments"],
+      basis: "Test agreement.",
+    })
+    await store.importHubReviewComments(agent(), weekOneLog(), { grantIds: [grant.id] })
+    await store.annotate(agent(), weekOneLabels().labels)
+    const { proposals } = await store.consolidate(agent(), {
+      consolidator: createRecurrenceConsolidator(),
+      window: { from: "2026-09-29T00:00:00.000000Z", to: "2026-10-05T18:00:00.000000Z" },
+    })
+    const proposal = proposals[0]
+    const rejected = await store.rejectMemory(designer(), proposal.id, {
+      expectedDigest: proposal.reviewDigest,
+      reason: "Reconsider later.",
+    })
+    const evidenceIds = new Set(proposal.evidence.flatMap((ref) => ref.eventIds))
+    const { events } = await store.queryObservations(designer(), { purpose: "review" })
+    const comment = events.find(
+      (event) => evidenceIds.has(event.id) && event.type === "human_comment",
+    )
+    assert.ok(comment)
+    await store.redactComment(designer(), comment.id, { reason: "The author asked." })
+    await assert.rejects(
+      store.reinstateMemory(designer(), proposal.id, {
+        expectedDigest: rejected.digest,
+        reason: "Try again.",
+        operationId: "77777777-7777-4777-8777-777777777777",
+      }),
+    )
+    assert.equal((await store.getMemory(designer(), proposal.id)).record.state, "rejected")
+    assert.equal((await store.recall(agent())).memories.length, 0)
+  })
+
+  it("detects an edited approval that does not name the reviewed version", async () => {
+    const provider = createInMemoryProvider()
+    let damage = false
+    const store = await createLearningStore({
+      provider: {
+        ...provider,
+        async readMemoryVersions(query) {
+          const versions = await provider.readMemoryVersions(query)
+          return damage
+            ? versions.map((version) =>
+                version.version === 3
+                  ? sealMemory({
+                      ...version,
+                      accepted: { ...version.accepted, reviewedDigest: `sha256:${"f".repeat(64)}` },
+                    })
+                  : version,
+              )
+            : versions
+        },
+      },
+      clock: () => Date.parse("2026-10-09T12:00:00Z"),
+    })
+    const grant = await store.addGrant(designer(), {
+      purposes: ["review", "instruction"],
+      sources: ["hub_review_comments"],
+      basis: "Test agreement.",
+    })
+    await store.importHubReviewComments(agent(), weekOneLog(), { grantIds: [grant.id] })
+    await store.annotate(agent(), weekOneLabels().labels)
+    const { proposals } = await store.consolidate(agent(), {
+      consolidator: createRecurrenceConsolidator(),
+      window: { from: "2026-09-29T00:00:00.000000Z", to: "2026-10-05T18:00:00.000000Z" },
+    })
+    const proposal = proposals[0]
+    const accepted = await store.acceptMemory(designer(), proposal.id, {
+      expectedDigest: proposal.reviewDigest,
+    })
+    await store.editMemory(designer(), proposal.id, {
+      expectedDigest: accepted.digest,
+      title: "Keep labels visible",
+      reason: "Clarify the title.",
+      operationId: "88888888-8888-4888-8888-888888888888",
+    })
+    assert.equal((await store.verify(designer())).ok, true)
+    damage = true
+    assert.equal((await store.verify(designer())).ok, false)
+    assert.equal((await store.recall(agent())).memories.length, 0)
   })
 })

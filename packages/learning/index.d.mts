@@ -306,6 +306,7 @@ export interface Support {
 export interface MemoryProposal {
   schemaVersion: "replica.memory-proposal/v1"
   kind: MemoryKind
+  title?: string
   content: string
   themeKey?: string
   appliesTo?: Trace[]
@@ -337,6 +338,7 @@ export interface MemoryRecord {
   scope: Scope
   kind: MemoryKind
   state: MemoryState
+  title?: string
   content: string
   themeKey?: string
   appliesTo?: Trace[]
@@ -367,6 +369,7 @@ export interface MemoryRecord {
     contentDigest: Digest
     reviewedDigest: Digest
     edited: boolean
+    decision?: "edit" | "reinstate"
     note?: string
     operationId?: string
   }
@@ -643,7 +646,7 @@ export type MemoryMetadata = Partial<
 export interface MemoryReading {
   record:
     | MemoryRecord
-    | Omit<MemoryRecord, "content" | "evidence" | "contradictions" | "appliesTo">
+    | Omit<MemoryRecord, "title" | "content" | "evidence" | "contradictions" | "appliesTo">
     | MemoryMetadata
   status: MemoryStatus
   withheld: boolean
@@ -794,6 +797,22 @@ export interface LearningStore {
     context: LearningContext,
     id: string,
     input: { reason: string; operationId?: string },
+  ): Promise<MemoryRecord>
+  editMemory(
+    context: LearningContext,
+    id: string,
+    input: {
+      expectedDigest: Digest
+      title?: string
+      content?: string
+      reason: string
+      operationId?: string
+    },
+  ): Promise<MemoryRecord>
+  reinstateMemory(
+    context: LearningContext,
+    id: string,
+    input: { expectedDigest: Digest; reason: string; operationId?: string },
   ): Promise<MemoryRecord>
   supersedeMemory(
     context: LearningContext,

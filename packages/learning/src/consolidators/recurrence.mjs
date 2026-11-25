@@ -244,6 +244,7 @@ export function createRecurrenceConsolidator(options = {}) {
         proposals.push({
           schemaVersion: SCHEMA_VERSIONS.memoryProposal,
           kind: mostCommon(labels.map((label) => label.payload.proposedKind ?? "rule")),
+          title: theme.key.replaceAll("-", " ").slice(0, 120),
           content: statement,
           themeKey: theme.key,
           ...(traces.size

@@ -1067,6 +1067,107 @@ describe("replica-learning CLI: guard rails", () => {
     assert.doesNotMatch(result.stderr, /Run replica-learning --help/)
   })
 
+  it("edits and reinstates a learning using the version shown to the person", async () => {
+    const repo = checkout("edit-reinstate-decision")
+    const { proposal } = await learnFromReviews(repo)
+    writeFileSync(path.join(repo, "title.txt"), "Keep labels visible\n")
+    writeFileSync(path.join(repo, "reason.txt"), "Clarify the guidance.\n")
+    const accepted = (
+      await ok(repo, [
+        "accept",
+        proposal.id,
+        "--digest",
+        proposal.reviewDigest,
+        "--by",
+        "github:ana-designer",
+        "--json",
+      ])
+    ).json()
+    const shown = await ok(repo, ["show", proposal.id])
+    const shownDigest = shown.stdout.match(/^Version digest: (sha256:[a-f0-9]{64})$/m)?.[1]
+    assert.equal(shownDigest, accepted.digest)
+    const edit = [
+      "edit",
+      proposal.id,
+      "--digest",
+      shownDigest,
+      "--by",
+      "github:ana-designer",
+      "--title-file",
+      "title.txt",
+      "--reason-file",
+      "reason.txt",
+      "--operation-id",
+      "11111111-1111-4111-8111-111111111111",
+      "--json",
+    ]
+    const edited = (await ok(repo, edit)).json()
+    assert.equal(edited.title, "Keep labels visible")
+    assert.equal(edited.accepted.note, "Clarify the guidance.")
+    assert.equal((await ok(repo, edit)).json().digest, edited.digest)
+    assert.deepEqual(
+      (
+        await ok(repo, [
+          "operation-status",
+          proposal.id,
+          "--operation-id",
+          "11111111-1111-4111-8111-111111111111",
+          "--json",
+        ])
+      ).json(),
+      { state: "accepted" },
+    )
+    const retired = (
+      await ok(repo, [
+        "retire",
+        proposal.id,
+        "--by",
+        "github:ana-designer",
+        "--reason-file",
+        "reason.txt",
+        "--json",
+      ])
+    ).json()
+    const retiredShown = await ok(repo, ["show", proposal.id])
+    const retiredDigest = retiredShown.stdout.match(/^Version digest: (sha256:[a-f0-9]{64})$/m)?.[1]
+    assert.equal(retiredDigest, retired.digest)
+    const reinstate = [
+      "reinstate",
+      proposal.id,
+      "--digest",
+      retiredDigest,
+      "--by",
+      "github:ana-designer",
+      "--reason-file",
+      "reason.txt",
+      "--operation-id",
+      "22222222-2222-4222-8222-222222222222",
+      "--json",
+    ]
+    const restored = (await ok(repo, reinstate)).json()
+    assert.equal(restored.state, "accepted")
+    assert.equal(restored.title, "Keep labels visible")
+    assert.equal((await ok(repo, reinstate)).json().digest, restored.digest)
+    assert.deepEqual(
+      (
+        await ok(repo, [
+          "operation-status",
+          proposal.id,
+          "--operation-id",
+          "22222222-2222-4222-8222-222222222222",
+          "--json",
+        ])
+      ).json(),
+      { state: "accepted" },
+    )
+    const history = (await ok(repo, ["show", proposal.id, "--history", "--json"])).json()
+    assert.deepEqual(
+      history.versions.map((version) => version.state),
+      ["proposed", "accepted", "accepted", "retired", "accepted"],
+    )
+    assert.equal((await ok(repo, ["verify", "--json"])).json().ok, true)
+  })
+
   it("refuses an identity with control or invisible formatting characters", async () => {
     const repo = checkout("hidden-identity")
     const grant = ["grants", "add", "--purpose", "review", "--basis", "Test."]

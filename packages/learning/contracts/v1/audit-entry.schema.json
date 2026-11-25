@@ -33,6 +33,8 @@
         "consolidation.run",
         "memory.propose",
         "memory.accept",
+        "memory.edit",
+        "memory.reinstate",
         "memory.reject",
         "memory.retire",
         "memory.supersede",

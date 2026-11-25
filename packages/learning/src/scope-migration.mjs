@@ -104,7 +104,7 @@ export async function migrateRepositoryScope({
           draft.previousDigest = mapped("memory", record.id, draft.previousDigest)
         if (draft.accepted) {
           draft.accepted.reviewedDigest = mapped(
-            "memory-review",
+            draft.accepted.decision ? "memory" : "memory-review",
             record.id,
             draft.accepted.reviewedDigest,
           )

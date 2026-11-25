@@ -46,6 +46,11 @@
     "state": {
       "enum": ["proposed", "accepted", "rejected", "retired"]
     },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
     "content": {
       "type": "string",
       "minLength": 1,
@@ -160,6 +165,9 @@
         },
         "edited": {
           "type": "boolean"
+        },
+        "decision": {
+          "enum": ["edit", "reinstate"]
         },
         "operationId": {
           "type": "string",

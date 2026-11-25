@@ -78,6 +78,10 @@ Review (a person decides; --by github:<login>)
   accept <memory-id> --digest <sha256:...> --by <id> [--content-file <file>] [--note <text>]
   reject <memory-id> --digest <sha256:...> --by <id> (--reason <text> | --reason-file <file>)
   retire <memory-id> --by <id> (--reason <text> | --reason-file <file>)
+  edit <memory-id> --digest <sha256:...> --by <id> (--reason <text> | --reason-file <file>)
+                   [--title-file <file>] [--content-file <file>]
+  reinstate <memory-id> --digest <sha256:...> --by <id> (--reason <text> | --reason-file <file>)
+                                  Use the version digest from show for edit and reinstate
   supersede <old-id>... --with <new-id> --by <id> [--reason <text>]
                                   Only for a learning that recall uses and that
                                   replaces nothing yet
@@ -138,6 +142,7 @@ const OPTIONS = {
   history: { type: "boolean" },
   digest: { type: "string" },
   "content-file": { type: "string" },
+  "title-file": { type: "string" },
   "reason-file": { type: "string" },
   "operation-id": { type: "string" },
   note: { type: "string" },
@@ -270,6 +275,8 @@ export async function main(
           "accept",
           "reject",
           "retire",
+          "edit",
+          "reinstate",
           "supersede",
           "redact",
           "recall",
@@ -361,6 +368,9 @@ async function run(session) {
     case "accept":
     case "reject":
       return review(session, command)
+    case "edit":
+    case "reinstate":
+      return changeAccepted(session, command)
     case "retire":
       return retire(session)
     case "supersede":
@@ -969,6 +979,7 @@ async function show(session) {
   const head = [
     `${record.id ?? id} version ${record.version ?? "?"}: ${record.state ?? "?"} ${record.kind ?? "?"}${record.themeKey ? ` (${record.themeKey})` : ""}`,
     `Review digest: ${record.reviewDigest ?? "?"}`,
+    `Version digest: ${record.digest ?? "?"}`,
     `Recalled: ${status.recallEligible ? "yes" : "no"}${status.identityNeedsReview ? "; reviewer identities need rebuilding and review" : status.needsRebuild ? "; needs rebuild" : ""}${status.superseded ? "; superseded" : ""}${status.expired ? "; expired" : ""}${status.conflicts.length ? `; ${status.conflicts.join("; ")}` : ""}${status.problems.length ? `; integrity problems: ${status.problems.join("; ")}` : ""}`,
   ]
   if (item.withheld) {
@@ -988,6 +999,7 @@ async function show(session) {
 
   const lines = [
     ...head,
+    ...(record.title ? [`Title: ${quoted(record.title, 120)}`] : []),
     `Content: ${quoted(record.content, 4000)}`,
     ...(record.support
       ? [
@@ -1101,6 +1113,39 @@ async function retire(session) {
     operationId: session.values["operation-id"],
   })
   session.out(record, `Retired ${id}. It is no longer recalled; its history stays.`)
+}
+
+async function changeAccepted(session, command) {
+  const id = argument(session, 1, "memory ID")
+  const digest = session.values.digest
+  if (!/^sha256:[0-9a-f]{64}$/.test(digest ?? ""))
+    throw new UsageError("Pass the version digest you checked with --digest sha256:...")
+  const reason = await reasonOf(session)
+  const principal = person(session)
+  const { store } = await open(session)
+  let title
+  let content
+  if (command === "edit" && session.values["title-file"]) {
+    const file = session.values["title-file"]
+    title = decodeUtf8(await readFile(path.resolve(session.cwd, file)), file).replace(/\r?\n$/, "")
+  }
+  if (command === "edit" && session.values["content-file"]) {
+    const file = session.values["content-file"]
+    content = decodeUtf8(await readFile(path.resolve(session.cwd, file)), file).replace(
+      /\r?\n$/,
+      "",
+    )
+  }
+  const options = {
+    expectedDigest: digest,
+    reason,
+    operationId: session.values["operation-id"],
+  }
+  const record =
+    command === "edit"
+      ? await store.editMemory(context(session, principal), id, { ...options, title, content })
+      : await store.reinstateMemory(context(session, principal), id, options)
+  session.out(record, command === "edit" ? `Edited ${id}.` : `Reinstated ${id}.`)
 }
 
 async function reasonOf(session) {

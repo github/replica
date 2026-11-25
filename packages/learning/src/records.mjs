@@ -55,6 +55,7 @@ export function memoryContentDigest(memory) {
   return digestOf({
     scope: memory.scope,
     kind: memory.kind,
+    ...(memory.title !== undefined ? { title: memory.title } : {}),
     content: memory.content,
     appliesTo: memory.appliesTo ?? [],
     lifecycle: memory.proposal?.lifecycle ?? null,
