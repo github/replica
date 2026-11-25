@@ -84,6 +84,15 @@ export function postgresDestination(connectionString) {
     const host =
       url.searchParams.getAll("host").at(-1) || hostname || process.env.PGHOST || "localhost"
     if (host.startsWith("/")) return { socket: true, externalCalls: [] }
+    const local =
+      host.toLowerCase() === "localhost" ||
+      host === "::1" ||
+      (isIP(host) === 4 && host.startsWith("127."))
+    if (!local && url.searchParams.getAll("sslmode").at(-1) !== "verify-full")
+      throw new LearningError(
+        "invalid_input",
+        "Remote PostgreSQL connections require sslmode=verify-full.",
+      )
     const port = url.searchParams.getAll("port").at(-1) || url.port || process.env.PGPORT || ""
     const address = isIP(host) === 6 ? `[${host}]` : domainToASCII(host)
     const destination = `${address}${port ? `:${port}` : ""}`
@@ -95,7 +104,8 @@ export function postgresDestination(connectionString) {
     )
       throw new Error()
     return { socket: false, externalCalls: [destination] }
-  } catch {
+  } catch (error) {
+    if (error instanceof LearningError) throw error
     throw new LearningError("invalid_input", "A valid PostgreSQL connection URL is required.")
   }
 }
@@ -110,8 +120,9 @@ export async function postgresPool(connectionString) {
     throw new LearningError("unsupported", "The optional pg dependency is not installed.")
   }
   try {
-    const pool = new pg.default.Pool({ connectionString })
+    const pool = new pg.default.Pool({ connectionString, connectionTimeoutMillis: 10_000 })
     pool.on("error", () => {})
+    pool.on("connect", (client) => client.on("error", () => {}))
     return pool
   } catch (error) {
     throw postgresError(error)
@@ -124,7 +135,7 @@ export function postgresError(error, { committing = false } = {}) {
   return new LearningError(
     committing ? "storage_outcome_unknown" : "unavailable",
     committing
-      ? "PostgreSQL could not confirm the transaction. Retry the operation."
+      ? "PostgreSQL could not confirm the transaction. Check the stored outcome before retrying."
       : "PostgreSQL could not complete the operation. Check the connection, permissions, and migration.",
   )
 }
@@ -137,7 +148,7 @@ export async function migratePostgres({ connectionString } = {}) {
   let discard = false
   try {
     client = await pool.connect()
-    await client.query("begin")
+    await client.query("begin isolation level read committed")
     await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [
       "replica_learning.schema_migrations",
     ])

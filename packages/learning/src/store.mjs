@@ -1627,12 +1627,11 @@ class LearningStore {
                 },
               }
             : {}),
-          ...(this.#provider.atomicMigrationRedactions
+          ...(this.#provider.atomicCollectionImport
             ? {
                 expectedCollection: {
                   scope: context.scope,
-                  snapshotId,
-                  records: matches
+                  records: collections
                     .map(({ id: collectionId, digest }) => ({ id: collectionId, digest }))
                     .sort((a, b) => compare(a.id, b.id)),
                 },

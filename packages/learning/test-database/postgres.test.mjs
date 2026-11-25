@@ -5,11 +5,18 @@ import { createConnection, createServer } from "node:net"
 import { after, afterEach, it } from "node:test"
 import { fileURLToPath } from "node:url"
 import pg from "pg"
-import { memoryProviderConformance } from "../conformance/index.mjs"
+import {
+  agent,
+  designer,
+  memoryProviderConformance,
+  weekOneLog,
+  weekTwoLog,
+} from "../conformance/index.mjs"
 import { main } from "../src/cli.mjs"
 import { openProvider } from "../src/config.mjs"
-import { migratePostgres } from "../src/providers/postgres-database.mjs"
+import { migratePostgres, postgresPool } from "../src/providers/postgres-database.mjs"
 import { createPostgresMemoryProvider } from "../src/providers/postgres.mjs"
+import { createLearningStore } from "../src/store.mjs"
 import { validateRecord } from "../src/validate.mjs"
 
 const baseUrl = process.env.REPLICA_LEARNING_TEST_DATABASE_URL
@@ -114,9 +121,8 @@ it("migrates only with the migration URL and lets a limited runtime login use th
     )
     await db.query(`grant usage on schema replica_learning to "${role}"`)
     await db.query(`grant select on replica_learning.schema_migrations to "${role}"`)
-    await db.query(
-      `grant select, insert, update on replica_learning.records, replica_learning.memory_versions to "${role}"`,
-    )
+    await db.query(`grant select, insert, update on replica_learning.records to "${role}"`)
+    await db.query(`grant select, insert on replica_learning.memory_versions to "${role}"`)
     await db.query(`grant usage on all sequences in schema replica_learning to "${role}"`)
     const restricted = new pg.Client({ connectionString: runtimeUrl.href })
     await restricted.connect()
@@ -124,12 +130,40 @@ it("migrates only with the migration URL and lets a limited runtime login use th
       await assert.rejects(restricted.query("create table replica_learning.forbidden (id int)"), {
         code: "42501",
       })
+      await assert.rejects(
+        restricted.query("update replica_learning.memory_versions set digest = 'forbidden'"),
+        { code: "42501" },
+      )
     } finally {
       await restricted.end()
     }
     const record = { id: "grant_runtime", digest: "sha256:runtime", scope: { repository: "a" } }
     await runtime.appendRecords("grants", [record])
     assert.deepEqual(await runtime.readRecords("grants", { scope: record.scope }), [record])
+    const memory = {
+      id: "memory_runtime",
+      version: 1,
+      digest: "sha256:memory",
+      scope: record.scope,
+    }
+    await runtime.appendMemoryVersion(memory, { expectedPreviousDigest: null })
+    assert.deepEqual(await runtime.readMemoryVersions({ scope: record.scope }), [memory])
+    const event = {
+      id: "event_runtime",
+      digest: "sha256:event",
+      scope: record.scope,
+      type: "human_comment",
+      payload: { commentId: 123, body: "Private review." },
+    }
+    await runtime.appendRecords("events", [event])
+    const { payload, ...withoutPayload } = event
+    assert.ok(payload)
+    const redacted = {
+      ...withoutPayload,
+      redaction: { commentId: 123, reason: "Requested." },
+    }
+    assert.deepEqual(await runtime.redactRecord("events", redacted), { redacted: true })
+    assert.deepEqual(await runtime.readRecords("events", { scope: record.scope }), [redacted])
   } finally {
     await db.end()
   }
@@ -155,6 +189,48 @@ it("refuses a changed migration ledger rather than using or repairing it", async
   } finally {
     await db.end()
   }
+})
+
+it("serializes concurrent migrations when the database defaults to repeatable read", async () => {
+  const url = await database({ migrate: false })
+  const name = new URL(url).pathname.slice(1)
+  await admin.query(
+    `alter database "${name}" set default_transaction_isolation = 'repeatable read'`,
+  )
+  const holder = new pg.Client({ connectionString: url })
+  await holder.connect()
+  let migrations
+  let results
+  try {
+    await holder.query("begin")
+    await holder.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [
+      "replica_learning.schema_migrations",
+    ])
+    migrations = [
+      migratePostgres({ connectionString: url }),
+      migratePostgres({ connectionString: url }),
+    ]
+    for (const migration of migrations) migration.catch(() => {})
+    const deadline = Date.now() + 5000
+    while (true) {
+      await holder.query("select pg_stat_clear_snapshot()")
+      const { rows } = await holder.query(
+        "select count(*)::int as count from pg_stat_activity where datname = current_database() and wait_event = 'advisory'",
+      )
+      if (rows[0].count >= 2) break
+      assert.ok(Date.now() < deadline, "Both migrations must wait for the first migration.")
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+  } finally {
+    await holder.query("rollback")
+    results = await Promise.allSettled(migrations ?? [])
+    await holder.end()
+  }
+  assert.deepEqual(
+    results.map((result) => result.status),
+    ["fulfilled", "fulfilled"],
+  )
+  assert.deepEqual(results[0].value, results[1].value)
 })
 
 it("uses the runtime URL from the environment without exposing its credentials", async () => {
@@ -195,6 +271,194 @@ it("uses the runtime URL from the environment without exposing its credentials",
       return true
     },
   )
+})
+
+it("requires verified TLS for remote PostgreSQL but permits plaintext loopback", async () => {
+  const url = new URL(await database())
+  url.searchParams.set("sslmode", "disable")
+  const local = provider(url.href)
+  const record = { id: "local", digest: "sha256:local", scope: { repository: "a" } }
+  await local.appendRecords("grants", [record])
+  assert.deepEqual(await local.readRecords("grants", { scope: record.scope }), [record])
+
+  const originalConnect = pg.Pool.prototype.connect
+  let connectionAttempts = 0
+  let connectionOptions
+  pg.Pool.prototype.connect = function () {
+    connectionAttempts++
+    connectionOptions = this.options
+    throw new Error("Remote connection prevented by test.")
+  }
+  try {
+    const remote = "postgresql://test-user:test-password@remote.example/learning"
+    for (const suffix of ["", "?sslmode=disable", "?sslmode=require", "?sslmode=verify-ca"]) {
+      await assert.rejects(
+        async () => {
+          const opened = provider(`${remote}${suffix}`)
+          await opened.readRecords("grants", { scope: record.scope })
+        },
+        { code: "invalid_input" },
+      )
+    }
+    await assert.rejects(
+      async () => {
+        const opened = provider("postgresql://localhost/learning?host=remote.example")
+        await opened.readRecords("grants", { scope: record.scope })
+      },
+      { code: "invalid_input" },
+    )
+    assert.equal(connectionAttempts, 0)
+    const secure = provider(`${remote}?sslmode=verify-full`)
+    await assert.rejects(secure.readRecords("grants", { scope: record.scope }), {
+      code: "unavailable",
+    })
+    assert.equal(connectionAttempts, 1)
+    const tls = new pg.Client(connectionOptions).connectionParameters.ssl
+    assert.ok(tls)
+    assert.notEqual(tls.rejectUnauthorized, false)
+    assert.equal(tls.checkServerIdentity, undefined)
+  } finally {
+    pg.Pool.prototype.connect = originalConnect
+  }
+})
+
+it("tells callers to check the stored outcome before retrying an uncertain commit", async () => {
+  const url = await database()
+  const opened = provider(url)
+  const scope = { repository: "a" }
+  const record = { id: "uncertain", digest: "sha256:uncertain", scope }
+  const originalQuery = pg.Client.prototype.query
+  pg.Client.prototype.query = function (...args) {
+    const result = originalQuery.apply(this, args)
+    if (typeof args[0] === "string" && /^commit\b/i.test(args[0].trim())) {
+      return result.then(() => {
+        throw new Error("private-commit-diagnostic")
+      })
+    }
+    return result
+  }
+  try {
+    await assert.rejects(opened.appendRecords("grants", [record]), (error) => {
+      assert.equal(error.code, "storage_outcome_unknown")
+      assert.match(error.message, /(?:check|verify).*(?:retry|again)/i)
+      assert.doesNotMatch(error.message, /private-commit-diagnostic/)
+      return true
+    })
+  } finally {
+    pg.Client.prototype.query = originalQuery
+  }
+  assert.deepEqual(await opened.readRecords("grants", { scope }), [record])
+})
+
+it("returns a safe error instead of crashing when a checked-out client fails", async () => {
+  const url = await database()
+  const script = `
+    import pg from "pg"
+    import { createPostgresMemoryProvider } from "./src/providers/postgres.mjs"
+    import { migratePostgres } from "./src/providers/postgres-database.mjs"
+    const query = pg.Client.prototype.query
+    pg.Client.prototype.query = function (...args) {
+      if (typeof args[0] === "string" && /^begin\\b/i.test(args[0].trim())) {
+        return new Promise((_, reject) => setImmediate(() => {
+          const error = new Error("private-client-diagnostic")
+          this.emit("error", error)
+          reject(error)
+        }))
+      }
+      return query.apply(this, args)
+    }
+    const opened = createPostgresMemoryProvider({ connectionString: process.env.TEST_URL })
+    try {
+      for (const operation of [
+        () => opened.appendRecords("grants", [{ id: "x", digest: "x", scope: { repository: "a" } }]),
+        () => migratePostgres({ connectionString: process.env.TEST_URL }),
+      ]) {
+        try {
+          await operation()
+          throw new Error("The failure was not reported.")
+        } catch (error) {
+          if (error.code !== "unavailable" || error.message.includes("private-client-diagnostic"))
+            throw error
+        }
+      }
+    } finally {
+      await opened.close()
+    }
+  `
+  const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+    cwd: new URL("..", import.meta.url),
+    env: { ...process.env, TEST_URL: url },
+    encoding: "utf8",
+    timeout: 10000,
+  })
+  assert.equal(result.status, 0, result.stderr)
+})
+
+it("times out when a PostgreSQL connection never finishes opening", async () => {
+  const connections = new Set()
+  const server = createServer((socket) => {
+    connections.add(socket)
+    socket.on("close", () => connections.delete(socket))
+    socket.on("error", () => {})
+  })
+  await new Promise((resolve, reject) => {
+    server.once("error", reject)
+    server.listen(0, "127.0.0.1", resolve)
+  })
+  const opened = provider(`postgresql://test:password@127.0.0.1:${server.address().port}/learning`)
+  const pending = opened.health()
+  let timer
+  try {
+    const health = await Promise.race([
+      pending,
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("PostgreSQL connection did not time out.")),
+          15000,
+        )
+      }),
+    ])
+    assert.equal(health.ok, false)
+  } finally {
+    clearTimeout(timer)
+    for (const socket of connections) socket.destroy()
+    await pending.catch(() => {})
+    await opened.close()
+    await new Promise((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    )
+  }
+})
+
+it("times out when every PostgreSQL pool connection is busy", async () => {
+  const url = await database()
+  const pool = await postgresPool(url)
+  const clients = []
+  let timer
+  let waiting
+  try {
+    for (let index = 0; index < pool.options.max; index++) clients.push(await pool.connect())
+    waiting = pool.connect()
+    waiting.then(
+      (client) => client.release(),
+      () => {},
+    )
+    const outcome = await Promise.race([
+      waiting.then(
+        () => "connected",
+        () => "timeout",
+      ),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve("still waiting"), 15000)
+      }),
+    ])
+    assert.equal(outcome, "timeout")
+  } finally {
+    clearTimeout(timer)
+    for (const client of clients) client.release()
+    await waiting?.catch(() => {})
+    await pool.end()
+  }
 })
 
 it("accepts an IPv6 PostgreSQL URL without exposing its credentials", async () => {
@@ -412,6 +676,152 @@ it("allows only one concurrent version based on the same previous digest", async
   assert.equal(results.filter((result) => result.status === "fulfilled").length, 1)
   assert.equal(results.find((result) => result.status === "rejected").reason.code, "conflict")
   assert.equal((await first.readMemoryVersions({ scope })).length, 2)
+})
+
+it("treats a concurrent duplicate as existing under a repeatable-read default", async () => {
+  const url = await database()
+  const name = new URL(url).pathname.slice(1)
+  await admin.query(
+    `alter database "${name}" set default_transaction_isolation = 'repeatable read'`,
+  )
+  const holder = new pg.Client({ connectionString: url })
+  await holder.connect()
+  const first = provider(url)
+  const second = provider(url)
+  const record = { id: "duplicate", digest: "sha256:same", scope: { repository: "a" } }
+  let writes
+  let results
+  try {
+    await holder.query(`
+      create function replica_learning.test_hold_duplicate() returns trigger language plpgsql as $$
+      begin
+        if new.id = 'duplicate' then perform pg_advisory_xact_lock(764425); end if;
+        return new;
+      end $$
+    `)
+    await holder.query(`
+      create trigger test_hold_duplicate before insert on replica_learning.records
+      for each row execute function replica_learning.test_hold_duplicate()
+    `)
+    await holder.query("begin")
+    await holder.query("select pg_advisory_xact_lock(764425)")
+    writes = [first.appendRecords("grants", [record]), second.appendRecords("grants", [record])]
+    for (const write of writes) write.catch(() => {})
+    const deadline = Date.now() + 5000
+    while (true) {
+      await holder.query("select pg_stat_clear_snapshot()")
+      const { rows } = await holder.query(
+        "select count(*)::int as count from pg_stat_activity where datname = current_database() and wait_event = 'advisory'",
+      )
+      if (rows[0].count >= 2) break
+      assert.ok(Date.now() < deadline, "Both writes must wait until the first write can commit.")
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+  } finally {
+    await holder.query("rollback")
+    results = await Promise.allSettled(writes ?? [])
+    await holder.end()
+  }
+  assert.deepEqual(
+    results.map((result) => result.status),
+    ["fulfilled", "fulfilled"],
+  )
+  assert.deepEqual(
+    results.map((result) => result.value).sort((a, b) => a.appended - b.appended),
+    [
+      { appended: 0, existing: 1 },
+      { appended: 1, existing: 0 },
+    ],
+  )
+  assert.deepEqual(await first.readRecords("grants", { scope: record.scope }), [record])
+})
+
+it("never commits an older snapshot after a newer concurrent import", async () => {
+  const url = await database()
+  const olderProvider = provider(url)
+  const newerProvider = provider(url)
+  let release
+  let reached
+  const paused = new Promise((resolve) => (reached = resolve))
+  const resume = new Promise((resolve) => (release = resolve))
+  const wrapped = {
+    ...olderProvider,
+    async appendBatch(batch, options) {
+      if (batch.collections?.length) {
+        reached()
+        await resume
+      }
+      return olderProvider.appendBatch(batch, options)
+    },
+  }
+  function clock() {
+    return Date.parse("2026-10-09T12:00:00Z")
+  }
+  const olderStore = await createLearningStore({ provider: wrapped, clock })
+  const newerStore = await createLearningStore({ provider: newerProvider, clock })
+  const grant = await olderStore.addGrant(designer(), {
+    purposes: ["review"],
+    sources: ["hub_review_comments"],
+    basis: "The team agreed to learn from review comments.",
+  })
+  let older
+  let newer
+  try {
+    older = olderStore.importHubReviewComments(agent(), weekOneLog(), { grantIds: [grant.id] })
+    older.catch(() => {})
+    let timer
+    try {
+      await Promise.race([
+        paused,
+        new Promise((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error("The older import did not reach its write.")),
+            5000,
+          )
+        }),
+      ])
+    } finally {
+      clearTimeout(timer)
+    }
+    newer = newerStore.importHubReviewComments(agent(), weekTwoLog(), { grantIds: [grant.id] })
+    let newestFirst
+    try {
+      newestFirst = await Promise.race([
+        newer.then(
+          () => true,
+          () => true,
+        ),
+        new Promise((resolve) => {
+          timer = setTimeout(() => resolve(false), 500)
+        }),
+      ])
+    } finally {
+      clearTimeout(timer)
+    }
+    release()
+    const [oldResult, newResult] = await Promise.allSettled([older, newer])
+    if (newestFirst) {
+      assert.equal(newResult.status, "fulfilled")
+      assert.equal(oldResult.status, "rejected")
+      assert.equal(oldResult.reason.code, "conflict")
+    } else {
+      assert.ok([oldResult, newResult].some((result) => result.status === "fulfilled"))
+      for (const result of [oldResult, newResult])
+        if (result.status === "rejected") assert.equal(result.reason.code, "conflict")
+    }
+    const collections = await newerProvider.readRecords("collections", { scope: designer().scope })
+    const captured = collections.map((item) => item.capturedAt)
+    assert.deepEqual(captured, [...captured].sort())
+    if (newResult.status === "fulfilled") {
+      const { events } = await newerStore.queryObservations(designer(), { purpose: "review" })
+      assert.ok(
+        events.find((event) => event.payload?.commentId === 112).payload.body.includes("16px"),
+      )
+    }
+  } finally {
+    release()
+    await Promise.allSettled([older, newer].filter(Boolean))
+  }
 })
 
 it("uses indexes for selective scope, ID, episode, time, and operation queries", async () => {

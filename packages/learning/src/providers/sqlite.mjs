@@ -137,7 +137,6 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
       snapshotCollections: db.prepare(`
         select id, digest from records
         where stream = 'collections' and scope_key = ?
-          and json_extract(body, '$.snapshotId') = ?
         order by id`),
       storedEvent: db.prepare("select body from records where stream = 'events' and id = ?"),
       replaceEvent: db.prepare("update records set body = ? where stream = 'events' and id = ?"),
@@ -216,7 +215,7 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
       assertMigrations(expectedMigrations)
       if (expectedCollection) {
         const actual = statements.snapshotCollections
-          .all(canonicalJson(expectedCollection.scope), expectedCollection.snapshotId)
+          .all(canonicalJson(expectedCollection.scope))
           .map(({ id, digest }) => ({ id, digest }))
         if (canonicalJson(actual) !== canonicalJson(expectedCollection.records))
           throw new ProviderConflictError("The snapshot changed during import.")
@@ -233,6 +232,7 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
   return {
     atomicMigrationRedactions: true,
     atomicMigrationFence: true,
+    atomicCollectionImport: true,
 
     manifest() {
       return {

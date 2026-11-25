@@ -61,7 +61,7 @@ export function createPostgresMemoryProvider({ connectionString } = {}) {
     let discard = false
     try {
       client = await (await pool()).connect()
-      await client.query("begin")
+      await client.query("begin isolation level read committed")
       for (const scope of [...new Set(scopes)].sort())
         await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [
           `replica_learning.scope:${scope}`,
@@ -128,10 +128,21 @@ export function createPostgresMemoryProvider({ connectionString } = {}) {
     return { appended: inserted.rowCount, existing: records.length - inserted.rowCount }
   }
 
-  async function write(batch, { audit = [] } = {}) {
+  async function write(batch, { audit = [], expectedCollection } = {}) {
     const writes = batchWrites(batch, audit)
     const scopes = [...writes.values()].flat().map((record) => canonicalJson(record.scope))
+    if (expectedCollection) scopes.push(canonicalJson(expectedCollection.scope))
     return transaction(scopes, async (client) => {
+      if (expectedCollection) {
+        const { rows } = await client.query(
+          `select id, digest from replica_learning.records
+           where stream = 'collections' and scope_key = $1
+           order by id`,
+          [canonicalJson(expectedCollection.scope)],
+        )
+        if (canonicalJson(rows) !== canonicalJson(expectedCollection.records))
+          throw new ProviderConflictError("The collection history changed during import.")
+      }
       const counts = {}
       for (const [stream, records] of writes) {
         const result = await insert(client, stream, records)
@@ -169,6 +180,8 @@ export function createPostgresMemoryProvider({ connectionString } = {}) {
   }
 
   return {
+    atomicCollectionImport: true,
+
     manifest() {
       return {
         schemaVersion: SCHEMA_VERSIONS.providerManifest,
