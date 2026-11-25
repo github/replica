@@ -1,4 +1,4 @@
-import { copyFile, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { chmod, copyFile, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { DatabaseSync } from "node:sqlite"
@@ -199,6 +199,7 @@ describe("processReviewCommentRedaction()", () => {
         resolve("../packages/learning/test/fixtures/legacy-hub-scope.sqlite"),
         join(directory, "learning.sqlite"),
       )
+      await chmod(join(directory, "learning.sqlite"), 0o600)
       const markComplete = vi.fn()
       const input = { repositoryId: legacyId, commentId: 101, actor: "human:mona" }
       const dependencies = {
@@ -346,6 +347,7 @@ describe("processReviewCommentRedaction()", () => {
       resolve("../packages/learning/test/fixtures/legacy-hub-scope.sqlite"),
       join(directory, "learning.sqlite"),
     )
+    await chmod(join(directory, "learning.sqlite"), 0o600)
     await writeFile(
       join(directory, "config.json"),
       JSON.stringify({ schemaVersion: "replica.learning-config/v1" }),

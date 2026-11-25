@@ -1,4 +1,4 @@
-import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { chmod, copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 
@@ -59,6 +59,7 @@ describe("createLearningJobProcessors()", () => {
       resolve("../packages/learning/test/fixtures/legacy-hub-scope.sqlite"),
       join(directory, "learning.sqlite"),
     )
+    await chmod(join(directory, "learning.sqlite"), 0o600)
     await writeFile(join(directory, "config.json"), "{", { mode: 0o600 })
     try {
       prisma.repository.findUnique.mockResolvedValue({ githubRepositoryId: null })
@@ -129,6 +130,7 @@ describe("createLearningJobProcessors()", () => {
       resolve("../packages/learning/test/fixtures/legacy-hub-scope.sqlite"),
       join(directory, "learning.sqlite"),
     )
+    await chmod(join(directory, "learning.sqlite"), 0o600)
     await writeFile(
       join(directory, "config.json"),
       JSON.stringify({ schemaVersion: "replica.learning-config/v1" }),
