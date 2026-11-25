@@ -19,6 +19,8 @@ export interface LearningOutcome {
   source: "automated" | "reviewer-confirmed"
   summary: string
   evaluatedAt: string
+  beforeScreenshotUrl?: string
+  afterScreenshotUrl?: string
 }
 
 export interface LearningOutcomeAssessment {
@@ -61,6 +63,10 @@ export interface LearningRecord {
   updateSuggestion?: LearningUpdateSuggestion
   outcomeAssessment?: LearningOutcomeAssessment
   versionHistory?: LearningVersion[]
+  /** One live copy that every Hub repository can use as read-only guidance. */
+  sharedAcrossHub?: boolean
+  /** The source repository for a read-only copy shared with this repository. */
+  sharedFrom?: { repositoryName: string }
   evidence: LearningEvidence[]
 }
 
@@ -88,4 +94,12 @@ export interface LearningsLibraryPrototypeData {
   today: string
   /** Hub's agent setup page, when MCP connection guidance is available to members. */
   agentConnectionPath?: string
+  /** Shown only to Hub admins, who manage the shared evaluation budget. */
+  evaluationSettingsPath?: string
+  /** Hub admins can share learnings with every repository and manage evaluations. */
+  isHubAdmin?: boolean
+  /** Number of repositories connected to Hub. */
+  hubRepositoryCount?: number
+  /** Explains when a learning was removed because its source stopped sharing it. */
+  sharedLearningNotice?: string
 }

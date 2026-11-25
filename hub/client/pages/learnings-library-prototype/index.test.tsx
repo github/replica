@@ -126,6 +126,23 @@ function getLearning(title: string) {
 }
 
 describe("LearningsLibraryPrototype()", () => {
+  it("links only Hub admins to evaluation settings", () => {
+    const data = {
+      ...createPrototypeData(true),
+      evaluationSettingsPath: "/settings/evaluations?repositoryId=2001",
+    }
+    const { rerender } = renderPrototype(data)
+
+    expect(screen.queryByRole("link", { name: "Evaluation settings" })).not.toBeInTheDocument()
+
+    rerender(<LearningsLibraryPrototype data={{ ...data, isHubAdmin: true }} />)
+
+    expect(screen.getByRole("link", { name: "Evaluation settings" })).toHaveAttribute(
+      "href",
+      "/settings/evaluations?repositoryId=2001",
+    )
+  })
+
   it("lets a member browse each status without exposing decision controls", () => {
     renderPrototype(createPrototypeData(false))
 
@@ -150,6 +167,11 @@ describe("LearningsLibraryPrototype()", () => {
           name: /^(accept|reject|approve|dismiss|restore|retire)(\b|:)/i,
         }),
       ).not.toBeInTheDocument()
+      if (section === "Active") {
+        fireEvent.click(within(learning).getByRole("button", { name: title }))
+        expect(screen.queryByRole("switch", { name: "Share across Hub" })).not.toBeInTheDocument()
+        fireEvent.click(screen.getByRole("button", { name: "Back to learnings" }))
+      }
     }
 
     selectSection("Suggested")
@@ -157,6 +179,127 @@ describe("LearningsLibraryPrototype()", () => {
     expect(
       screen.queryByRole("button", { name: /accept learning|reject suggestion/i }),
     ).not.toBeInTheDocument()
+  })
+
+  it("lets a Hub admin share accepted guidance with every repository and stop sharing", () => {
+    const data = createPrototypeData(true)
+    data.isHubAdmin = true
+    data.hubRepositoryCount = 2
+    renderPrototype(data)
+    selectSection("Suggested")
+    fireEvent.click(screen.getByRole("button", { name: "Keep form labels visible" }))
+    expect(screen.queryByRole("switch", { name: "Share across Hub" })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Back to learnings" }))
+
+    selectSection("Active")
+    fireEvent.click(screen.getByRole("button", { name: "Make actions clear" }))
+    const shareSwitch = screen.getByRole("switch", { name: "Share across Hub" })
+    expect(shareSwitch).toHaveAccessibleDescription("Read-only in every repository")
+    expect(shareSwitch).not.toBeChecked()
+
+    fireEvent.click(shareSwitch)
+    expect(shareSwitch).toBeChecked()
+    expect(screen.getByRole("region", { name: "Notifications" })).toHaveTextContent(
+      "Shared across Hub",
+    )
+
+    fireEvent.click(shareSwitch)
+    expect(shareSwitch).not.toBeChecked()
+    expect(screen.getByRole("region", { name: "Notifications" })).toHaveTextContent(
+      "Stopped sharing across Hub",
+    )
+  })
+
+  it("keeps shared guidance live when its source admin edits it", () => {
+    const data = createPrototypeData(true)
+    data.isHubAdmin = true
+    data.hubRepositoryCount = 2
+    const sharedLearning = data.learnings.find((learning) => learning.id === "learning-active")
+    if (!sharedLearning) throw new Error("Expected an active learning")
+    sharedLearning.sharedAcrossHub = true
+    renderPrototype(data)
+
+    selectSection("Active")
+    fireEvent.click(screen.getByRole("button", { name: "Make actions clear" }))
+    expect(screen.getByRole("switch", { name: "Share across Hub" })).toBeChecked()
+    fireEvent.click(screen.getByRole("button", { name: "Edit learning" }))
+
+    const dialog = screen.getByRole("dialog", { name: "Edit learning" })
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Title" }), {
+      target: { value: "Make primary actions clear" },
+    })
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Guidance" }), {
+      target: { value: "Use a clear label for the main action." },
+    })
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save changes" }))
+
+    expect(screen.getByRole("heading", { name: "Make primary actions clear" })).toBeVisible()
+    expect(screen.getByText("Use a clear label for the main action.")).toBeVisible()
+    const shareSwitch = screen.getByRole("switch", { name: "Share across Hub" })
+    expect(shareSwitch).toBeChecked()
+
+    fireEvent.click(shareSwitch)
+    expect(shareSwitch).not.toBeChecked()
+    expect(screen.getByRole("region", { name: "Notifications" })).toHaveTextContent(
+      "Stopped sharing across Hub",
+    )
+  })
+
+  it("hides Hub sharing when Hub has only one repository", () => {
+    const data = createPrototypeData(true)
+    data.isHubAdmin = true
+    data.hubRepositoryCount = 1
+    renderPrototype(data)
+    selectSection("Active")
+    fireEvent.click(screen.getByRole("button", { name: "Make actions clear" }))
+
+    expect(screen.queryByRole("switch", { name: "Share across Hub" })).not.toBeInTheDocument()
+  })
+
+  it("shows shared guidance as read-only and names its source repository", () => {
+    const data = createPrototypeData(true)
+    data.isHubAdmin = true
+    data.hubRepositoryCount = 2
+    data.learnings = [
+      {
+        ...data.learnings.find((learning) => learning.id === "learning-active")!,
+        title: "Make primary actions easier to scan",
+        guidance: "Use one primary button, with a specific label that explains its result.",
+        sharedFrom: { repositoryName: "github/prototype" },
+      },
+    ]
+    renderPrototype(data)
+
+    selectSection("Active")
+    fireEvent.click(screen.getByRole("button", { name: "Make primary actions easier to scan" }))
+
+    expect(
+      screen.getByText("Shared from github/prototype · Read-only in this repository."),
+    ).toBeVisible()
+    expect(
+      screen.getByText("Use one primary button, with a specific label that explains its result."),
+    ).toBeVisible()
+    expect(
+      screen.queryByRole("button", {
+        name: /^(accept|reject|edit|apply|dismiss|restore|retire)/i,
+      }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByRole("switch", { name: "Share across Hub" })).not.toBeInTheDocument()
+  })
+
+  it("explains when a source stops sharing a learning", () => {
+    const data = createPrototypeData(false)
+    data.sharedLearningNotice =
+      "github/prototype stopped sharing “Make primary actions easier to scan.” It is no longer available here."
+    data.learnings = data.learnings.filter((learning) => learning.id !== "learning-active")
+    renderPrototype(data)
+
+    selectSection("Active")
+
+    const notice = screen.getByText(data.sharedLearningNotice)
+    expect(notice.closest('[role="status"]')).not.toBeNull()
+    expect(screen.getByRole("heading", { name: "No active learnings" })).toBeVisible()
+    expect(screen.queryByRole("button", { name: "Make actions clear" })).not.toBeInTheDocument()
   })
 
   it("keeps the learnings introduction when agent setup is unavailable", () => {
@@ -283,10 +426,33 @@ describe("LearningsLibraryPrototype()", () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
-  it("applies a suggested update without carrying its outcomes onto the new guidance", () => {
+  it("does not describe insufficient evidence as a negative outcome", () => {
     const data = createPrototypeData(true)
     const activeLearning = data.learnings.find((learning) => learning.status === "active")
     if (!activeLearning) throw new Error("Expected an active learning")
+    activeLearning.outcomeAssessment = {
+      version: 1,
+      status: "insufficient-evidence",
+      outcomes: [],
+    }
+    renderPrototype(data)
+    selectSection("Active")
+    fireEvent.click(screen.getByRole("button", { name: "Make actions clear" }))
+
+    const outcomes = screen.getByRole("region", { name: "Observed outcomes" })
+    expect(
+      within(outcomes).getByText("Not enough evidence yet. This is not a negative result."),
+    ).toBeVisible()
+    expect(within(outcomes).queryByText("Not evaluated yet.")).not.toBeInTheDocument()
+  })
+
+  it("keeps a shared learning and its outcomes when applying a suggested update", () => {
+    const data = createPrototypeData(true)
+    data.isHubAdmin = true
+    data.hubRepositoryCount = 2
+    const activeLearning = data.learnings.find((learning) => learning.status === "active")
+    if (!activeLearning) throw new Error("Expected an active learning")
+    activeLearning.sharedAcrossHub = true
     activeLearning.outcomeAssessment = {
       version: 1,
       status: "observed",
@@ -310,6 +476,8 @@ describe("LearningsLibraryPrototype()", () => {
           source: "reviewer-confirmed",
           summary: "The primary action is easy to identify.",
           evaluatedAt: "2026-11-18T16:30:00.000Z",
+          beforeScreenshotUrl: "/before-settings.png",
+          afterScreenshotUrl: "/after-settings.png",
         },
       ],
     }
@@ -337,15 +505,23 @@ describe("LearningsLibraryPrototype()", () => {
     expect(within(observedOutcomes).getAllByRole("listitem")).toHaveLength(2)
     expect(observedOutcomes).toHaveTextContent("Automated assessment")
     expect(observedOutcomes).toHaveTextContent("Reviewer-confirmed")
+    expect(screen.getByRole("switch", { name: "Share across Hub" })).toBeChecked()
     expect(screen.getByRole("link", { name: "Settings, Build 8" })).toHaveAttribute(
       "href",
       "/repositories/2001/prototypes/22?build=8",
     )
+    expect(
+      screen.getByRole("link", { name: "Before screenshot of Settings, Build 8" }),
+    ).toHaveAttribute("href", "/before-settings.png")
+    expect(
+      screen.getByRole("link", { name: "After screenshot of Settings, Build 8" }),
+    ).toHaveAttribute("href", "/after-settings.png")
     fireEvent.click(screen.getByRole("button", { name: "Apply update" }))
 
     expect(screen.getByRole("heading", { name: "Keep one primary action visible" })).toBeVisible()
     expect(screen.getByText("Keep the primary action clear on narrow screens too.")).toBeVisible()
     expect(screen.getByText("Not evaluated yet.")).toBeVisible()
+    expect(screen.getByRole("switch", { name: "Share across Hub" })).toBeChecked()
     fireEvent.click(screen.getByText("Earlier guidance"))
     expect(screen.getByRole("link", { name: "Settings, Build 8" })).toHaveAttribute(
       "href",

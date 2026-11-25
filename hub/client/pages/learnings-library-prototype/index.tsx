@@ -26,10 +26,14 @@ import {
   Text,
   TextInput,
   Textarea,
+  Tooltip,
 } from "@primer/react-brand"
 
+import { HubAlert } from "@components/hub-alert"
 import { HubCounter } from "@components/hub-counter"
 import { HubIconButton } from "@components/hub-icon-button"
+import { HubSwitch } from "@components/hub-switch"
+import { HubToast } from "@components/hub-toast"
 import { HubVisuallyHidden } from "@components/hub-visually-hidden"
 import { CanvasDialog } from "@components/prototype-canvas-dialog"
 import { diffWords } from "@utils/diff-words"
@@ -46,6 +50,7 @@ import "./styles.css"
 
 type ActivityMetric = "commentsAnalyzed" | "commentsTagged" | "suggestions"
 
+const shareHint = "Read-only in every repository"
 // Matches GitHub's pull request list so long lists page the way people expect.
 const pageSize = 25
 
@@ -486,6 +491,7 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
   const [editingSuggestion, setEditingSuggestion] = useState(false)
   const [rejecting, setRejecting] = useState(false)
   const [announcement, setAnnouncement] = useState("")
+  const [shareNotice, setShareNotice] = useState("")
   const [formError, setFormError] = useState("")
   const [detailFocusVisible, setDetailFocusVisible] = useState(false)
   const detailHeadingRef = useRef<HTMLHeadingElement>(null)
@@ -495,6 +501,13 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
     { type: "learning"; id: string } | { type: "status"; status: LearningLifecycle } | null
   >(null)
   const selected = learnings.find((learning) => learning.id === selectedId) ?? null
+  const canEditSelected = data.canDecide && !selected?.sharedFrom
+  // Sharing only means something when Hub has another repository to share with.
+  const canShareSelected =
+    selected?.status === "active" &&
+    !selected.sharedFrom &&
+    data.isHubAdmin === true &&
+    (data.hubRepositoryCount ?? 0) > 1
   const filtered = learnings.filter(
     (learning) =>
       learning.status === lifecycle &&
@@ -534,7 +547,7 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
   }, [selectedId])
 
   function decide(status: "active" | "rejected", rejectionReason?: string) {
-    if (!selected || !data.canDecide) return
+    if (!selected || !canEditSelected) return
     focusAfterDetailRef.current = { type: "status", status }
     const updatedAt = `${data.today}T12:00:00.000Z`
     setLearnings((current) =>
@@ -582,7 +595,7 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
 
   function saveLearning(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!selected || !data.canDecide) return
+    if (!selected || !canEditSelected) return
     const form = new FormData(event.currentTarget)
     const titleValue = form.get("title")
     const guidanceValue = form.get("guidance")
@@ -625,7 +638,7 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
   }
 
   function applySuggestedUpdate() {
-    if (!selected?.updateSuggestion || !data.canDecide) return
+    if (!selected?.updateSuggestion || !canEditSelected) return
     const updatedAt = `${data.today}T12:00:00.000Z`
     setLearnings((current) =>
       current.map((learning) =>
@@ -646,13 +659,25 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
   }
 
   function dismissSuggestedUpdate() {
-    if (!selected || !data.canDecide) return
+    if (!selected || !canEditSelected) return
     setLearnings((current) =>
       current.map((learning) =>
         learning.id === selected.id ? { ...learning, updateSuggestion: undefined } : learning,
       ),
     )
     setAnnouncement("Suggested learning update dismissed. The active learning is unchanged.")
+  }
+
+  function setSharedAcrossHub(sharedAcrossHub: boolean) {
+    if (!selected || !canShareSelected) return
+    setLearnings((current) =>
+      current.map((learning) =>
+        learning.id === selected.id ? { ...learning, sharedAcrossHub } : learning,
+      ),
+    )
+    // The live version should show this only after Hub saves the change, so the toast
+    // confirms sharing really took effect rather than just echoing the click.
+    setShareNotice(sharedAcrossHub ? "Shared across Hub" : "Stopped sharing across Hub")
   }
 
   function closeEditor() {
@@ -668,6 +693,7 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
     setEditing(false)
     setEditingSuggestion(false)
     setRejecting(false)
+    setShareNotice("")
     setFormError("")
   }
 
@@ -695,7 +721,7 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
             >
               {selected.title}
             </Heading>
-            {data.canDecide ? (
+            {canEditSelected ? (
               <div className="learning-library__page-actions">
                 {selected.status === "suggested" ? (
                   <>
@@ -746,15 +772,25 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
             ) : null}
           </>
         ) : (
-          <Heading as="h1" size="6">
-            Learnings
-          </Heading>
+          <>
+            <Heading as="h1" size="6">
+              Learnings
+            </Heading>
+            {data.isHubAdmin && data.evaluationSettingsPath ? (
+              <Button as="a" href={data.evaluationSettingsPath} variant="subtle">
+                Evaluation settings
+              </Button>
+            ) : null}
+          </>
         )}
       </header>
       <div className="learning-library">
         <p className="learning-library__announcement" role="status">
           {announcement}
         </p>
+        {data.sharedLearningNotice ? (
+          <HubAlert title={data.sharedLearningNotice} variant="info" layout="compact" />
+        ) : null}
         {selected ? (
           <div className="learning-library__detail">
             <header className="learning-library__detail-header">
@@ -767,6 +803,16 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
                     {lifecycleLabels[selected.status]}
                   </Label>
                 </div>
+                {selected.sharedFrom ? (
+                  <Text
+                    as="p"
+                    className="learning-library__shared-source"
+                    size="200"
+                    variant="muted"
+                  >
+                    Shared from {selected.sharedFrom.repositoryName} · Read-only in this repository.
+                  </Text>
+                ) : null}
                 <Text as="p" className="learning-library__guidance">
                   {selected.guidance}
                 </Text>
@@ -789,6 +835,22 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
                   ) : null}
                 </p>
               </div>
+              {canShareSelected ? (
+                <Tooltip direction="sw" text={shareHint} type="description">
+                  <div className="learning-library__share-toggle">
+                    <span id="learning-share-label">Share across Hub</span>
+                    <HubSwitch
+                      aria-describedby="learning-share-hint"
+                      aria-labelledby="learning-share-label"
+                      checked={Boolean(selected.sharedAcrossHub)}
+                      onChange={setSharedAcrossHub}
+                      size="small"
+                    />
+                    {/* The tooltip is visual, so screen readers get the hint here. */}
+                    <HubVisuallyHidden id="learning-share-hint">{shareHint}</HubVisuallyHidden>
+                  </div>
+                </Tooltip>
+              ) : null}
             </header>
 
             {selected.status === "rejected" && selected.rejectionReason ? (
@@ -818,7 +880,7 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
                 <p className="learning-library__update-reason">
                   Why: {selected.updateSuggestion.reason}
                 </p>
-                {data.canDecide ? (
+                {canEditSelected ? (
                   <div className="learning-library__actions">
                     <Button onClick={applySuggestedUpdate} type="button" variant="primary">
                       Apply update
@@ -881,6 +943,40 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
                             Evaluated {dayLabel(outcome.evaluatedAt.slice(0, 10))}
                           </time>
                         </p>
+                        {outcome.beforeScreenshotUrl || outcome.afterScreenshotUrl ? (
+                          <div className="learning-library__outcome-screenshots">
+                            {outcome.beforeScreenshotUrl ? (
+                              <figure>
+                                <figcaption>Before</figcaption>
+                                <a
+                                  href={outcome.beforeScreenshotUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  <img
+                                    src={outcome.beforeScreenshotUrl}
+                                    alt={`Before screenshot of ${outcome.prototypeName}, Build ${outcome.buildNumber}`}
+                                  />
+                                </a>
+                              </figure>
+                            ) : null}
+                            {outcome.afterScreenshotUrl ? (
+                              <figure>
+                                <figcaption>After</figcaption>
+                                <a
+                                  href={outcome.afterScreenshotUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  <img
+                                    src={outcome.afterScreenshotUrl}
+                                    alt={`After screenshot of ${outcome.prototypeName}, Build ${outcome.buildNumber}`}
+                                  />
+                                </a>
+                              </figure>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </li>
                     )
                   })}
@@ -1201,6 +1297,7 @@ export function LearningsLibraryPrototype({ data }: { data: LearningsLibraryProt
           </form>
         </CanvasDialog>
       ) : null}
+      {shareNotice ? <HubToast title={shareNotice} /> : null}
     </div>
   )
 }

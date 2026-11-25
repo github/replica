@@ -30,6 +30,16 @@ const workspace: RepositoryWorkspaceData = {
   welcomePath: "/welcome",
 }
 
+const receivingWorkspace: RepositoryWorkspaceData = {
+  ...workspace,
+  analyticsPath: "/repositories/2002/analytics",
+  learningsPath: "/repositories/2002/learnings",
+  newPrototypePath: "/repositories/2002/new",
+  prototypesPath: "/repositories/2002",
+  repositorySelectorLabel: "Choose repository. github/empty selected",
+  selectedRepositoryId: "2002",
+}
+
 const learnings = [
   {
     id: "visible-form-labels",
@@ -267,9 +277,135 @@ const data: LearningsLibraryPrototypeData = {
 const activeLearning = learnings.find((learning) => learning.status === "active")
 if (!activeLearning) throw new Error("Expected an active learning for the edit story")
 
+const proposedUpdateEvidenceLearning: LearningRecord = {
+  ...activeLearning,
+  id: "clear-next-step",
+  title: "Make the next step easy to find",
+  guidance: "Give people a clear action to continue.",
+  topic: "Navigation",
+  updatedAt: "2026-11-18T16:30:00Z",
+  updateSuggestion: {
+    title: "Keep the next step visible",
+    guidance: "Put one clear action near the top of the page, where people can find it quickly.",
+    reason: "A review found that people could not tell where to go next on the original page.",
+  },
+  evidence: [
+    {
+      id: "evidence-next-step",
+      body: "I am not sure what to do next from here.",
+      authorLogin: "mona",
+      prototypeName: "Welcome page",
+      buildNumber: 1,
+      createdAt: "2026-11-18T16:30:00Z",
+      reviewPath: "/repositories/2001/prototypes/1?build=1&comment=314",
+    },
+  ],
+  outcomeAssessment: {
+    version: 1,
+    status: "observed",
+    outcomes: [
+      {
+        id: "outcome-next-step",
+        prototypeName: "Welcome page",
+        buildNumber: 2,
+        buildPath: "/repositories/2001/prototypes/1?build=2",
+        result: "supports",
+        source: "reviewer-confirmed",
+        summary: "The Find your next walk button makes the next step clear.",
+        evaluatedAt: "2026-11-19T13:15:00Z",
+        beforeScreenshotUrl: "/prototype-preview/templates/default.png",
+        afterScreenshotUrl: "/prototype-preview/templates/field-notes.png",
+      },
+    ],
+  },
+}
+
+const insufficientEvidenceLearning: LearningRecord = {
+  ...activeLearning,
+  id: "insufficient-evidence",
+  updateSuggestion: undefined,
+  outcomeAssessment: {
+    version: 1,
+    status: "insufficient-evidence",
+    outcomes: [],
+  },
+}
+
+const crossRepositoryLearning: LearningRecord = {
+  ...activeLearning,
+  id: "shared-primary-action",
+  updateSuggestion: undefined,
+  outcomeAssessment: undefined,
+}
+
+const sharedLearningUpdateOutcomeAssessment: NonNullable<LearningRecord["outcomeAssessment"]> = {
+  version: 1,
+  status: "observed",
+  outcomes: [
+    {
+      id: "shared-outcome-desktop",
+      prototypeName: "Profile settings",
+      buildNumber: 8,
+      buildPath: "/repositories/2001/prototypes/22?build=8",
+      result: "supports",
+      source: "automated",
+      summary: "The primary action stands out without competing buttons.",
+      evaluatedAt: "2026-11-18T09:30:00Z",
+    },
+    {
+      id: "shared-outcome-mobile",
+      prototypeName: "Profile settings",
+      buildNumber: 9,
+      buildPath: "/repositories/2001/prototypes/22?build=9",
+      result: "concern",
+      source: "automated",
+      summary: "The sticky action covers a field on narrow screens.",
+      evaluatedAt: "2026-11-19T13:15:00Z",
+      beforeScreenshotUrl: "/prototype-preview/templates/default.png",
+      afterScreenshotUrl: "/prototype-preview/templates/field-notes.png",
+    },
+  ],
+}
+
+const sharedLearningUpdateSuggested: LearningRecord = {
+  ...crossRepositoryLearning,
+  sharedAcrossHub: true,
+  updateSuggestion: {
+    title: "Make primary actions easier to scan",
+    guidance: "Use one primary button, with a specific label that explains its result.",
+    reason: "A mobile evaluation found that the sticky action covers a field.",
+  },
+  outcomeAssessment: sharedLearningUpdateOutcomeAssessment,
+}
+
+const updatedCrossRepositoryLearning: LearningRecord = {
+  ...crossRepositoryLearning,
+  title: "Make primary actions easier to scan",
+  guidance: "Use one primary button, with a specific label that explains its result.",
+  updatedAt: "2026-11-20T12:00:00.000Z",
+  version: 2,
+  versionHistory: [
+    {
+      version: 1,
+      title: crossRepositoryLearning.title,
+      guidance: crossRepositoryLearning.guidance,
+      updatedAt: crossRepositoryLearning.updatedAt,
+      outcomeAssessment: sharedLearningUpdateOutcomeAssessment,
+    },
+  ],
+}
+
 function StoryPage({ data }: { data: LearningsLibraryPrototypeData }) {
   return (
     <RepositoryWorkspace data={workspace}>
+      <LearningsLibraryPrototype data={data} />
+    </RepositoryWorkspace>
+  )
+}
+
+function ReceivingRepository({ data }: { data: LearningsLibraryPrototypeData }) {
+  return (
+    <RepositoryWorkspace data={receivingWorkspace}>
       <LearningsLibraryPrototype data={data} />
     </RepositoryWorkspace>
   )
@@ -289,6 +425,18 @@ type Story = StoryObj<typeof meta>
 export const Multiple: Story = {
   args: {
     data: { ...data, learnings: createManyLearnings() },
+  },
+}
+
+export const HubAdmin: Story = {
+  args: {
+    data: {
+      ...data,
+      evaluationSettingsPath:
+        "/iframe.html?id=hub-pages-learnings-evaluation-settings--hub-and-repository-admin&viewMode=story",
+      isHubAdmin: true,
+      hubRepositoryCount: workspace.repositories.length,
+    },
   },
 }
 
@@ -357,13 +505,139 @@ export const RejectingLearning: Story = {
   },
 }
 
-export const SuggestedUpdate: Story = {
+export const ProposedUpdateEvidence: Story = {
   args: {
-    data: { ...data, learnings: [activeLearning] },
+    data: { ...data, learnings: [proposedUpdateEvidenceLearning] },
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /^Active/ }))
-    await userEvent.click(canvas.getByRole("button", { name: activeLearning.title }))
+    await userEvent.click(
+      canvas.getByRole("button", { name: proposedUpdateEvidenceLearning.title }),
+    )
+  },
+}
+
+export const InsufficientEvidence: Story = {
+  args: {
+    data: { ...data, learnings: [insufficientEvidenceLearning] },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /^Active/ }))
+    await userEvent.click(canvas.getByRole("button", { name: insufficientEvidenceLearning.title }))
+  },
+}
+
+export const SharedAcrossHub: Story = {
+  args: {
+    data: {
+      ...data,
+      isHubAdmin: true,
+      hubRepositoryCount: workspace.repositories.length,
+      learnings: [crossRepositoryLearning],
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /^Active/ }))
+    await userEvent.click(canvas.getByRole("button", { name: crossRepositoryLearning.title }))
+    const shareSwitch = canvas.getByRole("switch", { name: "Share across Hub" })
+    // The native input sits under the visual track, so click its label like a
+    // person would.
+    const shareSwitchLabel = shareSwitch.closest("label")
+    if (!shareSwitchLabel) throw new Error("Expected the share switch to have a label")
+    await userEvent.click(shareSwitchLabel)
+  },
+}
+
+export const SharedLearningUpdateSuggested: Story = {
+  args: {
+    data: {
+      ...data,
+      isHubAdmin: true,
+      hubRepositoryCount: workspace.repositories.length,
+      learnings: [sharedLearningUpdateSuggested],
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /^Active/ }))
+    await userEvent.click(canvas.getByRole("button", { name: sharedLearningUpdateSuggested.title }))
+  },
+}
+
+export const ManagingSharedLearning: Story = {
+  args: {
+    data: {
+      ...data,
+      isHubAdmin: true,
+      hubRepositoryCount: workspace.repositories.length,
+      learnings: [{ ...updatedCrossRepositoryLearning, sharedAcrossHub: true }],
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /^Active/ }))
+    await userEvent.click(
+      canvas.getByRole("button", { name: updatedCrossRepositoryLearning.title }),
+    )
+    await userEvent.click(canvas.getByText("Earlier guidance"))
+  },
+}
+
+export const SharedFromAnotherRepository: Story = {
+  args: {
+    data: {
+      ...data,
+      isHubAdmin: true,
+      hubRepositoryCount: workspace.repositories.length,
+      learnings: [
+        {
+          ...crossRepositoryLearning,
+          sharedFrom: { repositoryName: "github/prototype" },
+        },
+      ],
+    },
+  },
+  render: ({ data }) => <ReceivingRepository data={data} />,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /^Active/ }))
+    await userEvent.click(canvas.getByRole("button", { name: crossRepositoryLearning.title }))
+  },
+}
+
+export const SharedLearningUpdatedInAnotherRepository: Story = {
+  args: {
+    data: {
+      ...data,
+      isHubAdmin: true,
+      hubRepositoryCount: workspace.repositories.length,
+      learnings: [
+        {
+          ...updatedCrossRepositoryLearning,
+          sharedFrom: { repositoryName: "github/prototype" },
+        },
+      ],
+    },
+  },
+  render: ({ data }) => <ReceivingRepository data={data} />,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /^Active/ }))
+    await userEvent.click(
+      canvas.getByRole("button", { name: updatedCrossRepositoryLearning.title }),
+    )
+    await userEvent.click(canvas.getByText("Earlier guidance"))
+  },
+}
+
+export const SharedLearningNoLongerAvailable: Story = {
+  args: {
+    data: {
+      ...data,
+      sharedLearningNotice:
+        "github/prototype stopped sharing “Make primary actions easier to scan.” It is no longer available here.",
+      learnings: data.learnings.filter((learning) => learning.id !== activeLearning.id),
+    },
+  },
+  render: ({ data }) => <ReceivingRepository data={data} />,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /^Active/ }))
   },
 }
 
