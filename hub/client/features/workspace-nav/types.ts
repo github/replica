@@ -28,7 +28,9 @@ export interface WorkspaceNavData extends WorkspaceAccountData {
   inboxViewerId?: string
   navigationLabel: string
   settingsNavigationLabel?: string
+  /** Use null for pages outside the sidebar. Omission keeps Prototypes selected. */
   selectedSection?:
+    | null
     | "welcome"
     | "new"
     | "prototypes"

@@ -7,6 +7,27 @@ import { prototypeWorkspaceData } from "@/storybook/fixtures/prototype-workspace
 import { RepositoryNavigation } from "."
 
 describe("RepositoryNavigation()", () => {
+  it("can leave every destination unselected without changing the default", () => {
+    const { rerender } = render(
+      <RepositoryNavigation
+        collapsed={false}
+        onCollapsedChange={() => undefined}
+        data={prototypeWorkspaceData}
+      />,
+    )
+    expect(screen.getByRole("link", { name: "Prototypes" })).toHaveAttribute("aria-current", "page")
+
+    rerender(
+      <RepositoryNavigation
+        collapsed={false}
+        onCollapsedChange={() => undefined}
+        data={{ ...prototypeWorkspaceData, selectedSection: null }}
+      />,
+    )
+
+    expect(screen.queryAllByRole("link", { current: "page" })).toHaveLength(0)
+  })
+
   it.each([false, true])(
     "places Welcome first below the repository selector, collapsed %s",
     (collapsed) => {

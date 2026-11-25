@@ -173,7 +173,8 @@ export function WorkspaceNav({
         <ul className="repository-navigation__list">
           {primaryLinks.map((link) => {
             if (!link.path || !link.label) return null
-            const selectedSection = data.selectedSection ?? "prototypes"
+            const selectedSection =
+              data.selectedSection === undefined ? "prototypes" : data.selectedSection
             const item = (
               <RepositoryNavigationItem
                 href={link.path}
