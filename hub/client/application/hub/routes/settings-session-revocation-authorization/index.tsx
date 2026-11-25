@@ -87,7 +87,7 @@ export default function SettingsSessionRevocationAuthorization({
           form.get("cancelled") === "1"
             ? cancelSessionRevocationAuthorization(request, loaderData.authorizationId).then(() => {
                 void navigate(
-                  resourcePath("/settings/sessions", new URLSearchParams(), {
+                  resourcePath("/settings/sessions", {
                     result: "cancelled",
                     repositoryId: workspace.repository?.selectedRepositoryId ?? null,
                   }),

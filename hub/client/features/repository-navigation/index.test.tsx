@@ -74,11 +74,10 @@ describe("RepositoryNavigation()", () => {
         "Create",
         "Prototypes",
         "Analytics",
-        "GitHub App",
-        "Copilot",
         "Hub administrators",
         "Public sharing",
         "End all Hub sessions",
+        "Copilot connection",
         "Security audit",
         "Feedback",
       ])

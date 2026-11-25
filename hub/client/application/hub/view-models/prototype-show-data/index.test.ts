@@ -43,9 +43,7 @@ it("offers the pinned private Hub link when the Build has no embed", () => {
   })
 
   expect(
-    prototypeShowData(workspace, response, new URLSearchParams("build=2&view=minimized"), {
-      real: true,
-    }),
+    prototypeShowData(workspace, response, new URLSearchParams("build=2&view=minimized")),
   ).toMatchObject({
     emptyHeading: "Private preview",
     emptyLabel: "This Build opens in a separate tab.",
@@ -80,12 +78,10 @@ it("uses the per-prototype sharing decision rather than repository or edit acces
       selectedBuild: null,
     })
   }
+  expect(prototypeShowData(workspace, data("1", true), new URLSearchParams()).shareLinksPath).toBe(
+    "/repositories/2001/prototypes/1/share-links",
+  )
   expect(
-    prototypeShowData(workspace, data("1", true), new URLSearchParams(), { real: true })
-      .shareLinksPath,
-  ).toBe("/repositories/2001/prototypes/1/share-links")
-  expect(
-    prototypeShowData(workspace, data("2", false), new URLSearchParams(), { real: true })
-      .shareLinksPath,
+    prototypeShowData(workspace, data("2", false), new URLSearchParams()).shareLinksPath,
   ).toBeUndefined()
 })

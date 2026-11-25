@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { data, useFetcher, useLocation, useOutletContext, useRevalidator } from "react-router"
+import { data, useFetcher, useOutletContext, useRevalidator } from "react-router"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 
 import { LearningsPage } from "@pages/learnings-page"
@@ -324,7 +324,6 @@ function SettingsLearningsContent({
   loaderData: Awaited<ReturnType<typeof clientLoader>>
 }) {
   const workspace = workspaceResponseSchema.parse(useOutletContext<unknown>())
-  const location = useLocation()
   const fetcher = useFetcher<LearningActionResult>()
   const revalidator = useRevalidator()
   const revalidateRef = useRef(revalidator.revalidate)
@@ -399,7 +398,6 @@ function SettingsLearningsContent({
       : loadedDecisionModel?.state === "available" && overviewWithTrackedJob
         ? { ...loadedDecisionModel, overview: overviewWithTrackedJob }
         : loadedDecisionModel
-  const search = new URLSearchParams(location.search)
   useEffect(() => {
     revalidateRef.current = revalidator.revalidate
   }, [revalidator.revalidate])
@@ -459,7 +457,7 @@ function SettingsLearningsContent({
       }}
     >
       <LearningsPage
-        data={settingsLearnings(workspace, loaderData, decisionModel, search)}
+        data={settingsLearnings(workspace, loaderData, decisionModel)}
         decisionModelActionRevision={decisionModelActionRevision}
         decisionModelTrainingSubmitting={trainingSubmitting}
       />

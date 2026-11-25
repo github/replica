@@ -8,13 +8,9 @@ import { getCopilotConnection } from "@application/hub/requests/get-copilot-conn
 import { getCurrentHubSession } from "@application/hub/requests/get-current-hub-session"
 import { startCopilotAuthorization } from "@application/hub/requests/start-copilot-authorization"
 import { navigateToExternalUrl } from "@application/hub/navigate-to-external-url"
-import { SettingsRouteScreen } from "@application/hub/screens/settings-route-screen"
 import { useAdministrationNavigation } from "@application/hub/use-administration-navigation"
 import { copilotConnectionPageData } from "@application/hub/view-models/copilot-connection-page-data"
 
-import { settingsController } from "../settings-controller"
-import type { SettingsRouteData } from "../settings-controller/types"
-import { settingsMeta } from "../settings-meta"
 import type { WorkspaceRouteHandle } from "../workspace/types"
 
 export const handle = {
@@ -22,60 +18,34 @@ export const handle = {
   independentOfRepositoryNavigation: true,
 } satisfies WorkspaceRouteHandle
 
-const controller = settingsController("copilot", "workspace")
-
-type RealCopilotRouteData = {
-  surface: "copilot-connection"
+type CopilotRouteData = {
   viewerId: string
   status: Awaited<ReturnType<typeof getCopilotConnection>>
 }
 
-function isMockMode() {
-  return import.meta.env.DEV && import.meta.env.MODE === "mock"
-}
-
-export async function clientLoader(
-  args: Parameters<typeof controller.clientLoader>[0],
-): Promise<SettingsRouteData | RealCopilotRouteData> {
-  if (isMockMode()) return controller.clientLoader(args)
-  const session = await getCurrentHubSession(args.request)
+export async function clientLoader({ request }: { request: Request }): Promise<CopilotRouteData> {
+  const session = await getCurrentHubSession(request)
   if (session.role !== "ADMINISTRATOR") {
     throw new Response("Administrator access is required.", { status: 403 })
   }
   return {
-    surface: "copilot-connection",
     viewerId: session.userId,
-    status: await getCopilotConnection(args.request),
+    status: await getCopilotConnection(request),
   }
 }
 
-export async function clientAction(args: Parameters<typeof controller.clientAction>[0]) {
-  if (isMockMode()) return controller.clientAction(args)
+export function clientAction(): never {
   throw new Response("Use fresh authorization to change the Copilot connection.", {
     status: 405,
     headers: { Allow: "GET" },
   })
 }
 
-export function meta({ loaderData }: { loaderData?: SettingsRouteData | RealCopilotRouteData }) {
-  if (loaderData?.surface === "copilot-connection") {
-    return [{ title: "Copilot connection - Replica Hub" }]
-  }
-  return settingsMeta("copilot", loaderData)
+export function meta() {
+  return [{ title: "Copilot connection - Replica Hub" }]
 }
 
-export default function SettingsCopilot({
-  loaderData,
-}: {
-  loaderData: SettingsRouteData | RealCopilotRouteData
-}) {
-  if (loaderData.surface === "copilot-connection") {
-    return <RealCopilotConnection data={loaderData} />
-  }
-  return <SettingsRouteScreen section="copilot" data={loaderData} />
-}
-
-function RealCopilotConnection({ data }: { data: RealCopilotRouteData }) {
+export default function SettingsCopilot({ loaderData: data }: { loaderData: CopilotRouteData }) {
   const navigation = useAdministrationNavigation("copilot", data.viewerId)
   const page: CopilotConnectionPageData = copilotConnectionPageData(navigation, data.status)
   const [submission, setSubmission] = useState<{ pending: boolean; error: string | null }>({

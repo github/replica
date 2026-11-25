@@ -17,7 +17,6 @@ export function prototypeWorkspace({
   selectedBuild,
   search,
   surface,
-  real = false,
 }: {
   workspace: WorkspaceResponse
   repository: RepositoryRecord
@@ -25,7 +24,6 @@ export function prototypeWorkspace({
   selectedBuild: BuildRecord | null
   search: URLSearchParams
   surface: "preview" | "build" | "history"
-  real?: boolean
 }): PrototypeWorkspaceData {
   const path = `/repositories/${repository.id}/prototypes/${prototype.id}`
   const builds = [...prototype.builds].sort((first, second) => second.number - first.number)
@@ -48,12 +46,12 @@ export function prototypeWorkspace({
       prototype.authorProvider === workspace.viewer.provider)
       ? workspace.viewer
       : null
-  const previewPath = resourcePath(path, search, {
+  const previewPath = resourcePath(path, {
     build: selectedBuild?.state === "successful" ? selectedBuild.number : null,
   })
 
   return {
-    ...repositoryWorkspace(workspace, repository, search, real),
+    ...repositoryWorkspace(workspace, repository),
     author: {
       avatarUrl: author?.avatarUrl ?? null,
       label: authorName ? `By ${authorName}` : "Unknown author",
@@ -63,13 +61,12 @@ export function prototypeWorkspace({
           : null,
     },
     branchName: prototype.branchName,
-    branchPath: resourcePath(path, search, { build: pinnedBuild }),
+    branchPath: resourcePath(path, { build: pinnedBuild }),
     prototypeName: prototype.name,
     buildOptions: builds.map((build) => ({
       number: build.number,
       label: `v${build.number}`,
-      path:
-        build.state === "successful" ? resourcePath(path, search, { build: build.number }) : null,
+      path: build.state === "successful" ? resourcePath(path, { build: build.number }) : null,
       state: build.state,
       stateLabel: buildStateLabel(build.state),
     })),
@@ -77,7 +74,7 @@ export function prototypeWorkspace({
     closeLabel: surface === "preview" ? "Return to prototypes" : "Return to prototype",
     closePath: surface === "preview" ? undefined : previewPath,
     historyLabel: "History",
-    historyPath: resourcePath(`${path}/builds`, search, {
+    historyPath: resourcePath(`${path}/builds`, {
       build: pinnedBuild,
     }),
     latestBuild: latestBuild
@@ -95,11 +92,11 @@ export function prototypeWorkspace({
         : undefined,
     moreActionsLabel: "More actions",
     shareLinksLabel: "Share links",
-    shareLinksPath: resourcePath(`${path}/share-links`, search, {
+    shareLinksPath: resourcePath(`${path}/share-links`, {
       build: pinnedBuild,
     }),
     prototypeInfoLabel: "About this prototype",
-    repositoryPath: resourcePath(`/repositories/${repository.id}`, search),
+    repositoryPath: `/repositories/${repository.id}`,
     selectedBuildNumber: selectedBuild?.number,
     selectedBuild: selectedBuild ? { number: selectedBuild.number } : undefined,
     useDarkThemeLabel: "Use dark theme",

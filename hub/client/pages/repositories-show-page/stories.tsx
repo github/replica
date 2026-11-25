@@ -1,10 +1,14 @@
+import { useState } from "react"
+import type { ComponentProps } from "react"
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { fn } from "storybook/test"
+import { expect, fn, waitFor } from "storybook/test"
 
 import { authenticatedHeaderData } from "@/storybook/fixtures/authenticated-header"
 import { prototypeListing } from "@/storybook/fixtures/prototype-listing"
 import { welcomePrototype } from "@/storybook/fixtures/prototypes"
 import { githubEmpty, githubPrototype } from "@/storybook/fixtures/repositories"
+import { mona } from "@/storybook/fixtures/users"
+import { keepFormsLocal } from "@/storybook/keep-forms-local"
 
 import { RepositoriesShowPage } from "."
 import type { RepositoriesShowPageData } from "./types"
@@ -330,6 +334,144 @@ export const MeSelected: Story = {
       prototypes: [welcomePrototype],
       prototypesCountLabel: "1 prototype",
     },
+  },
+}
+
+const monaAuthor = { ...mona, id: "77777777-7777-4777-8777-777777777777" }
+const atlasAuthor = {
+  id: "88888888-8888-4888-8888-888888888888",
+  avatarUrl: null,
+  name: "Atlas Bloom",
+  login: "atlas",
+}
+const users = [atlasAuthor, monaAuthor]
+const monaPrototypes: RepositoriesShowPageData["prototypes"] = [
+  ...Array.from({ length: 24 }, (_, index) => `Onboarding layout ${index + 1}`),
+  "Keyboard shortcuts",
+  "Activity digest",
+].map((name, index) => {
+  const id = `00000000-0000-4000-8000-${String(301 + index).padStart(12, "0")}`
+  return {
+    ...realIndexData.prototypes[0]!,
+    id,
+    name,
+    branchName: `prototype/${name.toLowerCase().replaceAll(" ", "-")}`,
+    description: "Help contributors get started in this repository.",
+    path: `${realIndexData.prototypesPath}/prototypes/${id}`,
+    latestBuild: { state: "successful", stateLabel: "Successful" },
+    reviewBuild: undefined,
+    previewFallbackLabel: "Preview available. No screenshot was captured.",
+    author: {
+      avatarUrl: monaAuthor.avatarUrl,
+      ownerLabel: `@${monaAuthor.login}`,
+      label: `By @${monaAuthor.login}`,
+      url: `https://github.com/${monaAuthor.login}`,
+    },
+  }
+})
+
+const atlasPrototype = {
+  ...realIndexData.prototypes[1]!,
+  id: "00000000-0000-4000-8000-000000000203",
+  name: "Notification settings",
+  branchName: "prototype/notification-settings",
+  author: {
+    avatarUrl: atlasAuthor.avatarUrl,
+    ownerLabel: `@${atlasAuthor.login}`,
+    label: `By @${atlasAuthor.login}`,
+    url: `https://github.com/${atlasAuthor.login}`,
+  },
+}
+
+function UserFilterStory({ data, controls }: ComponentProps<typeof RepositoriesShowPage>) {
+  const [author, setAuthor] = useState(monaAuthor.id)
+  const [page, setPage] = useState(2)
+  const selectedUser = users.find(({ id }) => id === author)
+  const allPrototypes = [...data.prototypes, atlasPrototype, ...monaPrototypes]
+  const matches =
+    author === "me"
+      ? data.prototypes
+      : selectedUser
+        ? allPrototypes.filter((item) => item.author?.ownerLabel === `@${selectedUser.login}`)
+        : allPrototypes
+  const pageSize = 24
+  const prototypes = matches.slice((page - 1) * pageSize, page * pageSize)
+  const pagePath = author ? `${data.prototypesPath}?author=${author}` : data.prototypesPath
+  const path = new URL(pagePath, window.location.origin)
+  if (page > 1) path.searchParams.set("page", String(page))
+
+  return (
+    <RepositoriesShowPage
+      data={{
+        ...data,
+        listing: {
+          ...data.listing,
+          author,
+          authorLabel:
+            author === "me"
+              ? "Me"
+              : selectedUser
+                ? `@${selectedUser.login}`
+                : data.listing.authorLabel,
+          matchingCount: matches.length,
+          page,
+          pageCount: Math.ceil(matches.length / pageSize),
+          pagePath,
+          path: `${path.pathname}${path.search}`,
+          authorsPath: `/api${data.prototypesPath}/authors`,
+          copy: { ...data.listing.copy, shown: `${prototypes.length} shown` },
+        },
+        prototypesCountLabel: `${matches.length} ${matches.length === 1 ? "prototype" : "prototypes"}`,
+        prototypes,
+      }}
+      controls={{
+        ...controls,
+        onAuthorChange: (value) => {
+          setAuthor(value)
+          setPage(1)
+        },
+        onNavigate: (href) =>
+          setPage(Number(new URL(href, window.location.origin).searchParams.get("page") ?? 1)),
+        loadAuthors: (query, cursor) => {
+          const matches = users.filter(({ name, login }) =>
+            `${name} ${login}`.toLowerCase().includes(query.toLowerCase()),
+          )
+          return Promise.resolve({
+            authors: cursor ? matches.slice(1) : matches.slice(0, 1),
+            nextCursor: !cursor && matches.length > 1 ? matches[0]!.id : null,
+          })
+        },
+      }}
+    />
+  )
+}
+
+export const UserFilterSecondPage: Story = {
+  args: { data: realIndexData },
+  decorators: [keepFormsLocal],
+  render: (args, { id }) => <UserFilterStory key={id} {...args} />,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: "User: @mona" }))
+    await userEvent.click(canvas.getByRole("menuitemradio", { name: "All users" }))
+    await canvas.findByRole("heading", { name: /^Notification settings$/ })
+    await userEvent.click(canvas.getByRole("button", { name: "User: All users" }))
+    await canvas.findByRole("menuitemradio", { name: /@atlas/ })
+    await userEvent.click(canvas.getByRole("button", { name: /^More$/ }))
+    await userEvent.click(await canvas.findByRole("menuitemradio", { name: /@mona/ }))
+    await canvas.findByRole("heading", { name: /^Onboarding layout 1$/ })
+    await expect(canvas.queryByRole("heading", { name: /^Navigation$/ })).not.toBeInTheDocument()
+    await expect(
+      canvas.queryByRole("heading", { name: /^Notification settings$/ }),
+    ).not.toBeInTheDocument()
+    await userEvent.click(canvas.getByRole("button", { name: /^Next$/ }))
+    await canvas.findByRole("heading", { name: /^Keyboard shortcuts$/ })
+    await userEvent.click(canvas.getByRole("button", { name: "User: @mona" }))
+    await canvas.findByRole("menuitemradio", { name: /@atlas/ })
+    await userEvent.click(canvas.getByRole("button", { name: /^More$/ }))
+    await canvas.findByRole("menuitemradio", { name: /@mona/ })
+    await waitFor(() =>
+      expect(canvas.queryByRole("menuitemradio", { name: /@atlas/ })).not.toBeInTheDocument(),
+    )
   },
 }
 

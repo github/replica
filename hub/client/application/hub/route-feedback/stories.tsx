@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { fn } from "storybook/test"
 
 import { HubWorkspace } from "@features/hub-workspace"
-import { authenticatedHubWorkspaceData } from "@/storybook/fixtures/hub-administration"
+import { signedInWorkspace } from "@/storybook/fixtures/signed-in-workspace"
 
 import { RouteFeedback } from "."
 
@@ -36,7 +36,39 @@ export const NotFound: Story = {
   args: {
     status: 404,
     heading: "Page or record not found",
-    description: "This page is not connected in the first frontend journey.",
+    description: "Prototype not found.",
+  },
+}
+
+const insideWorkspace = {
+  decorators: [
+    (Story) => (
+      <HubWorkspace data={signedInWorkspace}>
+        <Story />
+      </HubWorkspace>
+    ),
+  ],
+} satisfies Pick<Story, "decorators">
+
+export const AccessDenied: Story = {
+  ...insideWorkspace,
+  args: {
+    status: 403,
+    heading: "Access denied",
+    description: "Your account no longer has Hub administrator access.",
+    embedded: true,
+    onRetry: fn(),
+  },
+}
+
+export const UnexpectedApiResponse: Story = {
+  ...insideWorkspace,
+  name: "Unexpected API response",
+  args: {
+    heading: "Unexpected API response",
+    description: "The API returned data in an unexpected shape.",
+    embedded: true,
+    onRetry: fn(),
   },
 }
 
@@ -52,8 +84,7 @@ export const CanvasAccountMismatch: Story = {
     (Story) => (
       <HubWorkspace
         data={{
-          ...authenticatedHubWorkspaceData,
-          canvasConnectionsPath: "/canvas/connections",
+          ...signedInWorkspace,
           selectedSection: "canvas",
         }}
       >

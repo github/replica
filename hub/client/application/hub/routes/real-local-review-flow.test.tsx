@@ -1,7 +1,5 @@
 import type { RouteConfigEntry } from "@react-router/dev/routes"
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import { http, HttpResponse, ws } from "msw"
-import { setupServer } from "msw/node"
 import type { ComponentType } from "react"
 import {
   createBrowserRouter,
@@ -13,6 +11,8 @@ import {
 } from "react-router"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
+import { http, stubHubFetch } from "@/test/stub-hub-fetch"
+import { stubHubSocket } from "@/test/stub-hub-socket"
 import type { PreviewBridgeCommand, PreviewBridgeMessage } from "@utils/preview-bridge/types"
 import type { ReviewComment, ReviewRootComment } from "@utils/review-comment/types"
 
@@ -119,8 +119,6 @@ function rootComment(id: number, body: string): ReviewRootComment {
 
 describe("real local review flow", () => {
   it("completes persisted review mutations while preserving a failed reply draft", async () => {
-    vi.stubEnv("MODE", "development")
-    vi.stubEnv("DEV", true)
     const repositoryId = "11111111-1111-4111-8111-111111111111"
     const prototypeId = "22222222-2222-4222-8222-222222222222"
     const userId = "33333333-3333-4333-8333-333333333333"
@@ -184,10 +182,10 @@ describe("real local review flow", () => {
     }
     const realtime = new URL("/api/realtime", window.location.href)
     realtime.protocol = realtime.protocol === "https:" ? "wss:" : "ws:"
-    const server = setupServer(
-      ws.link(realtime.href).addEventListener("connection", () => undefined),
+    stubHubSocket(realtime)
+    stubHubFetch(
       http.get(`${window.location.origin}/api/auth/session`, () =>
-        HttpResponse.json({
+        Response.json({
           authenticated: true,
           membershipId: "44444444-4444-4444-8444-444444444444",
           userId,
@@ -197,11 +195,8 @@ describe("real local review flow", () => {
           role: "ADMINISTRATOR",
         }),
       ),
-      http.get(`${window.location.origin}/api/session`, () =>
-        HttpResponse.json({ error: "This endpoint is unavailable in real mode." }, { status: 404 }),
-      ),
       http.get(`${window.location.origin}/api/workspace`, () =>
-        HttpResponse.json({
+        Response.json({
           viewer: { id: userId, provider: "local", ...author },
           repositories: [repository],
           reviewInboxAvailable: true,
@@ -214,24 +209,22 @@ describe("real local review flow", () => {
         }),
       ),
       http.get(`${window.location.origin}/api${prototypePath}`, () =>
-        HttpResponse.json({
+        Response.json({
           repository,
           prototype,
           selectedBuild: build,
           showPrototypeInfo: false,
         }),
       ),
-      http.get(`${window.location.origin}${reviewPath}`, () => HttpResponse.json(listResponse())),
+      http.get(`${window.location.origin}${reviewPath}`, () => Response.json(listResponse())),
       http.get(`${window.location.origin}/api/notifications/inbox`, () =>
-        HttpResponse.json({ notifications: [], nextBefore: null, unreadCount: 0 }),
+        Response.json({ notifications: [], nextBefore: null, unreadCount: 0 }),
       ),
       http.post(`${window.location.origin}${reviewPath}/:rootId/read`, ({ params }) => {
         const root = comments.find(
           (comment) => comment.kind === "root" && comment.id === Number(params.rootId),
         )
-        return root
-          ? HttpResponse.json(mutationResponse(root))
-          : new HttpResponse(null, { status: 404 })
+        return root ? Response.json(mutationResponse(root)) : new Response(null, { status: 404 })
       }),
       http.post(`${window.location.origin}${reviewPath}`, async ({ request }) => {
         const input = (await request.json()) as {
@@ -240,14 +233,14 @@ describe("real local review flow", () => {
         createdAnchors.push(input.review_comment.anchor)
         const created = rootComment(nextId++, input.review_comment.body)
         comments = [created, ...comments]
-        return HttpResponse.json(mutationResponse(created), { status: 201 })
+        return Response.json(mutationResponse(created), { status: 201 })
       }),
       http.post(
         `${window.location.origin}${reviewPath}/:rootId/replies`,
         async ({ params, request }) => {
           if (failNextReply) {
             failNextReply = false
-            return HttpResponse.json({ error: "The reply could not be saved." }, { status: 500 })
+            return Response.json({ error: "The reply could not be saved." }, { status: 500 })
           }
           const input = (await request.json()) as { review_comment: { body: string } }
           const rootId = Number(params.rootId)
@@ -255,7 +248,7 @@ describe("real local review flow", () => {
             (comment): comment is ReviewRootComment =>
               comment.kind === "root" && comment.id === rootId,
           )
-          if (!root) return HttpResponse.json({ error: "Not found." }, { status: 404 })
+          if (!root) return Response.json({ error: "Not found." }, { status: 404 })
           const reply: ReviewComment = {
             id: nextId++,
             kind: "reply",
@@ -271,7 +264,7 @@ describe("real local review flow", () => {
             reactions: [],
           }
           comments = [reply, ...comments]
-          return HttpResponse.json(mutationResponse(reply, root), { status: 201 })
+          return Response.json(mutationResponse(reply, root), { status: 201 })
         },
       ),
       http.patch(
@@ -280,7 +273,7 @@ describe("real local review flow", () => {
           const input = (await request.json()) as { review_comment: { body: string } }
           const id = Number(params.commentId)
           const current = comments.find((comment) => comment.id === id)
-          if (!current) return HttpResponse.json({ error: "Not found." }, { status: 404 })
+          if (!current) return Response.json({ error: "Not found." }, { status: 404 })
           const edited = {
             ...current,
             body: input.review_comment.body,
@@ -288,13 +281,13 @@ describe("real local review flow", () => {
             editedAt: "2026-11-16T20:03:00.000Z",
           }
           comments = comments.map((comment) => (comment.id === id ? edited : comment))
-          return HttpResponse.json(mutationResponse(edited))
+          return Response.json(mutationResponse(edited))
         },
       ),
       http.delete(`${window.location.origin}${reviewPath}/:commentId`, ({ params }) => {
         const id = Number(params.commentId)
         const current = comments.find((comment) => comment.id === id)
-        if (!current) return HttpResponse.json({ error: "Not found." }, { status: 404 })
+        if (!current) return Response.json({ error: "Not found." }, { status: 404 })
         const deleted = {
           ...current,
           body: null,
@@ -302,35 +295,33 @@ describe("real local review flow", () => {
           deletedAt: "2026-11-16T20:04:00.000Z",
         }
         comments = comments.map((comment) => (comment.id === id ? deleted : comment))
-        return HttpResponse.json(mutationResponse(deleted))
+        return Response.json(mutationResponse(deleted))
       }),
       http.post(`${window.location.origin}${reviewPath}/:rootId/resolution`, ({ params }) => {
         const id = Number(params.rootId)
         const current = comments.find(
           (comment): comment is ReviewRootComment => comment.kind === "root" && comment.id === id,
         )
-        if (!current) return HttpResponse.json({ error: "Not found." }, { status: 404 })
+        if (!current) return Response.json({ error: "Not found." }, { status: 404 })
         const resolved = {
           ...current,
           resolvedAt: "2026-11-16T20:05:00.000Z",
           resolvedBy: author,
         }
         comments = comments.map((comment) => (comment.id === id ? resolved : comment))
-        return HttpResponse.json(mutationResponse(resolved))
+        return Response.json(mutationResponse(resolved))
       }),
       http.delete(`${window.location.origin}${reviewPath}/:rootId/resolution`, ({ params }) => {
         const id = Number(params.rootId)
         const current = comments.find(
           (comment): comment is ReviewRootComment => comment.kind === "root" && comment.id === id,
         )
-        if (!current) return HttpResponse.json({ error: "Not found." }, { status: 404 })
+        if (!current) return Response.json({ error: "Not found." }, { status: 404 })
         const reopened = { ...current, resolvedAt: null, resolvedBy: null }
         comments = comments.map((comment) => (comment.id === id ? reopened : comment))
-        return HttpResponse.json(mutationResponse(reopened))
+        return Response.json(mutationResponse(reopened))
       }),
     )
-    server.listen({ onUnhandledRequest: "error" })
-    onTestFinished(() => server.close())
     await renderApplication(`${prototypePath}?build=3`)
 
     fireEvent.click(await screen.findByRole("button", { name: /^Comments, 1/ }))

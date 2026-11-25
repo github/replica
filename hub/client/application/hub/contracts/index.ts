@@ -7,16 +7,9 @@ const httpUrl = z.url({ protocol: /^https?$/ })
 const timestamp = z.iso.datetime({ offset: true })
 const buildStateSchema = z.enum(["failed", "queued", "running", "successful", "superseded"])
 
-// Keep numeric mock IDs while accepting UUIDs from the API.
 export const recordIdentifierSchema = z
   .string()
   .regex(/^(?:[1-9]\d*|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/i)
-
-export const routeIdentifierSchema = z
-  .string()
-  .regex(/^[1-9]\d*$/)
-  .transform(Number)
-  .pipe(identifier)
 
 export const userSchema = z.object({
   id: z.string().min(1),
@@ -108,12 +101,6 @@ export const workspaceResponseSchema = z.object({
   publicSharingSettingsAvailable: z.boolean().optional(),
   capabilities: workspaceCapabilitiesSchema.optional(),
   welcomeHidden: z.boolean().optional(),
-  navigation: z
-    .object({
-      welcomeHidden: z.boolean(),
-      notificationsUnreadCount: z.number().int().nonnegative(),
-    })
-    .optional(),
 })
 
 export const repositoryResponseSchema = z.object({
@@ -151,21 +138,6 @@ export const authorResultsSchema = z.object({
   authors: z.array(userSchema),
   nextCursor: z.string().nullable(),
 })
-
-export const prototypeDetailsSchema = z
-  .object({
-    name: z
-      .string()
-      .trim()
-      .min(1, "Enter a prototype name.")
-      .max(120, "Use at most 120 characters for the prototype name."),
-    description: z
-      .string()
-      .trim()
-      .max(4000, "Use at most 4,000 characters for the description.")
-      .nullable(),
-  })
-  .strict()
 
 const metadataSpace = /^[\s\u0085]$/u
 

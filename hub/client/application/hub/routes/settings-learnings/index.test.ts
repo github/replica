@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createMockStore } from "@application/hub/mocks/create-mock-store"
-
+import { emptyLearnings } from "../fixtures/empty-learnings"
 import { clientAction, clientLoader } from "."
 
 const candidateId = "22222222-3333-4444-8555-666666666666"
@@ -21,9 +20,7 @@ function routeRequest(form: Record<string, string | undefined>) {
 
 describe("settings Learnings route", () => {
   it("requests the decision-model overview only for a current Hub administrator", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const learnings = store.learnings.get("2001")
-    if (learnings.accessDenied) throw new Error("The owner must receive repository learnings.")
+    const learnings = emptyLearnings()
     let canAdministerHub = false
     const send = vi.fn((input: RequestInfo | URL) => {
       const url = new URL(input instanceof Request ? input.url : input)
@@ -61,9 +58,7 @@ describe("settings Learnings route", () => {
   })
 
   it("keeps repository learnings visible when the configured decision runtime is unavailable", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const learnings = store.learnings.get("2001")
-    if (learnings.accessDenied) throw new Error("The owner must receive repository learnings.")
+    const learnings = emptyLearnings()
     vi.stubGlobal(
       "fetch",
       vi.fn((input: RequestInfo | URL) => {
@@ -106,9 +101,7 @@ describe("settings Learnings route", () => {
       expected: "The API returned data in an unexpected shape.",
     },
   ])("isolates a $label to the optional decision-model panel", async ({ response, expected }) => {
-    const store = createMockStore({ origin: window.location.origin })
-    const learnings = store.learnings.get("2001")
-    if (learnings.accessDenied) throw new Error("The owner must receive repository learnings.")
+    const learnings = emptyLearnings()
     vi.stubGlobal(
       "fetch",
       vi.fn((input: RequestInfo | URL) => {

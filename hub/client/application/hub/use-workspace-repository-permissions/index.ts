@@ -2,7 +2,6 @@ import { useEffect, useEffectEvent, useState } from "react"
 import { useRevalidator } from "react-router"
 
 import type { RepositoryRecord, WorkspaceResponse } from "@application/hub/contracts/types"
-import { reportClientIssue } from "@application/hub/report-client-issue"
 import { ApiContractError } from "@application/hub/requests/api-contract-error"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
 import { getWorkspace } from "@application/hub/requests/get-workspace"
@@ -97,7 +96,6 @@ export function useWorkspaceRepositoryPermissions(
         ) {
           receive(scope, attempt, { kind: "workspace-changed" })
         } else {
-          reportClientIssue("Repository management permissions could not be refreshed.")
           receive(scope, attempt, { kind: "unavailable" })
         }
       },

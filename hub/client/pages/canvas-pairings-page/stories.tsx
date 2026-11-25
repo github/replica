@@ -1,12 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 
 import { HubWorkspace } from "@features/hub-workspace"
-import { authenticatedHubWorkspaceData } from "@/storybook/fixtures/hub-administration"
+import { githubEmpty, githubPrototype } from "@/storybook/fixtures/repositories"
+import { signedInRepository, signedInWorkspace } from "@/storybook/fixtures/signed-in-workspace"
 
 import { CanvasPairingsPage } from "."
 import type { CanvasPairingsPageData } from "./types"
 
-const approval: CanvasPairingsPageData = {
+const approval: Extract<CanvasPairingsPageData, { kind: "approval" }> = {
   kind: "approval",
   pageTitle: "Connect Replica canvas",
   productName: "Replica Hub",
@@ -17,7 +18,7 @@ const approval: CanvasPairingsPageData = {
   codeExpiresLabel: "This code expires at 12:10 PM.",
   code: "ABCDEF1234",
   repositoryLabel: "Repository",
-  repository: "local/example",
+  repository: githubPrototype.nameWithOwner,
   permissions:
     "This connection lets the canvas read prototype and Build status for this repository. Hub checks your current repository access.",
   expiration: "You can revoke the connection at any time from",
@@ -29,7 +30,7 @@ const approval: CanvasPairingsPageData = {
   cancelPath: "/canvas/connections",
 }
 
-const connections: CanvasPairingsPageData = {
+const connections: Extract<CanvasPairingsPageData, { kind: "connections" }> = {
   kind: "connections",
   pageTitle: "Canvas connections",
   productName: "Replica Hub",
@@ -37,13 +38,13 @@ const connections: CanvasPairingsPageData = {
   description: "Review and revoke your Copilot canvas connections.",
   emptyLabel: "No active connections. Open the Replica canvas in Copilot to start one.",
   backLabel: "Back to repositories",
-  backPath: "/repositories",
+  backPath: signedInRepository.prototypesPath,
   revokeLabel: "Revoke",
   notice: null,
   grants: [
     {
       id: 1,
-      repository: "local/example",
+      repository: githubPrototype.nameWithOwner,
       expiresLabel: "Ends if unused by October 1, 2026 at 12:00 UTC",
       revokePath: "/canvas/connections/1",
     },
@@ -55,36 +56,19 @@ const meta = {
   component: CanvasPairingsPage,
   args: { data: approval },
   parameters: { layout: "fullscreen" },
+  decorators: [
+    (Story) => (
+      <div onSubmit={(event) => event.preventDefault()}>
+        <Story />
+      </div>
+    ),
+  ],
 } satisfies Meta<typeof CanvasPairingsPage>
 
 export default meta
 type Story = StoryObj<typeof meta>
 
 export const Approval: Story = {}
-export const ReadyToConnect: Story = {
-  args: {
-    data: {
-      ...connections,
-      createLabel: "Connect canvas",
-      createPath: "/settings/canvas/approve?repositoryId=2001",
-      grants: [],
-    },
-  },
-}
-export const ApprovalDenied: Story = {
-  args: {
-    data: {
-      ...approval,
-      canApprove: false,
-      repository: "github/prototype",
-      codeExpiresLabel: undefined,
-      permissions: "You do not have permission to approve a connection for this repository.",
-      connectionsPath: "/settings/canvas",
-      approvePath: "/settings/canvas/approve?repositoryId=2001",
-      cancelPath: "/settings/canvas",
-    },
-  },
-}
 
 export const Connected: Story = {
   args: { data: connections, embedded: true },
@@ -92,8 +76,7 @@ export const Connected: Story = {
     (Story) => (
       <HubWorkspace
         data={{
-          ...authenticatedHubWorkspaceData,
-          canvasConnectionsPath: "/canvas/connections",
+          ...signedInWorkspace,
           selectedSection: "canvas",
         }}
       >
@@ -113,7 +96,7 @@ export const Multiple: Story = {
         ...connections.grants,
         {
           id: 2,
-          repository: "github/prototype",
+          repository: githubEmpty.nameWithOwner,
           expiresLabel: "Expires October 2, 2026 at 12:00 UTC",
           revokePath: "/canvas/connections/2",
         },
@@ -137,4 +120,12 @@ export const ApprovedPending: Story = {
 export const Empty: Story = {
   ...Connected,
   args: { ...Connected.args, data: { ...connections, grants: [], notice: null } },
+}
+
+export const Revoked: Story = {
+  ...Empty,
+  args: {
+    ...Empty.args,
+    data: { ...connections, grants: [], notice: "Canvas connection revoked." },
+  },
 }

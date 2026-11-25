@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 
 import { authenticatedHeaderData } from "@/storybook/fixtures/authenticated-header"
 import { githubEmpty, githubPrototype } from "@/storybook/fixtures/repositories"
+import { keepFormsLocal } from "@/storybook/keep-forms-local"
 import type { DecisionModelPanelData } from "@features/decision-model-panel/types"
 
 import { LearningsPage } from "."
@@ -271,6 +272,7 @@ const data: LearningsPageData = {
 const meta = {
   title: "Hub/Pages/Learnings",
   component: LearningsPage,
+  decorators: [keepFormsLocal],
   parameters: { layout: "fullscreen" },
   args: { data },
 } satisfies Meta<typeof LearningsPage>
@@ -510,6 +512,33 @@ export const DecisionTrainingFailures: Story = {
   },
 }
 
+export const DecisionTrainingCancelled: Story = {
+  args: {
+    data: {
+      ...data,
+      decisionModel: {
+        ...decisionModel,
+        jobs: [
+          {
+            id: "22222222-3333-4444-8555-666666666666",
+            state: "cancelled",
+            stateLabel: "Cancelled",
+            createdAt: "2026-11-12T16:00:00Z",
+            finishedAt: "2026-11-12T16:02:00Z",
+            tasksetDigest: `sha256:${"c".repeat(64)}`,
+            failure: null,
+            failureKind: null,
+            cancelPath:
+              "/repositories/2001/learnings/decision-model/training/22222222-3333-4444-8555-666666666666/cancel",
+            cancellable: false,
+          },
+          ...decisionModel.jobs,
+        ],
+      },
+    },
+  },
+}
+
 export const DecisionCandidatePromoted: Story = {
   args: {
     data: {
@@ -526,6 +555,42 @@ export const DecisionCandidatePromoted: Story = {
           generation: 3,
           operation: "promote",
           rollbackAvailable: true,
+        },
+      },
+    },
+  },
+}
+
+export const DecisionCandidatePromotedWithoutRollback: Story = {
+  args: {
+    data: {
+      ...data,
+      decisionModel: {
+        ...decisionModel,
+        candidates: decisionModel.candidates.map((candidate) => ({ ...candidate, promoted: true })),
+        promotion: {
+          candidateId: decisionModel.candidates[0]!.id,
+          runtimeCandidateId: decisionModel.candidates[0]!.runtimeCandidateId,
+          generation: 1,
+          operation: "promote",
+          rollbackAvailable: false,
+        },
+        evaluations: [],
+      },
+    },
+  },
+}
+
+export const DecisionCandidateRolledBack: Story = {
+  args: {
+    data: {
+      ...data,
+      decisionModel: {
+        ...decisionModel,
+        promotion: {
+          ...decisionModel.promotion!,
+          generation: 4,
+          operation: "rollback",
         },
       },
     },

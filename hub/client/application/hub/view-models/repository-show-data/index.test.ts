@@ -51,9 +51,7 @@ describe("repositoryShowData()", () => {
       ],
     })
 
-    const { prototypes } = repositoryShowData(workspace, data, new URLSearchParams(), {
-      real: true,
-    })
+    const { prototypes } = repositoryShowData(workspace, data, new URLSearchParams())
 
     expect.soft(prototypes.find(({ id }) => id === "2")?.author).toEqual({
       avatarUrl: null,

@@ -1,7 +1,6 @@
 import { z } from "zod"
 
 import {
-  prototypeDetailsSchema,
   prototypeResponseSchema,
   prototypeSchema,
   prototypeStartPageSchema,
@@ -49,10 +48,6 @@ export const productTemplateResponseSchema = z.object({
   initialRoute: z.string().optional(),
   controlsIdentity: z.string().min(1).max(128).optional(),
 })
-
-export const productMetadataInputSchema = prototypeDetailsSchema
-  .extend({ startPage: productStartPageSchema })
-  .strict()
 
 export const productCandidateSchema = z.object({
   id: z.union([identifier, recordIdentifierSchema]),

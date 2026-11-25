@@ -1,32 +1,22 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react"
-import { http, HttpResponse } from "msw"
-import { setupServer } from "msw/node"
-import { useLoaderData, type RouteObject } from "react-router"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
-import { createMockHandlers } from "../mocks/create-mock-handlers"
-import { createMockStore } from "../mocks/create-mock-store"
-import SettingsLearningsRoute, {
-  clientAction as saveLearnings,
-  clientLoader as loadLearnings,
-  meta,
-} from "./settings-learnings"
+import { http, stubHubFetch } from "@/test/stub-hub-fetch"
+
+import { authenticatedWorkspace } from "./fixtures/authenticated-workspace"
+import { emptyLearnings } from "./fixtures/empty-learnings"
 import { renderHubFlow } from "./fixtures/render-hub-flow"
+import { meta } from "./settings-learnings"
 
 const digest = `sha256:${"a".repeat(64)}`
 
-function LearningsComponent() {
-  return <SettingsLearningsRoute loaderData={useLoaderData<typeof loadLearnings>()} />
+function learningsWorkspace() {
+  const { repository } = emptyLearnings()
+  return authenticatedWorkspace([
+    repository,
+    { ...repository, id: "2002", nameWithOwner: "github/empty" },
+  ])
 }
-
-const workspaceRoutes: RouteObject[] = [
-  {
-    path: "/repositories/:repositoryId/learnings",
-    loader: loadLearnings,
-    action: saveLearnings,
-    Component: LearningsComponent,
-  },
-]
 
 function learningsResponse() {
   return {
@@ -267,19 +257,11 @@ describe("Learnings frontend integration", () => {
   })
 
   it("loads the dedicated contract and presents the complete repository learning history", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
-    const requests: string[] = []
-    server.events.on("request:start", ({ request }) => {
-      const url = new URL(request.url)
-      if (url.pathname.includes("/learnings")) requests.push(`${request.method} ${url.pathname}`)
-    })
+    const server = stubHubFetch(...learningsWorkspace())
     server.use(
-      http.get(`${store.origin}/api/repositories/2001/learnings`, () =>
-        HttpResponse.json(learningsResponse()),
-      ),
+      http.get(`/api/repositories/2001/learnings`, () => Response.json(learningsResponse())),
     )
-    await renderHubFlow(server, "/repositories/2001/learnings", { workspaceRoutes })
+    await renderHubFlow(server, "/repositories/2001/learnings")
 
     expect(await screen.findByText("Raised by 2 reviewers on 2 prototypes")).toBeVisible()
     expect(screen.getByText("The email field needs a visible label.")).toBeInTheDocument()
@@ -310,18 +292,21 @@ describe("Learnings frontend integration", () => {
     expect(
       screen.getByText("Hub looks for learnings when you choose Find learnings now."),
     ).toBeVisible()
-    expect(requests).toEqual(["GET /api/repositories/2001/learnings"])
+    expect(
+      server.requests
+        .map(({ method, url }) => `${method} ${new URL(url).pathname}`)
+        .filter((request) => request.includes("/learnings")),
+    ).toEqual(["GET /api/repositories/2001/learnings"])
   })
 
   it("reports daily checks only when automatic runs are enabled", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
+    const server = stubHubFetch(...learningsWorkspace())
     server.use(
-      http.get(`${store.origin}/api/repositories/2001/learnings`, () =>
-        HttpResponse.json({ ...learningsResponse(), automaticRunsEnabled: true }),
+      http.get(`/api/repositories/2001/learnings`, () =>
+        Response.json({ ...learningsResponse(), automaticRunsEnabled: true }),
       ),
     )
-    await renderHubFlow(server, "/repositories/2001/learnings", { workspaceRoutes })
+    await renderHubFlow(server, "/repositories/2001/learnings")
 
     expect(
       await screen.findByText(
@@ -331,24 +316,19 @@ describe("Learnings frontend integration", () => {
   })
 
   it("posts a run only to the dedicated repository endpoint", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
+    const server = stubHubFetch(...learningsWorkspace())
     const runRequests = vi.fn()
     server.use(
-      http.get(`${store.origin}/api/repositories/2001/learnings`, () =>
-        HttpResponse.json(learningsResponse()),
-      ),
-      http.post(`${store.origin}/api/repositories/2001/learnings/runs`, async ({ request }) => {
+      http.get(`/api/repositories/2001/learnings`, () => Response.json(learningsResponse())),
+      http.post(`/api/repositories/2001/learnings/runs`, async ({ request }) => {
         runRequests({
           contentType: request.headers.get("content-type"),
           text: await request.text(),
         })
-        return HttpResponse.json({ notice: "Hub will look for learnings shortly." })
+        return Response.json({ notice: "Hub will look for learnings shortly." })
       }),
     )
-    const router = await renderHubFlow(server, "/repositories/2001/learnings", {
-      workspaceRoutes,
-    })
+    const router = await renderHubFlow(server, "/repositories/2001/learnings")
 
     await router.settle(() =>
       fireEvent.click(screen.getByRole("button", { name: "Find learnings now" })),
@@ -359,29 +339,28 @@ describe("Learnings frontend integration", () => {
   })
 
   it("evaluates an eligible Build through the route action and shows saved findings", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
+    const server = stubHubFetch(...learningsWorkspace())
     const evaluationRequests = vi.fn()
     let evaluated = false
     server.use(
-      http.get(`${store.origin}/api/repositories/2001/learnings`, () =>
-        HttpResponse.json({
+      http.get(`/api/repositories/2001/learnings`, () =>
+        Response.json({
           ...learningsResponse(),
           capabilities: { administerHub: true, administerRepository: true },
         }),
       ),
-      http.get(`${store.origin}/api/repositories/2001/decision-model`, () =>
-        HttpResponse.json(decisionModelOverview(evaluated)),
+      http.get(`/api/repositories/2001/decision-model`, () =>
+        Response.json(decisionModelOverview(evaluated)),
       ),
       http.post(
-        `${store.origin}/api/repositories/2001/decision-model/builds/77777777-8888-4999-8aaa-bbbbbbbbbbbb/evaluation`,
+        `/api/repositories/2001/decision-model/builds/77777777-8888-4999-8aaa-bbbbbbbbbbbb/evaluation`,
         async ({ request }) => {
           evaluationRequests({
             contentType: request.headers.get("content-type"),
             text: await request.text(),
           })
           evaluated = true
-          return HttpResponse.json({
+          return Response.json({
             id: "44444444-5555-4666-8777-888888888888",
             runtimeEvaluationId: "fixture-evaluation-1",
             candidateId: "fixture-candidate-1",
@@ -399,9 +378,7 @@ describe("Learnings frontend integration", () => {
         },
       ),
     )
-    const router = await renderHubFlow(server, "/repositories/2001/learnings", {
-      workspaceRoutes,
-    })
+    const router = await renderHubFlow(server, "/repositories/2001/learnings")
 
     await router.settle(() =>
       fireEvent.click(screen.getByRole("button", { name: "Evaluate Settings — Build 42" })),
@@ -417,52 +394,52 @@ describe("Learnings frontend integration", () => {
   })
 
   it("keeps the decision panel while an accepted training request becomes authoritative", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
+    const server = stubHubFetch(...learningsWorkspace())
     let trainingAccepted = false
     let acceptedOverviewReads = 0
     let failAfterFinished = false
     const trainingRequest = deferred()
+    onTestFinished(trainingRequest.release)
     let trainingPostCount = 0
     let trainingJobReads = 0
     server.use(
-      http.get(`${store.origin}/api/repositories/2001/learnings`, () =>
-        HttpResponse.json({
+      http.get(`/api/repositories/2001/learnings`, () =>
+        Response.json({
           ...learningsResponse(),
           capabilities: { administerHub: true, administerRepository: true },
         }),
       ),
-      http.get(`${store.origin}/api/repositories/2001/decision-model`, () => {
-        if (!trainingAccepted) return HttpResponse.json(decisionModelOverview(false))
+      http.get(`/api/repositories/2001/decision-model`, () => {
+        if (!trainingAccepted) return Response.json(decisionModelOverview(false))
         acceptedOverviewReads += 1
         if (failAfterFinished) {
-          return HttpResponse.json(
+          return Response.json(
             { error: "Another learning operation is still running." },
             { status: 409 },
           )
         }
         if (acceptedOverviewReads > 1) {
-          return HttpResponse.json(decisionModelOverviewWithJob("succeeded"))
+          return Response.json(decisionModelOverviewWithJob("succeeded"))
         }
-        return HttpResponse.json(
+        return Response.json(
           { error: "Another learning operation is still running." },
           { status: 409 },
         )
       }),
       http.get(
-        `${store.origin}/api/repositories/2001/decision-model/training-jobs/99999999-aaaa-4bbb-8ccc-dddddddddddd`,
+        `/api/repositories/2001/decision-model/training-jobs/99999999-aaaa-4bbb-8ccc-dddddddddddd`,
         () => {
           trainingJobReads += 1
-          return HttpResponse.json(
+          return Response.json(
             decisionModelOverviewWithJob(trainingJobReads === 1 ? "running" : "succeeded").jobs[0],
           )
         },
       ),
-      http.post(`${store.origin}/api/repositories/2001/decision-model/training-jobs`, async () => {
+      http.post(`/api/repositories/2001/decision-model/training-jobs`, async () => {
         trainingPostCount += 1
         await trainingRequest.promise
         trainingAccepted = true
-        return HttpResponse.json({
+        return Response.json({
           created: true,
           job: {
             id: "99999999-aaaa-4bbb-8ccc-dddddddddddd",
@@ -477,9 +454,7 @@ describe("Learnings frontend integration", () => {
         })
       }),
     )
-    const router = await renderHubFlow(server, "/repositories/2001/learnings", {
-      workspaceRoutes,
-    })
+    const router = await renderHubFlow(server, "/repositories/2001/learnings")
 
     fireEvent.click(await screen.findByRole("button", { name: "Start training" }))
     const confirm = screen.getByRole("button", { name: "Queue this training job" })
@@ -529,30 +504,27 @@ describe("Learnings frontend integration", () => {
   })
 
   it("shows an uncorrelated learning lock instead of attributing it to a running job", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
+    const server = stubHubFetch(...learningsWorkspace())
     let overviewReads = 0
     server.use(
-      http.get(`${store.origin}/api/repositories/2001/learnings`, () =>
-        HttpResponse.json({
+      http.get(`/api/repositories/2001/learnings`, () =>
+        Response.json({
           ...learningsResponse(),
           capabilities: { administerHub: true, administerRepository: true },
         }),
       ),
-      http.get(`${store.origin}/api/repositories/2001/decision-model`, () => {
+      http.get(`/api/repositories/2001/decision-model`, () => {
         overviewReads += 1
         if (overviewReads === 1) {
-          return HttpResponse.json(decisionModelOverviewWithJob("running"))
+          return Response.json(decisionModelOverviewWithJob("running"))
         }
-        return HttpResponse.json(
+        return Response.json(
           { error: "Another learning operation is still running." },
           { status: 409 },
         )
       }),
     )
-    const router = await renderHubFlow(server, "/repositories/2001/learnings", {
-      workspaceRoutes,
-    })
+    const router = await renderHubFlow(server, "/repositories/2001/learnings")
 
     expect(
       screen.getByText("Running: training is using the pinned evidence shown for this job."),
@@ -571,11 +543,10 @@ describe("Learnings frontend integration", () => {
   })
 
   it("does not carry a cached training job into another repository", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
+    const server = stubHubFetch(...learningsWorkspace())
     server.use(
-      http.get(`${store.origin}/api/repositories/:repositoryId/learnings`, ({ params }) =>
-        HttpResponse.json({
+      http.get(`/api/repositories/:repositoryId/learnings`, ({ params }) =>
+        Response.json({
           ...learningsResponse(),
           repository: {
             ...learningsResponse().repository,
@@ -585,19 +556,14 @@ describe("Learnings frontend integration", () => {
           capabilities: { administerHub: true, administerRepository: true },
         }),
       ),
-      http.get(`${store.origin}/api/repositories/2001/decision-model`, () =>
-        HttpResponse.json(decisionModelOverviewWithJob("running")),
+      http.get(`/api/repositories/2001/decision-model`, () =>
+        Response.json(decisionModelOverviewWithJob("running")),
       ),
-      http.get(`${store.origin}/api/repositories/2002/decision-model`, () =>
-        HttpResponse.json(
-          { error: "Another learning operation is still running." },
-          { status: 409 },
-        ),
+      http.get(`/api/repositories/2002/decision-model`, () =>
+        Response.json({ error: "Another learning operation is still running." }, { status: 409 }),
       ),
     )
-    const router = await renderHubFlow(server, "/repositories/2001/learnings", {
-      workspaceRoutes,
-    })
+    const router = await renderHubFlow(server, "/repositories/2001/learnings")
 
     expect(
       await screen.findByText("Running: training is using the pinned evidence shown for this job."),
@@ -616,12 +582,11 @@ describe("Learnings frontend integration", () => {
   })
 
   it("keeps the explicit run action for a queued automatic run", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
+    const server = stubHubFetch(...learningsWorkspace())
     const response = learningsResponse()
     server.use(
-      http.get(`${store.origin}/api/repositories/2001/learnings`, () =>
-        HttpResponse.json({
+      http.get(`/api/repositories/2001/learnings`, () =>
+        Response.json({
           ...response,
           runAvailable: true,
           runs: [
@@ -638,7 +603,7 @@ describe("Learnings frontend integration", () => {
         }),
       ),
     )
-    await renderHubFlow(server, "/repositories/2001/learnings", { workspaceRoutes })
+    await renderHubFlow(server, "/repositories/2001/learnings")
 
     expect(await screen.findByRole("button", { name: "Find learnings now" })).toBeVisible()
     expect(screen.getByText("Hub will look for learnings shortly.")).toHaveAttribute(
@@ -647,17 +612,44 @@ describe("Learnings frontend integration", () => {
     )
   })
 
-  it("uses the local contract endpoints to accept a learning and refresh recall", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
-    const requests: string[] = []
-    server.events.on("request:start", ({ request }) => {
-      const url = new URL(request.url)
-      if (request.method === "POST") requests.push(url.pathname)
-    })
-    const router = await renderHubFlow(server, "/repositories/2001/learnings", {
-      workspaceRoutes,
-    })
+  it("accepts a learning through the repository endpoint and refreshes recall", async () => {
+    const original = learningsResponse()
+    const suggestionRecord = original.suggestions[0]!
+    const decision = vi.fn()
+    let accepted = false
+    const server = stubHubFetch(
+      ...learningsWorkspace(),
+      http.get("/api/repositories/2001/learnings", () =>
+        Response.json(
+          accepted
+            ? {
+                ...original,
+                suggestions: [],
+                learnings: [
+                  {
+                    id: suggestionRecord.id,
+                    content: suggestionRecord.content,
+                    acceptedBy: "octocat",
+                    acceptedAt: "2026-11-10T12:00:00Z",
+                    edited: false,
+                    status: "recalled",
+                  },
+                ],
+                recall: { text: `Approved team learnings\n${suggestionRecord.content}`, count: 1 },
+              }
+            : original,
+        ),
+      ),
+      http.post(
+        `/api/repositories/2001/learnings/${suggestionRecord.id}/decision`,
+        async ({ request }) => {
+          decision(await request.json())
+          accepted = true
+          return Response.json({ notice: "Learning accepted." })
+        },
+      ),
+    )
+    const router = await renderHubFlow(server, "/repositories/2001/learnings")
     const suggestion = await screen.findByRole("article", {
       name: /Show a visible label above every form field/,
     })
@@ -667,9 +659,7 @@ describe("Learnings frontend integration", () => {
     if (!acceptForm) throw new Error("The acceptance control must belong to a form.")
     await router.settle(() => fireEvent.submit(acceptForm))
 
-    expect(requests).toEqual([
-      "/api/repositories/2001/learnings/mem_7eb35ba21bbe6c45a9a296b4/decision",
-    ])
+    expect(decision).toHaveBeenCalledExactlyOnceWith({ decision: "accept", digest })
     expect(
       await screen.findByRole("article", {
         name: /Show a visible label above every form field/,
@@ -682,42 +672,13 @@ describe("Learnings frontend integration", () => {
     expect(recall).toHaveTextContent("Show a visible label above every form field")
   })
 
-  it("rejects a stale reviewed digest without changing Learnings state", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
-    server.listen({ onUnhandledRequest: "error" })
-    onTestFinished(() => server.close())
-    const before = store.learnings.get("2001")
-    if (before.accessDenied) throw new Error("The owner must administer repository learnings.")
-    const suggestion = before.suggestions[0]!
-    const response = await fetch(
-      `${store.origin}/api/repositories/2001/learnings/${suggestion.id}/decision`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ decision: "accept", digest: `sha256:${"b".repeat(64)}` }),
-      },
-    )
-
-    expect(response.status).toBe(409)
-    expect(await response.json()).toEqual({
-      error: "This suggestion changed. Review its current wording and evidence.",
-    })
-    const after = store.learnings.get("2001")
-    if (after.accessDenied) throw new Error("The owner must administer repository learnings.")
-    expect(after.suggestions).toEqual(before.suggestions)
-    expect(after.learnings).toEqual(before.learnings)
-    expect(after.recall).toEqual(before.recall)
-  })
-
   it("refreshes a changed suggestion after a stale-digest response", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
+    const server = stubHubFetch(...learningsWorkspace())
     const original = learningsResponse()
     let changed = false
     server.use(
-      http.get(`${store.origin}/api/repositories/2001/learnings`, () =>
-        HttpResponse.json(
+      http.get(`/api/repositories/2001/learnings`, () =>
+        Response.json(
           changed
             ? {
                 ...original,
@@ -730,17 +691,15 @@ describe("Learnings frontend integration", () => {
             : original,
         ),
       ),
-      http.post(`${store.origin}/api/repositories/2001/learnings/:learningId/decision`, () => {
+      http.post(`/api/repositories/2001/learnings/:learningId/decision`, () => {
         changed = true
-        return HttpResponse.json(
+        return Response.json(
           { error: "This suggestion changed. Review its current wording and evidence." },
           { status: 409 },
         )
       }),
     )
-    const router = await renderHubFlow(server, "/repositories/2001/learnings", {
-      workspaceRoutes,
-    })
+    const router = await renderHubFlow(server, "/repositories/2001/learnings")
     const suggestion = await screen.findByRole("article", {
       name: "Show a visible label above every form field.",
     })
@@ -801,24 +760,16 @@ describe("Learnings frontend integration", () => {
   ])(
     "sends the exact $label input and keeps it visible when the save fails",
     async ({ article, open, textbox, value, submit, expected, error, status }) => {
-      const store = createMockStore({ origin: window.location.origin })
-      const server = setupServer(...createMockHandlers(store))
+      const server = stubHubFetch(...learningsWorkspace())
       const bodies: unknown[] = []
       server.use(
-        http.get(`${store.origin}/api/repositories/2001/learnings`, () =>
-          HttpResponse.json(learningsResponse()),
-        ),
-        http.post(
-          `${store.origin}/api/repositories/2001/learnings/:learningId/decision`,
-          async ({ request }) => {
-            bodies.push(await request.json())
-            return HttpResponse.json({ error }, { status })
-          },
-        ),
+        http.get(`/api/repositories/2001/learnings`, () => Response.json(learningsResponse())),
+        http.post(`/api/repositories/2001/learnings/:learningId/decision`, async ({ request }) => {
+          bodies.push(await request.json())
+          return Response.json({ error }, { status })
+        }),
       )
-      const router = await renderHubFlow(server, "/repositories/2001/learnings", {
-        workspaceRoutes,
-      })
+      const router = await renderHubFlow(server, "/repositories/2001/learnings")
       const card = await screen.findByRole("article", { name: article })
       fireEvent.click(within(card).getByRole("button", { name: open }))
       const input = within(card).getByRole("textbox", { name: textbox })
@@ -836,65 +787,39 @@ describe("Learnings frontend integration", () => {
   )
 
   it("shows access denied without exposing learning data or decision controls", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const before = store.learnings.get("2001")
-    store.session.select("reader")
-    const server = setupServer(...createMockHandlers(store))
-    await renderHubFlow(server, "/repositories/2001/learnings", { workspaceRoutes })
+    const server = stubHubFetch(
+      ...learningsWorkspace(),
+      http.get("/api/repositories/2001/learnings", () =>
+        Response.json({
+          accessDenied: true,
+          repository: emptyLearnings().repository,
+          capabilities: { administerHub: false, administerRepository: false },
+        }),
+      ),
+    )
+    await renderHubFlow(server, "/repositories/2001/learnings")
 
     expect(
       await screen.findByText("You do not have permission to view this repository's learnings."),
     ).toBeVisible()
     expect(screen.queryByRole("article")).not.toBeInTheDocument()
-    expect(
-      screen.queryByText(
-        "The email field has no label, only placeholder text that disappears when I type.",
-      ),
-    ).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Accept" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Find learnings now" })).not.toBeInTheDocument()
-
-    for (const request of [
-      fetch(`${store.origin}/api/repositories/2001/learnings/runs`, { method: "POST" }),
-      fetch(
-        `${store.origin}/api/repositories/2001/learnings/mem_7eb35ba21bbe6c45a9a296b4/decision`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ decision: "accept", digest }),
-        },
-      ),
-    ]) {
-      expect((await request).status).toBe(403)
-    }
-    store.session.select("owner")
-    expect(store.learnings.get("2001")).toEqual(before)
-  })
-
-  it("sums all recent usage exactly instead of limiting the total to displayed runs", () => {
-    const store = createMockStore({ origin: window.location.origin })
-    for (let index = 0; index < 10; index += 1) store.learnings.run("2001")
-    const response = store.learnings.get("2001")
-    if (response.accessDenied) throw new Error("The owner must administer repository learnings.")
-
-    expect(response.runs).toHaveLength(10)
-    expect(response.usageCredits).toBe("0.21")
   })
 
   it("keeps Copilot connection management outside repository Learnings", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
+    const server = stubHubFetch(...learningsWorkspace())
     const response = learningsResponse()
     server.use(
-      http.get(`${store.origin}/api/repositories/2001/learnings`, () =>
-        HttpResponse.json({
+      http.get(`/api/repositories/2001/learnings`, () =>
+        Response.json({
           ...response,
           copilot: { state: "not-connected" },
           runAvailable: false,
         }),
       ),
     )
-    await renderHubFlow(server, "/repositories/2001/learnings", { workspaceRoutes })
+    await renderHubFlow(server, "/repositories/2001/learnings")
 
     expect(
       await screen.findByText("Learnings stays off until a Hub administrator connects Copilot."),
@@ -905,42 +830,37 @@ describe("Learnings frontend integration", () => {
   })
 
   it("rejects a malformed repository identifier before requesting learnings", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
-    const reads = vi.fn()
-    server.events.on("request:start", ({ request }) => {
-      if (new URL(request.url).pathname.includes("/learnings")) reads()
-    })
-    await renderHubFlow(server, "/repositories/not-a-repository/learnings", { workspaceRoutes })
+    const server = stubHubFetch(...learningsWorkspace())
+    await renderHubFlow(server, "/repositories/not-a-repository/learnings")
 
     expect(await screen.findByRole("heading", { name: "Invalid address" })).toBeVisible()
     expect(screen.getByText("400")).toBeVisible()
-    expect(reads).not.toHaveBeenCalled()
+    expect(server.requests.some(({ url }) => new URL(url).pathname.includes("/learnings"))).toBe(
+      false,
+    )
   })
 
   it("shows a malformed API response through the route error boundary", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
+    const server = stubHubFetch(...learningsWorkspace())
     server.use(
-      http.get(`${store.origin}/api/repositories/2001/learnings`, () =>
-        HttpResponse.json({ accessDenied: false, suggestions: "not-an-array" }),
+      http.get(`/api/repositories/2001/learnings`, () =>
+        Response.json({ accessDenied: false, suggestions: "not-an-array" }),
       ),
     )
-    await renderHubFlow(server, "/repositories/2001/learnings", { workspaceRoutes })
+    await renderHubFlow(server, "/repositories/2001/learnings")
 
     expect(await screen.findByRole("heading", { name: "Unexpected API response" })).toBeVisible()
     expect(screen.getByText("The API returned data in an unexpected shape.")).toBeVisible()
   })
 
   it("shows a Learnings request failure through the route error boundary", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
+    const server = stubHubFetch(...learningsWorkspace())
     server.use(
-      http.get(`${store.origin}/api/repositories/2001/learnings`, () =>
-        HttpResponse.json({ error: "Learnings are temporarily unavailable." }, { status: 503 }),
+      http.get(`/api/repositories/2001/learnings`, () =>
+        Response.json({ error: "Learnings are temporarily unavailable." }, { status: 503 }),
       ),
     )
-    await renderHubFlow(server, "/repositories/2001/learnings", { workspaceRoutes })
+    await renderHubFlow(server, "/repositories/2001/learnings")
 
     expect(await screen.findByRole("heading", { name: "Unable to load Hub" })).toBeVisible()
     expect(screen.getByText("Learnings are temporarily unavailable.")).toBeVisible()

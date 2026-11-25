@@ -3,17 +3,14 @@ import type { WorkspaceResponse } from "@application/hub/contracts/types"
 import type { ProductManagementResponse } from "@application/hub/product-contracts/types"
 
 import { repositoryWorkspace } from "../repository-workspace"
-import { resourcePath } from "../resource-path"
 
 export function productManagementData(
   workspace: WorkspaceResponse,
   response: ProductManagementResponse,
-  search: URLSearchParams,
-  real = false,
 ): PrototypeManagementPageData {
   const base = `/repositories/${response.repository.id}`
-  const common = repositoryWorkspace(workspace, response.repository, search, real)
-  const path = resourcePath(`${base}/prototypes/manage`, search)
+  const common = repositoryWorkspace(workspace, response.repository)
+  const path = `${base}/prototypes/manage`
   return {
     ...common,
     newPrototypePath: response.canManage ? common.newPrototypePath : null,
@@ -53,8 +50,8 @@ export function productManagementData(
       addDialogHeading: "Add branch to Hub",
       editDialogHeading: "Edit prototype details",
       closeDialogLabel: "Close dialog",
-      nameMaximumLength: real ? 255 : 120,
-      descriptionMaximumLength: real ? 500 : 4000,
+      nameMaximumLength: 255,
+      descriptionMaximumLength: 500,
       candidateCheckFailed: false,
       candidateCheckFailedLabel: "Hub could not check which branches you can add.",
       candidateLoadingLabel: "Checking branches you can add...",
@@ -71,10 +68,7 @@ export function productManagementData(
       unlisted: response.candidates.map((candidate) => ({
         ...candidate,
         id: String(candidate.id),
-        path: resourcePath(
-          `${base}/${real ? "prototypes" : "candidates"}/${candidate.id}/registration`,
-          search,
-        ),
+        path: `${base}/prototypes/${candidate.id}/registration`,
       })),
       registered: response.registered.map((prototype) => ({
         id: String(prototype.id),
@@ -83,7 +77,7 @@ export function productManagementData(
         description: prototype.description,
         startPage: prototype.startPage,
         readOnly: !prototype.canEdit,
-        path: resourcePath(`${base}/prototypes/${prototype.id}/registration`, search),
+        path: `${base}/prototypes/${prototype.id}/registration`,
       })),
     },
   }

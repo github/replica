@@ -4,6 +4,7 @@ import {
   addHubAdministratorsData,
   hubAdministrationData,
 } from "@/storybook/fixtures/hub-administration"
+import { keepFormsLocal } from "@/storybook/keep-forms-local"
 
 import { HubAdminsPage } from "."
 import type { HubAdminsPageData } from "./types"
@@ -100,13 +101,7 @@ const meta = {
       return Promise.resolve({ users: matches.slice(0, 50), more: matches.length > 50 })
     },
   },
-  decorators: [
-    (Story) => (
-      <div onSubmit={(event) => event.preventDefault()}>
-        <Story />
-      </div>
-    ),
-  ],
+  decorators: [keepFormsLocal],
 } satisfies Meta<typeof HubAdminsPage>
 
 export default meta

@@ -110,7 +110,7 @@ export default function SettingsGithubSetup({
       onOrganizationChange={setOrganization}
       creationUrl={status ? githubAppCreationUrl(status.urls, organization) : ""}
       connection={{ ...connection, onTest: () => void onTest() }}
-      signInPath={import.meta.env.DEV && import.meta.env.MODE === "mock" ? "/sign-in" : "/"}
+      signInPath="/"
     />
   )
 }

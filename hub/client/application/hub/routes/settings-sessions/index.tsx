@@ -11,13 +11,9 @@ import { getSessionRevocationStatus } from "@application/hub/requests/get-sessio
 import { sessionRevocationErrorMessage } from "@application/hub/session-revocation-error-message"
 import { startSessionRevocationAuthorization } from "@application/hub/requests/start-session-revocation-authorization"
 import { useAdministrationNavigation } from "@application/hub/use-administration-navigation"
-import { SettingsRouteScreen } from "@application/hub/screens/settings-route-screen"
 import { resourcePath } from "@application/hub/view-models/resource-path"
 import { sessionRevocationPageData } from "@application/hub/view-models/session-revocation-page-data"
 
-import { settingsController } from "../settings-controller"
-import type { SettingsRouteData } from "../settings-controller/types"
-import { settingsMeta } from "../settings-meta"
 import type { WorkspaceRouteHandle } from "../workspace/types"
 
 export const handle = {
@@ -25,66 +21,47 @@ export const handle = {
   independentOfRepositoryNavigation: true,
 } satisfies WorkspaceRouteHandle
 
-const controller = settingsController("sessions", "public")
-
-type RealSessionRouteData = {
-  surface: "session-revocation"
+type SessionRevocationRouteData = {
   session: CurrentHubSession
   status: Awaited<ReturnType<typeof getSessionRevocationStatus>>["status"]
   notice: string | null
 }
 
-function isMockMode() {
-  return import.meta.env.DEV && import.meta.env.MODE === "mock"
-}
-
-export async function clientLoader(
-  args: Parameters<typeof controller.clientLoader>[0],
-): Promise<SettingsRouteData | RealSessionRouteData> {
-  if (isMockMode()) return controller.clientLoader(args)
-  const url = new URL(args.request.url)
+export async function clientLoader({
+  request,
+}: {
+  request: Request
+}): Promise<SessionRevocationRouteData> {
+  const url = new URL(request.url)
   const result = url.searchParams.get("result")
   if (result && result !== "cancelled") {
     throw new Response("The session revocation result is invalid.", { status: 400 })
   }
-  const session = await getCurrentHubSession(args.request)
+  const session = await getCurrentHubSession(request)
   if (session.role !== "ADMINISTRATOR") {
     throw new Response("Administrator access is required.", { status: 403 })
   }
-  const { status } = await getSessionRevocationStatus(args.request)
+  const { status } = await getSessionRevocationStatus(request)
   return {
-    surface: "session-revocation",
     session,
     status,
     notice: result === "cancelled" ? "Session revocation was cancelled. No sessions ended." : null,
   }
 }
 
-export async function clientAction(args: Parameters<typeof controller.clientAction>[0]) {
-  if (isMockMode()) return controller.clientAction(args)
+export function clientAction(): never {
   throw new Response("Use the session revocation API.", { status: 405 })
 }
 
-export function meta({ loaderData }: { loaderData?: SettingsRouteData | RealSessionRouteData }) {
-  if (loaderData?.surface === "session-revocation") {
-    return [{ title: "End all Hub sessions - Replica Hub" }]
-  }
-  return settingsMeta("sessions", loaderData)
+export function meta() {
+  return [{ title: "End all Hub sessions - Replica Hub" }]
 }
 
 export default function SettingsSessions({
-  loaderData,
+  loaderData: data,
 }: {
-  loaderData: SettingsRouteData | RealSessionRouteData
+  loaderData: SessionRevocationRouteData
 }) {
-  return loaderData.surface === "session-revocation" ? (
-    <RealSessionRevocation data={loaderData} />
-  ) : (
-    <SettingsRouteScreen section="sessions" data={loaderData} />
-  )
-}
-
-function RealSessionRevocation({ data }: { data: RealSessionRouteData }) {
   const workspace = useAdministrationNavigation("sessions", data.session.userId)
   const page = sessionRevocationPageData(data.session, data.status, {
     workspace,
@@ -112,7 +89,7 @@ function RealSessionRevocation({ data }: { data: RealSessionRouteData }) {
         )
         if (form.get("cancelled") === "1") {
           void navigate(
-            resourcePath("/settings/sessions", new URLSearchParams(), {
+            resourcePath("/settings/sessions", {
               result: "cancelled",
               repositoryId: workspace.repository?.selectedRepositoryId ?? null,
             }),

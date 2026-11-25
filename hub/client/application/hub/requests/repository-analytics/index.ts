@@ -1,8 +1,16 @@
 import { z } from "zod"
 
-import { analyticsEventSchema } from "@application/hub/settings-contracts"
-
 import { requestJson } from "../request-json"
+
+const analyticsEventSchema = z.enum([
+  "prototype_registered",
+  "prototype_first_published",
+  "build_published",
+  "review_comment_created",
+  "review_reply_added",
+  "review_thread_resolved",
+  "review_thread_reopened",
+])
 
 const common = {
   id: z.uuid(),

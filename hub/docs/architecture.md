@@ -75,12 +75,11 @@ Imports follow the arrows above. Shared components, hooks, and utilities must no
 
 The theme provider wraps routes and their loading and error feedback.
 
-- In real mode, signed-in routes share a navigation layout. Pages load their own authorized data without rebuilding navigation. Signed-out visitors use the authentication shell. The [frontend guide](frontend.md#loading-and-notifications) describes the layout and its standalone routes.
-- In mock mode, the root reads the simulated session. A nested layout loads the private workspace for signed-in pages.
+- Signed-in routes share a navigation layout. Pages load their own authorized data without rebuilding navigation. Signed-out visitors use the authentication shell. The [frontend guide](frontend.md#loading-and-notifications) describes the layout and its standalone routes.
 - Route loaders and actions request product data and refresh it after changes. Shareable filters and selections live in the URL.
 - Product screens keep product-facing copy. API failures remain visible errors.
 
-The application adapts internal links and GET forms to SPA navigation. Authentication POST forms use native browser submissions. Explicit adapters submit supported product mutations; unknown legacy form submissions receive visible feedback. The [frontend guide](frontend.md) owns the connected routes and local development modes.
+The application adapts internal links and GET forms to SPA navigation. Authentication POST forms use native browser submissions. Explicit adapters submit supported product mutations; unsupported forms show an error without sending a request. [Storybook](storybook.md) shows page states in isolation; integration tests cover the application and API boundaries.
 
 ## Other projects
 

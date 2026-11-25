@@ -4,6 +4,7 @@ import {
   authenticatedHubWorkspaceData,
   hubAdministrationData,
 } from "@/storybook/fixtures/hub-administration"
+import { keepFormsLocal } from "@/storybook/keep-forms-local"
 
 import { CopilotConnectionPage } from "."
 import type { CopilotConnectionPageData } from "./types"
@@ -66,6 +67,7 @@ const connected: AvailableData = {
 const meta = {
   title: "Hub/Pages/Security/Copilot",
   component: CopilotConnectionPage,
+  decorators: [keepFormsLocal],
   parameters: { layout: "fullscreen" },
   args: { data },
 } satisfies Meta<typeof CopilotConnectionPage>

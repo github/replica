@@ -30,16 +30,14 @@ export function clientLoader({ request, params }: Pick<LoaderFunctionArgs, "requ
   const templateId = productTemplateIdSchema.safeParse(params.templateId)
   if (!templateId.success) throw new Response("Template not found.", { status: 404 })
   const url = new URL(`/api/repositories/${repositoryId}/templates/${templateId.data}`, request.url)
-  if (!(import.meta.env.DEV && import.meta.env.MODE === "mock")) {
-    const search = new URL(request.url).searchParams
-    const routes = search.getAll("return_path")
-    const route = routes.length === 1 ? readPreviewReturnPath(routes[0]) : null
-    if (routes.length && !route) throw new Response("Template route not found.", { status: 404 })
-    if (route) {
-      url.searchParams.set("return_path", route)
-      if (search.get("return_path_kind") === "logical") {
-        url.searchParams.set("return_path_kind", "logical")
-      }
+  const search = new URL(request.url).searchParams
+  const routes = search.getAll("return_path")
+  const route = routes.length === 1 ? readPreviewReturnPath(routes[0]) : null
+  if (routes.length && !route) throw new Response("Template route not found.", { status: 404 })
+  if (route) {
+    url.searchParams.set("return_path", route)
+    if (search.get("return_path_kind") === "logical") {
+      url.searchParams.set("return_path_kind", "logical")
     }
   }
   return requestProductJson(request, url.toString(), productTemplateResponseSchema)
@@ -69,13 +67,7 @@ function TemplateScreen({ loaderData }: { loaderData: ProductTemplateResponse })
   const location = useLocation()
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const { resolvedColorMode } = useHubTheme()
-  const real = !(import.meta.env.DEV && import.meta.env.MODE === "mock")
-  const pageData = productBrowseData(
-    workspace,
-    loaderData,
-    new URLSearchParams(location.search),
-    real,
-  )
+  const pageData = productBrowseData(workspace, loaderData, new URLSearchParams(location.search))
   const bridge = usePreviewBridge({
     iframeRef,
     previewUrl: pageData.selectedBuild?.previewUrl,
@@ -90,7 +82,6 @@ function TemplateScreen({ loaderData }: { loaderData: ProductTemplateResponse })
     initiallyMinimized: pageData.minimizedPreview,
     buildSelection: "ignore",
     initialRoute: pageData.initialRoute,
-    enabled: real,
   })
   return (
     <ReplicaBrowsePage
@@ -99,16 +90,14 @@ function TemplateScreen({ loaderData }: { loaderData: ProductTemplateResponse })
       previewTheme={resolvedColorMode}
       route={bridge.route}
       previewMount={bridge.previewMount}
-      previewReady={real ? bridge.ready : undefined}
+      previewReady={bridge.ready}
       onFrameLoad={bridge.handleFrameLoad}
       initialMinimized={pageData.minimizedPreview}
-      viewerUrl={real ? viewer.viewerUrl : undefined}
-      minimized={real ? viewer.minimized : undefined}
-      onMinimizedChange={real ? viewer.setMinimized : undefined}
-      authorizeHandoff={
-        real
-          ? () => authorizeCopilotHandoff(loaderData.repository.id, { allowCopyFallback: true })
-          : undefined
+      viewerUrl={viewer.viewerUrl}
+      minimized={viewer.minimized}
+      onMinimizedChange={viewer.setMinimized}
+      authorizeHandoff={() =>
+        authorizeCopilotHandoff(loaderData.repository.id, { allowCopyFallback: true })
       }
     />
   )

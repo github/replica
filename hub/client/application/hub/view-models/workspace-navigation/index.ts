@@ -7,17 +7,12 @@ import { resourcePath } from "../resource-path"
 export function workspaceNavigation(
   workspace: WorkspaceResponse,
   repositoryId: string | null,
-  search: URLSearchParams,
-  real = false,
 ): Omit<HubWorkspaceData, "repository"> {
   const admin = workspace.capabilities?.administerHub
   const repositoryAdmin = workspace.repositories.find(({ id }) => id === repositoryId)?.capabilities
     ?.administerRepository
-  const unreadCount = workspace.navigation?.notificationsUnreadCount ?? 0
-  const inboxConnected = real && workspace.reviewInboxAvailable
-  const welcomeVisible = real
-    ? workspace.welcomeHidden === false
-    : !workspace.navigation?.welcomeHidden
+  const inboxConnected = workspace.reviewInboxAvailable
+  const welcomeVisible = workspace.welcomeHidden === false
   const context = { repositoryId }
   return {
     accountMenuLabel: `Account menu for ${
@@ -35,94 +30,55 @@ export function workspaceNavigation(
     productName: "Replica Hub",
     navigationLabel: repositoryId === null ? "Hub navigation" : "Repository navigation",
     settingsNavigationLabel: "Security and settings",
-    canvasConnectionsPath: real ? resourcePath("/canvas/connections", search, context) : undefined,
-    emptyRepositoryLabel: real && repositoryId === null ? "No repository selected" : undefined,
-    repositoriesLabel: real ? "Prototypes" : "Repositories",
+    canvasConnectionsPath: resourcePath("/canvas/connections", context),
+    emptyRepositoryLabel: repositoryId === null ? "No repository selected" : undefined,
+    repositoriesLabel: "Prototypes",
     repositoriesPath: "/repositories",
     signOutLabel: "Sign out",
-    signOutPath: real ? "/api/auth/session/sign-out" : "/session",
+    signOutPath: "/api/auth/session/sign-out",
     systemThemeLabel: "System",
     welcomeLabel: "Welcome",
-    welcomePath: welcomeVisible ? resourcePath("/welcome", search, context) : null,
-    notificationsLabel: real ? "Inbox" : "Notifications",
-    notificationsPath:
-      !real || inboxConnected ? resourcePath("/notifications", search, context) : undefined,
+    welcomePath: welcomeVisible ? resourcePath("/welcome", context) : null,
+    notificationsLabel: "Inbox",
+    notificationsPath: inboxConnected ? resourcePath("/notifications", context) : undefined,
     notificationInbox: inboxConnected
       ? { ...notificationInboxConfiguration, connected: true }
       : undefined,
-    notificationsUnread: real ? workspace.inboxHasUnread : unreadCount > 0,
-    notificationsUnreadCount: real ? undefined : unreadCount,
-    notificationsUnreadLabel: real
-      ? "Inbox, unread notifications"
-      : `Notifications, ${unreadCount} unread`,
+    notificationsUnread: workspace.inboxHasUnread,
+    notificationsUnreadLabel: "Inbox, unread notifications",
     administrationLinks: admin
-      ? real
-        ? [
-            {
-              section: "admins",
-              label: "Hub administrators",
-              path: resourcePath("/settings/administrators", search, context),
-            },
-            ...(workspace.publicSharingSettingsAvailable
-              ? [
-                  {
-                    section: "sharing" as const,
-                    label: "Public sharing",
-                    path: resourcePath("/settings/sharing", search, context),
-                  },
-                ]
-              : []),
-            {
-              section: "sessions",
-              label: "End all Hub sessions",
-              path: resourcePath("/settings/sessions", search, context),
-            },
-            {
-              section: "copilot",
-              label: "Copilot connection",
-              path: resourcePath("/settings/copilot", search, context),
-            },
-          ]
-        : [
-            {
-              section: "admins",
-              label: "Hub administrators",
-              path: resourcePath("/settings/admins", search, { repositoryId }),
-            },
-            {
-              section: "sharing",
-              label: "Public sharing",
-              path: resourcePath("/settings/sharing", search, { repositoryId }),
-            },
-            {
-              section: "sessions",
-              label: "End all Hub sessions",
-              path: resourcePath("/settings/sessions", search, { repositoryId }),
-            },
-            {
-              section: "github",
-              label: "GitHub App",
-              path: resourcePath("/settings/github", search, { repositoryId }),
-            },
-            {
-              section: "copilot",
-              label: "Copilot connection",
-              path: resourcePath("/settings/copilot", search, { repositoryId }),
-            },
-          ]
+      ? [
+          {
+            section: "admins",
+            label: "Hub administrators",
+            path: resourcePath("/settings/administrators", context),
+          },
+          ...(workspace.publicSharingSettingsAvailable
+            ? [
+                {
+                  section: "sharing" as const,
+                  label: "Public sharing",
+                  path: resourcePath("/settings/sharing", context),
+                },
+              ]
+            : []),
+          {
+            section: "sessions",
+            label: "End all Hub sessions",
+            path: resourcePath("/settings/sessions", context),
+          },
+          {
+            section: "copilot",
+            label: "Copilot connection",
+            path: resourcePath("/settings/copilot", context),
+          },
+        ]
       : [],
     securityAuditLabel: "Security audit",
-    securityAuditPath: real
-      ? admin
-        ? resourcePath("/settings/audit?scope=hub", search, context)
-        : repositoryAdmin && repositoryId
-          ? resourcePath("/settings/audit?scope=repository", search, context)
-          : null
-      : admin || repositoryId !== null
-        ? resourcePath("/settings/audit", search, {
-            repositoryId,
-            scope: admin ? "hub" : "repository",
-          })
+    securityAuditPath: admin
+      ? resourcePath("/settings/audit?scope=hub", context)
+      : repositoryAdmin && repositoryId
+        ? resourcePath("/settings/audit?scope=repository", context)
         : null,
   }
 }

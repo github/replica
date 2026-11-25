@@ -1,7 +1,5 @@
 import type { RouteConfigEntry } from "@react-router/dev/routes"
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import { http, HttpResponse, type HttpHandler, type JsonBodyType, ws } from "msw"
-import { setupServer } from "msw/node"
 import type { ComponentType } from "react"
 import {
   createBrowserRouter,
@@ -13,6 +11,8 @@ import {
 } from "react-router"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
+import { http, stubHubFetch, type HubHttpHandler } from "@/test/stub-hub-fetch"
+import { stubHubSocket } from "@/test/stub-hub-socket"
 import type { RepositoryRecord, WorkspaceResponse } from "@application/hub/contracts/types"
 import { HubThemeProvider } from "@hooks/use-hub-theme"
 
@@ -70,17 +70,11 @@ function applicationRoute(entry: RouteConfigEntry): RouteObject {
 
 async function renderApplication(
   path: string,
-  handlers: Parameters<typeof setupServer>,
-  onMockedResponse?: (request: Request) => void,
+  handlers: Parameters<typeof stubHubFetch>,
+  onResponse?: (request: Request) => void,
 ) {
-  vi.stubEnv("MODE", "development")
-  vi.stubEnv("DEV", true)
-  const server = setupServer(...handlers)
-  if (onMockedResponse) {
-    server.events.on("response:mocked", ({ request }) => onMockedResponse(request))
-  }
-  server.listen({ onUnhandledRequest: "error" })
-  onTestFinished(() => server.close())
+  const api = stubHubFetch(...handlers)
+  if (onResponse) api.onResponse(onResponse)
   window.history.replaceState(null, "", path)
   const router = createBrowserRouter(
     [applicationRoute({ id: "root", file: "root.tsx", children: routes })],
@@ -92,19 +86,21 @@ async function renderApplication(
   return router
 }
 
-function json(path: string, body: JsonBodyType): HttpHandler {
-  return http.get(`${window.location.origin}${path}`, () => HttpResponse.json(body))
+function json(path: string, body: unknown): HubHttpHandler {
+  return http.get(`${window.location.origin}${path}`, () => Response.json(body))
 }
 
 function workspaceApi(
   repositories: RepositoryRecord[],
   {
     provider = "github",
+    respondToSession,
     respondToWorkspace,
     reviewInboxAvailable = false,
     role = "ADMINISTRATOR",
   }: {
     provider?: "github" | "local"
+    respondToSession?: () => Response | undefined
     respondToWorkspace?: (
       request: Request,
       workspace: WorkspaceResponse,
@@ -131,16 +127,21 @@ function workspaceApi(
     welcomeHidden: false,
   }
   return [
-    json("/api/auth/session", {
-      authenticated: true,
-      membershipId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-      userId: workspaceViewerId,
-      ...user,
-      role,
-      reviewInboxAvailable,
-    }),
+    http.get(
+      "/api/auth/session",
+      () =>
+        respondToSession?.() ??
+        Response.json({
+          authenticated: true,
+          membershipId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          userId: workspaceViewerId,
+          ...user,
+          role,
+          reviewInboxAvailable,
+        }),
+    ),
     http.get(`${window.location.origin}/api/workspace`, ({ request }) =>
-      respondToWorkspace ? respondToWorkspace(request, workspace) : HttpResponse.json(workspace),
+      respondToWorkspace ? respondToWorkspace(request, workspace) : Response.json(workspace),
     ),
   ]
 }
@@ -148,7 +149,7 @@ function workspaceApi(
 function galleryApi(repository: RepositoryRecord, onRead?: (request: Request) => void) {
   return http.get(`${window.location.origin}/api/repositories/${repository.id}`, ({ request }) => {
     onRead?.(request)
-    return HttpResponse.json({
+    return Response.json({
       repository,
       prototypes: [],
       authors: [],
@@ -227,7 +228,7 @@ describe("real workspace navigation", () => {
         role: "MEMBER",
         reviewInboxAvailable: true,
         respondToWorkspace(request, workspace) {
-          return HttpResponse.json(
+          return Response.json(
             new URL(request.url).searchParams.get("view") === "navigation"
               ? { ...workspace, inboxHasUnread }
               : workspace,
@@ -245,7 +246,7 @@ describe("real workspace navigation", () => {
       http.get(`${window.location.origin}/api/notifications/inbox`, ({ request }) => {
         const limit = new URL(request.url).searchParams.get("limit")
         inboxReads.push(limit)
-        return HttpResponse.json({
+        return Response.json({
           notifications: limit === "50" ? [mention] : [],
           nextBefore: null,
           unreadCount: limit === "50" ? 1 : 0,
@@ -342,19 +343,19 @@ describe("real workspace navigation", () => {
         reviewInboxAvailable: true,
         respondToWorkspace(request, workspace) {
           if (new URL(request.url).searchParams.get("view") !== "navigation") {
-            return HttpResponse.json(workspace)
+            return Response.json(workspace)
           }
-          if (navigation === "unavailable") return new HttpResponse(null, { status: 503 })
+          if (navigation === "unavailable") return new Response(null, { status: 503 })
           if (navigation === "unread") {
-            return HttpResponse.json({ ...workspace, inboxHasUnread: true })
+            return Response.json({ ...workspace, inboxHasUnread: true })
           }
           if (navigation === "role-changed") {
-            return HttpResponse.json({
+            return Response.json({
               ...workspace,
               capabilities: { ...workspace.capabilities, administerHub: false },
             })
           }
-          return HttpResponse.json(workspace)
+          return Response.json(workspace)
         },
       }),
       galleryApi(repository),
@@ -363,9 +364,9 @@ describe("real workspace navigation", () => {
         const limit = new URL(request.url).searchParams.get("limit")
         inboxReads.push(limit)
         if (limit === "10" && previewAvailable) {
-          return HttpResponse.json({ notifications: [], nextBefore: null, unreadCount: 0 })
+          return Response.json({ notifications: [], nextBefore: null, unreadCount: 0 })
         }
-        return new HttpResponse(null, { status: 503 })
+        return new Response(null, { status: 503 })
       }),
     ])
     const dot = { name: "Inbox, unread notifications" }
@@ -404,6 +405,62 @@ describe("real workspace navigation", () => {
     expect(screen.getByRole("link", dot)).toBeVisible()
   }, 15_000)
 
+  it("loads older Inbox activity and restarts paging when Unread is selected", async () => {
+    const repository = {
+      id: "11111111-1111-4111-8111-111111111111",
+      nameWithOwner: "team/alpha",
+      defaultBranch: "main",
+    }
+    const newest = unreadMention(repository, "33333333-3333-4333-8333-333333333333")
+    const read = {
+      ...newest,
+      id: 6,
+      excerpt: "Previously read feedback.",
+      read: true,
+      updatePath: "/api/notifications/6",
+    }
+    const older = {
+      ...newest,
+      id: 5,
+      excerpt: "Older unread feedback.",
+      updatePath: "/api/notifications/5",
+    }
+    const reads: [before: string | null, unread: string | null][] = []
+    await renderApplication(`/notifications?repositoryId=${repository.id}`, [
+      ...workspaceApi([repository], { reviewInboxAvailable: true, role: "MEMBER" }),
+      http.get("/api/notifications/inbox", ({ request }) => {
+        const query = new URL(request.url).searchParams
+        const before = query.get("before")
+        const unread = query.get("unread")
+        reads.push([before, unread])
+        return Response.json({
+          notifications: before ? [older] : unread ? [newest, older] : [newest, read],
+          nextBefore: before || unread ? null : read.id,
+          unreadCount: 2,
+        })
+      }),
+    ])
+
+    const inbox = within(await screen.findByRole("region", { name: "Inbox" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Load more" }))
+    expect(await inbox.findByText(older.excerpt)).toBeVisible()
+    expect(inbox.getAllByRole("listitem")).toHaveLength(3)
+    expect(inbox.getByText(newest.excerpt)).toBeVisible()
+    expect(inbox.getByText(read.excerpt)).toBeVisible()
+    expect(reads[0]).toEqual([null, null])
+    expect(reads.at(-1)).toEqual([String(read.id), null])
+
+    fireEvent.click(inbox.getByRole("button", { name: "Unread" }))
+    await waitFor(() => {
+      expect(reads.at(-1)).toEqual([null, "true"])
+      expect(inbox.getAllByRole("listitem")).toHaveLength(2)
+    })
+    expect(new URLSearchParams(location.search).get("unread")).toBe("true")
+    expect(inbox.getByText(newest.excerpt)).toBeVisible()
+    expect(inbox.getByText(older.excerpt)).toBeVisible()
+    expect(inbox.queryByText(read.excerpt)).not.toBeInTheDocument()
+  })
+
   it("opens Create, Inbox, and Hub settings while repository permissions are pending", async () => {
     const repository = {
       id: "11111111-1111-4111-8111-111111111111",
@@ -424,17 +481,17 @@ describe("real workspace navigation", () => {
           const query = new URL(request.url).searchParams
           if (query.get("view") === "navigation") {
             navigationReads()
-            return HttpResponse.json({ ...workspace, repositoryPermissionsAvailable: true })
+            return Response.json({ ...workspace, repositoryPermissionsAvailable: true })
           }
           permissionReads(query.get("repositoryId"))
           await permission.pending
-          return HttpResponse.json(workspace)
+          return Response.json(workspace)
         },
       }),
       json("/api/notifications/inbox", { notifications: [], nextBefore: null, unreadCount: 0 }),
       http.get(`${window.location.origin}/api/administrators`, () => {
         rosterRead()
-        return HttpResponse.json({ administrators: [], nextCursor: null })
+        return Response.json({ administrators: [], nextCursor: null })
       }),
       json(`/api/repositories/${repository.id}/templates`, {
         repository,
@@ -490,14 +547,14 @@ describe("real workspace navigation", () => {
           const query = new URL(request.url).searchParams
           if (query.get("view") === "navigation") {
             navigationReads()
-            return HttpResponse.json({ ...workspace, repositoryPermissionsAvailable: true })
+            return Response.json({ ...workspace, repositoryPermissionsAvailable: true })
           }
           const repositoryId = query.get("repositoryId") ?? ""
           const grant = grants.get(repositoryId)
-          if (!grant) return HttpResponse.json({ error: "Repository not found" }, { status: 404 })
+          if (!grant) return Response.json({ error: "Repository not found" }, { status: 404 })
           permissionReads.set(repositoryId, request.signal)
           await grant.permission.pending
-          return HttpResponse.json({
+          return Response.json({
             ...workspace,
             repositories: workspace.repositories.map((repository) =>
               repository.id === repositoryId
@@ -557,7 +614,7 @@ describe("real workspace navigation", () => {
         role: "MEMBER",
         respondToWorkspace(_request, workspace) {
           workspaceReads()
-          return HttpResponse.json({ ...workspace, repositories })
+          return Response.json({ ...workspace, repositories })
         },
       }),
       galleryApi(repository, (request) => galleryReads(new URL(request.url).searchParams.get("q"))),
@@ -608,7 +665,7 @@ describe("real workspace navigation", () => {
       http.get(`${window.location.origin}/api${path}/templates`, async () => {
         templateRead()
         await create.pending
-        return HttpResponse.json({ repository, templates: [], canCreate: true })
+        return Response.json({ repository, templates: [], canCreate: true })
       }),
     ])
 
@@ -637,7 +694,7 @@ describe("real workspace navigation", () => {
     await renderApplication(`/welcome?repositoryId=${repository.id}`, [
       ...workspaceApi([repository], {
         respondToWorkspace(_request, workspace) {
-          return HttpResponse.json({
+          return Response.json({
             ...workspace,
             capabilities: { ...workspace.capabilities, administerHub },
           })
@@ -670,12 +727,12 @@ describe("real workspace navigation", () => {
           role: "MEMBER",
           respondToWorkspace(request, workspace) {
             if (new URL(request.url).searchParams.get("view") === "navigation") {
-              return HttpResponse.json({ ...workspace, repositoryPermissionsAvailable: true })
+              return Response.json({ ...workspace, repositoryPermissionsAvailable: true })
             }
             permissionReads()
             const firstCheck = permissionReads.mock.calls.length === 1
-            if (firstCheck && failure === "a failed request") return HttpResponse.error()
-            return HttpResponse.json({
+            if (firstCheck && failure === "a failed request") return Response.error()
+            return Response.json({
               ...workspace,
               repositories: [
                 {
@@ -719,20 +776,18 @@ describe("real workspace navigation", () => {
     }
     const permission = deferResponse()
     function expired() {
-      return HttpResponse.json({ error: "Sign in to continue." }, { status: 401 })
+      return Response.json({ error: "Sign in to continue." }, { status: 401 })
     }
     let signedOut = false
     await renderApplication(`/repositories/${repository.id}`, [
       json("/api/auth/providers", { providers: ["github"] }),
-      http.get(`${window.location.origin}/api/auth/session`, () =>
-        signedOut ? expired() : undefined,
-      ),
       ...workspaceApi([repository], {
+        respondToSession: () => (signedOut ? expired() : undefined),
         async respondToWorkspace(request, workspace) {
           if (new URL(request.url).searchParams.get("view") === "navigation") {
             return signedOut
               ? expired()
-              : HttpResponse.json({ ...workspace, repositoryPermissionsAvailable: true })
+              : Response.json({ ...workspace, repositoryPermissionsAvailable: true })
           }
           await permission.pending
           signedOut = true
@@ -791,14 +846,14 @@ describe("real workspace navigation", () => {
             }
             if (new URL(request.url).searchParams.get("view") === "navigation") {
               navigationReads()
-              return HttpResponse.json(
+              return Response.json(
                 checkedPermissions
                   ? { ...change, repositories: [next] }
                   : { ...workspace, repositoryPermissionsAvailable: true },
               )
             }
             checkedPermissions = true
-            return HttpResponse.json({
+            return Response.json({
               ...change,
               repositories: changed === "selected repository" ? [] : workspace.repositories,
             })
@@ -835,7 +890,7 @@ describe("real workspace navigation", () => {
     const auditScopes: string[] = []
     function audit(scope: string) {
       auditScopes.push(scope)
-      return HttpResponse.json({
+      return Response.json({
         records: [
           {
             id: "33333333-3333-4333-8333-333333333333",
@@ -850,23 +905,23 @@ describe("real workspace navigation", () => {
       })
     }
 
+    stubHubSocket(realtime)
     const router = await renderApplication("/repositories", [
-      ws.link(realtime.href).addEventListener("connection", () => undefined),
       ...workspaceApi([first, selected], {
         reviewInboxAvailable: true,
         async respondToWorkspace(request, workspace) {
           const query = new URL(request.url).searchParams
           if (query.get("view") === "navigation") {
-            return HttpResponse.json({
+            return Response.json({
               ...workspace,
               repositoryPermissionsAvailable: true,
               inboxHasUnread: true,
             })
           }
-          if (query.get("repositoryId") !== selected.id) return HttpResponse.json(workspace)
+          if (query.get("repositoryId") !== selected.id) return Response.json(workspace)
           selectedPermissionReads()
           await permission.pending
-          return HttpResponse.json({
+          return Response.json({
             ...workspace,
             repositories: workspace.repositories.map((repository) =>
               repository.id === selected.id
@@ -946,7 +1001,7 @@ describe("real workspace navigation", () => {
       }),
       json("/api/canvas/connections", { viewerId: workspaceViewerId, connections: [] }),
       http.get(`${window.location.origin}/api${galleryPath}/analytics`, () =>
-        HttpResponse.json({ error: "Repository analytics is unavailable." }, { status: 403 }),
+        Response.json({ error: "Repository analytics is unavailable." }, { status: 403 }),
       ),
     ])
 
@@ -1063,9 +1118,9 @@ describe("real workspace navigation", () => {
             const view = new URL(request.url).searchParams.get("view")
             workspaceViews.push(view)
             if (unavailable) {
-              return HttpResponse.json({ error: "Repository navigation failed." }, { status: 503 })
+              return Response.json({ error: "Repository navigation failed." }, { status: 503 })
             }
-            return HttpResponse.json({ ...workspace, repositoryPermissionsAvailable: true })
+            return Response.json({ ...workspace, repositoryPermissionsAvailable: true })
           },
         }),
         json("/api/administrators", { administrators: [], nextCursor: null }),
@@ -1094,7 +1149,7 @@ describe("real workspace navigation", () => {
       ...workspaceApi([repository], {
         reviewInboxAvailable: true,
         respondToWorkspace(_request, workspace) {
-          return HttpResponse.json(
+          return Response.json(
             changedViewer
               ? {
                   ...workspace,
@@ -1140,7 +1195,7 @@ describe("real workspace navigation", () => {
           ...workspaceApi([], {
             async respondToWorkspace(_request, workspace) {
               if (enteringConnections && lastRead === "workspace") await lastResponse.pending
-              return HttpResponse.json(
+              return Response.json(
                 retrying
                   ? { ...workspace, viewer: { ...workspace.viewer, id: viewerId, login: "mona" } }
                   : workspace,
@@ -1149,7 +1204,7 @@ describe("real workspace navigation", () => {
           }),
           http.get(`${window.location.origin}/api/canvas/connections`, async () => {
             if (lastRead === "connections") await lastResponse.pending
-            return HttpResponse.json({
+            return Response.json({
               viewerId,
               connections: [
                 {
@@ -1195,7 +1250,7 @@ describe("real workspace navigation", () => {
       json("/api/auth/providers", { providers: ["github"] }),
       ...["/api/auth/session", "/api/canvas/connections", "/api/workspace"].map((endpoint) =>
         http.get(`${window.location.origin}${endpoint}`, () =>
-          HttpResponse.json({ error: "Sign in to continue." }, { status: 401 }),
+          Response.json({ error: "Sign in to continue." }, { status: 401 }),
         ),
       ),
     ])

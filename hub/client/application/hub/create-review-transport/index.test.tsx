@@ -1,21 +1,15 @@
-import { act, fireEvent, renderHook, screen, waitFor, within } from "@testing-library/react"
-import { http, HttpResponse } from "msw"
-import { setupServer } from "msw/node"
+import { act, renderHook, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import { useReviewComments } from "@hooks/use-review-comments"
 import type { ReviewComment } from "@utils/review-comment/types"
 
-import { createMockHandlers } from "../mocks/create-mock-handlers"
-import { createMockStore } from "../mocks/create-mock-store"
-import { renderHubFlow } from "../routes/fixtures/render-hub-flow"
 import { createReviewTransport } from "./"
 
 describe("createReviewTransport()", () => {
   it.each([403, 503])(
     "removes previously loaded comments when a mutation loses review access with HTTP %i",
     async (status) => {
-      vi.stubEnv("MODE", "development")
       const path = "/api/repositories/2001/prototypes/1/review-comments"
       const comment: ReviewComment = {
         id: 2,
@@ -62,7 +56,6 @@ describe("createReviewTransport()", () => {
   )
 
   it("clears a loaded collection when refreshing review access returns HTTP 503", async () => {
-    vi.stubEnv("MODE", "development")
     const path = "/api/repositories/2001/prototypes/1/review-comments"
     const comment: ReviewComment = {
       id: 2,
@@ -97,49 +90,4 @@ describe("createReviewTransport()", () => {
     expect(result.current.comments).toEqual([])
     expect(result.current.loading).toBe(false)
   })
-
-  it.each([422, 500])(
-    "keeps the conversation and reply draft available after an ordinary HTTP %i failure",
-    async (status) => {
-      const store = createMockStore({ origin: window.location.origin })
-      const server = setupServer(...createMockHandlers(store))
-      const router = await renderHubFlow(
-        server,
-        "/repositories/2001/prototypes/1?build=3&comment=1",
-      )
-      const conversation = await screen.findByRole("dialog", { name: "Conversation" })
-      const savedReply = within(conversation).getByText("I will try a shorter heading.")
-      const reply = within(conversation).getByRole("textbox", { name: "Reply" })
-      fireEvent.change(reply, { target: { value: "Keep this unsaved review draft." } })
-      const rejectReply = vi.fn(() =>
-        HttpResponse.json({ error: "The reply could not be saved." }, { status }),
-      )
-      server.use(
-        http.post(
-          `${store.origin}/api/repositories/2001/prototypes/1/review-comments/1/replies`,
-          rejectReply,
-        ),
-      )
-
-      await router.settle(() =>
-        fireEvent.click(within(conversation).getByRole("button", { name: "Reply" })),
-      )
-
-      expect(rejectReply).toHaveBeenCalledOnce()
-      expect(within(conversation).getByRole("alert")).toBeVisible()
-      expect(savedReply).toBeVisible()
-      expect(reply).toHaveValue("Keep this unsaved review draft.")
-      expect(within(conversation).getByRole("button", { name: "Reply" })).toBeEnabled()
-
-      server.resetHandlers()
-      await router.settle(() =>
-        fireEvent.click(within(conversation).getByRole("button", { name: "Reply" })),
-      )
-
-      expect(within(conversation).getByText("Keep this unsaved review draft.")).toBeVisible()
-      expect(reply).toHaveValue("")
-      expect(within(conversation).queryByRole("alert")).not.toBeInTheDocument()
-    },
-    15_000,
-  )
 })
