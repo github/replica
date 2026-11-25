@@ -661,7 +661,6 @@ export function ImprovementThreads({
               >
                 {filter === "active" ? (
                   <span className="thread-sample__select" data-selecting={selectedNotes.length > 0}>
-                    <HubUserAvatar src={item.avatarUrl ?? fallbackAvatar} size={20} />
                     <span className="thread-sample__checkbox">
                       <Checkbox
                         aria-label={copy.select(item.body)}

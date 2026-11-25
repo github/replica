@@ -64,13 +64,12 @@
 .thread-sample__select {
   position: absolute;
   z-index: 2;
-  inset-inline-start: calc(-1 * var(--hub-space-24));
-  top: 50%;
+  inset-inline-start: var(--hub-space-8);
+  top: var(--hub-space-8);
   display: grid;
   width: 1.25rem;
   height: 1.25rem;
   place-items: center;
-  transform: translateY(-50%);
   cursor: pointer;
 }
 
@@ -89,8 +88,10 @@
   opacity: 1;
 }
 
-.thread-sample__card:is(:hover, :focus-within) .thread-sample__select .hub-user-avatar,
-.thread-sample__select[data-selecting="true"] .hub-user-avatar {
+.thread-sample__card:has(.thread-sample__select):is(:hover, :focus-within)
+  .thread-sample__card-button
+  .hub-user-avatar,
+.thread-sample__select[data-selecting="true"] + .thread-sample__card-button .hub-user-avatar {
   visibility: hidden;
 }
 
@@ -266,7 +267,7 @@
     opacity: 1;
   }
 
-  .thread-sample__select .hub-user-avatar {
+  .thread-sample__select + .thread-sample__card-button .hub-user-avatar {
     visibility: hidden;
   }
 }
