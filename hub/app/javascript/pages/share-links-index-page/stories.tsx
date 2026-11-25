@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { expect } from "storybook/test"
 
 import { prototypeWorkspaceData } from "@/storybook/fixtures/prototype-workspace"
 
@@ -21,7 +22,16 @@ const shareLink = {
 const data: ShareLinksIndexPageData = {
   ...prototypeWorkspaceData,
   alert: null,
-  closePath: "/repositories/2001/prototypes/1",
+  buildOptions: [
+    {
+      number: 2,
+      label: "v2",
+      path: "/repositories/2001/prototypes/1?build=2",
+      state: "successful",
+    },
+    ...prototypeWorkspaceData.buildOptions,
+  ],
+  closePath: "/repositories/2001/prototypes/1?build=1",
   copyErrorLabel: "Copy failed",
   copiedLabel: "Copied",
   copyLabel: "Copy link",
@@ -55,6 +65,12 @@ const data: ShareLinksIndexPageData = {
   publicSharingEnabled: true,
   disabledLabel:
     "Public sharing is disabled for this Hub. No public links can be created or opened. A Hub administrator must explicitly enable sharing; previously revoked links never return.",
+  internalHeading: "Internal prototype link",
+  internalDescription: "People with repository access can open this prototype.",
+  internalCopyLabel: "Copy internal prototype link",
+  internalOpenLabel: "Open internal prototype link",
+  fullScreenPreviewLabel: "Full screen preview",
+  internalUnavailableLabel: "Internal prototype link unavailable.",
 }
 
 const meta = {
@@ -81,20 +97,22 @@ export const NoBuild: Story = {
 }
 
 export const Empty: Story = {}
-export const MandatorySevenDayMaximum: Story = {
+export const FullScreenPreviewOff: Story = {
   args: {
     data: {
       ...data,
-      form: {
-        ...data.form,
-        expirationOptions: data.form.expirationOptions.filter((option) =>
-          ["one_day", "seven_days"].includes(option.value),
-        ),
-      },
+      shareLinks: [shareLink],
     },
   },
+  play: async ({ canvas, userEvent }) => {
+    const checkbox = canvas.getByRole("checkbox", { name: data.fullScreenPreviewLabel })
+    await userEvent.click(checkbox)
+    await expect(checkbox).not.toBeChecked()
+    await expect(canvas.getByRole("textbox", { name: data.internalHeading })).toHaveValue(
+      new URL(data.closePath ?? data.branchPath, window.location.href).toString(),
+    )
+  },
 }
-
 export const ThirtyDayMaximum: Story = {
   args: {
     data: {

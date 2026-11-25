@@ -25,7 +25,7 @@ describe("App()", () => {
     const page = await screen.findByRole("main", { name: "Share prototype" })
     expect(
       await within(page).findByRole("textbox", { name: "Internal prototype link" }),
-    ).toHaveValue(importedPrototype.build!.url)
+    ).toHaveValue(`${importedPrototype.build!.url}?view=minimized`)
     expect(
       within(page).queryByRole("button", { name: "Create share link" }),
     ).not.toBeInTheDocument()
