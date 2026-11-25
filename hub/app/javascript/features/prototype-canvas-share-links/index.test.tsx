@@ -186,6 +186,17 @@ describe("ShareLinksPage()", () => {
     expect(f.props.onOpen).not.toHaveBeenCalled()
   })
 
+  it("shows the viewer's time zone on Build times", () => {
+    fixture()
+    const publishedAt = state.context!.prototype.build!.publishedAt
+    const zone = new Intl.DateTimeFormat(undefined, { timeZoneName: "short" })
+      .formatToParts(new Date(publishedAt))
+      .find((part) => part.type === "timeZoneName")!.value
+    const time = document.querySelector(".canvas-share-build-details time")!
+    expect(time).toHaveAttribute("dateTime", publishedAt)
+    expect(time).toHaveTextContent(zone)
+  })
+
   it("makes created-link Build labels bold without inventing details for real links", () => {
     fixture()
     expect(screen.getByText("Build 2", { selector: "strong" })).toBeInTheDocument()

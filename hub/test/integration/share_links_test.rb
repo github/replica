@@ -77,6 +77,19 @@ class ShareLinksTest < ActionDispatch::IntegrationTest
     assert_includes description, "cannot view or add comments"
   end
 
+  test "shows the time zone for link creation and expiration" do
+    travel_to Time.utc(2026, 9, 15, 12) do
+      create_share_link(label: "Review")
+
+      get @path, as: :json
+
+      assert_response :success
+      link = JSON.parse(response.body).fetch("data").fetch("shareLinks").first
+      assert_equal "Created by @octocat on September 15, 2026 12:00 UTC", link.fetch("createdLabel")
+      assert_equal "Expires September 22, 2026 12:00 UTC", link.fetch("expiresLabel")
+    end
+  end
+
   test "a policy change during GitHub authorization blocks creation even after re enabling" do
     original = Repository::Authorization.instance_method(:permission_for)
     Repository::Authorization.define_method(:permission_for) do |*args, **options|

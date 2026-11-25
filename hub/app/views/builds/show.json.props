@@ -88,23 +88,23 @@ end
 
 json.timelineHeading t("builds.show.timeline_heading")
 json.createdAt @build.created_at.iso8601
-json.createdLabel t("builds.show.created", time: l(@build.created_at, format: :long))
+json.createdLabel t("builds.show.created", time: l(@build.created_at, format: :long_with_zone))
 
 if @build.started_at
   json.startedAt @build.started_at.iso8601
-  json.startedLabel t("builds.show.started", time: l(@build.started_at, format: :long))
+  json.startedLabel t("builds.show.started", time: l(@build.started_at, format: :long_with_zone))
 end
 
 if @build.finished_at
   json.finishedAt @build.finished_at.iso8601
-  json.finishedLabel t("builds.show.finished", time: l(@build.finished_at, format: :long))
+  json.finishedLabel t("builds.show.finished", time: l(@build.finished_at, format: :long_with_zone))
 end
 
 if @build.workflow_completed_at
   json.workflowCompletedAt @build.workflow_completed_at.iso8601
   json.workflowCompletedLabel t \
     "builds.show.workflow_completed",
-    time: l(@build.workflow_completed_at, format: :long)
+    time: l(@build.workflow_completed_at, format: :long_with_zone)
 end
 
 json.signOutLabel t("authenticated.sign_out")

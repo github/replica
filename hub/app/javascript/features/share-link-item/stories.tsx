@@ -5,11 +5,11 @@ import { ShareLinkItem } from "."
 const shareLink = {
   buildLabel: "Build 1",
   createdAt: "2026-09-15T12:00:00Z",
-  createdLabel: "Created by @octocat",
+  createdLabel: "Created by @octocat on September 15, 2026 12:00 UTC",
   deletePath: "/repositories/2001/prototypes/1/share_links/1",
   deletePrompt: "Delete “Usability review”?",
   expiresAt: "2026-09-22T12:00:00Z",
-  expiresLabel: "Expires September 22",
+  expiresLabel: "Expires September 22, 2026 12:00 UTC",
   id: 1,
   label: "Usability review",
   url: "https://replica.example/share/12345678-1234-1234-1234-123456789abc",

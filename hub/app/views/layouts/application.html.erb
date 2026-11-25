@@ -7,7 +7,7 @@
     <%= csrf_meta_tags %>
     <%= csp_meta_tag %>
 
-    <link rel="icon" href="/icon.svg" type="image/svg+xml">
+    <link rel="icon" href="/icon.svg?v=2" type="image/svg+xml">
     <%= vite_client_tag nonce: content_security_policy_nonce %>
     <%= vite_react_refresh_tag nonce: content_security_policy_nonce %>
     <%= vite_typescript_tag "application.tsx", nonce: content_security_policy_nonce %>
