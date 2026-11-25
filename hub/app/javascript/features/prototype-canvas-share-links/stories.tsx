@@ -1,5 +1,6 @@
 import { createRef, useState, type ComponentProps } from "react"
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { expect } from "storybook/test"
 
 import { ShareLinksPage } from "."
 import { shareCopy } from "@hooks/use-canvas-share-links/en"
@@ -157,6 +158,17 @@ export const AccessChanged: Story = {
   },
 }
 export const Single: Story = { args: { state: { ...state, links: [link] } } }
+export const ShowChrome: Story = {
+  args: { state: { ...state, links: [link] } },
+  play: async ({ canvas, userEvent }) => {
+    const checkbox = canvas.getByRole("checkbox", { name: shareCopy.showChrome })
+    await userEvent.click(checkbox)
+    await expect(checkbox).toBeChecked()
+    await expect(canvas.getByRole("textbox", { name: shareCopy.internal })).toHaveValue(
+      state.context!.prototype.build!.url,
+    )
+  },
+}
 export const TwoBuilds: Story = {
   render: (args) => <ControlSettingsPreview {...args} />,
   args: {

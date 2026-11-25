@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { expect } from "storybook/test"
 
 import { prototypeWorkspaceData } from "@/storybook/fixtures/prototype-workspace"
 
@@ -55,6 +56,12 @@ const data: ShareLinksIndexPageData = {
   publicSharingEnabled: true,
   disabledLabel:
     "Public sharing is disabled for this Hub. No public links can be created or opened. A Hub administrator must explicitly enable sharing; previously revoked links never return.",
+  internalHeading: "Internal prototype link",
+  internalDescription: "People with repository access can open this prototype.",
+  internalCopyLabel: "Copy internal prototype link",
+  internalOpenLabel: "Open internal prototype link",
+  showChromeLabel: "Show chrome",
+  internalUnavailableLabel: "Internal prototype link unavailable.",
 }
 
 const meta = {
@@ -81,6 +88,22 @@ export const NoBuild: Story = {
 }
 
 export const Empty: Story = {}
+export const ShowChrome: Story = {
+  args: {
+    data: {
+      ...data,
+      shareLinks: [shareLink],
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    const checkbox = canvas.getByRole("checkbox", { name: data.showChromeLabel })
+    await userEvent.click(checkbox)
+    await expect(checkbox).toBeChecked()
+    await expect(canvas.getByRole("textbox", { name: data.internalHeading })).toHaveValue(
+      new URL(data.branchPath, window.location.href).toString(),
+    )
+  },
+}
 export const MandatorySevenDayMaximum: Story = {
   args: {
     data: {

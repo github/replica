@@ -61,6 +61,47 @@ function fixture(display = state) {
 }
 
 describe("ShareLinksPage()", () => {
+  it("defaults only the internal link to minimized view and toggles its displayed, copied and opened URL", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal("navigator", { clipboard: { writeText } })
+    const url =
+      "https://hub.example.com/repositories/2001/prototypes/1?build=2&return_path=%2Fsettings&view=expanded#preview"
+    const display: SharingState = {
+      ...state,
+      context: {
+        ...state.context!,
+        prototype: {
+          ...state.context!.prototype,
+          build: { ...state.context!.prototype.build!, url },
+        },
+      },
+    }
+    const f = fixture(display)
+    const checkbox = screen.getByRole("checkbox", { name: "Show chrome" })
+    const input = screen.getByRole("textbox", { name: shareCopy.internal })
+    const open = screen.getByRole("link", { name: shareCopy.internalOpen })
+    expect(checkbox).not.toBeChecked()
+    expect(input.compareDocumentPosition(checkbox) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
+
+    for (const [index, showChrome] of [false, true, false].entries()) {
+      if (index > 0) fireEvent.click(checkbox)
+      const expected = new URL(url)
+      expected.searchParams.delete("view")
+      if (!showChrome) expected.searchParams.append("view", "minimized")
+      expect(input).toHaveValue(expected.toString())
+      expect(open).toHaveAttribute("href", expected.toString())
+      fireEvent.click(screen.getByRole("button", { name: shareCopy.internalCopy }))
+      await waitFor(() => expect(writeText).toHaveBeenLastCalledWith(expected.toString()))
+      expect(screen.getByRole("textbox", { name: "Review, Build #2 URL" })).toHaveValue(
+        state.links[0]!.url,
+      )
+    }
+    expect(display.context!.prototype.build!.url).toBe(url)
+    expect(f.props.onCreate).not.toHaveBeenCalled()
+  })
+
   it("explains public access and commenting before creation", () => {
     fixture()
     expect(screen.getByText(shareCopy.warning)).toHaveTextContent(
@@ -141,7 +182,7 @@ describe("ShareLinksPage()", () => {
         },
       })
       expect(screen.getByRole("textbox", { name: shareCopy.internal })).toHaveValue(
-        state.context!.prototype.build!.url,
+        `${state.context!.prototype.build!.url}?view=minimized`,
       )
       expect(screen.getByRole("link", { name: shareCopy.internalOpen })).toBeInTheDocument()
       expect(screen.getByText(shareCopy.disabled)).toBeInTheDocument()
@@ -246,7 +287,10 @@ describe("ShareLinksPage()", () => {
       expect(control.textContent).toBe("")
       expect(control.previousElementSibling).toHaveClass("copyable-text-input")
     }
-    expect(internal).toHaveAttribute("href", state.context!.prototype.build!.url)
+    expect(internal).toHaveAttribute(
+      "href",
+      `${state.context!.prototype.build!.url}?view=minimized`,
+    )
     expect(internal).toHaveAttribute("target", "_blank")
     expect(internal).toHaveAttribute("rel", "noopener")
     fireEvent.click(publicOpen)
@@ -269,7 +313,7 @@ describe("ShareLinksPage()", () => {
           },
         },
       })
-      const url = state.context!.prototype.build!.url
+      const url = `${state.context!.prototype.build!.url}?view=minimized`
       expect(screen.getByRole("heading", { name: shareCopy.title })).toBeInTheDocument()
       expect(screen.getByRole("textbox", { name: shareCopy.internal })).toHaveValue(url)
       expect(screen.getByText(shareCopy.internalDescription)).toBeInTheDocument()
@@ -303,6 +347,7 @@ describe("ShareLinksPage()", () => {
       expect(screen.getByText(shareCopy.internalUnavailable)).toBeInTheDocument()
       expect(screen.queryByRole("textbox", { name: shareCopy.internal })).not.toBeInTheDocument()
       expect(screen.queryByRole("link", { name: shareCopy.internalOpen })).not.toBeInTheDocument()
+      expect(screen.queryByRole("checkbox", { name: "Show chrome" })).not.toBeInTheDocument()
     },
   )
 
@@ -328,6 +373,7 @@ describe("ShareLinksPage()", () => {
     expect(state.links[0]!.url).toBe(link.url)
     const internalUrl = new URL(state.context!.prototype.build!.url)
     internalUrl.searchParams.set("rc.page.title", '"Configured"')
+    internalUrl.searchParams.append("view", "minimized")
     expect(screen.getByRole("textbox", { name: shareCopy.internal })).toHaveValue(
       internalUrl.toString(),
     )
@@ -337,6 +383,14 @@ describe("ShareLinksPage()", () => {
     )
     fireEvent.click(screen.getByRole("button", { name: shareCopy.internalCopy }))
     await waitFor(() => expect(writeText).toHaveBeenCalledExactlyOnceWith(internalUrl.toString()))
+    fireEvent.click(screen.getByRole("checkbox", { name: "Show chrome" }))
+    internalUrl.searchParams.delete("view")
+    expect(screen.getByRole("textbox", { name: shareCopy.internal })).toHaveValue(
+      internalUrl.toString(),
+    )
+    expect(screen.getByRole("textbox", { name: "Review, Build #2 URL" })).toHaveValue(
+      `${link.url}?${query}`,
+    )
     f.rerender(
       <ThemeProvider>
         <ShareLinksPage
@@ -461,6 +515,7 @@ describe("ShareLinksPage()", () => {
         )
         const url = new URL(state.context!.prototype.build!.url)
         if (included) url.searchParams.set("rc.page.enabled", "false")
+        url.searchParams.append("view", "minimized")
         expect(screen.getByRole("textbox", { name: shareCopy.internal })).toHaveValue(
           url.toString(),
         )

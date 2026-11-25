@@ -24,4 +24,10 @@ export interface ShareLinksIndexPageData extends PrototypeWorkspaceData {
   shareLinks: ShareLinkData[]
   publicSharingEnabled: boolean
   disabledLabel: string
+  internalHeading: string
+  internalDescription: string
+  internalCopyLabel: string
+  internalOpenLabel: string
+  showChromeLabel: string
+  internalUnavailableLabel: string
 }

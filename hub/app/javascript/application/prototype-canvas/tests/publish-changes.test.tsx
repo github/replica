@@ -461,7 +461,7 @@ it("offers publishing for local edits on an already published commit without rep
   const shared = await screen.findByRole("main", { name: "Share prototype" })
   expect(
     await within(shared).findByRole("link", { name: "Open internal prototype link" }),
-  ).toHaveAttribute("href", importedPrototype.build!.url)
+  ).toHaveAttribute("href", `${importedPrototype.build!.url}?view=minimized`)
   expect(fetch.mock.calls.some(([path]) => path === "/api/publish")).toBe(false)
   view.unmount()
 })

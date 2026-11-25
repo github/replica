@@ -10,6 +10,12 @@ json.branchName @prototype.branch_name
 json.branchPath repository_prototype_path(@repository.route_id, @prototype)
 json.heading t("share_links.index.heading")
 json.description t("share_links.index.description")
+json.internalHeading t("share_links.index.internal_heading")
+json.internalDescription t("share_links.index.internal_description")
+json.internalCopyLabel t("share_links.index.internal_copy")
+json.internalOpenLabel t("share_links.index.internal_open")
+json.showChromeLabel t("share_links.index.show_chrome")
+json.internalUnavailableLabel t("share_links.index.internal_unavailable")
 json.publicSharingEnabled @public_sharing_enabled
 json.disabledLabel t("share_links.disabled")
 json.alert flash[:alert]

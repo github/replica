@@ -45,6 +45,12 @@ const PAGE_DATA: ShareLinksIndexPageData = {
       url: "http://replica.localhost:19500/share/12345678-1234-1234-1234-123456789abc",
     },
   ],
+  internalHeading: "Internal prototype link",
+  internalDescription: "People with repository access can open this prototype.",
+  internalCopyLabel: "Copy internal prototype link",
+  internalOpenLabel: "Open internal prototype link",
+  showChromeLabel: "Show chrome",
+  internalUnavailableLabel: "Internal prototype link unavailable.",
 }
 
 describe("ShareLinksIndexPage()", () => {
@@ -64,6 +70,91 @@ describe("ShareLinksIndexPage()", () => {
     expect(screen.queryByRole("button", { name: "Create share link" })).not.toBeInTheDocument()
     expect(screen.queryByRole("link", { name: "Open" })).not.toBeInTheDocument()
     expect(screen.queryByRole("heading", { name: "No active share links" })).not.toBeInTheDocument()
+    const internalUrl = new URL(PAGE_DATA.branchPath, window.location.href)
+    internalUrl.searchParams.append("view", "minimized")
+    expect(screen.getByRole("textbox", { name: "Internal prototype link" })).toHaveValue(
+      internalUrl.toString(),
+    )
+  })
+
+  it("defaults the internal link to minimized view and toggles only its copy and open URL", async () => {
+    writeText.mockResolvedValue(undefined)
+    const query = "rc.page.title=%22Configured%22"
+    const { unmount } = render(
+      <ShareLinksIndexPage
+        data={PAGE_DATA}
+        controlSettings={{
+          included: true,
+          query,
+          error: "",
+          blocked: false,
+          onChange: vi.fn(),
+        }}
+      />,
+      { wrapper: HubThemeProvider },
+    )
+    const checkbox = screen.getByRole("checkbox", { name: "Show chrome" })
+    const input = screen.getByRole("textbox", { name: "Internal prototype link" })
+    const open = screen.getByRole("link", { name: "Open internal prototype link" })
+    const expected = new URL(PAGE_DATA.branchPath, window.location.href)
+    expected.searchParams.set("rc.page.title", '"Configured"')
+    expected.searchParams.append("view", "minimized")
+    const publicLinkUrl = new URL(PAGE_DATA.shareLinks[0]!.url)
+    publicLinkUrl.searchParams.set("rc.page.title", '"Configured"')
+    expect(checkbox).not.toBeChecked()
+    expect(input.compareDocumentPosition(checkbox) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
+    expect(input).toHaveValue(expected.toString())
+    expect(open).toHaveAttribute("href", expected.toString())
+    fireEvent.click(screen.getByRole("button", { name: "Copy internal prototype link" }))
+    await screen.findByRole("button", { name: "Copied" })
+    expect(writeText).toHaveBeenCalledWith(expected.toString())
+    expect(screen.getByRole("link", { name: "Open" })).toHaveAttribute(
+      "href",
+      publicLinkUrl.toString(),
+    )
+
+    fireEvent.click(checkbox)
+    expected.searchParams.delete("view")
+    expect(input).toHaveValue(expected.toString())
+    expect(open).toHaveAttribute("href", expected.toString())
+    fireEvent.click(screen.getByRole("button", { name: "Copy internal prototype link" }))
+    await screen.findByRole("button", { name: "Copied" })
+    expect(writeText).toHaveBeenLastCalledWith(expected.toString())
+    expect(screen.getByRole("link", { name: "Open" })).toHaveAttribute(
+      "href",
+      publicLinkUrl.toString(),
+    )
+    unmount()
+    render(<ShareLinksIndexPage data={PAGE_DATA} />, { wrapper: HubThemeProvider })
+    expect(screen.getByRole("checkbox", { name: "Show chrome" })).not.toBeChecked()
+  })
+
+  it("omits the internal link without a selected Build or valid control settings", () => {
+    const { rerender } = render(
+      <ShareLinksIndexPage data={{ ...PAGE_DATA, selectedBuild: undefined }} />,
+      { wrapper: HubThemeProvider },
+    )
+    expect(screen.queryByRole("checkbox", { name: "Show chrome" })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("textbox", { name: "Internal prototype link" }),
+    ).not.toBeInTheDocument()
+
+    rerender(
+      <ShareLinksIndexPage
+        data={PAGE_DATA}
+        controlSettings={{
+          included: true,
+          query: "",
+          error: "Settings exceed 8 KB.",
+          blocked: true,
+          onChange: vi.fn(),
+        }}
+      />,
+    )
+    expect(screen.queryByRole("checkbox", { name: "Show chrome" })).not.toBeInTheDocument()
+    expect(screen.getByRole("status")).toHaveTextContent("Internal prototype link unavailable.")
   })
   it("decorates copied and opened links while preserving source settings in native mutation forms", async () => {
     writeText.mockResolvedValue(undefined)
@@ -222,6 +313,9 @@ describe("ShareLinksIndexPage()", () => {
 
     expect(screen.getByRole("heading", { name: "No successful Build" })).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Create share link" })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("textbox", { name: "Internal prototype link" }),
+    ).not.toBeInTheDocument()
   })
 
   it("keeps browser deletion scoped and requires confirmation", () => {
