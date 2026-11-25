@@ -246,13 +246,15 @@ describe("usePreviewBridge()", () => {
     )
   })
 
-  it("uses only theme and route messages in browse-only mode", () => {
+  it("forwards only theme, route, and options messages in browse-only mode", () => {
     const iframe = document.createElement("iframe")
     document.body.append(iframe)
     const frameWindow = iframe.contentWindow
     if (!frameWindow) throw new Error("Expected iframe content window")
     const postMessage = vi.spyOn(frameWindow, "postMessage")
     const onToggleSidebar = vi.fn()
+    const onToggleOptions = vi.fn()
+    window.addEventListener(OPTIONS_TOGGLE_EVENT, onToggleOptions)
     const { result } = renderHook(() =>
       usePreviewBridge({
         iframeRef: { current: iframe },
@@ -288,13 +290,27 @@ describe("usePreviewBridge()", () => {
       result.current.clearSelection()
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "c" }))
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "C", shiftKey: true }))
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            protocolVersion: 1,
+            requestId: "options-request",
+            type: "replica:bridge:options-toggle-requested",
+            payload: {},
+          },
+          origin: PREVIEW_ORIGIN,
+          source: frameWindow,
+        }),
+      )
     })
     expect(result.current.selecting).toBe(false)
     expect(onToggleSidebar).not.toHaveBeenCalled()
+    expect(onToggleOptions).toHaveBeenCalledOnce()
     expect(postMessage.mock.calls).toEqual([
       [expect.objectContaining({ type: "replica:bridge:request-ready" }), PREVIEW_ORIGIN],
       [expect.objectContaining({ type: "replica:bridge:set-theme" }), PREVIEW_ORIGIN],
     ])
+    window.removeEventListener(OPTIONS_TOGGLE_EVENT, onToggleOptions)
   })
 
   it("handles Shift+C in Hub and the trusted preview without starting selection", () => {

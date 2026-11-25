@@ -28,6 +28,7 @@
   const HIGHLIGHT_FADE_MILLISECONDS = 200
   const BRIDGE_NODE_ATTRIBUTE = "data-replica-bridge"
   const DRAG_THRESHOLD_PIXELS = 8
+  const AREA_MINIMUM_DIMENSION = 8
   const textEncoder = new TextEncoder()
   const nativeReplaceState = History.prototype.replaceState
 
@@ -678,7 +679,9 @@
     let points = optimize ? optimizedStroke(clientPoints) : clientPoints
     points = downsamplePath(points, AREA_PATH_MAXIMUM_POINTS)
     const bounds = pathBounds(points)
-    if (bounds.diagonal < AREA_MINIMUM_DIAGONAL) return { reason: "area-too-small" }
+    if (bounds.width < AREA_MINIMUM_DIMENSION || bounds.height < AREA_MINIMUM_DIMENSION) {
+      return { reason: "area-too-small" }
+    }
 
     const left = clamp(bounds.left + window.scrollX, 0, GEOMETRY_ABSOLUTE_MAXIMUM)
     const top = clamp(bounds.top + window.scrollY, 0, GEOMETRY_ABSOLUTE_MAXIMUM)
@@ -1400,6 +1403,7 @@
 
   function handleShortcutKeyDown(event) {
     const key = event.key.toLowerCase()
+    if (!REVIEW_ENABLED && key !== "o") return
     const messageType =
       key === "o" && !event.shiftKey
         ? "replica:bridge:options-toggle-requested"
@@ -1630,8 +1634,8 @@
   }
 
   window.addEventListener("message", handleMessage)
+  window.addEventListener("keydown", handleShortcutKeyDown, true)
   if (REVIEW_ENABLED) {
-    window.addEventListener("keydown", handleShortcutKeyDown, true)
     window.addEventListener("keydown", handleConversationEscape)
   }
   window.addEventListener("popstate", routeChanged)

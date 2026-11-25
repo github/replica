@@ -237,6 +237,12 @@ export function usePreviewBridge({
         setReportedRoute({ previewUrl, route: message.payload.route })
         return
       }
+
+      if (message.type === "replica:bridge:options-toggle-requested") {
+        if (!selecting) window.dispatchEvent(new Event(OPTIONS_TOGGLE_EVENT))
+        return
+      }
+
       if (!reviewEnabled) return
 
       if (message.type === "replica:bridge:conversation-dismiss-requested") {
@@ -246,11 +252,6 @@ export function usePreviewBridge({
 
       if (message.type === "replica:bridge:element-selection-requested") {
         startSelection()
-        return
-      }
-
-      if (message.type === "replica:bridge:options-toggle-requested") {
-        if (!selecting) window.dispatchEvent(new Event(OPTIONS_TOGGLE_EVENT))
         return
       }
 

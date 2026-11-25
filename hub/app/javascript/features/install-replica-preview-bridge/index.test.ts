@@ -146,7 +146,7 @@ describe("installReplicaPreviewBridge()", () => {
     )
   })
 
-  it("keeps default-branch previews browse-only without consuming application shortcuts", () => {
+  it("forwards O from browse-only previews without enabling review shortcuts", () => {
     const { parent, preview, postMessage } = bridgeWindow({ reviewEnabled: false })
     const applicationShortcut = vi.fn()
     preview.addEventListener("keydown", applicationShortcut)
@@ -159,10 +159,19 @@ describe("installReplicaPreviewBridge()", () => {
       preview.dispatchEvent(event)
       expect(event.defaultPrevented).toBe(false)
     }
+    const options = new preview.KeyboardEvent("keydown", {
+      key: "o",
+      cancelable: true,
+    })
+    preview.dispatchEvent(options)
+    expect(options.defaultPrevented).toBe(true)
     expect(applicationShortcut).toHaveBeenCalledTimes(3)
-    expect(postMessage).not.toHaveBeenCalled()
+    expect(postedMessages(postMessage)).toEqual([
+      expect.objectContaining({ type: "replica:bridge:options-toggle-requested" }),
+    ])
 
     dispatchMessage(preview, parent, message("replica:bridge:select-element"))
+    postMessage.mockClear()
     dispatchMessage(
       preview,
       parent,
@@ -939,10 +948,23 @@ describe("installReplicaPreviewBridge()", () => {
       "[data-replica-bridge='area-highlight']",
     )
     expect(outline?.style.opacity).toBe("1")
+  })
 
-    dispatchMessage(preview, parent, message("replica:bridge:clear-selection"))
+  it("rejects a region that is too thin in either dimension", () => {
+    const { parent, postMessage, preview } = bridgeWindow()
+    const button = preview.document.createElement("button")
+    button.id = "save"
+    preview.document.body.append(button)
 
-    expect(outline?.style.opacity).toBe("0")
+    dispatchMessage(preview, parent, message("replica:bridge:select-element"))
+    button.dispatchEvent(pointerEvent(preview, "pointerdown", 20, 40))
+    button.dispatchEvent(pointerEvent(preview, "pointermove", 40, 41))
+    button.dispatchEvent(pointerEvent(preview, "pointerup", 40, 41))
+
+    expect(postedMessages(postMessage).at(-1)).toMatchObject({
+      type: "replica:bridge:selection-failed",
+      payload: { reason: "area-too-small" },
+    })
   })
 
   it("requests selection with C, the sidebar with Shift+C, and options with O, and ignores H", () => {
