@@ -452,6 +452,123 @@ it("refuses an unknown SQLite stream after the scope was migrated", async () => 
   }
 })
 
+it("refuses noncanonical SQLite record scopes after migration", async () => {
+  const { root, source } = importWorkspace()
+  const oldScope = {
+    host: "github.com",
+    repository: "repositories/11111111-2222-4333-8444-555555555555",
+  }
+  const scope = { host: "github.com", repository: "repositories/123456" }
+  const sourceProvider = createSqliteMemoryProvider({ directory: source })
+  try {
+    await migrateRepositoryScope({
+      provider: sourceProvider,
+      oldScope,
+      newScope: scope,
+    })
+    assert.ok(await sourceProvider.scopeMigrationFrom(oldScope))
+    assert.ok((await sourceProvider.readRecords("audit", { scope })).length > 0)
+    assert.ok((await sourceProvider.readMemoryVersions({ scope })).length > 0)
+  } finally {
+    await sourceProvider.close()
+  }
+  const sqlite = new DatabaseSync(path.join(source, "learning.sqlite"))
+  try {
+    // Visible versions without their audits would fail verification for a different reason.
+    sqlite.prepare("delete from memory_versions").run()
+    const changed = sqlite
+      .prepare("update records set scope_key = ? where scope_key = ?")
+      .run(` ${canonicalJson(scope)}`, canonicalJson(scope))
+    assert.ok(changed.changes > 0)
+    assert.ok(
+      sqlite
+        .prepare("select count(*) as count from records where stream = 'audit' and scope_key = ?")
+        .get(` ${canonicalJson(scope)}`).count > 0,
+    )
+  } finally {
+    sqlite.close()
+  }
+  const url = await database()
+  const result = await learningCommand(root, url, [
+    "import-sqlite",
+    "--offline",
+    "--dir",
+    source,
+    "--repository",
+    `github.com/${scope.repository}`,
+    "--legacy-repository",
+    `github.com/${oldScope.repository}`,
+  ])
+  const db = new pg.Client({ connectionString: url })
+  await db.connect()
+  try {
+    assert.notEqual(result.code, 0)
+    assert.match(result.stderr, /error \(storage_corrupt\)/)
+    for (const table of ["records", "memory_versions", "scope_migrations", "sqlite_imports"]) {
+      const { rows } = await db.query(
+        `select count(*)::int as count from replica_learning.${table}`,
+      )
+      assert.equal(rows[0].count, 0, table)
+    }
+  } finally {
+    await db.end()
+  }
+})
+
+it("refuses noncanonical SQLite memory version scopes after migration", async () => {
+  const { root, source } = importWorkspace()
+  const oldScope = {
+    host: "github.com",
+    repository: "repositories/11111111-2222-4333-8444-555555555555",
+  }
+  const scope = { host: "github.com", repository: "repositories/123456" }
+  const sourceProvider = createSqliteMemoryProvider({ directory: source })
+  try {
+    await migrateRepositoryScope({ provider: sourceProvider, oldScope, newScope: scope })
+    assert.ok(await sourceProvider.scopeMigrationFrom(oldScope))
+    assert.ok((await sourceProvider.readMemoryVersions({ scope })).length > 0)
+  } finally {
+    await sourceProvider.close()
+  }
+  const sqlite = new DatabaseSync(path.join(source, "learning.sqlite"))
+  try {
+    // Visible audits without their versions would fail verification for a different reason.
+    sqlite.prepare("delete from records").run()
+    const noncanonical = JSON.stringify({ repository: scope.repository, host: scope.host })
+    const changed = sqlite
+      .prepare("update memory_versions set scope_key = ? where scope_key = ?")
+      .run(noncanonical, canonicalJson(scope))
+    assert.ok(changed.changes > 0)
+  } finally {
+    sqlite.close()
+  }
+  const url = await database()
+  const result = await learningCommand(root, url, [
+    "import-sqlite",
+    "--offline",
+    "--dir",
+    source,
+    "--repository",
+    `github.com/${scope.repository}`,
+    "--legacy-repository",
+    `github.com/${oldScope.repository}`,
+  ])
+  const db = new pg.Client({ connectionString: url })
+  await db.connect()
+  try {
+    assert.notEqual(result.code, 0)
+    assert.match(result.stderr, /error \(storage_corrupt\)/)
+    for (const table of ["records", "memory_versions", "scope_migrations", "sqlite_imports"]) {
+      const { rows } = await db.query(
+        `select count(*)::int as count from replica_learning.${table}`,
+      )
+      assert.equal(rows[0].count, 0, table)
+    }
+  } finally {
+    await db.end()
+  }
+})
+
 it("refuses unrelated history in the same scope but preserves other scopes", async () => {
   const { root, source } = importWorkspace()
   const url = await database()

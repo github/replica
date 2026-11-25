@@ -238,7 +238,17 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
     return database
       .prepare("select scope_key from records union select scope_key from memory_versions")
       .all()
-      .map((row) => JSON.parse(row.scope_key))
+      .map((row) => {
+        let scope
+        try {
+          scope = JSON.parse(row.scope_key)
+        } catch {
+          throw new LearningError("storage_corrupt", "SQLite store has an invalid scope key.")
+        }
+        if (canonicalJson(scope) !== row.scope_key)
+          throw new LearningError("storage_corrupt", "SQLite store has a noncanonical scope key.")
+        return scope
+      })
   }
 
   return {
