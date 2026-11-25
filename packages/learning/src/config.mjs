@@ -617,12 +617,15 @@ export async function migrateScopeOffline(environment, { clock = Date.now, empty
       if (empty) throw new LearningError("invalid_input", "This store has already been migrated.")
       if (!environment.explicitLegacyScope) {
         const { store } = await openLearningStore(environment, { clock })
+        let redactionFollowUps
         try {
-          const verified = await store.verify({
+          const context = {
             scope: environment.scope,
             principal: { kind: "system", id: "system:scope-migration" },
-          })
+          }
+          const verified = await store.verify(context)
           if (!verified.ok) throw new LearningError("storage_corrupt", verified.problems.join("; "))
+          redactionFollowUps = (await store.status(context)).migrationRedactionFollowUps
         } finally {
           await store.close()
         }
@@ -630,6 +633,7 @@ export async function migrateScopeOffline(environment, { clock = Date.now, empty
           file: path.join(environment.dataDirectory, config.memory.provider.file),
           sourceProvider: config.memory.migration.sourceProvider,
           alreadyMigrated: true,
+          ...(redactionFollowUps ? { redactionFollowUps } : {}),
         }
       }
     }

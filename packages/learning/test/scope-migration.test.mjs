@@ -939,6 +939,11 @@ it("reports redaction follow-ups on migration and retry", async () => {
       destination,
       contents: "learnings",
     })
+    const anotherExport = await store.exportRecords(human(secondScope), {
+      purpose: "instruction",
+      destination: "private/exports/other.json",
+      contents: "learnings",
+    })
     const redacted = await store.redactHubComment(human(firstScope), 101)
     assert.ok(!redacted.exportsToFollowUp.some((item) => item.id === exported.manifest.id))
     const jsonlRepo = checkout("jsonl-redaction-follow-ups")
@@ -1008,6 +1013,13 @@ it("reports redaction follow-ups on migration and retry", async () => {
         (item) => item.id === exported.manifest.id && item.destination === destination,
       ),
     )
+    assert.ok(
+      followUps.exportsToFollowUp.some(
+        (item) =>
+          item.id === anotherExport.manifest.id &&
+          item.destination === "private/exports/other.json",
+      ),
+    )
     const retry = ok(repo, migrate, { failLookup: true })
     assert.deepEqual(retry.redactionFollowUps, followUps)
     const retryText = cli(repo, migrate, { failLookup: true, json: false })
@@ -1059,6 +1071,25 @@ it("reports redaction follow-ups on migration and retry", async () => {
         `Copied migration retry should include ${value}`,
       )
     assert.ok(!copiedRetryText.stdout.includes("\u001b"))
+    const defaultRetry = ["migrate-scope", "--offline"]
+    const defaultRetryJson = ok(jsonlRepo, defaultRetry, { failLookup: true })
+    assert.equal(defaultRetryJson.alreadyMigrated, true)
+    assert.deepEqual(defaultRetryJson.redactionFollowUps, followUps)
+    const defaultRetryText = cli(jsonlRepo, defaultRetry, { failLookup: true, json: false })
+    assert.equal(defaultRetryText.status, 0, defaultRetryText.stderr)
+    for (const id of followUps.memoriesNeedingRebuild)
+      assert.ok(defaultRetryText.stdout.includes(id), `Default retry should include ${id}`)
+    for (const item of followUps.exportsToFollowUp) {
+      assert.ok(
+        defaultRetryText.stdout.includes(item.id),
+        `Default retry should include ${item.id}`,
+      )
+      assert.ok(
+        defaultRetryText.stdout.includes(JSON.stringify(item.destination)),
+        `Default retry should include the quoted destination for ${item.id}`,
+      )
+    }
+    assert.ok(!defaultRetryText.stdout.includes("\u001b"))
     assert.deepEqual(
       ok(jsonlRepo, ["status"], { failLookup: true }).migrationRedactionFollowUps,
       followUps,
