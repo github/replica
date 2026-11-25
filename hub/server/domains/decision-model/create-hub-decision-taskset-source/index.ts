@@ -856,7 +856,15 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
             )
             const actorMembershipId =
               matchingActorGrant?.membershipId ?? repository.accessGrants[0]?.membershipId
-            if (!actorMembershipId) continue
+            if (!actorMembershipId) {
+              if (!failedRepositoryIds.includes(repository.id))
+                failedRepositoryIds.push(repository.id)
+              options.logger?.warn(
+                { repositoryId: repository.id },
+                "Decision training withdrawal needs an active repository administrator",
+              )
+              continue
+            }
             if (!matchingJobs.length) {
               pending.push({
                 repositoryId: repository.id,

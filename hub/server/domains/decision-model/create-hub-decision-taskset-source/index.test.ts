@@ -329,6 +329,68 @@ describe("createHubDecisionTasksetSource()", () => {
     expect(runLearningCommand).not.toHaveBeenCalled()
   })
 
+  it("retries a training withdrawal after a repository administrator returns", async () => {
+    const trainingJob = {
+      consentGrantId: "grant-training",
+      trainingExportId: "export-1",
+      evidenceDigest: `sha256:${"e".repeat(64)}`,
+      tasksetDigest: `sha256:${"d".repeat(64)}`,
+    }
+    vi.mocked(listDecisionWithdrawalSources)
+      .mockResolvedValueOnce([
+        { id: repositoryId, decisionTrainingJobs: [trainingJob], accessGrants: [] },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: repositoryId,
+          decisionTrainingJobs: [trainingJob],
+          accessGrants: [
+            {
+              membershipId: "99999999-9999-4999-8999-999999999999",
+              membership: { user: { profile: { login: "active-admin" } } },
+            },
+          ],
+        },
+      ] as never)
+    vi.mocked(prepareLearningStore).mockResolvedValue({
+      directory: "/private/learning/repository",
+      repositoryScope: "github.com/repositories/123",
+      repositoryId,
+    })
+    vi.mocked(runLearningCommand).mockResolvedValue([
+      {
+        id: "withdrawal-1",
+        grantId: "grant-training",
+        purposes: ["training"],
+        withdrawnBy: { id: "github:mona" },
+      },
+    ])
+    const taskset = source(storage({}))
+
+    await expect(taskset.listTrainingWithdrawals()).resolves.toEqual({
+      withdrawals: [],
+      failedRepositoryIds: [repositoryId],
+    })
+    await expect(taskset.listTrainingWithdrawals()).resolves.toEqual({
+      withdrawals: [
+        {
+          repositoryId,
+          actorMembershipId: "99999999-9999-4999-8999-999999999999",
+          actorLogin: "mona",
+          selectors: {
+            exportId: trainingJob.trainingExportId,
+            grantId: trainingJob.consentGrantId,
+            evidenceDigest: trainingJob.evidenceDigest,
+            tasksetDigest: trainingJob.tasksetDigest,
+          },
+          reason: "Training consent was withdrawn.",
+          idempotencyKey: `withdrawal:withdrawal-1:${trainingJob.tasksetDigest}`,
+        },
+      ],
+      failedRepositoryIds: [],
+    })
+  })
+
   it("maps training grant withdrawals to idempotent runtime deletion selectors", async () => {
     vi.mocked(listDecisionWithdrawalSources).mockResolvedValue([
       {
