@@ -554,4 +554,97 @@ describe("learning decisions", () => {
     assert.equal((await store.verify(designer())).ok, false)
     assert.equal((await store.recall(agent())).memories.length, 0)
   })
+
+  it("withholds decision reasons from current records and history when review consent ends", async () => {
+    const store = await createLearningStore({
+      provider: createInMemoryProvider(),
+      clock: () => Date.parse("2026-10-09T12:00:00Z"),
+    })
+    const grant = await store.addGrant(designer(), {
+      purposes: ["review", "instruction"],
+      sources: ["hub_review_comments"],
+      basis: "Test agreement.",
+    })
+    await store.importHubReviewComments(agent(), weekOneLog(), { grantIds: [grant.id] })
+    await store.annotate(agent(), weekOneLabels().labels)
+    const { proposals } = await store.consolidate(agent(), {
+      consolidator: createRecurrenceConsolidator(),
+      window: { from: "2026-09-29T00:00:00.000000Z", to: "2026-10-05T18:00:00.000000Z" },
+    })
+    const proposal = proposals[0]
+    const rejectReason = "Private rejection explanation."
+    const restoreReason = "Private reinstatement explanation."
+    const editReason = "Private edit explanation."
+    const retireReason = "Private retirement explanation."
+    const rejected = await store.rejectMemory(designer(), proposal.id, {
+      expectedDigest: proposal.reviewDigest,
+      reason: rejectReason,
+    })
+    assert.equal(
+      (await store.getMemory(designer(), proposal.id)).record.rejected.reason,
+      rejectReason,
+    )
+    assert.equal((await store.queryMemory(designer()))[0].record.rejected.reason, rejectReason)
+    await store.withdrawGrant(designer(), grant.id, { purposes: ["review"] })
+    const withheldRejected = await store.getMemory(designer(), proposal.id, { history: true })
+    const rejectedListing = await store.queryMemory(designer())
+    assert.equal(withheldRejected.withheld, true)
+    assert.equal(rejectedListing[0].withheld, true)
+    assert.ok(!JSON.stringify(withheldRejected).includes(rejectReason))
+    assert.ok(!JSON.stringify(rejectedListing).includes(rejectReason))
+    const reviewGrant = await store.addGrant(designer(), {
+      purposes: ["review"],
+      sources: ["hub_review_comments"],
+      basis: "Review resumed.",
+    })
+    const restored = await store.reinstateMemory(designer(), proposal.id, {
+      expectedDigest: rejected.digest,
+      reason: restoreReason,
+    })
+    const edited = await store.editMemory(designer(), proposal.id, {
+      expectedDigest: restored.digest,
+      title: "Keep labels visible",
+      reason: editReason,
+    })
+    assert.equal((await store.getMemory(designer(), proposal.id)).record.accepted.note, editReason)
+    assert.equal((await store.queryMemory(designer()))[0].record.accepted.note, editReason)
+    await store.withdrawGrant(designer(), reviewGrant.id, { purposes: ["review"] })
+    const withheldAccepted = await store.getMemory(designer(), proposal.id, { history: true })
+    const acceptedListing = await store.queryMemory(designer())
+    assert.equal(withheldAccepted.withheld, true)
+    assert.equal(acceptedListing[0].withheld, true)
+    for (const reason of [rejectReason, restoreReason, editReason]) {
+      assert.ok(!JSON.stringify(withheldAccepted).includes(reason))
+      assert.ok(!JSON.stringify(acceptedListing).includes(reason))
+    }
+    const resumed = await store.addGrant(designer(), {
+      purposes: ["review"],
+      sources: ["hub_review_comments"],
+      basis: "Review resumed again.",
+    })
+    await store.retireMemory(designer(), proposal.id, { reason: retireReason })
+    const visible = await store.getMemory(designer(), proposal.id, { history: true })
+    assert.equal(visible.record.retired.reason, retireReason)
+    assert.equal(visible.versions[1].rejected.reason, rejectReason)
+    assert.equal(visible.versions[2].accepted.note, restoreReason)
+    assert.equal(visible.versions[3].accepted.note, editReason)
+    assert.equal((await store.queryMemory(designer()))[0].record.retired.reason, retireReason)
+
+    await store.withdrawGrant(designer(), resumed.id, { purposes: ["review"] })
+    const withheld = await store.getMemory(designer(), proposal.id, { history: true })
+    const listing = await store.queryMemory(designer())
+    assert.equal(withheld.withheld, true)
+    assert.equal(listing[0].withheld, true)
+    for (const reason of [rejectReason, restoreReason, editReason, retireReason]) {
+      assert.ok(!JSON.stringify(withheld).includes(reason))
+      assert.ok(!JSON.stringify(listing).includes(reason))
+    }
+    const instruction = await store.getMemory(designer(), proposal.id, {
+      history: true,
+      purpose: "instruction",
+    })
+    assert.equal(instruction.withheld, false)
+    assert.equal(instruction.record.retired.reason, retireReason)
+    assert.equal(instruction.versions[3].accepted.note, editReason)
+  })
 })

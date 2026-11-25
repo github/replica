@@ -1082,6 +1082,9 @@ class LearningStore {
       "appliesTo",
     )
     record.proposal = without(item.record.proposal, "rationale")
+    if (record.accepted) record.accepted = without(record.accepted, "note")
+    if (record.rejected) record.rejected = without(record.rejected, "reason")
+    if (record.retired) record.retired = without(record.retired, "reason")
     return { record, status: item.status, withheld: true }
   }
 
