@@ -29,7 +29,7 @@ export function WorkspaceInbox({
     authenticityToken: data.authenticityToken,
     initialUnreadOnly: true,
     autoLoad: false,
-    synchronize: Boolean(configuration),
+    viewerId: configuration ? data.inboxViewerId : undefined,
     limit: 10,
   })
   const { open, triggerRef, panelRef, enter, leave, close } = useHoverPreview(

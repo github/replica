@@ -179,7 +179,7 @@ describe("useNotificationInbox()", () => {
           path: "/api/notifications/inbox",
           authenticityToken: "",
           autoLoad: false,
-          synchronize: true,
+          viewerId: "viewer",
         }),
       )
       act(() => result.current.onOpen())
@@ -339,7 +339,7 @@ describe("useNotificationInbox()", () => {
           path: "/api/notifications/inbox",
           authenticityToken: "token",
           initialUnreadOnly: unreadOnly,
-          synchronize: true,
+          viewerId: "viewer",
         }),
       )
       await waitFor(() => expect(result.current.notifications[0]?.id).toBe(1))
@@ -375,7 +375,7 @@ describe("useNotificationInbox()", () => {
       useNotificationInbox({
         path: "/api/notifications/inbox",
         authenticityToken: "token",
-        synchronize: true,
+        viewerId: "viewer",
       }),
     )
     await waitFor(() => expect(result.current.notifications[0]?.read).toBe(false))
@@ -418,7 +418,7 @@ describe("useNotificationInbox()", () => {
         path: "/api/notifications/inbox",
         authenticityToken: "token",
         initialUnreadOnly: true,
-        synchronize: true,
+        viewerId: "viewer",
         onReadChange,
       }),
     )
@@ -504,19 +504,46 @@ describe("useNotificationInbox()", () => {
       useNotificationInbox({
         path: "/api/notifications/inbox",
         authenticityToken: "token",
-        synchronize: true,
+        viewerId: "viewer",
       }),
     )
     await waitFor(() => expect(result.current.notifications).toHaveLength(2))
     act(() => result.current.onToggleRead(2))
     await waitFor(() => expect(result.current.failed).toBe(true))
 
-    act(() => notifyInboxRead({ id: 1, startedAt: performance.now(), saved }))
+    act(() => notifyInboxRead({ viewerId: "viewer", id: 1, startedAt: performance.now(), saved }))
     await waitFor(() =>
       expect(result.current.notifications).toEqual([other, { ...notification, ...saved }]),
     )
     expect(result.current.unreadCount).toBe(1)
     expect(result.current.failed).toBe(false)
+  })
+
+  it("keeps the current viewer's Inbox unchanged when another viewer saves a read", async () => {
+    const fetch = vi.fn(() => Promise.resolve(Response.json(page)))
+    vi.stubGlobal("fetch", fetch)
+    const { result } = renderHook(() =>
+      useNotificationInbox({
+        path: "/api/notifications/inbox",
+        authenticityToken: "",
+        viewerId: "current-viewer",
+      }),
+    )
+    await waitFor(() => expect(result.current.notifications).toEqual([notification]))
+
+    await act(async () => {
+      notifyInboxRead({
+        viewerId: "previous-viewer",
+        id: notification.id,
+        saved: { read: true, version: 1 },
+        startedAt: performance.now(),
+      })
+      await Promise.resolve()
+    })
+
+    expect(result.current.notifications).toEqual([notification])
+    expect(result.current.unreadCount).toBe(page.unreadCount)
+    expect(fetch).toHaveBeenCalledOnce()
   })
 
   it("reloads an unread filter when another surface marks an unloaded item unread", async () => {

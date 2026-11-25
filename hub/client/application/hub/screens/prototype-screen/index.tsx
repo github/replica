@@ -178,6 +178,7 @@ export function PrototypeScreen({
       !message.deletedAt &&
       (message.kind === "root" ? message.id : message.rootId) === commentId,
   )
+  const viewerId = workspace.viewer.id
   useEffect(() => {
     if (
       !notificationId ||
@@ -191,6 +192,7 @@ export function PrototypeScreen({
     const controller = new AbortController()
     void acknowledgeInboxActivity(
       {
+        viewerId,
         notificationId,
         prototypeId: data.prototype.id,
         threadId: commentId,
@@ -201,7 +203,7 @@ export function PrototypeScreen({
       if (!controller.signal.aborted) setFailedNotification(notificationId)
     })
     return () => controller.abort()
-  }, [notificationId, commentId, messageId, targetExists, opened, data.prototype.id])
+  }, [notificationId, commentId, messageId, targetExists, opened, data.prototype.id, viewerId])
   let notificationError: string | undefined
   if (notificationId !== null) {
     if (!review.comments.loading && !targetExists) {

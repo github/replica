@@ -25,6 +25,7 @@ export interface WorkspaceNavData extends WorkspaceAccountData {
   notificationsPath?: string
   notificationsUnread?: boolean
   inboxPreviewScope?: string
+  inboxViewerId?: string
   navigationLabel: string
   settingsNavigationLabel?: string
   selectedSection?:

@@ -22,7 +22,7 @@ Review search and participant filters use `commentSearch` and `commentParticipan
 
 Closing a conversation removes `comment`; browser back/forward restores the selection and filters.
 
-Repository pages, Hub settings and Public sharing use one [workspace navigation definition](../client/application/hub/view-models/workspace-navigation/index.ts) for labels, ordering, destinations and visibility. Repository navigation adds its repository-specific links without redefining Hub settings. Current settings permissions, hidden Welcome state and unread counts replace cached workspace values before navigation is assembled.
+Repository pages, Hub settings and Public sharing use one [workspace navigation definition](../client/application/hub/view-models/workspace-navigation/index.ts) for labels, ordering, destinations and visibility. Repository navigation adds its repository-specific links without redefining Hub settings. Current settings permissions, hidden Welcome state and the Inbox unread indicator come from the workspace response.
 
 Workspace navigation carries `repositoryId` into Hub-wide pages. The ID selects navigation only from repositories the session can already read. A direct visit with no readable selection uses the first available repository. Without a readable repository, the picker shows **No repository selected** and the **Prototypes** link and available Hub-wide controls stay visible. The `/repositories` entry point opens the selected gallery when one exists.
 
@@ -122,7 +122,7 @@ History loads only the requested page and any successful Build pinned by `build`
 
 ### Workspace projections
 
-`GET /api/workspace?view=navigation` returns the signed-in viewer, readable repositories, Hub preferences, and the [Inbox unread indicator](review-collaboration.md#inbox-and-live-review). It does not check live GitHub repository permissions. If the unread lookup fails, Hub omits the indicator rather than blocking navigation. `GET /api/workspace` retains the full response and checks management permissions for the selected repository. Both views verify the session and scope repositories to the viewer's access.
+`GET /api/workspace?view=navigation` returns the signed-in viewer, readable repositories, Hub preferences, and the [Inbox unread indicator](review-collaboration.md#inbox-and-live-review). It does not check live GitHub repository permissions. If the unread lookup fails or takes too long, Hub omits the indicator rather than blocking navigation. `GET /api/workspace` retains the full response and checks management permissions for the selected repository. Both views verify the session and scope repositories to the viewer's access.
 
 ### Prototype metadata edits
 

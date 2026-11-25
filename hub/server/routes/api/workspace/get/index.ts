@@ -1,9 +1,10 @@
+import { setTimeout as delay } from "node:timers/promises"
+
 import type { RequestHandler } from "express"
 import { z } from "zod"
 
 import { hashAuthenticationValue } from "../../../../domains/authentication/hash-authentication-value/index.ts"
 import { authorizeRepositoryReview } from "../../../../domains/review-comments/authorize-repository-review/index.ts"
-import { Prisma } from "../../../../generated/prisma/client.ts"
 import { hubSessionCookieName } from "../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../../../integrations/express/read-cookie/index.ts"
 import { GitHubProviderRequestError } from "../../../../integrations/github/errors.ts"
@@ -13,6 +14,8 @@ import { readProductSession } from "../../product/read-product-session/index.ts"
 import { readProductWithCurrentAuthority } from "../../product/read-product-with-current-authority/index.ts"
 import { canBrowseTemplates } from "../../product/template-repository-access/index.ts"
 import type { WorkspaceProductRouteDependencies } from "../../product/types.ts"
+
+const inboxUnreadBudgetMs = 250
 
 export function get(
   session: CurrentSessionDependencies,
@@ -40,14 +43,20 @@ export function get(
           ])
           let inboxHasUnread: boolean | undefined
           if (navigationOnly && product.reviewInbox) {
+            const sessionDigest = hashAuthenticationValue(cookie)
+            const deadline = new AbortController()
             try {
-              inboxHasUnread = await product.reviewInbox.hasUnread(
-                { viewer, sessionDigest: hashAuthenticationValue(cookie) },
-                repositories,
-              )
-            } catch (error) {
-              if (!(error instanceof Prisma.PrismaClientKnownRequestError)) throw error
-              request.log.warn({ code: error.code }, "Inbox unread status unavailable")
+              inboxHasUnread = await Promise.race([
+                product.reviewInbox.hasUnread({ viewer, sessionDigest }, repositories),
+                delay(inboxUnreadBudgetMs, undefined, { signal: deadline.signal, ref: false }),
+              ])
+              if (inboxHasUnread === undefined) {
+                request.log.warn("Inbox unread lookup exceeded its deadline")
+              }
+            } catch {
+              request.log.warn("Inbox unread status unavailable")
+            } finally {
+              deadline.abort()
             }
           }
           const requested = selectedRepository.success

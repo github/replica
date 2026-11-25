@@ -53,7 +53,7 @@ Inbox lists only the viewer's accessible activity and returns a total unread cou
 
 `GET /api/notifications/inbox` accepts `unread`, `limit`, and `before`. `GET /api/notifications/:notificationId` returns one authorized notice. `PATCH /api/notifications/:notificationId` accepts `{ notification: { read, version } }` and returns the saved read state and version. Single-notice requests verify only the notice's repository. After saving a read change, the browser checks for new activity before clearing the unread count or leaving the Unread view empty.
 
-The workspace navigation response includes only whether the viewer has eligible unread activity. For GitHub sessions, including Hub administrators, this dot uses stored repository grants. It can lag a GitHub access change until Hub updates those grants. Hub still checks access live when it returns Inbox details or changes notice state.
+The workspace navigation response includes only whether the viewer has eligible unread activity. For GitHub sessions, including Hub administrators, this dot uses stored repository grants. It can lag a GitHub access change until Hub updates those grants. Hub still checks access live when it returns Inbox details or changes notice state. If a preview read change finishes while the same viewer has the Inbox open, the Inbox refreshes its list and count.
 
 Opening a notice marks that notice as read once its target message is shown, even when another notice already focused the same message.
 

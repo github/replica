@@ -4,7 +4,13 @@ import { notifyInboxRead } from "@utils/notification/read-updates"
 import { requestJson } from "../request-json"
 
 export async function acknowledgeInboxActivity(
-  input: { notificationId: number; prototypeId: string; threadId: number; commentId: number },
+  input: {
+    viewerId: string
+    notificationId: number
+    prototypeId: string
+    threadId: number
+    commentId: number
+  },
   signal: AbortSignal,
 ) {
   const url = new URL(`/api/notifications/${input.notificationId}`, window.location.origin)
@@ -24,6 +30,7 @@ export async function acknowledgeInboxActivity(
       signal,
       body: JSON.stringify({ notification: { read: true, version: notice.version } }),
     })
-    if (!signal.aborted) notifyInboxRead({ id: notice.id, saved, startedAt })
+    if (!signal.aborted)
+      notifyInboxRead({ viewerId: input.viewerId, id: notice.id, saved, startedAt })
   }
 }

@@ -21,7 +21,7 @@ export function useNotificationInbox({
   initialUnreadOnly = false,
   unreadOnly: controlledUnreadOnly,
   autoLoad = true,
-  synchronize = false,
+  viewerId,
   limit = 50,
   onReadChange,
   onUnreadCountChange,
@@ -32,11 +32,12 @@ export function useNotificationInbox({
   initialUnreadOnly?: boolean
   unreadOnly?: boolean
   autoLoad?: boolean
-  synchronize?: boolean
+  viewerId?: string
   limit?: number
   onReadChange?: (id: number, saved: NotificationReadUpdate) => void
   onUnreadCountChange?: (count: number | null) => void
 }) {
+  const synchronize = viewerId !== undefined
   const [localUnreadOnly, setUnreadOnly] = useState(initialUnreadOnly)
   const unreadOnly = controlledUnreadOnly ?? localUnreadOnly
   const [notifications, setNotifications] = useState<InboxNotification[]>([])
@@ -236,8 +237,9 @@ export function useNotificationInbox({
     }
   }
 
-  const receiveReadUpdate = useEffectEvent(({ id, saved, startedAt }: InboxReadUpdate) => {
-    if (ownReadUpdate.current === saved) return
+  const receiveReadUpdate = useEffectEvent((update: InboxReadUpdate) => {
+    const { id, saved, startedAt } = update
+    if (update.viewerId !== viewerId || ownReadUpdate.current === saved) return
     const reloadList = loaded.current || autoLoad || loading
     const needsCount = reloadList && needsCountRefresh(saved, startedAt)
     applyReadUpdate(id, saved, !needsCount)
@@ -270,10 +272,8 @@ export function useNotificationInbox({
         }),
       })
       requireInboxResponse(response)
-      if (requestGeneration !== generation.current) return
 
       saved = NOTIFICATION_READ_SCHEMA.parse(await response.json())
-      if (requestGeneration !== generation.current) return
       if (saved.read !== !notification.read)
         throw new Error("Notification read state did not change")
     } catch (error) {
@@ -283,12 +283,15 @@ export function useNotificationInbox({
       return
     }
 
+    // The save can finish after the preview unmounts while the same viewer's Inbox is open.
+    if (viewerId !== undefined) {
+      if (requestGeneration === generation.current) ownReadUpdate.current = saved
+      notifyInboxRead({ viewerId, id: notification.id, saved, startedAt })
+    }
+    if (requestGeneration !== generation.current) return
+
     const needsCount = needsCountRefresh(saved, startedAt)
     const { count, refill } = applyReadUpdate(notification.id, saved, !needsCount)
-    if (synchronize) {
-      ownReadUpdate.current = saved
-      notifyInboxRead({ id: notification.id, saved, startedAt })
-    }
     callbacks.current.onReadChange?.(notification.id, saved)
     if (!needsCount) callbacks.current.onUnreadCountChange?.(count)
     if (needsCount || refill) {

@@ -405,6 +405,78 @@ describe("real workspace navigation", () => {
     expect(screen.getByRole("link", dot)).toBeVisible()
   }, 15_000)
 
+  it("refreshes the full Inbox when a preview read finishes after navigation", async () => {
+    const repository = {
+      id: "11111111-1111-4111-8111-111111111111",
+      nameWithOwner: "team/alpha",
+      defaultBranch: "main",
+      capabilities: { reviewPrototypes: true, manageSharing: false },
+    }
+    const mention = unreadMention(repository, "33333333-3333-4333-8333-333333333333")
+    const readUpdate = { read: true, version: mention.version + 1 }
+    const save = deferResponse()
+    const patch = vi.fn()
+    let saved = false
+    let refreshedInbox = false
+    await renderApplication(`/repositories/${repository.id}`, [
+      ...workspaceApi([repository], {
+        reviewInboxAvailable: true,
+        respondToWorkspace(request, workspace) {
+          return Response.json(
+            new URL(request.url).searchParams.get("view") === "navigation"
+              ? { ...workspace, inboxHasUnread: true }
+              : workspace,
+          )
+        },
+      }),
+      galleryApi(repository),
+      http.get("/api/notifications/inbox", ({ request }) => {
+        if (saved && new URL(request.url).searchParams.get("limit") === "50") {
+          refreshedInbox = true
+        }
+        return Response.json({
+          notifications: [saved ? { ...mention, ...readUpdate } : mention],
+          nextBefore: null,
+          unreadCount: saved ? 0 : 1,
+        })
+      }),
+      http.patch(mention.updatePath, async ({ request }) => {
+        patch(await request.json())
+        await save.pending
+        saved = true
+        return Response.json(readUpdate)
+      }),
+    ])
+
+    const dot = { name: "Inbox, unread notifications" }
+    const markRead = { name: `Mark as read: ${mention.actor.login}` }
+    fireEvent.mouseEnter(screen.getByRole("link", dot))
+    const preview = await screen.findByRole("region", { name: "Inbox" })
+    fireEvent.click(await within(preview).findByRole("button", markRead))
+    await waitFor(() =>
+      expect(patch).toHaveBeenCalledExactlyOnceWith({
+        notification: { read: true, version: mention.version },
+      }),
+    )
+
+    fireEvent.click(within(preview).getByRole("link", { name: "View all" }))
+    expect(await screen.findByRole("heading", { name: "Inbox", level: 1 })).toBeVisible()
+    expect(preview).not.toBeInTheDocument()
+    const inbox = screen.getByRole("region", { name: "Inbox" })
+    expect(await within(inbox).findByRole("button", markRead)).toBeVisible()
+    expect(within(inbox).getByLabelText(/^1 unread\b/)).toBeVisible()
+
+    save.release()
+    expect(
+      await within(inbox).findByRole("button", { name: `Mark as unread: ${mention.actor.login}` }),
+    ).toBeVisible()
+    await waitFor(() => {
+      expect(refreshedInbox).toBe(true)
+      expect(within(inbox).queryByLabelText(/^\d+ unread\b/)).not.toBeInTheDocument()
+    })
+    expect(screen.getByRole("link", dot)).toBeVisible()
+  })
+
   it("loads older Inbox activity and restarts paging when Unread is selected", async () => {
     const repository = {
       id: "11111111-1111-4111-8111-111111111111",

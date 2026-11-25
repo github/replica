@@ -12,7 +12,7 @@ export function RealInboxScreen({ workspace }: { workspace: WorkspaceResponse })
     path: notificationInboxConfiguration.path,
     authenticityToken: "",
     unreadOnly: search.get("unread") === "true",
-    synchronize: true,
+    viewerId: workspace.viewer.id,
   })
   return (
     <NotificationsPage
