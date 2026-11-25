@@ -323,7 +323,12 @@ describe("listDueLearningRepositories()", () => {
   it("finds review evidence committed after snapshot capture with an earlier timestamp", async () => {
     const repositoryId = randomUUID()
     await prisma.repository.create({
-      data: { id: repositoryId, nameWithOwner: "team/during-run", defaultBranch: "main" },
+      data: {
+        id: repositoryId,
+        githubRepositoryId: 107n,
+        nameWithOwner: "team/during-run",
+        defaultBranch: "main",
+      },
     })
     const thread = await createReviewEvidence({
       repositoryId,

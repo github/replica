@@ -1,11 +1,17 @@
 import { access } from "node:fs/promises"
 import { resolve } from "node:path"
 
+import { learningStoreArguments } from "../learning-store-arguments/index.ts"
+
 export async function processReviewCommentRedaction(
   input: { repositoryId: string; commentId: number; actor: string },
   dependencies: {
     root: string
-    prepare(repositoryId: string): Promise<{ directory: string; repositoryScope: string }>
+    prepare(repositoryId: string): Promise<{
+      directory: string
+      repositoryScope: string
+      repositoryId: string
+    }>
     runCommand(arguments_: string[], options: { signal: AbortSignal }): Promise<unknown>
     markComplete(input: {
       repositoryId: string
@@ -32,10 +38,7 @@ export async function processReviewCommentRedaction(
         input.commentId.toString(),
         "--by",
         input.actor,
-        "--dir",
-        store.directory,
-        "--repository",
-        store.repositoryScope,
+        ...learningStoreArguments(store),
       ],
       { signal },
     )

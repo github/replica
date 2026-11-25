@@ -74,19 +74,19 @@ describe("withoutCredentials", () => {
 })
 
 describe("scopeFromName", () => {
-  it("reads host/owner/name in lowercase", () => {
-    assert.deepEqual(scopeFromName("GitHub.com/Acme/Checkout-Prototypes"), {
+  it("accepts a GitHub repository ID and rejects invalid numeric IDs", () => {
+    assert.deepEqual(scopeFromName("github.com/repositories/123456"), {
       host: "github.com",
-      repository: "acme/checkout-prototypes",
+      repository: "repositories/123456",
     })
-    assert.deepEqual(scopeFromName("replica.localhost:19500/local/checkout"), {
-      host: "replica.localhost:19500",
-      repository: "local/checkout",
-    })
+    for (const id of ["0", "-1", "1.5"])
+      assert.equal(scopeFromName(`github.com/repositories/${id}`), null, id)
   })
 
-  it("refuses anything that is not exactly host/owner/name", () => {
+  it("refuses a name or anything that is not a GitHub repository ID", () => {
     for (const name of [
+      "github.com/acme/checkout-prototypes",
+      "replica.localhost:19500/repositories/123456",
       "acme/checkout-prototypes",
       "github.com/acme",
       "github.com/acme/checkout-prototypes/extra",

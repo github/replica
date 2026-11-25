@@ -82,6 +82,7 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
   const target = path.join(root, file)
   let db = null
   let statements = null
+  let migrating = false
 
   /**
    * Refuse the database, or a file SQLite keeps beside it, unless it is this provider's own.
@@ -97,6 +98,8 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
 
   /** The open database, or null when nobody wrote one and this call only reads. */
   function connect({ create }) {
+    if (migrating)
+      throw new LearningError("conflict", "This provider is migrating a repository scope.")
     if (db) return db
     if (existsSync(root)) assertOwnFiles()
     if (!create && !lstatSync(target, { throwIfNoEntry: false })) return null
@@ -296,6 +299,22 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
       return select(database, query, { table: "memory_versions", time: "updated_at" })
     },
 
+    async legacyScopes() {
+      const database = connect({ create: false })
+      if (!database) return []
+      const rows = database
+        .prepare("select scope_key from records union select scope_key from memory_versions")
+        .all()
+      return rows
+        .map((row) => JSON.parse(row.scope_key))
+        .filter(
+          (scope) =>
+            scope.host === "github.com" &&
+            typeof scope.repository === "string" &&
+            !/^repositories\/[1-9][0-9]*$/.test(scope.repository),
+        )
+    },
+
     /**
      * Replace one event with its redacted copy. secure_delete overwrites the old text in the
      * database pages, and the checkpoint empties the write-ahead log, unless a reader in another
@@ -317,7 +336,156 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
       return result
     },
 
+    /**
+     * migrateScope({ oldScope, newScope, transform }) locks both scopes, passes their source
+     * rows to async transform({ records, memories }), then atomically stores its returned
+     * { records, memories, metadata }. Retrying returns the same metadata. A durable trigger
+     * refuses later writes to the old scope, including writes from older provider processes.
+     */
+    async migrateScope({ oldScope, newScope, transform }) {
+      const database = connect({ create: true })
+      assertPrivate(root)
+      assertPrivate(target)
+      assertOwnFiles()
+      const oldKey = canonicalJson(oldScope)
+      const newKey = canonicalJson(newScope)
+      migrating = true
+      let started = false
+      try {
+        database.exec("begin immediate")
+        started = true
+        database.exec(`
+          create table if not exists scope_migrations (
+            old_scope_key text primary key,
+            new_scope_key text not null unique,
+            metadata text not null
+          );
+          create trigger if not exists migrated_records_insert before insert on records
+          when exists (select 1 from scope_migrations where old_scope_key = new.scope_key)
+          begin select raise(abort, 'repository scope has migrated'); end;
+          create trigger if not exists migrated_records_update before update on records
+          when exists (select 1 from scope_migrations where old_scope_key = old.scope_key
+                       or old_scope_key = new.scope_key)
+          begin select raise(abort, 'repository scope has migrated'); end;
+          create trigger if not exists migrated_memories_insert before insert on memory_versions
+          when exists (select 1 from scope_migrations where old_scope_key = new.scope_key)
+          begin select raise(abort, 'repository scope has migrated'); end;
+          create trigger if not exists migrated_memories_update before update on memory_versions
+          when exists (select 1 from scope_migrations where old_scope_key = old.scope_key
+                       or old_scope_key = new.scope_key)
+          begin select raise(abort, 'repository scope has migrated'); end;
+        `)
+        const previous = database
+          .prepare("select new_scope_key, metadata from scope_migrations where old_scope_key = ?")
+          .get(oldKey)
+        if (previous) {
+          if (previous.new_scope_key !== newKey)
+            throw new LearningError("conflict", "The old scope was migrated to another repository.")
+          const metadata = JSON.parse(previous.metadata)
+          database.exec("commit")
+          started = false
+          return metadata
+        }
+        if (database.prepare("select 1 from scope_migrations where new_scope_key = ?").get(oldKey))
+          throw new LearningError("conflict", "The source scope is already a migration target.")
+        const used = database
+          .prepare(
+            `
+            select 1 from records where scope_key = ?
+            union all select 1 from memory_versions where scope_key = ?
+            union all select 1 from scope_migrations where old_scope_key = ? or new_scope_key = ?
+            limit 1`,
+          )
+          .get(newKey, newKey, newKey, newKey)
+        if (used)
+          throw new LearningError("conflict", "The target repository scope is already in use.")
+        const rows = database
+          .prepare(
+            "select seq, stream, id, scope_key, occurred_at, episode_id, digest, body from records where scope_key = ? order by seq",
+          )
+          .all(oldKey)
+        const versions = database
+          .prepare(
+            "select seq, id, version, scope_key, updated_at, digest, body from memory_versions where scope_key = ? order by seq",
+          )
+          .all(oldKey)
+        const otherVersions = database.prepare(
+          "select 1 from memory_versions where id = ? and scope_key != ? limit 1",
+        )
+        for (const id of new Set(versions.map((row) => row.id)))
+          if (otherVersions.get(id, oldKey))
+            throw new LearningError("storage_corrupt", `Memory ${id} spans repository scopes.`)
+        const records = Object.fromEntries(Object.keys(STREAMS).map((stream) => [stream, []]))
+        for (const row of rows) {
+          if (!Object.hasOwn(records, row.stream))
+            throw new LearningError("storage_corrupt", `Unknown stored stream ${row.stream}.`)
+          const record = JSON.parse(row.body)
+          if (
+            row.id !== record.id ||
+            row.scope_key !== canonicalJson(record.scope) ||
+            row.digest !== record.digest ||
+            row.occurred_at !== text(record[STREAMS[row.stream]]) ||
+            row.episode_id !== text(row.stream === "episodes" ? record.id : record.episodeId)
+          )
+            throw new LearningError("storage_corrupt", `Inconsistent ${row.stream} row ${row.id}.`)
+          records[row.stream].push(record)
+        }
+        const memories = versions.map((row) => {
+          const record = JSON.parse(row.body)
+          if (
+            row.id !== record.id ||
+            row.version !== record.version ||
+            row.scope_key !== canonicalJson(record.scope) ||
+            row.digest !== record.digest ||
+            row.updated_at !== text(record.updatedAt)
+          )
+            throw new LearningError("storage_corrupt", `Inconsistent memory row ${row.id}.`)
+          return record
+        })
+        const result = await transform({ records, memories })
+        const offsets = Object.fromEntries(Object.keys(STREAMS).map((stream) => [stream, 0]))
+        const updateRecord = database.prepare(
+          "update records set scope_key = ?, digest = ?, body = ? where seq = ?",
+        )
+        for (const row of rows) {
+          const record = result.records[row.stream][offsets[row.stream]++]
+          if (!record || record.id !== row.id || canonicalJson(record.scope) !== newKey)
+            throw new LearningError("storage_corrupt", "Migration changed a record identity.")
+          updateRecord.run(newKey, record.digest, JSON.stringify(record), row.seq)
+        }
+        const updateMemory = database.prepare(
+          "update memory_versions set scope_key = ?, digest = ?, body = ? where seq = ?",
+        )
+        for (const [index, row] of versions.entries()) {
+          const record = result.memories[index]
+          if (
+            !record ||
+            record.id !== row.id ||
+            record.version !== row.version ||
+            canonicalJson(record.scope) !== newKey
+          )
+            throw new LearningError("storage_corrupt", "Migration changed a memory identity.")
+          updateMemory.run(newKey, record.digest, JSON.stringify(record), row.seq)
+        }
+        database
+          .prepare(
+            "insert into scope_migrations (old_scope_key, new_scope_key, metadata) values (?, ?, ?)",
+          )
+          .run(oldKey, newKey, JSON.stringify(result.metadata))
+        database.exec("commit")
+        started = false
+        return result.metadata
+      } catch (error) {
+        if (started) database.exec("rollback")
+        throw error
+      } finally {
+        migrating = false
+      }
+    },
+
     async close() {
+      if (migrating)
+        throw new LearningError("conflict", "This provider is migrating a repository scope.")
       db?.close()
       db = null
       statements = null

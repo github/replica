@@ -108,9 +108,14 @@ const TRANSITIONS = {
  * own access: the scope from the checkout or an authenticated session, never from agent
  * input, and the principal from the person or agent acting.
  *
- * @param {{ provider: object, clock?: () => number }} options
+ * @param {{ provider: object, clock?: () => number, legacyScopes?: object[], digestMappings?: Record<string, string> }} options
  */
-export async function createLearningStore({ provider, clock = Date.now } = {}) {
+export async function createLearningStore({
+  provider,
+  clock = Date.now,
+  legacyScopes = [],
+  digestMappings = {},
+} = {}) {
   if (!provider || typeof provider.manifest !== "function")
     throw new LearningError("provider_incompatible", "A learning store needs a memory provider.")
   const manifest = provider.manifest()
@@ -139,7 +144,7 @@ export async function createLearningStore({ provider, clock = Date.now } = {}) {
       "provider_incompatible",
       `Provider ${manifest.id} does not implement ${absent.join(", ")}.`,
     )
-  return new LearningStore(provider, manifest, clock)
+  return new LearningStore(provider, manifest, clock, legacyScopes, digestMappings)
 }
 
 /** Why a scope is malformed, or null when it is well formed. */
@@ -382,11 +387,17 @@ class LearningStore {
   #provider
   #manifest
   #clock
+  #legacyScopes
+  #originalDigests
 
-  constructor(provider, manifest, clock) {
+  constructor(provider, manifest, clock, legacyScopes, digestMappings) {
     this.#provider = provider
     this.#manifest = manifest
     this.#clock = clock
+    this.#legacyScopes = legacyScopes
+    this.#originalDigests = new Map(
+      Object.entries(digestMappings).map(([original, current]) => [current, original]),
+    )
   }
 
   /** The provider manifest the store checked when it opened. */
@@ -1180,7 +1191,25 @@ class LearningStore {
           `Grant ${grantId} does not currently permit review.`,
         )
     }
-    const collection = readHubReviewCollection(log, { repository: context.scope.repository })
+    const repository = context.sourceRepository ?? context.scope.repository
+    let collection
+    let historicalSource = false
+    try {
+      collection = readHubReviewCollection(log, { repository })
+    } catch (error) {
+      if (error.code !== "scope_violation") throw error
+      for (const scope of this.#legacyScopes) {
+        if (scope.repository === repository) continue
+        try {
+          collection = readHubReviewCollection(log, { repository: scope.repository })
+          historicalSource = true
+          break
+        } catch (legacyError) {
+          if (legacyError.code !== "scope_violation") throw legacyError
+        }
+      }
+      if (!collection) throw error
+    }
     const { snapshotId } = collection.meta
     const snapshotDigest = digestOf({
       meta: collection.meta,
@@ -1201,7 +1230,12 @@ class LearningStore {
         item.source.hubOrigin === collection.meta.hubOrigin &&
         item.source.repositoryId === collection.meta.repositoryId,
     )
-    const previous = collections.find((item) => item.id === id)
+    const previous = collections.find((item) => item.snapshotId === snapshotId)
+    if (historicalSource && !previous)
+      throw new LearningError(
+        "scope_violation",
+        "An earlier repository name may only be used to replay a snapshot already in this store.",
+      )
     if (previous && previous.snapshotDigest !== snapshotDigest) throw reused
     const newer = collections.some(
       (item) =>
@@ -1215,17 +1249,25 @@ class LearningStore {
         "conflict",
         `Snapshot ${snapshotId} is older than a snapshot already imported from this Hub repository, so nothing was imported. Collect a new snapshot and import that.`,
       )
-    const episodeIds = collection.threads.map((thread) =>
-      hubEpisodeId(context.scope, collection.meta, thread.root),
+    const candidateIds = collection.threads.map((thread) =>
+      [context.scope, ...this.#legacyScopes].map((scope) =>
+        hubEpisodeId(scope, collection.meta, thread.root),
+      ),
     )
-    const stored = await this.#read("episodes", context, { ids: episodeIds })
+    const stored = await this.#read("episodes", context, { ids: unique(candidateIds.flat()) })
     const known = new Set(stored.map((episode) => episode.id))
+    const episodeIds = candidateIds.map((ids) => {
+      const matches = unique(ids.filter((id) => known.has(id)))
+      if (matches.length > 1)
+        throw new LearningError("conflict", "This thread has more than one stored episode.")
+      return matches[0] ?? ids[0]
+    })
     const existingEvents = await this.#read("events", context, { episodeIds })
     const episodes = []
     const events = []
-    for (const thread of collection.threads) {
+    for (const [index, thread] of collection.threads.entries()) {
       if (newer) continue
-      const episodeId = hubEpisodeId(context.scope, collection.meta, thread.root)
+      const episodeId = episodeIds[index]
       if (!known.has(episodeId))
         episodes.push(
           sealEpisode(
@@ -1711,16 +1753,29 @@ class LearningStore {
           `Lifecycle target ${target} is not an intact accepted memory.`,
         )
     }
-    let id = proposal.themeKey
-      ? derivedId("mem", {
-          scope: context.scope,
-          consolidator: proposal.consolidator.id,
-          themeKey: proposal.themeKey,
-        })
-      : derivedId("mem", { scope: context.scope, proposal: digestOf(proposal) })
+    function proposalId(scope) {
+      return proposal.themeKey
+        ? derivedId("mem", {
+            scope,
+            consolidator: proposal.consolidator.id,
+            themeKey: proposal.themeKey,
+          })
+        : derivedId("mem", { scope, proposal: digestOf(proposal) })
+    }
+    function findExisting(candidates) {
+      const matches = unique(candidates.filter((candidate) => entries.has(candidate)))
+      if (matches.length > 1)
+        throw new LearningError("conflict", "This proposal has more than one stored history.")
+      return matches[0] ?? candidates[0]
+    }
+    let id = findExisting([context.scope, ...this.#legacyScopes].map(proposalId))
     let latest = entries.get(id)?.record
     while (latest && latest.state !== "proposed") {
-      id = derivedId("mem", { after: latest.digest })
+      const original = this.#originalDigests.get(latest.digest)
+      id = findExisting([
+        derivedId("mem", { after: latest.digest }),
+        ...(original ? [derivedId("mem", { after: original })] : []),
+      ])
       latest = entries.get(id)?.record
     }
     if (latest && entries.get(id).problems.length)

@@ -6,6 +6,7 @@ import { z } from "zod"
 import { classifyPrismaTransactionError } from "../../../integrations/prisma/classify-transaction-error/index.ts"
 import { LearningCommandError } from "../../../integrations/learning/run-learning-command/errors.ts"
 import { runWithBoundedRetries } from "../../identity/run-with-bounded-retries/index.ts"
+import { learningStoreArguments } from "../learning-store-arguments/index.ts"
 
 const grantListSchema = z.array(
   z
@@ -63,6 +64,8 @@ export async function processLearningRun(
     capture(repositoryId: string): Promise<{
       collection: unknown
       digest: string
+      legacyDigest: string
+      repositoryScope: string
       capturedAt: Date
       reviewActivitySnapshot: Record<string, number>
     }>
@@ -95,7 +98,11 @@ export async function processLearningRun(
     now(): Date
     hasPendingUserRun(): Promise<boolean>
     isRepositoryAvailable(repositoryId: string): Promise<boolean>
-    prepare(repositoryId: string): Promise<{ directory: string; repositoryScope: string }>
+    prepare(repositoryId: string): Promise<{
+      directory: string
+      repositoryScope: string
+      repositoryId: string
+    }>
     authorizeRepositoryAdministration(membershipId: string, repositoryId: string): Promise<boolean>
     refuseCredential?(): Promise<void>
     runCommand(
@@ -167,14 +174,23 @@ export async function processLearningRun(
         actor = `human:${requester}`
       }
       const snapshot = await dependencies.capture(current.repositoryId)
-      if (snapshot.digest !== current.snapshotDigest) {
+      if (
+        snapshot.digest !== current.snapshotDigest &&
+        snapshot.legacyDigest !== current.snapshotDigest
+      ) {
         throw new LearningCommandError(
           "snapshot_changed",
           "Repository review comments changed before this learning run started. Request another run.",
         )
       }
       const store = await dependencies.prepare(current.repositoryId)
-      const common = ["--dir", store.directory, "--repository", store.repositoryScope]
+      if (store.repositoryScope !== snapshot.repositoryScope) {
+        throw new LearningCommandError(
+          "snapshot_changed",
+          "The repository learning scope changed before this run started. Request another run.",
+        )
+      }
+      const common = learningStoreArguments(store)
       const grants = grantListSchema.parse(
         await dependencies.runCommand(["grants", "list", ...common], { signal }),
       )
@@ -316,6 +332,14 @@ export async function processLearningRun(
           current.scheduled
             ? "The repository is no longer available for automatic learning."
             : "The person who requested this run is no longer a repository administrator.",
+        )
+      }
+      if (
+        (await dependencies.prepare(current.repositoryId)).repositoryScope !== store.repositoryScope
+      ) {
+        throw new LearningCommandError(
+          "snapshot_changed",
+          "The repository learning scope changed during this run. Request another run.",
         )
       }
       const consolidated = consolidateSchema.parse(

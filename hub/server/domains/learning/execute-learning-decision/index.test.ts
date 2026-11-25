@@ -22,6 +22,14 @@ describe("executeLearningDecision()", () => {
       vi.mocked(validatePrivateStorageRoot).mockResolvedValue(directory)
       vi.mocked(runLearningCommand).mockImplementation(async (arguments_) => {
         expect(arguments_).not.toContain("-private repository context")
+        expect(arguments_).toEqual(
+          expect.arrayContaining([
+            "--repository",
+            "github.com/repositories/123",
+            "--legacy-repository",
+            "github.com/repositories/11111111-2222-4333-8444-555555555555",
+          ]),
+        )
         const index = arguments_.indexOf("--reason-file")
         expect(index).toBeGreaterThan(-1)
         const path = arguments_[index + 1]
@@ -40,6 +48,7 @@ describe("executeLearningDecision()", () => {
           nodePath: "/node",
           operationId: "22222222-2222-4222-8222-222222222222",
           repositoryId: "11111111-2222-4333-8444-555555555555",
+          repositoryScope: "github.com/repositories/123",
           root: "/private/learning",
           staticDirectories: [],
         }),
@@ -64,6 +73,7 @@ describe("executeLearningDecision()", () => {
         nodePath: "/node",
         operationId: "22222222-2222-4222-8222-222222222222",
         repositoryId: "11111111-2222-4333-8444-555555555555",
+        repositoryScope: "github.com/repositories/123",
         root: "/private/learning",
         staticDirectories: [],
       }),

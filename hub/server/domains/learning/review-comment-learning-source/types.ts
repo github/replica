@@ -32,6 +32,8 @@ export interface ReviewCommentLearningSource {
   captureCompleteSnapshot(input: { repositoryId: string }): Promise<{
     collection: unknown
     digest: `sha256:${string}`
+    legacyDigest: `sha256:${string}`
+    repositoryScope: string
     capturedAt: Date
     reviewActivitySnapshot: Record<string, number>
   }>

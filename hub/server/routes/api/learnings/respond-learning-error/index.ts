@@ -12,7 +12,12 @@ export function respondLearningError(response: Response, error: unknown): boolea
     return true
   }
   if (error instanceof LearningCommandError) {
-    const status = staleCodes.has(error.code) ? 409 : notFoundCodes.has(error.code) ? 404 : 422
+    const status =
+      staleCodes.has(error.code) || error.code === "repository_scope_unavailable"
+        ? 409
+        : notFoundCodes.has(error.code)
+          ? 404
+          : 422
     response.status(status).json({ code: error.code, error: error.message })
     return true
   }

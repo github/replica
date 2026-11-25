@@ -4,10 +4,10 @@
 //   npm run demo            remove the checkout afterwards
 //   npm run demo -- --keep  keep it and print its path
 import { execFileSync } from "node:child_process"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { REMOTE, weekOneLabels, weekOneLog } from "../conformance/fixtures.mjs"
+import { REMOTE, REPOSITORY, weekOneLabels, weekOneLog } from "../conformance/fixtures.mjs"
 import { main } from "../src/cli.mjs"
 
 const keep = process.argv.includes("--keep")
@@ -15,6 +15,19 @@ const repo = mkdtempSync(path.join(tmpdir(), "replica-learning-demo-"))
 execFileSync("git", ["init", "-q", repo])
 execFileSync("git", ["-C", repo, "remote", "add", "origin", REMOTE])
 writeFileSync(path.join(repo, ".gitignore"), ".replica/\n")
+mkdirSync(path.join(repo, ".replica", "learning"), { recursive: true, mode: 0o700 })
+writeFileSync(
+  path.join(repo, ".replica", "learning", "config.json"),
+  JSON.stringify({
+    schemaVersion: "replica.learning-config/v1",
+    githubRepository: {
+      id: "12345",
+      remote: `github.com/${REPOSITORY}`,
+      legacyRepository: REPOSITORY,
+    },
+  }),
+  { mode: 0o600 },
+)
 writeFileSync(path.join(repo, "hub-comments.json"), JSON.stringify(weekOneLog(), null, 2))
 writeFileSync(path.join(repo, "labels.json"), JSON.stringify(weekOneLabels(), null, 2))
 

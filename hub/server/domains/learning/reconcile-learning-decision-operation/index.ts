@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto"
 import { z } from "zod"
 
+import { learningStoreArguments } from "../learning-store-arguments/index.ts"
+
 const resultSchema = z
   .object({
     state: z.enum(["proposed", "accepted", "rejected", "retired"]).nullable(),
@@ -22,7 +24,11 @@ export async function reconcileLearningDecisionOperation(
       outcome: "succeeded" | "failed"
       reason?: string
     }): Promise<unknown>
-    prepare(repositoryId: string): Promise<{ directory: string; repositoryScope: string }>
+    prepare(repositoryId: string): Promise<{
+      directory: string
+      repositoryScope: string
+      repositoryId: string
+    }>
     runCommand(arguments_: string[], options: { signal: AbortSignal }): Promise<unknown>
     withLock<T>(run: (signal: AbortSignal) => Promise<T>): Promise<T>
   },
@@ -44,10 +50,7 @@ export async function reconcileLearningDecisionOperation(
           operation.learningId,
           "--operation-id",
           operation.id,
-          "--dir",
-          store.directory,
-          "--repository",
-          store.repositoryScope,
+          ...learningStoreArguments(store),
         ],
         { signal },
       ),

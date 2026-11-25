@@ -29,6 +29,11 @@ const work = mkdtempSync(path.join(tmpdir(), "replica-learning-cli-"))
 after(() => rmSync(work, { recursive: true, force: true }))
 const CLOCK = Date.parse("2026-10-09T12:00:00Z")
 const WINDOW = ["--from", "2026-09-29T00:00:00Z", "--to", "2026-10-05T18:00:00Z"]
+const GITHUB_REPOSITORY = {
+  id: "123456",
+  remote: "github.com/acme/checkout-prototypes",
+  legacyRepository: "acme/checkout-prototypes",
+}
 
 function checkout(name, { remote = REMOTE, ignore = true } = {}) {
   const repo = path.join(work, name)
@@ -36,6 +41,16 @@ function checkout(name, { remote = REMOTE, ignore = true } = {}) {
   execFileSync("git", ["init", "-q", repo])
   if (remote) execFileSync("git", ["-C", repo, "remote", "add", "origin", remote])
   if (ignore) writeFileSync(path.join(repo, ".gitignore"), ".replica/\n")
+  if (ignore && remote?.includes("github.com")) {
+    mkdirSync(path.join(repo, ".replica", "learning"), { recursive: true, mode: 0o700 })
+    writeFileSync(
+      path.join(repo, ".replica", "learning", "config.json"),
+      JSON.stringify({
+        schemaVersion: "replica.learning-config/v1",
+        githubRepository: GITHUB_REPOSITORY,
+      }),
+    )
+  }
   writeFileSync(path.join(repo, "week-1.json"), JSON.stringify(weekOneLog()))
   writeFileSync(path.join(repo, "week-2.json"), JSON.stringify(weekTwoLog()))
   writeFileSync(path.join(repo, "labels.json"), JSON.stringify(weekOneLabels()))
@@ -315,6 +330,7 @@ describe("replica-learning CLI: the first learning milestone", () => {
       path.join(repo, ".replica", "learning", "config.json"),
       JSON.stringify({
         schemaVersion: "replica.learning-config/v1",
+        githubRepository: GITHUB_REPOSITORY,
         memory: { provider: { module: "./providers/json-file-provider.mjs" } },
       }),
     )
@@ -368,6 +384,7 @@ describe("replica-learning CLI: labeling with a labeler", () => {
       path.join(repo, ".replica", "learning", "config.json"),
       JSON.stringify({
         schemaVersion: "replica.learning-config/v1",
+        githubRepository: GITHUB_REPOSITORY,
         labeling: {
           labeler: { module: "./tools/labeler.mjs" },
           options: { theme: "visible-form-labels" },
@@ -642,12 +659,17 @@ describe("replica-learning CLI: labeling with a labeler", () => {
 })
 
 describe("replica-learning CLI: a store a host names", () => {
-  const HOSTED = ["--repository", "github.com/acme/checkout-prototypes"]
+  const HOSTED = ["--repository", "github.com/repositories/123456"]
+
+  function hostedLog(log) {
+    for (const call of log.calls) call.result.target.repository = "repositories/123456"
+    return log
+  }
 
   it("opens a store that no checkout holds", async () => {
     const outside = mkdtempSync(path.join(tmpdir(), "replica-learning-hosted-"))
     try {
-      writeFileSync(path.join(outside, "week-1.json"), JSON.stringify(weekOneLog()))
+      writeFileSync(path.join(outside, "week-1.json"), JSON.stringify(hostedLog(weekOneLog())))
       const store = ["--dir", "stores/42", ...HOSTED]
       const grant = (
         await ok(outside, [
@@ -678,7 +700,7 @@ describe("replica-learning CLI: a store a host names", () => {
       assert.ok(existsSync(path.join(outside, "stores", "42", "learning.sqlite")))
       const doctor = await ok(outside, ["doctor", ...store])
       assert.match(doctor.stdout, /Checkout: none; the program that ran this command names/)
-      assert.match(doctor.stdout, /Scope: github\.com\/acme\/checkout-prototypes from --repository/)
+      assert.match(doctor.stdout, /Scope: github\.com\/repositories\/123456 from --repository/)
       assert.match(doctor.stdout, /Data placement: outside any checkout/)
     } finally {
       rmSync(outside, { recursive: true, force: true })
@@ -688,8 +710,8 @@ describe("replica-learning CLI: a store a host names", () => {
   it("removes one deleted Hub comment by its ID, with no import and no active grant", async () => {
     const outside = mkdtempSync(path.join(tmpdir(), "replica-learning-hosted-"))
     try {
-      writeFileSync(path.join(outside, "week-1.json"), JSON.stringify(weekOneLog()))
-      writeFileSync(path.join(outside, "week-2.json"), JSON.stringify(weekTwoLog()))
+      writeFileSync(path.join(outside, "week-1.json"), JSON.stringify(hostedLog(weekOneLog())))
+      writeFileSync(path.join(outside, "week-2.json"), JSON.stringify(hostedLog(weekTwoLog())))
       writeFileSync(path.join(outside, "labels.json"), JSON.stringify(weekOneLabels()))
       const store = ["--dir", "stores/42", ...HOSTED]
       const by = ["--by", "github:ana-designer"]
@@ -761,9 +783,9 @@ describe("replica-learning CLI: a store a host names", () => {
       "--dir",
       ".replica/hosted",
       "--repository",
-      "github.com/acme/another-repository",
+      "github.com/repositories/654321",
     ])
-    assert.match(doctor.stdout, /Scope: github\.com\/acme\/another-repository from --repository/)
+    assert.match(doctor.stdout, /Scope: github\.com\/repositories\/654321 from --repository/)
   })
 
   it("keeps a store inside a checkout only where Git ignores it", async () => {
@@ -788,7 +810,7 @@ describe("replica-learning CLI: a store a host names", () => {
       "acme/checkout-prototypes",
     ])
     assert.equal(malformed.code, 1)
-    assert.match(malformed.stderr, /--repository must be host\/owner\/name/)
+    assert.match(malformed.stderr, /--repository must be github\.com\/repositories/)
   })
 })
 
@@ -796,10 +818,7 @@ describe("replica-learning CLI: guard rails", () => {
   it("explains its provider, scope, and directory", async () => {
     const repo = checkout("doctor")
     const result = await ok(repo, ["doctor"])
-    assert.match(
-      result.stdout,
-      /Scope: github\.com\/acme\/checkout-prototypes from git remote origin/,
-    )
+    assert.match(result.stdout, /Scope: github\.com\/repositories\/123456 from git remote origin/)
     assert.match(result.stdout, /Provider: sqlite .* sends data to nothing outside this machine/)
     assert.match(result.stdout, /Consolidator: recurrence/)
   })
@@ -854,7 +873,7 @@ describe("replica-learning CLI: guard rails", () => {
       assert.ok(!output.includes("ghp_example_secret"), output)
     assert.match(
       text.stdout,
-      /Scope: github\.com\/acme\/checkout-prototypes from git remote origin \(https:\/\/github\.com\/Acme\/checkout-prototypes\.git\)/,
+      /Scope: github\.com\/repositories\/123456 from git remote origin \(https:\/\/github\.com\/Acme\/checkout-prototypes\.git\)/,
     )
   })
 
@@ -951,10 +970,7 @@ describe("replica-learning CLI: guard rails", () => {
     assert.ok(JSON.stringify(selected).length < JSON.stringify(all).length)
     assert.deepEqual(
       (await ok(repo, ["observations", "--event", "ev_missingevent1", "--json"])).json(),
-      {
-        episodes: [],
-        events: [],
-      },
+      { episodes: [], events: [] },
     )
     assert.deepEqual((await ok(repo, ["observations", "--json"])).json(), all)
     const refused = await cli(repo, ["observations", "--event", "invalid", "--json"])
@@ -1108,6 +1124,7 @@ describe("replica-learning CLI: guard rails", () => {
         config,
         JSON.stringify({
           schemaVersion: "replica.learning-config/v1",
+          githubRepository: GITHUB_REPOSITORY,
           memory: { provider: { module } },
         }),
       )
@@ -1174,6 +1191,7 @@ describe("replica-learning CLI: guard rails", () => {
       path.join(repo, ".replica", "learning", "config.json"),
       JSON.stringify({
         schemaVersion: "replica.learning-config/v1",
+        githubRepository: GITHUB_REPOSITORY,
         memory: { provider: { module: "./providers/held-open-provider.mjs" } },
       }),
     )

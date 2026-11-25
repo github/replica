@@ -91,6 +91,7 @@ describe("getLearningOverview()", () => {
       evidenceSource: { resolveEvidence },
       nodePath: "/node",
       repositoryId: "11111111-2222-4333-8444-555555555555",
+      repositoryScope: "github.com/repositories/123",
       root: "/private/learning",
       staticDirectories: [],
       viewer: "github:mona",
@@ -137,6 +138,16 @@ describe("getLearningOverview()", () => {
       },
     ])
     expect(result.suggestions[0]?.otherEvidenceCount).toBe(1)
+    for (const [arguments_] of vi.mocked(runLearningCommand).mock.calls) {
+      expect(arguments_).toEqual(
+        expect.arrayContaining([
+          "--repository",
+          "github.com/repositories/123",
+          "--legacy-repository",
+          "github.com/repositories/11111111-2222-4333-8444-555555555555",
+        ]),
+      )
+    }
   })
 
   it("propagates an inaccessible store instead of reporting an empty overview", async () => {
@@ -148,6 +159,7 @@ describe("getLearningOverview()", () => {
         cliPath: "/app/replica-learning.mjs",
         nodePath: "/node",
         repositoryId: "11111111-2222-4333-8444-555555555555",
+        repositoryScope: "github.com/repositories/123",
         root: "/private/learning",
         staticDirectories: [],
         viewer: "human:mona",
@@ -209,6 +221,7 @@ describe("getLearningOverview()", () => {
       evidenceSource: { resolveEvidence },
       nodePath: "/node",
       repositoryId: "11111111-2222-4333-8444-555555555555",
+      repositoryScope: "github.com/repositories/123",
       root: "/private/learning",
       staticDirectories: [],
       viewer: "human:mona",

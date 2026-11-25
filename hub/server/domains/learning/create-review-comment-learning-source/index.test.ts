@@ -73,7 +73,14 @@ describe("createReviewCommentLearningSource()", () => {
       deletedAt: capturedAt,
     }
     capture.mockResolvedValue(value)
-    const source = createReviewCommentLearningSource({} as never, "https://hub.example.com")
+    const source = createReviewCommentLearningSource(
+      {
+        repository: {
+          findUnique: vi.fn().mockResolvedValue({ githubRepositoryId: 9007199254740993n }),
+        },
+      } as never,
+      "https://hub.example.com",
+    )
 
     const result = await source.captureCompleteSnapshot({ repositoryId })
     const collection = result.collection as {
@@ -89,6 +96,40 @@ describe("createReviewCommentLearningSource()", () => {
     expect(result.reviewActivitySnapshot).toEqual({
       "77777777-7777-4777-8777-777777777777": 1,
     })
+    expect(result.repositoryScope).toBe("github.com/repositories/9007199254740993")
+  })
+
+  it("does not capture review evidence without a GitHub repository ID", async () => {
+    const source = createReviewCommentLearningSource(
+      {
+        repository: { findUnique: vi.fn().mockResolvedValue({ githubRepositoryId: null }) },
+      } as never,
+      "https://hub.example.com",
+    )
+
+    await expect(source.captureCompleteSnapshot({ repositoryId })).rejects.toMatchObject({
+      code: "repository_scope_unavailable",
+    })
+    expect(capture).not.toHaveBeenCalled()
+  })
+
+  it("does not return a snapshot when the repository scope changes during capture", async () => {
+    capture.mockResolvedValue(snapshot())
+    const source = createReviewCommentLearningSource(
+      {
+        repository: {
+          findUnique: vi
+            .fn()
+            .mockResolvedValueOnce({ githubRepositoryId: 123n })
+            .mockResolvedValueOnce({ githubRepositoryId: 456n }),
+        },
+      } as never,
+      "https://hub.example.com",
+    )
+
+    await expect(source.captureCompleteSnapshot({ repositoryId })).rejects.toThrow(
+      "The repository learning scope changed during review capture.",
+    )
   })
 
   it("resolves only evidence whose source and observed comment version match", async () => {

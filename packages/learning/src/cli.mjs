@@ -9,6 +9,7 @@ import {
   openLabeler,
   openLearningStore,
   openProvider,
+  migrateScopeOffline,
   placementProblem,
   realLocation,
   resolveEnvironment,
@@ -38,6 +39,7 @@ Inspect
   operation-status <memory-id> --operation-id <uuid>
                                   Whether one host decision operation is in intact history
   verify                          Re-check every record's schema, digest, and history
+  migrate-scope --offline         Confirm and migrate a legacy store after stopping older clients
   copilot status                  Whether Copilot answers here, as whom, and with which models
 
 Consent (a person decides; --by github:<login>)
@@ -93,7 +95,9 @@ Decision model
                                   from a training export and the Builds' screenshots
 Options: --dir <path> data directory (default .replica/learning), --json machine output.
 A host that keeps stores outside checkouts, such as Hub, names the repository with
---repository <host/owner/name> and its store with --dir.
+--repository github.com/repositories/<id> and its store with --dir. It may name the
+previous scope with --legacy-repository <host/owner/name> when migrating an existing store.
+In a checkout, use --legacy-repository only with migrate-scope --offline.
 Times: now, 7d, 12h, 30m, or an RFC 3339 time. Purposes: review, instruction, evaluation,
 analytics, training, publication.
 `
@@ -101,6 +105,8 @@ analytics, training, publication.
 const OPTIONS = {
   dir: { type: "string" },
   repository: { type: "string" },
+  "legacy-repository": { type: "string" },
+  offline: { type: "boolean" },
   json: { type: "boolean" },
   help: { type: "boolean", short: "h" },
   purpose: { type: "string", multiple: true },
@@ -188,11 +194,20 @@ export async function main(
   // running, so every one is closed before the command returns, whatever happened.
   const opened = []
   try {
+    if (
+      values["legacy-repository"] &&
+      !values.repository &&
+      (positionals[0] !== "migrate-scope" || !values.offline)
+    )
+      throw new UsageError(
+        "A checkout's --legacy-repository is used only with migrate-scope --offline.",
+      )
     const environment = await resolveEnvironment({
       cwd,
       env,
       directory: values.dir,
       repository: values.repository,
+      legacyRepository: values["legacy-repository"],
     })
     const session = {
       environment,
@@ -235,6 +250,8 @@ async function run(session) {
       return status(session)
     case "doctor":
       return doctor(session)
+    case "migrate-scope":
+      return migrateScope(session)
     case "grants":
       if (sub === "list") return listGrants(session)
       if (sub === "withdrawals") return listWithdrawals(session)
@@ -284,6 +301,16 @@ async function run(session) {
   }
 }
 
+async function migrateScope(session) {
+  if (session.positionals.length !== 1 || !session.values.offline)
+    throw new UsageError("Stop older clients, then run migrate-scope --offline.")
+  const result = await migrateScopeOffline(session.environment, { clock: session.clock })
+  session.out(
+    result,
+    `Migrated this repository to ${result.file}. The original provider is unchanged and may contain other repositories.`,
+  )
+}
+
 async function open(session) {
   const opened = await openLearningStore(session.environment, {
     clock: session.clock,
@@ -293,7 +320,11 @@ async function open(session) {
 }
 
 function context(session, principal) {
-  return { scope: session.environment.scope, principal }
+  return {
+    scope: session.environment.scope,
+    sourceRepository: session.environment.sourceRepository,
+    principal,
+  }
 }
 
 /** Where the data directory sits and whether that is safe, for doctor. */
@@ -310,7 +341,7 @@ function placementLabel(environment) {
     : "NOT ignored by Git; add .replica/ to .gitignore"
 }
 
-/** A scope the way the CLI shows it: host/owner/name. */
+/** A scope the way the CLI shows it. */
 function scopeLabel(scope) {
   return [scope.host, scope.repository].filter(Boolean).join("/")
 }

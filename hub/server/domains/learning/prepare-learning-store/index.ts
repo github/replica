@@ -10,7 +10,7 @@ const repositoryScopeSchema = z
   .string()
   .min(1)
   .max(500)
-  .regex(/^[a-z0-9.-]+\/repositories\/[A-Za-z0-9_-]+$/)
+  .regex(/^github\.com\/repositories\/[1-9][0-9]*$/)
 
 export async function prepareLearningStore({
   applicationRoot = process.cwd(),
@@ -70,5 +70,5 @@ export async function prepareLearningStore({
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
   }
-  return { directory, repositoryScope: scope }
+  return { directory, repositoryScope: scope, repositoryId: key }
 }

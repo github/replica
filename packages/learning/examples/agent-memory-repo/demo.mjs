@@ -27,9 +27,14 @@ const repo = path.join(work, "checkout-prototypes")
 const memoryRepo = path.join(work, "agent-memory")
 const WINDOW = ["--from", "2026-09-29T00:00:00Z", "--to", "2026-10-05T18:00:00Z"]
 const DESIGNER = ["--by", "github:ana-designer"]
+const githubRepository = {
+  id: "12345",
+  remote: `github.com/${REPOSITORY}`,
+  legacyRepository: REPOSITORY,
+}
 const topic = path.join(
   memoryRepo,
-  ...learningsFile({ host: "github.com", repository: REPOSITORY }).split("/"),
+  ...learningsFile({ host: "github.com", repository: "repositories/12345" }).split("/"),
 )
 process.env.GIT_AUTHOR_NAME ??= "Replica demo"
 process.env.GIT_AUTHOR_EMAIL ??= "demo@example.com"
@@ -40,6 +45,12 @@ mkdirSync(repo)
 execFileSync("git", ["init", "-q", repo])
 execFileSync("git", ["-C", repo, "remote", "add", "origin", REMOTE])
 writeFileSync(path.join(repo, ".gitignore"), ".replica/\n")
+mkdirSync(path.join(repo, ".replica", "learning"), { recursive: true, mode: 0o700 })
+writeFileSync(
+  path.join(repo, ".replica", "learning", "config.json"),
+  JSON.stringify({ schemaVersion: "replica.learning-config/v1", githubRepository }),
+  { mode: 0o600 },
+)
 writeFileSync(path.join(repo, "hub-comments.json"), JSON.stringify(weekOneLog(), null, 2))
 writeFileSync(path.join(repo, "labels.json"), JSON.stringify(weekOneLabels(), null, 2))
 writeFileSync(
@@ -118,6 +129,7 @@ try {
     JSON.stringify(
       {
         schemaVersion: "replica.learning-config/v1",
+        githubRepository,
         consolidation: { consolidator: { module: "./tools/dreaming.mjs" } },
       },
       null,

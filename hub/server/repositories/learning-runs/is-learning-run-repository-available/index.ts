@@ -10,7 +10,7 @@ export async function isLearningRunRepositoryAvailable(
       where: {
         id: repositoryId,
         removedAt: null,
-        ...(requireGitHubId ? { githubRepositoryId: { not: null } } : {}),
+        ...(requireGitHubId ? { githubRepositoryId: { gt: 0n } } : {}),
       },
     })) === 1
   )

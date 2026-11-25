@@ -534,9 +534,16 @@ describe("Agent Memory Repo from the command line", () => {
       path.join(checkout, ".replica", "learning", "config.json"),
       JSON.stringify({
         schemaVersion: "replica.learning-config/v1",
+        githubRepository: {
+          id: "12345",
+          remote: `github.com/${REPOSITORY}`,
+          legacyRepository: REPOSITORY,
+        },
         consolidation: { consolidator: { module: "./tools/dreaming.mjs" } },
       }),
     )
+    const migrated = await command(cli, checkout, ["migrate-scope", "--offline"])
+    assert.equal(migrated.code, 0, migrated.stderr)
     const run = await command(cli, checkout, [
       "consolidate",
       "--from",
@@ -569,7 +576,9 @@ describe("Agent Memory Repo from the command line", () => {
     assert.equal(published.code, 0, published.stderr)
     assert.match(published.stdout, /Published 1 learning\(s\)/)
     assert.match(published.stdout, /Nothing was pushed\./)
-    assert.ok(existsSync(topicIn(memoryRepo)))
+    assert.ok(
+      existsSync(topicIn(memoryRepo, { host: "github.com", repository: "repositories/12345" })),
+    )
     const exported = await command(cli, checkout, [
       "export",
       "--purpose",

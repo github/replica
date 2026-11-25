@@ -6,6 +6,7 @@ import { getCopilotConnectionStatus } from "../../copilot-connection/get-copilot
 import { ReviewCommentError } from "../../review-comments/errors.ts"
 import { authorizeRepositoryAdministration } from "../authorize-repository-administration/index.ts"
 import { createReviewCommentLearningSource } from "../create-review-comment-learning-source/index.ts"
+import { getLearningRepositoryScope } from "../get-learning-repository-scope/index.ts"
 import { learningRunJob } from "../jobs/learning-run.ts"
 import { automaticLearningRunPriority } from "../jobs/priorities.ts"
 import { recoverLearningRunsJob } from "../jobs/recover-learning-runs.ts"
@@ -142,21 +143,17 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
       hasPendingUserRun: () => hasPendingUserLearningRun(prisma),
       isRepositoryAvailable: (repositoryId) =>
         prisma.$transaction(async (transaction) => {
-          const access = await lockGitHubRepositoryAccessState(transaction)
-          return isLearningRunRepositoryAvailable(
-            transaction,
-            repositoryId,
-            access.scopingActivatedAt !== null,
-          )
+          await lockGitHubRepositoryAccessState(transaction)
+          return isLearningRunRepositoryAvailable(transaction, repositoryId, true)
         }),
       now: () => new Date(),
       authorizeRepositoryAdministration: (membershipId, repositoryId) =>
         authorizeRepositoryAdministration(prisma, { membershipId, repositoryId }),
-      prepare: (repositoryId) =>
+      prepare: async (repositoryId) =>
         prepareLearningStore({
           applicationRoot: process.cwd(),
           repositoryKey: repositoryId,
-          repositoryScope: `github.com/repositories/${repositoryId}`,
+          repositoryScope: await getLearningRepositoryScope(prisma, repositoryId),
           root: configuration.root,
           staticDirectories: configuration.staticDirectories,
         }),
@@ -324,11 +321,11 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
                   repositoryId: operation.repositoryId,
                 })
               }),
-            prepare: (repositoryId) =>
+            prepare: async (repositoryId) =>
               prepareLearningStore({
                 applicationRoot: process.cwd(),
                 repositoryKey: repositoryId,
-                repositoryScope: `github.com/repositories/${repositoryId}`,
+                repositoryScope: await getLearningRepositoryScope(prisma, repositoryId),
                 root: configuration.root,
                 staticDirectories: configuration.staticDirectories,
               }),
@@ -375,9 +372,9 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
         deleteExpired: (cutoff) => deleteExpiredLearningRuns(prisma, cutoff),
         listDue: () =>
           prisma.$transaction(async (transaction) => {
-            const access = await lockGitHubRepositoryAccessState(transaction)
+            await lockGitHubRepositoryAccessState(transaction)
             return listDueLearningRepositories(transaction, {
-              requireGitHubId: access.scopingActivatedAt !== null,
+              requireGitHubId: true,
             })
           }),
         capture: async (repositoryId) => {
@@ -390,14 +387,8 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
         },
         create: (input) =>
           prisma.$transaction(async (transaction) => {
-            const access = await lockGitHubRepositoryAccessState(transaction)
-            if (
-              !(await isLearningRunRepositoryAvailable(
-                transaction,
-                input.repositoryId,
-                access.scopingActivatedAt !== null,
-              ))
-            ) {
+            await lockGitHubRepositoryAccessState(transaction)
+            if (!(await isLearningRunRepositoryAvailable(transaction, input.repositoryId, true))) {
               return null
             }
             return createLearningRun(transaction, input)
@@ -433,11 +424,11 @@ export function createLearningJobProcessors(environment: NodeJS.ProcessEnv, logg
       root: configuration.root,
       markComplete: (completed) => markReviewCommentLearningRedacted(prisma, completed),
       now: () => new Date(),
-      prepare: (repositoryId) =>
+      prepare: async (repositoryId) =>
         prepareLearningStore({
           applicationRoot: process.cwd(),
           repositoryKey: repositoryId,
-          repositoryScope: `github.com/repositories/${repositoryId}`,
+          repositoryScope: await getLearningRepositoryScope(prisma, repositoryId),
           root: configuration.root,
           staticDirectories: configuration.staticDirectories,
         }),

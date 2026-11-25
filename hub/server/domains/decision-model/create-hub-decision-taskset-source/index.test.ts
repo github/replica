@@ -89,12 +89,14 @@ function storage(
   }
 }
 
-function hubSource(artifactStorage: ArtifactStorage) {
+function hubSource(artifactStorage: ArtifactStorage, githubRepositoryId: bigint | null = 123n) {
   return createHubDecisionTasksetSource({
     applicationRoot: process.cwd(),
     artifactStorage,
     cliPath: "/replica-learning.mjs",
-    database: {} as never,
+    database: {
+      repository: { findUnique: vi.fn().mockResolvedValue({ githubRepositoryId }) },
+    } as never,
     databaseUrl: "postgresql://test",
     hubOrigin: "https://hub.example.test",
     learningRoot: "server/domains/decision-model/create-hub-decision-taskset-source/.learning",
@@ -145,11 +147,26 @@ function decodeArchive(bytes: Uint8Array) {
 }
 
 describe("createHubDecisionTasksetSource()", () => {
+  it("does not open a learning store for a repository without a GitHub ID", async () => {
+    const taskset = hubSource(storage({}), null).tasksetSource
+
+    await expect(
+      taskset.hasTrainingConsent({
+        repositoryId,
+        actorMembershipId: "44444444-4444-4444-8444-444444444444",
+        consentGrantId: "grant-training",
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "learning_ineligible" })
+    expect(prepareLearningStore).not.toHaveBeenCalled()
+    expect(runLearningCommand).not.toHaveBeenCalled()
+  })
+
   it("reads active training consent and NOUL learning questions for the requesting member", async () => {
     const learningId = "mem_111111111111111111111111"
     vi.mocked(prepareLearningStore).mockResolvedValue({
       directory: "/private/learning/repository",
-      repositoryScope: `github.com/repositories/${repositoryId}`,
+      repositoryScope: "github.com/repositories/123",
+      repositoryId,
     })
     vi.mocked(runLearningCommand).mockImplementation((arguments_) => {
       if (arguments_[0] === "grants") {
@@ -268,7 +285,8 @@ describe("createHubDecisionTasksetSource()", () => {
       .mockRejectedValueOnce(new Error("damaged store"))
       .mockResolvedValueOnce({
         directory: "/private/learning/repository",
-        repositoryScope: `github.com/repositories/${repositoryId}`,
+        repositoryScope: "github.com/repositories/123",
+        repositoryId,
       })
     vi.mocked(runLearningCommand).mockResolvedValue([
       {
@@ -308,7 +326,8 @@ describe("createHubDecisionTasksetSource()", () => {
     ] as never)
     vi.mocked(prepareLearningStore).mockResolvedValue({
       directory: "/private/learning/repository",
-      repositoryScope: `github.com/repositories/${repositoryId}`,
+      repositoryScope: "github.com/repositories/123",
+      repositoryId,
     })
     vi.mocked(runLearningCommand).mockResolvedValue([
       {
@@ -340,7 +359,8 @@ describe("createHubDecisionTasksetSource()", () => {
     )
     vi.mocked(prepareLearningStore).mockResolvedValue({
       directory: "/private/learning/repository",
-      repositoryScope: `github.com/repositories/${repositoryId}`,
+      repositoryScope: "github.com/repositories/123",
+      repositoryId,
     })
     vi.mocked(captureRepositoryReviewSnapshot).mockResolvedValue({
       repository: { id: repositoryId },
@@ -472,6 +492,17 @@ describe("createHubDecisionTasksetSource()", () => {
         .mock.calls.map(([arguments_]) => arguments_)
         .filter(([command]) => command === "export"),
     ).toEqual([expect.arrayContaining(["--preview"]), expect.arrayContaining(["--preview"])])
+    for (const [arguments_] of vi.mocked(runLearningCommand).mock.calls) {
+      if (arguments_[0] === "decision" && arguments_[1] === "taskset") continue
+      expect(arguments_).toEqual(
+        expect.arrayContaining([
+          "--repository",
+          "github.com/repositories/123",
+          "--legacy-repository",
+          `github.com/repositories/${repositoryId}`,
+        ]),
+      )
+    }
     const importCall = vi
       .mocked(runLearningCommand)
       .mock.calls.map(([arguments_]) => arguments_)
@@ -490,7 +521,8 @@ describe("createHubDecisionTasksetSource()", () => {
     )
     vi.mocked(prepareLearningStore).mockResolvedValue({
       directory: "/private/learning/repository",
-      repositoryScope: `github.com/repositories/${repositoryId}`,
+      repositoryScope: "github.com/repositories/123",
+      repositoryId,
     })
     vi.mocked(captureRepositoryReviewSnapshot).mockResolvedValue({
       repository: { id: repositoryId },
@@ -552,7 +584,7 @@ describe("createHubDecisionTasksetSource()", () => {
     expect(JSON.stringify(result)).not.toContain(otherRepositoryId)
     expect(runLearningCommand).toHaveBeenCalledTimes(1)
     expect(runLearningCommand).toHaveBeenCalledWith(
-      expect.arrayContaining(["--repository", `github.com/repositories/${repositoryId}`]),
+      expect.arrayContaining(["--repository", "github.com/repositories/123"]),
       expect.anything(),
     )
   })
@@ -565,7 +597,8 @@ describe("createHubDecisionTasksetSource()", () => {
     )
     vi.mocked(prepareLearningStore).mockResolvedValue({
       directory: "/private/learning/repository",
-      repositoryScope: `github.com/repositories/${repositoryId}`,
+      repositoryScope: "github.com/repositories/123",
+      repositoryId,
     })
     vi.mocked(captureRepositoryReviewSnapshot).mockResolvedValue({
       repository: { id: repositoryId },
@@ -644,13 +677,13 @@ describe("createHubDecisionTasksetSource()", () => {
     ).toEqual([
       expect.arrayContaining([
         "--repository",
-        `github.com/repositories/${repositoryId}`,
+        "github.com/repositories/123",
         "--purpose",
         "training",
       ]),
       expect.arrayContaining([
         "--repository",
-        `github.com/repositories/${repositoryId}`,
+        "github.com/repositories/123",
         "--purpose",
         "training",
       ]),
@@ -841,7 +874,8 @@ describe("createHubDecisionTasksetSource()", () => {
     })
     vi.mocked(prepareLearningStore).mockResolvedValue({
       directory: "/private/learning/repository",
-      repositoryScope: `github.com/repositories/${repositoryId}`,
+      repositoryScope: "github.com/repositories/123",
+      repositoryId,
     })
     vi.mocked(runLearningCommand).mockResolvedValue({
       questions: {

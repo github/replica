@@ -579,6 +579,24 @@ export function createJsonLinesMemoryProvider({
       )
     },
 
+    async legacyScopes() {
+      return readLocked(async () => {
+        const scopes = new Map()
+        for (const stream of FILES) {
+          for (const record of (await readStream(stream)).records) {
+            const scope = record.scope
+            if (
+              scope?.host === "github.com" &&
+              typeof scope.repository === "string" &&
+              !/^repositories\/[1-9][0-9]*$/.test(scope.repository)
+            )
+              scopes.set(JSON.stringify(scope), scope)
+          }
+        }
+        return [...scopes.values()]
+      })
+    },
+
     /**
      * Rewrite the events file with one event redacted, atomically and under the write lock. A
      * failed rewrite deletes its copy, and the next write deletes one a crash left behind. The

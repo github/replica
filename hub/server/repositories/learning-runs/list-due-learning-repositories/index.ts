@@ -62,7 +62,7 @@ export function listDueLearningRepositories(
       WHERE review_threads.repository_id = repositories.id
     ) review_activity ON true
     WHERE repositories.removed_at IS NULL
-      AND (${input.requireGitHubId} = false OR repositories.github_repository_id IS NOT NULL)
+      AND (${input.requireGitHubId} = false OR repositories.github_repository_id > 0)
       AND NOT EXISTS (
         SELECT 1
         FROM learning_runs active_runs

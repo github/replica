@@ -7,6 +7,7 @@ import { ReviewCommentError } from "../../../../domains/review-comments/errors.t
 import { executeLearningDecision } from "../../../../domains/learning/execute-learning-decision/index.ts"
 import { createReviewCommentLearningSource } from "../../../../domains/learning/create-review-comment-learning-source/index.ts"
 import { getLearningOverview } from "../../../../domains/learning/get-learning-overview/index.ts"
+import { getLearningRepositoryScope } from "../../../../domains/learning/get-learning-repository-scope/index.ts"
 import { learningRunJob } from "../../../../domains/learning/jobs/learning-run.ts"
 import { redactReviewCommentJob } from "../../../../domains/learning/jobs/redact-review-comment.ts"
 import type { ReviewCommentLearningSource } from "../../../../domains/learning/review-comment-learning-source/types.ts"
@@ -139,15 +140,25 @@ export async function createLearningsRouteDependencies(
     },
     findRepository,
     getOverview: async ({ repositoryId, viewer }) => {
+      const repositoryScope = await getLearningRepositoryScope(prisma, repositoryId)
       try {
-        return await getLearningOverview({
+        const overview = await getLearningOverview({
           ...configuration,
           evidenceSource: source,
           repositoryId,
+          repositoryScope,
           viewer,
         })
+        if (repositoryScope !== (await getLearningRepositoryScope(prisma, repositoryId))) {
+          throw new LearningCommandError(
+            "repository_scope_unavailable",
+            "The repository learning scope changed. Try again.",
+          )
+        }
+        return overview
       } catch (error) {
         if (!(error instanceof LearningCommandError)) throw error
+        if (error.code === "repository_scope_unavailable") throw error
         logger.warn(
           { learningFailureCode: error.code, repositoryId },
           "Repository learning overview failed",
@@ -187,6 +198,7 @@ export async function createLearningsRouteDependencies(
           "Repository administrator access is required.",
         )
       }
+      await getLearningRepositoryScope(prisma, repositoryId)
       if ((await getCopilot()).state !== "connected") {
         throw new LearningsError(
           409,
@@ -198,6 +210,12 @@ export async function createLearningsRouteDependencies(
       try {
         snapshot = await source.captureCompleteSnapshot({ repositoryId })
       } catch (error) {
+        if (
+          error instanceof LearningCommandError &&
+          error.code === "repository_scope_unavailable"
+        ) {
+          throw error
+        }
         if (error instanceof ReviewCommentError && error.code === "not_found") {
           throw new LearningsError(404, "repository_not_found", "Repository not found.", {
             cause: error,
@@ -227,6 +245,14 @@ export async function createLearningsRouteDependencies(
             repositoryId,
           })
           return null
+        }
+        if (
+          snapshot.repositoryScope !== (await getLearningRepositoryScope(transaction, repositoryId))
+        ) {
+          throw new LearningCommandError(
+            "repository_scope_unavailable",
+            "The repository learning scope changed. Try again.",
+          )
         }
         const result = await createLearningRun(transaction, {
           repositoryId,
@@ -352,6 +378,10 @@ export async function createLearningsRouteDependencies(
               ) {
                 return false
               }
+              const repositoryScope = await getLearningRepositoryScope(
+                transaction,
+                input.repositoryId,
+              )
               await createLearningDecisionOperation(transaction, {
                 id: operationId,
                 actorMembershipId,
@@ -369,7 +399,7 @@ export async function createLearningsRouteDependencies(
                 outcome: "requested",
                 repositoryId: input.repositoryId,
               })
-              return true
+              return repositoryScope
             })
             if (!authorized) {
               await createSecurityAudit(prisma, {
@@ -390,6 +420,7 @@ export async function createLearningsRouteDependencies(
             return executeLearningDecision({
               ...configuration,
               ...input,
+              repositoryScope: authorized,
               operationId,
               signal,
             })

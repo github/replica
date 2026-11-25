@@ -13,15 +13,16 @@ const operation = {
 describe("reconcileLearningDecisionOperation()", () => {
   it("records success when the package store contains the intended decision", async () => {
     const finish = vi.fn().mockResolvedValue(undefined)
+    const runCommand = vi.fn().mockResolvedValue({ state: "accepted" })
 
     await reconcileLearningDecisionOperation(operation, {
       finish,
-      prepare: vi
-        .fn()
-        .mockResolvedValue({ directory: "/private/store", repositoryScope: "github.com/x/y" }),
-      runCommand: vi.fn().mockResolvedValue({
-        state: "accepted",
+      prepare: vi.fn().mockResolvedValue({
+        directory: "/private/store",
+        repositoryScope: "github.com/repositories/123",
+        repositoryId: operation.repositoryId,
       }),
+      runCommand,
       withLock: async (run) => await run(new AbortController().signal),
     })
 
@@ -30,6 +31,15 @@ describe("reconcileLearningDecisionOperation()", () => {
         operationId: operation.id,
         outcome: "succeeded",
       }),
+    )
+    expect(runCommand).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        "--repository",
+        "github.com/repositories/123",
+        "--legacy-repository",
+        `github.com/repositories/${operation.repositoryId}`,
+      ]),
+      expect.anything(),
     )
   })
 
@@ -52,9 +62,11 @@ describe("reconcileLearningDecisionOperation()", () => {
 
     await reconcileLearningDecisionOperation(operation, {
       finish,
-      prepare: vi
-        .fn()
-        .mockResolvedValue({ directory: "/private/store", repositoryScope: "github.com/x/y" }),
+      prepare: vi.fn().mockResolvedValue({
+        directory: "/private/store",
+        repositoryScope: "github.com/repositories/123",
+        repositoryId: operation.repositoryId,
+      }),
       runCommand: vi.fn().mockResolvedValue({ state: null }),
       withLock: async (run) => await run(new AbortController().signal),
     })

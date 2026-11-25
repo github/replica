@@ -8,6 +8,8 @@ import { processReviewCommentRedaction } from "."
 
 type Dependencies = Parameters<typeof processReviewCommentRedaction>[1]
 
+const repositoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+
 async function withLearningLock<T>(run: (signal: AbortSignal) => Promise<T>) {
   return await run(new AbortController().signal)
 }
@@ -21,13 +23,14 @@ describe("processReviewCommentRedaction()", () => {
     }
     const prepare = vi.fn().mockResolvedValue({
       directory: "/private/repository",
-      repositoryScope: "github.com/repositories/repository",
+      repositoryScope: "github.com/repositories/123",
+      repositoryId,
     })
     const runCommand: Dependencies["runCommand"] = vi.fn()
     const markComplete = vi.fn().mockResolvedValue(undefined)
 
     await processReviewCommentRedaction(
-      { repositoryId: "repository", commentId: 101, actor: "human:mona" },
+      { repositoryId, commentId: 101, actor: "human:mona" },
       {
         root: "/private",
         markComplete,
@@ -46,8 +49,8 @@ describe("processReviewCommentRedaction()", () => {
 
   it("redacts by Hub comment ID while holding the store lock", async () => {
     const root = await mkdtemp(join(tmpdir(), "replica-redaction-"))
-    await mkdir(join(root, "repositories", "repository"), { recursive: true })
-    await writeFile(join(root, "repositories", "repository", "config.json"), "{}")
+    await mkdir(join(root, "repositories", repositoryId), { recursive: true })
+    await writeFile(join(root, "repositories", repositoryId, "config.json"), "{}")
     try {
       let lockCalls = 0
       async function withLock<T>(run: (signal: AbortSignal) => Promise<T>) {
@@ -55,13 +58,14 @@ describe("processReviewCommentRedaction()", () => {
         return await withLearningLock(run)
       }
       const prepare = vi.fn().mockResolvedValue({
-        directory: join(root, "repositories", "repository"),
-        repositoryScope: "github.com/repositories/repository",
+        directory: join(root, "repositories", repositoryId),
+        repositoryScope: "github.com/repositories/123",
+        repositoryId,
       })
       const runCommand: Dependencies["runCommand"] = vi.fn().mockResolvedValue(undefined)
       const markComplete = vi.fn().mockResolvedValue(undefined)
       await processReviewCommentRedaction(
-        { repositoryId: "repository", commentId: 101, actor: "human:mona" },
+        { repositoryId, commentId: 101, actor: "human:mona" },
         {
           root,
           markComplete,
@@ -73,7 +77,7 @@ describe("processReviewCommentRedaction()", () => {
       )
 
       expect(lockCalls).toBe(1)
-      expect(prepare).toHaveBeenCalledWith("repository")
+      expect(prepare).toHaveBeenCalledWith(repositoryId)
       const [arguments_, options] = vi.mocked(runCommand).mock.calls[0] ?? []
       expect(arguments_).toEqual([
         "redact",
@@ -82,13 +86,15 @@ describe("processReviewCommentRedaction()", () => {
         "--by",
         "human:mona",
         "--dir",
-        join(root, "repositories", "repository"),
+        join(root, "repositories", repositoryId),
         "--repository",
-        "github.com/repositories/repository",
+        "github.com/repositories/123",
+        "--legacy-repository",
+        `github.com/repositories/${repositoryId}`,
       ])
       expect(options?.signal).toBeInstanceOf(AbortSignal)
       expect(markComplete).toHaveBeenCalledWith({
-        repositoryId: "repository",
+        repositoryId,
         commentId: 101,
         redactedAt: new Date("2026-11-13T10:00:00Z"),
       })
@@ -99,13 +105,13 @@ describe("processReviewCommentRedaction()", () => {
 
   it("keeps redaction pending when the store is inaccessible", async () => {
     const root = await mkdtemp(join(tmpdir(), "replica-redaction-"))
-    await mkdir(join(root, "repositories", "repository"), { recursive: true })
-    await writeFile(join(root, "repositories", "repository", "config.json"), "{}")
+    await mkdir(join(root, "repositories", repositoryId), { recursive: true })
+    await writeFile(join(root, "repositories", repositoryId, "config.json"), "{}")
     try {
       const markComplete = vi.fn()
       await expect(
         processReviewCommentRedaction(
-          { repositoryId: "repository", commentId: 101, actor: "human:mona" },
+          { repositoryId, commentId: 101, actor: "human:mona" },
           {
             root,
             markComplete,

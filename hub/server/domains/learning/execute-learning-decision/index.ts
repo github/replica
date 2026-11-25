@@ -5,6 +5,7 @@ import { resolve } from "node:path"
 import { runLearningCommand } from "../../../integrations/learning/run-learning-command/index.ts"
 import { validatePrivateStorageRoot } from "../../../utils/validate-private-storage-root/index.ts"
 import { LearningCommandError } from "../../../integrations/learning/run-learning-command/errors.ts"
+import { learningStoreArguments } from "../learning-store-arguments/index.ts"
 import type { LearningDecision } from "../types.ts"
 
 export async function executeLearningDecision(input: {
@@ -16,6 +17,7 @@ export async function executeLearningDecision(input: {
   nodePath: string
   operationId: string
   repositoryId: string
+  repositoryScope: string
   root: string
   signal?: AbortSignal
   staticDirectories: string[]
@@ -59,10 +61,11 @@ export async function executeLearningDecision(input: {
     await runLearningCommand(
       [
         ...arguments_,
-        "--dir",
-        directory,
-        "--repository",
-        `github.com/repositories/${input.repositoryId}`,
+        ...learningStoreArguments({
+          directory,
+          repositoryId: input.repositoryId,
+          repositoryScope: input.repositoryScope,
+        }),
       ],
       {
         cliPath: input.cliPath,

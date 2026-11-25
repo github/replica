@@ -4,6 +4,7 @@ import type { RepositoryReviewSnapshot } from "../../review-comments/types"
 import { createHubReviewCollection } from "."
 
 const repositoryId = "11111111-2222-4333-8444-555555555555"
+const repositoryScope = "github.com/repositories/123"
 const prototypeId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 const author = {
   userId: "22222222-2222-4222-8222-222222222222",
@@ -81,7 +82,7 @@ function snapshot(): RepositoryReviewSnapshot {
 
 describe("createHubReviewCollection()", () => {
   it("writes a complete v1 log with UUID identities, deleted comments, and resolution history", () => {
-    const result = createHubReviewCollection(snapshot(), "https://hub.example.com")
+    const result = createHubReviewCollection(snapshot(), "https://hub.example.com", repositoryScope)
     const call = result.collection.calls[0]
     if (!call) throw new Error("Expected one collection call.")
     const thread = call.result.threads[0]
@@ -125,8 +126,15 @@ describe("createHubReviewCollection()", () => {
     laterCapture.capturedAt = new Date("2026-11-13T10:06:00Z")
     laterCapture.threads[0]!.updatedAt = new Date("2026-11-13T10:06:00Z")
     laterCapture.threads[0]!.root.updatedAt = new Date("2026-11-13T10:06:00Z")
-    expect(createHubReviewCollection(laterCapture, "https://hub.example.com").digest).toBe(
-      result.digest,
+    expect(
+      createHubReviewCollection(laterCapture, "https://hub.example.com", repositoryScope).digest,
+    ).toBe(result.digest)
+    const otherScope = createHubReviewCollection(
+      laterCapture,
+      "https://hub.example.com",
+      "github.com/repositories/456",
     )
+    expect(otherScope.digest).not.toBe(result.digest)
+    expect(otherScope.legacyDigest).toBe(result.legacyDigest)
   })
 })

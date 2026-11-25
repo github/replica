@@ -22,7 +22,7 @@ describe("prepareLearningStore()", () => {
       prepareLearningStore({
         applicationRoot,
         repositoryKey: randomUUID(),
-        repositoryScope: "github.com/repositories/replica",
+        repositoryScope: "github.com/repositories/123",
         root,
         staticDirectories,
       }),
@@ -40,14 +40,15 @@ describe("prepareLearningStore()", () => {
     const result = await prepareLearningStore({
       applicationRoot,
       repositoryKey,
-      repositoryScope: "github.com/repositories/replica",
+      repositoryScope: "github.com/repositories/123",
       root,
       staticDirectories: [resolve(applicationRoot, "public")],
     })
 
     expect(result).toEqual({
       directory: resolve(root, "repositories", repositoryKey),
-      repositoryScope: "github.com/repositories/replica",
+      repositoryScope: "github.com/repositories/123",
+      repositoryId: repositoryKey,
     })
     expect((await stat(result.directory)).mode & 0o777).toBe(0o700)
     expect((await stat(resolve(result.directory, "config.json"))).mode & 0o777).toBe(0o600)
@@ -60,7 +61,7 @@ describe("prepareLearningStore()", () => {
       },
     })
     expect(await readFile(resolve(result.directory, "config.json"), "utf8")).not.toContain(
-      "github.com/repositories/replica",
+      "github.com/repositories/123",
     )
   })
 })

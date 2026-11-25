@@ -43,6 +43,8 @@ function dependencies(overrides: Partial<Dependencies> = {}) {
     capture: vi.fn().mockResolvedValue({
       collection: { kind: "replica.hub-review-collection/v1" },
       digest: "sha256:snapshot",
+      legacyDigest: "sha256:legacy-snapshot",
+      repositoryScope: "github.com/repositories/123",
       capturedAt: new Date("2026-11-13T09:00:00Z"),
       reviewActivitySnapshot: {},
     }),
@@ -57,7 +59,8 @@ function dependencies(overrides: Partial<Dependencies> = {}) {
     authorizeRepositoryAdministration: vi.fn().mockResolvedValue(true),
     prepare: vi.fn().mockResolvedValue({
       directory: "/private/repository",
-      repositoryScope: "github.com/repositories/repository",
+      repositoryScope: "github.com/repositories/123",
+      repositoryId: run.repositoryId,
     }),
     runCommand: vi.fn((arguments_: string[]) => {
       commands.push(arguments_)
@@ -114,6 +117,16 @@ describe("processLearningRun()", () => {
     expect(deps.commands.find((arguments_) => arguments_[0] === "import")).toContain(
       "--redact-deleted",
     )
+    for (const command of deps.commands) {
+      expect(command).toEqual(
+        expect.arrayContaining([
+          "--repository",
+          "github.com/repositories/123",
+          "--legacy-repository",
+          `github.com/repositories/${deps.run.repositoryId}`,
+        ]),
+      )
+    }
     expect(
       deps.commands.find((arguments_) => arguments_[0] === "grants" && arguments_[1] === "add"),
     ).toEqual(expect.arrayContaining(["--by", "human:mona"]))
@@ -166,11 +179,35 @@ describe("processLearningRun()", () => {
   it("resumes a run left running after a worker interruption", async () => {
     const deps = dependencies()
     deps.run.state = "RUNNING"
+    deps.run.snapshotDigest = "sha256:legacy-snapshot"
 
     await processLearningRun("11111111-2222-4333-8444-555555555555", deps)
 
     expect(deps.claim).not.toHaveBeenCalled()
     expect(deps.finished[0]).toMatchObject({ input: { state: "SUCCEEDED" } })
+  })
+
+  it("does not consolidate if the repository scope changes during labeling", async () => {
+    const deps = dependencies()
+    vi.mocked(deps.prepare)
+      .mockResolvedValueOnce({
+        directory: "/private/repository",
+        repositoryScope: "github.com/repositories/123",
+        repositoryId: deps.run.repositoryId,
+      })
+      .mockResolvedValueOnce({
+        directory: "/private/repository",
+        repositoryScope: "github.com/repositories/456",
+        repositoryId: deps.run.repositoryId,
+      })
+
+    await processLearningRun(deps.run.id, deps)
+
+    expect(deps.commands.some((command) => command[0] === "label")).toBe(true)
+    expect(deps.commands.some((command) => command[0] === "consolidate")).toBe(false)
+    expect(deps.finished[0]).toMatchObject({
+      input: { state: "FAILED", failureCode: "snapshot_changed" },
+    })
   })
 
   it("defers a queued scheduled run before claim while user work is waiting", async () => {

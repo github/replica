@@ -37,6 +37,8 @@ export interface Actor {
 export interface LearningContext {
   scope: Scope
   principal: Actor
+  /** Source repository name, authenticated by the host when it differs from the scope. */
+  sourceRepository?: string
 }
 
 export interface SourcePin {
@@ -896,6 +898,8 @@ export declare class ProviderConflictError extends LearningError {}
 export declare function createLearningStore(options: {
   provider: MemoryProvider
   clock?: () => number
+  legacyScopes?: Scope[]
+  digestMappings?: Record<string, string>
 }): Promise<LearningStore>
 export declare function createSqliteMemoryProvider(options: {
   directory: string

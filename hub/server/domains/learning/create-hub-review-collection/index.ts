@@ -77,7 +77,14 @@ function reviewState(snapshot: RepositoryReviewSnapshot) {
   }
 }
 
-export function createHubReviewCollection(snapshot: RepositoryReviewSnapshot, hubOrigin: string) {
+export function createHubReviewCollection(
+  snapshot: RepositoryReviewSnapshot,
+  hubOrigin: string,
+  repositoryScope: string,
+) {
+  if (!/^github\.com\/repositories\/[1-9][0-9]*$/.test(repositoryScope)) {
+    throw new Error("The repository learning scope must contain a GitHub repository ID.")
+  }
   const target = {
     hubOrigin,
     repository: `repositories/${snapshot.repository.id}`,
@@ -126,10 +133,14 @@ export function createHubReviewCollection(snapshot: RepositoryReviewSnapshot, hu
       },
     ],
   }
+  const legacyDigest = `sha256:${createHash("sha256")
+    .update(JSON.stringify(reviewState(snapshot)))
+    .digest("hex")}` as const
   return {
     collection,
     digest: `sha256:${createHash("sha256")
-      .update(JSON.stringify(reviewState(snapshot)))
+      .update(JSON.stringify({ repositoryScope, review: reviewState(snapshot) }))
       .digest("hex")}` as const,
+    legacyDigest,
   }
 }

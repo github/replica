@@ -1,6 +1,7 @@
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
 import { captureRepositoryReviewSnapshot } from "../../review-comments/capture-repository-review-snapshot/index.ts"
 import { createHubReviewCollection } from "../create-hub-review-collection/index.ts"
+import { getLearningRepositoryScope } from "../get-learning-repository-scope/index.ts"
 import type {
   LearningObservationEvent,
   ReviewCommentLearningSource,
@@ -11,16 +12,26 @@ function eventMap(events: LearningObservationEvent[]) {
 }
 
 export function createReviewCommentLearningSource(
-  database: Pick<PrismaClient, "$transaction">,
+  database: Pick<PrismaClient, "$transaction" | "repository">,
   hubOrigin: string,
 ): ReviewCommentLearningSource {
   return {
     async captureCompleteSnapshot({ repositoryId }) {
+      const repositoryScope = await getLearningRepositoryScope(database, repositoryId)
       const snapshot = await captureRepositoryReviewSnapshot(database, repositoryId)
-      const { collection, digest } = createHubReviewCollection(snapshot, hubOrigin)
+      if (repositoryScope !== (await getLearningRepositoryScope(database, repositoryId))) {
+        throw new Error("The repository learning scope changed during review capture.")
+      }
+      const { collection, digest, legacyDigest } = createHubReviewCollection(
+        snapshot,
+        hubOrigin,
+        repositoryScope,
+      )
       return {
         collection,
         digest,
+        legacyDigest,
+        repositoryScope,
         capturedAt: snapshot.capturedAt,
         reviewActivitySnapshot: Object.fromEntries(
           snapshot.threads.map((thread) => [thread.storageId, thread.activityVersion]),

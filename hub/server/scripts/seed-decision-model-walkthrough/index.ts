@@ -6,6 +6,8 @@ import { join, resolve } from "node:path"
 import { createConfiguredArtifactStorage } from "../../domains/artifacts/create-configured-artifact-storage/index.ts"
 import { readDecisionRuntimeConfiguration } from "../../domains/decision-model/read-decision-runtime-configuration/index.ts"
 import { createHubReviewCollection } from "../../domains/learning/create-hub-review-collection/index.ts"
+import { getLearningRepositoryScope } from "../../domains/learning/get-learning-repository-scope/index.ts"
+import { learningStoreArguments } from "../../domains/learning/learning-store-arguments/index.ts"
 import { prepareLearningStore } from "../../domains/learning/prepare-learning-store/index.ts"
 import { readLearningConfiguration } from "../../domains/learning/read-learning-configuration/index.ts"
 import { captureRepositoryReviewSnapshot } from "../../domains/review-comments/capture-repository-review-snapshot/index.ts"
@@ -77,10 +79,11 @@ if (!localMembership || localMembership.lifecycle !== "ACTIVE") {
 
 const storage = await createConfiguredArtifactStorage(process.env)
 const learning = await readLearningConfiguration(process.env)
+const repositoryScope = await getLearningRepositoryScope(prisma, repositoryId)
 const preparedStore = await prepareLearningStore({
   applicationRoot: process.cwd(),
   repositoryKey: repositoryId,
-  repositoryScope: `github.com/repositories/${repositoryId}`,
+  repositoryScope,
   root: learning.root,
   staticDirectories: learning.staticDirectories,
 })
@@ -115,7 +118,7 @@ await rm(preparedStore.directory, { force: true, recursive: true })
 const store = await prepareLearningStore({
   applicationRoot: process.cwd(),
   repositoryKey: repositoryId,
-  repositoryScope: `github.com/repositories/${repositoryId}`,
+  repositoryScope,
   root: learning.root,
   staticDirectories: learning.staticDirectories,
 })
@@ -363,7 +366,11 @@ for (const [buildIndex, buildId] of buildIds.entries()) {
 }
 
 const snapshot = await captureRepositoryReviewSnapshot(prisma, repositoryId, resolvedAt)
-const collection = createHubReviewCollection(snapshot, "http://127.0.0.1:5173").collection
+const collection = createHubReviewCollection(
+  snapshot,
+  "http://127.0.0.1:5173",
+  repositoryScope,
+).collection
 const temporary = await mkdtemp(join(tmpdir(), "replica-decision-walkthrough-"))
 try {
   const collectionPath = join(temporary, "reviews.json")
@@ -395,7 +402,7 @@ try {
     directory: process.cwd(),
     nodePath: learning.nodePath,
   }
-  const scope = ["--dir", store.directory, "--repository", store.repositoryScope]
+  const scope = learningStoreArguments(store)
   const grant = (await runLearningCommand(
     [
       "grants",

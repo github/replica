@@ -214,6 +214,8 @@ describe("labelComments()", () => {
           "--dir",
           dataDirectory,
           "--repository",
+          "github.com/repositories/123456",
+          "--legacy-repository",
           "github.com/acme/checkout-prototypes",
           "--json",
         ],

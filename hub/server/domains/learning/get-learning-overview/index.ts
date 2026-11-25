@@ -5,6 +5,7 @@ import { z } from "zod"
 import { runLearningCommand } from "../../../integrations/learning/run-learning-command/index.ts"
 import { LearningCommandError } from "../../../integrations/learning/run-learning-command/errors.ts"
 import { validatePrivateStorageRoot } from "../../../utils/validate-private-storage-root/index.ts"
+import { learningStoreArguments } from "../learning-store-arguments/index.ts"
 import type { ReviewCommentLearningSource } from "../review-comment-learning-source/types.ts"
 import type { AcceptedLearning, LearningSuggestion } from "../types.ts"
 
@@ -108,6 +109,7 @@ export async function getLearningOverview(input: {
   evidenceSource?: Pick<ReviewCommentLearningSource, "resolveEvidence">
   nodePath: string
   repositoryId: string
+  repositoryScope: string
   root: string
   staticDirectories: string[]
   viewer: string
@@ -135,19 +137,16 @@ export async function getLearningOverview(input: {
     }
   }
   const commandOptions = { cliPath: input.cliPath, nodePath: input.nodePath }
-  const commonArguments = [
-    "--dir",
+  const commonArguments = learningStoreArguments({
     directory,
-    "--repository",
-    `github.com/repositories/${input.repositoryId}`,
-  ]
-  const [rawMemories, rawRecall] = await Promise.all([
-    runLearningCommand(["memories", ...commonArguments], commandOptions),
-    runLearningCommand(
-      ["recall", "--preview", "--by", input.viewer, ...commonArguments],
-      commandOptions,
-    ),
-  ])
+    repositoryId: input.repositoryId,
+    repositoryScope: input.repositoryScope,
+  })
+  const rawMemories = await runLearningCommand(["memories", ...commonArguments], commandOptions)
+  const rawRecall = await runLearningCommand(
+    ["recall", "--preview", "--by", input.viewer, ...commonArguments],
+    commandOptions,
+  )
   const memories = z.array(memorySchema).parse(rawMemories)
   const recall = recallSchema.parse(rawRecall)
   const recalledIds = new Set(recall.memories.map((memory) => memory.id))

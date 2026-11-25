@@ -21,6 +21,8 @@ import { runLearningCommand } from "../../../integrations/learning/run-learning-
 import { LearningCommandError } from "../../../integrations/learning/run-learning-command/errors.ts"
 import type { ArtifactStorage } from "../../artifacts/create-artifact-storage/types.ts"
 import { createHubReviewCollection } from "../../learning/create-hub-review-collection/index.ts"
+import { getLearningRepositoryScope } from "../../learning/get-learning-repository-scope/index.ts"
+import { learningStoreArguments } from "../../learning/learning-store-arguments/index.ts"
 import { prepareLearningStore } from "../../learning/prepare-learning-store/index.ts"
 import { captureRepositoryReviewSnapshot } from "../../review-comments/capture-repository-review-snapshot/index.ts"
 import { listDecisionTrainingBuilds } from "../../../repositories/decision-training-builds/list-decision-training-builds/index.ts"
@@ -462,11 +464,27 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
     })
   }
 
+  async function learningScope(repositoryId: string) {
+    try {
+      return await getLearningRepositoryScope(options.database, repositoryId)
+    } catch (error) {
+      if (error instanceof LearningCommandError && error.code === "repository_scope_unavailable") {
+        throw new DecisionModelError(
+          409,
+          "learning_ineligible",
+          "Decision-model learning is unavailable because this repository has no GitHub repository ID.",
+          { cause: error },
+        )
+      }
+      throw error
+    }
+  }
+
   async function learningStore(repositoryId: string) {
     return prepareLearningStore({
       applicationRoot,
       repositoryKey: repositoryId,
-      repositoryScope: `github.com/repositories/${repositoryId}`,
+      repositoryScope: await learningScope(repositoryId),
       root: options.learningRoot,
       staticDirectories: options.staticDirectories,
     })
@@ -740,26 +758,18 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
   return {
     async readAgentLearningAuthority({ repositoryId, actorMembershipId, consentGrantId }) {
       const store = await learningStore(repositoryId)
-      const [grants, questionResult] = await Promise.all([
-        command([
-          "grants",
-          "list",
-          "--dir",
-          store.directory,
-          "--repository",
-          store.repositoryScope,
-        ]).then((value) => grantListSchema.parse(value)),
-        command([
+      const grants = grantListSchema.parse(
+        await command(["grants", "list", ...learningStoreArguments(store)]),
+      )
+      const questionResult = decisionQuestionsSchema.safeParse(
+        await command([
           "decision",
           "questions",
           "--by",
           `human:${actorMembershipId}`,
-          "--dir",
-          store.directory,
-          "--repository",
-          store.repositoryScope,
-        ]).then((value) => decisionQuestionsSchema.safeParse(value)),
-      ])
+          ...learningStoreArguments(store),
+        ]),
+      )
       if (!questionResult.success) {
         throw new DecisionModelError(
           422,
@@ -785,14 +795,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
       async hasTrainingConsent({ repositoryId, consentGrantId }) {
         const store = await learningStore(repositoryId)
         const grants = grantListSchema.parse(
-          await command([
-            "grants",
-            "list",
-            "--dir",
-            store.directory,
-            "--repository",
-            store.repositoryScope,
-          ]),
+          await command(["grants", "list", ...learningStoreArguments(store)]),
         )
         return grants.some(
           ({ grant, activePurposes, expired }) =>
@@ -811,10 +814,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
             "accepted",
             "--actor",
             "system:replica-hub",
-            "--dir",
-            store.directory,
-            "--repository",
-            store.repositoryScope,
+            ...learningStoreArguments(store),
           ]),
         )
         return Object.fromEntries(
@@ -831,14 +831,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
           try {
             const store = await learningStore(repository.id)
             withdrawals = withdrawalsSchema.parse(
-              await command([
-                "grants",
-                "withdrawals",
-                "--dir",
-                store.directory,
-                "--repository",
-                store.repositoryScope,
-              ]),
+              await command(["grants", "withdrawals", ...learningStoreArguments(store)]),
             )
           } catch (error) {
             options.logger?.warn(
@@ -999,7 +992,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
             databaseUrl: options.databaseUrl,
             run: async (signal) => {
               const store = await learningStore(repositoryId)
-              const common = ["--dir", store.directory, "--repository", store.repositoryScope]
+              const common = learningStoreArguments(store)
               const grants = grantListSchema.parse(
                 await command(["grants", "list", ...common], 60_000, signal),
               )
@@ -1026,7 +1019,18 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
                 repositoryId,
                 new Date(),
               )
-              const initialReview = createHubReviewCollection(snapshot, options.hubOrigin)
+              if (store.repositoryScope !== (await learningScope(repositoryId))) {
+                throw new DecisionModelError(
+                  409,
+                  "taskset_drift",
+                  "The repository learning scope changed during taskset preparation.",
+                )
+              }
+              const initialReview = createHubReviewCollection(
+                snapshot,
+                options.hubOrigin,
+                store.repositoryScope,
+              )
               const metadata = await (options.stabilizeSnapshot ?? stabilizeReviewSnapshot)(
                 store.directory,
                 initialReview.digest,
@@ -1034,7 +1038,11 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
               )
               snapshot.snapshotId = metadata.snapshotId
               snapshot.capturedAt = metadata.capturedAt
-              const review = createHubReviewCollection(snapshot, options.hubOrigin)
+              const review = createHubReviewCollection(
+                snapshot,
+                options.hubOrigin,
+                store.repositoryScope,
+              )
               if (!trainingGrantIds.length) {
                 return {
                   bytes: new Uint8Array(),
@@ -1254,10 +1262,7 @@ export function createHubDecisionTasksetSource(options: HubDecisionTasksetSource
           "questions",
           "--by",
           `human:${actorMembershipId}`,
-          "--dir",
-          store.directory,
-          "--repository",
-          store.repositoryScope,
+          ...learningStoreArguments(store),
         ]),
       )
       if (!questionResult.success) {
