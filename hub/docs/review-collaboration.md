@@ -93,11 +93,7 @@ reviewer selects an element or region
   -> Hub shows a sidebar row and preview marker
 ```
 
-`C` starts comment selection, matching the canvas: click an element, or drag more than eight
-pixels to highlight a region. The header comment menu offers the same single **Add a comment**
-action. `Shift+C` toggles the comments sidebar, and `O` toggles **Options**. These shortcuts
-apply when focus is not in an editable field, menu or dialog. Holding Shift when finishing a
-simple region cleans up the drawn line.
+`C` starts comment selection, matching the canvas: click an element, or drag a rectangle at least eight pixels wide and tall to highlight a region. The header comment menu offers the same single **Add a comment** action. `Shift+C` toggles the comments sidebar, including during target selection, without cancelling it. `O` toggles **Options**. These shortcuts apply when focus is not in an editable field, menu or dialog. Open drafts keep their existing shortcut protections.
 
 The header shows the total number of conversations beside the add-comment control and marks it
 when any conversation is unread. Its count opens the comments panel, which sits beside the
