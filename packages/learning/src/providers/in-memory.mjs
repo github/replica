@@ -1,13 +1,16 @@
 import { LearningError, ProviderConflictError } from "../errors.mjs"
 import {
   PROVIDER_CONTRACT,
+  DECISION_FENCE_STREAMS,
   REDACT_CAPABILITY,
   REQUIRED_CAPABILITIES,
   STREAMS,
   assertQuery,
+  assertDecisionFence,
   assertStorable,
   assertStream,
   batchWrites,
+  decisionFenceDigest,
   matchesQuery,
   newRecords,
   redactionProblem,
@@ -21,6 +24,20 @@ import { PRODUCER, SCHEMA_VERSIONS } from "../records.mjs"
 export function createInMemoryProvider() {
   const streams = new Map(Object.keys(STREAMS).map((stream) => [stream, []]))
   const memories = []
+
+  function fence(scope) {
+    const query = { scope }
+    assertQuery(query)
+    return decisionFenceDigest(scope, {
+      records: Object.fromEntries(
+        DECISION_FENCE_STREAMS.map((stream) => [
+          stream,
+          streams.get(stream).filter((record) => matchesQuery(stream, record, query)),
+        ]),
+      ),
+      memories: memories.filter((record) => matchesQuery("memories", record, query)),
+    })
+  }
 
   /** Append to several streams at once. Every record is checked before any is stored. */
   function write(batch, { audit = [] } = {}) {
@@ -38,6 +55,12 @@ export function createInMemoryProvider() {
   }
 
   return {
+    atomicDecisionFence: true,
+
+    async decisionFence(scope) {
+      return fence(scope)
+    },
+
     manifest() {
       return {
         schemaVersion: SCHEMA_VERSIONS.providerManifest,
@@ -73,9 +96,14 @@ export function createInMemoryProvider() {
       )
     },
 
-    async appendMemoryVersion(record, { expectedPreviousDigest = null, audit = [] } = {}) {
+    async appendMemoryVersion(
+      record,
+      { expectedPreviousDigest = null, expectedDecisionFence, audit = [] } = {},
+    ) {
       assertStorable([record])
       assertStorable(audit)
+      if (expectedDecisionFence !== undefined)
+        assertDecisionFence(expectedDecisionFence, fence(record.scope))
       let latest = null
       for (const version of memories) if (version.id === record.id) latest = version
       if ((latest?.digest ?? null) !== expectedPreviousDigest)

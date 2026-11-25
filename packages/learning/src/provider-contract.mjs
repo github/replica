@@ -1,3 +1,4 @@
+import { digestOf } from "./canonical-json.mjs"
 import { LearningError, ProviderConflictError } from "./errors.mjs"
 import { sameScope } from "./policy.mjs"
 
@@ -42,6 +43,12 @@ import { sameScope } from "./policy.mjs"
  * { redacted: false } when the stored event has no payload already, and throws not_found,
  * conflict, or invalid_input as redactionProblem describes. This is the only
  * rewrite the contract allows, because an event's digest leaves out its payload.
+ *
+ * A provider with atomicDecisionFence === true implements decisionFence(scope). The returned
+ * opaque digest covers eligibility records, all memory versions, and scope migration mappings.
+ * A caller obtains it before reading eligibility and passes it as expectedDecisionFence to
+ * appendMemoryVersion. The provider compares it under the same lock as the version and audit
+ * write, and throws conflict without writing if any covered state changed.
  */
 export const PROVIDER_CONTRACT = Object.freeze({ name: "replica.memory-provider", version: 1 })
 
@@ -68,6 +75,44 @@ export const STREAMS = Object.freeze({
   audit: "at",
   exports: "createdAt",
 })
+
+/** Streams whose contents can change whether evidence or a learning may be used. */
+export const DECISION_FENCE_STREAMS = Object.freeze([
+  "grants",
+  "withdrawals",
+  "collections",
+  "episodes",
+  "events",
+])
+
+/** Hash complete records, including redacted event bodies, without returning their contents. */
+export function decisionFenceDigest(scope, { records = {}, memories = [], migrations = [] } = {}) {
+  assertQuery({ scope })
+  try {
+    return digestOf({
+      scope,
+      records: Object.fromEntries(
+        DECISION_FENCE_STREAMS.map((stream) => [
+          stream,
+          (records[stream] ?? []).map((record) => digestOf(record)),
+        ]),
+      ),
+      memories: memories.map((record) => digestOf(record)),
+      migrations: migrations.map((migration) => digestOf(migration)),
+    })
+  } catch {
+    throw new LearningError("storage_corrupt", "Could not read the decision eligibility state.")
+  }
+}
+
+/** Refuse an invalid or stale fence without exposing its contents. */
+export function assertDecisionFence(expected, actual) {
+  if (expected === undefined) return
+  if (typeof expected !== "string" || !/^sha256:[0-9a-f]{64}$/.test(expected))
+    throw new LearningError("invalid_input", "The decision fence is invalid.")
+  if (expected !== actual)
+    throw new ProviderConflictError("Decision eligibility changed during the write.")
+}
 
 export function assertStream(stream) {
   if (!Object.hasOwn(STREAMS, stream))

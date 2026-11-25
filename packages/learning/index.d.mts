@@ -414,6 +414,10 @@ export interface ProviderQuery {
  * Conflicts throw an error with code "conflict"; bad queries throw code "invalid_input".
  */
 export interface MemoryProvider {
+  /** When true, decisionFence and expectedDecisionFence are checked atomically. */
+  readonly atomicDecisionFence?: true
+  /** Capture the scope's eligibility state before reading it for a decision. */
+  decisionFence?(scope: Scope): Promise<Digest>
   manifest(): ProviderManifest
   health(): Promise<{ ok: boolean; detail: string }>
   /**
@@ -437,7 +441,11 @@ export interface MemoryProvider {
   /** Appends a version, and the audit entries that record it, in one atomic write. */
   appendMemoryVersion(
     record: MemoryRecord,
-    options: { expectedPreviousDigest: Digest | null; audit?: AuditEntry[] },
+    options: {
+      expectedPreviousDigest: Digest | null
+      expectedDecisionFence?: Digest
+      audit?: AuditEntry[]
+    },
   ): Promise<void>
   readMemoryVersions(query: Omit<ProviderQuery, "episodeIds">): Promise<MemoryRecord[]>
   /**

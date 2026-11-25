@@ -6,13 +6,16 @@ import { decodeUtf8, parseJson } from "../canonical-json.mjs"
 import { LearningError, ProviderConflictError } from "../errors.mjs"
 import {
   PROVIDER_CONTRACT,
+  DECISION_FENCE_STREAMS,
   REDACT_CAPABILITY,
   REQUIRED_CAPABILITIES,
   STREAMS,
   assertQuery,
+  assertDecisionFence,
   assertStorable,
   assertStream,
   batchWrites,
+  decisionFenceDigest,
   matchesQuery,
   newRecords,
   redactionProblem,
@@ -282,8 +285,8 @@ export function createJsonLinesMemoryProvider({
    * not been committed. A store whose directory does not exist yet reads as empty, and reading
    * it creates nothing and takes no lock.
    */
-  async function readLocked(read) {
-    if (!(await storeDirectoryExists())) return []
+  async function readLocked(read, empty = []) {
+    if (!(await storeDirectoryExists())) return empty
     return lock.run(async () => {
       await recover()
       return read()
@@ -456,6 +459,21 @@ export function createJsonLinesMemoryProvider({
     ]
   }
 
+  /** The caller holds the file lock while reading the complete eligibility state. */
+  async function fence(scope) {
+    const query = { scope }
+    assertQuery(query)
+    const records = {}
+    for (const stream of DECISION_FENCE_STREAMS)
+      records[stream] = (
+        await readStream(stream, (record) => matchesQuery(stream, record, query))
+      ).records
+    const memories = (
+      await readStream("memories", (record) => matchesQuery("memories", record, query))
+    ).records
+    return decisionFenceDigest(scope, { records, memories })
+  }
+
   async function appendLines(stream, records, current) {
     if (current.partialTail) {
       const handle = await openOwn(fileFor(stream), constants.O_WRONLY)
@@ -479,6 +497,13 @@ export function createJsonLinesMemoryProvider({
   }
 
   return {
+    atomicDecisionFence: true,
+
+    async decisionFence(scope) {
+      assertQuery({ scope })
+      return readLocked(() => fence(scope), decisionFenceDigest(scope))
+    },
+
     manifest() {
       return {
         schemaVersion: SCHEMA_VERSIONS.providerManifest,
@@ -546,10 +571,15 @@ export function createJsonLinesMemoryProvider({
       )
     },
 
-    async appendMemoryVersion(record, { expectedPreviousDigest = null, audit = [] } = {}) {
+    async appendMemoryVersion(
+      record,
+      { expectedPreviousDigest = null, expectedDecisionFence, audit = [] } = {},
+    ) {
       assertStorable([record])
       assertStorable(audit)
       return withLock(async () => {
+        if (expectedDecisionFence !== undefined)
+          assertDecisionFence(expectedDecisionFence, await fence(record.scope))
         const current = await readStream("memories")
         const latest = current.records.filter((version) => version.id === record.id).at(-1) ?? null
         if ((latest?.digest ?? null) !== expectedPreviousDigest)

@@ -124,6 +124,8 @@ Affected proposed learnings cannot be accepted against their old evidence, and a
 
 A provider stores canonical records and returns them. It implements `manifest()`, `health()`, `appendRecords()`, `appendBatch()`, `readRecords()`, `appendMemoryVersion()`, and `readMemoryVersions()`. `appendBatch()` appends to several streams at once. Every append method also takes the audit entries that record the change, and stores the change and its entries in one atomic write. The contract is in [`src/provider-contract.mjs`](src/provider-contract.mjs) and the types are in [`index.d.mts`](index.d.mts). The learning store keeps every consent, purpose, scope, and approval rule, re-checks everything a provider returns, and stops on damaged records, so a provider never has to enforce consent itself. A provider must still be trusted to return every record it stored.
 
+Editing or reinstating a learning also needs the optional atomic decision fence in the provider contract. Without it, those decisions fail rather than risk approving withdrawn evidence. The built-in providers support the fence; custom providers can still use the other operations without it.
+
 Run the conformance suite against your provider:
 
 ```js

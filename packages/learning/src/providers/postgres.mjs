@@ -2,13 +2,16 @@ import { canonicalJson, digestOf } from "../canonical-json.mjs"
 import { LearningError, ProviderConflictError } from "../errors.mjs"
 import {
   PROVIDER_CONTRACT,
+  DECISION_FENCE_STREAMS,
   REDACT_CAPABILITY,
   REQUIRED_CAPABILITIES,
   STREAMS,
   assertQuery,
+  assertDecisionFence,
   assertStorable,
   assertStream,
   batchWrites,
+  decisionFenceDigest,
   redactionProblem,
 } from "../provider-contract.mjs"
 import { PRODUCER, SCHEMA_VERSIONS } from "../records.mjs"
@@ -144,6 +147,39 @@ export function createPostgresMemoryProvider({ connectionString } = {}) {
       throw new ProviderConflictError("Repository migration changed during the write.")
   }
 
+  /** Read the indexed scope while its advisory lock excludes competing changes. */
+  async function fence(client, scope) {
+    const key = canonicalJson(scope)
+    const recordsResult = await client.query(
+      `select stream, body from replica_learning.records
+       where stream = any($1::text[]) and scope_key = $2 order by seq`,
+      [DECISION_FENCE_STREAMS, key],
+    )
+    const memoriesResult = await client.query(
+      "select body from replica_learning.memory_versions where scope_key = $1 order by seq",
+      [key],
+    )
+    const migrationsResult = await client.query(
+      `select old_scope_key, new_scope_key, metadata from replica_learning.scope_migrations
+       where old_scope_key = $1 or new_scope_key = $1 order by seq`,
+      [key],
+    )
+    try {
+      const records = Object.fromEntries(DECISION_FENCE_STREAMS.map((stream) => [stream, []]))
+      for (const row of recordsResult.rows) records[row.stream].push(JSON.parse(row.body))
+      const memories = memoriesResult.rows.map((row) => JSON.parse(row.body))
+      const migrations = migrationsResult.rows.map((row) => ({
+        oldScopeKey: row.old_scope_key,
+        newScopeKey: row.new_scope_key,
+        metadata: JSON.parse(row.metadata),
+      }))
+      return decisionFenceDigest(scope, { records, memories, migrations })
+    } catch (error) {
+      if (error instanceof LearningError) throw error
+      throw new LearningError("storage_corrupt", "Could not read the decision eligibility state.")
+    }
+  }
+
   async function write(batch, { audit = [], expectedCollection, expectedMigrations } = {}) {
     const writes = batchWrites(batch, audit)
     const scopes = [...writes.values()].flat().map((record) => canonicalJson(record.scope))
@@ -198,9 +234,15 @@ export function createPostgresMemoryProvider({ connectionString } = {}) {
   }
 
   return {
+    atomicDecisionFence: true,
     atomicCollectionImport: true,
     atomicMigrationRedactions: true,
     atomicMigrationFence: true,
+
+    async decisionFence(scope) {
+      assertQuery({ scope })
+      return transaction([canonicalJson(scope)], (client) => fence(client, scope))
+    },
 
     manifest() {
       return {
@@ -251,7 +293,7 @@ export function createPostgresMemoryProvider({ connectionString } = {}) {
 
     async appendMemoryVersion(
       record,
-      { expectedPreviousDigest = null, audit = [], expectedMigrations } = {},
+      { expectedPreviousDigest = null, expectedDecisionFence, audit = [], expectedMigrations } = {},
     ) {
       assertStorable([record])
       assertStorable(audit)
@@ -266,6 +308,8 @@ export function createPostgresMemoryProvider({ connectionString } = {}) {
         ],
         async (client) => {
           await assertMigrations(client, expectedMigrations)
+          if (expectedDecisionFence !== undefined)
+            assertDecisionFence(expectedDecisionFence, await fence(client, record.scope))
           const { rows } = await client.query(
             "select version, digest, scope_key from replica_learning.memory_versions where id = $1 order by version desc limit 1",
             [record.id],
@@ -386,7 +430,8 @@ export function createPostgresMemoryProvider({ connectionString } = {}) {
           canonicalJson(migration.newScope) !== key
         )
           throw new LearningError("storage_corrupt", "A repository migration mapping is invalid.")
-      return transaction([key], async (client) => {
+      const scopes = [key, ...migrations.map((migration) => canonicalJson(migration.oldScope))]
+      return transaction(scopes, async (client) => {
         const prior = await client.query(
           "select source_digest from replica_learning.sqlite_imports where scope_key = $1",
           [key],

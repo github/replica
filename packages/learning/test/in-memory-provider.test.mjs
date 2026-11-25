@@ -99,6 +99,19 @@ describe("in-memory provider atomic writes", () => {
 })
 
 describe("learning decisions", () => {
+  it("refuses an edit when the provider cannot fence eligibility", async () => {
+    const provider = { ...createInMemoryProvider(), atomicDecisionFence: false }
+    const store = await createLearningStore({ provider })
+    await assert.rejects(
+      store.editMemory(designer(), "mem_example", {
+        expectedDigest: `sha256:${"0".repeat(64)}`,
+        content: "Updated guidance",
+        reason: "Clarify the guidance.",
+      }),
+      { code: "unsupported" },
+    )
+  })
+
   it("adds a short title to a recurrence proposal", async () => {
     const store = await createLearningStore({
       provider: createInMemoryProvider(),
@@ -660,5 +673,151 @@ describe("learning decisions", () => {
     assert.equal(instruction.withheld, false)
     assert.equal(instruction.record.retired.reason, retireReason)
     assert.equal(instruction.versions[3].accepted.note, editReason)
+  })
+
+  it("does not commit an edit after instruction consent is withdrawn at append", async () => {
+    const provider = createInMemoryProvider()
+    const ready = Promise.withResolvers()
+    const resume = Promise.withResolvers()
+    let pause = false
+    const store = await createLearningStore({
+      provider: {
+        ...provider,
+        async appendMemoryVersion(record, options) {
+          if (pause && record.accepted?.decision === "edit") {
+            ready.resolve()
+            await resume.promise
+          }
+          return provider.appendMemoryVersion(record, options)
+        },
+      },
+      clock: () => Date.parse("2026-10-09T12:00:00Z"),
+    })
+    const grant = await store.addGrant(designer(), {
+      purposes: ["review", "instruction"],
+      sources: ["hub_review_comments"],
+      basis: "Test agreement.",
+    })
+    await store.importHubReviewComments(agent(), weekOneLog(), { grantIds: [grant.id] })
+    await store.annotate(agent(), weekOneLabels().labels)
+    const { proposals } = await store.consolidate(agent(), {
+      consolidator: createRecurrenceConsolidator(),
+      window: { from: "2026-09-29T00:00:00.000000Z", to: "2026-10-05T18:00:00.000000Z" },
+    })
+    const proposal = proposals[0]
+    const accepted = await store.acceptMemory(designer(), proposal.id, {
+      expectedDigest: proposal.reviewDigest,
+    })
+    const before = await provider.readMemoryVersions({ scope: agent().scope })
+    pause = true
+    const pending = store.editMemory(designer(), proposal.id, {
+      expectedDigest: accepted.digest,
+      title: "Keep labels visible",
+      reason: "Clarify the guidance.",
+      operationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    })
+    try {
+      await Promise.race([
+        ready.promise,
+        pending.then(
+          () => {
+            throw new Error("The edit finished before its write was paused.")
+          },
+          (error) => {
+            throw error
+          },
+        ),
+      ])
+      await store.withdrawGrant(designer(), grant.id, { purposes: ["instruction"] })
+      resume.resolve()
+      await assert.rejects(pending)
+      assert.deepEqual(await provider.readMemoryVersions({ scope: agent().scope }), before)
+      assert.deepEqual(
+        await provider.readRecords("audit", {
+          scope: agent().scope,
+          operations: ["memory.edit"],
+        }),
+        [],
+      )
+    } finally {
+      resume.resolve()
+      await pending.catch(() => {})
+    }
+  })
+
+  it("does not commit a reinstatement after supporting evidence is redacted at append", async () => {
+    const provider = createInMemoryProvider()
+    const ready = Promise.withResolvers()
+    const resume = Promise.withResolvers()
+    let pause = false
+    const store = await createLearningStore({
+      provider: {
+        ...provider,
+        async appendMemoryVersion(record, options) {
+          if (pause && record.accepted?.decision === "reinstate") {
+            ready.resolve()
+            await resume.promise
+          }
+          return provider.appendMemoryVersion(record, options)
+        },
+      },
+      clock: () => Date.parse("2026-10-09T12:00:00Z"),
+    })
+    const grant = await store.addGrant(designer(), {
+      purposes: ["review", "instruction"],
+      sources: ["hub_review_comments"],
+      basis: "Test agreement.",
+    })
+    await store.importHubReviewComments(agent(), weekOneLog(), { grantIds: [grant.id] })
+    await store.annotate(agent(), weekOneLabels().labels)
+    const { proposals } = await store.consolidate(agent(), {
+      consolidator: createRecurrenceConsolidator(),
+      window: { from: "2026-09-29T00:00:00.000000Z", to: "2026-10-05T18:00:00.000000Z" },
+    })
+    const proposal = proposals[0]
+    const rejected = await store.rejectMemory(designer(), proposal.id, {
+      expectedDigest: proposal.reviewDigest,
+      reason: "Review later.",
+    })
+    const evidenceIds = new Set(proposal.evidence.flatMap((ref) => ref.eventIds))
+    const { events } = await store.queryObservations(designer(), { purpose: "review" })
+    const comment = events.find(
+      (event) => evidenceIds.has(event.id) && event.type === "human_comment",
+    )
+    assert.ok(comment)
+    const before = await provider.readMemoryVersions({ scope: agent().scope })
+    pause = true
+    const pending = store.reinstateMemory(designer(), proposal.id, {
+      expectedDigest: rejected.digest,
+      reason: "The team confirmed the guidance.",
+      operationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    })
+    try {
+      await Promise.race([
+        ready.promise,
+        pending.then(
+          () => {
+            throw new Error("The reinstatement finished before its write was paused.")
+          },
+          (error) => {
+            throw error
+          },
+        ),
+      ])
+      await store.redactComment(designer(), comment.id, { reason: "The author asked." })
+      resume.resolve()
+      await assert.rejects(pending)
+      assert.deepEqual(await provider.readMemoryVersions({ scope: agent().scope }), before)
+      assert.deepEqual(
+        await provider.readRecords("audit", {
+          scope: agent().scope,
+          operations: ["memory.reinstate"],
+        }),
+        [],
+      )
+    } finally {
+      resume.resolve()
+      await pending.catch(() => {})
+    }
   })
 })

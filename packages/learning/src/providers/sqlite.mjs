@@ -14,13 +14,16 @@ import { canonicalJson, digestOf } from "../canonical-json.mjs"
 import { LearningError, ProviderConflictError } from "../errors.mjs"
 import {
   PROVIDER_CONTRACT,
+  DECISION_FENCE_STREAMS,
   REDACT_CAPABILITY,
   REQUIRED_CAPABILITIES,
   STREAMS,
   assertQuery,
+  assertDecisionFence,
   assertStorable,
   assertStream,
   batchWrites,
+  decisionFenceDigest,
   redactionProblem,
 } from "../provider-contract.mjs"
 import { PRODUCER, SCHEMA_VERSIONS } from "../records.mjs"
@@ -248,6 +251,45 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
     }
   }
 
+  /** Read the scoped eligibility state while the write transaction excludes other writers. */
+  function fence(scope) {
+    const key = canonicalJson(scope)
+    try {
+      const readRecords = db.prepare(
+        "select body from records where stream = ? and scope_key = ? order by seq",
+      )
+      const records = Object.fromEntries(
+        DECISION_FENCE_STREAMS.map((stream) => [
+          stream,
+          readRecords.all(stream, key).map((row) => JSON.parse(row.body)),
+        ]),
+      )
+      const memories = db
+        .prepare("select body from memory_versions where scope_key = ? order by seq")
+        .all(key)
+        .map((row) => JSON.parse(row.body))
+      const table = db
+        .prepare("select 1 from sqlite_master where type = 'table' and name = 'scope_migrations'")
+        .get()
+      const migrations = table
+        ? db
+            .prepare(
+              "select old_scope_key, new_scope_key, metadata from scope_migrations where old_scope_key = ? or new_scope_key = ? order by rowid",
+            )
+            .all(key, key)
+            .map((row) => ({
+              oldScopeKey: row.old_scope_key,
+              newScopeKey: row.new_scope_key,
+              metadata: JSON.parse(row.metadata),
+            }))
+        : []
+      return decisionFenceDigest(scope, { records, memories, migrations })
+    } catch (error) {
+      if (error instanceof LearningError) throw error
+      throw new LearningError("storage_corrupt", "Could not read the decision eligibility state.")
+    }
+  }
+
   /** Append to several streams in one transaction. */
   function write(batch, { audit = [], expectedCollection, expectedMigrations } = {}) {
     const writes = batchWrites(batch, audit)
@@ -357,9 +399,16 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
   }
 
   return {
+    atomicDecisionFence: true,
     atomicMigrationRedactions: true,
     atomicMigrationFence: true,
     atomicCollectionImport: true,
+
+    async decisionFence(scope) {
+      assertQuery({ scope })
+      if (!connect({ create: false })) return decisionFenceDigest(scope)
+      return transaction(() => fence(scope))
+    },
 
     manifest() {
       return {
@@ -417,7 +466,7 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
 
     async appendMemoryVersion(
       record,
-      { expectedPreviousDigest = null, audit = [], expectedMigrations } = {},
+      { expectedPreviousDigest = null, expectedDecisionFence, audit = [], expectedMigrations } = {},
     ) {
       assertStorable([record])
       assertStorable(audit)
@@ -426,6 +475,8 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
       try {
         transaction(() => {
           assertMigrations(expectedMigrations)
+          if (expectedDecisionFence !== undefined)
+            assertDecisionFence(expectedDecisionFence, fence(record.scope))
           const latest = statements.latestVersion.get(record.id)
           if ((latest?.digest ?? null) !== expectedPreviousDigest)
             throw new ProviderConflictError(`Memory ${record.id} changed since it was read.`, {

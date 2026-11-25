@@ -147,6 +147,138 @@ export function memoryProviderConformance({ name, createProvider }) {
       ])
     })
 
+    it("refuses a decision when its eligibility changes without writing its audit", async (t) => {
+      const provider = await fresh()
+      if (provider.atomicDecisionFence !== true) {
+        t.skip("Provider does not claim atomic decision fences.")
+        return
+      }
+      const fence = await provider.decisionFence(SCOPE)
+      await provider.appendRecords("grants", [grant("grant_otherfence1", undefined, OTHER)])
+      const first = memory("mem_fencefirst1", 1)
+      const receipt = auditEntry("audit_fencefirst1")
+      await provider.appendMemoryVersion(first, {
+        expectedPreviousDigest: null,
+        expectedDecisionFence: fence,
+        audit: [receipt],
+      })
+      assert.notEqual(await provider.decisionFence(SCOPE), fence)
+      const beforeWithdrawal = await provider.decisionFence(SCOPE)
+      await provider.appendRecords("withdrawals", [
+        sealRecord({ id: "withdraw_fence1", scope: SCOPE, at: "2026-10-02T00:00:00.000000Z" }),
+      ])
+      const second = memory("mem_fencesecond1", 1)
+      const secondReceipt = auditEntry("audit_fencesecond1")
+      await assert.rejects(
+        provider.appendMemoryVersion(second, {
+          expectedPreviousDigest: null,
+          expectedDecisionFence: beforeWithdrawal,
+          audit: [secondReceipt],
+        }),
+        { code: "conflict" },
+      )
+      assert.deepEqual(await provider.readMemoryVersions({ scope: SCOPE }), [first])
+      assert.deepEqual(await provider.readRecords("audit", { scope: SCOPE }), [receipt])
+      await provider.appendMemoryVersion(second, {
+        expectedPreviousDigest: null,
+        expectedDecisionFence: await provider.decisionFence(SCOPE),
+        audit: [secondReceipt],
+      })
+      assert.deepEqual(await provider.readMemoryVersions({ scope: SCOPE }), [first, second])
+    })
+
+    it("detects changes to each eligibility stream", async (t) => {
+      const provider = await fresh()
+      if (provider.atomicDecisionFence !== true) {
+        t.skip("Provider does not claim atomic decision fences.")
+        return
+      }
+      for (const stream of ["grants", "withdrawals", "collections", "episodes", "events"]) {
+        const fence = await provider.decisionFence(SCOPE)
+        const record = sealRecord({ id: `fence_${stream}`, scope: SCOPE })
+        await provider.appendRecords(stream, [record])
+        assert.notEqual(await provider.decisionFence(SCOPE), fence, stream)
+      }
+    })
+
+    it("detects event redaction even though the event digest stays the same", async (t) => {
+      const provider = await fresh()
+      if (
+        provider.atomicDecisionFence !== true ||
+        !provider.manifest().capabilities.includes("observation.redact")
+      ) {
+        t.skip("Provider does not claim atomic decision fences and redaction.")
+        return
+      }
+      const event = sealEvent({
+        id: "ev_fenceredact1",
+        scope: SCOPE,
+        episodeId: "ep_fenceredact1",
+        type: "annotation",
+        at: "2026-10-01T00:00:00.000000Z",
+        payload: { text: "Removed evidence" },
+      })
+      await provider.appendRecords("events", [event])
+      const fence = await provider.decisionFence(SCOPE)
+      const rest = { ...event }
+      delete rest.payload
+      await provider.redactRecord("events", {
+        ...rest,
+        redaction: {
+          at: "2026-10-02T00:00:00.000000Z",
+          by: designer().principal,
+          reason: "Asked.",
+        },
+      })
+      assert.equal((await provider.readRecords("events", { scope: SCOPE }))[0].digest, event.digest)
+      await assert.rejects(
+        provider.appendMemoryVersion(memory("mem_fenceredact1", 1), {
+          expectedPreviousDigest: null,
+          expectedDecisionFence: fence,
+          audit: [auditEntry("audit_fenceredact1")],
+        }),
+        { code: "conflict" },
+      )
+      assert.deepEqual(await provider.readMemoryVersions({ scope: SCOPE }), [])
+      assert.deepEqual(await provider.readRecords("audit", { scope: SCOPE }), [])
+    })
+
+    it("invalidates both scopes when a migration mapping is added", async (t) => {
+      const provider = await fresh()
+      if (
+        provider.atomicDecisionFence !== true ||
+        (!provider.migrateScope && !provider.registerLegacyScope)
+      ) {
+        t.skip("Provider does not support repository scope migration.")
+        return
+      }
+      const oldFence = await provider.decisionFence(OTHER)
+      const newFence = await provider.decisionFence(SCOPE)
+      if (provider.registerLegacyScope) await provider.registerLegacyScope(OTHER, SCOPE)
+      else
+        await provider.migrateScope({
+          oldScope: OTHER,
+          newScope: SCOPE,
+          transform: ({ records, memories }) => ({
+            records,
+            memories,
+            metadata: { oldScope: OTHER, newScope: SCOPE, digestMappings: [] },
+          }),
+        })
+      assert.notEqual(await provider.decisionFence(OTHER), oldFence)
+      assert.notEqual(await provider.decisionFence(SCOPE), newFence)
+      await assert.rejects(
+        provider.appendMemoryVersion(memory("mem_fencemigration1", 1), {
+          expectedPreviousDigest: null,
+          expectedDecisionFence: newFence,
+          audit: [auditEntry("audit_fencemigration1")],
+        }),
+        { code: "conflict" },
+      )
+      assert.deepEqual(await provider.readMemoryVersions({ scope: SCOPE }), [])
+      assert.deepEqual(await provider.readRecords("audit", { scope: SCOPE }), [])
+    })
+
     it("appends to several streams and their audit entries in one write, or writes nothing", async () => {
       const provider = await fresh()
       const at = "2026-10-01T00:00:00.000000Z"

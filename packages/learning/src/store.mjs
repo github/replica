@@ -2477,6 +2477,15 @@ class LearningStore {
       throw new LearningError("invalid_input", "Give a reason for the decision.")
     if (decision === "edit" && title === undefined && content === undefined)
       throw new LearningError("invalid_input", "Give a title or text to edit.")
+    if (
+      this.#provider.atomicDecisionFence !== true ||
+      typeof this.#provider.decisionFence !== "function"
+    )
+      throw new LearningError(
+        "unsupported",
+        "This provider cannot atomically verify learning decision evidence.",
+      )
+    const expectedDecisionFence = await this.#provider.decisionFence(context.scope)
     const { items, eligible, now } = await this.#statuses(context)
     const entries = new Map(items.map((item) => [item.id, item]))
     const entry = entries.get(id)
@@ -2570,6 +2579,7 @@ class LearningStore {
           [{ kind: "memory", id, digest: record.digest }],
           { purpose: "instruction", reason },
         ),
+        expectedDecisionFence,
       )
     } catch (error) {
       if (error?.code === "stale_review" && operationId && !retried)
@@ -2700,9 +2710,13 @@ class LearningStore {
   }
 
   /** Append a learning version with the audit entry that records it, in one provider write. */
-  async #appendVersion(record, expectedPreviousDigest, code, receipt) {
+  async #appendVersion(record, expectedPreviousDigest, code, receipt, expectedDecisionFence) {
     try {
-      await this.#provider.appendMemoryVersion(record, { expectedPreviousDigest, audit: [receipt] })
+      await this.#provider.appendMemoryVersion(record, {
+        expectedPreviousDigest,
+        audit: [receipt],
+        ...(expectedDecisionFence === undefined ? {} : { expectedDecisionFence }),
+      })
     } catch (error) {
       if (error?.code === "conflict")
         throw new LearningError(
