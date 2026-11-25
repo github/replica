@@ -41,6 +41,7 @@ export interface PrototypeWorkspaceHeaderData extends WorkspaceHeaderData {
   historyLabel: string
   historyPath?: string
   moreActionsLabel: string
+  agentReportedUseLabel?: string
   shareLinksLabel?: string
   shareLinksPath?: string
 }
@@ -57,6 +58,7 @@ export interface PrototypeWorkspaceHeaderProps {
     onClick: () => void
   }
   onControlsToolbarMount?: (toolbar: HTMLSpanElement | null) => void
+  onShowAgentReportedUse?: () => void
   fork?: {
     label: string
     onClick: () => void

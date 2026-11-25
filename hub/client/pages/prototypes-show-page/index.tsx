@@ -1,5 +1,5 @@
 import { HistoryIcon, LinkExternalIcon } from "@primer/octicons-react"
-import { Stack } from "@primer/react-brand"
+import { Link, Stack } from "@primer/react-brand"
 import { useEffect, useRef, useState } from "react"
 import type { SubmitEvent } from "react"
 
@@ -9,6 +9,7 @@ import { CopilotAppContinuationDialog } from "@components/copilot-app-continuati
 import { HubEmptyState } from "@components/hub-empty-state"
 import { HubIconButton } from "@components/hub-icon-button"
 import { CopyableTextInput } from "@components/copyable-text-input"
+import { CanvasDialog } from "@components/prototype-canvas-dialog"
 import { PrototypeBriefComposer } from "@components/prototype-brief-composer"
 import { PrototypePreview } from "@features/prototype-preview"
 import { PreviewUnavailable } from "@features/preview-unavailable"
@@ -55,6 +56,7 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
   } = props
   const canEditDetails = Boolean(data.detailsEditPath || onSaveDetails)
   const [localMinimized, setLocalMinimized] = useState(initialMinimized)
+  const [agentReportedUseOpen, setAgentReportedUseOpen] = useState(false)
   const [controlsToolbar, setControlsToolbar] = useState<HTMLSpanElement | null>(null)
   const [workspaceControlsToolbar, setWorkspaceControlsToolbar] = useState<HTMLSpanElement | null>(
     null,
@@ -70,7 +72,12 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
   const [submission, setSubmission] = useState<CopilotAppSubmission | null>(null)
   const handoff = useCopilotHandoff(authorizeHandoff)
   const canBranch = data.branchSubmissionMode === "copilot" && Boolean(data.newPrototypePath)
-  const modalOpen = infoOpen || Boolean(submission)
+  const matchingAgentReport =
+    data.selectedBuild && data.agentReportedUse?.buildNumber === data.selectedBuild.number
+      ? data.agentReportedUse
+      : undefined
+  const agentReportedUseDialogOpen = agentReportedUseOpen && Boolean(matchingAgentReport)
+  const modalOpen = infoOpen || Boolean(submission) || agentReportedUseDialogOpen
   const selectedThread = review?.selectedThread
   const reviewControls: PrototypeWorkspaceHeaderProps["reviewControls"] = review
     ? {
@@ -267,6 +274,9 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
           data={data}
           preview
           onShowInfo={() => setInfoMode("view")}
+          onShowAgentReportedUse={
+            matchingAgentReport ? () => setAgentReportedUseOpen(true) : undefined
+          }
           editDetails={
             canEditDetails && data.editDetailsLabel
               ? { label: data.editDetailsLabel, onClick: () => setInfoMode("edit") }
@@ -469,6 +479,49 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
           detailsError={detailsError}
           detailsSaved={detailsSaved}
         />
+      ) : null}
+      {agentReportedUseDialogOpen && matchingAgentReport ? (
+        <CanvasDialog
+          title={matchingAgentReport.copy.heading}
+          closeLabel={data.closeLabel}
+          onClose={() => setAgentReportedUseOpen(false)}
+        >
+          <table className="review-page__applied-learnings">
+            <caption>{matchingAgentReport.copy.caption}</caption>
+            <thead>
+              <tr>
+                <th scope="col">{matchingAgentReport.copy.learningLabel}</th>
+                <th scope="col">{matchingAgentReport.copy.beforeLabel}</th>
+                <th scope="col">{matchingAgentReport.copy.afterLabel}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {matchingAgentReport.learnings.map((learning) => (
+                <tr key={learning.id}>
+                  <th scope="row">{learning.label}</th>
+                  {[learning.beforeScreenshot, learning.afterScreenshot].map(
+                    (screenshot, index) => (
+                      <td key={index}>
+                        {screenshot ? (
+                          <Link
+                            href={screenshot.url}
+                            aria-label={screenshot.label}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {matchingAgentReport.copy.viewLabel}
+                          </Link>
+                        ) : (
+                          matchingAgentReport.copy.notAttachedLabel
+                        )}
+                      </td>
+                    ),
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </CanvasDialog>
       ) : null}
       {submission && canBranch ? (
         <CopilotAppContinuationDialog

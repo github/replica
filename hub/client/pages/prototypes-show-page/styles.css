@@ -1,3 +1,27 @@
+.review-page__applied-learnings {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.review-page__applied-learnings caption {
+  padding-block-end: 1rem;
+  color: var(--hub-fg-muted);
+  text-align: start;
+}
+
+.review-page__applied-learnings th,
+.review-page__applied-learnings td {
+  padding: 0.75rem 0.5rem;
+  border-bottom: 1px solid var(--hub-border-default);
+  text-align: start;
+  vertical-align: top;
+}
+
+.review-page__applied-learnings th[scope="row"] {
+  font-weight: 400;
+}
+
 .review-page.review-page--minimized .review-page__comments {
   grid-area: auto;
   position: absolute;

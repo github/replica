@@ -78,6 +78,24 @@ export interface PrototypesShowPageData extends PrototypeWorkspaceData {
     frameTitle: string
     previewUrl: string
   }
+  agentReportedUse?: {
+    buildNumber: number
+    copy: {
+      heading: string
+      caption: string
+      learningLabel: string
+      beforeLabel: string
+      afterLabel: string
+      viewLabel: string
+      notAttachedLabel: string
+    }
+    learnings: Array<{
+      id: string
+      label: string
+      beforeScreenshot?: { url: string; label: string }
+      afterScreenshot?: { url: string; label: string }
+    }>
+  }
 }
 
 export interface PrototypeDetailsInput {

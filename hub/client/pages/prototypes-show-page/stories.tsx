@@ -466,6 +466,62 @@ export const Minimized: Story = {
   args: { initialMinimized: true },
 }
 
+const appliedLearningsCopy = {
+  heading: "Applied learnings for Build 1",
+  caption: "Reported by the agent; not independently verified.",
+  learningLabel: "Learning",
+  beforeLabel: "Before",
+  afterLabel: "After",
+  viewLabel: "View",
+  notAttachedLabel: "Not attached",
+}
+
+export const AppliedLearnings: Story = {
+  args: {
+    data: {
+      ...data,
+      agentReportedUseLabel: "Applied learnings",
+      agentReportedUse: {
+        buildNumber: 1,
+        copy: appliedLearningsCopy,
+        learnings: [
+          {
+            id: "clear-primary-action",
+            label: "Make the primary action clear · v1",
+            beforeScreenshot: {
+              url: "/prototype-preview/templates/default.png",
+              label: "View before screenshot for Make the primary action clear",
+            },
+            afterScreenshot: {
+              url: "/prototype-preview/templates/welcome.png",
+              label: "View after screenshot for Make the primary action clear",
+            },
+          },
+        ],
+      },
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: "More actions" }))
+    await userEvent.click(canvas.getByRole("menuitem", { name: "Applied learnings" }))
+  },
+}
+
+export const AppliedLearningsWithoutScreenshots: Story = {
+  ...AppliedLearnings,
+  args: {
+    data: {
+      ...data,
+      agentReportedUseLabel: "Applied learnings",
+      agentReportedUse: {
+        buildNumber: 1,
+        copy: appliedLearningsCopy,
+        learnings: [{ id: "visible-form-labels", label: "Label every form field · v1" }],
+      },
+    },
+  },
+}
+
 const controlsPreviewUrl = new URL(
   "/prototype-preview/build-controls/index.html",
   window.location.href,

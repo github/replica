@@ -4,6 +4,7 @@ import {
   InfoIcon,
   KebabHorizontalIcon,
   LinkIcon,
+  LightBulbIcon,
   MoonIcon,
   PencilIcon,
   RepoForkedIcon,
@@ -33,6 +34,7 @@ export function PrototypeWorkspaceHeader({
   fork,
   reviewControls,
   onControlsToolbarMount,
+  onShowAgentReportedUse,
 }: PrototypeWorkspaceHeaderProps) {
   const { resolvedColorMode, setColorMode } = useHubTheme()
   const controls = useControlQuery()
@@ -222,7 +224,8 @@ export function PrototypeWorkspaceHeader({
         <PrototypeReviewControls {...reviewControls} noBuild={!data.selectedBuild} />
       ) : null}
 
-      {!data.browseReplica && menuLinks.length > 0 ? (
+      {!data.browseReplica &&
+      (menuLinks.length > 0 || (data.agentReportedUseLabel && onShowAgentReportedUse)) ? (
         <Tooltip text={data.moreActionsLabel} type="description">
           <div className="review-shell__more-menu">
             <ActionMenu selectionVariant="none" size="small" menuAlignment="end">
@@ -247,6 +250,16 @@ export function PrototypeWorkspaceHeader({
                     {label}
                   </ActionMenu.Item>
                 ))}
+                {data.agentReportedUseLabel && onShowAgentReportedUse ? (
+                  <ActionMenu.Item
+                    className="review-shell__more-action"
+                    value="agent-reported-use"
+                    leadingVisual={<LightBulbIcon size={16} />}
+                    onClick={onShowAgentReportedUse}
+                  >
+                    {data.agentReportedUseLabel}
+                  </ActionMenu.Item>
+                ) : null}
               </ActionMenu.Overlay>
             </ActionMenu>
           </div>

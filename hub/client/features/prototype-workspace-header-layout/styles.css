@@ -167,6 +167,18 @@ div:has(> [data-testid="ActionMenu"] .review-shell__more-trigger[aria-expanded="
   display: none;
 }
 
+.review-shell__more-menu [role="menu"] {
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 13rem;
+  max-width: calc(100vw - 1rem);
+}
+
+/* Brand only spaces icons in link items, so match that gap for action items. */
+.review-shell__more-action {
+  column-gap: var(--base-size-8);
+}
+
 .review-shell__build-menu [role="menu"] {
   box-sizing: border-box;
   width: max-content;

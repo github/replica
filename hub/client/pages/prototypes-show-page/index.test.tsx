@@ -428,6 +428,7 @@ function TestPage({
   branchSubmissionMode = PROTOTYPES_SHOW_PAGE_DATA.branchSubmissionMode,
   controlsIdentity,
   privatePreviewUrl,
+  agentReportedUse,
 }: {
   initialInfoOpen?: boolean
   showPrototypeInfo?: boolean
@@ -441,6 +442,7 @@ function TestPage({
   branchSubmissionMode?: PrototypesShowPageData["branchSubmissionMode"]
   controlsIdentity?: string
   privatePreviewUrl?: string
+  agentReportedUse?: PrototypesShowPageData["agentReportedUse"]
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const { resolvedColorMode: previewTheme } = useHubTheme()
@@ -472,6 +474,8 @@ function TestPage({
         branchSubmissionMode,
         controlsIdentity,
         privatePreviewUrl,
+        agentReportedUseLabel: "Applied learnings",
+        agentReportedUse,
         showPrototypeInfo,
         alert,
       }}
@@ -1511,6 +1515,76 @@ describe("PrototypesShowPage()", () => {
       </HubThemeProvider>,
     )
     expect(screen.queryByRole("button", { name: "Controls" })).not.toBeInTheDocument()
+  })
+
+  it("shows applied learnings and their screenshot links only on the matching Build", () => {
+    const report = {
+      buildNumber: 2,
+      copy: {
+        heading: "Applied learnings for Build 2",
+        caption: "Reported by the agent; not independently verified.",
+        learningLabel: "Learning",
+        beforeLabel: "Before",
+        afterLabel: "After",
+        viewLabel: "View",
+        notAttachedLabel: "Not attached",
+      },
+      learnings: [
+        {
+          id: "visible-form-labels",
+          label: "Label every form field · v1",
+          beforeScreenshot: {
+            url: "/screenshots/before.png",
+            label: "View before screenshot for Label every form field",
+          },
+          afterScreenshot: {
+            url: "/screenshots/after.png",
+            label: "View after screenshot for Label every form field",
+          },
+        },
+        { id: "clear-errors", label: "Explain how to fix errors · v2" },
+      ],
+    }
+    const { rerender } = render(
+      <HubThemeProvider>
+        <TestPage agentReportedUse={report} />
+      </HubThemeProvider>,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Applied learnings" }))
+
+    const dialog = screen.getByRole("dialog", { name: "Applied learnings for Build 2" })
+    const table = within(dialog).getByRole("table", {
+      name: /Reported by the agent; not independently verified/,
+    })
+    const row = within(table).getByRole("row", { name: /Label every form field/ })
+    expect(within(row).getByRole("link", { name: /View before screenshot/ })).toHaveAttribute(
+      "href",
+      "/screenshots/before.png",
+    )
+    expect(within(row).getByRole("link", { name: /View after screenshot/ })).toHaveAttribute(
+      "href",
+      "/screenshots/after.png",
+    )
+    const missingScreenshots = within(table).getByRole("row", {
+      name: /Explain how to fix errors/,
+    })
+    expect(within(missingScreenshots).getAllByRole("cell", { name: "Not attached" })).toHaveLength(
+      2,
+    )
+    expect(within(missingScreenshots).queryByRole("link")).not.toBeInTheDocument()
+
+    rerender(
+      <HubThemeProvider>
+        <TestPage agentReportedUse={{ ...report, buildNumber: 1 }} />
+      </HubThemeProvider>,
+    )
+    expect(
+      screen.queryByRole("dialog", { name: "Applied learnings for Build 2" }),
+    ).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }))
+    expect(screen.queryByRole("menuitem", { name: "Applied learnings" })).not.toBeInTheDocument()
   })
 
   it("keeps the fixed controls outside the preview and shows every Build state", () => {

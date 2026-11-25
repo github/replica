@@ -19,6 +19,7 @@ export function PrototypeWorkspace({
   children,
   data,
   onShowInfo,
+  onShowAgentReportedUse,
   editDetails,
   fork,
   preview = false,
@@ -27,6 +28,7 @@ export function PrototypeWorkspace({
 }: PropsWithChildren<{
   data: PrototypeWorkspaceData | ReplicaWorkspaceData
   onShowInfo?: () => void
+  onShowAgentReportedUse?: PrototypeWorkspaceHeaderProps["onShowAgentReportedUse"]
   editDetails?: PrototypeWorkspaceHeaderProps["editDetails"]
   fork?: PrototypeWorkspaceHeaderProps["fork"]
   preview?: boolean
@@ -39,6 +41,7 @@ export function PrototypeWorkspace({
         <PrototypeWorkspaceHeader
           data={data}
           onShowInfo={onShowInfo}
+          onShowAgentReportedUse={onShowAgentReportedUse}
           editDetails={editDetails}
           fork={fork}
           reviewControls={reviewControls}
