@@ -107,8 +107,8 @@ export async function runLearningCommand(
   await chmod(temporaryDirectory, 0o700)
   try {
     const commandArguments = [...arguments_]
+    let hasDirectory = false
     if (learningDatabaseUrl) {
-      let hasDirectory = false
       let requireImport = false
       async function preserveExistingStore(directory: string) {
         try {
@@ -148,6 +148,29 @@ export async function runLearningCommand(
         )
       }
     }
+    const secrets = [learningDatabaseUrl, githubToken].filter((value): value is string =>
+      Boolean(value),
+    )
+    if (learningDatabaseUrl) {
+      try {
+        const password = new URL(learningDatabaseUrl).password
+        if (password) secrets.push(password, decodeURIComponent(password))
+      } catch {
+        // The command reports an invalid URL without requiring it to be parsed here.
+      }
+    }
+    function redact(value: string) {
+      return secrets.reduce((text, secret) => text.replaceAll(secret, "[redacted]"), value)
+    }
+    function redactResult(value: unknown): unknown {
+      if (typeof value === "string") return redact(value)
+      if (Array.isArray(value)) return value.map(redactResult)
+      if (value && typeof value === "object")
+        return Object.fromEntries(
+          Object.entries(value).map(([key, item]) => [redact(key), redactResult(item)]),
+        )
+      return value
+    }
     return await new Promise<unknown>((resolve, reject) => {
       const child = spawn(
         nodePath,
@@ -159,7 +182,7 @@ export async function runLearningCommand(
             environment,
             temporaryDirectory,
             githubToken,
-            learningDatabaseUrl,
+            hasDirectory ? learningDatabaseUrl : undefined,
           ),
           stdio: ["ignore", "pipe", "pipe"],
         },
@@ -268,13 +291,13 @@ export async function runLearningCommand(
           return
         }
         const stdout = Buffer.concat(output).toString("utf8")
-        const stderr = Buffer.concat(errors).toString("utf8").trim()
+        const stderr = redact(Buffer.concat(errors).toString("utf8").trim())
         if (code !== 0) {
           const match = errorPattern.exec(stderr)
           let result: unknown
           if (stdout.trim()) {
             try {
-              result = JSON.parse(stdout)
+              result = redactResult(JSON.parse(stdout))
             } catch {
               result = undefined
             }

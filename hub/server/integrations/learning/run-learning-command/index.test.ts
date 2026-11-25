@@ -4,6 +4,7 @@ import { isAbsolute, relative, resolve, sep } from "node:path"
 import { describe, expect, it, onTestFinished } from "vitest"
 
 import { runLearningCommand } from "."
+import { LearningCommandError } from "./errors"
 
 const fixtures = resolve("test/fixtures/learning")
 
@@ -117,7 +118,7 @@ describe("runLearningCommand()", () => {
         },
       },
     })
-    expect(JSON.parse(result.config).memory.requireImport).toBeUndefined()
+    expect(JSON.parse(result.config)).not.toHaveProperty("memory.requireImport")
     for (const secret of [
       databaseUrl,
       "learning-password",
@@ -204,7 +205,7 @@ describe("runLearningCommand()", () => {
     await expect(stat(result.temporaryDirectory)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
-  it("passes an explicitly supplied learning database URL to a command without a store", async () => {
+  it("does not pass the configured learning database URL to a command without a store", async () => {
     const databaseUrl = "postgres://learning-user:learning-password@localhost/learning"
     const result = (await runLearningCommand(["copilot", "status"], {
       cliPath: resolve(fixtures, "report-runtime.mjs"),
@@ -220,7 +221,6 @@ describe("runLearningCommand()", () => {
     expect(result.environment).toEqual({
       PATH: process.env.PATH,
       TMPDIR: result.temporaryDirectory,
-      REPLICA_LEARNING_DATABASE_URL: databaseUrl,
     })
     await expect(stat(result.temporaryDirectory)).rejects.toMatchObject({ code: "ENOENT" })
   })
@@ -292,6 +292,49 @@ describe("runLearningCommand()", () => {
         usage: { requests: 2, nanoAiu: 1_250_000 },
       },
     })
+  })
+
+  it("keeps the database URL and password out of command errors", async () => {
+    const directory = resolve(`server/integrations/learning/.process-test-${randomUUID()}`)
+    await mkdir(directory)
+    onTestFinished(() => rm(directory, { force: true, recursive: true }))
+    const cliPath = resolve(directory, "fail.mjs")
+    await writeFile(
+      cliPath,
+      `
+        const databaseUrl = process.env.REPLICA_LEARNING_DATABASE_URL
+        const encodedPassword = new URL(databaseUrl).password
+        const password = decodeURIComponent(encodedPassword)
+        process.stdout.write(JSON.stringify({
+          considered: 3,
+          details: { databaseUrl, password, [password]: encodedPassword },
+        }))
+        process.stderr.write("error (learning_failed): Database connection failed: " + databaseUrl + " " + password + " " + encodedPassword)
+        process.exitCode = 1
+      `,
+    )
+    const password = "learning@password"
+    const encodedPassword = "learning%40password"
+    const databaseUrl = `postgres://learning-user:${encodedPassword}@localhost/learning`
+
+    const error: unknown = await runLearningCommand(
+      ["label", "--dir", resolve(directory, "store")],
+      {
+        cliPath,
+        learningDatabaseUrl: databaseUrl,
+        environment: { PATH: process.env.PATH },
+      },
+    ).catch((failure: unknown) => failure)
+
+    expect(error).toBeInstanceOf(LearningCommandError)
+    if (!(error instanceof LearningCommandError)) throw new Error("Expected a command failure.")
+    expect(error.code).toBe("learning_failed")
+    expect(error.result).toMatchObject({ considered: 3 })
+    const result = JSON.stringify(error.result) ?? ""
+    for (const secret of [databaseUrl, password, encodedPassword]) {
+      expect.soft(error.message).not.toContain(secret)
+      expect.soft(result).not.toContain(secret)
+    }
   })
 
   it.each([
