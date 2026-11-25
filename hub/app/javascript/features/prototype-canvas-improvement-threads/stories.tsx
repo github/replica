@@ -1,9 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { useState, type ComponentProps } from "react"
+import { useState, type ComponentProps, type CSSProperties } from "react"
 
 import { CanvasReviewFeedback } from "@components/canvas-review-feedback"
 
 import { ImprovementThreads } from "."
+import { copy } from "./en"
+import { ImprovementSelectionDemo } from "./selection-demo"
 
 const meta = {
   title: "Components/Prototype canvas/Improvement threads",
@@ -35,13 +37,20 @@ const meta = {
     onFix: () => Promise.resolve(false),
   },
   decorators: [
-    (Story) => (
-      <div style={{ position: "relative", height: "100vh" }}>
-        <CanvasReviewFeedback>
-          <Story />
-        </CanvasReviewFeedback>
-      </div>
-    ),
+    (Story) => {
+      const style: CSSProperties & { "--hub-counter-background": string } = {
+        position: "relative",
+        height: "100vh",
+        "--hub-counter-background": "color-mix(in srgb, var(--hub-fg-default) 10%, transparent)",
+      }
+      return (
+        <div style={style}>
+          <CanvasReviewFeedback>
+            <Story />
+          </CanvasReviewFeedback>
+        </div>
+      )
+    },
   ],
 } satisfies Meta<typeof ImprovementThreads>
 
@@ -62,6 +71,26 @@ function FailedActions(props: ComponentProps<typeof ImprovementThreads>) {
         setError("The improvement could not be deleted. Try again.")
         return Promise.resolve(false)
       }}
+      onResolve={() => {
+        setError("The note could not be resolved. Try again.")
+        return Promise.resolve(false)
+      }}
+    />
+  )
+}
+
+function ResolvableNotes(props: ComponentProps<typeof ImprovementThreads>) {
+  const [threads, setThreads] = useState(props.threads)
+  return (
+    <ImprovementThreads
+      {...props}
+      threads={threads}
+      onResolve={(thread) => {
+        setThreads((items) =>
+          items.map((item) => (item.id === thread.id ? { ...item, status: "resolved" } : item)),
+        )
+        return Promise.resolve(true)
+      }}
     />
   )
 }
@@ -70,6 +99,10 @@ export const PinsWithoutSidebar: Story = {}
 
 export const ActiveNotes: Story = {
   args: { open: true },
+}
+
+export const SelectNotes: Story = {
+  render: () => <ImprovementSelectionDemo />,
 }
 
 export const BlockedNotes: Story = {
@@ -111,6 +144,54 @@ export const CopilotAnswer: Story = {
         ],
       },
     ],
+  },
+}
+
+export const ReadyToReview: Story = {
+  args: {
+    open: true,
+    threads: [
+      {
+        ...meta.args.threads[0]!,
+        author: "The Octocat",
+        status: "ready",
+        originalPending: false,
+      },
+      {
+        ...meta.args.threads[0]!,
+        id: 2,
+        author: "Mona Lisa",
+        body: "Keep the project description visible beside the save action.",
+        status: "ready",
+        originalPending: false,
+      },
+      { ...meta.args.threads[0]!, id: 3 },
+    ],
+  },
+  render: (args) => <ResolvableNotes {...args} />,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /^Filter notes:/ }))
+    await userEvent.click(canvas.getByRole("menuitemradio", { name: copy.ready }))
+  },
+}
+
+export const ReadyToReviewEmpty: Story = {
+  ...ReadyToReview,
+  args: { open: true, threads: [] },
+}
+
+export const ReadyToReviewSaving: Story = {
+  ...ReadyToReview,
+  args: { ...ReadyToReview.args, busy: true },
+}
+
+export const ResolutionFailure: Story = {
+  ...ReadyToReview,
+  render: (args) => <FailedActions {...args} />,
+  play: async (context) => {
+    await ReadyToReview.play!(context)
+    await context.userEvent.click(context.canvas.getByRole("button", { name: copy.resolveAll }))
+    await context.canvas.findByRole("region", { name: "Comment notifications" })
   },
 }
 

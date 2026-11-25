@@ -66,7 +66,7 @@ export function ImprovementThreads({
   onInteractionChange,
   onRetry,
   identity,
-  busy = false,
+  busy: saving = false,
   activeBatch = false,
   error = "",
   returnFocusRef,
@@ -77,6 +77,16 @@ export function ImprovementThreads({
   const [openedThread, setOpenedThread] = useState<ImprovementThread | null>(null)
   const [draft, setDraft] = useState("")
   const [submitting, setSubmitting] = useState(false)
+  const [resolvingAll, setResolvingAll] = useState(false)
+  const resolving = useRef(false)
+  const resolutionIdentity = useRef<string | null>(identity)
+  const busy = saving || resolvingAll
+  useLayoutEffect(() => {
+    resolutionIdentity.current = identity
+    return () => {
+      resolutionIdentity.current = null
+    }
+  }, [identity])
   const [discarding, setDiscarding] = useState(false)
   const [deleting, setDeleting] = useState<ImprovementThread | null>(null)
   useLayoutEffect(() => {
@@ -285,6 +295,22 @@ export function ImprovementThreads({
     if ((await onResolve(item)) && !returnFocus?.isConnected) fallbackFocus.current?.focus()
   }
 
+  async function resolveAll() {
+    if (busy || resolving.current || draft.trim() || discarding || changedIdentity) return
+    const ready = threads.filter((item) => item.status === "ready")
+    if (!ready.length) return
+    resolving.current = true
+    setResolvingAll(true)
+    try {
+      for (const item of ready) {
+        if (resolutionIdentity.current !== identity || !(await onResolve(item))) break
+      }
+    } finally {
+      resolving.current = false
+      setResolvingAll(false)
+    }
+  }
+
   async function retryFromMenu(item: ImprovementThread) {
     if (
       menuThread.current?.identity !== identity ||
@@ -391,6 +417,20 @@ export function ImprovementThreads({
                   {copy.fix}
                   <HubCounter aria-hidden="true">{pending}</HubCounter>
                 </span>
+              </Button>
+            ) : filter === "ready" ? (
+              <Button
+                size="small"
+                variant="secondary"
+                disabled={
+                  !visible.length || Boolean(draft.trim()) || discarding || busy || changedIdentity
+                }
+                aria-busy={resolvingAll}
+                onClick={() => {
+                  void resolveAll()
+                }}
+              >
+                {copy.resolveAll}
               </Button>
             ) : null}
           </div>

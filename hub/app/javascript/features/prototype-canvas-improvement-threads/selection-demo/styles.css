@@ -1,0 +1,115 @@
+.thread-sample.note-selection-demo {
+  --hub-sidebar-top: 0;
+}
+
+.note-selection-demo__row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--hub-space-8);
+}
+
+.note-selection-demo__select {
+  position: relative;
+  display: grid;
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: none;
+  place-items: center;
+  cursor: pointer;
+}
+
+.note-selection-demo__select > * {
+  grid-area: 1 / 1;
+}
+
+.note-selection-demo__checkbox {
+  display: flex;
+  align-items: center;
+  opacity: 0;
+}
+
+.note-selection-demo__select:is(:hover, :focus-within, [data-selecting="true"])
+  .note-selection-demo__checkbox {
+  opacity: 1;
+}
+
+.note-selection-demo__select:is(:hover, :focus-within, [data-selecting="true"]) .hub-user-avatar {
+  visibility: hidden;
+}
+
+.note-selection-demo__body {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.note-selection-demo__footer {
+  flex: none;
+  padding: var(--hub-space-12) var(--hub-space-16);
+  border-top: 1px solid var(--hub-border-muted);
+  background: var(--hub-canvas-muted);
+  animation: note-selection-demo-slide-in 180ms ease-out;
+}
+
+@keyframes note-selection-demo-slide-in {
+  from {
+    transform: translateY(100%);
+  }
+
+  to {
+    transform: translateY(0);
+  }
+}
+
+.note-selection-demo__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--hub-space-8);
+}
+
+.note-selection-demo__summary {
+  margin-bottom: var(--hub-space-16);
+  font-size: var(--brand-text-size-100);
+}
+
+.note-selection-demo__clear-group {
+  color: var(--hub-fg-muted);
+}
+
+.note-selection-demo__clear {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.note-selection-demo__clear:hover {
+  text-decoration: underline;
+}
+
+.note-selection-demo__clear:focus-visible {
+  outline: 2px solid var(--hub-focus);
+  outline-offset: 2px;
+}
+
+.note-selection-demo__actions {
+  flex-wrap: wrap;
+}
+
+@media (hover: none) {
+  .note-selection-demo__checkbox {
+    opacity: 1;
+  }
+
+  .note-selection-demo__select .hub-user-avatar {
+    visibility: hidden;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .note-selection-demo__footer {
+    animation: none;
+  }
+}

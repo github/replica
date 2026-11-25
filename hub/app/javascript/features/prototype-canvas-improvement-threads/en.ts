@@ -8,6 +8,7 @@ export const copy = {
   back: "Close note",
   copilot: "Copilot",
   markResolved: "Mark as resolved",
+  resolveAll: "Mark all as resolved",
   retry: "Retry",
   returnToActive: "Return to active",
   followUps: (count: number) => `${count} ${count === 1 ? "follow-up" : "follow-ups"}`,
