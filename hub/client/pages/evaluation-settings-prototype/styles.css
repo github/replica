@@ -1,0 +1,99 @@
+.evaluation-settings {
+  display: grid;
+  max-width: 64rem;
+  margin-inline: auto;
+  padding: clamp(1rem, 3vw, 2rem);
+}
+
+.evaluation-settings p {
+  margin: 0;
+}
+
+.evaluation-settings__section {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.evaluation-settings__intro {
+  padding-block-end: 1.5rem;
+  color: var(--hub-fg-muted);
+}
+
+.evaluation-settings__section {
+  padding-block: 1.25rem;
+  border-top: 1px solid var(--hub-border-default);
+}
+
+.evaluation-settings__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* A shared label width lines up the budget input with the switch below it. */
+.evaluation-settings__label {
+  min-width: 12rem;
+  font-weight: 600;
+}
+
+.evaluation-settings__budget-input {
+  width: 7rem;
+}
+
+/* Shrink-wraps the switch so its tooltip points at the switch, not the whole row. */
+.evaluation-settings__switch {
+  display: inline-flex;
+}
+
+/* Pushed to the far edge so usage reads as a summary, apart from the editable limit. */
+.evaluation-settings__usage {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-inline-start: auto;
+}
+
+.evaluation-settings__meter {
+  inline-size: 10rem;
+  block-size: 0.5rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--hub-border-default);
+  appearance: none;
+}
+
+.evaluation-settings__meter::-webkit-meter-bar {
+  block-size: 0.5rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--hub-border-default);
+}
+
+.evaluation-settings__meter::-webkit-meter-optimum-value {
+  border-radius: 999px;
+  background: var(--hub-fg-success);
+}
+
+.evaluation-settings__meter::-moz-meter-bar {
+  border-radius: 999px;
+  background: var(--hub-fg-success);
+}
+
+/* A full budget turns red so admins notice evaluations have paused. */
+.evaluation-settings__meter--full::-webkit-meter-optimum-value {
+  background: var(--hub-fg-danger);
+}
+
+.evaluation-settings__meter--full::-moz-meter-bar {
+  background: var(--hub-fg-danger);
+}
+.evaluation-settings-page {
+  min-height: 100%;
+}
+
+.evaluation-settings__page-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
