@@ -114,7 +114,7 @@ Hub adds a small bridge script while serving HTML. The stored Build files do not
 Hub review controls <-> preview bridge <-> prototype page
 ```
 
-The bridge lets reviewers select an element or region. It also finds saved targets and reports when the page or layout changes. `Shift+C` inside the preview requests a sidebar toggle from Hub without turning on `C` element selection.
+The bridge lets reviewers select an element or region. It also finds saved targets and reports when the page or layout changes. `C` inside the preview requests comment selection, `Shift+C` requests a sidebar toggle, and `O` requests an **Options** toggle. Hub validates each request before acting.
 
 For default and former-default Builds, Hub serves the bridge in read-only mode. Theme and navigation reporting remain available, but review commands and comment keyboard shortcuts are disabled.
 

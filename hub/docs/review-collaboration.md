@@ -93,15 +93,17 @@ reviewer selects an element or region
   -> Hub shows a sidebar row and preview marker
 ```
 
-`C` starts element selection, `H` starts region selection, and `Shift+C` toggles the comments
-sidebar when focus is not in an editable field. Holding Shift when finishing a simple region
-cleans up the drawn line.
+`C` starts comment selection, matching the canvas: click an element, or drag more than eight
+pixels to highlight a region. The header comment menu offers the same single **Add a comment**
+action. `Shift+C` toggles the comments sidebar, and `O` toggles **Options**. These shortcuts
+apply when focus is not in an editable field, menu or dialog. Holding Shift when finishing a
+simple region cleans up the drawn line.
 
 The header shows the total number of conversations beside the add-comment control and marks it
 when any conversation is unread. Its count opens the comments panel, which sits beside the
 preview rather than covering it; on narrow screens it sits below the preview.
 
-Posting an anchored comment or selecting a preview pin opens only that conversation beside its target. Neither action opens or closes the comments panel. Starting element or region selection also keeps the panel's current state. Reviewers can open or close the panel with its count or Shift+C.
+Posting an anchored comment or selecting a preview pin opens only that conversation beside its target. Neither action opens or closes the comments panel. Starting comment selection also keeps the panel's current state. Reviewers can open or close the panel with its count or Shift+C.
 
 Minimizing Hub keeps the same comment controls in a draggable review bar over the full-page preview. The comments panel overlays the preview until it is closed. Reviewers can move the bar with its drag handle or the arrow keys and maximize Hub without leaving the current page or losing a draft.
 

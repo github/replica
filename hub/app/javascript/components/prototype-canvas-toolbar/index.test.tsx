@@ -182,7 +182,7 @@ describe("Toolbar()", () => {
       publicationCopy.registrationReasons.get("branch_not_reviewable")!.description,
     )
   })
-  it("opens controls with a labeled sliders icon button", () => {
+  it("opens Options with a labeled sliders icon button", () => {
     const onControls = vi.fn()
     const controlsButtonRef = createRef<HTMLButtonElement>()
     const view = render(
@@ -196,7 +196,7 @@ describe("Toolbar()", () => {
         />
       </ThemeProvider>,
     )
-    const button = screen.getByRole("button", { name: "Controls" })
+    const button = screen.getByRole("button", { name: "Options" })
     expect(button).toHaveClass("hub-icon-button")
     expect(button).toHaveClass("canvas-controls-toggle")
     expect(button).not.toHaveClass("hub-icon-button--invisible")
@@ -212,11 +212,8 @@ describe("Toolbar()", () => {
         <Toolbar {...props} state={null} onControls={onControls} controlsOpen />
       </ThemeProvider>,
     )
-    expect(screen.getByRole("button", { name: "Controls" })).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    )
-    expect(screen.getByRole("button", { name: "Controls" })).not.toHaveClass(
+    expect(screen.getByRole("button", { name: "Options" })).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByRole("button", { name: "Options" })).not.toHaveClass(
       "hub-icon-button--invisible",
     )
   })

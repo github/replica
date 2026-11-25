@@ -42,13 +42,9 @@ function InteractiveToolbar(props: MinimizedReviewToolbarProps) {
                     setSelecting(false)
                     setSelection("")
                   },
-                  onStartElementSelection: () => {
+                  onStartSelection: () => {
                     setSelecting(true)
-                    setSelection(reviewCommentsCopy.commentOnElementLabel)
-                  },
-                  onStartAreaSelection: () => {
-                    setSelecting(true)
-                    setSelection(reviewCommentsCopy.highlightRegionLabel)
+                    setSelection(reviewCommentsCopy.commentMenuLabel)
                   },
                   onToggleSidebar: () => setSidebarOpen(!sidebarOpen),
                 }
@@ -78,8 +74,7 @@ const meta = {
       sidebarToggleBlocked: false,
       sidebarOpen: false,
       onCancelSelection: noop,
-      onStartAreaSelection: noop,
-      onStartElementSelection: noop,
+      onStartSelection: noop,
       onToggleSidebar: noop,
     },
   },

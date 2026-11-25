@@ -1,3 +1,4 @@
 export const PREVIEW_BRIDGE_PROTOCOL_VERSION = 1
 export const PREVIEW_BRIDGE_REQUEST_ID_MAXIMUM_BYTES = 128
 export const PREVIEW_BRIDGE_ANCHORS_PER_MESSAGE = 200
+export const OPTIONS_TOGGLE_EVENT = "replica:options-toggle"

@@ -134,12 +134,8 @@ export function usePrototypeReview({
         }).point
     : null
 
-  function startElementSelection() {
-    bridge.startElementSelection()
-  }
-
-  function startAreaSelection() {
-    bridge.startAreaSelection()
+  function startSelection() {
+    bridge.startSelection()
   }
 
   function selectThread(thread: ReviewThread) {
@@ -188,8 +184,7 @@ export function usePrototypeReview({
     toggleSidebar,
     showPins,
     sidebarOpen,
-    startAreaSelection,
-    startElementSelection,
+    startSelection,
     threads,
     visibleThreads,
   }

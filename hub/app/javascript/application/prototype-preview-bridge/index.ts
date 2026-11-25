@@ -42,6 +42,9 @@ const BRIDGE_ATTRIBUTE = "data-replica-canvas-bridge"
 const TEXT_ENCODER = new TextEncoder()
 let parentOrigin: string | null = null
 let selectionShortcutNonce: string | null = null
+let commentShortcutNonce: string | null = null
+let pinsShortcutNonce: string | null = null
+let optionsShortcutNonce: string | null = null
 let cleanupActiveSelection: (() => void) | null = null
 let selectedOverlay: HTMLElement | null = null
 let selectedOverlayTarget: Element | null = null
@@ -745,6 +748,15 @@ function receiveCanvasMessage(event: MessageEvent<unknown>) {
     if (data.selectionShortcut === true) selectionShortcutNonce = data.nonce
     else if (data.selectionShortcut === false && selectionShortcutNonce === data.nonce)
       selectionShortcutNonce = null
+    if (data.commentShortcut === true) commentShortcutNonce = data.nonce
+    else if (data.commentShortcut === false && commentShortcutNonce === data.nonce)
+      commentShortcutNonce = null
+    if (data.pinsShortcut === true) pinsShortcutNonce = data.nonce
+    else if (data.pinsShortcut === false && pinsShortcutNonce === data.nonce)
+      pinsShortcutNonce = null
+    if (data.optionsShortcut === true) optionsShortcutNonce = data.nonce
+    else if (data.optionsShortcut === false && optionsShortcutNonce === data.nonce)
+      optionsShortcutNonce = null
     post(event.origin, {
       type: "replica:canvas:ready",
       protocolVersion: 1,
@@ -827,7 +839,8 @@ function receiveCanvasMessage(event: MessageEvent<unknown>) {
   if (data.type === "replica:canvas:select") {
     if (data.mode === "element") startElementSelection(event.origin, data.nonce)
     else if (data.mode === "area") startAreaSelection(event.origin, data.nonce)
-    else if (data.mode === "improvement") startAreaSelection(event.origin, data.nonce, true)
+    else if (data.mode === "improvement" || data.mode === "comment")
+      startAreaSelection(event.origin, data.nonce, true)
     return
   }
 
@@ -876,6 +889,9 @@ export function installBridge(origin: string) {
   selectionAccent = "light-dark(#0969da, #58a6ff)"
   parentOrigin = origin
   selectionShortcutNonce = null
+  commentShortcutNonce = null
+  pinsShortcutNonce = null
+  optionsShortcutNonce = null
   resolvedRequest = null
   resolvedRoute = ""
   resolvedGeometry.clear()
@@ -948,6 +964,30 @@ export function installBridge(origin: string) {
     })
   }
   function handleSelectionShortcut(event: KeyboardEvent) {
+    if (optionsShortcutNonce && isAnnotationShortcut(event, "o")) {
+      event.preventDefault()
+      post(origin, {
+        type: "replica:canvas:options-shortcut",
+        nonce: optionsShortcutNonce,
+      })
+      return
+    }
+    if (pinsShortcutNonce && isAnnotationShortcut(event, "c", true)) {
+      event.preventDefault()
+      post(origin, {
+        type: "replica:canvas:comment-visibility-toggle-requested",
+        nonce: pinsShortcutNonce,
+      })
+      return
+    }
+    if (commentShortcutNonce && isAnnotationShortcut(event, "c")) {
+      event.preventDefault()
+      post(origin, {
+        type: "replica:canvas:comment-cycle-requested",
+        nonce: commentShortcutNonce,
+      })
+      return
+    }
     if (!selectionShortcutNonce || !isAnnotationShortcut(event)) return
     event.preventDefault()
     post(origin, {
@@ -989,6 +1029,9 @@ export function installBridge(origin: string) {
     window.removeEventListener("keydown", handleSelectionShortcut)
     window.removeEventListener("pointerdown", handlePointerDown, true)
     selectionShortcutNonce = null
+    commentShortcutNonce = null
+    pinsShortcutNonce = null
+    optionsShortcutNonce = null
     mutations.disconnect()
     resize?.disconnect()
     if (geometryFrame !== null) window.cancelAnimationFrame(geometryFrame)

@@ -190,7 +190,7 @@ export class ControlsConnection {
           loading: false,
           error:
             this.surface === "build"
-              ? "Build Controls did not connect. Reload the preview or check its definitions."
+              ? "Build Options did not connect. Reload the preview or check its definitions."
               : copy.controlsLocalConnectionFailed,
         })
     }, 6000)
@@ -208,7 +208,7 @@ export class ControlsConnection {
           this.resetForIdentity = true
           this.publish({
             notice:
-              "The checkout identity changed. Controls will use this branch's saved values or defaults.",
+              "The checkout identity changed. Options will use this branch's saved values or defaults.",
           })
         }
         this.retryState = undefined
@@ -300,7 +300,7 @@ export class ControlsConnection {
             this.publish({
               loading: false,
               storageError:
-                error instanceof Error ? error.message : "Controls history could not be restored.",
+                error instanceof Error ? error.message : "Options history could not be restored.",
             })
           })
         return
@@ -326,7 +326,7 @@ export class ControlsConnection {
           if (this.epoch !== epoch || this.stopped || requests.signal.aborted) return
           this.publish({
             storageError:
-              error instanceof Error ? error.message : "Controls history could not be restored.",
+              error instanceof Error ? error.message : "Options history could not be restored.",
           })
         })
       }
@@ -466,7 +466,7 @@ export class ControlsConnection {
               notice:
                 this.surface === "build"
                   ? "Some URL control settings no longer match this page. Defaults were used."
-                  : "Some saved controls no longer match this declaration and were discarded.",
+                  : "Some saved options no longer match this declaration and were discarded.",
             })
         } catch (error) {
           if (this.epoch !== epoch || this.stopped) return
@@ -474,7 +474,7 @@ export class ControlsConnection {
           if (!this.hasBindingError(key))
             this.publish({
               error:
-                error instanceof Error ? error.message : "Saved controls could not be restored.",
+                error instanceof Error ? error.message : "Saved options could not be restored.",
             })
           // A racing app update leaves the panel usable; saved values are never replayed individually.
           this.restored.add(fingerprint)
@@ -533,7 +533,7 @@ export class ControlsConnection {
               storageError:
                 this.surface === "build" && error instanceof Error
                   ? `${error.message} Changes remain in memory and are not in the URL.`
-                  : "Controls could not be saved. Changes remain in memory; use Retry to reconnect storage.",
+                  : "Options could not be saved. Changes remain in memory; use Retry to reconnect storage.",
             })
         }
       })
@@ -548,7 +548,7 @@ export class ControlsConnection {
     const epoch = this.epoch
     const scope = this.state.scopes.find((entry) => entry.declaration.scope === scopeId)
     if (!scope) {
-      this.publish({ error: "This controls scope is no longer active." })
+      this.publish({ error: "This options scope is no longer active." })
       return
     }
     const apply = () => this.applyCommand(operation, scopeId, scope.fingerprint, epoch, id, value)
@@ -569,14 +569,14 @@ export class ControlsConnection {
     const scope = this.state.scopes.find((entry) => entry.declaration.scope === scopeId)
     if (!scope || scope.fingerprint !== fingerprint) {
       this.publish({
-        error: "The controls scope or declaration changed. The command was not applied.",
+        error: "The options scope or declaration changed. The command was not applied.",
       })
       return
     }
     this.publish({ error: "" })
     try {
       if (this.state.reconnectRequired)
-        throw new Error("Reconnect controls before sending more commands.")
+        throw new Error("Reconnect options before sending more commands.")
       if (operation === "update" || operation === "action") {
         const control = scope.declaration.controls.find((entry) => entry.id === id)
         if (!control || !scope.snapshot.visible[control.id])
@@ -606,7 +606,7 @@ export class ControlsConnection {
         }
     } catch (error) {
       if (!this.stopped && this.epoch === epoch && !this.hasBindingError(scopeId, id))
-        this.publish({ error: error instanceof Error ? error.message : "Controls command failed." })
+        this.publish({ error: error instanceof Error ? error.message : "Options command failed." })
     }
   }
   async resetAll() {
@@ -655,7 +655,7 @@ export class ControlsConnection {
         error: this.hasBindingError() ? "" : runtimeError,
         notice: runtimeAvailable
           ? ""
-          : "Saved controls were cleared. Runtime defaults could not be restored until the preview reconnects.",
+          : "Saved options were cleared. Runtime defaults could not be restored until the preview reconnects.",
       })
     } catch (error) {
       if (this.epoch === epoch)

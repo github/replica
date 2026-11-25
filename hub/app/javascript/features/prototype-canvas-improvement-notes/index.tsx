@@ -12,6 +12,7 @@ import {
 import { createPortal } from "react-dom"
 
 import { HubCounter } from "@components/hub-counter"
+import { ShortcutTooltip } from "@components/shortcut-tooltip"
 import { CanvasDialog } from "@components/prototype-canvas-dialog"
 import { ImprovementThreads } from "@features/prototype-canvas-improvement-threads"
 import { useReviewError } from "@hooks/use-review-error"
@@ -228,23 +229,29 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
       {canvas.toolbarTarget &&
         createPortal(
           <div role="group" aria-label={copy.title} className="improvement-demo__split">
-            <Button
+            <ShortcutTooltip
               ref={annotateRef}
-              size="small"
-              variant="secondary"
-              className="canvas-toolbar-compact-button"
-              title={copy.annotateShortcut}
-              aria-keyshortcuts="S"
-              leadingVisual={<CrosshairsIcon />}
-              aria-pressed={annotating}
-              disabled={canvas.selectionDisabled || !preview.ready || !saved.state}
-              onClick={() => {
-                if (annotating) cancelPreviewSelection()
-                else void beginSelection()
-              }}
+              text={copy.annotateShortcut}
+              shortcut="S"
+              type="description"
             >
-              <span className="canvas-toolbar-button-label">{copy.annotate}</span>
-            </Button>
+              <Button
+                ref={annotateRef}
+                size="small"
+                variant="secondary"
+                className="canvas-toolbar-compact-button"
+                aria-keyshortcuts="S"
+                leadingVisual={<CrosshairsIcon />}
+                aria-pressed={annotating}
+                disabled={canvas.selectionDisabled || !preview.ready || !saved.state}
+                onClick={() => {
+                  if (annotating) cancelPreviewSelection()
+                  else void beginSelection()
+                }}
+              >
+                <span className="canvas-toolbar-button-label">{copy.annotate}</span>
+              </Button>
+            </ShortcutTooltip>
             <Button
               ref={notesToggleRef}
               size="small"

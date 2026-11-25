@@ -1,12 +1,15 @@
 import { SlidersIcon } from "@primer/octicons-react"
-import { useEffect, useRef, useState, type RefObject } from "react"
+import { useEffect, useEffectEvent, useRef, useState, type RefObject } from "react"
 import { createPortal } from "react-dom"
 
 import { HubIconButton } from "@components/hub-icon-button"
+import { ShortcutTooltip } from "@components/shortcut-tooltip"
 
 import { ControlsConnection, type PanelState } from "@utils/prototype-controls-connection"
 import { ControlsPanel } from "@components/prototype-controls-panel"
 import type { ControlsPanelLayout } from "@components/prototype-controls-panel/types"
+import { isAnnotationShortcut } from "@utils/is-annotation-shortcut"
+import { OPTIONS_TOGGLE_EVENT } from "@utils/preview-bridge/constants"
 import { copy } from "@utils/prototype-canvas/en"
 import { urlControlsStorage } from "@utils/prototype-controls-url/storage"
 
@@ -53,18 +56,41 @@ export function BuildControls({
       connection.stop()
     }
   }, [iframeRef, identity, origin, frameVersion])
+  const toggleFromShortcut = useEffectEvent(() => {
+    if (hidden || document.querySelector('[role="dialog"], dialog[open], [role="menu"]'))
+      return false
+    setOpen(!open)
+    return true
+  })
+  useEffect(() => {
+    function keydown(event: KeyboardEvent) {
+      if (isAnnotationShortcut(event, "o") && toggleFromShortcut()) event.preventDefault()
+    }
+    function requested() {
+      toggleFromShortcut()
+    }
+    window.addEventListener("keydown", keydown)
+    window.addEventListener(OPTIONS_TOGGLE_EVENT, requested)
+    return () => {
+      window.removeEventListener("keydown", keydown)
+      window.removeEventListener(OPTIONS_TOGGLE_EVENT, requested)
+    }
+  }, [])
   const toggle = (
-    <HubIconButton
-      icon={SlidersIcon}
-      aria-label={copy.controls}
-      description={copy.controls}
-      aria-expanded={open}
-      ref={button}
-      onClick={() => {
-        if (open) button.current?.focus()
-        setOpen(!open)
-      }}
-    />
+    <ShortcutTooltip ref={button} text={copy.controls} shortcut="O" type="description">
+      <HubIconButton
+        icon={SlidersIcon}
+        aria-label={copy.controls}
+        title=""
+        aria-keyshortcuts="O"
+        aria-expanded={open}
+        ref={button}
+        onClick={() => {
+          if (open) button.current?.focus()
+          setOpen(!open)
+        }}
+      />
+    </ShortcutTooltip>
   )
   return (
     <>

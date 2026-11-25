@@ -6,7 +6,7 @@ Use the app's README for its run commands, framework and examples. Follow [agent
 
 Open the actual running prototype URL in the Replica canvas. Its installed extension connects ordinary Vite dev/preview and static HTML servers through a separate local preview origin. Multiple previews get independent proxies; closing one does not stop any prototype server or another preview.
 
-Controls use public JSON definitions. The Copilot plugin supplies local integration, while Hub supplies retained Build integration and authorization.
+Options use public JSON definitions. The Copilot plugin supplies local integration, while Hub supplies retained Build integration and authorization.
 
 The preview's browser origin differs from the original address. Original-origin storage is not copied, and origin-dependent apps may need additional support. Only unauthenticated loopback previews are supported; restrictive script/framing policies and invalid HTTPS certificates remain blockers. See [Canvas commenting setup](SETUP.md#canvas-commenting) for connection and readiness checks.
 
@@ -83,13 +83,13 @@ The proposal skill changes only reusable repository guidance. It does not fix pr
 
 ## Prototype controls
 
-Use `/prototype-controls`, or describe the variation: "add controls to switch between empty and populated scenarios", "add a slider for the item count", or "add a dropdown to switch seed data". The skill creates controls in Replica's panel and wires them to the prototype's rendering, state or authorized data sources. Product UI fields and filters are separate from prototype configuration.
+The panel is named **Options**. Ask the AI for either "options" or "controls", or use `/prototype-controls`: "add options to switch between empty and populated scenarios", "add a slider for the item count", or "add a dropdown to switch seed data". The skill creates options in Replica's panel and wires them to the prototype's rendering, state or authorized data sources. Product UI fields and filters are separate from prototype configuration. Press **O** in the canvas or preview to toggle Options when not typing or using a menu, dialog or active selection.
 
 Put version-1 definitions in `public/controls.replica.json`. Each control binds ordinary app behavior: a native field/button, CSS property, query/hash setting or optional app-owned API. The Copilot plugin and Hub inject one shared adapter. See the [authoring reference](.agents/skills/prototype-controls/references/authoring.md).
 
 Canvas and Hub store ordinary overrides in the prototype URL as `rc.<scope>.<controlId>`. Absent overrides use JSON defaults. Edits preserve history state without reload or extra history entries. Back/Forward restores settings; reset-all removes overrides and resets inactive sets too. Hidden conditional values return to defaults; ordinary page unmount and return preserves values. Existing private Controls value files remain untouched.
 
-Reload the preview page after definition edits. A missing document means no Controls; invalid definitions show a local error without breaking the ordinary app. Each retained Build includes its own definitions, and publication validates that asset. Build screenshots apply the same injected defaults before capture. Standalone hosting keeps the prototype's own defaults and ordinary interactions.
+Reload the preview page after definition edits. A missing document means no options; invalid definitions show a local error without breaking the ordinary app. Each retained Build includes its own definitions, and publication validates that asset. Build screenshots apply the same injected defaults before capture. Standalone hosting keeps the prototype's own defaults and ordinary interactions.
 
 ## Browser validation
 

@@ -218,8 +218,6 @@ en:
         heading: Comments
         close: Close comments
         comment_menu: Add a comment
-        comment_on_element: Comment on element
-        highlight_region: Highlight a region
         cancel_selection: Cancel selection
         bridge_unavailable: Adding comments needs the review bridge, which this preview has not loaded.
         selection_blocked: Close or submit the open draft before adding another comment.

@@ -1,0 +1,19 @@
+.hub-shortcut-tooltip[popover][role="tooltip"] {
+  max-width: min(24rem, calc(100vw - 2rem));
+  white-space: nowrap;
+}
+
+.hub-shortcut-tooltip::before {
+  content: attr(data-shortcut);
+  display: inline-block;
+  float: inline-end;
+  margin-inline-start: 0.75em;
+  padding: 0 0.35em;
+  border: 1px solid transparent;
+  border-radius: 0.25em;
+  background-color: color-mix(in srgb, currentColor 14%, transparent);
+  font-family: var(--brand-fontStack-monospace);
+  font-size: calc(1em - 1px);
+  line-height: 1.4;
+  text-align: center;
+}

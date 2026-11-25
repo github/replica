@@ -23,8 +23,8 @@ describe("Movable controls example", () => {
         <meta.component />
       </ThemeProvider>,
     )
-    const panel = screen.getByRole("complementary", { name: "Controls" })
-    fireEvent.click(within(panel).getByRole("button", { name: "Reset all controls" }))
+    const panel = screen.getByRole("complementary", { name: "Options" })
+    fireEvent.click(within(panel).getByRole("button", { name: "Reset all options" }))
     expect(within(panel).queryByText("floatingPanelStory")).not.toBeInTheDocument()
     const details = within(panel).getByRole("group", { name: "Details" })
     const appearance = within(panel).getByRole("group", { name: "Appearance" })

@@ -21,7 +21,7 @@ describe("AllControlsExample()", () => {
         <AllControlsExample />
       </ThemeProvider>,
     )
-    const panel = within(screen.getByRole("complementary", { name: "Controls" }))
+    const panel = within(screen.getByRole("complementary", { name: "Options" }))
     const action = panel.getByRole("button", { name: "Shuffle notes" })
     const actionRules = [...fieldStyles.matchAll(/([^{}]+)\{([^{}]+)\}/g)].filter(
       ([, selector, body]) =>
@@ -47,11 +47,11 @@ describe("AllControlsExample()", () => {
     )
     expect(colors[2]).not.toMatch(/hover|active|disabled|focus|outline/)
     for (const element of [
-      panel.getByRole("button", { name: "Reset all controls" }),
-      panel.getByRole("button", { name: "Collapse controls" }),
+      panel.getByRole("button", { name: "Reset all options" }),
+      panel.getByRole("button", { name: "Collapse options" }),
       panel.getByRole("button", { name: "Collapse Content" }),
-      panel.getByRole("button", { name: "Move controls" }),
-      screen.getByRole("button", { name: "Controls" }),
+      panel.getByRole("button", { name: "Move options" }),
+      screen.getByRole("button", { name: "Options" }),
       screen.getByRole("button", { name: "Shuffle from the page" }),
       panel.getByRole("combobox", { name: "Layout" }),
     ]) {
@@ -95,7 +95,7 @@ describe("AllControlsExample()", () => {
         <AllControlsExample />
       </ThemeProvider>,
     )
-    const panel = within(screen.getByRole("complementary", { name: "Controls" }))
+    const panel = within(screen.getByRole("complementary", { name: "Options" }))
     const segments = panel.getByRole("radio", { name: "Comfortable" }).closest(".controls-segments")
     if (!segments) throw new Error("The density choices need a segmented control surface.")
     const segmentedRule = [...fieldStyles.matchAll(/([^{}]+)\{([^{}]+)\}/g)].find(
@@ -139,15 +139,15 @@ describe("AllControlsExample()", () => {
       panel.getByRole("radio", { name: "Comfortable" }),
       panel.getByRole("slider", { name: "Card opacity" }),
       panel.getByRole("button", { name: "Collapse Content" }),
-      panel.getByRole("button", { name: "Collapse controls" }),
-      panel.getByRole("button", { name: "Move controls" }),
-      panel.getByRole("button", { name: "Reset all controls" }),
-      screen.getByRole("button", { name: "Controls" }),
+      panel.getByRole("button", { name: "Collapse options" }),
+      panel.getByRole("button", { name: "Move options" }),
+      panel.getByRole("button", { name: "Reset all options" }),
+      screen.getByRole("button", { name: "Options" }),
       screen.getByRole("button", { name: "Shuffle from the page" }),
     ]) {
       expect(shadowRules.some(({ selector }) => element.matches(selector))).toBe(false)
     }
-    expect(panel.getByRole("button", { name: "Reset all controls" })).toHaveClass(
+    expect(panel.getByRole("button", { name: "Reset all options" })).toHaveClass(
       "controls-ghost-button",
     )
     expect(tokenStyles).toContain(
@@ -163,9 +163,9 @@ describe("AllControlsExample()", () => {
         <AllControlsExample />
       </ThemeProvider>,
     )
-    let panel = within(screen.getByRole("complementary", { name: "Controls" }))
+    let panel = within(screen.getByRole("complementary", { name: "Options" }))
     const page = within(screen.getByRole("region", { name: "Live example page" }))
-    fireEvent.click(panel.getByRole("button", { name: "Reset all controls" }))
+    fireEvent.click(panel.getByRole("button", { name: "Reset all options" }))
     expect(page.getAllByRole("article")).toHaveLength(3)
     const contentGroup = panel.getByRole("group", { name: "Content" })
     for (const name of ["Title", "Description"]) {
@@ -239,17 +239,17 @@ describe("AllControlsExample()", () => {
     expect(panel.getByRole("textbox", { name: "Title" })).toBeVisible()
     expect(panel.getByRole("textbox", { name: "Description" })).toBeVisible()
     expect(panel.getByRole("spinbutton", { name: "Item count", hidden: true })).not.toBeVisible()
-    fireEvent.click(panel.getByRole("button", { name: "Collapse controls" }))
-    fireEvent.click(screen.getByRole("button", { name: "Controls" }))
-    expect(screen.queryByRole("complementary", { name: "Controls" })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole("button", { name: "Controls" }))
-    panel = within(screen.getByRole("complementary", { name: "Controls" }))
-    fireEvent.click(panel.getByRole("button", { name: "Expand controls" }))
+    fireEvent.click(panel.getByRole("button", { name: "Collapse options" }))
+    fireEvent.click(screen.getByRole("button", { name: "Options" }))
+    expect(screen.queryByRole("complementary", { name: "Options" })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Options" }))
+    panel = within(screen.getByRole("complementary", { name: "Options" }))
+    fireEvent.click(panel.getByRole("button", { name: "Expand options" }))
     expect(panel.getByLabelText("Title")).toBeVisible()
     expect(panel.getByLabelText("Item count")).not.toBeVisible()
     expect(page.getByRole("heading", { name: "My notes" })).toBeInTheDocument()
     fireEvent.click(panel.getByRole("button", { name: "Expand Content" }))
-    fireEvent.click(panel.getByRole("button", { name: "Reset all controls" }))
+    fireEvent.click(panel.getByRole("button", { name: "Reset all options" }))
     await waitFor(() => {
       expect(page.getByRole("heading", { name: "Field notes" })).toBeInTheDocument()
       expect(page.getAllByRole("article")).toHaveLength(3)

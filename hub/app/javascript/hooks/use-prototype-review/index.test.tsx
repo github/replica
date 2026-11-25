@@ -120,7 +120,7 @@ describe("usePrototypeReview()", () => {
     async (sidebarOpen) => {
       const { result, commands, receive, fetchMock } = await openReview()
       if (sidebarOpen) act(() => result.current.toggleSidebar())
-      act(() => result.current.startElementSelection())
+      act(() => result.current.startSelection())
       const selection = commands.findLast(
         (command) => command.type === "replica:bridge:select-element",
       )!
@@ -173,11 +173,11 @@ describe("usePrototypeReview()", () => {
         ...result.current.threads[0]!,
         root: createdComment,
       })
-      result.current.startAreaSelection()
+      result.current.startSelection()
     })
     expect(result.current.sidebarOpen).toBe(false)
     expect(result.current.selectedThreadId).toBe(octocatRootComment.id)
-    expect(commands.some((command) => command.type === "replica:bridge:select-area")).toBe(false)
+    expect(commands.some((command) => command.type === "replica:bridge:select-element")).toBe(false)
 
     act(() => result.current.setConversationDraftActive(false))
     act(() => result.current.toggleSidebar())

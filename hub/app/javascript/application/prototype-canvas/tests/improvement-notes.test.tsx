@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import type { AnnotationShortcutModule } from "@/test/as-trusted-keyboard-event"
+import type * as AnnotationShortcut from "@utils/is-annotation-shortcut"
 import { copy } from "@features/prototype-canvas-improvement-notes/en"
 import { copy as threadCopy } from "@features/prototype-canvas-improvement-threads/en"
 import { sharingFixture } from "./sharing-fixture"
@@ -11,12 +11,12 @@ import { REVIEW_ANCHOR_SCHEMA } from "@utils/review-anchor/schemas"
 import { ImprovementNotesPrototype } from "@features/prototype-canvas-improvement-notes"
 
 vi.mock("@utils/is-annotation-shortcut", async (importOriginal) => {
-  const actual = await importOriginal<AnnotationShortcutModule>()
+  const actual = await importOriginal<typeof AnnotationShortcut>()
   const { asTrustedKeyboardEvent } = await import("@/test/as-trusted-keyboard-event")
   return {
     ...actual,
-    isAnnotationShortcut(event: KeyboardEvent) {
-      return actual.isAnnotationShortcut(asTrustedKeyboardEvent(event))
+    isAnnotationShortcut(event: KeyboardEvent, shortcut?: "s" | "c") {
+      return actual.isAnnotationShortcut(asTrustedKeyboardEvent(event), shortcut)
     },
   }
 })
@@ -156,7 +156,10 @@ describe("App()", () => {
       <App config={{ name: "Demo", prototypeUrl: origin, token: "local", pickAndPolish: true }} />,
     )
     const picker = await screen.findByRole("button", { name: copy.annotate })
-    expect(picker).toHaveAttribute("title", copy.annotateShortcut)
+    expect(picker).not.toHaveAttribute("title")
+    const pickerTooltip = screen.getByText(copy.annotateShortcut)
+    expect(pickerTooltip).toHaveAttribute("role", "tooltip")
+    expect(pickerTooltip).toHaveAttribute("data-shortcut", "S")
     const frame = screen.getByTitle("Demo prototype")
     if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
     function captures() {

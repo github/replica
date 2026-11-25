@@ -50,6 +50,7 @@ const ASSET_PATHS = new Map([
     "renderer.js",
     "renderer-vendor.js",
     "renderer-rolldown-runtime.js",
+    "renderer-styles.js",
     "renderer-improvement-notes-prototype.js",
     "renderer-improvement-notes-vendor.js",
     "renderer-prototype-canvas-thread-sample.js",

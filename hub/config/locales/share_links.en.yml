@@ -13,8 +13,8 @@ en:
       heading: Share links
       description: Anyone with a link can view its Build without signing in, but cannot view or add comments. To collect comments, share the Hub prototype link with people who have repository access.
       controls:
-        label: Include control settings
-        description: Include settings from all pages. Each page only uses its own controls.
+        label: Include option settings
+        description: Include settings from all pages. Each page only uses its own options.
       build: "Build %{number}"
       form:
         label: Label

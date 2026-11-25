@@ -16,8 +16,7 @@ const props: PrototypeReviewControlsProps = {
   sidebarToggleBlocked: false,
   sidebarOpen: true,
   onCancelSelection: vi.fn(),
-  onStartAreaSelection: vi.fn(),
-  onStartElementSelection: vi.fn(),
+  onStartSelection: vi.fn(),
   onToggleSidebar: vi.fn(),
 }
 
